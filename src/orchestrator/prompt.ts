@@ -49,6 +49,107 @@ interface BuildOpts {
    *  without us paying the token cost of replaying them. Empty for
    *  young rooms where everything still fits in L0. */
   summaryPreamble?: string;
+  /** Optional · pre-formatted prior-context block when this room is a
+   *  follow-up to a prior adjourned room. Built by the orchestrator
+   *  from the parent's brief markdown + persisted Stage-1 signals
+   *  (see `buildFollowUpPriorContext`). Empty / undefined for
+   *  standalone rooms. */
+  priorContext?: string;
+}
+
+/** Format the parent room's brief + Stage-1 signals into the
+ *  "─── CONTINUING FROM ROOM #N ───" block dropped into a follow-up
+ *  director's system prompt. Pure function — no DB access — so prompt
+ *  assembly stays decoupled from storage. The caller fetches parent
+ *  data and hands the strings in.
+ *
+ *  Render shape:
+ *
+ *    ─── CONTINUING FROM ROOM #N ───
+ *    {one-paragraph framing · this room is a follow-up, build on
+ *     not restate, name contradictions}
+ *
+ *    ## {prior brief title}
+ *    {prior brief markdown · verbatim}
+ *
+ *    ─── PRIOR DIRECTOR SIGNALS ───
+ *    [{Director · lens}] "{signal text}"
+ *    ...
+ *
+ *    ─── END OF PRIOR CONTEXT · NEW QUESTION BELOW ───
+ */
+export interface PriorContextOpts {
+  parentRoomNumber: number;
+  parentRoomSubject: string;
+  parentBrief: { title: string; bodyMd: string } | null;
+  parentSignals:
+    | { directorName: string; signals: { text: string; lens: string }[] }[]
+    | null;
+  language: "zh" | "en";
+}
+
+export function buildFollowUpPriorContext(opts: PriorContextOpts): string {
+  const { parentRoomNumber, parentRoomSubject, parentBrief, parentSignals, language } = opts;
+  const isZh = language === "zh";
+
+  const parts: string[] = [
+    "",
+    isZh
+      ? `─── 上一场延续 · Room #${parentRoomNumber} ───`
+      : `─── CONTINUING FROM ROOM #${parentRoomNumber} ───`,
+    "",
+    isZh
+      ? `本房间是上一场会议的延续。上一场的主题是：「${parentRoomSubject}」。`
+      : `This room is a follow-up to a prior session. The prior subject was: "${parentRoomSubject}".`,
+    isZh
+      ? `下方是上一场已经成型的判断 —— 把它当作"已落定的共识"，**不要重述**，直接在它之上推进。新问题如果与这份判断冲突，**显式指出冲突**，不要绕开。`
+      : `Below is the prior session's *settled judgement* — treat it as established context. **Do not restate it**; build on it. If the new question contradicts a prior finding, **name the contradiction explicitly** rather than working around it.`,
+    "",
+  ];
+
+  if (parentBrief) {
+    parts.push(`## ${parentBrief.title}`);
+    parts.push("");
+    parts.push(parentBrief.bodyMd.trim());
+    parts.push("");
+  } else {
+    parts.push(
+      isZh
+        ? `（上一场没有归档报告 —— 仅有下方的关键观察可供参考。）`
+        : `(no brief was filed in the prior session — rely on the per-director signals below.)`,
+    );
+    parts.push("");
+  }
+
+  const usableSignals = (parentSignals ?? []).filter((d) => d.signals.length > 0);
+  if (usableSignals.length > 0) {
+    parts.push(
+      isZh
+        ? `─── 上一场各 director 的关键观察 ───`
+        : `─── PRIOR DIRECTOR SIGNALS ───`,
+    );
+    parts.push(
+      isZh
+        ? `下方是上一场每位 director 自己提炼的 load-bearing 观察，按 lens 标注。引用上一场判断时**按归属引用**（"上一场 Socrates 用 definitional lens 提出 X，因此 ..."）—— 这是 follow-up 房间区别于普通新房间的关键纪律。`
+        : `Each director's load-bearing observations from the prior session, lens-tagged. Reference by **attribution** when leaning on a prior point ("Socrates via definitional lens flagged X — so ...") — this is the discipline that makes a follow-up feel like a continuation rather than a re-open.`,
+    );
+    parts.push("");
+    for (const d of usableSignals) {
+      for (const s of d.signals) {
+        parts.push(`  [${d.directorName} · ${s.lens}] "${s.text}"`);
+      }
+    }
+    parts.push("");
+  }
+
+  parts.push(
+    isZh
+      ? `─── 上一场上下文结束 · 新问题与对话在下方 ───`
+      : `─── END OF PRIOR CONTEXT · NEW QUESTION + DIALOGUE BELOW ───`,
+    "",
+  );
+
+  return parts.join("\n");
 }
 
 /** Format the speaker's long-term memory pool as a labelled block for
@@ -159,7 +260,7 @@ const INTENSITY_GUIDANCE: Record<string, string> = {
 };
 
 export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
-  const { speaker, cast, room, prefs, history, keyPoints, activeSkills, sharedMaterials, chairBrief, summaryPreamble } = opts;
+  const { speaker, cast, room, prefs, history, keyPoints, activeSkills, sharedMaterials, chairBrief, summaryPreamble, priorContext } = opts;
   const activeSkillsBlock = renderActiveSkillsBlock(activeSkills ?? []);
 
   // Chair's brief · the haiku next-speaker picker may have selected this
@@ -254,6 +355,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       youSection,
       ...(memoryBlock ? [memoryBlock] : []),
       ...interestLines,
+      ...(priorContext && priorContext.trim() ? [priorContext] : []),
       `─── TONE · ${tone.toUpperCase()} ───`,
       toneLine,
       ``,

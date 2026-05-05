@@ -2550,6 +2550,262 @@
     pointer-events: none;
   }
 
+  /* ─── Follow-up overlay · widens the supplement modal slightly so
+     the multi-field form (subject + cast + tone/intensity) breathes,
+     and adds shape for the parent reference card + form fields.
+     Inherits supplement-overlay's classification / head / footer
+     chrome — only the inside form differs. */
+  .supplement-modal.followup-modal {
+    max-width: 640px;
+  }
+  .followup-parent-card {
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright);
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    font-family: var(--mono);
+  }
+  .followup-parent-subject {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+  .followup-parent-meta {
+    font-size: 10px;
+    color: var(--text-soft);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  /* Context note · explains to the user that this room's content
+     will be packaged as the follow-up's prior context. Sits inside
+     the parent reference card with a hairline separator above it
+     so it reads as a footnote on the card, not a separate block. */
+  .followup-parent-note {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 0.5px dashed var(--line-bright);
+    font-family: var(--font-human);
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-soft);
+    letter-spacing: -0.003em;
+    text-transform: none;
+  }
+  .followup-field {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 14px;
+  }
+  .followup-field-label {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    margin-bottom: 6px;
+  }
+  .followup-field-hint {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  /* Cast / tone / intensity row · cast button + tune dropdowns on
+     ONE line, mirroring the new-room composer's toolbar layout
+     (cast left, separator, tune dropdowns) but in a form-row
+     register. The wrapper is `.cmp-tune` so the inline-flex + gap +
+     wrap behaviour is inherited as-is. */
+  .followup-cast-row {
+    align-items: stretch;
+  }
+  .followup-cast-btn {
+    /* Hairline visible at rest in the overlay (vs the toolbar
+       variant which is borderless until hover). Makes the picker
+       obviously interactive in the form context. */
+    border-color: var(--line-bright);
+  }
+  .followup-cast-btn[disabled] {
+    cursor: not-allowed;
+    opacity: 0.7;
+    border-style: dashed;
+  }
+  .followup-cast-btn[data-cast-mode="same-as-last"] {
+    border-color: var(--lime-dim);
+    background: var(--panel-2);
+  }
+  /* Visual separator between cast button and the tune group ·
+     mirrors `.cmp-toolbar-sep` from the inline composer toolbar. */
+  .followup-cast-row-sep {
+    display: inline-block;
+    width: 0.5px;
+    align-self: stretch;
+    background: var(--line-bright);
+    margin: 0 4px;
+  }
+
+  /* "Same cast as last session" checkbox · sits below the cast
+     button. Native checkbox restyled to match the radio chrome
+     used elsewhere in this overlay. */
+  .followup-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    cursor: pointer;
+    user-select: none;
+  }
+  .followup-checkbox input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border: 0.5px solid var(--line-strong);
+    background: var(--bg);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.1s, background 0.1s;
+    position: relative;
+  }
+  .followup-checkbox input[type="checkbox"]:hover { border-color: var(--text-soft); }
+  .followup-checkbox input[type="checkbox"]:checked {
+    background: var(--lime);
+    border-color: var(--lime);
+  }
+  .followup-checkbox input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    background: var(--bg);
+    clip-path: polygon(14% 50%, 0 65%, 38% 100%, 100% 30%, 86% 16%, 38% 70%);
+  }
+  .followup-checkbox input[type="checkbox"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .followup-checkbox:has(input:checked) { color: var(--text); }
+
+  /* ─── Follow-up tree · parent banner + child list ─────────────────
+     parent banner sits at the top of the chat in a follow-up room
+     (under the room head, before the first message); child list
+     renders below the brief card on a parent room that's spawned
+     follow-ups. Both use the hairline + mono-tag visual register. */
+  .followup-parent-banner {
+    margin: 0 0 14px;
+    padding: 8px 14px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    text-decoration: none;
+    font-family: var(--mono);
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .followup-parent-banner:hover {
+    border-color: var(--lime-dim);
+    background: var(--panel-3);
+  }
+  .followup-parent-banner .label {
+    font-size: 9.5px;
+    color: var(--text-soft);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .followup-parent-banner .room-num {
+    font-size: 11px;
+    color: var(--lime);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .followup-parent-banner .subject {
+    font-size: 12px;
+    color: var(--text);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .followup-parent-banner .arrow {
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .followup-children {
+    margin: 24px 0 0;
+    padding: 14px 16px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+    font-family: var(--mono);
+  }
+  .followup-children-head {
+    font-size: 10px;
+    color: var(--text-soft);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .followup-children-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .followup-child-tile {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 0.5px solid var(--line);
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .followup-child-tile:hover {
+    border-color: var(--lime-dim);
+    background: var(--panel);
+  }
+  .followup-child-tile .num {
+    font-size: 9.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-align: center;
+    font-weight: 700;
+  }
+  .followup-child-tile .subject {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .followup-child-tile .meta {
+    font-size: 9.5px;
+    color: var(--text-soft);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .followup-child-tile .meta.live      { color: var(--lime); }
+  .followup-child-tile .meta.paused    { color: var(--amber, #B59560); }
+  .followup-child-tile .meta.adjourned { color: var(--text-dim); }
+
   /* Open CTA · compact pill anchored to the right */
   .brief-open {
     display: inline-flex;
@@ -7186,6 +7442,7 @@
             </div>
             <div class="adjourned-bar-actions">
               <a href="#" class="ghost-btn" data-room-export>[↓] Export</a>
+              <a href="#" class="ghost-btn" data-room-followup>[→] Convene Follow-up</a>
             </div>
           </footer>
         </div>

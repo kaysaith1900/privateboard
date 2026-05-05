@@ -384,6 +384,12 @@
       this.currentQueue = data.queue || [];
       this.currentRound = data.round || { spoken: 0, total: 0 };
       this.currentKeyPoints = data.keyPoints || [];
+      // Follow-up tree fragment · parent ref (when this room is a
+      // continuation) + child rooms (follow-ups other rooms started
+      // off of THIS room). Both come from the server's snapshot;
+      // empty/null when the room is a standalone session.
+      this.currentParentRef = data.parentRef || null;
+      this.currentFollowUps = Array.isArray(data.followUps) ? data.followUps : [];
       // The chair isn't in /api/agents (filtered to directors), but the
       // chat resolver needs it for messages with authorId = chair.id.
       if (this.currentChair) this.agentsById[this.currentChair.id] = this.currentChair;
@@ -444,6 +450,8 @@
       this.currentKeyPoints = [];
       this.currentBrief = null;
       this.currentBriefs = [];
+      this.currentParentRef = null;
+      this.currentFollowUps = [];
       // Drop any in-flight convening card so a stale "preparing…"
       // doesn't bleed into the next room or back to the empty state.
       this.conveneState = null;
@@ -1589,6 +1597,506 @@
       } catch (e) {
         if (btn) { btn.disabled = false; btn.textContent = origLabel; }
         alert("Add input failed: " + (e && e.message ? e.message : e));
+      }
+    },
+
+    /* ─── Convene Follow-up · overlay + submit ─────────────────────
+     *
+     *  Opens a modal that takes the user's new question for a
+     *  follow-up room and starts it via POST /api/rooms with
+     *  parentRoomId / parentBriefId set. Defaults are tuned to "the
+     *  user wants to keep going" — same cast as the parent, same
+     *  tone + intensity. Both are overrideable via the form.
+     *
+     *  After successful create, navigates to the new room. The new
+     *  room's chair clarify + first tick fire server-side; the
+     *  follow-up's directors get the parent brief + Stage-1 signals
+     *  prepended to their system prompts (see room.ts orchestrator). */
+    openFollowUpOverlay() {
+      if (!this.currentRoomId || !this.currentRoom) return;
+      if (this.currentRoom.status !== "adjourned") return;
+      this.closeFollowUpOverlay();
+
+      const lang = this.composerLanguage();
+      const t = lang === "zh"
+        ? {
+            classify: "follow-up · 跟进会议",
+            classifyRight: "// continuing",
+            title: "开一场跟进会议",
+            metaPrefix: "// following up",
+            placeholder: "在上一场判断之上，下一个要追问的问题是什么？",
+            contextNote: "上一场的议题、最终判断（brief）和每位 director 的关键观察会作为这场 follow-up 房间的上下文交给新一组 director —— 他们可以直接在已成型的判断上推进，不会从零开始。",
+            castLabel: "Directors",
+            castHint: "建议 2-4 位",
+            castSame: "沿用上一场的 cast",
+            pickerLabel: "选择董事",
+            autoLabel: "directors",
+            autoVal: "自动挑选",
+            countersDirectors: (n) => `${n} 位董事`,
+            toneLabel: "Tone",
+            intensityLabel: "Intensity",
+            cancel: "[ Cancel ]",
+            confirm: "[ Convene → ]",
+            confirmBusy: "[ Convening… ]",
+            adjournedAtPrefix: "adjourned",
+            briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
+            noBrief: "no brief filed",
+          }
+        : {
+            classify: "follow-up · continuation room",
+            classifyRight: "// continuing",
+            title: "Convene a follow-up",
+            metaPrefix: "// following up",
+            placeholder: "What's the next question to chase, given what the prior session settled?",
+            contextNote: "The prior subject, the filed brief (room's settled judgement), and each director's load-bearing observations are bundled as context for this follow-up — the new cast picks up where the prior session left off rather than starting from scratch.",
+            castLabel: "Directors",
+            castHint: "2–4 recommended",
+            castSame: "Same cast as last session",
+            pickerLabel: "Pick directors",
+            autoLabel: "directors",
+            autoVal: "auto-pick",
+            countersDirectors: (n) => `${n} director${n === 1 ? "" : "s"}`,
+            toneLabel: "Tone",
+            intensityLabel: "Intensity",
+            cancel: "[ Cancel ]",
+            confirm: "[ Convene → ]",
+            confirmBusy: "[ Convening… ]",
+            adjournedAtPrefix: "adjourned",
+            briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
+            noBrief: "no brief filed",
+          };
+
+      const room = this.currentRoom;
+      const briefCount = Array.isArray(this.currentBriefs) ? this.currentBriefs.length : 0;
+      const briefLine = briefCount > 0 ? t.briefsCount(briefCount) : t.noBrief;
+      const adjournedLine = room.adjournedAt
+        ? `${t.adjournedAtPrefix} ${this.timeFmt(room.adjournedAt)}`
+        : "";
+      const subjectShort = (room.subject || "(no subject)").slice(0, 140);
+
+      // Tone + intensity inherit from parent. Trigger uses the same
+      // `.cmp-dd` markup as the new-room composer's toolbar buttons —
+      // option list, popover, and styling are all shared via the
+      // existing `data-cmp-dropdown` machinery. The follow-up flow
+      // simply scopes writes to the trigger itself (see global click
+      // handler) instead of the composerState used by the inline
+      // composer.
+      const inheritedMode = (room.mode || "constructive").toLowerCase();
+      const inheritedIntensity = (room.intensity || "sharp").toLowerCase();
+
+      // Default cast · same as parent. We freeze the parent member ids
+      // here so subsequent room state changes (which shouldn't happen
+      // since parent is adjourned) don't leak in.
+      const parentDirectorIds = (this.currentMembers || [])
+        .filter((m) => m && m.id)
+        .map((m) => m.id);
+      const parentBriefId = this.currentBrief?.id || "";
+
+      // Cast state for THIS overlay session · scoped to the app
+      // object so the picker popover (which lives outside the overlay
+      // DOM) and the cast-button refresh helpers can share state.
+      // Default mirrors the inline new-room composer: auto-pick on,
+      // no manual picks. The "Same cast" checkbox is its own gate
+      // that supersedes both when enabled.
+      this._followupCastState = {
+        sameAsLast: false,
+        directorIds: [],
+        autoPick: true,
+        parentDirectorIds: parentDirectorIds.slice(),
+        lang,
+      };
+
+      const html = `
+        <div class="supplement-overlay" id="followup-overlay" role="dialog" aria-modal="true">
+          <div class="supplement-backdrop" data-followup-close></div>
+          <div class="supplement-modal followup-modal" role="document">
+            <div class="supplement-classification">
+              <span><span class="dot">●</span> ${this.escape(t.classify)}</span>
+              <span class="right">${this.escape(t.classifyRight)}</span>
+            </div>
+            <header class="supplement-head">
+              <div>
+                <div class="meta">${this.escape(t.metaPrefix)} · <span>Room #${this.escape(String(room.number))}</span></div>
+                <div class="title">${this.escape(t.title)}</div>
+              </div>
+              <button type="button" class="supplement-close" data-followup-close aria-label="Close">✕</button>
+            </header>
+            <div class="supplement-body">
+              <div class="followup-parent-card">
+                <div class="followup-parent-subject">${this.escape(subjectShort)}</div>
+                <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
+                <div class="followup-parent-note">${this.escape(t.contextNote)}</div>
+              </div>
+
+              <label class="followup-field">
+                <span class="followup-field-label">// new question</span>
+                <textarea
+                  class="supplement-input"
+                  data-followup-subject
+                  rows="3"
+                  placeholder="${this.escape(t.placeholder)}"></textarea>
+              </label>
+
+              <div class="followup-field">
+                <div class="followup-cast-row cmp-tune">
+                  <button
+                    type="button"
+                    class="cmp-cast-btn cmp-cast-btn-auto followup-cast-btn"
+                    data-followup-cast-btn
+                    title="${this.escape(t.pickerLabel)}"
+                  >
+                    <span class="cmp-cast-stack cmp-cast-stack-auto">
+                      <span class="cmp-cast-auto-mark">✦</span>
+                    </span>
+                    <span class="cmp-cast-count cmp-cast-auto-label">
+                      <span class="cmp-cast-auto-key">${this.escape(t.autoLabel)}</span>
+                      <span class="cmp-cast-auto-val">${this.escape(t.autoVal)}</span>
+                    </span>
+                  </button>
+                  <span class="followup-cast-row-sep" aria-hidden="true"></span>
+                  <button type="button" class="cmp-dd" data-cmp-dropdown="tone" title="${this.escape(t.toneLabel)}">
+                    <span class="cmp-dd-label">tone</span>
+                    <span class="cmp-dd-value" data-cmp-dd-value="tone">${this.escape(inheritedMode)}</span>
+                    <span class="cmp-dd-chevron">▾</span>
+                  </button>
+                  <button type="button" class="cmp-dd" data-cmp-dropdown="intensity" title="${this.escape(t.intensityLabel)}">
+                    <span class="cmp-dd-label">intensity</span>
+                    <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(inheritedIntensity)}</span>
+                    <span class="cmp-dd-chevron">▾</span>
+                  </button>
+                </div>
+                <label class="followup-checkbox">
+                  <input type="checkbox" data-followup-same-cast${parentDirectorIds.length === 0 ? " disabled" : ""}>
+                  <span>${this.escape(t.castSame)}</span>
+                </label>
+              </div>
+            </div>
+            <footer class="supplement-foot">
+              <button type="button" class="supplement-cancel" data-followup-close>${this.escape(t.cancel)}</button>
+              <button
+                type="button"
+                class="supplement-confirm"
+                data-followup-confirm
+                data-busy-label="${this.escape(t.confirmBusy)}"
+                data-parent-room-id="${this.escape(this.currentRoomId)}"
+                data-parent-brief-id="${this.escape(parentBriefId)}"
+                data-parent-director-ids="${this.escape(parentDirectorIds.join(","))}"
+              >${this.escape(t.confirm)}</button>
+            </footer>
+          </div>
+        </div>
+      `;
+
+      const wrap = document.createElement("div");
+      wrap.innerHTML = html.trim();
+      document.body.appendChild(wrap.firstChild);
+      document.body.style.overflow = "hidden";
+
+      // "Same cast as last session" checkbox · supersedes the picker
+      // when checked. Toggle disables the cast button and stamps
+      // visual state via [data-locked]. Scoped to the overlay element
+      // so listeners are GC'd when the modal is removed.
+      const overlayEl = document.getElementById("followup-overlay");
+      if (overlayEl) {
+        const sameCheckbox = overlayEl.querySelector("[data-followup-same-cast]");
+        const castBtn = overlayEl.querySelector("[data-followup-cast-btn]");
+        if (sameCheckbox && castBtn) {
+          sameCheckbox.addEventListener("change", () => {
+            const checked = !!sameCheckbox.checked;
+            this._followupCastState.sameAsLast = checked;
+            if (checked) {
+              castBtn.setAttribute("disabled", "");
+              castBtn.setAttribute("data-locked", "same-cast");
+              this.closeFollowUpCastPicker();
+            } else {
+              castBtn.removeAttribute("disabled");
+              castBtn.removeAttribute("data-locked");
+            }
+            this.refreshFollowUpCastButton();
+          });
+        }
+      }
+
+      this._followupEsc = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopImmediatePropagation();
+          this.closeFollowUpOverlay();
+        }
+      };
+      document.addEventListener("keydown", this._followupEsc, true);
+      // Cmd/Ctrl-Enter submits the form from the textarea.
+      this._followupSubmit = (ev) => {
+        if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
+          const overlay = document.getElementById("followup-overlay");
+          if (!overlay) return;
+          ev.preventDefault();
+          this.submitFollowUp();
+        }
+      };
+      document.addEventListener("keydown", this._followupSubmit, true);
+      setTimeout(() => {
+        const input = document.querySelector("[data-followup-subject]");
+        if (input) input.focus();
+      }, 30);
+    },
+
+    closeFollowUpOverlay() {
+      const el = document.getElementById("followup-overlay");
+      if (el) el.remove();
+      document.body.style.overflow = "";
+      if (this._followupEsc) {
+        document.removeEventListener("keydown", this._followupEsc, true);
+        this._followupEsc = null;
+      }
+      if (this._followupSubmit) {
+        document.removeEventListener("keydown", this._followupSubmit, true);
+        this._followupSubmit = null;
+      }
+      this.closeFollowUpCastPicker();
+      this._followupCastState = null;
+    },
+
+    /** Cast button refresher · re-renders the inner content of the
+     *  follow-up overlay's `.cmp-cast-btn` based on current state.
+     *  Mirrors the inline new-room composer's cast-button pattern:
+     *  auto-pick chip when no manual picks AND not "same as last",
+     *  avatar stack + count when manually picked, "same cast" chip
+     *  when the checkbox is on (the button is also disabled in that
+     *  case · see the change handler). */
+    refreshFollowUpCastButton() {
+      const btn = document.querySelector("[data-followup-cast-btn]");
+      if (!btn || !this._followupCastState) return;
+      const state = this._followupCastState;
+      const lang = state.lang || "en";
+
+      btn.classList.remove("cmp-cast-btn-auto");
+      btn.removeAttribute("data-cast-mode");
+
+      if (state.sameAsLast) {
+        // "Same cast as last session" · show parent's avatar stack,
+        // disabled appearance. The button stays click-blocked via
+        // the `disabled` attribute set in the checkbox change handler.
+        const parents = state.parentDirectorIds
+          .map((id) => this.agentsById?.[id])
+          .filter(Boolean);
+        const visible = parents.slice(0, 4);
+        const overflow = Math.max(0, parents.length - 4);
+        const avatars = visible.map((a) =>
+          `<img class="cmp-cast-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}" title="${this.escape(a.name || "")}">`,
+        ).join("");
+        const count = lang === "zh"
+          ? `${parents.length} 位 · 沿用上一场`
+          : `${parents.length} · same as last`;
+        btn.innerHTML =
+          `<span class="cmp-cast-stack">${avatars}${overflow > 0 ? `<span class="cmp-cast-more">+${overflow}</span>` : ""}</span>` +
+          `<span class="cmp-cast-count">${this.escape(count)}</span>`;
+        btn.setAttribute("data-cast-mode", "same-as-last");
+        return;
+      }
+
+      const picked = state.directorIds
+        .map((id) => this.agentsById?.[id])
+        .filter(Boolean);
+
+      if (picked.length === 0) {
+        // Auto-pick · default
+        btn.classList.add("cmp-cast-btn-auto");
+        btn.setAttribute("data-cast-mode", "auto");
+        const autoKey = lang === "zh" ? "directors" : "directors";
+        const autoVal = lang === "zh" ? "自动挑选" : "auto-pick";
+        btn.innerHTML =
+          `<span class="cmp-cast-stack cmp-cast-stack-auto"><span class="cmp-cast-auto-mark">✦</span></span>` +
+          `<span class="cmp-cast-count cmp-cast-auto-label">` +
+            `<span class="cmp-cast-auto-key">${this.escape(autoKey)}</span>` +
+            `<span class="cmp-cast-auto-val">${this.escape(autoVal)}</span>` +
+          `</span>`;
+        return;
+      }
+
+      const visible = picked.slice(0, 4);
+      const overflow = Math.max(0, picked.length - 4);
+      const avatars = visible.map((a) =>
+        `<img class="cmp-cast-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}" title="${this.escape(a.name || "")}">`,
+      ).join("");
+      const countText = lang === "zh"
+        ? `${picked.length} 位董事`
+        : `${picked.length} director${picked.length === 1 ? "" : "s"}`;
+      btn.setAttribute("data-cast-mode", "manual");
+      btn.innerHTML =
+        `<span class="cmp-cast-stack">${avatars}${overflow > 0 ? `<span class="cmp-cast-more">+${overflow}</span>` : ""}<span class="cmp-cast-add" aria-hidden="true">+</span></span>` +
+        `<span class="cmp-cast-count">${this.escape(countText)}</span>`;
+    },
+
+    /** Open the director picker for the follow-up overlay. Mirrors
+     *  the inline composer's `openComposerDirectorPicker` visually
+     *  (`composer-pick-pop` + `composer-pick-row`) but reads / writes
+     *  through `_followupCastState` instead of composerState. */
+    openFollowUpCastPicker(anchorBtn) {
+      this.closeFollowUpCastPicker();
+      if (!anchorBtn || !this._followupCastState) return;
+      if (this._followupCastState.sameAsLast) return;   // disabled when "same cast" is on
+      const state = this._followupCastState;
+      const lang = state.lang || "en";
+      const dirs = (this.agents || [])
+        .filter((a) => a.roleKind !== "moderator")
+        .slice()
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      const t = lang === "zh"
+        ? { title: "选择董事", hint: "建议 2-4 位", info: "查看资料" }
+        : { title: "Pick directors", hint: "2-4 recommended", info: "View profile" };
+      const rows = dirs.map((a) => {
+        const checked = state.directorIds.includes(a.id);
+        return `
+          <label class="composer-pick-row${checked ? " on" : ""}" data-followup-pick-id="${this.escape(a.id)}">
+            <input type="checkbox" ${checked ? "checked" : ""}>
+            <img class="composer-pick-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}">
+            <span class="composer-pick-main">
+              <span class="composer-pick-name">${this.escape(a.name || "")}</span>
+              <span class="composer-pick-tag">${this.escape(a.roleTag || "")}</span>
+            </span>
+          </label>
+        `;
+      }).join("");
+      const pop = document.createElement("div");
+      pop.id = "followup-pick-pop";
+      pop.className = "composer-pick-pop";
+      pop.innerHTML = `
+        <div class="composer-pick-head">
+          <span class="composer-pick-title">${this.escape(t.title)}</span>
+          <span class="composer-pick-hint">${this.escape(t.hint)}</span>
+        </div>
+        <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">no directors</div>`}</div>
+      `;
+      document.body.appendChild(pop);
+      const r = anchorBtn.getBoundingClientRect();
+      pop.style.left = Math.max(8, r.left) + "px";
+      pop.style.top = (r.bottom + 6) + "px";
+      // Outside-click + Esc dismiss · same pattern as the inline
+      // composer's picker.
+      this._followupPickEsc = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopImmediatePropagation();
+          this.closeFollowUpCastPicker();
+        }
+      };
+      this._followupPickOutside = (ev) => {
+        if (
+          !pop.contains(ev.target)
+          && !ev.target.closest("[data-followup-cast-btn]")
+        ) {
+          this.closeFollowUpCastPicker();
+        }
+      };
+      document.addEventListener("keydown", this._followupPickEsc, true);
+      setTimeout(() => document.addEventListener("click", this._followupPickOutside, true), 0);
+    },
+
+    closeFollowUpCastPicker() {
+      const el = document.getElementById("followup-pick-pop");
+      if (el) el.remove();
+      if (this._followupPickEsc) {
+        document.removeEventListener("keydown", this._followupPickEsc, true);
+        this._followupPickEsc = null;
+      }
+      if (this._followupPickOutside) {
+        document.removeEventListener("click", this._followupPickOutside, true);
+        this._followupPickOutside = null;
+      }
+    },
+
+    /** Toggle a director in / out of the follow-up overlay's manual
+     *  pick list. Updates state, refreshes the picker row visual,
+     *  and re-renders the cast button. */
+    toggleFollowUpCastDirector(id) {
+      if (!this._followupCastState) return;
+      const state = this._followupCastState;
+      const i = state.directorIds.indexOf(id);
+      if (i >= 0) state.directorIds.splice(i, 1);
+      else state.directorIds.push(id);
+      state.autoPick = state.directorIds.length === 0;
+      // Update the row in the picker.
+      const row = document.querySelector(`[data-followup-pick-id="${CSS.escape(id)}"]`);
+      if (row) {
+        const cb = row.querySelector("input[type=checkbox]");
+        const on = state.directorIds.includes(id);
+        if (cb) cb.checked = on;
+        row.classList.toggle("on", on);
+      }
+      this.refreshFollowUpCastButton();
+    },
+
+    async submitFollowUp() {
+      const overlay = document.getElementById("followup-overlay");
+      if (!overlay) return;
+      const subjectInput = overlay.querySelector("[data-followup-subject]");
+      const subject = subjectInput ? (subjectInput.value || "").trim() : "";
+      if (!subject) {
+        if (subjectInput) subjectInput.focus();
+        return;
+      }
+      const btn = overlay.querySelector("[data-followup-confirm]");
+      const origLabel = btn ? btn.textContent : "";
+      const busyLabel = btn ? btn.getAttribute("data-busy-label") || origLabel : "";
+      if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+
+      const parentRoomId = btn ? btn.getAttribute("data-parent-room-id") : "";
+      const parentBriefId = btn ? btn.getAttribute("data-parent-brief-id") : "";
+
+      // Tone + intensity now live as `.cmp-dd` triggers · the canonical
+      // value is the value-span text content (lowercase keyword).
+      const toneText = overlay.querySelector('[data-cmp-dd-value="tone"]')?.textContent;
+      const intensityText = overlay.querySelector('[data-cmp-dd-value="intensity"]')?.textContent;
+      const tone = (toneText || "constructive").trim().toLowerCase();
+      const intensity = (intensityText || "sharp").trim().toLowerCase();
+
+      const castState = this._followupCastState || { sameAsLast: false, directorIds: [], parentDirectorIds: [] };
+      const payload = {
+        subject,
+        mode: tone,
+        intensity,
+        parentRoomId,
+        parentBriefId: parentBriefId || undefined,
+      };
+      if (castState.sameAsLast && castState.parentDirectorIds.length > 0) {
+        // "Same cast as last session" · use parent's directors verbatim.
+        payload.agentIds = castState.parentDirectorIds.slice();
+        payload.autoPick = false;
+      } else if (castState.directorIds.length > 0) {
+        // Manual picks via the popover.
+        payload.agentIds = castState.directorIds.slice();
+        payload.autoPick = false;
+      } else {
+        // No same-cast lock + no manual picks · fall through to auto-pick.
+        payload.autoPick = true;
+        payload.agentIds = [];
+      }
+
+      try {
+        if (!(await this.requireModelKey())) {
+          if (btn) { btn.disabled = false; btn.textContent = origLabel; }
+          return;
+        }
+        const r = await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || ("HTTP " + r.status));
+        }
+        const j = await r.json();
+        const newRoomId = j.room?.id;
+        this.closeFollowUpOverlay();
+        if (newRoomId) {
+          // Refresh the sidebar so the new room shows up immediately,
+          // then navigate.
+          await this.refreshRoomsList?.();
+          this.navigateToRoom(newRoomId);
+        }
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = origLabel; }
+        alert("Convene failed: " + (e && e.message ? e.message : e));
       }
     },
 
@@ -2815,6 +3323,75 @@
       this.renderQueue();
       this.renderBrief();
       this.renderPausedBar();
+      this.renderFollowUpFragments();
+    },
+
+    /** Render the follow-up tree fragments around the current room:
+     *
+     *    · parentBanner · prepended to [data-chat-messages] when this
+     *      room is itself a follow-up. Reads as "// following up
+     *      Room #N · {subject}" with a click target back to the
+     *      parent.
+     *    · childrenList · appended after [data-brief-card] when this
+     *      room has spawned follow-ups. Each tile is a click target
+     *      to the child room.
+     *
+     *  Idempotent · re-rendering removes previous fragments before
+     *  inserting fresh ones. Both render conditionally — empty / null
+     *  produces nothing in the DOM. */
+    renderFollowUpFragments() {
+      const lang = this.composerLanguage();
+      // 1 · parent banner (this room is a follow-up)
+      const chat = document.querySelector("[data-chat-messages]");
+      const existingBanner = document.querySelector(".followup-parent-banner");
+      if (existingBanner) existingBanner.remove();
+      const parent = this.currentParentRef;
+      if (chat && parent && parent.id) {
+        const labelText = lang === "zh" ? "// 跟进自" : "// following up";
+        const subject = (parent.subject || "(no subject)").trim();
+        const banner = document.createElement("a");
+        banner.href = "#";
+        banner.className = "followup-parent-banner";
+        banner.setAttribute("data-followup-parent-id", parent.id);
+        banner.innerHTML =
+          `<span class="label">${this.escape(labelText)}</span>` +
+          `<span class="room-num">Room #${this.escape(String(parent.number))}</span>` +
+          `<span class="subject">${this.escape(subject)}</span>` +
+          `<span class="arrow">↗</span>`;
+        chat.parentNode.insertBefore(banner, chat);
+      }
+
+      // 2 · children list (this room has spawned follow-ups)
+      const briefCard = document.querySelector("[data-brief-card]");
+      const existingChildren = document.querySelector(".followup-children");
+      if (existingChildren) existingChildren.remove();
+      const kids = Array.isArray(this.currentFollowUps) ? this.currentFollowUps : [];
+      if (briefCard && kids.length > 0) {
+        const headLabel = lang === "zh"
+          ? `跟进会议 · ${kids.length}`
+          : `Follow-up rooms · ${kids.length}`;
+        const block = document.createElement("div");
+        block.className = "followup-children";
+        block.innerHTML = [
+          `<div class="followup-children-head">${this.escape(headLabel)}</div>`,
+          `<div class="followup-children-list">`,
+          ...kids.map((k, i) => {
+            const num = String(i + 1).padStart(2, "0");
+            const subj = (k.subject || "(no subject)").trim();
+            const status = (k.status || "").toLowerCase();
+            const statusLabel = status || "—";
+            return `
+              <a href="#" class="followup-child-tile" data-followup-room-id="${this.escape(k.id)}">
+                <span class="num">${this.escape(num)}</span>
+                <span class="subject">${this.escape(subj)}</span>
+                <span class="meta ${this.escape(status)}">${this.escape(statusLabel)}</span>
+              </a>
+            `;
+          }),
+          `</div>`,
+        ].join("");
+        briefCard.parentNode.insertBefore(block, briefCard.nextSibling);
+      }
     },
 
     renderPausedBar() {
@@ -4480,6 +5057,12 @@
       const kind = triggerBtn.getAttribute("data-cmp-dropdown");
       const lang = this.composerLanguage();
       const state = this.loadComposerState();
+      // Detect follow-up context · same `.cmp-dd` markup, but the
+      // trigger lives inside the follow-up overlay, so the active
+      // state is read off the trigger itself (and writes go back to
+      // the trigger on pick — see global click handler) rather than
+      // composerState used by the inline new-room composer.
+      const followUpScope = triggerBtn.closest("#followup-overlay");
       // Hints are kept short so the row stays on one line at the popover
       // width — same constraint the picker rows respect.
       let opts;
@@ -4500,7 +5083,12 @@
               { v: "debate",       label: "Debate",       hint: "find the holes" },
               { v: "critique",     label: "Critique",     hint: "audit the deliverable" },
             ];
-        current = state.mode;
+        if (followUpScope) {
+          const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
+          current = valSpan ? (valSpan.textContent || "").trim().toLowerCase() : "";
+        } else {
+          current = state.mode;
+        }
       } else if (kind === "intensity") {
         opts = lang === "zh"
           ? [
@@ -4513,7 +5101,12 @@
               { v: "sharp",  label: "Sharp",  hint: "no hedging" },
               { v: "brutal", label: "Brutal", hint: "no prisoners" },
             ];
-        current = state.intensity;
+        if (followUpScope) {
+          const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
+          current = valSpan ? (valSpan.textContent || "").trim().toLowerCase() : "";
+        } else {
+          current = state.intensity;
+        }
       } else if (kind === "agent-model") {
         // Reachable-only model catalog · pulls from the shared
         // /api/models cache so the picker reflects the user's
@@ -6601,6 +7194,64 @@
       window.location.href = "/api/rooms/" + encodeURIComponent(app.currentRoomId) + "/export.md";
       return;
     }
+    // Convene Follow-up · adjourned-bar action. Opens the follow-up
+    // overlay with parent reference + form for the new question.
+    if (e.target.closest("[data-room-followup]")) {
+      e.preventDefault();
+      app.openFollowUpOverlay();
+      return;
+    }
+    if (e.target.closest("[data-followup-close]")) {
+      e.preventDefault();
+      app.closeFollowUpOverlay();
+      return;
+    }
+    if (e.target.closest("[data-followup-confirm]")) {
+      e.preventDefault();
+      app.submitFollowUp();
+      return;
+    }
+    // Follow-up overlay · cast button → open / toggle picker
+    const followupCastBtn = e.target.closest("[data-followup-cast-btn]");
+    if (followupCastBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (followupCastBtn.hasAttribute("disabled")) return;
+      // Toggle: clicking the trigger while picker open closes it.
+      if (document.getElementById("followup-pick-pop")) {
+        app.closeFollowUpCastPicker();
+      } else {
+        app.openFollowUpCastPicker(followupCastBtn);
+      }
+      return;
+    }
+    // Follow-up picker · row click toggles the director
+    const followupPickRow = e.target.closest("[data-followup-pick-id]");
+    if (followupPickRow) {
+      // Suppress default checkbox toggle so we drive state via our
+      // single source of truth (_followupCastState).
+      e.preventDefault();
+      const id = followupPickRow.getAttribute("data-followup-pick-id");
+      if (id) app.toggleFollowUpCastDirector(id);
+      return;
+    }
+    // Click on a follow-up tile in the parent room's "Follow-up rooms"
+    // strip · navigate to the child. Click on the parent banner of a
+    // follow-up room · navigate up.
+    const followUpTile = e.target.closest("[data-followup-room-id]");
+    if (followUpTile) {
+      e.preventDefault();
+      const id = followUpTile.getAttribute("data-followup-room-id");
+      if (id) app.navigateToRoom(id);
+      return;
+    }
+    const parentBanner = e.target.closest("[data-followup-parent-id]");
+    if (parentBanner) {
+      e.preventDefault();
+      const id = parentBanner.getAttribute("data-followup-parent-id");
+      if (id) app.navigateToRoom(id);
+      return;
+    }
     // Generate report (post-hoc) — fires from the no-brief card CTA
     // when the user originally skipped the brief but now wants one.
     // Reuses the adjourn overlay's gallery in "generate-brief" mode.
@@ -6874,15 +7525,30 @@
       }
       return;
     }
-    // Dropdown option pick
+    // Dropdown option pick. Two contexts share this handler:
+    //
+    //   · new-room composer (inline) · writes to composerState, the
+    //     value span re-renders next paint
+    //   · follow-up overlay · same `.cmp-dd` markup, but composerState
+    //     would clobber whatever the user had typed for a brand-new
+    //     room. Detect overlay context via the in-flight trigger
+    //     (stashed on app._cmpDdTrigger by openComposerDropdown) and
+    //     write directly to the trigger's value span instead.
     const ddPick = e.target.closest("[data-cmp-dd-pick]");
     if (ddPick) {
       e.preventDefault();
       const kind = ddPick.getAttribute("data-cmp-dd-kind");
       const v = ddPick.getAttribute("data-cmp-dd-pick");
-      if (kind === "tone") app.setComposerTone(v);
-      else if (kind === "intensity") app.setComposerIntensity(v);
-      else if (kind === "agent-model") app.setAgentComposerModel(v);
+      const trigger = app._cmpDdTrigger;
+      const inFollowUp = !!(trigger && trigger.closest("#followup-overlay"));
+      if (inFollowUp && (kind === "tone" || kind === "intensity")) {
+        const valSpan = trigger.querySelector("[data-cmp-dd-value]");
+        if (valSpan) valSpan.textContent = v;
+      } else {
+        if (kind === "tone") app.setComposerTone(v);
+        else if (kind === "intensity") app.setComposerIntensity(v);
+        else if (kind === "agent-model") app.setAgentComposerModel(v);
+      }
       app.closeComposerDropdown();
       return;
     }

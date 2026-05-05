@@ -51,6 +51,7 @@ import {
   createRoom,
   deleteRoom,
   getRoom,
+  listFollowUpRooms,
   listRoomMembers,
   listRooms,
   recentDirectorAppearances,
@@ -184,10 +185,42 @@ export function roomsRouter(): Hono {
       briefStyle?: unknown;
       agentIds?: unknown;
       autoPick?: unknown;
+      parentRoomId?: unknown;
+      parentBriefId?: unknown;
     };
 
     const subject = typeof b.subject === "string" ? b.subject.trim() : "";
     if (!subject) return c.json({ error: "subject is required" }, 400);
+
+    // Follow-up parent · validate the parent room exists and was
+    // adjourned. The parent_brief_id (when supplied) must belong to
+    // the same parent_room_id. We coerce to null on any validation
+    // failure rather than 4xx-ing — the room still creates, just
+    // without the follow-up linkage. This keeps the flow forgiving
+    // when a stale parent reference reaches the server.
+    let parentRoomId: string | null = null;
+    let parentBriefId: string | null = null;
+    if (typeof b.parentRoomId === "string" && b.parentRoomId.trim()) {
+      const candidate = b.parentRoomId.trim();
+      const parent = getRoom(candidate);
+      if (parent && parent.status === "adjourned") {
+        parentRoomId = candidate;
+        if (typeof b.parentBriefId === "string" && b.parentBriefId.trim()) {
+          const briefCandidate = b.parentBriefId.trim();
+          const parentBrief = getBriefByRoom(candidate);
+          // Either the explicit brief id matches a brief in that room,
+          // or fall back to the most recent brief on that room.
+          const briefByRoom = parentBrief && parentBrief.id === briefCandidate
+            ? parentBrief
+            : null;
+          parentBriefId = briefByRoom ? briefByRoom.id : null;
+        } else {
+          // No explicit brief picked · default to the room's latest.
+          const latest = getBriefByRoom(candidate);
+          if (latest) parentBriefId = latest.id;
+        }
+      }
+    }
 
     // Auto-pick · the chair selects directors in the background after
     // the room opens. The user sees a "convening" animation in the
@@ -235,7 +268,16 @@ export function roomsRouter(): Hono {
     const styleResolved = STYLE_ALIAS[rawStyle] ?? rawStyle;
     const briefStyle = ALLOWED_STYLES.has(styleResolved) ? styleResolved : "auto";
 
-    const { room, members } = createRoom({ name, subject, mode, intensity, briefStyle, agentIds });
+    const { room, members } = createRoom({
+      name,
+      subject,
+      mode,
+      intensity,
+      briefStyle,
+      agentIds,
+      parentRoomId,
+      parentBriefId,
+    });
 
     // Seed the room-opened lifecycle event. For auto-pick rooms the
     // member list will fill in via subsequent `member-added` events
@@ -297,18 +339,25 @@ export function roomsRouter(): Hono {
     // (haiku call, ~1s), seats each director with a per-pick SSE
     // event, posts a "convening" milestone message, then proceeds to
     // clarify normally.
+    // Follow-up rooms open with `kind: "continue"` (reactive) instead
+    // of "user" (parallel opening). The directors already share a
+    // settled frame from the parent brief in their context — kicking
+    // off with reactive engagement skips the redundant parallel sweep
+    // where each director would re-derive the same baseline.
+    const initialTickKind: "user" | "continue" = parentRoomId ? "continue" : "user";
+
     void (async () => {
       try {
         if (autoPick) {
           await runAutoPickAndSeat(room.id, subject);
         }
         const result = await runChairClarify(room.id);
-        if (result.ready) tickRoom(room.id, { roundNum: 1 });
+        if (result.ready) tickRoom(room.id, { roundNum: 1, kind: initialTickKind });
       } catch (e) {
         process.stderr.write(`[rooms] convene flow failed: ${e instanceof Error ? e.message : String(e)}\n`);
         // Fallback: still kick the directors so the room isn't stranded.
         setAwaitingClarify(room.id, false);
-        tickRoom(room.id, { roundNum: 1 });
+        tickRoom(room.id, { roundNum: 1, kind: initialTickKind });
       }
     })();
 
@@ -322,7 +371,43 @@ export function roomsRouter(): Hono {
     if (!state) return c.json({ error: "not found" }, 404);
     const events = listConfigEvents(id);
     const snap = getRoomQueueSnapshot(id);
-    return c.json({ ...state, events, queue: snap.queue, round: snap.round });
+
+    // Follow-up tree fragment · two pieces:
+    //   · parentRef · resolved fields about THIS room's parent (when it
+    //     is itself a follow-up). Frontend uses this to render the "//
+    //     following up Room #N" banner without a second GET.
+    //   · followUps · direct children rooms that picked THIS room as
+    //     their parent. Newest-first. Frontend renders as a list at
+    //     the bottom of the room view.
+    let parentRef: { id: string; number: number; subject: string; status: string } | null = null;
+    if (state.room.parentRoomId) {
+      const parent = getRoom(state.room.parentRoomId);
+      if (parent) {
+        parentRef = {
+          id: parent.id,
+          number: parent.number,
+          subject: parent.subject,
+          status: parent.status,
+        };
+      }
+    }
+    const children = listFollowUpRooms(id);
+    const followUps = children.map((r) => ({
+      id: r.id,
+      number: r.number,
+      subject: r.subject,
+      status: r.status,
+      createdAt: r.createdAt,
+    }));
+
+    return c.json({
+      ...state,
+      events,
+      queue: snap.queue,
+      round: snap.round,
+      parentRef,
+      followUps,
+    });
   });
 
   // ── Markdown export · single-file bundle for backup / paste / share.

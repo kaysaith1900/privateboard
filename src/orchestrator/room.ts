@@ -37,6 +37,7 @@ import {
   reconcileAgentModels,
 } from "../storage/reconcile-models.js";
 import { getRoom, listRoomMembers, setAwaitingContinue, setRoomStatus, type Room } from "../storage/rooms.js";
+import { getBrief } from "../storage/briefs.js";
 
 import { formatSearchResults, runBraveSearch } from "../ai/skills/web-search.js";
 import { isBillingError, extractProviderHint } from "../ai/billing-error.js";
@@ -48,7 +49,7 @@ import {
   runChairDirectResponse,
 } from "./chair.js";
 import { buildDirectorContext } from "./context.js";
-import { buildDirectorMessages } from "./prompt.js";
+import { buildDirectorMessages, buildFollowUpPriorContext } from "./prompt.js";
 import { pickNextSpeaker, pickRoundWrap, pickSkills } from "./skill-picker.js";
 import { roomBus, type RoomEvent } from "./stream.js";
 import { listSkillsForAgent } from "../storage/skills.js";
@@ -1038,6 +1039,43 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     turnState.pendingChairPick = null;
   }
 
+  // Follow-up prior context · when this room was started as a
+  // continuation of a prior adjourned room, prepend the parent's
+  // brief + Stage-1 signals to the director system prompt. Built
+  // here so prompt.ts stays pure (no DB). Defensive · if the parent
+  // record vanished or never had a brief, the block degrades to
+  // signals-only or empty.
+  let priorContext: string | undefined;
+  if (room.parentRoomId) {
+    try {
+      const parentRoom = getRoom(room.parentRoomId);
+      if (parentRoom) {
+        const parentBrief = room.parentBriefId ? getBrief(room.parentBriefId) : null;
+        const langGuess: "zh" | "en" =
+          /[一-鿿]/.test(parentRoom.subject || "") ? "zh" : "en";
+        const block = buildFollowUpPriorContext({
+          parentRoomNumber: parentRoom.number,
+          parentRoomSubject: parentRoom.subject,
+          parentBrief: parentBrief
+            ? { title: parentBrief.title, bodyMd: parentBrief.bodyMd }
+            : null,
+          parentSignals: parentBrief && parentBrief.signals
+            ? parentBrief.signals.map((d) => ({
+                directorName: d.directorName,
+                signals: d.signals.map((s) => ({ text: s.text, lens: s.lens })),
+              }))
+            : null,
+          language: langGuess,
+        });
+        if (block.trim()) priorContext = block;
+      }
+    } catch (e) {
+      rlog(roomId, "follow-up-context-error", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   const llmMessages: LLMMessage[] = buildDirectorMessages({
     speaker,
     cast,
@@ -1049,6 +1087,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     sharedMaterials: sharedMaterialsBlock,
     chairBrief: chairBriefForTurn ?? undefined,
     summaryPreamble,
+    priorContext,
   });
 
   // Streaming placeholder so the UI has an id immediately.
