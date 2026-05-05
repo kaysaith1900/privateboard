@@ -656,6 +656,24 @@
 }
 .us-foot .us-done:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
 
+/* Right-side cluster · website link + Done button. */
+.us-foot-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.us-foot .us-website {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-soft, #8E8B83);
+  text-decoration: none;
+  transition: color 0.12s;
+}
+.us-foot .us-website:hover { color: var(--lime, #6FB572); }
+
 @media (max-width: 600px) {
   .user-settings-overlay { padding: 12px; }
   .us-head { padding-left: 14px; padding-right: 14px; }

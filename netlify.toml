@@ -1,10 +1,20 @@
-# Netlify config · serves the marketing site from site/ as the deploy root.
-# No build step — site/ is already a static bundle (HTML + CSS + JS + assets).
+# Netlify config · the public marketing site is built from public/home.html
+# (the same file the app server serves locally at /home.html), with the
+# assets it needs copied alongside. Single source of truth · public/ —
+# editing the home page or shared assets in one place updates both the
+# app and the deployed website.
 [build]
-  publish = "site"
+  command = """
+    rm -rf _site &&
+    mkdir -p _site/fonts _site/avatars &&
+    cp public/home.html _site/index.html &&
+    cp public/favicon.svg public/themes.css public/agent-overlay.css public/agent-overlay.js _site/ &&
+    cp public/fonts/human-sans.woff2 public/fonts/agent-Italic.woff2 _site/fonts/ &&
+    cp public/avatars/socrates.svg public/avatars/first-principles.svg public/avatars/value-investor.svg public/avatars/user-empathy.svg public/avatars/long-horizon.svg public/avatars/phenomenologist.svg _site/avatars/
+  """
+  publish = "_site"
 
-# SPA-style fallback isn't needed (single index.html with anchor sections),
-# but a 404 fallback to home keeps deep-link typos friendly.
+# 404 fallback to home keeps deep-link typos friendly on the marketing site.
 [[redirects]]
   from = "/*"
   to = "/index.html"

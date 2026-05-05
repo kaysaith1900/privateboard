@@ -903,7 +903,10 @@
 
           <footer class="us-foot">
             <span class="saved">changes save automatically</span>
-            <button type="button" class="us-done">[ Done ]</button>
+            <div class="us-foot-right">
+              <a class="us-website" href="/home.html" target="_blank" rel="noopener">website ↗</a>
+              <button type="button" class="us-done">[ Done ]</button>
+            </div>
           </footer>
 
         </div>
