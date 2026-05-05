@@ -584,12 +584,23 @@
     gap: 10px;
   }
   @media (max-width: 720px) {
+    /* 2-col stays comfortable down to small phones · keeps the cast as
+       a roster grid rather than a stretched single-file list. Tighten
+       padding + scale typography so each cell breathes at ~165px wide. */
     .cast-directors {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       grid-auto-rows: auto;
+      gap: 8px;
     }
+    .cast-directors .bento-cell { padding: 14px 12px; }
+    .bento-director { gap: 4px; }
+    .bento-director-img { width: 52px; height: 52px; margin-bottom: 2px; }
+    .bento-director-tag { font-size: 8.5px; letter-spacing: 0.16em; margin-top: 4px; }
+    .bento-director-name { font-size: 13px; }
+    .bento-director-desc { font-size: 11px; line-height: 1.45; }
   }
-  @media (max-width: 480px) {
+  /* Only collapse to 1-col on the tiniest screens (< 360px). */
+  @media (max-width: 360px) {
     .cast-directors { grid-template-columns: 1fr; }
   }
 
@@ -813,6 +824,33 @@
   .bento-custom:hover .bc-cta { color: var(--text); }
   .bento-custom:hover .bc-cta-arrow { transform: translateX(3px); }
 
+  /* Commission card · mobile · drop the generous desktop padding,
+     scale the headline, and recompute the full-bleed divider math
+     (was calc(100% + 60px) / margin -30px to escape the 30px padding;
+     mobile padding is 18px so the offset becomes 36 / -18). */
+  @media (max-width: 720px) {
+    .bento-custom {
+      padding: 22px 18px 20px;
+      gap: 14px;
+    }
+    .bc-title { font-size: 22px; line-height: 1.2; }
+    .bc-deck { font-size: 12px; line-height: 1.55; }
+    .bc-divider,
+    .bc-divider-tagged {
+      width: calc(100% + 36px);
+      margin: 0 -18px;
+    }
+    .bc-spec-row {
+      grid-template-columns: 48px minmax(0, 1fr);
+      column-gap: 12px;
+      padding: 7px 0;
+    }
+    .bc-spec-row dt { font-size: 8.5px; letter-spacing: 0.14em; line-height: 1.6; }
+    .bc-spec-row dd { font-size: 12px; }
+    .bc-classification { font-size: 8.5px; letter-spacing: 0.18em; }
+    .bc-cta { font-size: 10.5px; letter-spacing: 0.18em; }
+  }
+
   /* ─────────── HOW IT WORKS ─────────── */
   .how-grid {
     display: grid;
@@ -867,8 +905,24 @@
   @media (max-width: 980px) {
     .report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
+  /* Phones · stay 2-col so the decorative cover doesn't bloat to
+     ~half the screen height (1-col + 4:3.4 aspect made the art
+     ~290px tall on a 375px screen). Tighten padding, aspect, and
+     typography to keep the cards compact + readable. */
   @media (max-width: 560px) {
+    .report-grid { gap: 12px; }
+    .report-cover { padding: 14px; aspect-ratio: 4 / 3.2; border-radius: 4px; }
+    .report-art { width: 50%; }
+    .report-card { gap: 8px; }
+    .report-meta { grid-template-columns: 22px minmax(0, 1fr); column-gap: 8px; }
+    .report-num { font-size: 9px; padding-top: 1px; }
+    .report-text h3 { font-size: 12.5px; }
+    .report-text p { font-size: 11.5px; line-height: 1.5; }
+  }
+  /* Only collapse to 1-col on the tiniest screens (< 360px). */
+  @media (max-width: 360px) {
     .report-grid { grid-template-columns: 1fr; }
+    .report-cover { aspect-ratio: 4 / 2.4; }
   }
 
   .report-card {
@@ -1043,10 +1097,26 @@
   }
 
   @media (max-width: 700px) {
-    .topbar { padding: 8px 12px; flex-wrap: wrap; }
+    /* Topbar · keep on one row, drop the secondary brand text so the
+       Get Started button has room. ".brand-name ~ .brand-name" picks
+       only the second .brand-name (CONTROL) — PRIVATEBOARD has no
+       preceding sibling of the same class so it stays. */
+    .topbar { padding: 8px 12px; gap: 10px; }
+    .brand-block { gap: 8px; min-width: 0; }
+    .brand-block .brand-sep,
+    .brand-block .brand-name ~ .brand-name,
+    .brand-block .classification { display: none; }
+    .start-btn { padding: 6px 10px; font-size: 10px; letter-spacing: 0.08em; white-space: nowrap; }
+
     .hero-title { font-size: 32px; }
     .section-title { font-size: 20px; }
     .final-title { font-size: 22px; }
+  }
+
+  /* Very narrow screens · shorten the CTA so it never wraps even
+     under the smallest device widths (320px). */
+  @media (max-width: 380px) {
+    .start-btn { padding: 5px 8px; font-size: 9.5px; }
   }
 </style>
 <link rel="stylesheet" href="themes.css">
