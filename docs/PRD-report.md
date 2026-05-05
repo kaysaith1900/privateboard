@@ -449,9 +449,6 @@ public/report/
     ...
 ```
 
-The 6 existing `screen-7-report-*.html` prototypes are the visual
-references for each spine and stay in `public/` as design pins.
-
 ---
 
 ## 10 · API & storage
@@ -568,7 +565,7 @@ fragment, offsetting Stage 1.5).
   `report.html` path — no regression.
 
 **Visual regression**
-- Each of the 6 spines, rendered against the same fixture brief, matches its `screen-7-report-*.html` design pin within tolerance (manual review on first ship; automated screenshot diff is out of scope for v1).
+- Each of the 6 spines, rendered against the same fixture brief, holds its visual identity within tolerance (manual review on first ship; automated screenshot diff is out of scope for v1).
 
 ---
 

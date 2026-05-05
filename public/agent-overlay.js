@@ -590,8 +590,8 @@
       });
     });
 
-    // Public API for other modules (e.g., convene-overlay) to open the
-    // detail view by slug without going through DOM event delegation.
+    // Public API for other modules to open the detail view by slug
+    // without going through DOM event delegation.
     window.openAgentOverlay = open;
     window.closeAgentOverlay = close;
   }

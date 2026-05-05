@@ -10,7 +10,7 @@
      strip in the chat transcript.
 */
 (function () {
-  /** Tone tooltips · keep in lockstep with app.js / convene-overlay.js. */
+  /** Tone tooltips · keep in lockstep with app.js. */
   const TONE_TIPS = {
     brainstorm:
       "Co-creator. Directors stand with you and push the idea outward — yes-and a contribution, name a concrete adjacent variant (\"what if we instead…\"), borrow pieces from another director's turn into new combinations. May end with one curious question, never a defense-demanding one.",

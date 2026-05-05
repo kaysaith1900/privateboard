@@ -1157,9 +1157,9 @@
   /* ─── Filter strip · All / Today / This week / Earlier ────────────
      Mirrors `.sidebar-tab` exactly — same active treatment (panel-3
      bg + lime label), same 4px corner radius, same hover (panel-2 bg).
-     One coherent vocabulary across every segmented control in the
-     prototype. The count rides inline after the label as quiet mono
-     micro-type — no nested chip chrome. */
+     One coherent vocabulary across every segmented control. The count
+     rides inline after the label as quiet mono micro-type — no nested
+     chip chrome. */
   .reports-filters {
     display: flex;
     gap: 2px;
@@ -5604,7 +5604,7 @@
   }
   /* Taller variant for the agent-model picker — the full catalog is
      ~13 rows + a few group headers, so we cap the height and let it
-     scroll. Hairline scrollbar to match the rest of the prototype. */
+     scroll. Hairline scrollbar to match the rest of the UI. */
   .cmp-dd-pop-tall {
     overflow-y: auto;
     max-height: 60vh;
@@ -6977,10 +6977,6 @@
      same source. See models-cache.js for the API surface. -->
 <script src="models-cache.js" defer></script>
 <script src="agent-overlay.js" defer></script>
-<!-- convene-overlay.* removed — new-room creation is now an inline composer
-     in the main view (see app.js renderEmptyState / renderComposerHtml).
-     The files remain on disk for now in case we want to bring an overlay
-     back; safe to delete once the inline composer is locked in. -->
 <link rel="stylesheet" href="room-settings.css">
 <script src="room-settings.js" defer></script>
 <link rel="stylesheet" href="adjourn-overlay.css">
@@ -7070,8 +7066,8 @@
       <!-- "All Reports" cross-room index · opens a Perplexity-Discover-
            style grid of every brief any room has produced. Sits below
            "New room" so it reads as a peer destination, not a list
-           item, with a square glyph echoing the dashboard glyphs in
-           the rest of the prototype. -->
+           item, with a square glyph echoing the dashboard glyphs
+           elsewhere in the sidebar. -->
       <a href="#" class="new-btn nav-reports" data-reports-trigger>All Reports</a>
 
       <div class="sessions-scroll">
@@ -7106,9 +7102,6 @@
             <div class="user-menu-section">
               <div class="name" data-user-menu-name>—</div>
             </div>
-            <a href="prototype-home.html" class="user-menu-item">
-              <span class="menu-icon">↩</span> Back to Home
-            </a>
           </div>
         </div>
         <a href="#" class="icon-btn" title="Settings" data-user-settings-trigger>⚙</a>
@@ -7342,7 +7335,7 @@
     io.observe(hint);
   })();
 
-  /* ─── Pin toggle (visual demo for prototype) ─── */
+  /* ─── Pin toggle (visual demo) ─── */
   (function () {
     document.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-pin-toggle]");
