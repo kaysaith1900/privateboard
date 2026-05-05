@@ -245,15 +245,12 @@
     fillRect(grid, 43, 14, 1, 14, hair.outline);
     fillRect(grid, 5,  28, 2, 3, hair.outline);
     fillRect(grid, 41, 28, 2, 3, hair.outline);
-    // texture bumps on sides
-    px(grid, 5,  17, hair.hl);
-    px(grid, 5,  19, hair.hl);
-    px(grid, 5,  22, hair.hl);
-    px(grid, 5,  24, hair.hl);
-    px(grid, 42, 17, hair.hl);
-    px(grid, 42, 19, hair.hl);
-    px(grid, 42, 22, hair.hl);
-    px(grid, 42, 24, hair.hl);
+    // Side texture bumps removed · for silver / white / blonde palettes
+    // these isolated single pixels (each at hair.hl) read as bright
+    // white speckles scattered around the head silhouette rather than
+    // the curl detail they were meant to suggest. The continuous
+    // .hl strip at (5, 14) / (41, 14) and the outline columns above
+    // already carry enough texture without the discrete dots.
   }
 
   function drawAfroHair(grid, hair) {

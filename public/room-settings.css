@@ -183,13 +183,15 @@
   .rs-config-row { grid-template-columns: 1fr; gap: 6px; }
 }
 
-/* Tone + intensity chip rows · explicit grid columns (4 / 3) so the
+/* Tone + intensity chip rows · explicit grid columns (5 / 3) so the
    chips always sit in a single row at content width. flex-wrap was
    the prior approach but allowed chips to fold onto a second line on
-   tight viewports — the user wants them locked to one row. */
+   tight viewports — the user wants them locked to one row. Tone count
+   bumped from 4 → 5 when `research` and `critique` were added; if
+   you add more modes, bump this number too. */
 .rs-mode-grid {
   display: grid;
-  grid-template-columns: repeat(4, max-content);
+  grid-template-columns: repeat(5, max-content);
   gap: 3px;
 }
 .rs-intensity-chips {

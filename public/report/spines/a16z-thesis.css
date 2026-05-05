@@ -248,7 +248,6 @@ html, body {
   font-size: 24px;
   line-height: 1.24;
   margin: 0 0 18px;
-  max-width: 720px;
   letter-spacing: -0.018em;
   font-weight: 600;
 }
@@ -1053,3 +1052,36 @@ html, body {
   font-size: 11px;
 }
 .placeholder.error { color: var(--oxblood); }
+
+/* ─── Metric strip · per-spine treatment ─────────────────────────
+   Inherits the spine-agnostic baseline in public/report.html's inline
+   <style>; this block tweaks surface, accent + typography to match
+   the spine's voice. No `border-left`, no parallel borders against
+   adjacent .chapter-num / section h2. */
+.body .metric-strip-intro {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.body .metric-card {
+  background: var(--gold-pale, rgba(201, 164, 107, 0.06));
+  border: 0.5px solid var(--gold-soft, rgba(201, 164, 107, 0.18));
+  padding: 16px 18px;
+  min-height: 104px;
+}
+.body .metric-label {
+  color: var(--gold-deep);
+  font-weight: 700;
+}
+.body .metric-value {
+  color: var(--ink);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+.body .metric-card[data-trend="up"]   .metric-value { color: var(--gold-deep); }
+.body .metric-card[data-trend="down"] .metric-value { color: var(--oxblood-deep); }
+.body .metric-trend[data-trend="up"]   { color: var(--gold-deep); }
+.body .metric-trend[data-trend="down"] { color: var(--oxblood-deep); }
+.body .metric-qualifier { color: var(--ink-soft); }
+.body .metric-attribution { color: var(--ink-faint); letter-spacing: 0.08em; }

@@ -1,0 +1,225 @@
+/* ═══════════════════════════════════════════
+   QUOTE CTA · selection-driven follow-up
+   ═══════════════════════════════════════════
+   When the user selects text inside a director's message bubble,
+   a small floating bar appears above the selection with two
+   actions: ask a follow-up (opens an overlay), or react with
+   "love it" (one-click, no typing). Both produce a user message
+   that quotes the selected snippet via markdown blockquote.
+
+   Visual vocabulary mirrors the rest of the app: panel-2 surface,
+   lime accent, mono micro-type for the action labels. Per the
+   no-coloured-left-borders rule, callouts use top tags + indent
+   instead of border-left treatments. */
+
+/* Floating action bar · two segmented buttons above the selection.
+   Restrained surface · panel-2 base, neutral hairline border, soft
+   shadow for elevation. No lime border, no notch · the bar is just
+   text-and-icon, not a feature. Inter-button divider is structural
+   border-right between adjacent items, not a callout treatment. */
+.qcta {
+  position: absolute;
+  z-index: 1400;
+  display: none;
+  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  user-select: none;
+}
+.qcta.open { display: inline-flex; align-items: stretch; }
+
+.qcta-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text, #C8C5BE);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 7px 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.12s;
+}
+/* Tighten the inner edge of each button so the two CTAs sit close
+   together. Outer edges keep their 13px breathing room against the
+   bar border. */
+.qcta-btn:not(:last-child)  { padding-right: 6px; }
+.qcta-btn:not(:first-child) { padding-left: 6px; }
+.qcta-btn:hover { color: var(--lime, #6FB572); }
+.qcta-btn:hover .ico { color: var(--lime, #6FB572); }
+.qcta-btn .ico {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-soft, #8E8B83);
+  transition: color 0.12s;
+}
+.qcta-btn .ico svg { display: block; }
+
+/* Read-only hint · shown only when the bar is in `qcta-readonly`
+   state (adjourned room). The buttons collapse out of the row and
+   the hint takes their place — the bar still pops up to acknowledge
+   the user's selection, but explains why probe / second can't fire. */
+.qcta-hint {
+  display: none;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-soft, #8E8B83);
+  padding: 8px 13px;
+  white-space: nowrap;
+}
+.qcta.qcta-readonly .qcta-btn { display: none; }
+.qcta.qcta-readonly .qcta-hint { display: inline-flex; align-items: center; }
+
+/* Ask-follow-up overlay · backdrop + modal. Same chrome family
+   as openSendChoiceModal (.pc-overlay) so the family stays coherent. */
+.qask-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 8, 8, 0.5);
+  -webkit-backdrop-filter: blur(8px) saturate(1.05);
+  backdrop-filter: blur(8px) saturate(1.05);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: qask-fade 0.16s ease-out;
+}
+@keyframes qask-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.qask-modal {
+  width: 100%;
+  max-width: 560px;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime, #6FB572);
+  color: var(--text, #C8C5BE);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.65);
+  animation: qask-rise 0.2s ease-out;
+}
+@keyframes qask-rise {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.qask-classification {
+  padding: 8px 14px;
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-2, #1A1A18);
+}
+.qask-classification .dot { color: var(--lime, #6FB572); }
+.qask-classification .right { color: var(--text-faint, #3A382F); }
+
+.qask-body { padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Quote callout · top tag + indented italic body. NO left-border
+   treatment per the project-wide rule. */
+.qask-quote {
+  background: var(--panel-2, #1A1A18);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.qask-quote-tag {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 700;
+}
+.qask-quote-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-soft, #8E8B83);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.qask-input-wrap {
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  display: flex;
+  align-items: stretch;
+  transition: border-color 0.12s;
+}
+.qask-input-wrap:focus-within { border-color: var(--lime, #6FB572); }
+.qask-input-wrap::before {
+  content: ">";
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  padding: 9px 0 0 11px;
+  align-self: flex-start;
+}
+.qask-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: var(--font-human, var(--mono));
+  font-size: 13.5px;
+  color: var(--text, #C8C5BE);
+  outline: none;
+  padding: 9px 12px;
+  letter-spacing: -0.003em;
+  width: 100%;
+  resize: none;
+  min-height: 72px;
+  line-height: 1.5;
+}
+.qask-input::placeholder { color: var(--text-faint, #3A382F); }
+
+.qask-foot {
+  padding: 10px 14px;
+  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--panel-2, #1A1A18);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.qask-btn {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 7px 14px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: transparent;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.qask-btn:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+.qask-btn.primary {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+.qask-btn.primary:hover { background: var(--lime, #6FB572); color: var(--bg, #0A0A0A); }
+.qask-btn[disabled] { opacity: 0.4; cursor: not-allowed; }

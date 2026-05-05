@@ -2378,6 +2378,7 @@
     // through under the room view.
     if (v.reports) v.reports.setAttribute("hidden", "");
     document.querySelectorAll(".agent-row.active").forEach((r) => r.classList.remove("active"));
+    currentlyOpenSlug = null;
   }
 
   /** Build a minimal profile object from a live /api/agents record so
@@ -2423,7 +2424,15 @@
     };
   }
 
+  // Track the currently-open profile so other modules (user-settings)
+  // can ask us to re-fetch skill state after they mutate keys. Without
+  // this, the web-search toggle row keeps its `data-key-configured="0"`
+  // attribute baked from the first render and the user gets the
+  // "configure key" prompt forever after they actually configured it.
+  let currentlyOpenSlug = null;
+
   function open(slug) {
+    currentlyOpenSlug = slug;
     let p = PROFILES[slug];
     // Live agent record (DB row · includes seeded directors too,
     // since they live in the agents table). Custom directors created
@@ -3320,6 +3329,13 @@
 
   window.openAgentProfile  = open;
   window.closeAgentProfile = showRoom;
+  // Re-fetch the open profile's skills (incl. per-skill keyConfigured
+  // flags) so the web-search toggle row's cached `data-key-configured`
+  // refreshes after the user adds a key in Preferences. No-op when no
+  // profile is currently open.
+  window.refreshAgentProfileSkills = function () {
+    if (currentlyOpenSlug) loadSkillsForV2(currentlyOpenSlug);
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

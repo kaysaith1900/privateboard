@@ -1,0 +1,12 @@
+-- House style preset · captures the editorial / structural register the
+-- composer picked for this brief, alongside the existing spine (visual
+-- CSS) and components_json (per-component picks). The same components
+-- can render under different house styles with different section
+-- vocabulary and voice — `sequoia-memo` and `stanford-research` share
+-- the recommendations component but rename it to "## What Would Make
+-- This Work" vs "## Future Work" and shift voice from declarative to
+-- hedged.
+--
+-- Default keeps legacy briefs renderable (`boardroom-default` is the
+-- existing behaviour: default English labels, neutral voice).
+ALTER TABLE briefs ADD COLUMN house_style TEXT NOT NULL DEFAULT 'boardroom-default';

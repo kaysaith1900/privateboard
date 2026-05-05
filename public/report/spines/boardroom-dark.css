@@ -315,7 +315,6 @@ html, body {
   margin: 0 0 22px;
   padding: 0;
   border: none;
-  max-width: 760px;
   letter-spacing: -0.018em;
 }
 .body h2::before { display: none; }
@@ -1080,3 +1079,20 @@ html, body {
   font-size: 11px;
 }
 .placeholder.error { color: var(--red); }
+
+/* ─── Metric strip · per-spine treatment ─────────────────────────
+   Inherits the spine-agnostic baseline in public/report.html's inline
+   <style>; this block tweaks surface, accent + typography to match
+   the spine's voice. No `border-left`, no parallel borders against
+   adjacent .chapter-num / section h2. */
+.body .metric-strip-intro { color: var(--text-soft); }
+.body .metric-card {
+  background: var(--panel-2);
+  border-color: var(--line-bright);
+}
+.body .metric-value { color: var(--text); }
+.body .metric-card[data-trend="up"]   .metric-value { color: var(--em); }
+.body .metric-card[data-trend="down"] .metric-value { color: var(--red); }
+.body .metric-trend[data-trend="up"]   { color: var(--em); }
+.body .metric-trend[data-trend="down"] { color: var(--red); }
+.body .metric-label { color: var(--accent); }

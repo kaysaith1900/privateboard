@@ -13,6 +13,8 @@ import type { LLMMessage } from "../adapter.js";
 import type { Agent } from "../../storage/agents.js";
 import type { Message } from "../../storage/messages.js";
 import type { Room } from "../../storage/rooms.js";
+import { houseStyleLabel, resolveHouseStyle } from "./house-styles.js";
+import type { ComponentKind } from "./composer.js";
 
 /** The five evidence lenses. Stage 2/3 enforce at least 2 distinct
  *  lenses per finding to guarantee diversity. */
@@ -186,11 +188,73 @@ export interface StrengthsCautionsVisual {
     verdict: "recommended" | "caution" | "not-recommended";
   }[];
 }
+
+/** Ranked bar chart · 2–8 bars side-by-side comparing one quantitative
+ *  dimension across labelled items. Rendered through mermaid
+ *  `xychart-beta`. Use when the room produced a comparable measure
+ *  (cost, support strength, time-to-ship, market size) across discrete
+ *  named items. */
+export interface BarChartVisual {
+  type: "bar-chart";
+  title: string;
+  /** Y-axis caption (the quantity being measured). ≤ 32 chars. */
+  yLabel: string;
+  /** Optional unit · rendered after the value in the description.
+   *  Empty string is fine (mermaid ignores). ≤ 16 chars. */
+  unit: string;
+  bars: {
+    /** Item name on the X axis. ≤ 24 chars. Avoid quotes / colons / brackets. */
+    label: string;
+    /** Numeric reading. Stage 2 emits as a number — Stage 3 stringifies for
+     *  mermaid. */
+    value: number;
+  }[];
+}
+
+/** Timeline · 3–8 dated points telling the room's narrative arc
+ *  (history beats / project phases / scenario chronology). Rendered
+ *  through mermaid `timeline`. Strong fit for retro / historical-
+ *  analogue / first-round-essay registers; opportunistic everywhere
+ *  else. */
+export interface TimelineVisual {
+  type: "timeline";
+  title: string;
+  points: {
+    /** Period label · the X-axis stop. ≤ 24 chars. ("2019", "Q3 2024",
+     *  "Today", "+12 mo"). */
+    period: string;
+    /** Short event label. ≤ 60 chars. Concrete; avoid corporate verbs. */
+    label: string;
+    /** Optional one-clause expansion. ≤ 140 chars. Empty string is
+     *  fine — the period + label often carry the point. */
+    description: string;
+  }[];
+}
+
+/** Pie chart · 2–6 slices showing a distribution. Rendered through
+ *  mermaid `pie showData`. Slice values can be percentages (sum ~100)
+ *  OR raw counts — mermaid normalises. The room's typical hits:
+ *  scenario-tree probability split, lens distribution, vote tallies,
+ *  market-share read. */
+export interface PieChartVisual {
+  type: "pie-chart";
+  title: string;
+  slices: {
+    /** ≤ 32 chars. Avoid quotes / colons. */
+    label: string;
+    /** Number ≥ 0. */
+    value: number;
+  }[];
+}
+
 export type Visual =
   | ComparisonTableVisual
   | QuadrantChartVisual
   | ForceFieldVisual
-  | StrengthsCautionsVisual;
+  | StrengthsCautionsVisual
+  | BarChartVisual
+  | TimelineVisual
+  | PieChartVisual;
 
 /** Section 9 · Recommendation. Concrete action with priority, rationale,
  *  owner type, time horizon, and a success metric. Rendered as a numbered
@@ -398,6 +462,92 @@ export interface LeadingIndicator {
   flipsTo: string;
 }
 
+/** Trend direction on a metric card. `null` / undefined when the room
+ *  did not produce a directional read. */
+export type MetricTrend = "up" | "down" | "flat";
+
+/** A single KPI / indicator card · shows up in the dashboard-style
+ *  `metric-strip` component. Exactly one number-like value per card,
+ *  surrounded by a label and (optionally) a unit / qualifier and a
+ *  trend arrow. The "value" is intentionally a string so the LLM can
+ *  emit ranges ("≤ 8%", "18–24 mo"), inequalities ("> 100×"), and CJK
+ *  unit spelling ("≈ 三个季度") without losing fidelity to a numeric
+ *  type. */
+export interface MetricCard {
+  /** ≤ 60 chars · what this number measures (e.g. "API revenue at
+   *  risk", "Window before parity", "Convergence rate"). */
+  label: string;
+  /** ≤ 24 chars · the number-like reading (e.g. "≤ 8%", "18 mo",
+   *  "3 of 4", "≈ $40M"). Keep it short — long text belongs in the
+   *  qualifier or attribution lines, the value is the eye-catch. */
+  value: string;
+  /** Optional qualifier · one short phrase contextualising the value
+   *  (e.g. "of total ARR", "if no leak", "in the base case"). ≤ 80
+   *  chars. */
+  qualifier: string | null;
+  /** Optional directional read. Drives a small ↑ / ↓ / → glyph in the
+   *  rendered card. Null when the value is a level, not a direction. */
+  trend: MetricTrend | null;
+  /** Optional · which director / lens generated the number. ≤ 80
+   *  chars. Surfaces multi-director provenance the way Headline
+   *  Findings does on the prose side. */
+  attribution: string | null;
+}
+
+/** Dashboard-style strip of 3-5 indicator cards. The intro is a single
+ *  framing sentence; the cards are the actual numbers. Stage 3 emits
+ *  this as raw HTML (`<div class="metric-strip"> ...`) so the renderer
+ *  can lay it out as a grid with per-spine visual treatment. Picked
+ *  whenever the room produced ≥ 3 quantitative claims worth surfacing
+ *  side-by-side. */
+export interface MetricStrip {
+  /** ≤ 200 chars · single sentence framing the strip ("Three numbers
+   *  worth pricing in" / "By the numbers" / etc.). The room's house
+   *  style provides the section heading; this field is the optional
+   *  intro line that opens the strip. Empty string is fine. */
+  intro: string;
+  /** 3-5 cards. Below 3 reads as token effort; above 5 stops scanning
+   *  as a strip. */
+  cards: MetricCard[];
+}
+
+/** Severity of a validity threat · same coarse band as Confidence. */
+export type ThreatSeverity = "low" | "medium" | "high";
+
+/** Threats to validity · Stanford-style critical examination of how
+ *  the brief itself could be wrong. Distinct from `pre-mortem` (how
+ *  the *recommended action* could fail) and from `critical-assumptions`
+ *  (the foundational assumptions the brief rests on, which carry
+ *  confidence + falsifier). A threat-to-validity names a way the
+ *  *analysis* could be misleading: selection bias, sample of N, lens
+ *  blind spot, generalizability ceiling, confounding factor. Each has
+ *  a category, the threat itself, an observable that would prove it
+ *  realized, severity, and an optional mitigation. The room's
+ *  intellectual honesty becomes structural — these are not appendix
+ *  caveats, they're a load-bearing section of the brief. */
+export interface ThreatToValidity {
+  /** Concrete category label · ≤ 50 chars. Examples: "Selection bias",
+   *  "Generalizability ceiling", "Construct validity", "Confounding
+   *  factor", "Sample of N=1", "Lens blind spot", "Survivorship",
+   *  "Anchoring on the loudest director". Pick a *named* category, not
+   *  a free-form essay. */
+  category: string;
+  /** The threat in 1-2 sentences (≤ 280 chars). Concrete: explains
+   *  what could be wrong about the *analysis itself*, not what could
+   *  go wrong with the recommendation. */
+  threat: string;
+  /** Observable signal that would prove this threat is realized. ≤ 200
+   *  chars. The observable is what makes the threat falsifiable — a
+   *  threat without an observable is just a hedge. */
+  observable: string;
+  /** Severity if the threat is realized · low / medium / high. Drives
+   *  visual weighting in the rendered table. */
+  severity: ThreatSeverity;
+  /** Optional mitigation — what would address or defuse this threat.
+   *  ≤ 200 chars. Set null when the room had no concrete mitigation. */
+  mitigation: string | null;
+}
+
 /** Forward / opportunity panel · used by a16z-thesis spine (and any
  *  spine when the conversation hinged on a window in time). */
 export interface WhyNow {
@@ -474,6 +624,18 @@ export interface BriefScaffold {
   scenarioTree?: ScenarioTree | null;
   /** 3-5 leading indicators · signal / threshold / cadence / flipsTo. */
   leadingIndicators?: LeadingIndicator[] | null;
+  /** 3-5 threats to validity · how the analysis itself could be wrong.
+   *  Stanford-research-grade self-criticism that's distinct from
+   *  pre-mortem (how the *action* could fail) and critical-assumptions
+   *  (the foundations the brief rests on). Set when the composer picks
+   *  the `threats-to-validity` component. */
+  threatsToValidity?: ThreatToValidity[] | null;
+  /** Dashboard-style KPI / indicator strip · 3-5 number cards that
+   *  carry the room's quantitative reads side-by-side. Set when the
+   *  composer picks the `metric-strip` component. Distinct from
+   *  `visuals` (which holds discrete options-comparison artefacts) —
+   *  metric-strip is "by the numbers", visuals is "by the options". */
+  metricStrip?: MetricStrip | null;
   // ── Residual ──
   openQuestions: OpenQuestion[];
 }
@@ -621,11 +783,14 @@ const SCAFFOLD_SYSTEM = [
   "7. **Positions** · 2–3 named camps. Short evocative label (\"The Skeptics\", \"The Long-Horizon Camp\"), one-sentence collective claim, director ids, supporting signal refs. A director appears in only one camp.",
   "",
   "8. **Visuals** · 0–4 blocks. Content-driven. Pick from:",
-  "   · `comparison-table` — when ≥ 2 named options were compared on shared dimensions",
-  "   · `quadrant-chart` — when items can be plotted on two real axes",
-  "   · `force-field` — drivers vs resistors of one outcome",
-  "   · `strengths-cautions` — strengths / cautions / verdict per option",
-  "   If the discussion contained ≥ 2 named options or paths, you SHOULD produce ≥ 1 visual.",
+  "   · `comparison-table`  — ≥ 2 named options compared on shared dimensions (text matrix)",
+  "   · `quadrant-chart`    — items plotted on two real axes (mermaid quadrantChart)",
+  "   · `force-field`       — drivers vs resistors of one outcome (text two-column)",
+  "   · `strengths-cautions`— strengths / cautions / verdict per option (text matrix)",
+  "   · `bar-chart`         — 2–8 named items ranked by ONE quantitative dimension (mermaid xychart-beta · cost / support / size / time)",
+  "   · `timeline`          — 3–8 dated points telling a narrative arc (mermaid timeline · retro / historical analogue / projected sequence)",
+  "   · `pie-chart`         — 2–6 slices showing a distribution (mermaid pie · scenario probabilities / lens shares / vote tallies / market mix). Numbers can be percentages OR raw counts — mermaid normalises.",
+  "   Strong rule: if the discussion contained ANY ranked numeric measure across items → bar-chart. ANY chronological sequence ≥ 3 events → timeline. ANY distribution that sums (probability split, votes, lens count, market share) → pie-chart. These three are massively higher information density than the equivalent prose.",
   "",
   "9. **Recommendations** · 3–5 concrete actions, each with: `priority` (P0/P1/P2), `action` (imperative), `rationale`, `ownerType`, `horizon` (e.g. \"next 30 days\"), `successMetric` (observable proof of execution), `riskIfSkipped`. Recommendations are imperatives — \"Do X\" not \"X should happen\".",
   "",
@@ -694,7 +859,10 @@ const SCAFFOLD_SYSTEM = [
   '    { "type": "comparison-table", "title": "...", "rowLabel": "Option", "columns": ["Speed", "Risk", "Cost"], "rows": [ { "name": "Option A", "cells": ["Fast", "High", "Low"] } ] },',
   '    { "type": "quadrant-chart", "title": "...", "xLabel": "Effort", "yLabel": "Impact", "q1": "Quick wins", "q2": "Major projects", "q3": "Fill-ins", "q4": "Thankless tasks", "items": [ { "label": "Idea A", "x": 0.7, "y": 0.8 } ] },',
   '    { "type": "force-field", "title": "...", "drivers": ["..."], "resistors": ["..."] },',
-  '    { "type": "strengths-cautions", "title": "...", "rows": [ { "option": "Option A", "strengths": ["..."], "cautions": ["..."], "verdict": "recommended" } ] }',
+  '    { "type": "strengths-cautions", "title": "...", "rows": [ { "option": "Option A", "strengths": ["..."], "cautions": ["..."], "verdict": "recommended" } ] },',
+  '    { "type": "bar-chart", "title": "Estimated time-to-ship", "yLabel": "Months to ship", "unit": "mo", "bars": [ { "label": "Option A", "value": 6 }, { "label": "Option B", "value": 14 } ] },',
+  '    { "type": "timeline", "title": "How the platform reached parity", "points": [ { "period": "2019", "label": "First open weights ship", "description": "..." }, { "period": "2022", "label": "...", "description": "" } ] },',
+  '    { "type": "pie-chart", "title": "Scenario probability split", "slices": [ { "label": "Base", "value": 55 }, { "label": "Upside", "value": 25 }, { "label": "Downside", "value": 20 } ] }',
   '  ],',
   '  "recommendations": [',
   '    { "priority": "P0", "action": "Imperative concrete action.", "rationale": "Why this works.", "ownerType": "platform team", "horizon": "next 30 days", "successMetric": "Observable proof.", "riskIfSkipped": "What goes wrong.", "criticalDependency": "What MUST be true for this to work — the load-bearing pre-condition. Forces stress-testing." }',
@@ -736,7 +904,16 @@ const SCAFFOLD_SYSTEM = [
   '  },',
   '  "leadingIndicators": [',
   '    { "signal": "What to watch.", "threshold": "Threshold or pattern that flips the read.", "cadence": "weekly", "flipsTo": "Which scenario this confirms or which assumption it falsifies." }',
-  '  ]',
+  '  ],',
+  '  "threatsToValidity": [',
+  '    { "category": "Selection bias", "threat": "1-2 sentences naming WHAT about the analysis could mislead.", "observable": "What you\'d see if this threat is realized.", "severity": "high", "mitigation": "What would address it (or null)." }',
+  '  ],',
+  '  "metricStrip": {',
+  '    "intro": "Single sentence framing the strip (\'Three numbers worth pricing in\' / \'By the numbers\').",',
+  '    "cards": [',
+  '      { "label": "≤ 60 chars · what this number measures.", "value": "≤ 24 chars · the number-like reading (\'≤ 8%\', \'18 mo\').", "qualifier": "Optional · ≤ 80 chars context (\'of total ARR\').", "trend": "up | down | flat | null", "attribution": "Optional · which director / lens (≤ 80 chars)." }',
+  '    ]',
+  '  }',
   "}",
   "```",
   "",
@@ -768,7 +945,7 @@ const SCAFFOLD_SYSTEM = [
   "  · `the-bet`                    → fill `theBet: { ifBacked, conditions[3-5], killCriteria }`. Leave others.",
   "  · `considerations`             → fill `considerations` with the SAME shape as `recommendations` (3-5 items, P0/P1/P2, owner, horizon, success metric, risk-if-skipped). Voice should be hedged in the prose (we'll worry about voice at write time; the data shape is identical).",
   "",
-  "Optional kinds (`frame-shift`, `convergence`, `divergence`, `positions`, `visuals`, `two-paths`, `why-now`, `pre-mortem`, `new-questions`, `planning-assumption`, `open-questions`, `strategic-outlook`, `critical-assumptions`, `scenario-tree`, `leading-indicators`): when listed in the picked set, fill them as the spec above describes. When NOT listed, set them to the empty value (`[]` for arrays, `null` for nullable objects, `{shifted:false, original:'', reframed:'', trigger:''}` for frameShift).",
+  "Optional kinds (`frame-shift`, `convergence`, `divergence`, `positions`, `visuals`, `two-paths`, `why-now`, `pre-mortem`, `new-questions`, `planning-assumption`, `open-questions`, `strategic-outlook`, `critical-assumptions`, `scenario-tree`, `leading-indicators`, `threats-to-validity`, `metric-strip`): when listed in the picked set, fill them as the spec above describes. When NOT listed, set them to the empty value (`[]` for arrays, `null` for nullable objects, `{shifted:false, original:'', reframed:'', trigger:''}` for frameShift).",
   "",
   "## Substitute schemas (when picked)",
   "",
@@ -864,6 +1041,37 @@ const SCAFFOLD_SYSTEM = [
   "```",
   "Sum of `probability` across branches must be 95–105 (drift to 100 ± 5 allowed).",
   "",
+  "`threatsToValidity` (3–5 ways the *analysis itself* could be wrong · Stanford-grade self-criticism):",
+  "```json",
+  "[",
+  '  {',
+  '    "category": "≤ 50 chars · concrete category name (e.g. \\"Selection bias\\", \\"Generalizability ceiling\\", \\"Construct validity\\", \\"Confounding factor\\", \\"Sample of N=1\\", \\"Lens blind spot\\", \\"Survivorship\\", \\"Anchoring on the loudest director\\"). Pick a NAMED category — not a free-form essay.",',
+  '    "threat": "1-2 sentences (≤ 280 chars) naming WHAT about the *analysis itself* could mislead. Distinct from pre-mortem (how the recommended action could fail) and from critical-assumptions (the assumptions the brief rests on).",',
+  '    "observable": "What you would see if this threat is realized (≤ 200 chars). Without an observable, a threat is just a hedge — it must be falsifiable.",',
+  '    "severity": "low | medium | high",',
+  '    "mitigation": "What would address or defuse this threat (≤ 200 chars). Set null when the room had no concrete mitigation."',
+  "  }",
+  "]",
+  "```",
+  "Threats name limits of the analysis, not limits of the conclusion. \"The recommendation might fail if X\" is pre-mortem material; \"our analysis only consulted Western strategy directors so the conclusion may not generalize\" is a threat to validity. Pick at most 5; below 3 reads as token effort, above 5 turns into noise.",
+  "",
+  "`metricStrip` (3–5 dashboard-style KPI cards · the room's quantitative reads side-by-side):",
+  "```json",
+  "{",
+  '  "intro": "Single sentence framing the strip · ≤ 200 chars (e.g. \\"Three numbers worth pricing in\\", \\"By the numbers\\"). Empty string is fine when the section heading already does the framing.",',
+  '  "cards": [',
+  '    {',
+  '      "label": "≤ 60 chars · what this number measures (e.g. \\"API revenue at risk\\", \\"Window before parity\\", \\"Convergence rate among directors\\"). Concrete, scannable.",',
+  '      "value": "≤ 24 chars · the number-like reading. Strings, not numbers — preserves ranges (\\"≤ 8%\\", \\"18–24 mo\\"), inequalities (\\"> 100×\\"), and CJK units (\\"≈ 三个季度\\"). The eye-catch.",',
+  '      "qualifier": "Optional · ≤ 80 chars context (\\"of total ARR\\", \\"if no leak\\", \\"in the base case\\"). Set null when the value stands alone.",',
+  '      "trend": "up | down | flat | null · directional read. Null when the value is a level, not a direction.",',
+  '      "attribution": "Optional · which director / lens generated the number (\\"First Principles · data\\"). ≤ 80 chars. Null acceptable but PREFER providing one — it makes the multi-director sourcing visible the way Headline Findings does."',
+  "    }",
+  "  ]",
+  "}",
+  "```",
+  "Pick metric-strip whenever the room produced ≥ 3 quantitative claims worth surfacing as a row of cards (percentages, time windows, ratios, counts, ranges). Each card holds ONE number — never bury two numbers in one value. Distinct from `leadingIndicators` (which is a forward-looking watch-list with thresholds + cadence) — metric-strip carries the room's READS as numbers right now.",
+  "",
   "`leadingIndicators` (3–5 monitoring signals):",
   "```json",
   "[",
@@ -895,6 +1103,10 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     "open-questions",
     // Gartner-density blocks
     "strategic-outlook", "critical-assumptions", "scenario-tree", "leading-indicators",
+    // Stanford-research self-criticism block
+    "threats-to-validity",
+    // Dashboard-style indicator strip
+    "metric-strip",
   ]);
   const set = new Set(picked.filter((k) => allKnown.has(k)));
   if (!set.size) return "";
@@ -992,6 +1204,17 @@ interface WriteOpts {
    *  section is fair game — preserves legacy "render whatever's filled"
    *  behaviour. */
   picked?: readonly string[];
+  /** Composer-picked house-style preset slug. Drives section vocabulary
+   *  + voice register at write time. Defaults to `boardroom-default`
+   *  (no overrides). */
+  houseStyle?: string;
+  /** Stable seed for the house-style variant picker · typically the
+   *  briefId. Same seed + same kind always selects the same variant,
+   *  so regeneration of a brief renders identically; different briefs
+   *  in the same house style land on different variants for high-
+   *  rotation kinds (anchor / findings / action / pre-mortem / etc.).
+   *  Optional — omitted callers pin to variant 0 of every entry. */
+  briefId?: string;
 }
 
 const WRITE_SYSTEM = [
@@ -1085,6 +1308,57 @@ const WRITE_SYSTEM = [
   "    For `strengths-cautions`:",
   "      ### {title}",
   "      A markdown table with columns `Option | Strengths | Cautions | Verdict`. Each row's Strengths/Cautions cells are bullet-separated (· between items). Verdict markers: `recommended` → **Recommended** · `caution` → ⚠ **Caution required** · `not-recommended` → **Not recommended**.",
+  "",
+  "    For `bar-chart`:",
+  "      ### {title}",
+  "      Render a fenced ```mermaid block with `xychart-beta` (mermaid 10+ stable). Strict shape so the lexer doesn't reject:",
+  "      ```",
+  "      xychart-beta",
+  "          title \"{title}\"",
+  "          x-axis [\"{bar.label}\", \"{bar.label}\", ...]",
+  "          y-axis \"{yLabel}\"",
+  "          bar [{bar.value}, {bar.value}, ...]",
+  "      ```",
+  "      Hard rules:",
+  "        · `x-axis` is a literal JSON-style array of DOUBLE-QUOTED labels, comma-separated. No bare strings. CJK is fine inside the quotes.",
+  "        · Inside any quoted label: NO double-quote, NO `:`, NO `[`, NO `]`. Replace with ` - ` if needed.",
+  "        · `bar` values are bare numbers, in the same order as x-axis labels. Match counts (lexer fails on mismatch).",
+  "        · `title` is double-quoted. ASCII parens only — replace fullwidth `（）` with halfwidth `()`.",
+  "        · 2–8 bars. Below 2 isn't a comparison; above 8 stops being scannable.",
+  "        · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
+  "",
+  "    For `timeline`:",
+  "      ### {title}",
+  "      Render a fenced ```mermaid block with `timeline`. Strict shape:",
+  "      ```",
+  "      timeline",
+  "          title {title}",
+  "          {period} : {label} : {description}",
+  "      ```",
+  "      Hard rules:",
+  "        · `title` is plain text on its own line — NO quotes (mermaid timeline syntax differs from xychart). One line. ASCII parens only. NO `:` inside the title.",
+  "        · One point per line: `{period} : {label} : {description}` — colons are the field separators, so labels / descriptions cannot contain `:`. Replace with ` — ` if needed.",
+  "        · Period (e.g. \"2019\", \"Q3 2024\", \"Today\") is the column header rendered above the dot.",
+  "        · Description is optional · when scaffold.description is empty, use the 2-segment form: `{period} : {label}` (no trailing colon, no empty third segment — mermaid 11.0+ rejects empty fields).",
+  "        · 3–8 points. Below 3 reads as a stub; above 8 the strip overflows.",
+  "        · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
+  "",
+  "    For `pie-chart`:",
+  "      ### {title}",
+  "      Render a fenced ```mermaid block with `pie showData` so each slice's number is printed in the legend:",
+  "      ```",
+  "      pie showData",
+  "          title {title}",
+  "          \"{slice.label}\" : {slice.value}",
+  "          \"{slice.label}\" : {slice.value}",
+  "      ```",
+  "      Hard rules:",
+  "        · `title` is plain text — NO quotes. ASCII parens only. NO `:` inside the title.",
+  "        · Each slice is `\"{label}\" : {number}` — label DOUBLE-QUOTED, value bare number. The literal colon between them is required.",
+  "        · Labels: NO `\"`, NO `:`, NO `[`, NO `]` inside. Replace with ` - ` if needed.",
+  "        · Values can be percentages summing to ~100 OR raw counts — mermaid normalises. Keep 2 decimals max.",
+  "        · 2–6 slices. Pies with > 6 slices stop being readable.",
+  "        · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
   "",
   "  ## Recommendations",
   "  Skip if `recommendations` is empty. Otherwise render as a numbered list, one per recommendation, sorted by priority. Each item:",
@@ -1215,6 +1489,37 @@ const WRITE_SYSTEM = [
   "      | {signal} | {threshold} | {cadence} | {flipsTo} |",
   "    Each row is one indicator. Keep cell content tight — the value is in seeing all 3-5 indicators side-by-side as a watch-list, not in prose elaboration.",
   "",
+  "  ### threatsToValidity (Stanford-style · how the analysis itself could be wrong)",
+  "  When `scaffold.threatsToValidity` is non-empty AND was picked, render it AFTER critical-assumptions (or AFTER findings when no critical-assumptions). This section is the room's intellectual honesty made structural — not an appendix caveat.",
+  "    ## Threats to Validity",
+  "    Open with one sentence framing the section: \"The analysis below could be wrong in named ways. These are the threats — each is concrete, observable, and (where possible) mitigable.\"",
+  "    Then a markdown table with columns `Category | Threat | Observable | Severity | Mitigation`. One row per item, sorted by severity (high → medium → low). Render severity as **`High`** / **`Medium`** / **`Low`** (literal backticked, bolded). The `Mitigation` cell is the literal string `—` when scaffold.mitigation is null.",
+  "      | Category | Threat | Observable | Severity | Mitigation |",
+  "      | --- | --- | --- | --- | --- |",
+  "      | {category} | {threat} | {observable} | **`Severity`** | {mitigation or —} |",
+  "    Don't pad the section with prose — the table IS the section. The voice register from the picked house style applies, but the table structure stays identical across styles. Threats here name the limits of the *analysis*, not the limits of the *recommendation* (that's pre-mortem).",
+  "",
+  "  ### metricStrip (dashboard · the room's numbers as a row of KPI cards)",
+  "  When `scaffold.metricStrip` is non-null AND was picked, render it as the report's first quantitative beat — natural slot is RIGHT AFTER the anchor (Bottom Line / Thesis / Working Hypothesis), so a reader skimming the top of the report sees the headline judgement followed immediately by the numbers behind it. Acceptable alternative slot: right before Recommendations, when the numbers frame the action rather than the judgement.",
+  "    Heading from the house style (default `## By the Numbers`).",
+  "    Then emit a fenced code block with language tag `metric-strip` whose body is STRICT JSON. The report renderer detects this block and emits the styled card grid (mirrors how ```mermaid is handled today). Format:",
+  "    ```metric-strip",
+  "    {",
+  '      "intro": "Three numbers worth pricing in",',
+  '      "cards": [',
+  '        { "label": "API revenue at risk", "value": "≤ 8%", "qualifier": "of total ARR", "attribution": "First Principles · data" },',
+  '        { "label": "Window before parity", "value": "18 mo", "trend": "down", "qualifier": "unless training data leaks" },',
+  '        { "label": "Convergence rate", "value": "2 of 3", "qualifier": "directors at high confidence" }',
+  "      ]",
+  "    }",
+  "    ```",
+  "    Hard rules:",
+  "      · The block opens with the literal three backticks + `metric-strip` and closes with three backticks on a line by itself. Just like mermaid blocks.",
+  "      · Body is one JSON object with `intro` (string, may be empty) and `cards` (array of 3–5 objects).",
+  "      · Each card object: `label` (required string), `value` (required string), `qualifier` (optional string · omit key OR set null when empty), `trend` (optional · one of `\"up\"` / `\"down\"` / `\"flat\"` · omit key when null), `attribution` (optional string).",
+  "      · Mirror the scaffold.metricStrip values 1:1. Don't invent extra cards; don't drop cards the scaffold supplied.",
+  "      · Don't pad the section with surrounding prose. The cards carry the section.",
+  "",
   "  ### twoPaths (multi-perspective / comparison alternative)",
   "  When `scaffold.twoPaths` is non-null AND was picked, render in place of (or alongside) `## Options Analysis`:",
   "    ## Two Paths",
@@ -1265,8 +1570,108 @@ function renderSignalRef(
   return `[${ref}] (missing)`;
 }
 
+/** Default Stage-3 markdown heading per component kind · what
+ *  WRITE_SYSTEM has been instructing the LLM to use. The house-style
+ *  addendum overrides specific entries here without touching the rest
+ *  of the prompt. Keeping this table small (only the kinds whose
+ *  default heading is naturally rewriteable) keeps the addendum
+ *  unambiguous — if a kind isn't here, the addendum doesn't try to
+ *  rename it. */
+const DEFAULT_KIND_LABELS: Partial<Record<ComponentKind, string>> = {
+  "bottom-line":           "Bottom Line",
+  "thesis":                "The Thesis",
+  "working-hypothesis":    "A working hypothesis",
+  "frame-shift":           "Frame Shift",
+  "strategic-outlook":     "Strategic Outlook",
+  "headline-findings":     "Headline Findings",
+  "big-ideas":             "Three Big Ideas",
+  "critical-assumptions":  "Critical Assumptions",
+  "convergence":           "Where We Converged",
+  "divergence":            "Where We Diverged",
+  "positions":             "Positions",
+  "visuals":               "Options Analysis",
+  "two-paths":             "Two Paths",
+  "why-now":               "Why Now",
+  "recommendations":       "Recommendations",
+  "the-bet":               "The Bet",
+  "considerations":        "Considerations",
+  "scenario-tree":         "Scenario Tree",
+  "leading-indicators":    "Leading Indicators",
+  "threats-to-validity":   "Threats to Validity",
+  "metric-strip":          "By the Numbers",
+  "pre-mortem":            "Pre-mortem",
+  "new-questions":         "New Questions This Surfaced",
+  "planning-assumption":   "Strategic Planning Assumption",
+  "open-questions":        "Open Questions",
+};
+
+/** Build the house-style addendum to WRITE_SYSTEM · two blocks:
+ *
+ *    1. Voice register · short paragraph telling the LLM how to write.
+ *    2. Section-label overrides · per-kind heading replacements. Only
+ *       lists kinds the picked house style overrides; kinds not listed
+ *       keep their default headings from WRITE_SYSTEM. When a label
+ *       entry has multiple variants, `seed` (typically the brief id)
+ *       deterministically selects one — same seed + kind always picks
+ *       the same variant, so regeneration is stable while different
+ *       briefs in the same house style get different titles.
+ *
+ *  Returns an empty string for `boardroom-default` (no overrides) so
+ *  legacy behaviour passes through cleanly. */
+function buildHouseStyleAddendum(
+  styleId: string | undefined,
+  language: ReportLanguage,
+  seed: string | number | undefined,
+): string {
+  const style = resolveHouseStyle(styleId);
+  if (style.id === "boardroom-default") return "";
+
+  const overrideLines: string[] = [];
+  for (const kind of Object.keys(DEFAULT_KIND_LABELS) as ComponentKind[]) {
+    const override = houseStyleLabel(style, kind, language, seed);
+    if (!override) continue;
+    const def = DEFAULT_KIND_LABELS[kind];
+    if (!def) continue;
+    if (override.trim() === def.trim()) continue;
+    overrideLines.push(`  · component=\`${kind}\` · default \`## ${def}\` → use \`## ${override}\``);
+  }
+
+  const voice = language === "zh" ? style.voice.zh : style.voice.en;
+
+  const lines: string[] = [
+    "",
+    "## House style — applies to THIS brief",
+    "",
+    `Picked: \`${style.id}\` · ${style.label}`,
+    "",
+    "### Voice register",
+    "",
+    voice,
+    "",
+  ];
+
+  if (overrideLines.length > 0) {
+    lines.push(
+      "### Section-heading overrides",
+      "",
+      "When you render the section for one of the component kinds below, use the H2 on the right INSTEAD of the default heading specified earlier in this prompt. The section's body rules (structure, fields, formatting) stay identical — only the heading text changes. Components not listed here keep their default headings. Do NOT add or drop sections based on this list — it's purely a rename.",
+      "",
+      ...overrideLines,
+      "",
+    );
+  }
+
+  lines.push(
+    "### Override on heading style",
+    "",
+    "The default rule \"section headings ARE the takeaway, claim-style only\" is RELAXED for house-styled briefs. Use the override label verbatim — house-style headings are deliberately editorial (e.g. \"The Pillars\", \"Why Now\", \"Limitations\") rather than claim-style. The claim-style discipline still applies to H3 sub-headings inside the section.",
+  );
+
+  return lines.join("\n");
+}
+
 export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
-  const { room, members, scaffold, perDirectorSignals, language, picked } = opts;
+  const { room, members, scaffold, perDirectorSignals, language, picked, houseStyle, briefId } = opts;
 
   const directorNameById = new Map(members.map((a) => [a.id, a.name]));
   const nameOf = (id: string) => directorNameById.get(id) || id;
@@ -1612,6 +2017,36 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         .join("\n\n")
     : "  (no leading indicators — composer did not pick this component)";
 
+  const threatsToValidityBlock = scaffold.threatsToValidity && scaffold.threatsToValidity.length
+    ? scaffold.threatsToValidity
+        .map((t, i) =>
+          [
+            `  Threat ${i + 1}: ${t.category}`,
+            `    Threat: ${t.threat}`,
+            `    Observable: ${t.observable}`,
+            `    Severity: ${t.severity}`,
+            `    Mitigation: ${t.mitigation || "(none)"}`,
+          ].join("\n"),
+        )
+        .join("\n\n")
+    : "  (no threats-to-validity — composer did not pick this component)";
+
+  const metricStripBlock = scaffold.metricStrip && scaffold.metricStrip.cards.length
+    ? [
+        `  Intro: ${scaffold.metricStrip.intro || "(none — the section heading is the framing)"}`,
+        ``,
+        ...scaffold.metricStrip.cards.map((c, i) =>
+          [
+            `  Card ${i + 1}: ${c.label}`,
+            `    Value: ${c.value}`,
+            `    Qualifier: ${c.qualifier || "(none — omit the .metric-qualifier div)"}`,
+            `    Trend: ${c.trend || "(none — omit the data-trend attribute)"}`,
+            `    Attribution: ${c.attribution || "(none — omit the .metric-attribution div)"}`,
+          ].join("\n"),
+        ),
+      ].join("\n")
+    : "  (no metric-strip — composer did not pick this component)";
+
   const pickedNote = picked && picked.length
     ? [
         ``,
@@ -1624,10 +2059,17 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
       ].join("\n")
     : "";
 
+  const houseStyleAddendum = buildHouseStyleAddendum(houseStyle, language, briefId);
+
   return [
     {
       role: "system",
-      content: [WRITE_SYSTEM, "", languageInstruction(language)].join("\n"),
+      content: [
+        WRITE_SYSTEM,
+        "",
+        languageInstruction(language),
+        houseStyleAddendum,
+      ].filter((s) => s).join("\n"),
     },
     {
       role: "user",
@@ -1711,6 +2153,12 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         `## Leading Indicators (Gartner-density)`,
         leadingIndicatorsBlock,
         ``,
+        `## Threats to Validity (Stanford-style self-criticism)`,
+        threatsToValidityBlock,
+        ``,
+        `## Metric Strip (dashboard · KPI cards)`,
+        metricStripBlock,
+        ``,
         `─── END SCAFFOLD ───`,
         pickedNote,
         ``,
@@ -1726,7 +2174,7 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
               ``,
             ]
           : []),
-        `Write the final report now. Markdown only. Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Options Analysis / Two Paths → Critical Assumptions (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Pre-mortem → New Questions This Surfaced → Strategic Planning Assumption → Open Questions.`,
+        `Write the final report now. Markdown only (the metricStrip block is the only embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Options Analysis / Two Paths → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Pre-mortem → New Questions This Surfaced → Strategic Planning Assumption → Open Questions.`,
       ].join("\n"),
     },
   ];
@@ -2051,6 +2499,60 @@ function parseVisual(raw: unknown): Visual | null {
     if (!rows.length) return null;
     return { type: "strengths-cautions", title, rows };
   }
+  if (type === "bar-chart") {
+    const yLabel = typeof o.yLabel === "string" ? o.yLabel.trim() : "Value";
+    const unit = typeof o.unit === "string" ? o.unit.trim() : "";
+    const barsRaw = Array.isArray(o.bars) ? o.bars : [];
+    const bars: BarChartVisual["bars"] = [];
+    for (const b of barsRaw) {
+      if (!b || typeof b !== "object") continue;
+      const bo = b as Record<string, unknown>;
+      const label = typeof bo.label === "string" ? bo.label.trim() : "";
+      const valueRaw = bo.value;
+      const value = typeof valueRaw === "number" && Number.isFinite(valueRaw) ? valueRaw : null;
+      if (!label || value === null) continue;
+      bars.push({ label, value });
+      if (bars.length >= 8) break;
+    }
+    // 2 bars is the minimum that reads as a comparison; 1 bar is a number.
+    if (bars.length < 2) return null;
+    return { type: "bar-chart", title, yLabel, unit, bars };
+  }
+  if (type === "timeline") {
+    const pointsRaw = Array.isArray(o.points) ? o.points : [];
+    const points: TimelineVisual["points"] = [];
+    for (const p of pointsRaw) {
+      if (!p || typeof p !== "object") continue;
+      const po = p as Record<string, unknown>;
+      const period = typeof po.period === "string" ? po.period.trim() : "";
+      const label = typeof po.label === "string" ? po.label.trim() : "";
+      const description = typeof po.description === "string" ? po.description.trim() : "";
+      if (!period || !label) continue;
+      points.push({ period, label, description });
+      if (points.length >= 8) break;
+    }
+    if (points.length < 3) return null;
+    return { type: "timeline", title, points };
+  }
+  if (type === "pie-chart") {
+    const slicesRaw = Array.isArray(o.slices) ? o.slices : [];
+    const slices: PieChartVisual["slices"] = [];
+    for (const s of slicesRaw) {
+      if (!s || typeof s !== "object") continue;
+      const so = s as Record<string, unknown>;
+      const label = typeof so.label === "string" ? so.label.trim() : "";
+      const valueRaw = so.value;
+      const value =
+        typeof valueRaw === "number" && Number.isFinite(valueRaw) && valueRaw >= 0
+          ? valueRaw
+          : null;
+      if (!label || value === null) continue;
+      slices.push({ label, value });
+      if (slices.length >= 6) break;
+    }
+    if (slices.length < 2) return null;
+    return { type: "pie-chart", title, slices };
+  }
   return null;
 }
 
@@ -2267,6 +2769,181 @@ function parseTwoPathPanel(raw: unknown): TwoPathPanel | null {
   return { label, body };
 }
 
+/* ─── Gartner-density + Stanford-research parsers · all defensive,
+ *      net-additive. Each returns null / [] when the field is absent
+ *      or shaped wrong; the renderer's "skip if empty" rules do the
+ *      rest. Without these the LLM's output for the picked dense
+ *      blocks was being silently dropped on the floor — the prompt
+ *      sections existed but the parser never extracted them.
+ */
+
+function parseStrategicOutlook(raw: unknown): StrategicOutlook | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const context = typeof o.context === "string" ? o.context.trim() : "";
+  const implication = typeof o.implication === "string" ? o.implication.trim() : "";
+  if (!context || !implication) return null;
+  return { context, implication };
+}
+
+function parseCriticalAssumption(raw: unknown): CriticalAssumption | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const statement = typeof o.statement === "string" ? o.statement.trim() : "";
+  const falsifier = typeof o.falsifier === "string" ? o.falsifier.trim() : "";
+  if (!statement || !falsifier) return null;
+  const horizon = typeof o.horizon === "string" ? o.horizon.trim() : "";
+  const attribution = typeof o.attribution === "string" ? o.attribution.trim() : "";
+  return {
+    statement,
+    confidence: parseConfidence(o.confidence),
+    falsifier,
+    horizon,
+    attribution,
+  };
+}
+
+function parseCriticalAssumptions(raw: unknown): CriticalAssumption[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: CriticalAssumption[] = [];
+  for (const entry of raw) {
+    const a = parseCriticalAssumption(entry);
+    if (a) out.push(a);
+    if (out.length >= 6) break;
+  }
+  return out.length ? out : null;
+}
+
+function parseScenarioBranch(raw: unknown): ScenarioBranch | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const label = typeof o.label === "string" ? o.label.trim() : "";
+  const trigger = typeof o.trigger === "string" ? o.trigger.trim() : "";
+  const decisionImplication = typeof o.decisionImplication === "string" ? o.decisionImplication.trim() : "";
+  if (!label || !trigger) return null;
+  const probabilityRaw = o.probability;
+  const probability =
+    typeof probabilityRaw === "number" && Number.isFinite(probabilityRaw)
+      ? Math.max(0, Math.min(100, Math.round(probabilityRaw)))
+      : 0;
+  const effectsRaw = Array.isArray(o.effects) ? o.effects : [];
+  const effects: string[] = [];
+  for (const e of effectsRaw) {
+    if (typeof e !== "string") continue;
+    const t = e.trim();
+    if (t) effects.push(t);
+    if (effects.length >= 4) break;
+  }
+  return { label, probability, trigger, effects, decisionImplication };
+}
+
+function parseScenarioTree(raw: unknown): ScenarioTree | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const intro = typeof o.intro === "string" ? o.intro.trim() : "";
+  const branchesRaw = Array.isArray(o.branches) ? o.branches : [];
+  const branches: ScenarioBranch[] = [];
+  for (const b of branchesRaw) {
+    const parsed = parseScenarioBranch(b);
+    if (parsed) branches.push(parsed);
+    if (branches.length >= 4) break;
+  }
+  if (branches.length < 2) return null;
+  return { intro, branches };
+}
+
+function parseLeadingIndicator(raw: unknown): LeadingIndicator | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const signal = typeof o.signal === "string" ? o.signal.trim() : "";
+  const threshold = typeof o.threshold === "string" ? o.threshold.trim() : "";
+  const flipsTo = typeof o.flipsTo === "string" ? o.flipsTo.trim() : "";
+  if (!signal || !threshold || !flipsTo) return null;
+  const cadence = typeof o.cadence === "string" ? o.cadence.trim() : "";
+  return { signal, threshold, cadence, flipsTo };
+}
+
+function parseLeadingIndicators(raw: unknown): LeadingIndicator[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: LeadingIndicator[] = [];
+  for (const entry of raw) {
+    const parsed = parseLeadingIndicator(entry);
+    if (parsed) out.push(parsed);
+    if (out.length >= 5) break;
+  }
+  return out.length ? out : null;
+}
+
+function parseThreatSeverity(raw: unknown): ThreatSeverity {
+  if (raw === "high" || raw === "medium" || raw === "low") return raw;
+  return "medium";
+}
+
+function parseThreatToValidity(raw: unknown): ThreatToValidity | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const category = typeof o.category === "string" ? o.category.trim() : "";
+  const threat = typeof o.threat === "string" ? o.threat.trim() : "";
+  const observable = typeof o.observable === "string" ? o.observable.trim() : "";
+  if (!category || !threat || !observable) return null;
+  const severity = parseThreatSeverity(o.severity);
+  const mitRaw = typeof o.mitigation === "string" ? o.mitigation.trim() : "";
+  const mitigation = mitRaw.length > 0 ? mitRaw : null;
+  return { category, threat, observable, severity, mitigation };
+}
+
+function parseThreatsToValidity(raw: unknown): ThreatToValidity[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: ThreatToValidity[] = [];
+  for (const entry of raw) {
+    const parsed = parseThreatToValidity(entry);
+    if (parsed) out.push(parsed);
+    if (out.length >= 5) break;
+  }
+  return out.length ? out : null;
+}
+
+function parseMetricTrend(raw: unknown): MetricTrend | null {
+  if (raw === "up" || raw === "down" || raw === "flat") return raw;
+  return null;
+}
+
+function parseMetricCard(raw: unknown): MetricCard | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const label = typeof o.label === "string" ? o.label.trim() : "";
+  const value = typeof o.value === "string" ? o.value.trim() : "";
+  if (!label || !value) return null;
+  const qualifierRaw = typeof o.qualifier === "string" ? o.qualifier.trim() : "";
+  const qualifier = qualifierRaw.length > 0 ? qualifierRaw : null;
+  const attributionRaw = typeof o.attribution === "string" ? o.attribution.trim() : "";
+  const attribution = attributionRaw.length > 0 ? attributionRaw : null;
+  return {
+    label,
+    value,
+    qualifier,
+    trend: parseMetricTrend(o.trend),
+    attribution,
+  };
+}
+
+function parseMetricStrip(raw: unknown): MetricStrip | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const intro = typeof o.intro === "string" ? o.intro.trim() : "";
+  const cardsRaw = Array.isArray(o.cards) ? o.cards : [];
+  const cards: MetricCard[] = [];
+  for (const entry of cardsRaw) {
+    const parsed = parseMetricCard(entry);
+    if (parsed) cards.push(parsed);
+    if (cards.length >= 5) break;
+  }
+  // Below 3 cards reads as a half-formed dashboard · drop the whole strip
+  // rather than render a fragmented one.
+  if (cards.length < 3) return null;
+  return { intro, cards };
+}
+
 /** Validate + coerce the chair's stage-2 scaffold.
  *
  *  Validity floor: at minimum the scaffold must carry a load-bearing
@@ -2339,6 +3016,12 @@ export function parseScaffold(
     preMortem: parsePreMortem(parsed.preMortem),
     newQuestions: parseNewQuestions(parsed.newQuestions),
     planningAssumption: parsePlanningAssumption(parsed.planningAssumption),
+    strategicOutlook: parseStrategicOutlook(parsed.strategicOutlook),
+    criticalAssumptions: parseCriticalAssumptions(parsed.criticalAssumptions),
+    scenarioTree: parseScenarioTree(parsed.scenarioTree),
+    leadingIndicators: parseLeadingIndicators(parsed.leadingIndicators),
+    threatsToValidity: parseThreatsToValidity(parsed.threatsToValidity),
+    metricStrip: parseMetricStrip(parsed.metricStrip),
     openQuestions: parseOpenQuestions(parsed.openQuestions),
   };
 }

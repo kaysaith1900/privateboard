@@ -974,7 +974,6 @@
         if (typeof window.app.renderUserBlock === "function") window.app.renderUserBlock();
       } else {
         document.querySelectorAll(".sidebar-foot .user-name").forEach((el) => { el.textContent = (u.name || "Kay").toUpperCase(); });
-        document.querySelectorAll(".sidebar-foot .user-menu .name").forEach((el) => { el.textContent = u.name || "Kay"; });
       }
     }
 
@@ -1127,6 +1126,26 @@
     // wireKeysSection again.
     fetchKeyMeta().then(() => {
       if (currentSection !== "keys") return;
+
+      // After-onboarding sync · the bootstrap fetchKeyMeta ran before
+      // the user wrote their first key (during onboarding). When the
+      // user opens settings without a page refresh, _keysMeta was
+      // empty at first render, so activeProviders was derived without
+      // the just-configured provider — and the keys tab paints with
+      // no row for it (e.g. "no OpenRouter section visible until
+      // refresh"). Detect that drift here and rebuild the section
+      // when a configured provider is missing its row. Inline pill
+      // refresh below handles the simpler case where the row already
+      // exists and only its `● configured` state needs flipping.
+      const missingActive = LLM_PROVIDER_IDS.filter(
+        (id) => _keysMeta[id] && _keysMeta[id].configured && !activeProviders.includes(id),
+      );
+      if (missingActive.length > 0) {
+        activeProviders = null;
+        rerenderKeysSection();
+        return;
+      }
+
       paneEl.querySelectorAll(".us-key-row").forEach((row) => {
         const provider = row.dataset.provider;
         const meta = _keysMeta[provider];
@@ -1181,6 +1200,13 @@
     // see stale state until the next page reload.
     if (window.app && typeof window.app.refreshKeys === "function") {
       window.app.refreshKeys();
+    }
+    // If an agent profile is open, its skill rows have data-key-
+    // configured cached from first paint. Re-fetch so the web-search
+    // toggle no longer shows the "configure key" prompt after the
+    // user added the Brave key here.
+    if (typeof window.refreshAgentProfileSkills === "function") {
+      window.refreshAgentProfileSkills();
     }
   }
 

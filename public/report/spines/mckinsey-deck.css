@@ -172,7 +172,7 @@ html, body {
   text-transform: uppercase;
   margin: 56px 0 8px;
 }
-.body h2 { font-size: 28px; line-height: 1.2; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 2px solid var(--navy); max-width: 820px; }
+.body h2 { font-size: 28px; line-height: 1.2; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 2px solid var(--navy); }
 .body h3 { font-size: 19px; margin: 28px 0 10px; }
 .body h4 { font-size: 13px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-soft); }
 .body p { margin: 12px 0; line-height: 1.65; color: var(--ink-soft); font-size: 15px; }
@@ -521,3 +521,40 @@ html, body {
   line-height: 1; font-family: Georgia, serif;
 }
 .nq-why { font-size: 15px; line-height: 1.7; color: var(--ink-soft); margin: 0; max-width: 60ch; }
+
+/* ─── Metric strip · per-spine treatment ─────────────────────────
+   Inherits the spine-agnostic baseline in public/report.html's inline
+   <style>; this block tweaks surface, accent + typography to match
+   the spine's voice. No `border-left`, no parallel borders against
+   adjacent .chapter-num / section h2. */
+/* Clean white card with a thin top accent rule (navy) — boardroom
+   deck feel. Top accent only (project rule: never `border-left` as
+   callout treatment). */
+.body .metric-strip-intro {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+}
+.body .metric-card {
+  background: #FFFFFF;
+  border: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.08));
+  border-top: 2px solid var(--blue);
+  padding: 16px 18px 14px;
+}
+.body .metric-label {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+}
+.body .metric-value {
+  color: var(--navy-deep, var(--blue-deep));
+  font-family: "SF Mono", "JetBrains Mono", "Helvetica Neue", "Songti SC", monospace;
+  font-size: 28px;
+  font-weight: 700;
+}
+.body .metric-card[data-trend="up"]   { border-top-color: var(--green, #1E8E3E); }
+.body .metric-card[data-trend="up"]   .metric-value { color: var(--green, #1E8E3E); }
+.body .metric-card[data-trend="down"] { border-top-color: var(--red, #C5221F); }
+.body .metric-card[data-trend="down"] .metric-value { color: var(--red, #C5221F); }
+.body .metric-trend[data-trend="up"]   { color: var(--green, #1E8E3E); }
+.body .metric-trend[data-trend="down"] { color: var(--red, #C5221F); }
+.body .metric-qualifier { color: var(--ink-mid); font-size: 12px; }
+.body .metric-attribution { color: var(--ink-faint); }

@@ -1063,7 +1063,8 @@
   cursor: pointer;
   transition: background 0.1s;
 }
-.ap-id-menu-item:last-child { border-bottom: none; }
+.ap-id-menu-item:last-child,
+.ap-id-menu-item:has(+ .ap-id-menu-divider) { border-bottom: none; }
 .ap-id-menu-item:hover { background: var(--panel-2); }
 .ap-id-menu-mark { font-family: var(--mono); font-size: 11px; color: var(--lime); }
 /* Disabled state · used for the chair's locked-avatar row. Looks like

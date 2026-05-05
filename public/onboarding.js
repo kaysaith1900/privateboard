@@ -84,9 +84,9 @@
     {
       tag: "// pivot",
       text: "Six months of runway, real users but flat MRR — pivot the product, hold the line, or shut it down?",
-      hint: "no-mercy room: force the load-bearing claim into the open",
-      tone: "no-mercy",
-      intensity: "brutal",
+      hint: "critique room: each director audits the plan — blocker / major / minor",
+      tone: "critique",
+      intensity: "sharp",
       briefStyle: "auto",
       agents: ["socrates", "first-principles", "long-horizon"],
     },

@@ -68,10 +68,12 @@
       "Co-creator. Directors stand with you and push the idea outward — yes-and a contribution, name a concrete adjacent variant (\"what if we instead…\"), borrow pieces from another director's turn into new combinations. May end with one curious question, never a defense-demanding one.",
     constructive:
       "Sympathetic interrogator. They want you to win, but only via the strongest version. Each turn picks ONE load-bearing assumption and proposes the candidate stronger version that would stand. Disagreement is allowed, but every objection comes packaged with a forward path.",
+    research:
+      "Collaborative inquiry. The room mines the materials in front of it (your brief, web-search results, prior turns) for what's actually there. Each turn must cite a specific source piece, label it OBSERVATION / INFERENCE / SPECULATION, then extract the insight your lens makes salient. Defaults web search ON when a Brave key is configured.",
     debate:
       "Peer reviewer. Each turn opens by steelmanning your strongest claim (\"the strongest read of your point is…\") and only then attacks THAT version — naming a specific risk, demanding evidence, exposing the trade-off you're hiding. Sharp but professional. Skipping the steelman is a protocol violation.",
-    "no-mercy":
-      "Hostile reviewer. Default: you're wrong until proved otherwise. Points at vague terms / hand-waved mechanisms, says \"this is wrong because X\" flat — no hedge. Refuses undefined terms. Attacks the argument as half-baked / wrong, never the person. Forbidden hedge words: perhaps / maybe / could be / might.",
+    critique:
+      "Review board. The room audits a finished deliverable systematically — each turn names the dimension being audited (logic / evidence / scope / risk / etc.), surfaces 2–3 specific flaws labelled BLOCKER · MAJOR · MINOR, points at the load-bearing piece, and indicates the direction a fix would lie. At least one BLOCKER or MAJOR per turn is mandatory.",
   };
 
   const app = {
@@ -147,8 +149,84 @@
       this.renderSidebarRooms();
       this.renderSidebarAgents();
       this.renderUserBlock();
+      // Show a friendly "storage upgraded" banner if migrations have
+      // been applied since the user last opened the app. Fire-and-forget
+      // so a slow / failed call doesn't block the dashboard rendering.
+      void this.checkMigrationNotice();
       window.addEventListener("hashchange", () => this.handleRoute());
       this.handleRoute();
+    },
+
+    /** Surface a one-line "storage was upgraded" notice when the user
+     *  opens a build that ran new schema migrations against their
+     *  existing DB. Compares the latest applied migration in the DB
+     *  against the last-acknowledged name in localStorage; a fresh-
+     *  install user sees nothing (no last-seen → first visit → write
+     *  current latest, no banner). Dismiss writes the latest name so
+     *  the banner doesn't re-show until truly-new migrations land. */
+    async checkMigrationNotice() {
+      const banner = document.querySelector("[data-sys-notice]");
+      if (!banner) return;
+      const textEl = banner.querySelector("[data-sys-notice-text]");
+      const closeBtn = banner.querySelector("[data-sys-notice-close]");
+      if (!textEl || !closeBtn) return;
+
+      let migrations = [];
+      try {
+        const r = await fetch("/api/system/migrations");
+        if (!r.ok) return;
+        const j = await r.json();
+        migrations = Array.isArray(j.migrations) ? j.migrations : [];
+      } catch { return; }
+      if (migrations.length === 0) return;
+
+      const latest = migrations[migrations.length - 1].name;
+      const KEY = "boardroom.lastSeenMigration";
+      let lastSeen = null;
+      try { lastSeen = localStorage.getItem(KEY); } catch { /* */ }
+
+      // Fresh-install (no last-seen recorded) · seed quietly with the
+      // current latest, no banner. The user hasn't been here before;
+      // showing "storage upgraded" makes no sense on first launch.
+      if (!lastSeen) {
+        try { localStorage.setItem(KEY, latest); } catch { /* */ }
+        return;
+      }
+      if (lastSeen === latest) return;
+
+      // Find migrations newer than lastSeen — by index in the list,
+      // since order is applied_at ASC.
+      const lastIdx = migrations.findIndex((m) => m.name === lastSeen);
+      const fresh = lastIdx >= 0 ? migrations.slice(lastIdx + 1) : migrations;
+      if (fresh.length === 0) {
+        try { localStorage.setItem(KEY, latest); } catch { /* */ }
+        return;
+      }
+
+      const lang = (this.composerLanguage && this.composerLanguage()) || "en";
+      const count = fresh.length;
+      const names = fresh.map((m) => m.name).join(", ");
+      const copy = lang === "zh"
+        ? {
+            head: `存储结构已升级`,
+            body: `已应用 ${count} 个新迁移 · 你已有的房间、董事、报告、设置都已保留。`,
+            tooltip: names,
+          }
+        : {
+            head: `Storage upgraded`,
+            body: `${count} new migration${count > 1 ? "s" : ""} applied · your existing rooms, agents, briefs, and settings were preserved.`,
+            tooltip: names,
+          };
+      textEl.innerHTML =
+        `<span class="sys-notice-strong">${this.escape(copy.head)}</span> · ${this.escape(copy.body)}`;
+      banner.title = copy.tooltip;
+      banner.removeAttribute("hidden");
+
+      const dismiss = () => {
+        try { localStorage.setItem(KEY, latest); } catch { /* */ }
+        banner.setAttribute("hidden", "");
+      };
+      closeBtn.addEventListener("click", dismiss, { once: true });
     },
 
     /** Refetch /api/keys and update the local cache. Called by
@@ -562,6 +640,10 @@
           document.documentElement.setAttribute("data-status", "live");
           this.renderHeader();
           syncSidebar({ status: "live", pausedAt: null });
+          // Drop any paused-supplement overlay · the supplement endpoint
+          // 409s once the room is live, so leaving the modal up is just
+          // a confusing no-op for the user.
+          this.closePausedSupplementOverlay?.();
         } else if (kind === "room-adjourned") {
           const ts = payload.adjournedAt || Date.now();
           if (this.currentRoom) {
@@ -604,6 +686,9 @@
           // Surface the View Report button + hide the no-brief CTA.
           this.renderHeader();
           this.renderChat();
+          // Pull the user's eye onto the freshly-mounted card so the
+          // click that triggered generation has visible feedback.
+          this.scrollToBriefCard();
         } else if (kind === "brief-stage") {
           this.markBriefEvent();
           if (this.currentBrief) {
@@ -619,6 +704,14 @@
               // Capture start time when the stage first becomes active.
               if (newStatus === "active" && st[key].status !== "active") {
                 st[key].startedAt = Date.now();
+              }
+              // Capture finish time when the stage transitions to done
+              // so the displayed elapsed freezes at completion. Without
+              // this, the per-stage timer kept ticking off Date.now()
+              // forever — the user couldn't read each stage's actual
+              // duration at a glance.
+              if (newStatus === "done" && st[key].status !== "done" && !st[key].finishedAt) {
+                st[key].finishedAt = Date.now();
               }
               st[key].status = newStatus;
               st[key].detail = payload.detail || "";
@@ -1707,6 +1800,7 @@
         this._lastBriefEventAt = Date.now();
         this._lastBriefHealthPollAt = 0;
         this.renderBrief();
+        this.scrollToBriefCard();
       } catch (e) {
         alert("Regenerate failed: " + (e && e.message ? e.message : e));
       }
@@ -2285,6 +2379,18 @@
           out.push(`<ul>${items.join("")}</ul>`);
           continue;
         }
+        // Markdown blockquote · every non-empty line starts with `&gt; `
+        // (escaped from `> `). The whole block becomes one <blockquote>;
+        // styling lives in CSS (.msg-bubble blockquote · designed
+        // quote-card with mono kicker + italic body, no left border).
+        if (lines.every((l) => /^&gt;\s?/.test(l) || l.trim() === "")) {
+          const inner = lines
+            .filter((l) => l.trim())
+            .map((l) => this.inline(l.replace(/^&gt;\s?/, "")))
+            .join("<br>");
+          out.push(`<blockquote class="msg-quote">${inner}</blockquote>`);
+          continue;
+        }
         // Otherwise: paragraph (preserve single newlines as <br>).
         out.push(`<p>${this.inline(lines.join("<br>"))}</p>`);
       }
@@ -2687,8 +2793,6 @@
       if (nm) nm.textContent = name;
       const mt = document.querySelector("[data-user-meta]");
       if (mt) mt.textContent = meta;
-      const menuName = document.querySelector("[data-user-menu-name]");
-      if (menuName) menuName.textContent = name;
     },
 
     renderSidebarCounts() {
@@ -3743,7 +3847,7 @@
       { tag: "user-empathy", text: "A product hand who reasons from the user's moment of friction. Refuses any argument that doesn't name what the user is doing right then." },
       { tag: "first-principles", text: "A physicist who strips problems to observables and causal chains. Refuses to import assumptions from analogy." },
       { tag: "value-investor", text: "A long-pattern reader who tests every novel idea against thirty years of category history before believing it." },
-      { tag: "no-mercy-reviewer", text: "A hostile reviewer — default that the claim is wrong until proved otherwise. Will not hedge, will not be polite." },
+      { tag: "critique-reviewer", text: "A senior critic who audits any deliverable systematically — labels each flaw blocker / major / minor, points at the load-bearing piece, names the mechanism. Won't praise without finding at least one major issue." },
       { tag: "phenomenologist", text: "An observer who notices what the room ISN'T saying. Tracks tone, what got skipped, who agreed too fast." },
     ],
     AGENT_STARTERS_ZH: [
@@ -3751,7 +3855,7 @@
       { tag: "user-empathy", text: "一位从用户摩擦时刻反推的产品老兵，反对任何不说清『用户那一刻在干嘛』的论点。" },
       { tag: "first-principles", text: "一位把问题拆到可观测、因果链上的物理学家，拒绝从类比里搬假设。" },
       { tag: "value-investor", text: "一位用三十年品类史做底的长周期读者，新点子要先和三个老案例对照才相信。" },
-      { tag: "no-mercy-reviewer", text: "一位敌意审稿人，默认你错——除非你证明给我看。不留情、不修饰、不绕弯。" },
+      { tag: "critique-reviewer", text: "一位资深评审，对任何交付物做系统性审稿——每个瑕疵打 blocker / major / minor 严重度，指向具体段落、说出失败机制。不挑出至少一条 major 不会放过。" },
       { tag: "phenomenologist", text: "一位观察者，捕捉房间里没说出来的东西：语气、被跳过的话题、太快达成的一致。" },
     ],
 
@@ -4385,14 +4489,16 @@
           ? [
               { v: "brainstorm",   label: "Brainstorm",   hint: "共同发散" },
               { v: "constructive", label: "Constructive", hint: "推一把" },
+              { v: "research",     label: "Research",     hint: "梳理材料找洞察" },
               { v: "debate",       label: "Debate",       hint: "找漏洞" },
-              { v: "no-mercy",     label: "No Mercy",     hint: "硬怼到底" },
+              { v: "critique",     label: "Critique",     hint: "系统性挑毛病" },
             ]
           : [
               { v: "brainstorm",   label: "Brainstorm",   hint: "yes-and" },
               { v: "constructive", label: "Constructive", hint: "push & sharpen" },
+              { v: "research",     label: "Research",     hint: "mine the material" },
               { v: "debate",       label: "Debate",       hint: "find the holes" },
-              { v: "no-mercy",     label: "No Mercy",     hint: "tear apart" },
+              { v: "critique",     label: "Critique",     hint: "audit the deliverable" },
             ];
         current = state.mode;
       } else if (kind === "intensity") {
@@ -5573,8 +5679,14 @@
         ? `<div class="msg-chair-pick" title="Chair picked ${this.escape(name)} for this turn">▸ chair · ${this.escape(chairPick)}</div>`
         : "";
 
+      // data-author-id is only attached for director messages (not user
+       // / not chair) — read by quote-cta.js to credit the director when
+       // the user probes / seconds a passage from this bubble.
+      const authorIdAttr = (!isUser && !isChair && author?.id)
+        ? ` data-author-id="${this.escape(author.id)}"`
+        : "";
       return `
-        <article class="msg ${baseCls}${stateCls.length ? " " + stateCls.join(" ") : ""}" data-message-id="${this.escape(m.id)}" data-meta-kind="${this.escape(metaKind || "")}">
+        <article class="msg ${baseCls}${stateCls.length ? " " + stateCls.join(" ") : ""}" data-message-id="${this.escape(m.id)}" data-meta-kind="${this.escape(metaKind || "")}"${authorIdAttr}>
           ${avatarHtml}
           <div class="msg-content">
             ${chairPickKicker}
@@ -6237,7 +6349,12 @@
           : null;
         const eta = serverEta || meta[key]?.eta;
         const startedAt = st.startedAt;
-        const elapsedSec = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
+        // Done stages freeze at finishedAt so the displayed duration
+        // is the actual time the stage took, not "current time minus
+        // when it started" (which would keep ticking after completion).
+        // Active stages still use Date.now() so the counter animates.
+        const endRef = (status === "done" && st.finishedAt) ? st.finishedAt : Date.now();
+        const elapsedSec = startedAt ? Math.max(0, Math.floor((endRef - startedAt) / 1000)) : 0;
 
         // Detail line · numeric progress (extract counter, write word
         // count) takes priority. ETA / elapsed shown in a separate slot.
@@ -6394,6 +6511,38 @@
         });
       });
     },
+
+    /** Bring the brief card into view at the top of the chat panel.
+     *  Called whenever the user has just triggered a generation
+     *  (Adjourn → file brief, Regenerate, Retry, post-hoc generate)
+     *  so they see the "Generating…" state appear immediately —
+     *  without this, a user who scrolled up to re-read history sees
+     *  no visible response to their click. Smooth-scrolls the .chat
+     *  container ONLY (not the page), aligning the card's top a bit
+     *  below the chat's top so the stage tracker is fully visible. */
+    scrollToBriefCard() {
+      // Two rAFs · let renderBrief paint + layout settle before measuring.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const chat = document.querySelector(".chat");
+          const card = document.querySelector("[data-brief-card]");
+          if (!chat || !card) return;
+          // Skip the scroll if the card is already comfortably on
+          // screen — no need to nudge a user who's looking right at it.
+          const cardRect = card.getBoundingClientRect();
+          const chatRect = chat.getBoundingClientRect();
+          const alreadyVisible =
+            cardRect.top >= chatRect.top &&
+            cardRect.top <= chatRect.top + chat.clientHeight * 0.5;
+          if (alreadyVisible) return;
+          const offset = card.offsetTop - chat.offsetTop - 16;
+          chat.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
+          // Reading the latest content again counts as "following the
+          // feed" for subsequent token-stream auto-scroll decisions.
+          this.chatStuckToBottom = true;
+        });
+      });
+    },
   };
 
   // ── DOM-level wiring (delegated; survives re-renders) ──────
@@ -6442,6 +6591,14 @@
     if (e.target.closest("[data-resume]")) {
       e.preventDefault();
       app.resumeRoom().catch((err) => alert("Resume failed: " + err.message));
+      return;
+    }
+    // Export · adjourned-bar action. Browser handles the download
+    // natively from the route's Content-Disposition header.
+    if (e.target.closest("[data-room-export]")) {
+      e.preventDefault();
+      if (!app.currentRoomId) return;
+      window.location.href = "/api/rooms/" + encodeURIComponent(app.currentRoomId) + "/export.md";
       return;
     }
     // Generate report (post-hoc) — fires from the no-brief card CTA

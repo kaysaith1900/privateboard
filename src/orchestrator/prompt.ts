@@ -42,6 +42,13 @@ interface BuildOpts {
    *  (not by quoting the cue). Empty / undefined for round-robin
    *  turns and for the first speaker of every reactive round. */
   chairBrief?: string;
+  /** Hierarchical-summarisation preamble · L2 + L1 narratives + the
+   *  room subject anchor, pre-formatted as a labelled block. Renders
+   *  as a system message ahead of the live transcript so the director
+   *  has continuity with rounds older than the L0 verbatim window
+   *  without us paying the token cost of replaying them. Empty for
+   *  young rooms where everything still fits in L0. */
+  summaryPreamble?: string;
 }
 
 /** Format the speaker's long-term memory pool as a labelled block for
@@ -91,14 +98,28 @@ const TONE_GUIDANCE: Record<string, string> = {
     "Attack moves: name a SPECIFIC risk the user hasn't named, demand evidence or boundary conditions, expose the trade-off being hidden. Sharp but professional.",
     "Attack the argument, not the person. Forbidden: emotional put-downs, nitpicking word choice while ignoring the substantive claim, soft-pedalling (\"maybe this could be a problem\" — pick a side).",
   ].join("\n"),
-  "no-mercy": [
-    "NO MERCY · hostile reviewer. Default assumption: the user is wrong until proved otherwise.",
-    "Each turn: (1) point at the SPECIFIC vague term, missing evidence, or hand-waved mechanism; (2) state flatly \"this is wrong because X\" — no hedge, no softening; (3) refuse to accept undefined terms (if the user said \"engagement\" without defining it, demand the definition before going on).",
-    "You may call an argument half-baked, naive, or wrong — but ALWAYS with a specific concrete reason. Attack the argument as hard as you want; never attack the person. \"You don't get it\" is forbidden; \"this argument doesn't survive contact with X\" is fine.",
-    "Forbidden hedge words: \"perhaps\", \"maybe\", \"could be\", \"might\", \"I might be wrong but\". Forbidden moves: generic dismissal without root cause (\"this just won't work\"), vibes-based critique. The intensity is high; the precision must be higher.",
-    "This setting overrides default cautious-assistant tone. Do not soften the output. Do not add a closing reassurance. The user opted in to this — give them what they asked for.",
+  research: [
+    "RESEARCH DISCUSSION · collaborative inquiry. The room's job is to mine the materials in front of it (the user's brief, web-search results, prior turns) for what's actually there — not to take sides.",
+    "Each turn MUST: (1) cite a SPECIFIC piece of material — a quote, a datapoint, a stated claim, a result — never riff from thin air; (2) explicitly tag it as OBSERVATION (what the source says), INFERENCE (what you reasonably conclude from it), or SPECULATION (what you'd want to test); (3) extract the insight your lens makes salient that another director would miss; (4) on reactive rounds, connect your finding to another director's: \"X plus Y suggests Z\".",
+    "You may also flag knowledge gaps: \"the materials don't tell us whether…\". Naming a gap is as valuable as a finding — it tells the user where to look next.",
+    "Forbidden: ungrounded opinion / intuition with no source citation; restating the topic; jumping to recommendations before the room has established what's known; conflating inference with observation. If you lack material to ground a claim, say so explicitly.",
+  ].join("\n"),
+  critique: [
+    "CRITIQUE · review board. The user has put a deliverable on the table — a deck, a draft, a plan, a proposed decision. Your job is to find what's wrong with it, systematically. The artifact stands; you don't redesign it. You audit it.",
+    "Each turn MUST: (1) name the dimension you're auditing this turn (logic, evidence, scope, risk, communication, implementability — pick what your lens is sharpest on); (2) surface 2–3 specific flaws, EACH labelled BLOCKER · MAJOR · MINOR; (3) for each flaw, point at the specific load-bearing piece (\"the X claim in §2\", \"the assumption that Y\"), state the mechanism for why it fails (not taste — mechanism), and indicate the direction a fix would lie.",
+    "At least one BLOCKER or MAJOR per turn is mandatory. Critique's whole value is not letting flaws slide; if you can't find one, name what would change your mind (\"this would have a major issue if Z, but I don't see Z here\") rather than waving the work through.",
+    "Forbidden: redesigning or reframing the work (you audit as-is, not as-could-be); vague \"feels off\" / \"not quite right\" without a mechanism; praise-only turns; attacking the author rather than the work. Severity labels are required, not optional.",
   ].join("\n"),
 };
+
+// Backwards compat for the retired `no-mercy` mode · existing rooms
+// stored with mode="no-mercy" should keep loading without a 500.
+// Map them to `debate` (closest adversarial neighbour) at read time
+// — no DB migration needed.
+function normalizeTone(raw: string): string {
+  if (raw === "no-mercy") return "debate";
+  return raw;
+}
 
 // Round mode · the OPENING sweep (first round after a user message)
 // runs every director in parallel — they each only see the user's
@@ -122,8 +143,9 @@ const REACTIVE_BLOCK = [
 
 // Intensity is the STYLISTIC axis — purely about cadence, length, and
 // hedge quantity. Composes orthogonally with tone: brainstorm+brutal
-// is a tight one-line riff; no-mercy+calm is a paragraph-long takedown
-// with explicit reasoning; both are well-defined.
+// is a tight one-line riff; critique+calm is a thorough multi-issue
+// review; research+brutal is the single sharpest finding. Every
+// tone × intensity cell is well-defined.
 const INTENSITY_GUIDANCE: Record<string, string> = {
   calm: [
     "CALM · measured cadence. 3–4 short paragraphs is fine. Hedging where you're genuinely uncertain is allowed and encouraged (\"I'm not sure, but…\"). Leave space for the user to think — don't pile every point on at once. You can be wrong out loud.",
@@ -137,7 +159,7 @@ const INTENSITY_GUIDANCE: Record<string, string> = {
 };
 
 export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
-  const { speaker, cast, room, prefs, history, keyPoints, activeSkills, sharedMaterials, chairBrief } = opts;
+  const { speaker, cast, room, prefs, history, keyPoints, activeSkills, sharedMaterials, chairBrief, summaryPreamble } = opts;
   const activeSkillsBlock = renderActiveSkillsBlock(activeSkills ?? []);
 
   // Chair's brief · the haiku next-speaker picker may have selected this
@@ -172,7 +194,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
   // is the agent's first room or all rooms ran incognito.
   const memoryBlock = renderLongTermMemoryBlock(speaker.id, prefs.name || "the user");
 
-  const tone = (room.mode || "constructive").toLowerCase();
+  const tone = normalizeTone((room.mode || "constructive").toLowerCase());
   const toneLine = TONE_GUIDANCE[tone] ?? TONE_GUIDANCE.constructive;
   const intensity = (room.intensity || "sharp").toLowerCase();
   const intensityLine = INTENSITY_GUIDANCE[intensity] ?? INTENSITY_GUIDANCE.sharp;
@@ -270,6 +292,15 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
   // were 'assistant', most providers (Anthropic in particular) interpret it
   // as "continue your previous text" and frequently return an empty string.
   const out: LLMMessage[] = [system];
+
+  // Hierarchical-summarisation preamble · L2 + L1 narratives + the
+  // anchored room subject. Slotted as a second system block so it
+  // sits with persona / room rules rather than mixed in with the
+  // live transcript. Empty for young rooms where everything still
+  // fits in the L0 verbatim window.
+  if (summaryPreamble && summaryPreamble.trim()) {
+    out.push({ role: "system", content: summaryPreamble.trim() });
+  }
 
   for (const m of history) {
     if (!m.body) continue; // skip placeholder rows that never produced text

@@ -47,6 +47,7 @@ import {
   announceRoundPrompt,
   runChairDirectResponse,
 } from "./chair.js";
+import { buildDirectorContext } from "./context.js";
 import { buildDirectorMessages } from "./prompt.js";
 import { pickNextSpeaker, pickRoundWrap, pickSkills } from "./skill-picker.js";
 import { roomBus, type RoomEvent } from "./stream.js";
@@ -353,7 +354,14 @@ export function abortRoom(roomId: string): void {
   };
   s.queue = [];
   const wasSpeaking = s.inflight !== null;
-  s.speakersThisTurn = 0;
+  // Don't reset s.speakersThisTurn — leaving it at K means the
+  // queue-update we emit below carries the *true* "K spoken / N total"
+  // for the paused round. Resetting it to 0 used to make the round
+  // counter momentarily lie about its own state ("0 of N" mid-pause)
+  // and any UI gate that consults currentRound during the pause window
+  // would read the wrong value. resumeRoom restores from the snapshot
+  // (a no-op since we kept the same value here); tickRoom does its own
+  // explicit reset when the resume falls through to a fresh replan.
   if (s.inflight) {
     s.inflight.abort();
     s.inflight = null;
@@ -415,8 +423,12 @@ export function resumeRoom(roomId: string): void {
   // Per the user's brief: clicking Resume should ALWAYS restart the
   // queue, even when the room paused at end-of-round (chair prompt
   // owns the next step). Clear awaitingContinue so tickRoom's guard
-  // doesn't no-op us, then replan the same round number — every
-  // director gets another speaking slot in this fresh pass.
+  // doesn't no-op us, then replan as a *new* round — fresh number,
+  // reactive kind. Re-using s.roundNum used to post a duplicate
+  // "Round #N · parallel" marker for what is conceptually a new
+  // pass; mirroring the Continue button (`nextUserRoundNum` +
+  // `kind: "continue"`) keeps the round counter monotone and the
+  // mode label honest.
   const room = getRoom(roomId);
   if (room && room.awaitingContinue) {
     setAwaitingContinue(roomId, false);
@@ -427,13 +439,15 @@ export function resumeRoom(roomId: string): void {
       createdAt: Date.now(),
     });
   }
+  const nextRound = nextUserRoundNum(roomId);
   rlog(roomId, "resume", {
     mode: "fallback-replan",
     snapshot: snap ? "empty" : "missing",
-    round: s.roundNum,
+    fromRound: s.roundNum,
+    toRound: nextRound,
     clearedAwaitingContinue: !!(room && room.awaitingContinue),
   });
-  tickRoom(roomId, { roundNum: s.roundNum });
+  tickRoom(roomId, { roundNum: nextRound, kind: "continue" });
 }
 
 function emitQueueUpdate(roomId: string, s: RoomState): void {
@@ -928,7 +942,13 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     .filter((a): a is Agent => a !== null && a.roleKind === "director");
 
   const prefs = getPrefs();
-  const history = listRecentMessages(roomId, 30);
+  // Layered context · L0 verbatim + L1/L2 summary preamble + always-
+  // anchored room subject / user pivots / chair convening. Replaces
+  // the old flat "last 30 messages" slice that ate user pivots on
+  // long rooms. See src/orchestrator/context.ts + summarize.ts.
+  const directorCtx = buildDirectorContext(roomId);
+  const history = directorCtx.historyMessages;
+  const summaryPreamble = directorCtx.summaryPreamble;
   const keyPoints = listKeyPointsForRoom(roomId);
 
   // Skills + Web Search · Pass-1 router. The same haiku call decides
@@ -936,7 +956,16 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
   // would benefit from a Brave search query. Both are gated by the
   // user having configured the relevant key + the per-agent toggle.
   const installedSkills = listSkillsForAgent(speaker.id);
-  const braveAvailable = hasBraveKey() && speaker.webSearchEnabled;
+  // Research mode bypasses the per-agent web-search toggle · the
+  // whole point of the room is mining external material, so we
+  // assume every director can search by default. Other modes still
+  // honour the per-director opt-in. Either way, hasBraveKey() is
+  // the floor — without a Brave API key configured, web search
+  // can't run regardless of mode (the chair posts a one-time hint
+  // about this when a research room opens; see runChairConvening
+  // / announceResearchHint).
+  const isResearchMode = (room.mode || "").toLowerCase() === "research";
+  const braveAvailable = hasBraveKey() && (speaker.webSearchEnabled || isResearchMode);
   let activeSkills: ReturnType<typeof listSkillsForAgent> = [];
   let pickerReason = "";
   let webSearchQuery: string | null = null;
@@ -1019,6 +1048,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     activeSkills,
     sharedMaterials: sharedMaterialsBlock,
     chairBrief: chairBriefForTurn ?? undefined,
+    summaryPreamble,
   });
 
   // Streaming placeholder so the UI has an id immediately.
@@ -1063,6 +1093,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
   let finishReason: string | undefined;
   let errored = false;
 
+  try {
   for await (const chunk of callLLMStream({
     modelV: speaker.modelV as never,
     // Per-agent carrier override · adapter falls back to default
@@ -1159,6 +1190,35 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
         error: chunk.message,
       });
     }
+  }
+  } catch (e) {
+    // The async iterator threw (network error, JSON parse error,
+    // provider hang-up, etc.) instead of emitting a `chunk.type ===
+    // "error"` chunk. Without this catch the placeholder would stay
+    // `streaming: true` forever — the symptom is "director loads
+    // forever, refresh doesn't help" because the stuck state is
+    // persisted to the messages row and getRoomFullState reads it
+    // back as-is. Mark as final-with-error here so the UI moves on
+    // and the next user tick can plan a fresh round, then re-throw
+    // so pumpQueue's outer catch still logs (and skips the
+    // speakersThisTurn increment).
+    errored = true;
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      `[stream-throw] room=${roomId} agent=${speaker.name} modelV=${speaker.modelV} · ${msg}\n`,
+    );
+    updateMessageBody(placeholder.id, buf || `[error: ${msg}]`, {
+      ...placeholderMeta,
+      speakerStatus: "final",
+      streaming: false,
+      error: msg,
+    });
+    roomBus.emit(roomId, {
+      type: "message-error",
+      messageId: placeholder.id,
+      message: msg,
+    });
+    throw e;
   }
 
   if (signal.aborted) {

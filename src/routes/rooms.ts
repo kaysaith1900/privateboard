@@ -15,6 +15,7 @@ import { generateBrief } from "../orchestrator/brief.js";
 import {
   announceAdjournNoBrief,
   announceMemberChange,
+  announceResearchHint,
   announceSettingsChange,
   runChairClarify,
   runChairConvening,
@@ -37,13 +38,14 @@ import { pickDirectors } from "../orchestrator/director-picker.js";
 import { roomBus, type RoomEvent } from "../orchestrator/stream.js";
 import { getAgent, getChairAgent, listAgents } from "../storage/agents.js";
 import { getBriefByRoom, listBriefsForRoom } from "../storage/briefs.js";
+import { hasBraveKey } from "../storage/keys.js";
 import { insertConfigEvent, listConfigEvents } from "../storage/config-events.js";
 import {
   getKeyPoint,
   setKeyPointVote,
   type KeyPointVote,
 } from "../storage/key_points.js";
-import { getCurrentRound, insertMessage, nextUserRoundNum } from "../storage/messages.js";
+import { getCurrentRound, insertMessage, listMessages, nextUserRoundNum } from "../storage/messages.js";
 import {
   addRoomMember,
   createRoom,
@@ -212,7 +214,12 @@ export function roomsRouter(): Hono {
     // Tone (mode), intensity, and brief style — accepted from the convene
     // overlay and stored on the room. Out-of-range values fall back to the
     // sane defaults so legacy clients still work.
-    const ALLOWED_MODES = new Set(["brainstorm", "constructive", "debate", "no-mercy"]);
+    // `no-mercy` retired · existing rooms with that mode keep loading
+    // (the prompt builder maps no-mercy → debate at runtime), but new
+    // rooms can only choose from this set. Replaced by `critique`
+    // (systematic flaw audit on a deliverable) which captures the
+    // value of high-pushback without the hostile-tone framing.
+    const ALLOWED_MODES = new Set(["brainstorm", "constructive", "research", "debate", "critique"]);
     const ALLOWED_INTENSITY = new Set(["calm", "sharp", "brutal"]);
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
     // Map legacy short codes to canonical style names.
@@ -271,6 +278,16 @@ export function roomsRouter(): Hono {
     // the chair to start streaming.
     setAwaitingClarify(room.id, true);
 
+    // Research-mode hint · the room defaults web search ON, but it
+    // can only actually run when a Brave Search API key is configured.
+    // Post a one-time chair notice up front so the user knows what's
+    // missing without blocking the room. Inferred language matches the
+    // subject to keep the chair's voice consistent.
+    if (mode === "research" && !hasBraveKey()) {
+      const langGuess: "zh" | "en" = /[一-鿿]/.test(subject) ? "zh" : "en";
+      announceResearchHint(room.id, langGuess);
+    }
+
     // Fire-and-forget — chair clarification streams in the background, then
     // either ticks directors (on READY) or waits for the user's reply.
     // Subsequent user replies route back through the chair (see POST
@@ -306,6 +323,33 @@ export function roomsRouter(): Hono {
     const events = listConfigEvents(id);
     const snap = getRoomQueueSnapshot(id);
     return c.json({ ...state, events, queue: snap.queue, round: snap.round });
+  });
+
+  // ── Markdown export · single-file bundle for backup / paste / share.
+  //   Contains: room header (subject, mode, intensity, timestamps,
+  //   directors), full chronological transcript with round dividers
+  //   and per-message timestamps, every filed brief verbatim. Browser
+  //   downloads via Content-Disposition. Filename pattern:
+  //   `boardroom-NNN-YYYY-MM-DD.md`.
+  r.get("/:id/export.md", (c) => {
+    const id = c.req.param("id");
+    const room = getRoom(id);
+    if (!room) return c.text("not found", 404);
+
+    const memberRows = listRoomMembers(id);
+    const members = memberRows
+      .map((m) => getAgent(m.agentId))
+      .filter((a): a is NonNullable<typeof a> => a !== null);
+    const messages = listMessages(id);
+    const briefs = listBriefsForRoom(id).slice().sort((a, b) => a.createdAt - b.createdAt);
+
+    const md = buildRoomExportMarkdown({ room, members, messages, briefs });
+    const filename = roomExportFilename(room);
+    return c.body(md, 200, {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    });
   });
 
   // ── SSE event stream
@@ -617,7 +661,12 @@ export function roomsRouter(): Hono {
 
     const b = (body ?? {}) as { mode?: unknown; intensity?: unknown; briefStyle?: unknown; incognito?: unknown };
 
-    const ALLOWED_MODES = new Set(["brainstorm", "constructive", "debate", "no-mercy"]);
+    // `no-mercy` retired · existing rooms with that mode keep loading
+    // (the prompt builder maps no-mercy → debate at runtime), but new
+    // rooms can only choose from this set. Replaced by `critique`
+    // (systematic flaw audit on a deliverable) which captures the
+    // value of high-pushback without the hostile-tone framing.
+    const ALLOWED_MODES = new Set(["brainstorm", "constructive", "research", "debate", "critique"]);
     const ALLOWED_INTENSITY = new Set(["calm", "sharp", "brutal"]);
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
     const STYLE_ALIAS: Record<string, string> = { mck: "mckinsey" };
@@ -1023,4 +1072,128 @@ export function roomsRouter(): Hono {
   });
 
   return r;
+}
+
+/* ─────────────────────── Markdown export helpers ────────────────────────
+ *
+ *  Self-contained · no LLM calls, no network. Pure formatting of what's
+ *  already in the DB into a single markdown bundle the user can paste
+ *  into Notion / Obsidian / GitHub / wherever. Producing a single file
+ *  (instead of a zip) keeps the UX dead-simple — the browser handles
+ *  the download natively from the Content-Disposition header.
+ */
+
+function roomExportFilename(room: { number: number; createdAt: number }): string {
+  const num = String(room.number).padStart(3, "0");
+  const d = new Date(room.createdAt);
+  const date = isNaN(d.getTime()) ? "unknown" : d.toISOString().slice(0, 10);
+  return `boardroom-${num}-${date}.md`;
+}
+
+interface ExportOpts {
+  room: ReturnType<typeof getRoom>;
+  members: ReturnType<typeof getAgent>[];
+  messages: ReturnType<typeof listMessages>;
+  briefs: ReturnType<typeof listBriefsForRoom>;
+}
+
+function buildRoomExportMarkdown(opts: ExportOpts): string {
+  const { room, members, messages, briefs } = opts;
+  if (!room) return "";
+
+  const fmtFull = (ts: number | null | undefined): string => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "—";
+    return d.toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  };
+  const fmtTime = (ts: number): string => {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "—";
+    return d.toISOString().slice(11, 19) + "Z";
+  };
+
+  // Director list for the header — moderator (chair) intentionally
+  // excluded so the line reads as "the cast at the table" not the
+  // entire roster.
+  const directors = members.filter((a): a is NonNullable<typeof a> => !!a && a.roleKind === "director");
+  const directorLine =
+    directors.length > 0
+      ? directors.map((a) => a.name).join(" · ")
+      : "(no directors)";
+
+  // Lookup for authorId → display, used by the transcript walker.
+  // Includes ALL agents (chair + directors) since chair messages also
+  // need name-resolved attribution.
+  const nameById = new Map<string, { name: string; handle: string; roleKind: string }>();
+  for (const a of members) {
+    if (a) nameById.set(a.id, { name: a.name, handle: a.handle, roleKind: a.roleKind });
+  }
+
+  // ── Header ──
+  const headerLines: string[] = [
+    `# Room #${room.number} · ${room.subject}`,
+    ``,
+    `· **Status** · ${room.status}`,
+    `· **Mode** · ${room.mode}`,
+    `· **Intensity** · ${room.intensity}`,
+    `· **Convened** · ${fmtFull(room.createdAt)}`,
+  ];
+  if (room.adjournedAt) headerLines.push(`· **Adjourned** · ${fmtFull(room.adjournedAt)}`);
+  headerLines.push(`· **Directors** · ${directorLine}`);
+  headerLines.push(``, `---`, ``);
+
+  // ── Transcript ──
+  const transcriptLines: string[] = [`## Transcript`, ``];
+  let lastRound = -1;
+  for (const m of messages) {
+    if (m.authorKind === "system") continue;
+    if (!m.body || !m.body.trim()) continue;
+
+    if (m.roundNum !== lastRound && m.roundNum > 0) {
+      transcriptLines.push(`### Round ${m.roundNum}`, ``);
+      lastRound = m.roundNum;
+    }
+
+    const t = fmtTime(m.createdAt);
+
+    if (m.authorKind === "user") {
+      transcriptLines.push(`**You** · ${t}`, ``);
+      const quoted = m.body
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      transcriptLines.push(quoted, ``);
+      continue;
+    }
+
+    // agent
+    const meta = m.authorId ? nameById.get(m.authorId) : null;
+    const speakerName = meta ? meta.name : "(unknown)";
+    const handlePart = meta && meta.handle ? ` · _${meta.handle}_` : "";
+    const rolePart = meta && meta.roleKind === "moderator" ? " · Chair" : "";
+    transcriptLines.push(`**${speakerName}**${handlePart}${rolePart} · ${t}`, ``);
+    transcriptLines.push(m.body.trim(), ``);
+  }
+
+  // ── Filed reports ──
+  const briefsLines: string[] = [`---`, ``, `## Filed Reports`, ``];
+  if (briefs.length === 0) {
+    briefsLines.push(`_No reports filed in this room._`, ``);
+  } else {
+    briefs.forEach((b, i) => {
+      const ts = fmtFull(b.createdAt);
+      const styleParts: string[] = [];
+      if (b.houseStyle && b.houseStyle !== "boardroom-default") styleParts.push(b.houseStyle);
+      if (b.spine && b.spine !== "boardroom-dark") styleParts.push(b.spine);
+      const stylePart = styleParts.length > 0 ? ` · ${styleParts.join(" / ")}` : "";
+      const supplementPart = b.supplement ? ` · supplement: "${b.supplement}"` : "";
+      briefsLines.push(`_Brief #${i + 1} · ${ts}${stylePart}${supplementPart}_`, ``);
+      briefsLines.push(b.bodyMd.trim(), ``);
+      if (i < briefs.length - 1) briefsLines.push(`---`, ``);
+    });
+  }
+
+  return [...headerLines, ...transcriptLines, ...briefsLines].join("\n") + "\n";
 }

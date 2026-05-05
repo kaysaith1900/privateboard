@@ -11,7 +11,8 @@ export interface Room {
   number: number;
   name: string;
   subject: string;
-  mode: string;       // tone: brainstorm | constructive | debate | no-mercy
+  mode: string;       // tone: brainstorm | constructive | research | debate | critique
+                      //       (legacy "no-mercy" rooms map to debate at read time)
   intensity: string;  // calm | sharp | brutal
   status: RoomStatus;
   briefStyle: string | null;  // auto | mckinsey | gartner | a16z | anthropic | 8bit
@@ -27,6 +28,16 @@ export interface Room {
    *  memory for any agent. Defaults to false; user toggles via Room
    *  Settings. Per-room flag, not global. */
   incognito: boolean;
+  /** Follow-up reference · when set, this room was started as a
+   *  continuation of `parentRoomId`'s session. Both rooms remain
+   *  independent (own messages, own briefs); the link is purely a
+   *  navigation reference + a context-injection signal at director-
+   *  prompt build time. NULL for standalone rooms. */
+  parentRoomId: string | null;
+  /** Which specific brief in the parent room the follow-up scopes to
+   *  (a parent room can have multiple briefs from regenerations).
+   *  NULL when there's no parent OR the parent had no brief. */
+  parentBriefId: string | null;
 }
 
 export interface RoomMember {
@@ -50,6 +61,8 @@ interface Row {
   paused_at: number | null;
   adjourned_at: number | null;
   incognito: number;
+  parent_room_id: string | null;
+  parent_brief_id: string | null;
 }
 
 interface MemberRow {
@@ -60,7 +73,8 @@ interface MemberRow {
 
 const ROOM_COLS =
   "id, number, name, subject, mode, intensity, status, brief_style, awaiting_continue, " +
-  "awaiting_clarify, created_at, paused_at, adjourned_at, incognito";
+  "awaiting_clarify, created_at, paused_at, adjourned_at, incognito, " +
+  "parent_room_id, parent_brief_id";
 
 function mapRow(row: Row): Room {
   return {
@@ -78,6 +92,8 @@ function mapRow(row: Row): Room {
     pausedAt: row.paused_at,
     adjournedAt: row.adjourned_at,
     incognito: row.incognito === 1,
+    parentRoomId: row.parent_room_id,
+    parentBriefId: row.parent_brief_id,
   };
 }
 
@@ -106,6 +122,18 @@ export function listRoomMembers(roomId: string): RoomMember[] {
     )
     .all(roomId) as MemberRow[];
   return rows.map(mapMember);
+}
+
+/** Direct children of a parent room · the rooms that were started as
+ *  follow-ups to `parentRoomId`. Newest-first so the parent room's
+ *  UI lists most recent continuations at the top. Used by the
+ *  parent-room view's "Follow-up rooms" panel. Does NOT recurse —
+ *  grandchildren are reachable by clicking through. */
+export function listFollowUpRooms(parentRoomId: string): Room[] {
+  const rows = getDb()
+    .prepare(`SELECT ${ROOM_COLS} FROM rooms WHERE parent_room_id = ? ORDER BY created_at DESC`)
+    .all(parentRoomId) as Row[];
+  return rows.map(mapRow);
 }
 
 /** How many of the last N rooms each director appeared in. Used by
@@ -153,6 +181,12 @@ export interface RoomCreate {
   intensity?: string;
   briefStyle?: string;
   agentIds: string[]; // ordered = speaking order
+  /** Optional · marks the room as a follow-up to a prior adjourned
+   *  room. The orchestrator detects this and injects the parent
+   *  brief + Stage-1 signals into the director system prompts so the
+   *  cast sees the prior judgement as settled context. */
+  parentRoomId?: string | null;
+  parentBriefId?: string | null;
 }
 
 /**
@@ -169,7 +203,7 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
   const briefStyle = input.briefStyle ?? "auto";
 
   const insertRoom = db.prepare(
-    "INSERT INTO rooms (id, number, name, subject, mode, intensity, brief_style, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'live', ?)",
+    "INSERT INTO rooms (id, number, name, subject, mode, intensity, brief_style, status, created_at, parent_room_id, parent_brief_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?)",
   );
   const insertMember = db.prepare(
     "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
@@ -179,9 +213,11 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
   // so the round-robin queue (which iterates positions 0+) skips them
   // automatically. Chair runs on lifecycle events, not the queue.
   const chair = getChairAgent();
+  const parentRoomId = input.parentRoomId && input.parentRoomId.trim() ? input.parentRoomId.trim() : null;
+  const parentBriefId = input.parentBriefId && input.parentBriefId.trim() ? input.parentBriefId.trim() : null;
 
   const tx = db.transaction(() => {
-    insertRoom.run(id, number, input.name, input.subject, mode, intensity, briefStyle, now);
+    insertRoom.run(id, number, input.name, input.subject, mode, intensity, briefStyle, now, parentRoomId, parentBriefId);
     if (chair) insertMember.run(id, chair.id, -1, now);
     input.agentIds.forEach((agentId, idx) => {
       // Don't double-insert if a caller passed the chair id explicitly.
@@ -302,4 +338,37 @@ export function updateRoomSettings(
 export function deleteRoom(roomId: string): boolean {
   const result = getDb().prepare("DELETE FROM rooms WHERE id = ?").run(roomId);
   return result.changes > 0;
+}
+
+/**
+ * Boot-time recovery for rooms left in `awaiting_clarify = 1` from a
+ * previous process that died mid-stream. The chair-clarify pipeline
+ * sets the flag synchronously when the room opens, then writes the
+ * chair's clarifying question via streaming · if the process is
+ * killed before the stream completes, the flag stays on but no chair
+ * message ever lands, so the room appears empty to the user (just
+ * their opening question, no chair, input bar disabled by the
+ * awaiting-clarify lock). Clear the flag for any room where
+ * awaiting_clarify is set but no chair message exists yet — the user
+ * can then continue normally; their next message kicks the directors
+ * straight off the user's opening as if clarify resolved.
+ *
+ * Returns the count of rows fixed.
+ */
+export function recoverStuckClarifyRooms(): number {
+  const r = getDb()
+    .prepare(
+      `UPDATE rooms
+       SET awaiting_clarify = 0
+       WHERE awaiting_clarify = 1
+         AND id NOT IN (
+           SELECT DISTINCT m.room_id
+             FROM messages m
+             JOIN agents a ON a.id = m.author_id
+            WHERE a.role_kind = 'moderator'
+              AND m.author_kind = 'agent'
+         )`,
+    )
+    .run();
+  return r.changes;
 }

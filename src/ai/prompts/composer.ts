@@ -16,6 +16,7 @@ import type { Room } from "../../storage/rooms.js";
 
 import type { DirectorSignals, ReportLanguage } from "./brief-stages.js";
 import { extractJson } from "./brief-stages.js";
+import { HOUSE_STYLES, formatHouseStyleCatalog, resolveHouseStyle } from "./house-styles.js";
 
 /* ─────────────────────────── Catalogue ─────────────────────────────────── */
 
@@ -57,6 +58,24 @@ export const COMPONENT_KINDS = [
   "critical-assumptions",
   "scenario-tree",
   "leading-indicators",
+
+  // Stanford-research self-criticism · names how the analysis itself
+  // could be wrong (selection bias, generalizability ceiling, lens
+  // blind spots). Distinct from `pre-mortem` (how the recommendation
+  // could fail) and `critical-assumptions` (the foundations the brief
+  // rests on). Highest fit for stanford-research / gartner-research
+  // styles, but a useful add to any brief that wants to surface
+  // intellectual honesty as a load-bearing section instead of an
+  // appendix caveat.
+  "threats-to-validity",
+
+  // Dashboard-style indicator strip · 3-5 KPI cards (label / value /
+  // qualifier / trend / attribution). The "by the numbers" beat right
+  // after the anchor, before a reader has to swim through the
+  // findings prose. Pick whenever the room produced ≥ 3 quantitative
+  // claims worth surfacing side-by-side. Genuinely visual — emits
+  // raw HTML that each spine styles into a card grid.
+  "metric-strip",
 ] as const;
 
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
@@ -82,20 +101,23 @@ export const SPINES = [
 export type Spine = (typeof SPINES)[number];
 
 /** The default 12-section preset · used as a safety net when the
- *  composer fails or the room has no signals. Matches the static
- *  layout the codebase shipped before Stage 1.5 existed. */
+ *  composer fails or the room has no signals. Visual components are
+ *  included by default — empty fields render as nothing, but having
+ *  the slots in place lets Stage 2 fill them when material exists,
+ *  which avoids the "every fallback brief is a wall of text" failure
+ *  mode. */
 export const DEFAULT_PRESET: ComponentPick[] = [
   { kind: "bottom-line", order: 1 },
-  { kind: "frame-shift", order: 2 },
-  { kind: "headline-findings", order: 3 },
-  { kind: "convergence", order: 4 },
-  { kind: "divergence", order: 5 },
-  { kind: "positions", order: 6 },
-  { kind: "visuals", order: 7 },
-  { kind: "recommendations", order: 8 },
-  { kind: "pre-mortem", order: 9 },
-  { kind: "new-questions", order: 10 },
-  { kind: "planning-assumption", order: 11 },
+  { kind: "metric-strip", order: 2 },
+  { kind: "frame-shift", order: 3 },
+  { kind: "headline-findings", order: 4 },
+  { kind: "convergence", order: 5 },
+  { kind: "divergence", order: 6 },
+  { kind: "positions", order: 7 },
+  { kind: "visuals", order: 8 },
+  { kind: "recommendations", order: 9 },
+  { kind: "pre-mortem", order: 10 },
+  { kind: "new-questions", order: 11 },
   { kind: "open-questions", order: 12 },
 ];
 
@@ -109,6 +131,12 @@ export interface ComposerResult {
   components: ComponentPick[];
   rationale: string;
   subjectType: string | null;
+  /** House-style preset slug (`sequoia-memo`, `stanford-research`,
+   *  `bcg-strategy`, etc.). Drives section vocabulary + voice register
+   *  at write time. Defaults to `boardroom-default` when the composer
+   *  fails or skips the field — that preset has no overrides, so the
+   *  brief renders with the legacy default headings + neutral voice. */
+  houseStyle: string;
   /** True when the composer's own output validated cleanly. False when
    *  the orchestrator fell back to DEFAULT_PRESET. The brief row records
    *  this distinction via the presence of `composer_rationale`. */
@@ -118,7 +146,7 @@ export interface ComposerResult {
 /* ─────────────────────────── Prompt ────────────────────────────────────── */
 
 const SYSTEM_PROMPT = [
-  "You are the Boardroom report composer. Pick the spine and the components that will produce the most useful brief for THIS specific room.",
+  "You are the Boardroom report composer. Pick (a) the house style, (b) the spine, and (c) the components that will produce the most useful brief for THIS specific room. Pick deliberately — the same room under different house styles reads as a different document. Avoid defaulting to `boardroom-default` unless the room genuinely doesn't fit any of the named registers.",
   "",
   "## What you must output",
   "",
@@ -126,15 +154,26 @@ const SYSTEM_PROMPT = [
   "",
   "```json",
   "{",
-  '  "spine": "boardroom-dark",',
+  '  "house_style": "sequoia-memo",',
+  '  "spine": "a16z-thesis",',
   '  "subject_type": "investment-judgement",',
   '  "components": [',
-  '    { "kind": "bottom-line", "order": 1 },',
-  '    { "kind": "frame-shift", "order": 2 }',
+  '    { "kind": "thesis", "order": 1 },',
+  '    { "kind": "why-now", "order": 2 }',
   "  ],",
-  '  "rationale": "≤ 120 chars · why this spine + these components fit the room"',
+  '  "rationale": "≤ 120 chars · why this house-style + spine + components fit the room"',
   "}",
   "```",
+  "",
+  "## House-style catalog (7 presets)",
+  "",
+  formatHouseStyleCatalog(),
+  "",
+  "Picking discipline:",
+  "  · The house style is the most consequential pick. It changes section vocabulary, voice register, and the kind of register the prose should adopt — investment-memo declarative vs scholarly hedged vs operator-essay narrative. Two reports under different house styles must FEEL different even when components overlap.",
+  "  · Vary across rooms. If two consecutive rooms could plausibly fit the same house style, prefer the one that fits more sharply rather than always defaulting to the safest pick. The point is variety; redundancy across briefs is a failure mode.",
+  "  · Match the spine to the house style by default (each style declares a default spine in its catalog entry above). Override only when the visual register obviously fits a different spine.",
+  "",
   "",
   "## Component catalogue (19 kinds)",
   "",
@@ -157,7 +196,8 @@ const SYSTEM_PROMPT = [
   "  · `convergence`         Where directors aligned via independent reasoning paths. Needs ≥ 2 directors via ≥ 2 lenses.",
   "  · `divergence`          The single hinge where directors split. Skip when the room had no real central tension.",
   "  · `positions`           2–3 named camps with a pull-quote per camp. Skip when directors didn't cluster.",
-  "  · `visuals`             0–4 exhibits (comparison-table / quadrant-chart / force-field / strengths-cautions). Pick when ≥ 2 named options or paths were compared.",
+  "  · `visuals`             0–4 visual exhibits. Seven sub-types now: comparison-table / quadrant-chart / force-field / strengths-cautions (the original four · text matrices + 2-axis plot) PLUS bar-chart (mermaid xychart-beta · 2–8 ranked items on one quantity), timeline (mermaid timeline · 3–8 dated narrative beats), pie-chart (mermaid pie showData · 2–6 distribution slices). Pick liberally — visuals carry information faster than prose. Triggers: any ranked numeric comparison → bar-chart; any chronology / historical analogue → timeline; any distribution that sums (probability split / votes / lens shares / market mix) → pie-chart; any 2-axis plot → quadrant-chart; any options matrix → comparison-table or strengths-cautions; any drivers-vs-resistors framing → force-field.",
+  "  · `metric-strip`        3–5 KPI / indicator cards · the room's quantitative reads as a dashboard row. Pick whenever ≥ 3 numbers (percentages, time windows, ratios, counts, ranges) showed up worth surfacing side-by-side. Massively higher information density than the same numbers buried in prose — strongly favoured for investment / market-forecast / strategic-decision briefs.",
   "  · `two-paths`           Side-by-side trajectory comparison (Path A vs Path B). Pick when the room argued two distinct futures or routes — punchier than a comparison-table.",
   "  · `why-now`             Single panel: window opened by what · window closes when · the bet implied. For investment / opportunity rooms (a16z-thesis spine).",
   "  · `pre-mortem`          2–3 failure modes with leading indicators + mitigations. Pair with `recommendations` or `the-bet` when the call is high-stakes.",
@@ -170,6 +210,7 @@ const SYSTEM_PROMPT = [
   "  · `critical-assumptions`  4–6 load-bearing assumptions, each with confidence + falsifier + time horizon. Use when the brief's logic rests on assumptions that could shift — surfacing them lets the reader stress-test the conclusion.",
   "  · `scenario-tree`         2–4 named futures (typically Base / Upside / Downside) with probabilities, triggers, effects, decision implications. Use whenever the room argued multiple futures — richer than `two-paths` because it adds probability + trigger + decision implication per branch.",
   "  · `leading-indicators`    3–5 signals to monitor with thresholds + cadence + scenario each indicator confirms. Use when the brief tells the reader to wait-and-watch, or when scenarios diverge based on observable signals.",
+  "  · `threats-to-validity`   3–5 ways the *analysis itself* could be wrong (selection bias, generalizability ceiling, sample of N, lens blind spot, confounding). Each names a category, the threat in 1-2 sentences, an observable that would prove it realized, severity, and an optional mitigation. Distinct from `pre-mortem` (how the *recommendation* could fail) and from `critical-assumptions` (the foundations the brief rests on). Pull in for stanford-research / gartner-research / any brief where the room had a real moment of intellectual honesty — surfacing how we could be wrong is a load-bearing section, not a caveat.",
   "",
   "## Composition rules · violations are rejected",
   "",
@@ -179,8 +220,21 @@ const SYSTEM_PROMPT = [
   "· Total components: 5–12. Below 5 = thin; above 12 = noise. The new range allows for the Gartner-density blocks when warranted.",
   "· Drop a component if the conversation didn't produce material for it. Empty sections are worse than missing ones.",
   "· Spine ≠ template. Pick the spine whose voice fits the topic, then pick components independently.",
-  "· If unsure → `boardroom-dark` spine and the safe set: `bottom-line` + `frame-shift` + `headline-findings` + `convergence` (or `divergence`) + `recommendations` + `new-questions` + `open-questions`.",
-  "· Strategic / market / forecast / impact-analysis subjects → `boardroom-dark` (or `gartner-note`) spine and the dense set: `bottom-line` + `strategic-outlook` + `headline-findings` + `critical-assumptions` + `scenario-tree` + `recommendations` + `leading-indicators` + `pre-mortem` + `new-questions`. ~9 components — feels like a research note.",
+  "",
+  "## Visualisation discipline · pick at least one per brief unless genuinely impossible",
+  "",
+  "Reports without any visual component (no `visuals`, no `metric-strip`, no `two-paths`, no `scenario-tree`, no `leading-indicators`) read as walls of text and lose the reader. The floor is: every brief should carry **at least one** component from the visual set. The bar is low — even a single quadrant-chart, a 3-card metric-strip, or a 2-column two-paths table satisfies this.",
+  "  · If the room produced ≥ 3 quantitative claims (percentages, time windows, ratios) → `metric-strip` is the strongest pick.",
+  "  · If the room compared ≥ 2 named options/paths → `visuals` (quadrant-chart or strengths-cautions) is the strongest.",
+  "  · If the room argued multiple futures → `scenario-tree` (probabilities visible) beats prose every time.",
+  "  · If the brief is a watch-and-wait stance → `leading-indicators` carries the structure.",
+  "  · Truly unvisualisable rooms (philosophical / definitional / pure narrative retro) are allowed to skip — but they're rare. When in doubt, pick a visual.",
+  "",
+  "## Picking presets",
+  "",
+  "· If unsure → `boardroom-dark` spine and the safe set: `bottom-line` + `frame-shift` + `headline-findings` + `convergence` (or `divergence`) + `visuals` (or `metric-strip` when the room had numbers) + `recommendations` + `new-questions` + `open-questions`. Note the visual is in the safe set now — earlier presets that omitted visualisation produced flat reports.",
+  "· Strategic / market / forecast / impact-analysis subjects → `boardroom-dark` (or `gartner-note`) spine and the dense set: `bottom-line` + `metric-strip` + `strategic-outlook` + `headline-findings` + `critical-assumptions` + `scenario-tree` + `recommendations` + `leading-indicators` + `pre-mortem` + `new-questions`. ~10 components — feels like a research dashboard.",
+  "· Investment / market opportunity rooms → `a16z-thesis` spine and: `thesis` + `metric-strip` + `why-now` + `big-ideas` + `the-bet` + `pre-mortem` + `scenario-tree` + `new-questions`. The metric-strip carries the underwriting numbers.",
   "",
   "## Spine catalogue",
   "",
@@ -289,6 +343,7 @@ const SPINE_SET: ReadonlySet<string> = new Set(SPINES);
 const ANCHOR_SET: ReadonlySet<string> = new Set(ANCHORS);
 const FINDINGS_SET: ReadonlySet<string> = new Set(FINDINGS);
 const ACTION_SET: ReadonlySet<string> = new Set(ACTIONS);
+const HOUSE_STYLE_SET: ReadonlySet<string> = new Set(HOUSE_STYLES.map((s) => s.id));
 
 const ALLOWED_SUBJECT_TYPES = new Set([
   "investment-judgement",
@@ -321,12 +376,27 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
     rationale?: unknown;
     subject_type?: unknown;
     subjectType?: unknown;
+    house_style?: unknown;
+    houseStyle?: unknown;
   }>(raw);
   if (!parsed) return null;
 
-  // Spine.
+  // House style.
+  const houseStyleRaw = typeof parsed.house_style === "string"
+    ? parsed.house_style
+    : typeof parsed.houseStyle === "string"
+      ? parsed.houseStyle
+      : "";
+  const houseStyleTrim = houseStyleRaw.trim();
+  const houseStyle = HOUSE_STYLE_SET.has(houseStyleTrim) ? houseStyleTrim : "boardroom-default";
+
+  // Spine · default to the picked house style's preferred spine when
+  // the composer didn't name one (or named an unknown slug). Keeps the
+  // visual register coherent with the editorial register.
   const spineRaw = typeof parsed.spine === "string" ? parsed.spine.trim() : "";
-  const spine: Spine = SPINE_SET.has(spineRaw) ? (spineRaw as Spine) : "boardroom-dark";
+  const spine: Spine = SPINE_SET.has(spineRaw)
+    ? (spineRaw as Spine)
+    : resolveHouseStyle(houseStyle).spine;
 
   // Components · normalize, dedupe, drop unknowns.
   if (!Array.isArray(parsed.components)) return null;
@@ -373,6 +443,7 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
     components: picks,
     rationale,
     subjectType,
+    houseStyle,
     fromComposer: true,
   };
 }
@@ -413,6 +484,7 @@ export function defaultComposition(reason: string): ComposerResult {
     components: DEFAULT_PRESET.map((p) => ({ ...p })),
     rationale: reason,
     subjectType: null,
+    houseStyle: "boardroom-default",
     fromComposer: false,
   };
 }

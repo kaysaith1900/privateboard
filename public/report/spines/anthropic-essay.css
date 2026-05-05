@@ -179,7 +179,7 @@ html, body {
   text-transform: uppercase;
   margin: 56px 0 12px;
 }
-.body h2 { font-size: 30px; line-height: 1.22; margin: 0 0 18px; max-width: 700px; font-style: italic; }
+.body h2 { font-size: 30px; line-height: 1.22; margin: 0 0 18px; font-style: italic; }
 .body h3 { font-size: 21px; margin: 28px 0 10px; font-style: italic; }
 .body h4 { font-size: 14px; margin: 18px 0 6px; text-transform: none; letter-spacing: 0; font-style: italic; color: var(--ink-mid); }
 .body p { margin: 14px 0; line-height: 1.72; color: var(--ink-soft); font-size: 18px; }
@@ -554,3 +554,56 @@ html, body {
   line-height: 1; font-family: var(--serif);
 }
 .nq-why { font-family: var(--serif); font-size: 17px; line-height: 1.72; color: var(--ink-soft); margin: 0; max-width: 56ch; }
+
+/* ─── Metric strip · per-spine treatment ─────────────────────────
+   Inherits the spine-agnostic baseline in public/report.html's inline
+   <style>; this block tweaks surface, accent + typography to match
+   the spine's voice. No `border-left`, no parallel borders against
+   adjacent .chapter-num / section h2. */
+.body .metric-strip { margin: 26px 0 30px; }
+.body .metric-strip-intro {
+  color: var(--ink-mid);
+  font-family: "Charter", "Georgia", serif;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+/* No card borders · paper-on-paper feel. The cards lift via a tiny
+   warmer surface tint and generous padding instead. */
+.body .metric-card {
+  background: var(--paper-soft);
+  border: none;
+  padding: 18px 20px 14px;
+  min-height: 96px;
+}
+.body .metric-label {
+  color: var(--clay-deep);
+  font-family: "Charter", "Georgia", serif;
+  font-style: italic;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+.body .metric-value {
+  color: var(--ink);
+  font-family: "Charter", "Georgia", "Songti SC", serif;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.body .metric-card[data-trend="up"]   .metric-value { color: var(--sage-deep, #4F6F4A); }
+.body .metric-card[data-trend="down"] .metric-value { color: var(--clay-deep); }
+.body .metric-trend[data-trend="up"]   { color: var(--sage-deep, #4F6F4A); }
+.body .metric-trend[data-trend="down"] { color: var(--clay-deep); }
+.body .metric-qualifier {
+  color: var(--ink-mid);
+  font-family: "Charter", "Georgia", serif;
+  font-style: italic;
+}
+.body .metric-attribution {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+}

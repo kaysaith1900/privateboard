@@ -79,6 +79,30 @@ export function createApp() {
     c.json({ ok: true, version: "0.1.1", time: new Date().toISOString() }),
   );
 
+  // /api/system/migrations · the canonical record of which schema
+  // migrations have run against this user's DB. Frontend reads it on
+  // boot and compares against the last-seen entry stored in
+  // localStorage; when the latest applied migration is newer than the
+  // last-seen, the dashboard surfaces a friendly "storage upgraded"
+  // banner so the user understands why a fresh build's first launch
+  // ran a schema change. Data preservation is structural (every
+  // bundled migration is additive · table rebuilds use INSERT FROM
+  // OLD before DROP), but the banner spells that out so the user
+  // doesn't suspect a wipe.
+  app.get("/api/system/migrations", async (c) => {
+    const { getDb } = await import("./storage/db.js");
+    try {
+      const rows = getDb()
+        .prepare("SELECT name, applied_at FROM _migrations ORDER BY applied_at ASC, name ASC")
+        .all() as Array<{ name: string; applied_at: number }>;
+      return c.json({
+        migrations: rows.map((r) => ({ name: r.name, appliedAt: r.applied_at })),
+      });
+    } catch {
+      return c.json({ migrations: [] });
+    }
+  });
+
   // /api routers
   app.route("/api/prefs", prefsRouter());
   app.route("/api/agents", agentsRouter());

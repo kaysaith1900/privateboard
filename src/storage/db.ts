@@ -27,6 +27,9 @@ import agentWebSearch014 from "./migrations/014_agent_web_search.sql";
 import webSearchDefaultOff015 from "./migrations/015_web_search_default_off.sql";
 import prefsDefaultModel016 from "./migrations/016_prefs_default_model.sql";
 import agentCarrierPref017 from "./migrations/017_agent_carrier_pref.sql";
+import briefHouseStyle018 from "./migrations/018_brief_house_style.sql";
+import roomSummaries019 from "./migrations/019_room_summaries.sql";
+import roomFollowup020 from "./migrations/020_room_followup.sql";
 
 interface Migration {
   name: string;
@@ -51,6 +54,9 @@ const MIGRATIONS: Migration[] = [
   { name: "015_web_search_default_off.sql", sql: webSearchDefaultOff015 },
   { name: "016_prefs_default_model.sql", sql: prefsDefaultModel016 },
   { name: "017_agent_carrier_pref.sql", sql: agentCarrierPref017 },
+  { name: "018_brief_house_style.sql", sql: briefHouseStyle018 },
+  { name: "019_room_summaries.sql", sql: roomSummaries019 },
+  { name: "020_room_followup.sql", sql: roomFollowup020 },
 ];
 
 let _db: Database.Database | null = null;
@@ -68,6 +74,16 @@ export function getDb(): Database.Database {
 
 export function closeDb(): void {
   if (_db) {
+    // Force a WAL checkpoint before closing · without this, writes
+    // sitting in state.db-wal (which can balloon to 4MB+ between
+    // SQLite's lazy auto-checkpoints) only get merged into the main
+    // db on next-start recovery. That recovery is usually fine but
+    // has edge cases where partial transactions get rolled back —
+    // the symptom is "user data disappears after restart." TRUNCATE
+    // mode checkpoints + zeroes the WAL file so the on-disk state
+    // is fully consistent the moment we close. */
+    try { _db.pragma("wal_checkpoint(TRUNCATE)"); }
+    catch { /* if checkpoint fails, plain close still flushes most data */ }
     _db.close();
     _db = null;
   }

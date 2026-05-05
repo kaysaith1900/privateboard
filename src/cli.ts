@@ -14,8 +14,10 @@ import open from "open";
 
 import { runSeed } from "./seed/run.js";
 import { startServer } from "./server.js";
-import { runMigrations } from "./storage/db.js";
+import { closeDb, runMigrations } from "./storage/db.js";
+import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
+import { recoverStuckClarifyRooms } from "./storage/rooms.js";
 import { ensureBoardroomDir } from "./utils/paths.js";
 import { findFreePort } from "./utils/port.js";
 
@@ -61,6 +63,38 @@ async function main(): Promise<void> {
     process.stderr.write(`[boot] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`);
   }
 
+  // Clean up streaming placeholders left behind by a previous crash
+  // or by the historical bug where stream-iterator throws skipped the
+  // message-finalise path. Without this the user opens a room that
+  // was mid-stream when the server died and sees a director "thinking"
+  // forever, with no way to recover except deleting the DB.
+  try {
+    const orphans = cleanupOrphanedStreams();
+    if (orphans.fixed + orphans.deleted > 0) {
+      process.stderr.write(
+        `[boot] cleaned ${orphans.fixed} stuck stream(s), dropped ${orphans.deleted} empty placeholder(s)\n`,
+      );
+    }
+  } catch (e) {
+    process.stderr.write(`[boot] orphan cleanup failed: ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+
+  // Unstick rooms whose chair-clarify pipeline died mid-stream. Without
+  // this, opening such a room shows the user's opening question and
+  // nothing else, with the input bar locked by awaiting_clarify · the
+  // user perceives "data was wiped" but the room is just frozen
+  // waiting for a chair speech that never arrived. Clearing the flag
+  // lets the user pick up where they left off — their next message
+  // kicks the directors straight off their opening question.
+  try {
+    const fixed = recoverStuckClarifyRooms();
+    if (fixed > 0) {
+      process.stderr.write(`[boot] unstuck ${fixed} room(s) frozen in chair-clarify\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`[boot] clarify recovery failed: ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+
   const portArg = opts.port ? Number.parseInt(opts.port, 10) : undefined;
   if (portArg !== undefined && (Number.isNaN(portArg) || portArg < 1 || portArg > 65535)) {
     console.error(`Invalid --port: ${opts.port}`);
@@ -100,18 +134,51 @@ async function main(): Promise<void> {
     });
   }
 
-  // Graceful shutdown
+  // Graceful shutdown · server first (stop accepting requests / drain
+  // SSE), then DB (force WAL checkpoint + close the file handle).
+  // Skipping the DB close was the root cause of "user data disappears
+  // after restart" reports — WAL writes that hadn't been auto-
+  // checkpointed yet would sit in state.db-wal and could be partially
+  // rolled back on next-process recovery. Explicit checkpoint here
+  // makes on-disk state always consistent at shutdown.
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     process.stdout.write(`\n  ▸ ${signal} received · shutting down\n`);
     try {
       await server.close();
     } catch (e) {
       console.error("  ! error closing server", e);
     }
+    try {
+      closeDb();
+    } catch (e) {
+      console.error("  ! error closing db", e);
+    }
     process.exit(0);
   };
+  // SIGINT (Ctrl+C) and SIGTERM (`kill <pid>`) get the full async
+  // shutdown — server drain + WAL checkpoint + close.
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
+  // SIGHUP fires when the controlling terminal closes (Cmd+W on
+  // iTerm, closing a Terminal tab, parent shell exit). Default Node
+  // behaviour on SIGHUP is to terminate WITHOUT running our SIGINT/
+  // SIGTERM handlers — the in-flight WAL writes get abandoned and
+  // the user's most recent rooms / briefs / messages are lost on
+  // next start. Route SIGHUP through the same shutdown path so
+  // closing the terminal is data-safe.
+  process.on("SIGHUP", () => shutdown("SIGHUP"));
+  // Last-resort sync flush · runs on EVERY process exit, including
+  // ones that bypass our signal handlers (uncaughtException after a
+  // setImmediate, nodemon's restart kill, parent shell SIGKILL of
+  // the child). better-sqlite3's close() is synchronous, so we get
+  // one final WAL checkpoint even when we can't await anything else.
+  // Idempotent if shutdown() already ran (closeDb nulls the handle).
+  process.on("exit", () => {
+    try { closeDb(); } catch { /* */ }
+  });
 }
 
 main().catch((err) => {

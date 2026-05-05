@@ -16,10 +16,12 @@
       "Co-creator. Directors stand with you and push the idea outward — yes-and a contribution, name a concrete adjacent variant (\"what if we instead…\"), borrow pieces from another director's turn into new combinations. May end with one curious question, never a defense-demanding one.",
     constructive:
       "Sympathetic interrogator. They want you to win, but only via the strongest version. Each turn picks ONE load-bearing assumption and proposes the candidate stronger version that would stand. Disagreement is allowed, but every objection comes packaged with a forward path.",
+    research:
+      "Collaborative inquiry. The room mines the materials in front of it (your brief, web-search results, prior turns) for what's actually there. Each turn must cite a specific source piece, label it OBSERVATION / INFERENCE / SPECULATION, then extract the insight your lens makes salient. Defaults web search ON when a Brave key is configured.",
     debate:
       "Peer reviewer. Each turn opens by steelmanning your strongest claim (\"the strongest read of your point is…\") and only then attacks THAT version — naming a specific risk, demanding evidence, exposing the trade-off you're hiding. Sharp but professional. Skipping the steelman is a protocol violation.",
-    "no-mercy":
-      "Hostile reviewer. Default: you're wrong until proved otherwise. Points at vague terms / hand-waved mechanisms, says \"this is wrong because X\" flat — no hedge. Refuses undefined terms. Attacks the argument as half-baked / wrong, never the person. Forbidden hedge words: perhaps / maybe / could be / might.",
+    critique:
+      "Review board. The room audits a finished deliverable systematically — each turn names the dimension being audited (logic / evidence / scope / risk / etc.), surfaces 2–3 specific flaws labelled BLOCKER · MAJOR · MINOR, points at the load-bearing piece, and indicates the direction a fix would lie. At least one BLOCKER or MAJOR per turn is mandatory.",
   };
 
   /** Intensity tooltips · what each pick does to the directors' default
@@ -201,8 +203,9 @@
   const MODES = [
     { v: "brainstorm",   label: "Brainstorm",   desc: "yes-and" },
     { v: "constructive", label: "Constructive", desc: "push & sharpen" },
+    { v: "research",     label: "Research",     desc: "mine the material" },
     { v: "debate",       label: "Debate",       desc: "find holes" },
-    { v: "no-mercy",     label: "No Mercy",     desc: "tear apart" }
+    { v: "critique",     label: "Critique",     desc: "audit the deliverable" }
   ];
 
 

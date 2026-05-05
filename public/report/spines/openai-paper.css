@@ -164,7 +164,7 @@ html, body {
   text-transform: none;
   margin: 56px 0 8px;
 }
-.body h2 { font-size: 25px; line-height: 1.22; margin: 0 0 16px; max-width: 720px; }
+.body h2 { font-size: 25px; line-height: 1.22; margin: 0 0 16px; }
 .body h3 { font-size: 18px; margin: 28px 0 10px; font-weight: 600; }
 .body h4 { font-size: 13.5px; margin: 18px 0 6px; text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 600; }
 .body p { margin: 12px 0; line-height: 1.7; color: var(--ink-soft); font-size: 16px; }
@@ -514,3 +514,39 @@ html, body {
   line-height: 1; font-family: Georgia, serif;
 }
 .nq-why { font-size: 15.5px; line-height: 1.72; color: var(--ink-soft); margin: 0; max-width: 58ch; }
+
+/* ─── Metric strip · per-spine treatment ─────────────────────────
+   Inherits the spine-agnostic baseline in public/report.html's inline
+   <style>; this block tweaks surface, accent + typography to match
+   the spine's voice. No `border-left`, no parallel borders against
+   adjacent .chapter-num / section h2. */
+/* Papery research-note feel · sans label, slab-serif value, square
+   corners, no card borders — uses surface tint to delineate. */
+.body .metric-strip-intro {
+  color: var(--ink-soft);
+  font-family: var(--sans);
+}
+.body .metric-card {
+  background: var(--soft, rgba(0, 0, 0, 0.025));
+  border: none;
+  border-top: 1px solid var(--rule, rgba(0, 0, 0, 0.12));
+  padding: 14px 16px 12px;
+}
+.body .metric-label {
+  color: var(--teal-deep);
+  font-family: var(--sans);
+  font-weight: 600;
+}
+.body .metric-value {
+  color: var(--ink);
+  font-family: "Charter", "Times New Roman", "Songti SC", serif;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.body .metric-card[data-trend="up"]   .metric-value { color: var(--teal-deep); }
+.body .metric-card[data-trend="down"] .metric-value { color: var(--orange); }
+.body .metric-trend[data-trend="up"]   { color: var(--teal-deep); }
+.body .metric-trend[data-trend="down"] { color: var(--orange); }
+.body .metric-qualifier { color: var(--ink-mid); font-family: var(--sans); }
+.body .metric-attribution { color: var(--ink-faint); }

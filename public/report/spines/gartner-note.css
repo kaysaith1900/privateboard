@@ -536,3 +536,50 @@ html, body {
   line-height: 1; font-family: Georgia, serif;
 }
 .nq-why { font-size: 14.5px; line-height: 1.65; color: var(--ink-soft); margin: 0; max-width: 60ch; }
+
+/* ─── Metric strip · per-spine treatment ─────────────────────────
+   Inherits the spine-agnostic baseline in public/report.html's inline
+   <style>; this block tweaks surface, accent + typography to match
+   the spine's voice. No `border-left`, no parallel borders against
+   adjacent .chapter-num / section h2. */
+/* Dense table-like treatment · 4-up grid by default, monospace
+   everywhere, the value is primary but disciplined (not display-sized). */
+.body .metric-strip-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  background: var(--rule, rgba(0, 0, 0, 0.08));
+  border: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.12));
+}
+.body .metric-strip-intro {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  border-bottom: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.12));
+  padding-bottom: 6px;
+  margin-bottom: 0;
+}
+.body .metric-card {
+  background: var(--bg);
+  border: none;
+  padding: 12px 14px;
+  min-height: 84px;
+  gap: 4px;
+}
+.body .metric-label {
+  color: var(--brand-deep);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.body .metric-value {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.body .metric-card[data-trend="up"]   .metric-value { color: var(--green); }
+.body .metric-card[data-trend="down"] .metric-value { color: var(--brand-deep); }
+.body .metric-trend[data-trend="up"]   { color: var(--green); }
+.body .metric-trend[data-trend="down"] { color: var(--brand-deep); }
+.body .metric-qualifier { color: var(--ink-soft); font-family: var(--mono); font-size: 11px; }
+.body .metric-attribution { color: var(--ink-faint); }

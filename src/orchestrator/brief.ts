@@ -557,6 +557,7 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       components: composition.components,
       composerRationale: composition.rationale || null,
       subjectType: composition.subjectType,
+      houseStyle: composition.houseStyle,
     });
     roomBus.emit(roomId, {
       type: "config-event",
@@ -567,6 +568,7 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
         components: composition.components,
         rationale: composition.rationale,
         subjectType: composition.subjectType,
+        houseStyle: composition.houseStyle,
         fromComposer: composition.fromComposer,
       },
       createdAt: Date.now(),
@@ -621,6 +623,7 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
         language,
         supplement,
         picked: pickedKinds,
+        houseStyle: composition.houseStyle,
       });
       buf = r3.body;
       stage3Model = r3.model;
@@ -883,6 +886,9 @@ interface Stage3Args {
   /** Composer's component picks (Stage 1.5). When empty, Stage 3 renders
    *  whatever's filled in the scaffold — preserves legacy behaviour. */
   picked?: readonly string[];
+  /** Composer-picked house-style preset slug. Drives section vocabulary
+   *  + voice register at write time. Defaults to `boardroom-default`. */
+  houseStyle?: string;
 }
 
 interface Stage3Result {
@@ -892,8 +898,8 @@ interface Stage3Result {
 }
 
 async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
-  const { roomId, briefId, chairId, room, members, scaffold, perDirectorSignals, language, supplement, picked } = args;
-  const messages = buildWriteMessages({ room, members, scaffold, perDirectorSignals, language, supplement, picked });
+  const { roomId, briefId, chairId, room, members, scaffold, perDirectorSignals, language, supplement, picked, houseStyle } = args;
+  const messages = buildWriteMessages({ room, members, scaffold, perDirectorSignals, language, supplement, picked, houseStyle, briefId });
 
   let lastError = "no model attempted";
   for (const modelV of stageFlagshipList()) {

@@ -152,3 +152,50 @@ export function deleteMessage(id: string): boolean {
   const r = getDb().prepare("DELETE FROM messages WHERE id = ?").run(id);
   return r.changes > 0;
 }
+
+/**
+ * Boot-time recovery for messages stuck in `meta.streaming = true`.
+ *
+ * A streaming placeholder lives in DB while a director's LLM call is
+ * mid-flight; pumpQueue / streamSpeakerTurn flip it to `streaming:
+ * false` when the call resolves or errors. If the server crashes
+ * mid-stream — or, historically, if the stream iterator throws and
+ * the catch path skipped cleanup — the row stays `streaming: true`
+ * forever, and every subsequent room load shows the director as
+ * "thinking" with no recovery path.
+ *
+ * Scope this to startup so the in-memory orchestrator state can't
+ * collide with our writes. Empty-body placeholders get deleted (no
+ * useful content to keep); non-empty ones are finalised with an
+ * error note so the user sees what's left of the partial reply
+ * instead of a silent disappearance.
+ */
+export function cleanupOrphanedStreams(): { fixed: number; deleted: number } {
+  const db = getDb();
+  const del = db
+    .prepare(
+      `DELETE FROM messages
+       WHERE json_valid(meta_json)
+         AND json_extract(meta_json, '$.streaming') = 1
+         AND (body IS NULL OR trim(body) = '')`,
+    )
+    .run();
+  // 0 instead of `json('false')` — SQLite stores it as a JSON number
+  // and the frontend's truthiness check (`if (meta.streaming)`) reads
+  // it as falsy. The strict `=== true` check in chair-interrupt also
+  // rejects 0. Both downstream consumers behave correctly.
+  const upd = db
+    .prepare(
+      `UPDATE messages
+       SET meta_json = json_set(
+         meta_json,
+         '$.streaming', 0,
+         '$.speakerStatus', 'final',
+         '$.error', 'orphaned · server restarted mid-stream'
+       )
+       WHERE json_valid(meta_json)
+         AND json_extract(meta_json, '$.streaming') = 1`,
+    )
+    .run();
+  return { fixed: upd.changes, deleted: del.changes };
+}

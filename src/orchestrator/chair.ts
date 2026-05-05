@@ -44,6 +44,7 @@ import {
   parseRoundEndOutput,
 } from "./prompt.js";
 import { pickChairClarifyDecision, pickChairWebSearch } from "./skill-picker.js";
+import { runRoundEndSummarization } from "./summarize.js";
 import { collectUrlsFromHistory, fetchOne, renderUrlContextBlock, type FetchAttemptHook, type UrlExtract } from "../skills/url-fetch.js";
 import { roomBus } from "./stream.js";
 
@@ -1005,6 +1006,13 @@ export async function runChairRoundEnd(roomId: string, roundNum: number): Promis
       });
     },
   });
+
+  // Hierarchical summarization · runs after the chair's round-end (and
+  // its key-point persistence) so the L1 generator can pull this round's
+  // key points as anchor material. Fire-and-forget · summarisation is
+  // best-effort, the room shouldn't block on it. Errors are logged
+  // inside runRoundEndSummarization.
+  void runRoundEndSummarization(roomId, roundNum);
 }
 
 /**
@@ -1109,6 +1117,50 @@ export function announceIntervention(
     meta: {
       kind: "intervention",
       rationale: rationale || "",
+      speakerStatus: "final",
+      streaming: false,
+    },
+  });
+  roomBus.emit(roomId, {
+    type: "message-appended",
+    messageId: m.id,
+    authorKind: "agent",
+    authorId: chair.id,
+    replyToId: null,
+    body: m.body,
+    meta: m.meta,
+    roundNum: m.roundNum,
+    createdAt: m.createdAt,
+  });
+  roomBus.emit(roomId, { type: "message-final", messageId: m.id });
+}
+
+/**
+ * Research-mode hint · when a research-mode room opens but the user
+ * has no Brave Search API key configured, the chair posts a single
+ * non-blocking notice explaining that the room will work without web
+ * search but is significantly more useful with it. Doesn't gate
+ * convening; doesn't repeat (caller is responsible for one-shot).
+ *
+ *   meta.kind = "research-hint"
+ */
+export function announceResearchHint(roomId: string, lang: "en" | "zh" = "en"): void {
+  const chair = getChairAgent();
+  if (!chair) return;
+  const body = lang === "zh"
+    ? "这是一间 **research room** —— 我会让每位 director 默认用 web search 去外部材料里挖事实。\n\n" +
+      "目前你还没配置 **Brave Search API key**，房间会照常运行（directors 会从已有上下文+他们的训练知识里讨论），但接不上外部 fact-finding，效果会差不少。\n\n" +
+      "建议在 **Preference → API Key → Brave Search** 里配一个（约 $5 / 1000 次查询，隐私友好），然后这间房就能用了。"
+    : "This is a **research room** — I'll have every director default to web search for outside fact-finding.\n\n" +
+      "You haven't configured a **Brave Search API key** yet, so the room will run on directors' training knowledge + the conversation context only — workable, but materially less useful for a research session.\n\n" +
+      "Open **Preference → API Key → Brave Search** to configure one (≈ $5 per 1,000 queries, privacy-respecting). The room will use it from the next turn onward.";
+  const m = insertMessage({
+    roomId,
+    authorKind: "agent",
+    authorId: chair.id,
+    body,
+    meta: {
+      kind: "research-hint",
       speakerStatus: "final",
       streaming: false,
     },

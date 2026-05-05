@@ -63,16 +63,71 @@
     height: 100vh;
     overflow: hidden;
   }
+  /* Body becomes a flex column so the optional system-notice banner
+     can sit above the .control shell without forcing total height to
+     exceed the viewport. .control keeps its existing internal grid;
+     it just lives inside this outer flex now. */
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
+  /* ─────────── SYSTEM NOTICE BANNER ───────────
+     Dismissible single-line notice that appears above the app shell
+     when storage migrations have been applied. Mono micro-type, lime
+     left chevron, hairline border under so it reads as system chrome
+     not chat content. Only shown when app.js sets data-sys-notice
+     visible. */
+  .sys-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--panel-2, #1A1A18);
+    border-bottom: 0.5px solid var(--lime-dim, #2D5532);
+    font-family: var(--mono, "Inter", system-ui, sans-serif);
+    font-size: 11.5px;
+    color: var(--text-soft, #8E8B83);
+    flex-shrink: 0;
+  }
+  .sys-notice[hidden] { display: none; }
+  .sys-notice-mark {
+    color: var(--lime, #6FB572);
+    font-weight: 700;
+  }
+  .sys-notice-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.4;
+  }
+  .sys-notice-text .sys-notice-strong {
+    color: var(--text, #C8C5BE);
+    font-weight: 600;
+  }
+  .sys-notice-close {
+    appearance: none;
+    background: none;
+    border: 0;
+    color: var(--text-faint, #5C5A4D);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 6px;
+    transition: color 0.12s;
+  }
+  .sys-notice-close:hover { color: var(--lime, #6FB572); }
+
   /* ─────────── ROOT ─────────── */
   .control {
     display: grid;
     grid-template-rows: auto 1fr;
-    height: 100vh;
+    flex: 1 1 auto;
+    min-height: 0;
     gap: 8px;
     padding: 8px;
   }
@@ -140,98 +195,6 @@
   .topbar-right .key { color: var(--text-soft); margin-right: 4px; }
   .topbar-right .val { color: var(--text-soft); }
   @keyframes pulse { 0%, 60% { opacity: 1; } 80% { opacity: 0.4; } }
-
-  .user-menu-wrap { position: relative; flex: 1; min-width: 0; }
-  .user-menu {
-    position: absolute;
-    /* Default opens DOWNWARD; sidebar-foot variant flips upward below */
-    top: calc(100% + 6px);
-    right: 0;
-    min-width: 200px;
-    background: var(--panel);
-    border: 0.5px solid var(--line-bright);
-    z-index: 100;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-2px);
-    transition: opacity 0.12s, transform 0.12s, visibility 0s linear 0.12s;
-  }
-  .user-menu-wrap:hover .user-menu,
-  .user-menu-wrap:focus-within .user-menu {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-    transition: opacity 0.12s, transform 0.12s, visibility 0s;
-  }
-
-  /* Sidebar-foot variant: menu pops UPWARD from the bottom user-block,
-     anchored to the left edge so it sits inside the sidebar column. */
-  .sidebar-foot .user-menu-wrap { display: flex; }
-  .sidebar-foot .user-block { flex: 1; min-width: 0; }
-  .sidebar-foot .user-menu {
-    top: auto;
-    bottom: calc(100% + 6px);
-    right: auto;
-    left: 0;
-    transform: translateY(2px);
-  }
-  .sidebar-foot .user-menu-wrap:hover .user-menu,
-  .sidebar-foot .user-menu-wrap:focus-within .user-menu {
-    transform: translateY(0);
-  }
-  .sidebar-foot .user-block .chev {
-    margin-left: auto;
-    color: var(--text-dim);
-    font-size: 9px;
-    transition: color 0.1s;
-  }
-  .sidebar-foot .user-menu-wrap:hover .user-block .chev,
-  .sidebar-foot .user-menu-wrap:focus-within .user-block .chev {
-    color: var(--lime);
-  }
-
-  .user-menu-section {
-    padding: 8px 12px;
-    border-bottom: 0.5px solid var(--line);
-    background: var(--panel-2);
-  }
-  .user-menu-section .name {
-    font-size: 11px;
-    color: var(--text);
-    font-weight: 700;
-    margin-bottom: 1px;
-  }
-  .user-menu-section .meta {
-    font-size: 9.5px;
-    color: var(--text-dim);
-    letter-spacing: 0.04em;
-  }
-  .user-menu-section .meta .lime { color: var(--lime); }
-
-  .user-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    font-size: 11.5px;
-    color: var(--text-soft);
-    text-decoration: none;
-    border-bottom: 0.5px solid var(--line);
-    transition: all 0.08s;
-  }
-  .user-menu-item:last-child { border-bottom: none; }
-  .user-menu-item:hover {
-    background: var(--panel-2);
-    color: var(--lime);
-  }
-  .user-menu-item .menu-icon {
-    width: 14px;
-    color: var(--text-dim);
-    text-align: center;
-  }
-  .user-menu-item:hover .menu-icon { color: var(--lime); }
-  .user-menu-item.danger:hover { color: var(--red); }
-  .user-menu-item.danger:hover .menu-icon { color: var(--red); }
 
   /* ═══════════════════════════════════════════
      MAIN GRID — sidebar + content
@@ -661,9 +624,10 @@
   }
   .new-btn:hover {
     background: var(--panel-2);
-    color: var(--text);
+    color: var(--lime);
   }
-  .new-btn:hover::before { color: var(--lime); }
+  /* The ::before icon inherits via currentColor — no explicit
+     hover override needed; setting the parent's color cascades. */
   /* Active state · matches session-row-shell.active treatment so the
      sidebar reads consistently when the composer is the current view. */
   .new-btn.active {
@@ -1838,8 +1802,10 @@
   .paused-bar-text { font-size: 10.5px; color: var(--text-dim); }
   .paused-bar-text strong { color: var(--text); font-weight: 700; }
   .paused-bar-text .lime { color: var(--lime); }
-  .paused-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .paused-bar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .resume-btn-lg {
+    display: inline-flex;
+    align-items: center;
     padding: 6px 12px;
     background: var(--lime);
     color: var(--bg);
@@ -1847,6 +1813,7 @@
     font-family: var(--mono);
     font-size: 10px;
     font-weight: 700;
+    line-height: 1.2;
     cursor: pointer;
     text-decoration: none;
     text-transform: uppercase;
@@ -1935,17 +1902,26 @@
   }
   .followup-btn:hover { background: var(--bg); color: var(--lime); }
   .ghost-btn {
-    padding: 5px 10px;
+    /* inline-flex + align-items:center so text always centers vertically
+       inside the box even when a flex parent stretches us to match the
+       resume-btn-lg sibling's height. Padding / font-size / weight are
+       lined up with .resume-btn-lg so the buttons read as the same
+       size class — only the fill / border treatment distinguishes the
+       primary lime CTA from a quieter ghost. */
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
     background: var(--bg);
     border: 0.5px solid var(--line-strong);
     font-family: var(--mono);
-    font-size: 9.5px;
-    font-weight: 600;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
     color: var(--text);
     cursor: pointer;
     text-decoration: none;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
   }
   .ghost-btn:hover { border-color: var(--lime); color: var(--lime); }
 
@@ -3850,6 +3826,37 @@
   .msg-bubble p:last-child { margin-bottom: 0; }
   .msg-bubble strong { color: var(--text); font-weight: 600; }
   .msg-bubble em { font-style: normal; color: var(--lime); font-weight: 500; }
+  /* Markdown blockquote · designed inset card, not a raw `>` line.
+     Per the no-coloured-left-borders rule, the callout treatment
+     uses a top mono kicker + panel-2 surface + indent (NOT a left
+     border). Italic body sets it apart from the surrounding agent
+     prose; the inline @director attribution at the end (rendered
+     by inline()'s @-mention pass) gets its usual lime treatment.
+     Used by quote-cta probe / second messages and any plain
+     markdown blockquote a director / chair might emit. */
+  .msg-bubble .msg-quote {
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    background: var(--panel-2);
+    font-family: var(--font-agent);
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+  }
+  .msg-bubble .msg-quote::before {
+    content: "// quoted";
+    display: block;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-style: normal;
+    margin-bottom: 6px;
+  }
+  .msg-bubble .msg-quote:last-child { margin-bottom: 0; }
   /* Markdown tables · editorial style. No outer box, no zebra, no
      uppercase data-grid headers — those read as "spreadsheet pasted
      into a conversation" and broke the bubble's literary register.
@@ -6991,6 +6998,8 @@
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
 <script src="onboarding.js" defer></script>
+<link rel="stylesheet" href="quote-cta.css">
+<script src="quote-cta.js" defer></script>
 <script src="app.js" defer></script>
 <script>
   /* FOUC-prevention: apply saved theme synchronously before paint */
@@ -7006,6 +7015,19 @@
 </script>
 </head>
 <body>
+
+<!-- ═══════════════ SYSTEM NOTICE BANNER ═══════════════
+     Surfaces "storage upgraded" notices when the user opens a build
+     that ran new schema migrations against their existing DB. Hidden
+     by default; populated + un-hidden by app.js after the boot fetch
+     to /api/system/migrations resolves. Dismiss writes the latest
+     migration name to localStorage so it doesn't re-show until the
+     next time fresh migrations actually apply. -->
+<div class="sys-notice" data-sys-notice hidden>
+  <span class="sys-notice-mark">▸</span>
+  <span class="sys-notice-text" data-sys-notice-text></span>
+  <button type="button" class="sys-notice-close" data-sys-notice-close aria-label="Dismiss">✕</button>
+</div>
 
 <div class="control">
 
@@ -7089,21 +7111,13 @@
       </div><!-- /agents panel -->
 
       <div class="sidebar-foot">
-        <div class="user-menu-wrap" tabindex="0">
-          <a href="#" class="user-block">
-            <div class="user-av" data-user-avatar>K</div>
-            <div class="user-info">
-              <div class="user-name" data-user-name>—</div>
-              <div class="user-meta" data-user-meta>// host</div>
-            </div>
-            <span class="chev">▴</span>
-          </a>
-          <div class="user-menu">
-            <div class="user-menu-section">
-              <div class="name" data-user-menu-name>—</div>
-            </div>
+        <a href="#" class="user-block">
+          <div class="user-av" data-user-avatar>K</div>
+          <div class="user-info">
+            <div class="user-name" data-user-name>—</div>
+            <div class="user-meta" data-user-meta>// host</div>
           </div>
-        </div>
+        </a>
         <a href="#" class="icon-btn" title="Settings" data-user-settings-trigger>⚙</a>
       </div>
 
@@ -7171,8 +7185,7 @@
               <strong>// room adjourned.</strong> the brief is filed above.
             </div>
             <div class="adjourned-bar-actions">
-              <a href="#" class="ghost-btn">[↓] Export</a>
-              <a href="#" class="ghost-btn">[↗] Share</a>
+              <a href="#" class="ghost-btn" data-room-export>[↓] Export</a>
             </div>
           </footer>
         </div>

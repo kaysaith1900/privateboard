@@ -154,6 +154,60 @@ describe("parseComposerOutput", () => {
     const kinds = parsed!.components.map((c) => c.kind);
     expect(kinds.filter((k) => k === "convergence")).toHaveLength(1);
   });
+
+  it("captures a known house_style pick", () => {
+    const raw = fence({
+      house_style: "sequoia-memo",
+      spine: "a16z-thesis",
+      rationale: "investment memo",
+      components: [
+        { kind: "thesis", order: 1 },
+        { kind: "why-now", order: 2 },
+        { kind: "big-ideas", order: 3 },
+        { kind: "the-bet", order: 4 },
+        { kind: "pre-mortem", order: 5 },
+      ],
+    });
+    const parsed = parseComposerOutput(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.houseStyle).toBe("sequoia-memo");
+  });
+
+  it("falls back to boardroom-default for an unknown house_style", () => {
+    const raw = fence({
+      house_style: "made-up-style",
+      spine: "boardroom-dark",
+      rationale: "garbage style",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "recommendations", order: 4 },
+        { kind: "open-questions", order: 5 },
+      ],
+    });
+    const parsed = parseComposerOutput(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.houseStyle).toBe("boardroom-default");
+  });
+
+  it("infers spine from the picked house style when the spine field is missing", () => {
+    const raw = fence({
+      house_style: "stanford-research",
+      rationale: "no spine in payload",
+      components: [
+        { kind: "working-hypothesis", order: 1 },
+        { kind: "headline-findings", order: 2 },
+        { kind: "divergence", order: 3 },
+        { kind: "considerations", order: 4 },
+        { kind: "open-questions", order: 5 },
+      ],
+    });
+    const parsed = parseComposerOutput(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.spine).toBe("openai-paper");
+    expect(parsed!.houseStyle).toBe("stanford-research");
+  });
 });
 
 describe("defaultComposition", () => {

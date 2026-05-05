@@ -32,7 +32,28 @@ export interface Brief {
   composerRationale: string | null;
   /** Coarse subject classification (e.g. `investment-judgement`). */
   subjectType: string | null;
+  /** Composer-picked house style · drives section vocabulary + voice
+   *  register at write time. Defaults to `boardroom-default` (no
+   *  overrides) for legacy briefs and for the safety-net composition. */
+  houseStyle: string;
+  /** Persisted Stage-1 per-director signals · the LLM-extracted set
+   *  of 2–4 named-by-lens observations each director surfaced for
+   *  this brief. Re-used by follow-up rooms as part of the prior-
+   *  context block in director system prompts. NULL on legacy briefs
+   *  written before the column existed (follow-up reader falls back
+   *  to brief markdown alone). */
+  signals: BriefSignals[] | null;
   createdAt: number;
+}
+
+/** Per-director signal bundle persisted alongside a brief · mirrors
+ *  the `DirectorSignals` shape Stage 2 receives. Storing it lets a
+ *  follow-up room read the prior session's named load-bearing
+ *  observations without re-running the haiku extract pass. */
+export interface BriefSignals {
+  directorId: string;
+  directorName: string;
+  signals: { text: string; lens: string; sources: number[] }[];
 }
 
 interface Row {
@@ -47,12 +68,48 @@ interface Row {
   components_json: string;
   composer_rationale: string | null;
   subject_type: string | null;
+  house_style: string;
+  signals_json: string | null;
   created_at: number;
 }
 
 const COLS =
   "id, room_id, style, title, body_md, body_json, supplement, " +
-  "spine, components_json, composer_rationale, subject_type, created_at";
+  "spine, components_json, composer_rationale, subject_type, " +
+  "house_style, signals_json, created_at";
+
+function parseSignals(json: string | null | undefined): BriefSignals[] | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const out: BriefSignals[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      const directorId = typeof e.directorId === "string" ? e.directorId : "";
+      const directorName = typeof e.directorName === "string" ? e.directorName : "";
+      if (!directorId || !directorName) continue;
+      const sigArr = Array.isArray(e.signals) ? e.signals : [];
+      const signals: BriefSignals["signals"] = [];
+      for (const s of sigArr) {
+        if (!s || typeof s !== "object") continue;
+        const so = s as Record<string, unknown>;
+        const text = typeof so.text === "string" ? so.text : "";
+        const lens = typeof so.lens === "string" ? so.lens : "";
+        const sources = Array.isArray(so.sources)
+          ? so.sources.filter((n): n is number => typeof n === "number" && Number.isFinite(n))
+          : [];
+        if (!text || !lens) continue;
+        signals.push({ text, lens, sources });
+      }
+      out.push({ directorId, directorName, signals });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
 
 function parseComponents(json: string | null | undefined): BriefComponent[] {
   if (!json) return [];
@@ -88,6 +145,8 @@ function mapRow(row: Row): Brief {
     components: parseComponents(row.components_json),
     composerRationale: row.composer_rationale,
     subjectType: row.subject_type,
+    houseStyle: row.house_style || "boardroom-default",
+    signals: parseSignals(row.signals_json),
     createdAt: row.created_at,
   };
 }
@@ -151,7 +210,7 @@ export function listAllBriefs(): BriefWithRoom[] {
     .prepare(
       `SELECT b.id, b.room_id, b.style, b.title, b.body_md, b.body_json,
               b.supplement, b.spine, b.components_json,
-              b.composer_rationale, b.subject_type, b.created_at,
+              b.composer_rationale, b.subject_type, b.house_style, b.signals_json, b.created_at,
               r.name AS room_name, r.subject AS room_subject,
               r.number AS room_number, r.status AS room_status
          FROM briefs b
@@ -185,6 +244,9 @@ export interface BriefInsert {
   components?: BriefComponent[];
   composerRationale?: string | null;
   subjectType?: string | null;
+  /** House-style preset slug. Defaults to `boardroom-default` when
+   *  omitted (no section-label overrides, neutral voice). */
+  houseStyle?: string;
 }
 
 /**
@@ -206,8 +268,9 @@ export function insertBrief(b: BriefInsert): Brief {
   const composerRationale =
     b.composerRationale && b.composerRationale.trim() ? b.composerRationale.trim() : null;
   const subjectType = b.subjectType && b.subjectType.trim() ? b.subjectType.trim() : null;
+  const houseStyle = b.houseStyle && b.houseStyle.trim() ? b.houseStyle.trim() : "boardroom-default";
   db.prepare(
-    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.roomId,
@@ -220,6 +283,7 @@ export function insertBrief(b: BriefInsert): Brief {
     components,
     composerRationale,
     subjectType,
+    houseStyle,
     now,
   );
   return getBrief(id)!;
@@ -237,6 +301,7 @@ export function updateBriefCompose(
     components?: BriefComponent[];
     composerRationale?: string | null;
     subjectType?: string | null;
+    houseStyle?: string;
   },
 ): void {
   const sets: string[] = [];
@@ -256,6 +321,10 @@ export function updateBriefCompose(
   if (fields.subjectType !== undefined) {
     sets.push("subject_type = ?");
     vals.push(fields.subjectType);
+  }
+  if (fields.houseStyle !== undefined) {
+    sets.push("house_style = ?");
+    vals.push(fields.houseStyle);
   }
   if (!sets.length) return;
   vals.push(id);
