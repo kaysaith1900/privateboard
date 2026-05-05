@@ -4,7 +4,7 @@
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
   "bin": {
-    "privateboard": "./dist/cli.js"
+    "privateboard": "dist/cli.js"
   },
   "files": [
     "dist",
