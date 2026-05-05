@@ -270,7 +270,7 @@ export function insertBrief(b: BriefInsert): Brief {
   const subjectType = b.subjectType && b.subjectType.trim() ? b.subjectType.trim() : null;
   const houseStyle = b.houseStyle && b.houseStyle.trim() ? b.houseStyle.trim() : "boardroom-default";
   db.prepare(
-    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.roomId,
@@ -284,9 +284,19 @@ export function insertBrief(b: BriefInsert): Brief {
     composerRationale,
     subjectType,
     houseStyle,
+    null,            // signals_json · filled later by updateBriefSignals
     now,
   );
   return getBrief(id)!;
+}
+
+/** Persist Stage-1 per-director signals on the brief row · called by
+ *  the brief orchestrator after Stage 1 succeeds. Stored as JSON so
+ *  follow-up rooms can re-use them as named-by-lens prior context
+ *  without re-running the haiku extract pass. */
+export function updateBriefSignals(id: string, signals: BriefSignals[]): void {
+  const json = JSON.stringify(signals);
+  getDb().prepare("UPDATE briefs SET signals_json = ? WHERE id = ?").run(json, id);
 }
 
 /**

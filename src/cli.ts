@@ -21,7 +21,7 @@ import { recoverStuckClarifyRooms } from "./storage/rooms.js";
 import { ensureBoardroomDir } from "./utils/paths.js";
 import { findFreePort } from "./utils/port.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 
 interface CliOptions {
   port?: string;

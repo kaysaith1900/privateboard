@@ -43,7 +43,7 @@ import { isModelV, type ModelV } from "../ai/registry.js";
 import { getAgent, getChairAgent, incrementAgentTokens, type Agent } from "../storage/agents.js";
 import { listMessages } from "../storage/messages.js";
 import { getRoom, listRoomMembers } from "../storage/rooms.js";
-import { insertBrief, updateBriefBody, updateBriefCompose } from "../storage/briefs.js";
+import { insertBrief, updateBriefBody, updateBriefCompose, updateBriefSignals } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 import { estimateTokens } from "../utils/tokens.js";
 
@@ -530,6 +530,33 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       },
     );
     emitStage(roomId, briefId, "extract", "done");
+
+    // Persist Stage-1 signals on the brief row so future follow-up
+    // rooms can re-use them as named-by-lens prior context. Strip
+    // each signal down to {text, lens, sources} for storage; the
+    // full DirectorSignals shape carries director metadata that's
+    // already implicit in the directorId / directorName fields.
+    try {
+      updateBriefSignals(
+        briefId,
+        perDirectorSignals.map((d) => ({
+          directorId: d.directorId,
+          directorName: d.directorName,
+          signals: d.signals.map((s) => ({
+            text: s.text,
+            lens: s.lens,
+            sources: Array.isArray(s.sources) ? s.sources : [],
+          })),
+        })),
+      );
+    } catch (e) {
+      // Non-fatal · the brief is still valid without persisted signals.
+      // Follow-ups that hit this brief later will fall back to brief
+      // markdown alone.
+      process.stderr.write(
+        `[brief.stage1] persist signals failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
 
     // In-flight calibration · compare stage 1's measured time to its
     // predicted mid-band. If the user's environment is slower (network,

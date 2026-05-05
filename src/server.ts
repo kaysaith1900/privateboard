@@ -76,7 +76,7 @@ export function createApp() {
 
   // /api · health check
   app.get("/api/health", (c) =>
-    c.json({ ok: true, version: "0.1.1", time: new Date().toISOString() }),
+    c.json({ ok: true, version: "0.1.2", time: new Date().toISOString() }),
   );
 
   // /api/system/migrations · the canonical record of which schema
