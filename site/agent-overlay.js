@@ -238,7 +238,7 @@
               <div class="lock-icon">▰</div>
               <div class="lock-text">
                 in-room notes are private to each thinker.
-                <a href="prototype-dashboard.html" class="lock-link">sign in →</a>
+                <a href="/" class="lock-link">sign in →</a>
                 to see what they have said and where their stance shifted.
               </div>
             </div>
@@ -248,8 +248,8 @@
         <footer class="agent-card-foot">
           <div class="meta private-only">tenure · <span class="lime agent-tenure"></span></div>
           <div class="meta public-only">first room · <span class="lime">free</span></div>
-          <a href="prototype-dashboard.html#convene" class="agent-card-cta private-only">[ ◆ Convene with them ]</a>
-          <a href="prototype-dashboard.html#convene" class="agent-card-cta public-only">[ → Sign in to convene ]</a>
+          <a href="/#convene" class="agent-card-cta private-only">[ ◆ Convene with them ]</a>
+          <a href="/#convene" class="agent-card-cta public-only">[ → Sign in to convene ]</a>
         </footer>
       </div>
     </div>

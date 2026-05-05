@@ -1315,7 +1315,7 @@
 }
 
 /* ─── Skills v2 · uploaded Skill.md files ────────────────────────────
-   Replaces the prototype inventory grid. Pattern · radar at top,
+   Replaces the legacy inventory grid. Pattern · radar at top,
    per-skill rows below, drop-zone at the foot. PRD: docs/PRD-skills.md. */
 .ap-skills-v2 {
   display: flex;
@@ -1977,7 +1977,7 @@
 /* Popover — anchored under the trigger. Mirrors the room composer's
    .cmp-dd-pop dropdown: tight rows, mono micro-type hint inline with
    the label, provider section headers, hairline scrollbar. One
-   coherent dropdown vocabulary across the prototype. */
+   coherent dropdown vocabulary across the app. */
 .ap-model-picker {
   position: fixed;
   z-index: 9100;
@@ -2813,7 +2813,7 @@
 
 .ap-memory-row.editing .ap-memory-actions { visibility: hidden; }
 
-/* ─── Memory · legacy prototype tile gallery (kept for callers
+/* ─── Memory · legacy tile gallery (kept for callers
    that still pass `p.memory` shape). v1 profiles render the
    .ap-memory list above and never enter this block. */
 .ap-memory-gallery {

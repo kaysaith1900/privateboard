@@ -215,7 +215,7 @@ export function roomsRouter(): Hono {
     const ALLOWED_MODES = new Set(["brainstorm", "constructive", "debate", "no-mercy"]);
     const ALLOWED_INTENSITY = new Set(["calm", "sharp", "brutal"]);
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
-    // Map prototype short codes to canonical style names.
+    // Map legacy short codes to canonical style names.
     const STYLE_ALIAS: Record<string, string> = { mck: "mckinsey" };
 
     const rawMode = typeof b.mode === "string" ? b.mode.trim() : "";

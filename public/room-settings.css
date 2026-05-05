@@ -439,7 +439,7 @@
 /* Section label · matches the new composer's mono micro-type kicker.
    No leading lime bullet — the inline count chip carries enough
    visual weight, and dropping the bullet lets the labels sit flush
-   left like the rest of the prototype's section heads. */
+   left like the rest of the app's section heads. */
 .rs-label {
   font-size: 9px;
   font-weight: 700;

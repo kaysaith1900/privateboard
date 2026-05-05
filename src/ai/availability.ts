@@ -118,7 +118,7 @@ export function hasAnyModelKey(): boolean {
  *    1. If only one direct provider is configured, return that
  *       provider's flagship.
  *    2. Else if OpenRouter is configured, return Opus 4.7 (the
- *       prototype's historical default).
+ *       historical default for OR-routed setups).
  *    3. Else if any direct provider is configured, return its
  *       flagship.
  *    4. Else null (no keys at all).

@@ -8,9 +8,9 @@
      ─ SSE per room:    /api/rooms/:id/stream
      ─ actions:         createRoom · sendMessage · adjournRoom
 
-   Designed in vanilla JS (no framework) to match the rest of the prototype.
+   Designed in vanilla JS (no framework) to match the rest of the frontend.
    Renders into named DOM containers; non-list parts (chrome / overlays) keep
-   their existing prototype handlers.
+   their existing handlers.
 */
 (function () {
   /** Display labels for the registry's modelV ids · used to print
@@ -5529,7 +5529,7 @@
       }
 
       // Update the collapsed summary alongside the expanded list so the
-      // collapsed strip never shows stale prototype text.
+      // collapsed strip never shows stale text.
       this.renderQueueCollapsed(renderItems);
 
       if (renderItems.length === 0) {
@@ -5726,7 +5726,7 @@
       ` : "";
 
       // Ceremonial wrapper · the deliverable hits the table inside an
-      // ending-block frame, mirroring the prototype.
+      // ending-block frame.
       card.innerHTML = `
         <header class="ending-block-head">
           <span class="ending-block-line"></span>

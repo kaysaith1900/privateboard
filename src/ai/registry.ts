@@ -221,7 +221,7 @@ export function getModel(v: ModelV): ModelMeta {
 }
 
 export function isModelV(v: string): v is ModelV {
-  return Object.prototype.hasOwnProperty.call(MODELS, v);
+  return Object.hasOwn(MODELS, v);
 }
 
 export function listModels(): ModelMeta[] {

@@ -729,7 +729,7 @@
 
   function show() {
     if (document.getElementById("onb-overlay")) return;
-    // Claim the dashboard sub-state · prototype-dashboard.html runs a
+    // Claim the dashboard sub-state · the dashboard page runs a
     // restore tick (~2.5s of 250ms retries) that re-opens whatever
     // agent profile the user last viewed once refreshAgents mounts the
     // sidebar rows. Onboarding always lands the user on a fresh room

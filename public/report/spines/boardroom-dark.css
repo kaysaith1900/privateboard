@@ -25,7 +25,7 @@
   --lime-dim: #5C4422;
   --red: #B5706A;
   /* Warm gold for italic accents in headlines (mirrors the Anthropic
-     prototype's `clay-deep` use). Used only on `em` inside h2/h3/rec
+     spine's `clay-deep` use). Used only on `em` inside h2/h3/rec
      action / nq question / etc. — never as a decorative fill. */
   --em: #C9A46B;
   --em-deep: #B58950;

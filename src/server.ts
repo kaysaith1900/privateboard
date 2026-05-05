@@ -1,6 +1,6 @@
 /**
- * Hono application — serves the static prototype + a thin /api surface.
- * P0 only includes a health check; later phases will mount real routers.
+ * Hono application — serves the static frontend (public/) + the /api surface
+ * the UI talks to (rooms, agents, keys, prefs, models, briefs, usage, avatar).
  */
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -52,7 +52,7 @@ export function createApp() {
   //     GET /api/keys after a PUT and the UI keeps showing "○ not set"
   //     forever.
   //  2. static HTML / JS / CSS · `no-cache, must-revalidate`. The
-  //     prototype is iterated on heavily; stale JS strands users on
+  //     frontend is iterated on heavily; stale JS strands users on
   //     yesterday's bundle. Combined with the etag the static handler
   //     emits, the steady state becomes 304 (cheap) and the worst case
   //     is one fresh bundle per page load.
@@ -76,7 +76,7 @@ export function createApp() {
 
   // /api · health check
   app.get("/api/health", (c) =>
-    c.json({ ok: true, version: "0.1.0", time: new Date().toISOString() }),
+    c.json({ ok: true, version: "0.1.1", time: new Date().toISOString() }),
   );
 
   // /api routers
@@ -89,13 +89,12 @@ export function createApp() {
   app.route("/api/avatar", avatarRouter());
   app.route("/api/usage", usageRouter());
 
-  // Static prototype — `/` lands on the dashboard prototype. P0 keeps the
-  // prototype file names intact so the cross-page links inside it still work.
+  // Static frontend · serveStatic auto-serves index.html for `/`, so no
+  // rewrite is needed. Asset paths in the HTML stay relative.
   app.use(
     "/*",
     serveStatic({
       root: dir,
-      rewriteRequestPath: (path) => (path === "/" ? "/prototype-dashboard.html" : path),
     }),
   );
 

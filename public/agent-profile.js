@@ -605,7 +605,7 @@
 
   function renderMetrics(p, slug) {
     const m = p.metrics || {};
-    // Real model takes precedence over the prototype's hardcoded value.
+    // Real (live) model takes precedence over any hardcoded fallback.
     const model = liveModelFor(slug) || m.model || { name: "—", deck: "" };
     const cell = (lbl, vHTML, opts) => `
       <div class="cell">
@@ -1209,7 +1209,7 @@
   }
 
   /* ─── Skills v2 · uploaded Skill.md files ────────────────────────────
-     Replaces the prototype localStorage skill grid. Skills are real,
+     Replaces the legacy localStorage skill grid. Skills are real,
      server-persisted, and feed both the ability radar and the Pass-1
      orchestrator router. PRD: docs/PRD-skills.md. */
 

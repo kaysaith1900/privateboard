@@ -146,8 +146,8 @@
   const NAMES = {};
 
   // Baseline state — synced from window.app.currentRoom each time the
-  // overlay opens. The fallback values keep the prototype usable in
-  // standalone preview (where window.app is absent).
+  // overlay opens. The fallback values keep the page usable in standalone
+  // preview (where window.app is absent).
   const ROOM_STATE = {
     title: "the minimum viable structure of a data flywheel",
     topic: "I want to build an AI assistant for enterprise HR teams — automated resume screening + interview guides. Does this idea hold up under three-director scrutiny?",
