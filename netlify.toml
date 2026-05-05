@@ -1,0 +1,33 @@
+# Netlify config · serves the marketing site from site/ as the deploy root.
+# No build step — site/ is already a static bundle (HTML + CSS + JS + assets).
+[build]
+  publish = "site"
+
+# SPA-style fallback isn't needed (single index.html with anchor sections),
+# but a 404 fallback to home keeps deep-link typos friendly.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 404
+
+# Long-cache fonts and svg avatars (immutable filenames).
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/avatars/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# CSS / JS get a moderate cache — easy to invalidate by editing.
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, must-revalidate"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, must-revalidate"
