@@ -43,7 +43,7 @@ import {
   setKeyPointVote,
   type KeyPointVote,
 } from "../storage/key_points.js";
-import { insertMessage, nextUserRoundNum } from "../storage/messages.js";
+import { getCurrentRound, insertMessage, nextUserRoundNum } from "../storage/messages.js";
 import {
   addRoomMember,
   createRoom,
@@ -556,6 +556,52 @@ export function roomsRouter(): Hono {
     resumeRoom(id);
 
     return c.json({ room: getRoom(id) });
+  });
+
+  // ── User adds a supplemental message while the room is paused.
+  //   The message lands in the chat immediately (so the user sees
+  //   their input took); the saved director queue is left untouched
+  //   so resumeRoom plays out exactly as it was — but the directors
+  //   read the new user message in the transcript and respond to it
+  //   first when they next speak. No tickRoom, no auto-resume.
+  //   Round number is preserved (current round) so the supplement
+  //   sits inside the round that was running when pause hit, instead
+  //   of opening a fresh round divider in the chat.
+  r.post("/:id/paused-input", async (c) => {
+    const id = c.req.param("id");
+    const room = getRoom(id);
+    if (!room) return c.json({ error: "not found" }, 404);
+    if (room.status !== "paused") return c.json({ error: "room is not paused" }, 409);
+
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { return c.json({ error: "invalid JSON body" }, 400); }
+    const b = (body ?? {}) as { body?: unknown };
+    const text = typeof b.body === "string" ? b.body.trim() : "";
+    if (!text) return c.json({ error: "body is required" }, 400);
+
+    const roundNum = Math.max(1, getCurrentRound(id));
+    const msg = insertMessage({
+      roomId: id,
+      authorKind: "user",
+      body: text,
+      meta: {},
+      roundNum,
+    });
+    roomBus.emit(id, {
+      type: "message-appended",
+      messageId: msg.id,
+      authorKind: "user",
+      authorId: null,
+      replyToId: null,
+      body: msg.body,
+      meta: msg.meta,
+      roundNum: msg.roundNum,
+      createdAt: msg.createdAt,
+    });
+    roomBus.emit(id, { type: "message-final", messageId: msg.id });
+
+    return c.json(msg);
   });
 
   // ── Update room settings (tone / intensity / report style)

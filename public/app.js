@@ -572,6 +572,7 @@
           this.renderHeader();
           syncSidebar({ status: "adjourned", adjournedAt: ts });
         } else if (kind === "brief-started") {
+          this.markBriefEvent();
           this.currentBrief = {
             id: payload.briefId,
             title: "Generating…",
@@ -582,6 +583,7 @@
             // language is inferred server-side from the room subject.
             chairName: payload.chairName || (this.currentChair?.name) || "Chair",
             language: payload.language === "zh" ? "zh" : "en",
+            pipelineStartedAt: Date.now(),
             // Stage checklist · seeded with all three stages in pending
             // state. brief-stage events flip them active → done as the
             // pipeline progresses. startedAt is captured when each
@@ -597,10 +599,13 @@
           this.renderBrief();
           // Start the per-second tick driving elapsed/substage animation.
           this.ensureBriefStageTick();
+          // Heartbeat watcher — surfaces Retry on stall / timeout.
+          this.ensureBriefStallWatch();
           // Surface the View Report button + hide the no-brief CTA.
           this.renderHeader();
           this.renderChat();
         } else if (kind === "brief-stage") {
+          this.markBriefEvent();
           if (this.currentBrief) {
             const st = this.currentBrief.stages || (this.currentBrief.stages = {
               extract:  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
@@ -632,6 +637,7 @@
             this.ensureBriefStageTick();
           }
         } else if (kind === "brief-token") {
+          this.markBriefEvent();
           // Accumulate the body. Throttle the re-render to once per ~250ms
           // so the writing-stage word count animates without thrashing on
           // every chunk.
@@ -643,10 +649,12 @@
             this.renderBrief();
           }
         } else if (kind === "brief-final") {
+          this.markBriefEvent();
           if (this.currentBrief) {
             this.currentBrief.title = payload.title || this.currentBrief.title;
           }
           this.stopBriefStageTick();
+          this.stopBriefStallWatch();
           this.renderBrief();
           this.renderHeader();
           // Refresh the FULL brief list so the tab strip picks up the
@@ -670,8 +678,10 @@
               .catch(() => {});
           }
         } else if (kind === "brief-error") {
+          this.markBriefEvent();
           if (this.currentBrief) this.currentBrief.error = payload.message;
           this.stopBriefStageTick();
+          this.stopBriefStallWatch();
           this.renderBrief();
         } else if (kind === "settings-changed") {
           const ch = payload.changes || {};
@@ -820,6 +830,9 @@
         try { this.sse.close(); } catch (e) { /* */ }
         this.sse = null;
       }
+      // Drop the brief watcher · the brief belongs to a room and the
+      // watcher would otherwise keep ticking against a stale id.
+      this.stopBriefStallWatch();
     },
 
     // ── Actions ───────────────────────────────────────────────
@@ -1346,6 +1359,146 @@
       }
     },
 
+    /** Paused-supplement overlay · lets the user drop in an extra
+     *  thought while the room is paused. The text is posted as a
+     *  user message immediately (lands in the chat as the freshest
+     *  user input) but the saved director queue is left untouched —
+     *  so when they click Resume, the previously-paused director
+     *  takes over with the supplement already in their context.
+     *  Effectively the supplement plays "first" in the resumed
+     *  flow, and the rest of the queue continues in order. Reuses
+     *  the existing .supplement-* CSS classes for visual parity. */
+    openPausedSupplementOverlay() {
+      if (!this.currentRoomId || !this.currentRoom) return;
+      if (this.currentRoom.status !== "paused") return;
+      this.closePausedSupplementOverlay();
+      const lang = this.composerLanguage();
+      const t = lang === "zh"
+        ? {
+            classify: "room · 暂停时补充",
+            classifyRight: "// queued first",
+            title: "补充一个观点",
+            metaPrefix: "// 当前房间",
+            placeholder: "想补一个观点 · 一个想再追问的细节 · 一个让董事们重新考虑的角度。\n\n会立即作为你的发言进入对话；点击 [ Resume ] 后，董事们会先看到这条再继续。",
+            hint: "暂停期间的补充会以你的身份立即出现在对话里，原本的发言队列不变；恢复后队首董事将带着这条补充开口。",
+            cancel: "[ Cancel ]",
+            confirm: "[ Add to chat ]",
+            confirmBusy: "[ Posting… ]",
+          }
+        : {
+            classify: "room · paused supplement",
+            classifyRight: "// queued first",
+            title: "Add a supplemental input",
+            metaPrefix: "// Current room",
+            placeholder: "Drop in an extra thought, a follow-up question, or an angle you'd like the board to take into account.\n\nIt lands in the chat as your message right now; when you hit [ Resume ], the next director picks up with this in front of them.",
+            hint: "Posted while paused, the supplement lands as your message immediately; the saved speaker queue is untouched. After resume, the next director responds with the supplement first.",
+            cancel: "[ Cancel ]",
+            confirm: "[ Add to chat ]",
+            confirmBusy: "[ Posting… ]",
+          };
+      const subject = (this.currentRoom.subject || "").trim() || (lang === "zh" ? "(无主题)" : "(no subject)");
+      const html = `
+        <div class="supplement-overlay" id="paused-supplement-overlay" role="dialog" aria-modal="true">
+          <div class="supplement-backdrop" data-paused-supplement-close></div>
+          <div class="supplement-modal" role="document">
+            <div class="supplement-classification">
+              <span><span class="dot">●</span> ${this.escape(t.classify)}</span>
+              <span class="right">${this.escape(t.classifyRight)}</span>
+            </div>
+            <header class="supplement-head">
+              <div>
+                <div class="meta">${this.escape(t.metaPrefix)} · <span>${this.escape(subject)}</span></div>
+                <div class="title">${this.escape(t.title)}</div>
+              </div>
+              <button type="button" class="supplement-close" data-paused-supplement-close aria-label="Close">✕</button>
+            </header>
+            <div class="supplement-body">
+              <textarea class="supplement-input" data-paused-supplement-input rows="6" placeholder="${this.escape(t.placeholder)}"></textarea>
+              <p class="supplement-hint">${this.escape(t.hint)}</p>
+            </div>
+            <footer class="supplement-foot">
+              <button type="button" class="supplement-cancel" data-paused-supplement-close>${this.escape(t.cancel)}</button>
+              <button type="button" class="supplement-confirm" data-paused-supplement-confirm data-busy-label="${this.escape(t.confirmBusy)}">${this.escape(t.confirm)}</button>
+            </footer>
+          </div>
+        </div>
+      `;
+      const wrap = document.createElement("div");
+      wrap.innerHTML = html.trim();
+      document.body.appendChild(wrap.firstChild);
+      document.body.style.overflow = "hidden";
+      this._pausedSupplementEsc = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopImmediatePropagation();
+          this.closePausedSupplementOverlay();
+        }
+      };
+      document.addEventListener("keydown", this._pausedSupplementEsc, true);
+      // Cmd/Ctrl-Enter submits — long-form textarea convention.
+      this._pausedSupplementSubmit = (ev) => {
+        if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
+          const overlay = document.getElementById("paused-supplement-overlay");
+          if (!overlay) return;
+          ev.preventDefault();
+          this.submitPausedSupplement();
+        }
+      };
+      document.addEventListener("keydown", this._pausedSupplementSubmit, true);
+      setTimeout(() => {
+        const input = document.querySelector("[data-paused-supplement-input]");
+        if (input) input.focus();
+      }, 30);
+    },
+
+    closePausedSupplementOverlay() {
+      const el = document.getElementById("paused-supplement-overlay");
+      if (el) el.remove();
+      document.body.style.overflow = "";
+      if (this._pausedSupplementEsc) {
+        document.removeEventListener("keydown", this._pausedSupplementEsc, true);
+        this._pausedSupplementEsc = null;
+      }
+      if (this._pausedSupplementSubmit) {
+        document.removeEventListener("keydown", this._pausedSupplementSubmit, true);
+        this._pausedSupplementSubmit = null;
+      }
+    },
+
+    async submitPausedSupplement() {
+      const overlay = document.getElementById("paused-supplement-overlay");
+      if (!overlay) return;
+      const input = overlay.querySelector("[data-paused-supplement-input]");
+      const btn = overlay.querySelector("[data-paused-supplement-confirm]");
+      const text = input ? (input.value || "").trim() : "";
+      if (!text) {
+        if (input) input.focus();
+        return;
+      }
+      if (!this.currentRoomId) return;
+      const origLabel = btn ? btn.textContent : "";
+      const busyLabel = btn ? btn.getAttribute("data-busy-label") || origLabel : "";
+      if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+      try {
+        const r = await fetch(
+          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/paused-input",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ body: text }),
+          },
+        );
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          throw new Error(e.error || ("HTTP " + r.status));
+        }
+        // SSE will push the message-appended event; chat updates itself.
+        this.closePausedSupplementOverlay();
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = origLabel; }
+        alert("Add input failed: " + (e && e.message ? e.message : e));
+      }
+    },
+
     /** Confirm-handler · grabs the textarea, posts to the brief endpoint,
      *  closes the overlay. Server emits brief-started + brief-* SSE
      *  events as for a normal generate; the existing handlers replace
@@ -1433,6 +1586,7 @@
           // Orphan. Flip into the error UI which now carries a retry button.
           brief.error = "interrupted";
           brief.interrupted = true;
+          this.stopBriefStallWatch();
           this.renderBrief();
           return;
         }
@@ -1440,6 +1594,7 @@
           this.hydrateBriefStagesFromState(brief, j.state);
           this.renderBrief();
           this.ensureBriefStageTick();
+          this.ensureBriefStallWatch();
         }
       } catch { /* ignore — leave the loading state */ }
     },
@@ -1544,9 +1699,13 @@
         if (this.currentBrief) {
           this.currentBrief.error = null;
           this.currentBrief.interrupted = false;
+          this.currentBrief.timedOut = false;
           this.currentBrief.bodyMd = "";
           this.currentBrief.title = "Generating…";
+          this.currentBrief.pipelineStartedAt = Date.now();
         }
+        this._lastBriefEventAt = Date.now();
+        this._lastBriefHealthPollAt = 0;
         this.renderBrief();
       } catch (e) {
         alert("Regenerate failed: " + (e && e.message ? e.message : e));
@@ -2569,6 +2728,10 @@
         ? this.escape(nextSpeaker.handle.replace(/^\//, ""))
         : "—";
 
+      const lang = this.composerLanguage();
+      const addInputLabel = lang === "zh" ? "[ + 补充观点 ]" : "[ + Add input ]";
+      const adjournLabel  = lang === "zh" ? "[ ▸ 结束并存档 ]" : "[ ▸ Adjourn & File Brief ]";
+      const resumeLabel   = lang === "zh" ? "[ ▶ 恢复讨论 ]"   : "[ ▶ Resume Discussion ]";
       bar.innerHTML = `
         <div class="paused-bar-text">
           <strong>// discussion paused.</strong>
@@ -2576,8 +2739,9 @@
           next turn · <span class="lime">${nextHandle}</span>.
         </div>
         <div class="paused-bar-actions">
-          <a href="#" class="ghost-btn" data-adjourn>[ ▸ Adjourn &amp; File Brief ]</a>
-          <a href="#" class="resume-btn-lg" data-resume>[ ▶ Resume Discussion ]</a>
+          <a href="#" class="ghost-btn" data-paused-supplement>${this.escape(addInputLabel)}</a>
+          <a href="#" class="ghost-btn" data-adjourn>${this.escape(adjournLabel)}</a>
+          <a href="#" class="resume-btn-lg" data-resume>${this.escape(resumeLabel)}</a>
         </div>
       `;
     },
@@ -2603,7 +2767,7 @@
       this.composerState = {
         ...this.DEFAULT_COMPOSER,
         ...(saved || {}),
-        // Keep these fresh-each-render: subject is intentionally not persisted.
+        subject: (saved && typeof saved.subject === "string") ? saved.subject : "",
       };
       return this.composerState;
     },
@@ -2611,12 +2775,31 @@
     saveComposerState() {
       if (!this.composerState) return;
       try {
-        const { directorIds, mode, intensity, autoPickDirectors } = this.composerState;
+        const { directorIds, mode, intensity, autoPickDirectors, subject } = this.composerState;
         localStorage.setItem(
           "boardroom.composer",
-          JSON.stringify({ directorIds, mode, intensity, autoPickDirectors }),
+          JSON.stringify({ directorIds, mode, intensity, autoPickDirectors, subject }),
         );
       } catch { /* ignore */ }
+    },
+
+    /** Agent composer draft · the description textarea on "+ New Agent".
+     *  Persisted independently of composerState so the two screens don't
+     *  share fields (composerState is room-shaped). Survives view
+     *  switches and full app reloads; cleared after a successful save. */
+    loadAgentComposerDraft() {
+      try {
+        const raw = localStorage.getItem("boardroom.agent-composer.draft");
+        return typeof raw === "string" ? raw : "";
+      } catch { return ""; }
+    },
+    saveAgentComposerDraft(text) {
+      try { localStorage.setItem("boardroom.agent-composer.draft", String(text || "")); }
+      catch { /* ignore */ }
+    },
+    clearAgentComposerDraft() {
+      try { localStorage.removeItem("boardroom.agent-composer.draft"); }
+      catch { /* ignore */ }
     },
 
     /** Whether the composer is in auto-pick mode for the cast · default
@@ -3167,7 +3350,7 @@
           </header>
 
           <div class="cmp-input-frame">
-            <textarea class="cmp-input" data-composer-subject rows="1" placeholder="${this.escape(t.placeholder)}"></textarea>
+            <textarea class="cmp-input" data-composer-subject rows="1" placeholder="${this.escape(t.placeholder)}">${this.escape(state.subject || "")}</textarea>
 
             <div class="cmp-toolbar">
               <button type="button" class="cmp-cast-btn${isAutoPick ? " cmp-cast-btn-auto" : ""}" data-composer-dir-pick title="${this.escape(t.pickerLabel)}">
@@ -3622,7 +3805,7 @@
           </header>
 
           <div class="cmp-input-frame ${generating ? "is-generating" : ""}">
-            <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}></textarea>
+            <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}>${this.escape(this.loadAgentComposerDraft())}</textarea>
 
             <div class="cmp-toolbar">
               <button type="button" class="cmp-dd" data-cmp-dropdown="agent-model" title="${this.escape(t.modelLabel)}">
@@ -3984,6 +4167,9 @@
         await this.refreshAgents?.();
         this.agentSpec = null;
         this.agentSpecAvatarSeed = null;
+        // Clear the saved description draft now that the agent exists —
+        // a future visit to "+ New Agent" should land on a fresh textarea.
+        this.clearAgentComposerDraft();
         this.composerMode = "room";
         // POST /api/agents returns the agent record directly (not wrapped).
         const newId = j && (j.id || (j.agent && j.agent.id));
@@ -4371,6 +4557,11 @@
           intensity: state.intensity,
           autoPick: useAutoPick,
         });
+        // Clear the saved draft now that the room is convened — next
+        // visit to "+ New Room" should land on a fresh textarea, not
+        // re-show the just-submitted subject.
+        state.subject = "";
+        this.saveComposerState();
       } catch (e) {
         if (btn) btn.classList.remove("busy");
         alert("Couldn't convene: " + (e && e.message ? e.message : e));
@@ -4391,13 +4582,15 @@
       if (want.length) state.directorIds = want;
       if (q.tone) state.mode = q.tone;
       if (q.intensity) state.intensity = q.intensity;
+      // Write the starter text into the persisted draft so it survives
+      // a navigation away and back, just like manual typing does.
+      state.subject = q.text || "";
       this.saveComposerState();
       // Re-render to reflect the new selections; keep autofocus at end of subject.
       this.renderEmptyState();
       setTimeout(() => {
         const ta = document.querySelector("[data-composer-subject]");
         if (ta) {
-          ta.value = q.text || "";
           ta.focus();
           ta.setSelectionRange(ta.value.length, ta.value.length);
           this.autosizeComposerTextarea();
@@ -5611,14 +5804,32 @@
       card.classList.add("ending-block");
       const b = this.currentBrief;
 
-      // Error path: a compact error card with a retry button. Two
+      // Error path: a compact error card with a retry button. Three
       // sub-cases:
+      //   · timedOut (no completion after 5 min wall-clock) → "took
+      //     too long" copy with the elapsed-time reason inline
       //   · interrupted (zombie placeholder from a refresh / restart) →
       //     specific copy + Regenerate CTA
       //   · generic LLM failure → original "needs an API key" hint
       if (b.error) {
         const lang = (b.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
-        const copy = b.interrupted
+        const copy = b.timedOut
+          ? (lang === "zh"
+            ? {
+                stamp: "timed out",
+                kicker: "// 报告生成超时",
+                detail: "已超过 5 分钟仍未收到完成信号 · 可能是模型回应过慢、网络中断，或后端流水线卡住了。点击下方按钮重试，或检查 LLM key 与网络后再试。",
+                hint: "",
+                cta: "重试",
+              }
+            : {
+                stamp: "timed out",
+                kicker: "// generation timed out",
+                detail: "No completion signal after 5 minutes — the model may be slow, the connection dropped, or the pipeline stalled. Click below to start a fresh run.",
+                hint: "",
+                cta: "Retry",
+              })
+          : b.interrupted
           ? (lang === "zh"
             ? {
                 stamp: "interrupted",
@@ -5658,7 +5869,7 @@
             <div class="brief-body brief-body-error">
               <div class="brief-kicker" style="color: var(--red);">${this.escape(copy.kicker)}</div>
               <div class="brief-meta-line" style="color: var(--text-soft); text-transform: none; letter-spacing: 0;">
-                ${b.interrupted ? this.escape(copy.detail) : copy.detail}
+                ${(b.interrupted || b.timedOut) ? this.escape(copy.detail) : copy.detail}
               </div>
               ${copy.hint ? `<div class="brief-meta-line" style="margin-top: 14px; text-transform: none; letter-spacing: 0;">${copy.hint}</div>` : ""}
               <div class="brief-error-actions">
@@ -5885,6 +6096,84 @@
       if (this._briefStageTick) {
         clearInterval(this._briefStageTick);
         this._briefStageTick = null;
+      }
+    },
+
+    /* ─── Brief stall watcher ─────────────────────────────────────
+       Surfaces the Retry CTA promptly when generation stalls or
+       times out — the user no longer has to leave + re-enter the
+       room to discover a dead pipeline. Two safety nets:
+
+       · Stall poll · if no brief-* SSE event arrives for
+         BRIEF_STALL_POLL_MS, ask /api/briefs/<id>/status. The
+         server flips to !generating + !hasBody when the pipeline
+         crashed mid-flight; checkBriefHealth (re-used) renders
+         that as the existing "interrupted" error.
+
+       · Hard timeout · after BRIEF_HARD_TIMEOUT_MS of total
+         wall-clock with no brief-final, force a `timedOut` error
+         locally so Retry appears regardless of server-side state
+         (covers SSE drops + LLM black-holes alike). */
+    BRIEF_STALL_POLL_MS: 60_000,
+    BRIEF_HARD_TIMEOUT_MS: 5 * 60_000,
+    BRIEF_WATCH_INTERVAL_MS: 10_000,
+
+    markBriefEvent() {
+      this._lastBriefEventAt = Date.now();
+    },
+
+    ensureBriefStallWatch() {
+      if (this._briefStallWatchTimer) return;
+      const b = this.currentBrief;
+      if (!b || !b.id || b.error) return;
+      const generating = !b.bodyMd || b.title === "Generating…";
+      if (!generating) return;
+      if (!this._lastBriefEventAt) this._lastBriefEventAt = Date.now();
+      this._lastBriefHealthPollAt = 0;
+      this._briefStallWatchTimer = setInterval(
+        () => this.tickBriefStallWatch(),
+        this.BRIEF_WATCH_INTERVAL_MS,
+      );
+    },
+
+    stopBriefStallWatch() {
+      if (this._briefStallWatchTimer) {
+        clearInterval(this._briefStallWatchTimer);
+        this._briefStallWatchTimer = null;
+      }
+    },
+
+    async tickBriefStallWatch() {
+      const b = this.currentBrief;
+      if (!b || b.error) { this.stopBriefStallWatch(); return; }
+      const generating = !b.bodyMd || b.title === "Generating…";
+      if (!generating) { this.stopBriefStallWatch(); return; }
+
+      const now = Date.now();
+      const startedAt = b.pipelineStartedAt || this._lastBriefEventAt || now;
+
+      // Hard ceiling · regardless of server state, flip the card to
+      // a timed-out error so the user always has a way out.
+      if (now - startedAt > this.BRIEF_HARD_TIMEOUT_MS) {
+        b.error = b.language === "zh"
+          ? "报告生成超时（超过 5 分钟仍未完成）。"
+          : "Brief generation timed out (no completion after 5 minutes).";
+        b.timedOut = true;
+        this.stopBriefStageTick();
+        this.stopBriefStallWatch();
+        this.renderBrief();
+        return;
+      }
+
+      // Soft stall · poll the server at most once per STALL_POLL_MS
+      // while we're not hearing anything. checkBriefHealth flips the
+      // card to "interrupted" if the server has already given up.
+      const lastEvt = this._lastBriefEventAt || startedAt;
+      const elapsedSinceEvt = now - lastEvt;
+      const pollGap = now - (this._lastBriefHealthPollAt || 0);
+      if (elapsedSinceEvt > this.BRIEF_STALL_POLL_MS && pollGap > this.BRIEF_STALL_POLL_MS) {
+        this._lastBriefHealthPollAt = now;
+        await this.checkBriefHealth(b);
       }
     },
 
@@ -6240,6 +6529,24 @@
       app.submitSupplement();
       return;
     }
+    // Paused-bar · open the supplement overlay (add a thought while paused).
+    if (e.target.closest("[data-paused-supplement]")) {
+      e.preventDefault();
+      app.openPausedSupplementOverlay();
+      return;
+    }
+    // Paused-supplement overlay · close / cancel / backdrop.
+    if (e.target.closest("[data-paused-supplement-close]")) {
+      e.preventDefault();
+      app.closePausedSupplementOverlay();
+      return;
+    }
+    // Paused-supplement overlay · confirm.
+    if (e.target.closest("[data-paused-supplement-confirm]")) {
+      e.preventDefault();
+      app.submitPausedSupplement();
+      return;
+    }
     // Continue · resume the directors after a chair-driven round-end.
     if (e.target.closest("[data-continue]")) {
       e.preventDefault();
@@ -6507,11 +6814,19 @@
     e.preventDefault();
     app.submitFromComposer(target);
   });
-  // Autosize the composer textarea as the user types.
+  // Autosize the composer textarea as the user types · also persist
+  // the in-progress draft so switching to another view and coming back
+  // restores the user's text instead of wiping it (each renderEmptyState
+  // rebuilds the textarea node, so the DOM-level value vanishes; the
+  // saved-state path is what survives the re-render).
   document.addEventListener("input", (e) => {
     if (e.target && e.target.matches && e.target.matches("[data-composer-subject]")) {
+      const state = app.loadComposerState();
+      state.subject = e.target.value;
+      app.saveComposerState();
       app.autosizeComposerTextarea();
     } else if (e.target && e.target.matches && e.target.matches("[data-agent-composer-desc]")) {
+      app.saveAgentComposerDraft(e.target.value);
       app.autosizeAgentComposerTextarea();
     }
   });
@@ -6616,6 +6931,21 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && document.getElementById("no-key-overlay")) {
       app.closeNoKeyModal();
+    }
+  });
+
+  // When the tab becomes visible again, immediately probe a stalled
+  // brief — the user may have switched away during a long generation
+  // and the throttling sleeps held the watch back. The watcher itself
+  // also keeps ticking on its 10s interval as a backstop.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    if (app && app.currentBrief && !app.currentBrief.error) {
+      const generating = !app.currentBrief.bodyMd || app.currentBrief.title === "Generating…";
+      if (generating) {
+        app.ensureBriefStallWatch();
+        app.tickBriefStallWatch();
+      }
     }
   });
 
