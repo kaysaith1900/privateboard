@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boardroom Insights · Beyond Resume Screening</title>
+<style>
+  :root {
+    --white: #FFFFFF;
+    --soft: #F4F7FA;
+    --softer: #FBFCFD;
+    --hover: #ECF1F6;
+
+    --navy: #051C2C;
+    --navy-soft: #1A3950;
+    --navy-mid: #2C4A66;
+
+    --ink: #051C2C;
+    --ink-soft: #4A5870;
+    --ink-faint: #758296;
+    --ink-muted: #A4ADBD;
+
+    --rule: #D5DCE4;
+    --rule-soft: #E5EAF1;
+    --rule-strong: #B8C2D0;
+
+    --blue: #2251FF;
+    --blue-deep: #1A3FBD;
+    --blue-pale: #E5EDFA;
+    --blue-mid: #6285FF;
+
+    --green: #1F7A4D;
+    --green-pale: #E2F0E9;
+    --amber: #B8801F;
+    --amber-pale: #FAF1DF;
+    --red: #C41E3A;
+    --red-pale: #FCE8EC;
+
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--white);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ─────────── Top header bar ─────────── */
+  .top-bar {
+    background: var(--navy);
+    color: var(--white);
+    padding: 14px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .top-bar .brand {
+    font-weight: 700;
+    letter-spacing: 0.22em;
+  }
+  .top-bar .brand .ampersand {
+    color: var(--blue-mid);
+    margin: 0 4px;
+  }
+  .top-bar .meta {
+    color: rgba(255, 255, 255, 0.65);
+    font-weight: 500;
+  }
+
+  /* ─────────── Cover ─────────── */
+  .cover {
+    padding: 80px 56px 72px;
+    background: var(--white);
+    border-bottom: 4px solid var(--navy);
+  }
+
+  .cover-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .cover-tag {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--blue);
+    font-weight: 600;
+    margin-bottom: 56px;
+  }
+  .cover-tag .pipe {
+    width: 1px; height: 12px;
+    background: var(--rule-strong);
+  }
+  .cover-tag .secondary {
+    color: var(--ink-faint);
+  }
+
+  .cover-title {
+    font-size: 52px;
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    color: var(--navy);
+    margin-bottom: 24px;
+    max-width: 920px;
+  }
+
+  .cover-deck {
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 760px;
+    margin-bottom: 56px;
+  }
+
+  .cover-byline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px;
+    padding-top: 28px;
+    border-top: 1px solid var(--rule);
+  }
+  .byline-block .label {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .byline-block .value {
+    font-size: 14px;
+    color: var(--navy);
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  /* ─────────── Container ─────────── */
+  .body-wrap { padding: 0 56px; background: var(--white); }
+  .container {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  /* ─────────── Executive Summary ─────────── */
+  .exec-summary {
+    background: var(--navy);
+    color: var(--white);
+    padding: 56px 56px;
+    margin-top: 0;
+  }
+  .exec-summary-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .exec-label {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--blue-mid);
+    font-weight: 700;
+    margin-bottom: 20px;
+  }
+  .exec-synthesis {
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.012em;
+    color: var(--white);
+    max-width: 920px;
+    margin-bottom: 40px;
+  }
+  .exec-synthesis strong {
+    color: var(--white);
+    font-weight: 700;
+  }
+
+  .exec-takeaways {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .takeaway {
+    padding-top: 8px;
+  }
+  .takeaway-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--blue-mid);
+    letter-spacing: 0.04em;
+    margin-bottom: 12px;
+    font-family: var(--mono);
+  }
+  .takeaway-headline {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--white);
+    margin-bottom: 10px;
+  }
+  .takeaway-detail {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  /* ─────────── Chapter ─────────── */
+  .chapter {
+    padding: 88px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .chapter-num {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--blue);
+    font-weight: 700;
+    margin-bottom: 12px;
+    font-family: var(--mono);
+  }
+
+  .chapter-title {
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--navy);
+    margin-bottom: 20px;
+    max-width: 880px;
+  }
+
+  .chapter-synthesis {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--ink);
+    border-left: 4px solid var(--blue);
+    padding: 8px 0 8px 24px;
+    margin-bottom: 48px;
+    max-width: 880px;
+  }
+
+  /* ─────────── Three Pillars (chapter content) ─────────── */
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    margin-top: 8px;
+  }
+  .pillar {
+    border-top: 3px solid var(--navy);
+    padding-top: 20px;
+  }
+  .pillar-num {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--blue);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .pillar-headline {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--navy);
+    margin-bottom: 12px;
+    letter-spacing: -0.01em;
+  }
+  .pillar-body {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+  .pillar-body p { margin-bottom: 10px; }
+  .pillar-body strong { color: var(--ink); font-weight: 600; }
+  .pillar-source {
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule-soft);
+    font-style: italic;
+  }
+
+  /* ─────────── Exhibit ─────────── */
+  .exhibit {
+    margin: 32px 0;
+    padding: 28px 32px;
+    background: var(--soft);
+    border-top: 4px solid var(--navy);
+  }
+  .exhibit-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .exhibit-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--blue);
+    font-weight: 700;
+  }
+  .exhibit-page {
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+  }
+  .exhibit-title {
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--navy);
+    margin-bottom: 24px;
+    letter-spacing: -0.012em;
+  }
+  .exhibit-source {
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+    font-style: italic;
+  }
+
+  /* ─────────── Heat Map ─────────── */
+  .heatmap {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--white);
+  }
+  .heatmap th, .heatmap td {
+    padding: 14px 12px;
+    border: 1px solid var(--rule);
+    text-align: center;
+    vertical-align: middle;
+  }
+  .heatmap th {
+    background: var(--navy);
+    color: var(--white);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .heatmap th.row-label {
+    background: var(--navy);
+    text-align: left;
+    padding-left: 18px;
+  }
+  .heatmap td.row-label {
+    background: var(--soft);
+    text-align: left;
+    font-weight: 600;
+    color: var(--navy);
+    font-size: 13px;
+    padding-left: 18px;
+  }
+  .heatmap td.row-label .sub {
+    display: block;
+    font-weight: 400;
+    color: var(--ink-faint);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .cell-strong {
+    background: var(--green);
+    color: var(--white);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .cell-mid {
+    background: var(--amber);
+    color: var(--white);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .cell-weak {
+    background: var(--red);
+    color: var(--white);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .heatmap-legend {
+    display: flex;
+    gap: 20px;
+    margin-top: 18px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+  }
+  .legend-swatch.strong { background: var(--green); }
+  .legend-swatch.mid { background: var(--amber); }
+  .legend-swatch.weak { background: var(--red); }
+
+  /* ─────────── Logic Tree / Decision Tree ─────────── */
+  .logic-tree {
+    width: 100%;
+    height: 360px;
+  }
+
+  /* ─────────── Two-path comparison ─────────── */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 8px;
+  }
+  .compare-col {
+    background: var(--white);
+    border: 1px solid var(--rule);
+  }
+  .compare-col.weak { border-top: 4px solid var(--red); }
+  .compare-col.strong { border-top: 4px solid var(--green); }
+
+  .compare-head {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--soft);
+  }
+  .compare-tag {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .compare-col.weak .compare-tag { color: var(--red); }
+  .compare-col.strong .compare-tag { color: var(--green); }
+
+  .compare-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--navy);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+
+  .compare-body { padding: 4px 22px 18px; }
+  .compare-body ul { list-style: none; }
+  .compare-body li {
+    padding: 12px 0 12px 22px;
+    position: relative;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .compare-body li:last-child { border-bottom: none; }
+  .compare-body li::before {
+    position: absolute;
+    left: 0; top: 13px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--white);
+  }
+  .compare-col.weak li::before { content: "−"; background: var(--red); }
+  .compare-col.strong li::before { content: "+"; background: var(--green); }
+
+  /* ─────────── Recommendations ─────────── */
+  .recommendations {
+    counter-reset: rec;
+  }
+  .rec {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 28px;
+    padding: 32px 0;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+  .rec::before {
+    counter-increment: rec;
+    content: counter(rec, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--blue);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .rec-headline {
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--navy);
+    margin-bottom: 10px;
+    letter-spacing: -0.012em;
+  }
+  .rec-body {
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+  .rec-body strong { color: var(--ink); font-weight: 600; }
+
+  /* ─────────── Implications callout ─────────── */
+  .implications {
+    background: var(--blue-pale);
+    border-left: 4px solid var(--blue);
+    padding: 28px 32px;
+    margin-top: 24px;
+  }
+  .implications-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--blue-deep);
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .implications-text {
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--navy);
+    font-weight: 500;
+  }
+  .implications-text strong { color: var(--navy); font-weight: 700; }
+
+  /* ─────────── Open Questions ─────────── */
+  .open-q-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+  .open-q-table th, .open-q-table td {
+    text-align: left;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 14px;
+    vertical-align: top;
+  }
+  .open-q-table th {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 700;
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 12px;
+  }
+  .open-q-table td.priority {
+    width: 80px;
+    color: var(--blue);
+    font-weight: 700;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .open-q-table td.q-text {
+    color: var(--navy);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .open-q-table td.assignee {
+    width: 220px;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+
+  /* ─────────── About this analysis ─────────── */
+  .about {
+    background: var(--soft);
+    padding: 40px 48px;
+    margin-top: 56px;
+    border-top: 4px solid var(--navy);
+  }
+  .about-label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--blue);
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+  .about-text {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    max-width: 760px;
+  }
+  .about-text strong { color: var(--navy); font-weight: 600; }
+
+  /* ─────────── Footer ─────────── */
+  .doc-footer {
+    background: var(--navy);
+    color: rgba(255, 255, 255, 0.6);
+    padding: 24px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    margin-top: 0;
+  }
+  .doc-footer .brand {
+    color: var(--white);
+    font-weight: 700;
+    letter-spacing: 0.22em;
+  }
+  .doc-footer .brand .amp {
+    color: var(--blue-mid);
+    margin: 0 4px;
+  }
+
+  /* ─────────── Misc ─────────── */
+  .figure-caption {
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-style: italic;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 880px) {
+    .top-bar, .cover, .body-wrap, .doc-footer, .exec-summary { padding-left: 24px; padding-right: 24px; }
+    .cover-title { font-size: 32px; }
+    .cover-byline { grid-template-columns: 1fr 1fr; gap: 20px; }
+    .exec-takeaways { grid-template-columns: 1fr; gap: 24px; }
+    .pillars { grid-template-columns: 1fr; gap: 24px; }
+    .compare { grid-template-columns: 1fr; }
+    .rec { grid-template-columns: 1fr; gap: 8px; }
+    .rec::before { font-size: 28px; }
+    .heatmap { font-size: 11px; }
+    .heatmap th, .heatmap td { padding: 10px 6px; }
+    .open-q-table td.assignee { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── TOP BAR ─────────── -->
+<header class="top-bar">
+  <div class="brand">Boardroom <span class="ampersand">&</span> Insights</div>
+  <div class="meta">Strategy Practice · April 2026 · BRD-INS-2026-04</div>
+</header>
+
+<!-- ─────────── COVER ─────────── -->
+<section class="cover">
+  <div class="cover-inner">
+    <div class="cover-tag">
+      <span>Strategic Perspective</span>
+      <span class="pipe"></span>
+      <span class="secondary">HR Technology</span>
+      <span class="pipe"></span>
+      <span class="secondary">Enterprise Software</span>
+    </div>
+
+    <h1 class="cover-title">Beyond resume screening: how AI recruiting founders can build defensible businesses by reframing the opportunity</h1>
+
+    <p class="cover-deck">Three structural forces are reshaping the AI-native HR Tech opportunity. Companies that recognize them will define the next decade. Those that build around the obvious bet—AI replacing resume screening—will be commoditized within eighteen months.</p>
+
+    <div class="cover-byline">
+      <div class="byline-block">
+        <div class="label">Authored by</div>
+        <div class="value">Socrates · First Principles · Value Investor</div>
+      </div>
+      <div class="byline-block">
+        <div class="label">Source</div>
+        <div class="value">Private Boardroom Session · 47 turns</div>
+      </div>
+      <div class="byline-block">
+        <div class="label">Duration</div>
+        <div class="value">23 minutes · constructive debate</div>
+      </div>
+      <div class="byline-block">
+        <div class="label">Published</div>
+        <div class="value">April 27, 2026</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── EXECUTIVE SUMMARY ─────────── -->
+<section class="exec-summary">
+  <div class="exec-summary-inner">
+    <div class="exec-label">Executive Summary</div>
+    <p class="exec-synthesis">
+      The opportunity in AI-native recruiting is real, but the obvious product—an AI tool that replaces resume screening—is structurally weak. <strong>Defensible value lies in workflow embedding and proprietary data accumulation</strong>, not in the model itself. Founders who recognize this and reposition early will build companies; those who do not will be commoditized within the next investment cycle.
+    </p>
+
+    <div class="exec-takeaways">
+      <div class="takeaway">
+        <div class="takeaway-num">FINDING 01</div>
+        <div class="takeaway-headline">Buyer-user misalignment kills replacement plays.</div>
+        <div class="takeaway-detail">HR teams are both buyers and users. Tools positioned as replacement trigger procurement-stage rejection. Augmentation aligns the buyer with the user.</div>
+      </div>
+      <div class="takeaway">
+        <div class="takeaway-num">FINDING 02</div>
+        <div class="takeaway-headline">The model is not the moat.</div>
+        <div class="takeaway-detail">Resume-screening capability is now a commodity. Open-source models with retrieval can replicate ~80% of value within days. Defensibility lives downstream.</div>
+      </div>
+      <div class="takeaway">
+        <div class="takeaway-num">FINDING 03</div>
+        <div class="takeaway-headline">Sales motion determines viability.</div>
+        <div class="takeaway-detail">Enterprise HR cycles run six to twelve months. Pure SLG creates cash-flow risk. PLG-first models compress this to under three months while building data flywheels.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── BODY ─────────── -->
+<div class="body-wrap">
+<div class="container">
+
+  <!-- ─────────── CHAPTER 1 ─────────── -->
+  <section class="chapter">
+    <div class="chapter-num">Chapter 01 · Diagnosis</div>
+    <h2 class="chapter-title">Why current-generation AI recruiting tools struggle</h2>
+    <p class="chapter-synthesis">Three structural forces explain why the obvious product—AI that screens resumes and generates interview guides—is consistently outperformed by alternatives that look less impressive at first glance.</p>
+
+    <div class="pillars">
+      <div class="pillar">
+        <div class="pillar-num">FORCE 01</div>
+        <div class="pillar-headline">Procurement rejects threat-positioned tools.</div>
+        <div class="pillar-body">
+          <p>HR procurement is led by HR. A tool whose pitch is "replace what HR does" creates a structural rejection at the buying stage—before features matter.</p>
+          <p>Reframing as <strong>augmentation</strong> inverts the dynamic: HR becomes an internal advocate, the procurement cycle compresses, and the user-buyer asymmetry resolves.</p>
+        </div>
+        <div class="pillar-source">— Socrates, on observed buyer behavior across HR Tech 20-year history</div>
+      </div>
+
+      <div class="pillar">
+        <div class="pillar-num">FORCE 02</div>
+        <div class="pillar-headline">Capability is now a commodity.</div>
+        <div class="pillar-body">
+          <p>Resume screening, interview-guide generation, and candidate matching can be replicated with open-source LLMs plus retrieval and lightweight fine-tuning—within days, by a small team.</p>
+          <p>This means the <strong>AI itself cannot be the moat</strong>. The defensibility question must be answered downstream: in workflow embedding and proprietary data assets.</p>
+        </div>
+        <div class="pillar-source">— First Principles, on the technical accessibility of recruiting AI</div>
+      </div>
+
+      <div class="pillar">
+        <div class="pillar-num">FORCE 03</div>
+        <div class="pillar-headline">Cash-flow physics punish pure SLG.</div>
+        <div class="pillar-body">
+          <p>Enterprise HR Tech sales cycles run 6 to 12 months. A SaaS company relying on sales-led growth alone faces an 18-month cash-flow gap before meaningful revenue—an existential window for early-stage teams.</p>
+          <p>A <strong>PLG-first GTM</strong> compresses time-to-revenue by establishing free-tier workflow embedding, then triggering paid conversion at team or enterprise scale.</p>
+        </div>
+        <div class="pillar-source">— Value Investor, drawing on enterprise SaaS GTM patterns</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── EXHIBIT 1: HEATMAP ─────────── -->
+  <section class="chapter" style="border-bottom: none; padding-bottom: 32px;">
+    <div class="exhibit">
+      <div class="exhibit-meta">
+        <div class="exhibit-label">Exhibit 1</div>
+        <div class="exhibit-page">Page 04</div>
+      </div>
+      <h3 class="exhibit-title">Three strategic options scored across five dimensions of viability</h3>
+
+      <table class="heatmap">
+        <thead>
+          <tr>
+            <th class="row-label" style="width: 26%;">Strategic Option</th>
+            <th>Market<br>Demand</th>
+            <th>Defensibility</th>
+            <th>Sales<br>Velocity</th>
+            <th>Capital<br>Efficiency</th>
+            <th>Long-term<br>Optionality</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="row-label">A · Replace HR with AI<span class="sub">Resume screening as primary value prop</span></td>
+            <td class="cell-strong">STRONG</td>
+            <td class="cell-weak">WEAK</td>
+            <td class="cell-weak">WEAK</td>
+            <td class="cell-weak">WEAK</td>
+            <td class="cell-weak">WEAK</td>
+          </tr>
+          <tr>
+            <td class="row-label">B · Augment HR with AI<span class="sub">AI as productivity layer for HR teams</span></td>
+            <td class="cell-strong">STRONG</td>
+            <td class="cell-mid">MID</td>
+            <td class="cell-mid">MID</td>
+            <td class="cell-mid">MID</td>
+            <td class="cell-mid">MID</td>
+          </tr>
+          <tr>
+            <td class="row-label">C · Workflow + Data Flywheel<span class="sub">Augment + deep workflow lock-in + proprietary data</span></td>
+            <td class="cell-strong">STRONG</td>
+            <td class="cell-strong">STRONG</td>
+            <td class="cell-strong">STRONG</td>
+            <td class="cell-strong">STRONG</td>
+            <td class="cell-strong">STRONG</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="heatmap-legend">
+        <div class="legend-item"><span class="legend-swatch strong"></span> Strong evidence base</div>
+        <div class="legend-item"><span class="legend-swatch mid"></span> Mixed evidence</div>
+        <div class="legend-item"><span class="legend-swatch weak"></span> Structurally weak</div>
+      </div>
+
+      <div class="exhibit-source">Source: Boardroom Insights analysis based on 47-turn director session, April 2026. Scores reflect three-director consensus.</div>
+    </div>
+  </section>
+
+  <!-- ─────────── CHAPTER 2: THE DEFENSIBLE PATH ─────────── -->
+  <section class="chapter">
+    <div class="chapter-num">Chapter 02 · The Defensible Path</div>
+    <h2 class="chapter-title">Where lasting value will accumulate</h2>
+    <p class="chapter-synthesis">The structural advantages that compound over time in HR Tech are not technical. They are operational, behavioral, and data-driven. Founders should architect around these from the first product decision.</p>
+
+    <div class="exhibit">
+      <div class="exhibit-meta">
+        <div class="exhibit-label">Exhibit 2</div>
+        <div class="exhibit-page">Page 06</div>
+      </div>
+      <h3 class="exhibit-title">Two paths from the same starting point lead to fundamentally different outcomes</h3>
+
+      <div class="compare">
+        <div class="compare-col weak">
+          <div class="compare-head">
+            <div class="compare-tag">Path A — High Risk</div>
+            <div class="compare-name">Replace HR with AI<br>Resume Screening as Sole Value Prop</div>
+          </div>
+          <div class="compare-body">
+            <ul>
+              <li>HR is buyer; HR is the role being replaced — buyer-user misalignment</li>
+              <li>Capability replicable with open-source LLMs + RAG within days</li>
+              <li>Pure SLG with 6–12 month cycles creates cash-flow death zone</li>
+              <li>No proprietary data accumulates — value plateaus on day one</li>
+              <li>Historical pattern: HR Tech replacement plays consistently fail over 20 years</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="compare-col strong">
+          <div class="compare-head">
+            <div class="compare-tag">Path B — Defensible</div>
+            <div class="compare-name">Augment HR with AI<br>Workflow Embedding + Data Flywheel</div>
+          </div>
+          <div class="compare-body">
+            <ul>
+              <li>HR is both buyer and user — internal advocate, not blocker</li>
+              <li>Defensibility from workflow lock-in — model commoditizes, process does not</li>
+              <li>PLG-first compresses sales cycles to under three months</li>
+              <li>Proprietary data flywheel — deeper usage, higher switching costs</li>
+              <li>Historical pattern: HR Tech augmentation plays dominate the last decade of growth</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="exhibit-source">Source: Boardroom Insights analysis. Path comparison based on three-director consensus across 47 turns.</div>
+    </div>
+  </section>
+
+  <!-- ─────────── CHAPTER 3: RECOMMENDATIONS ─────────── -->
+  <section class="chapter">
+    <div class="chapter-num">Chapter 03 · Recommendations</div>
+    <h2 class="chapter-title">Four actions to move from Path A to Path B</h2>
+    <p class="chapter-synthesis">If we were investing in this opportunity, we would require these four commitments before deploying capital. Each is a precondition for the others; they cannot be sequenced.</p>
+
+    <div class="recommendations">
+      <div class="rec">
+        <div>
+          <h3 class="rec-headline">Reposition the product from "replacement" to "augmentation"—across every surface.</h3>
+          <p class="rec-body">This is not a marketing change. It is a product reconstruction. From landing page copy to UI affordances to enterprise sales decks, the value proposition must consistently address HR <strong>as the user being empowered</strong>, not the role being eliminated.</p>
+        </div>
+      </div>
+
+      <div class="rec">
+        <div>
+          <h3 class="rec-headline">Choose a single vertical industry as the entry point.</h3>
+          <p class="rec-body">Manufacturing, retail chains, and contact-center operations exhibit the necessary preconditions: high-frequency hiring, standardized recruiting workflows, and short procurement decision chains. Win one before opening a second.</p>
+        </div>
+      </div>
+
+      <div class="rec">
+        <div>
+          <h3 class="rec-headline">Architect a PLG-first, SLG-second go-to-market from day one.</h3>
+          <p class="rec-body">The free tier must be genuinely useful and naturally embedded in existing HR workflows—not a standalone tool. Paid conversion should be triggered by team scale, collaboration features, and data-export needs, <strong>not by additional AI capability</strong>.</p>
+        </div>
+      </div>
+
+      <div class="rec">
+        <div>
+          <h3 class="rec-headline">Design the data flywheel before writing the first line of product code.</h3>
+          <p class="rec-body">Specify, before any feature decision: what data is generated, who owns it, how it is governed, and how it loops back to product improvement. <strong>This cannot be retrofitted.</strong> Companies that defer this decision lose the moat permanently.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="implications">
+      <div class="implications-label">Strategic Implication</div>
+      <p class="implications-text">By 2027, the AI-recruiting category will <strong>bifurcate sharply</strong>. Companies that establish workflow lock-in and proprietary data flywheels before that point will define the decade. Those that do not will be commoditized within 18 months of launch—competing on price against open-source alternatives that match 80% of capability at zero cost.</p>
+    </div>
+  </section>
+
+  <!-- ─────────── OPEN QUESTIONS ─────────── -->
+  <section class="chapter">
+    <div class="chapter-num">Chapter 04 · Open Questions</div>
+    <h2 class="chapter-title">Issues for the next session</h2>
+    <p class="chapter-synthesis">Four questions remain unresolved after this analysis. Two are critical-path; the recommended path forward cannot be executed without resolving them first.</p>
+
+    <table class="open-q-table">
+      <thead>
+        <tr>
+          <th>Priority</th>
+          <th>Question</th>
+          <th>Suggested Director</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="priority">P0</td>
+          <td class="q-text">Beyond resume screening, what are the second and third augmentation actions HR will pay for? This determines stickiness.</td>
+          <td class="assignee">First Principles + Value Investor</td>
+        </tr>
+        <tr>
+          <td class="priority">P0</td>
+          <td class="q-text">What is the minimum viable structure of the data flywheel — sources, ownership, governance, feedback loops?</td>
+          <td class="assignee">First Principles</td>
+        </tr>
+        <tr>
+          <td class="priority">P1</td>
+          <td class="q-text">Among the candidate verticals (manufacturing, retail, contact centers), which should be entered first—and on what evidence?</td>
+          <td class="assignee">Value Investor + Industry Specialist (to be invited)</td>
+        </tr>
+        <tr>
+          <td class="priority">P1</td>
+          <td class="q-text">Where is the line for the free tier — generous enough to embed in workflow, restrained enough to preserve paid conversion?</td>
+          <td class="assignee">Socrates + First Principles</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ─────────── ABOUT ─────────── -->
+  <section class="about">
+    <div class="about-label">About this analysis</div>
+    <p class="about-text">
+      This perspective was developed in a <strong>private boardroom session</strong> conducted on April 27, 2026, comprising 47 turns of structured dialogue across three director perspectives—<strong>Socrates</strong> (skeptical inquiry), <strong>First Principles</strong> (causal reasoning from foundational concepts), and <strong>Value Investor</strong> (long-horizon pattern recognition). Findings reflect three-director consensus where indicated; minority positions are noted in the supporting analysis. The framework follows the structure of Boardroom Insights Strategic Perspectives.
+    </p>
+  </section>
+
+</div>
+</div>
+
+<!-- ─────────── FOOTER ─────────── -->
+<footer class="doc-footer">
+  <div class="brand">Boardroom <span class="amp">&</span> Insights</div>
+  <div>BRD-INS-2026-04 · April 2026 · Strategy Practice · Powered by Boardroom</div>
+</footer>
+
+</body>
+</html>

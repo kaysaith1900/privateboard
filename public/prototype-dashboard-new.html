@@ -1,0 +1,2897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOARDROOM // CONVENING</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --panel: #131312;
+    --panel-2: #1A1A18;
+    --panel-3: #21211E;
+    --hi: #2A2A26;
+
+    --line: #26241F;
+    --line-bright: #3A3934;
+    --line-strong: #4D4B45;
+
+    --text: #C8C5BE;
+    --text-soft: #8E8B83;
+    --text-dim: #5C5A52;
+    --text-faint: #5C5A4D;
+
+    --lime: #6FB572;
+    --lime-deep: #427A48;
+    --lime-dim: #2D5532;
+    --amber: #B59560;
+    --amber-dim: #6B5A3A;
+    --red: #B5706A;
+    --red-dim: #6B4540;
+    --cyan: #6A9B97;
+    --magenta: #8E7A8E;
+
+    /* Chat-page chrome runs on Human Sans; agent bubbles override
+       to --font-agent. Logo is pinned to Inter below. */
+    --mono: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+    --sans: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+
+    --sidebar-w: 280px;
+    --notes-w: 240px;
+  }
+
+  /* Logo stays on Inter regardless of chat-page font swap. */
+  .brand-name,
+  .brand-mark {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line-bright); }
+
+  /* ─────────── ROOT ─────────── */
+  .control {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  /* ═══════════════════════════════════════════
+     TOP BAR (classification banner)
+     ═══════════════════════════════════════════ */
+  .topbar {
+    background: var(--panel);
+    border: 1px solid var(--line-bright);
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    position: relative;
+  }
+  .topbar::before, .topbar::after {
+    content: "";
+    position: absolute;
+    width: 8px; height: 8px;
+    border: 1px solid var(--lime-dim);
+  }
+  .topbar::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .topbar::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .brand-block {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-mark {
+    width: 20px; height: 20px;
+    display: block;
+    flex-shrink: 0;
+  }
+  .brand-mark .bg { fill: var(--lime); }
+  .brand-mark .fg { fill: var(--bg); }
+  .brand-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.1em;
+  }
+  .brand-sep {
+    color: var(--text-dim);
+    margin: 0 4px;
+  }
+  .classification {
+    color: var(--lime);
+    background: var(--panel-3);
+    border: 1px solid var(--lime-dim);
+    padding: 1px 7px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    margin-left: 6px;
+    font-weight: 700;
+  }
+  .classification::before { content: "["; margin-right: 3px; }
+  .classification::after { content: "]"; margin-left: 3px; }
+
+  .topbar-right {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    color: var(--text-dim);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .topbar-right .key { color: var(--text-faint); margin-right: 4px; }
+  .topbar-right .val { color: var(--text-soft); }
+  @keyframes pulse { 0%, 60% { opacity: 1; } 80% { opacity: 0.4; } }
+
+  .user-menu-wrap { position: relative; flex: 1; min-width: 0; }
+  .user-menu {
+    position: absolute;
+    /* Default opens DOWNWARD; sidebar-foot variant flips upward below */
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 200px;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    z-index: 100;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-2px);
+    transition: opacity 0.12s, transform 0.12s, visibility 0s linear 0.12s;
+  }
+  .user-menu-wrap:hover .user-menu,
+  .user-menu-wrap:focus-within .user-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: opacity 0.12s, transform 0.12s, visibility 0s;
+  }
+  .user-menu::before, .user-menu::after {
+    content: "";
+    position: absolute;
+    width: 6px; height: 6px;
+    border: 1px solid var(--lime-dim);
+  }
+  .user-menu::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .user-menu::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  /* Sidebar-foot variant: menu pops UPWARD from the bottom user-block,
+     anchored to the left edge so it sits inside the sidebar column. */
+  .sidebar-foot .user-menu-wrap { display: flex; }
+  .sidebar-foot .user-block { flex: 1; min-width: 0; }
+  .sidebar-foot .user-menu {
+    top: auto;
+    bottom: calc(100% + 6px);
+    right: auto;
+    left: 0;
+    transform: translateY(2px);
+  }
+  .sidebar-foot .user-menu-wrap:hover .user-menu,
+  .sidebar-foot .user-menu-wrap:focus-within .user-menu {
+    transform: translateY(0);
+  }
+  .sidebar-foot .user-block .chev {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 9px;
+    transition: color 0.1s;
+  }
+  .sidebar-foot .user-menu-wrap:hover .user-block .chev,
+  .sidebar-foot .user-menu-wrap:focus-within .user-block .chev {
+    color: var(--lime);
+  }
+
+  .user-menu-section {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  .user-menu-section .name {
+    font-size: 11px;
+    color: var(--text);
+    font-weight: 700;
+    margin-bottom: 1px;
+  }
+  .user-menu-section .meta {
+    font-size: 9.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .user-menu-section .meta .lime { color: var(--lime); }
+
+  .user-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    font-size: 11.5px;
+    color: var(--text-soft);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    transition: all 0.08s;
+  }
+  .user-menu-item:last-child { border-bottom: none; }
+  .user-menu-item:hover {
+    background: var(--panel-2);
+    color: var(--lime);
+  }
+  .user-menu-item .menu-icon {
+    width: 14px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+  .user-menu-item:hover .menu-icon { color: var(--lime); }
+  .user-menu-item.danger:hover { color: var(--red); }
+  .user-menu-item.danger:hover .menu-icon { color: var(--red); }
+
+  /* ═══════════════════════════════════════════
+     MAIN GRID — sidebar + content
+     ═══════════════════════════════════════════ */
+  .body-grid {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 8px 1fr;
+    gap: 0;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* Drag handles for resizable columns */
+  .col-resizer {
+    position: relative;
+    cursor: col-resize;
+    user-select: none;
+    -webkit-user-select: none;
+    background: transparent;
+    z-index: 5;
+    touch-action: none;
+  }
+  .col-resizer::before {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 50%;
+    width: 1px;
+    margin-left: -0.5px;
+    background: var(--line-bright);
+    transition: background 0.12s, width 0.12s;
+  }
+  .col-resizer:hover::before,
+  .col-resizer.dragging::before {
+    background: var(--lime);
+    width: 2px;
+    margin-left: -1px;
+  }
+  .col-resizer::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px;
+    height: 28px;
+    margin: -14px 0 0 -1.5px;
+    background: var(--lime);
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .col-resizer:hover::after,
+  .col-resizer.dragging::after { opacity: 0.6; }
+  body.col-resizing { cursor: col-resize !important; }
+  body.col-resizing * { cursor: col-resize !important; }
+
+  /* ═══════════════════════════════════════════
+     SIDEBAR
+     ═══════════════════════════════════════════ */
+  .sidebar {
+    background: var(--panel);
+    border: 1px solid var(--line-bright);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .sidebar::before, .sidebar::after {
+    content: "";
+    position: absolute;
+    width: 8px; height: 8px;
+    border: 1px solid var(--lime-dim);
+    pointer-events: none;
+    z-index: 5;
+  }
+  .sidebar::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .sidebar::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .sidebar-head {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line-bright);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--panel-2);
+  }
+  .sidebar-head-title {
+    font-size: 10px;
+    color: var(--text);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .sidebar-head-meta {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+  .sidebar-head-meta .lime { color: var(--lime); }
+
+  /* ─── Sidebar tabs (Rooms / Agents) — segmented + icon ─── */
+  .sidebar-tabs {
+    display: flex; gap: 2px; padding: 6px 6px 8px;
+    flex-shrink: 0; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar-tab {
+    flex: 1; padding: 6px 8px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font-family: var(--sans); font-size: 12px; font-weight: 500;
+    color: var(--text-dim); cursor: pointer; text-decoration: none;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+    letter-spacing: -0.005em;
+  }
+  .sidebar-tab .ico { width: 14px; height: 14px; flex-shrink: 0; color: currentColor; opacity: 0.85; }
+  .sidebar-tab:hover { background: var(--panel-2); color: var(--text-soft); }
+  .sidebar-tab.active { background: var(--panel-3); color: var(--text); font-weight: 600; }
+  .sidebar-tab.active .ico { opacity: 1; }
+  .sidebar-tab .count { font-size: 10.5px; color: var(--text-faint); font-weight: 400; margin-left: 1px; }
+  .sidebar-tab.active .count { color: var(--text-dim); }
+
+  .sidebar-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .sidebar-panel[hidden] { display: none; }
+
+  .agents-scroll { flex: 1; overflow-y: auto; padding: 2px 4px; }
+  .agents-section-header {
+    padding: 8px 8px 6px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .agents-section-header .line { flex: 1; height: 1px; background: var(--line-bright); }
+  .agents-section-header .badge {
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    padding: 0 5px;
+    font-size: 8.5px;
+    color: var(--text-dim);
+  }
+  .agent-row {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 8px;
+    cursor: pointer;
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.08s;
+  }
+  .agent-row:hover { background: var(--panel-2); }
+  .agent-row.active { background: var(--panel-3); }
+  .agent-row.active .agent-row-title { color: var(--lime); }
+  .agent-row .agent-row-av {
+    width: 32px; height: 32px;
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    flex-shrink: 0;
+  }
+  .agent-row .agent-row-content { min-width: 0; }
+  .agent-row .agent-row-top-line {
+    display: flex; justify-content: space-between; gap: 6px;
+    font-family: var(--mono); margin-bottom: 2px;
+  }
+  .agent-row .agent-row-title {
+    color: var(--text); font-weight: 700; font-size: 11px; letter-spacing: 0.02em;
+  }
+  .agent-row .agent-row-time {
+    color: var(--text-faint); font-size: 9px; letter-spacing: 0.06em;
+    white-space: nowrap; text-transform: uppercase;
+  }
+  .agent-row .agent-row-subtitle {
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--text-dim); letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .agent-row .agent-row-status::before { content: "● "; color: var(--lime); }
+  .agent-row[data-status="intern"] .agent-row-status::before { content: "▲ "; color: var(--amber); }
+  .agent-row[data-status="off-duty"] .agent-row-status::before { content: "◌ "; color: var(--text-dim); }
+  .agent-row .agent-row-sep { color: var(--line-bright); }
+
+  .search-block {
+    padding: 6px 8px 4px;
+    flex-shrink: 0;
+  }
+  .search-wrap { position: relative; }
+  .search-input {
+    width: 100%;
+    padding: 7px 8px 7px 24px;
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text);
+  }
+  .search-input:focus { outline: none; border-color: var(--lime); background: var(--panel-2); }
+  .search-input::placeholder { color: var(--text-faint); }
+  .search-icon-svg {
+    position: absolute;
+    left: 6px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    pointer-events: none;
+  }
+
+  .new-btn {
+    margin: 6px 6px 4px; padding: 7px 10px;
+    background: transparent; color: var(--text-dim); border: none;
+    font-family: var(--sans); font-size: 12px; font-weight: 500;
+    cursor: pointer; text-decoration: none; letter-spacing: -0.005em;
+    text-align: left; flex-shrink: 0; border-radius: 4px;
+    transition: background 0.12s, color 0.12s;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .new-btn::before {
+    content: "+"; width: 16px; height: 16px;
+    border: 1px solid var(--line-bright); border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 400; color: var(--text-faint);
+    flex-shrink: 0; transition: border-color 0.12s, color 0.12s;
+  }
+  .new-btn:hover { background: var(--panel-2); color: var(--text); }
+  .new-btn:hover::before { border-color: var(--lime); color: var(--lime); }
+
+  .sessions-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 4px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px 4px;
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 700;
+  }
+  .section-header.live { color: var(--lime); }
+  .section-header.draft { color: var(--amber); }
+  .section-header.adjourned { color: var(--text-dim); }
+  .section-header.pinned { color: var(--text-soft); }
+  .agents-section-header.pinned { color: var(--text-soft); }
+  .pin-glyph { width: 10px; height: 10px; fill: currentColor; flex-shrink: 0; }
+  .row-top-line .pin-toggle,
+  .agent-row-top-line .pin-toggle {
+    width: 18px; height: 18px;
+    border: none; background: transparent;
+    color: var(--text-faint); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; margin-left: 4px;
+    opacity: 0; transition: opacity 0.12s, color 0.12s;
+    flex-shrink: 0;
+  }
+  .row-top-line .pin-toggle svg,
+  .agent-row-top-line .pin-toggle svg { width: 11px; height: 11px; fill: currentColor; }
+  .session-row:hover .pin-toggle, .agent-row:hover .pin-toggle { opacity: 0.55; }
+  .pin-toggle:hover { opacity: 1 !important; color: var(--lime); }
+  .session-row.pinned .pin-toggle, .agent-row.pinned .pin-toggle { opacity: 1; color: var(--lime); }
+  .section-header .line { flex: 1; border-top: 1px dashed var(--line-bright); }
+  .section-header .badge {
+    font-size: 9px;
+    color: inherit;
+    font-weight: 700;
+    padding: 0 4px;
+    background: var(--panel-2);
+  }
+  .section-header.live .badge::before {
+    content: "● ";
+    animation: pulse 1.5s infinite;
+  }
+
+  .session-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    padding: 6px 10px;
+    text-decoration: none;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.05s;
+    align-items: start;
+    position: relative;
+    margin-bottom: 1px;
+  }
+  .session-row:hover { background: var(--panel-2); }
+  .session-row.active { background: var(--panel-3); }
+  .session-row.active .row-title { color: var(--lime); }
+
+  .row-cast {
+    display: flex;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+  .row-cast img {
+    width: 20px; height: 20px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    border: 1px solid var(--line-strong);
+    margin-left: -10px;
+    background: var(--bg);
+    pointer-events: none;
+  }
+  .row-cast img:first-child { margin-left: 0; }
+  .row-cast img:nth-child(n+4) { display: none; }
+
+  .row-icon {
+    width: 26px; height: 26px;
+    background: var(--bg);
+    border: 1px solid var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--amber);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .row-content { min-width: 0; overflow: hidden; }
+  .row-top-line {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: 1px;
+  }
+  .row-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    font-family: var(--sans);
+    letter-spacing: -0.005em;
+  }
+  .row-time {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    font-family: var(--mono);
+  }
+  .session-row.live .row-time {
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .session-row.live .row-time::before { content: "● "; }
+
+  .row-subtitle {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--sans);
+    letter-spacing: -0.003em;
+  }
+  .row-subtitle .report-style {
+    color: var(--lime);
+    font-weight: 700;
+    margin-right: 3px;
+  }
+  .row-subtitle .sep { color: var(--text-faint); margin: 0 3px; }
+
+  /* Bottom-of-list pagination hint (Slack-style) */
+  .scroll-end-hint {
+    text-align: center; padding: 14px 8px 18px;
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .scroll-end-hint::before {
+    content: "·  ·  ·";
+    display: block; margin-bottom: 6px;
+    color: var(--line-bright); letter-spacing: 0.5em;
+  }
+  .scroll-end-hint.loading::before {
+    content: "loading more";
+    letter-spacing: 0.18em;
+    color: var(--lime);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  .sidebar-foot {
+    border-top: 1px solid var(--line-bright);
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    background: var(--panel-2);
+  }
+  .user-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    text-decoration: none;
+    color: var(--text);
+    padding: 2px 4px;
+    transition: background 0.05s;
+  }
+  .user-block:hover { background: var(--panel-3); }
+  .user-av {
+    width: 20px; height: 20px;
+    background: var(--lime);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 10px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .user-av::after {
+    content: "";
+    position: absolute;
+    bottom: -1px; right: -1px;
+    width: 6px; height: 6px;
+    background: var(--lime);
+    border: 1px solid var(--bg);
+  }
+  .user-info { min-width: 0; flex: 1; }
+  .user-name { font-size: 10.5px; font-weight: 700; color: var(--text); line-height: 1.1; }
+  .user-meta {
+    font-size: 9px;
+    color: var(--lime);
+    margin-top: 1px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+  .icon-btn {
+    width: 32px; height: 32px;
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-soft);
+    text-decoration: none;
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: all 0.12s;
+  }
+  .icon-btn:hover {
+    background: var(--panel-3);
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+
+  /* ═══════════════════════════════════════════
+     MAIN — Selected room content
+     ═══════════════════════════════════════════ */
+  .main {
+    display: grid;
+    grid-template-rows: 1fr;
+    overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--line-bright);
+    position: relative;
+  }
+  .main-view {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .main-view[hidden] { display: none; }
+  .main-view[data-main-view="agent"] {
+    grid-template-rows: 1fr;
+  }
+  .main::before, .main::after {
+    content: "";
+    position: absolute;
+    width: 8px; height: 8px;
+    border: 1px solid var(--lime-dim);
+    pointer-events: none;
+    z-index: 5;
+  }
+  .main::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .main::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  /* Room head */
+  .room-head {
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line-bright);
+    padding: 8px 14px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 14px;
+    align-items: center;
+  }
+  .room-info { min-width: 0; overflow: hidden; }
+
+  .room-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+  .room-name {
+    font-size: 9.5px;
+    color: var(--bg);
+    background: var(--lime);
+    padding: 1px 7px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+  }
+  .session-num {
+    font-size: 9.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .room-subject {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.25;
+    margin-bottom: 3px;
+    font-family: var(--sans);
+    letter-spacing: -0.01em;
+  }
+  .room-subject::before {
+    content: "subject:: ";
+    color: var(--text-dim);
+    font-weight: 400;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    font-family: var(--mono);
+  }
+  .room-meta {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .room-meta strong { color: var(--text); font-weight: 700; }
+  .room-meta .lime { color: var(--lime); }
+
+  .head-actions { display: flex; align-items: center; gap: 6px; }
+  .head-cast { display: flex; align-items: center; }
+  .head-cast img {
+    width: 22px; height: 22px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    border: 1px solid var(--line-strong);
+    margin-left: -4px;
+    background: var(--bg);
+  }
+  .head-cast img:first-child { margin-left: 0; }
+  .head-cast img.speaking {
+    border-color: var(--lime);
+    box-shadow: 0 0 0 1px var(--lime);
+  }
+
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: var(--bg);
+    color: var(--lime);
+    border: 1px solid var(--lime-dim);
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .live-pill::before {
+    content: "●";
+    animation: pulse 1.5s infinite;
+  }
+  .timer {
+    padding: 3px 8px;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    font-size: 10.5px;
+    color: var(--lime);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .adjourn-btn {
+    padding: 4px 10px;
+    background: var(--lime);
+    color: var(--bg);
+    border: 1px solid var(--lime);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .adjourn-btn:hover { background: var(--bg); color: var(--lime); }
+
+  /* Body */
+  .body {
+    display: grid;
+    grid-template-columns: 1fr 6px var(--notes-w);
+    overflow: hidden;
+    min-height: 0;
+  }
+  .body.notes-collapsed {
+    grid-template-columns: 1fr;
+  }
+  .body.notes-collapsed > .col-resizer,
+  .body.notes-collapsed > .notes {
+    display: none;
+  }
+
+  /* Chat (zen plain text) */
+  .chat {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--panel);
+    padding: 14px 20px 18px;
+  }
+
+  /* Chat milestone markers · unified chip + flanking hairline rules
+     pattern (replaces dashed banners). See prototype-dashboard.html
+     for the full comment + selectors that share this style. */
+  .chat-banner,
+  .round-prompt-card.spent {
+    display: flex;
+    flex-direction: row;
+    max-width: none;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin: 18px 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-family: var(--mono);
+    line-height: 1;
+  }
+  .chat-banner::before,
+  .chat-banner::after,
+  .round-prompt-card.spent::before,
+  .round-prompt-card.spent::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: linear-gradient(to right, transparent 0%, var(--line-bright) 24%, var(--line-bright) 76%, transparent 100%);
+  }
+  .chat-banner-chip,
+  .rp-spent-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--line-bright);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .cb-mark { color: var(--lime); font-weight: 700; line-height: 1; }
+  .cb-text { line-height: 1; }
+  .rp-spent-mark { color: var(--text-faint); font-weight: 700; line-height: 1; }
+  .rp-spent-round { color: var(--text); font-weight: 700; line-height: 1; }
+  .rp-spent-sep { color: var(--text-faint); line-height: 1; }
+  .rp-spent-label { line-height: 1; }
+
+  /* Round-open marker · chair posts at the start of every fresh
+     director sweep. See prototype-dashboard.html for full rationale. */
+  .round-open-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin: 18px 0 12px;
+    padding: 0;
+    line-height: 1;
+    font-family: var(--mono);
+  }
+  .round-open-card::before,
+  .round-open-card::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: linear-gradient(to right, transparent 0%, var(--line-bright) 24%, var(--line-bright) 76%, transparent 100%);
+  }
+  .round-open-card .ro-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--line-bright);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .round-open-card .ro-mark { font-weight: 700; line-height: 1; }
+  .round-open-card .ro-round { color: var(--text); font-weight: 700; line-height: 1; }
+  .round-open-card .ro-sep { color: var(--text-faint); line-height: 1; }
+  .round-open-card .ro-mode { line-height: 1; text-transform: lowercase; letter-spacing: 0.04em; font-weight: 400; color: var(--text-soft); }
+  .round-open-card.is-opening .ro-chip { border-color: var(--lime); }
+  .round-open-card.is-opening .ro-mark { color: var(--lime); }
+  .round-open-card.is-reactive .ro-chip { border-color: var(--cyan, #6A9B97); }
+  .round-open-card.is-reactive .ro-mark { color: var(--cyan, #6A9B97); }
+
+  /* No-brief closing marker · same family as the chat-banner / spent
+     round chip but amber-bordered + a small body explaining the chair
+     declared no report is needed. See prototype-dashboard.html for
+     the full rationale comment. */
+  .no-brief-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin: 22px 0 18px;
+    padding: 0;
+    font-family: var(--mono);
+    line-height: 1.4;
+    position: relative;
+  }
+  .no-brief-card::before {
+    content: "";
+    position: absolute;
+    top: 13px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent 0%, var(--line-bright) 18%, var(--line-bright) 82%, transparent 100%);
+    z-index: 0;
+  }
+  .no-brief-card .nb-chip {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--amber, #C99826);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--amber, #C99826);
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .no-brief-card .nb-mark { font-weight: 700; line-height: 1; }
+  .no-brief-card .nb-eyebrow { line-height: 1; }
+  .no-brief-card .nb-body {
+    font-family: var(--font-human);
+    font-size: 12.5px;
+    color: var(--text-soft);
+    line-height: 1.5;
+    letter-spacing: -0.003em;
+    text-align: center;
+    max-width: 480px;
+  }
+  .no-brief-card .nb-body strong { color: var(--text); font-weight: 700; }
+  .no-brief-card .nb-meta {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .msg {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 14px;
+    margin-bottom: 22px;
+    max-width: 760px;
+  }
+
+  .msg-av {
+    width: 30px; height: 30px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: transparent;
+    flex-shrink: 0;
+    align-self: start;
+    margin-top: 3px;
+    opacity: 0.95;
+  }
+  .msg-av[data-agent] { cursor: pointer; transition: opacity 0.12s; }
+  .msg-av[data-agent]:hover { opacity: 1; }
+  .msg.user .msg-av {
+    background: transparent;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    border: 1px solid var(--line-strong);
+    font-family: var(--mono);
+  }
+
+  .msg-content { min-width: 0; }
+  .msg-meta {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin-bottom: 5px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+    font-family: var(--mono);
+  }
+  .msg-name {
+    font-weight: 700;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .msg-tag { color: var(--text-faint); text-transform: lowercase; }
+  .msg-time { color: var(--text-faint); margin-left: auto; }
+
+  .msg-bubble {
+    padding: 0;
+    border: none;
+    background: transparent;
+    /* Default: agent bubbles in the italic Agent face. */
+    font-family: var(--font-agent);
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--text-soft);
+    letter-spacing: -0.005em;
+  }
+  .msg-bubble p { margin-bottom: 9px; }
+  .msg-bubble p:last-child { margin-bottom: 0; }
+  .msg-bubble strong { color: var(--text); font-weight: 600; }
+  .msg-bubble em { font-style: normal; color: var(--lime); font-weight: 500; }
+  /* Markdown tables · editorial style (no outer box, no zebra,
+     hairline dividers between rows). See prototype-dashboard.html
+     for the full rationale comment. */
+  .msg-bubble .msg-table-wrap {
+    margin: 12px 0;
+    overflow-x: auto;
+  }
+  .msg-bubble .msg-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-human);
+    font-style: normal;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    letter-spacing: -0.003em;
+  }
+  .msg-bubble .msg-table th,
+  .msg-bubble .msg-table td {
+    padding: 8px 16px 8px 0;
+    border: none;
+    border-bottom: 1px solid var(--line-bright);
+    vertical-align: top;
+    text-align: left;
+    white-space: pre-wrap;
+  }
+  .msg-bubble .msg-table th:last-child,
+  .msg-bubble .msg-table td:last-child { padding-right: 0; }
+  .msg-bubble .msg-table th {
+    font-weight: 600;
+    color: var(--text);
+    padding-top: 0;
+    padding-bottom: 9px;
+  }
+  .msg-bubble .msg-table tbody tr:last-child th,
+  .msg-bubble .msg-table tbody tr:last-child td { border-bottom: none; }
+  .msg-bubble .msg-table strong { color: var(--text); font-weight: 600; }
+  .msg-bubble .msg-table em { font-style: normal; color: var(--lime); font-weight: 500; }
+  .msg-bubble .msg-table code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text);
+  }
+
+  .msg.user .msg-bubble {
+    /* Human-authored override. */
+    font-family: var(--font-human);
+    color: var(--text);
+    border-left: 1px solid var(--lime-dim);
+    padding-left: 12px;
+    margin-left: -2px;
+  }
+
+  .typing-indicator {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+  .typing-indicator img {
+    width: 20px; height: 20px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    opacity: 0.6;
+  }
+  .typing-bubble {
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--lime-dim);
+    padding: 0;
+    border: none;
+    background: none;
+  }
+  .typing-bubble::before { content: ". . . "; animation: pulse 1.5s infinite; }
+  .typing-name {
+    color: var(--text-faint);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-style: italic;
+  }
+
+  .pause-marker {
+    text-align: center;
+    margin: 10px 0;
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .pause-marker::before, .pause-marker::after {
+    content: " ─── ";
+    color: var(--line-bright);
+  }
+
+  /* Configuration / membership change marker — appears in the
+     chat transcript whenever room settings are mutated, so the
+     timeline reflects shifts (mode change, member +/-, etc.). */
+  .config-marker {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0;
+    font-family: var(--mono);
+  }
+  .config-marker .cm-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--line-bright), var(--line-bright), transparent);
+  }
+  .config-marker .cm-body {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--line-bright);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .config-marker .cm-time {
+    color: var(--text-faint);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+  }
+  .config-marker .cm-icon {
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--lime);
+  }
+  .config-marker[data-kind="member-remove"] .cm-icon { color: var(--red); }
+  .config-marker[data-kind="mode"] .cm-icon,
+  .config-marker[data-kind="style"] .cm-icon,
+  .config-marker[data-kind="intensity"] .cm-icon { color: var(--amber); }
+  .config-marker .cm-label {
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 12px;
+    text-transform: none;
+    letter-spacing: -0.003em;
+  }
+  .config-marker .cm-who {
+    color: var(--text-faint);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .config-marker .cm-who::before { content: "· "; }
+
+  /* ─── Empty room — convening state ──────────────────────
+     Shown only on prototype-dashboard-new.html. Replaces the
+     chat message stream with a centered "topic on the board"
+     card + waiting-for-directors hint. */
+  .empty-room {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 36px 28px;
+    min-height: 0;
+    gap: 28px;
+  }
+
+  .topic-card {
+    width: 100%;
+    max-width: 540px;
+    background: var(--panel-2);
+    border: 1px solid var(--lime-dim);
+    padding: 22px 24px 20px;
+    position: relative;
+    text-align: left;
+  }
+  .topic-card::before, .topic-card::after {
+    content: "";
+    position: absolute;
+    width: 12px; height: 12px;
+    border: 2px solid var(--lime);
+    pointer-events: none;
+  }
+  .topic-card::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .topic-card::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .topic-card .topic-eyebrow {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--lime);
+    color: var(--bg);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .topic-card .topic-eyebrow::before { content: "[ "; }
+  .topic-card .topic-eyebrow::after  { content: " ]"; }
+
+  .topic-card .topic-question {
+    font-family: var(--sans);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--text);
+    letter-spacing: -0.015em;
+    margin-bottom: 14px;
+  }
+  .topic-card .topic-question::before {
+    content: "▸ ";
+    color: var(--lime);
+  }
+  .topic-card .topic-question em {
+    font-style: normal;
+    color: var(--lime);
+  }
+
+  .topic-card .topic-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .topic-card .topic-meta-chip {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 3px 8px;
+    border: 1px solid var(--line-strong);
+    color: var(--text-soft);
+    background: var(--bg);
+  }
+  .topic-card .topic-meta-chip .v { color: var(--lime); }
+
+  .topic-card .topic-cast {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line-bright);
+  }
+  .topic-card .topic-cast-label {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    margin-right: 4px;
+  }
+  .topic-card .topic-cast-row {
+    display: flex;
+    gap: 6px;
+  }
+  .topic-card .topic-cast-row img {
+    width: 28px; height: 28px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    cursor: pointer;
+    transition: border-color 0.12s;
+  }
+  .topic-card .topic-cast-row img:hover {
+    border-color: var(--lime);
+  }
+
+  /* Empty-state hint — "your directors are gathering" */
+  .empty-hint {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    text-align: center;
+    line-height: 1.7;
+  }
+  .empty-hint .pulse-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--lime);
+    margin-right: 7px;
+    vertical-align: middle;
+    animation: queue-pulse 1.5s ease-in-out infinite;
+  }
+  .empty-hint .first-up {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-faint);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+  }
+  .empty-hint .first-up strong {
+    color: var(--lime);
+    font-weight: 700;
+  }
+
+  /* "Preparing" state for the queue's first row — softer than
+     "speaking" since no one has begun yet. */
+  .queue-row.preparing .pos {
+    color: var(--lime-dim);
+    animation: queue-pulse 1.8s ease-in-out infinite;
+  }
+  .queue-row.preparing .who { color: var(--text); }
+  .queue-row.preparing .state {
+    color: var(--lime-dim);
+    font-weight: 700;
+  }
+  .queue-row.preparing .state::before {
+    content: "◌ ";
+  }
+  .queue-row.preparing img { opacity: 0.85; }
+     Sits above the message bubble; click to scroll to source. */
+  .msg-replyto {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+    padding: 3px 8px 3px 7px;
+    border-left: 2px solid var(--lime-dim);
+    background: rgba(111, 181, 114, 0.04);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+    max-width: 100%;
+    text-decoration: none;
+  }
+  .msg-replyto:hover {
+    border-left-color: var(--lime);
+    background: rgba(111, 181, 114, 0.08);
+  }
+  .msg-replyto .replyto-arrow { color: var(--lime); font-weight: 700; }
+  .msg-replyto .replyto-who { color: var(--text-soft); font-weight: 700; }
+  .msg-replyto .replyto-time { color: var(--text-faint); letter-spacing: 0.04em; }
+  .msg-replyto .replyto-snippet {
+    color: var(--text-dim);
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 320px;
+    font-family: var(--sans);
+    font-size: 11.5px;
+    letter-spacing: -0.003em;
+  }
+
+  /* @-mention chip in message body */
+  .mention {
+    color: var(--lime);
+    font-weight: 600;
+    background: rgba(111, 181, 114, 0.10);
+    padding: 0 5px 0 4px;
+    border: 1px solid transparent;
+    font-family: var(--mono);
+    font-size: 0.9em;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+    text-decoration: none;
+    display: inline;
+  }
+  .mention:hover {
+    border-color: var(--lime-dim);
+    background: rgba(111, 181, 114, 0.18);
+  }
+  .mention::before { content: "@"; color: var(--lime-deep); }
+
+  /* Highlight a message when its reply-link is hovered */
+  .msg.highlight {
+    background: rgba(111, 181, 114, 0.05);
+    transition: background 0.18s;
+  }
+
+  /* ─── Speaking queue (KTV-style cue sheet) ─────────────────
+     Floats above the input bar; collapsible.
+     Layout-wise it sits as a sibling of .chat inside .chat-col,
+     so it stays pinned right above .input-bar regardless of
+     scroll position. */
+  .speaking-queue {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--line-bright);
+    border-bottom: 1px solid var(--line-bright);
+    background: var(--panel-2);
+    position: relative;
+  }
+  .speaking-queue::before, .speaking-queue::after {
+    content: "";
+    position: absolute;
+    width: 6px; height: 6px;
+    border: 1px solid var(--lime-dim);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .speaking-queue::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .speaking-queue::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .queue-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 6px 12px;
+    border-bottom: 1px dashed var(--line-bright);
+    background: var(--bg);
+    min-height: 30px;
+  }
+  /* Two head modes: expanded (full label + mode) vs collapsed (compact summary) */
+  .queue-head-expanded,
+  .queue-head-collapsed {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .queue-head-collapsed { display: none; }
+  .speaking-queue.collapsed .queue-head-expanded { display: none; }
+  .speaking-queue.collapsed .queue-head-collapsed { display: flex; }
+
+  .queue-head .label {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .queue-head .label::before { content: "[ "; color: var(--text-dim); }
+  .queue-head .label::after  { content: " ]"; color: var(--text-dim); }
+  .queue-head .mode-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-left: auto;
+  }
+  .queue-head .mode-tag .v { color: var(--text-dim); }
+
+  /* Collapsed summary: "▶ Value Investor ●●●  ↪ First Principles  +2 queued" */
+  .queue-head-collapsed .sum-marker {
+    color: var(--lime);
+    font-size: 11px;
+    font-weight: 700;
+    animation: queue-pulse 1.6s ease-in-out infinite;
+  }
+  .queue-head-collapsed .sum-av {
+    width: 20px; height: 20px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: var(--bg);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .queue-head-collapsed .sum-who {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--lime);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+  .queue-head-collapsed .sum-state {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--lime);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .queue-head-collapsed .sum-divider { color: var(--line-strong); }
+  .queue-head-collapsed .sum-next-label { color: var(--lime); font-weight: 700; }
+  .queue-head-collapsed .sum-next {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+  .queue-head-collapsed .sum-rest {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  /* Toggle button */
+  .queue-toggle {
+    width: 22px; height: 22px;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--text-dim);
+    font-size: 9px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    font-family: var(--mono);
+    transition: all 0.12s;
+  }
+  .queue-toggle:hover {
+    border-color: var(--lime);
+    color: var(--lime);
+  }
+  .queue-toggle .chev {
+    transition: transform 0.18s;
+    display: inline-block;
+  }
+  .speaking-queue.collapsed .queue-toggle .chev {
+    transform: rotate(180deg);
+  }
+
+  /* Collapse — hide the list and footer */
+  .speaking-queue.collapsed .queue-list,
+  .speaking-queue.collapsed .queue-foot {
+    display: none;
+  }
+  .speaking-queue.collapsed .queue-head {
+    border-bottom: none;
+  }
+
+  .queue-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+  }
+  .queue-row {
+    display: grid;
+    grid-template-columns: 18px 22px 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 5px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-soft);
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
+  }
+  .queue-row + .queue-row { border-top: 1px dotted rgba(255,255,255,0.04); }
+  .queue-row:hover { background: rgba(255,255,255,0.02); }
+
+  /* Position symbol (▶ for speaker, ① ② ③ for queue) */
+  .queue-row .pos {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0;
+    text-align: center;
+  }
+  .queue-row.speaking .pos {
+    color: var(--lime);
+    animation: queue-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes queue-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .queue-row.next .pos { color: var(--lime); }
+
+  .queue-row img {
+    width: 22px; height: 22px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: var(--bg);
+    cursor: pointer;
+    outline: 1px solid transparent;
+    outline-offset: 1px;
+    transition: outline 0.12s, opacity 0.12s;
+    opacity: 0.55;
+  }
+  .queue-row.speaking img { opacity: 1; }
+  .queue-row.next img { opacity: 0.85; }
+  .queue-row img:hover { outline-color: var(--lime); }
+
+  .queue-row .who {
+    color: var(--text-dim);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 10.5px;
+  }
+  .queue-row.speaking .who { color: var(--lime); }
+  .queue-row.next .who { color: var(--text); }
+
+  .queue-row .state {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-faint);
+  }
+  .queue-row.speaking .state {
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .queue-row.speaking .state::before {
+    content: "●●● ";
+    animation: queue-pulse 0.9s ease-in-out infinite;
+  }
+  .queue-row.next .state {
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .queue-row.next .state::before { content: "↪ "; }
+  .queue-row.directed .state {
+    color: var(--cyan);
+    font-weight: 700;
+  }
+  .queue-row.directed .state::before { content: "@ "; }
+  .queue-row.objection {
+    border-left-color: var(--red);
+    background: rgba(181, 112, 106, 0.05);
+  }
+  .queue-row.objection .state {
+    color: var(--red);
+    font-weight: 700;
+  }
+  .queue-row.objection .state::before { content: "⚠ "; }
+
+  .queue-row .actions {
+    display: flex;
+    gap: 3px;
+    opacity: 0.4;
+    transition: opacity 0.12s;
+  }
+  .queue-row:hover .actions { opacity: 1; }
+  .queue-row.speaking .actions { display: none; }
+
+  .queue-action {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    text-decoration: none;
+    transition: all 0.1s;
+  }
+  .queue-action:hover {
+    border-color: var(--lime);
+    color: var(--lime);
+  }
+  .queue-action.skip:hover {
+    border-color: var(--red);
+    color: var(--red);
+  }
+
+  .queue-foot {
+    padding: 5px 12px;
+    border-top: 1px dashed var(--line-bright);
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  .queue-foot kbd {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    padding: 0 4px;
+    margin: 0 2px;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+
+  /* Notes panel — live transcript */
+  .notes {
+    background: var(--panel-2);
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 23px,
+      rgba(255, 255, 255, 0.012) 23px,
+      rgba(255, 255, 255, 0.012) 24px
+    );
+    overflow-y: auto;
+    padding: 10px 14px 18px;
+    position: relative;
+  }
+
+  .notes-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--line-bright);
+    position: sticky;
+    top: -10px;
+    background: var(--panel-2);
+    z-index: 2;
+    padding-top: 4px;
+  }
+  .notes-title {
+    font-size: 10px;
+    color: var(--lime);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .notes-title .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 0 0 rgba(111, 181, 114, 0.55);
+    animation: live-pulse 1.6s ease-out infinite;
+  }
+  @keyframes live-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(111, 181, 114, 0.55); }
+    70%  { box-shadow: 0 0 0 6px rgba(111, 181, 114, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(111, 181, 114, 0); }
+  }
+  .notes-meta {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .notes-stream { display: flex; flex-direction: column; }
+
+  .note-entry {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px dotted rgba(255, 255, 255, 0.035);
+  }
+  .note-entry:last-child { border-bottom: none; }
+
+  .note-time {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+    padding-top: 3px;
+    text-align: left;
+  }
+
+  .note-body {
+    font-family: var(--sans);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+    letter-spacing: -0.003em;
+  }
+
+  .note-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    margin-right: 6px;
+    vertical-align: 1px;
+    border: 1px solid var(--line-bright);
+    color: var(--text-dim);
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .note-tag.t-origin   { color: var(--text-dim);  border-color: var(--line-bright); }
+  .note-tag.t-obs      { color: var(--text-dim);  border-color: var(--line-bright); }
+  .note-tag.t-insight  { color: var(--lime);      border-color: var(--lime-deep);   }
+  .note-tag.t-warn     { color: var(--amber);     border-color: var(--amber-dim);   }
+  .note-tag.t-crux     { color: var(--amber);     border-color: var(--amber);       background: rgba(181, 149, 96, 0.10); }
+  .note-tag.t-soln     { color: var(--lime);      border-color: var(--lime);        background: rgba(111, 181, 114, 0.10); }
+  .note-tag.t-open     { color: var(--text-dim);  border-color: var(--line-bright); }
+
+  .note-who {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-dim);
+    margin-right: 6px;
+  }
+
+  /* Recency: older entries fade back so the eye lands on the latest */
+  .note-entry.t-old   .note-body { color: var(--text-dim); }
+  .note-entry.t-old   .note-time { opacity: 0.55; }
+  .note-entry.t-fresh { background: linear-gradient(90deg, rgba(111, 181, 114, 0.06), transparent 60%); }
+  .note-entry.t-fresh .note-body { color: var(--text); }
+  .note-entry.t-fresh .note-time { color: var(--lime); }
+
+  .notes-capturing {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-dim);
+    margin-top: 12px;
+    padding: 8px 0 4px;
+    border-top: 1px dashed var(--line-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .notes-capturing .caret {
+    color: var(--lime);
+    animation: blink 1.05s steps(1) infinite;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1;
+  }
+  @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+  .notes-capturing .speaker {
+    color: var(--lime);
+    font-weight: 700;
+  }
+
+  /* Chat column wraps the message stream + input bar so the bar
+     aligns with the chat content, not the live-notes panel. */
+  .chat-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--panel);
+  }
+
+  /* Input bar — sits inside the chat column */
+  .input-bar {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--line-bright);
+    padding: 8px 14px;
+    background: var(--panel-2);
+  }
+  .input-wrap {
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .input-wrap:focus-within { border-color: var(--lime); }
+  .input-wrap::before {
+    content: ">";
+    color: var(--lime);
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .input-wrap input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    padding: 9px 0;
+  }
+  .input-wrap input::placeholder {
+    color: var(--text-faint);
+    font-family: var(--sans);
+    font-size: 14px;
+  }
+  .send-btn {
+    padding: 6px 12px;
+    background: var(--lime);
+    color: var(--bg);
+    border: 1px solid var(--lime);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .send-btn:hover { background: var(--bg); color: var(--lime); }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .body { grid-template-columns: 1fr; }
+    .notes { display: none; }
+    .body > .col-resizer { display: none; }
+  }
+  @media (max-width: 900px) {
+    .body-grid { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .body-grid > .col-resizer { display: none; }
+    .room-head { padding: 8px 12px; flex-wrap: wrap; }
+    .head-cast { display: none; }
+  }
+</style>
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="icons.css">
+<link rel="stylesheet" href="agent-overlay.css">
+<script src="agent-overlay.js" defer></script>
+<link rel="stylesheet" href="convene-overlay.css">
+<script src="convene-overlay.js" defer></script>
+<link rel="stylesheet" href="room-settings.css">
+<script src="room-settings.js" defer></script>
+<link rel="stylesheet" href="adjourn-overlay.css">
+<link rel="stylesheet" href="agent-profile.css">
+<script src="agent-profile.js" defer></script>
+<link rel="stylesheet" href="new-agent.css">
+<script src="new-agent.js" defer></script>
+<link rel="stylesheet" href="user-settings.css">
+<script src="user-settings.js" defer></script>
+<script src="auto-hide-scroll.js" defer></script>
+<script src="notes-collapse.js" defer></script>
+<script>
+  /* FOUC-prevention: apply saved theme synchronously before paint */
+  (function () {
+    try {
+      var t = localStorage.getItem("boardroom.theme") || "regent";
+      document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+
+<div class="control">
+
+  <!-- ═══════════════ TOP BAR (classification banner) ═══════════════ -->
+  <header class="topbar">
+    <div class="brand-block">
+      <svg class="brand-mark" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="Boardroom">
+        <rect class="bg" width="16" height="16"/>
+        <rect class="fg" x="3"  y="2"  width="2" height="2"/>
+        <rect class="fg" x="7"  y="2"  width="2" height="2"/>
+        <rect class="fg" x="11" y="2"  width="2" height="2"/>
+        <rect class="fg" x="2"  y="4"  width="12" height="2"/>
+        <rect class="fg" x="1"  y="7"  width="14" height="2"/>
+        <rect class="fg" x="2"  y="10" width="1"  height="4"/>
+        <rect class="fg" x="13" y="10" width="1"  height="4"/>
+      </svg>
+      <span class="brand-name">BOARDROOM</span>
+      <span class="brand-sep">//</span>
+      <span class="brand-name">CONTROL</span>
+      <span class="classification">PRIVATE ACCESS</span>
+    </div>
+
+    <div class="topbar-right">
+      <div><span class="key">SYNC:</span><span class="val">2026·04·28 · 14:42</span></div>
+      <div><span class="key">UID:</span><span class="val">0x4A1F</span></div>
+      <div><span class="key">ROOM:</span><span class="val">048 · CONVENING</span></div>
+    </div>
+  </header>
+
+  <!-- ═══════════════ MAIN GRID ═══════════════ -->
+  <div class="body-grid">
+
+    <!-- ═══════════════ SIDEBAR ═══════════════ -->
+    <aside class="sidebar">
+
+      <div class="sidebar-head">
+        <div class="sidebar-head-title">// CONTROL</div>
+        <div class="sidebar-head-meta"><span class="lime">●</span> 3 LIVE / 6 AGENTS</div>
+      </div>
+
+      <div class="sidebar-tabs" role="tablist">
+        <a href="#" class="sidebar-tab active" data-sidebar-tab="rooms" role="tab" aria-selected="true">
+          <i class="ic ic-rooms ico"></i>
+          <span>Rooms</span>
+          <span class="count">3</span>
+        </a>
+        <a href="#" class="sidebar-tab" data-sidebar-tab="agents" role="tab" aria-selected="false">
+          <i class="ic ic-agents ico"></i>
+          <span>Agents</span>
+          <span class="count">6</span>
+        </a>
+      </div>
+
+      <!-- ─── ROOMS PANEL ─── -->
+      <div class="sidebar-panel" data-sidebar-panel="rooms">
+
+      <a href="#convene" class="new-btn" data-convene-trigger>New room</a>
+
+      <div class="sessions-scroll">
+
+        <div class="section-header live">
+          <span>Live</span>
+          <span class="line"></span>
+          <span class="badge">3</span>
+        </div>
+
+        <a href="#" class="session-row active live">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">enterprise HR · resume-screening AI</span>
+              <span class="row-time">just now</span>
+            </div>
+            <div class="row-subtitle">convening · 3 directors gathering</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">data flywheel · MVP</span>
+              <span class="row-time">14h</span>
+            </div>
+            <div class="row-subtitle">"if the moat really comes from data..."</div>
+          </div>
+        </a>
+
+        <a href="#" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/value-investor.svg" alt="">
+            <img src="avatars/user-empathy.svg" alt="">
+            <img src="avatars/socrates.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">should I leave?</span>
+              <span class="row-time">2d</span>
+            </div>
+            <div class="row-subtitle">"same idea over three weeks..."</div>
+          </div>
+        </a>
+
+        <div class="section-header draft">
+          <span>Drafts</span>
+          <span class="line"></span>
+          <span class="badge">1</span>
+        </div>
+
+        <a href="#convene" class="session-row" data-convene-trigger>
+          <div class="row-icon">·</div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">cal newport's "depth"</span>
+              <span class="row-time">4h</span>
+            </div>
+            <div class="row-subtitle">topic drafted · 0 directors</div>
+          </div>
+        </a>
+
+        <div class="section-header adjourned">
+          <span>Adjourned</span>
+          <span class="line"></span>
+          <span class="badge">45</span>
+        </div>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/long-horizon.svg" alt="">
+            <img src="avatars/phenomenologist.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">accelerationism</span>
+              <span class="row-time">3d</span>
+            </div>
+            <div class="row-subtitle">128t · 23min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">gtm · cash-flow physics</span>
+              <span class="row-time">7d</span>
+            </div>
+            <div class="row-subtitle">18t · 17min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">tech viability · moat</span>
+              <span class="row-time">15d</span>
+            </div>
+            <div class="row-subtitle">17t · 21min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">why obvious bet wrong</span>
+              <span class="row-time">19d</span>
+            </div>
+            <div class="row-subtitle">23t · 26min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/value-investor.svg" alt="">
+            <img src="avatars/long-horizon.svg" alt="">
+            <img src="avatars/socrates.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">should I sell secondary?</span>
+              <span class="row-time">22d</span>
+            </div>
+            <div class="row-subtitle">14t · 19min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/user-empathy.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">pricing posture · year 2</span>
+              <span class="row-time">26d</span>
+            </div>
+            <div class="row-subtitle">21t · 24min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/phenomenologist.svg" alt="">
+            <img src="avatars/long-horizon.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">first principles of attention</span>
+              <span class="row-time">5w</span>
+            </div>
+            <div class="row-subtitle">32t · 41min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/value-investor.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/user-empathy.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">org redesign · cell-vs-tribe</span>
+              <span class="row-time">7w</span>
+            </div>
+            <div class="row-subtitle">27t · 33min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/long-horizon.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+            <img src="avatars/socrates.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">why this isn't 1999</span>
+              <span class="row-time">9w</span>
+            </div>
+            <div class="row-subtitle">16t · 22min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/user-empathy.svg" alt="">
+            <img src="avatars/phenomenologist.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">cal newport on depth</span>
+              <span class="row-time">11w</span>
+            </div>
+            <div class="row-subtitle">19t · 24min</div>
+          </div>
+        </a>
+
+        <a href="prototype-dashboard.html?status=adjourned" class="session-row">
+          <div class="row-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="row-content">
+            <div class="row-top-line">
+              <span class="row-title">naming the company · v3</span>
+              <span class="row-time">13w</span>
+            </div>
+            <div class="row-subtitle">11t · 14min</div>
+          </div>
+        </a>
+
+        <div class="scroll-end-hint" data-scroll-end></div>
+
+      </div>
+      </div><!-- /rooms panel -->
+
+      <!-- ─── AGENTS PANEL ─── -->
+      <div class="sidebar-panel" data-sidebar-panel="agents" hidden>
+        <a href="#" class="new-btn" data-new-agent>New agent</a>
+        <div class="agents-scroll">
+
+          <div class="agents-section-header pinned">
+            <svg class="pin-glyph" viewBox="0 0 24 24"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6h2v-6h5v-2l-2-2z"/></svg>
+            <span>Pinned</span><span class="line"></span><span class="badge">1</span>
+          </div>
+
+          <a href="#" class="agent-row pinned" data-agent-profile="socrates" data-status="active">
+            <img class="agent-row-av" src="avatars/socrates.svg" alt="Socrates">
+            <div class="agent-row-content">
+              <div class="agent-row-top-line">
+                <span class="agent-row-title">Socrates</span>
+                <span class="agent-row-time">2d</span>
+                <button type="button" class="pin-toggle" title="Unpin" data-pin-toggle><svg viewBox="0 0 24 24"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6h2v-6h5v-2l-2-2z"/></svg></button>
+              </div>
+              <div class="agent-row-subtitle"><span>Skeptic</span><span class="agent-row-sep">·</span><span class="agent-row-status">active</span></div>
+            </div>
+          </a>
+
+          <div class="agents-section-header">
+            <span>Core</span><span class="line"></span><span class="badge">4</span>
+          </div>
+          <a href="#" class="agent-row" data-agent-profile="first-principles" data-status="active">
+            <img class="agent-row-av" src="avatars/first-principles.svg" alt="First Principles">
+            <div class="agent-row-content">
+              <div class="agent-row-top-line"><span class="agent-row-title">First Principles</span><span class="agent-row-time">1d</span></div>
+              <div class="agent-row-subtitle"><span>Causal</span><span class="agent-row-sep">·</span><span class="agent-row-status">active</span></div>
+            </div>
+          </a>
+          <a href="#" class="agent-row" data-agent-profile="value-investor" data-status="active">
+            <img class="agent-row-av" src="avatars/value-investor.svg" alt="Value Investor">
+            <div class="agent-row-content">
+              <div class="agent-row-top-line"><span class="agent-row-title">Value Investor</span><span class="agent-row-time">today</span></div>
+              <div class="agent-row-subtitle"><span>Patterns</span><span class="agent-row-sep">·</span><span class="agent-row-status">active</span></div>
+            </div>
+          </a>
+          <a href="#" class="agent-row" data-agent-profile="user-empathy" data-status="active">
+            <img class="agent-row-av" src="avatars/user-empathy.svg" alt="User-Empathy">
+            <div class="agent-row-content">
+              <div class="agent-row-top-line"><span class="agent-row-title">User-Empathy</span><span class="agent-row-time">5d</span></div>
+              <div class="agent-row-subtitle"><span>Empathy</span><span class="agent-row-sep">·</span><span class="agent-row-status">active</span></div>
+            </div>
+          </a>
+          <a href="#" class="agent-row" data-agent-profile="long-horizon" data-status="active">
+            <img class="agent-row-av" src="avatars/long-horizon.svg" alt="Long Horizon">
+            <div class="agent-row-content">
+              <div class="agent-row-top-line"><span class="agent-row-title">Long Horizon</span><span class="agent-row-time">1w</span></div>
+              <div class="agent-row-subtitle"><span>Historical</span><span class="agent-row-sep">·</span><span class="agent-row-status">active</span></div>
+            </div>
+          </a>
+
+          <div class="agents-section-header">
+            <span>Trial</span><span class="line"></span><span class="badge">1</span>
+          </div>
+          <a href="#" class="agent-row" data-agent-profile="phenomenologist" data-status="intern">
+            <img class="agent-row-av" src="avatars/phenomenologist.svg" alt="Phenomenologist">
+            <div class="agent-row-content">
+              <div class="agent-row-top-line"><span class="agent-row-title">Phenomenologist</span><span class="agent-row-time">3d</span></div>
+              <div class="agent-row-subtitle"><span>Experience</span><span class="agent-row-sep">·</span><span class="agent-row-status">intern</span></div>
+            </div>
+          </a>
+
+        </div>
+      </div><!-- /agents panel -->
+
+      <div class="sidebar-foot">
+        <div class="user-menu-wrap" tabindex="0">
+          <a href="#" class="user-block">
+            <div class="user-av">K</div>
+            <div class="user-info">
+              <div class="user-name">KAY</div>
+            </div>
+            <span class="chev">▴</span>
+          </a>
+          <div class="user-menu">
+            <div class="user-menu-section">
+              <div class="name">Kay</div>
+            </div>
+            <a href="prototype-home.html" class="user-menu-item">
+              <span class="menu-icon">↩</span> Back to Home
+            </a>
+          </div>
+        </div>
+        <a href="#" class="icon-btn" title="Settings" data-user-settings-trigger>⚙</a>
+      </div>
+
+    </aside>
+
+    <!-- Resizable handle: sidebar | main -->
+    <div class="col-resizer" data-resize data-var="--sidebar-w" data-side="left" data-min="220" data-max="480" title="drag to resize"></div>
+
+    <!-- ═══════════════ MAIN: Selected Room ═══════════════ -->
+    <main class="main">
+
+      <!-- Room view (default) -->
+      <div class="main-view" data-main-view="room">
+
+      <header class="room-head">
+        <div class="room-info">
+          <div class="room-id">
+            <span class="room-name">Meeting Room</span>
+            <span class="session-num">// ROOM #048 · CONVENING · CONSTRUCTIVE</span>
+          </div>
+          <h1 class="room-subject">enterprise HR · resume-screening AI assistant</h1>
+          <div class="room-meta">
+            <strong>3 directors gathering</strong> <span class="lime">▸</span> 0 turns <span class="lime">▸</span> just opened
+          </div>
+        </div>
+        <div class="head-actions">
+          <div class="head-cast">
+            <img src="avatars/socrates.svg" alt="">
+            <img src="avatars/first-principles.svg" alt="">
+            <img src="avatars/value-investor.svg" alt="">
+          </div>
+          <div class="live-pill">Live</div>
+          <div class="timer">00:08</div>
+          <a href="#" class="room-settings-trigger" data-room-settings-trigger title="Room settings" aria-label="Room settings">⚙</a>
+          <button type="button" class="head-icon-btn" data-notes-toggle title="Hide live notes" aria-label="Hide live notes" aria-expanded="true">⇥</button>
+          <a href="#" class="adjourn-btn">[ Adjourn ]</a>
+        </div>
+      </header>
+
+      <div class="body">
+
+        <div class="chat-col">
+        <div class="chat">
+
+          <div class="chat-banner">
+            <span class="accent">▸ room opened · just now · 14:42</span> · 3 directors · constructive
+          </div>
+
+          <div class="empty-room">
+
+            <div class="topic-card">
+              <div class="topic-eyebrow">The Question</div>
+              <h2 class="topic-question">
+                I want to build an AI assistant for enterprise HR teams — automated resume screening + interview guides.
+                <em>Does this idea hold up under three-director scrutiny?</em>
+              </h2>
+              <div class="topic-meta">
+                <span class="topic-meta-chip">tone: <span class="v">constructive</span></span>
+                <span class="topic-meta-chip">intensity: <span class="v">sharp</span></span>
+                <span class="topic-meta-chip">report: <span class="v">auto</span></span>
+              </div>
+              <div class="topic-cast">
+                <span class="topic-cast-label">cast on call</span>
+                <div class="topic-cast-row">
+                  <img src="avatars/socrates.svg" alt="Socrates" data-agent="socrates" title="Socrates · Skeptic">
+                  <img src="avatars/first-principles.svg" alt="First Principles" data-agent="first-principles" title="First Principles · Causal Reasoning">
+                  <img src="avatars/value-investor.svg" alt="Value Investor" data-agent="value-investor" title="Value Investor · Pattern Recognition">
+                </div>
+              </div>
+            </div>
+
+            <div class="empty-hint">
+              <span class="pulse-dot"></span> your directors are gathering<span style="opacity:0.5">…</span>
+              <span class="first-up"><strong>Socrates</strong> is taking the floor first · interject anytime to redirect</span>
+            </div>
+
+          </div>
+
+        </div>
+
+          <!-- Speaking queue — floats above the input bar, collapsible -->
+          <div class="speaking-queue" id="speaking-queue">
+            <div class="queue-head">
+              <div class="queue-head-expanded">
+                <span class="label">speaking queue</span>
+                <span class="mode-tag">mode: <span class="v">constructive</span></span>
+              </div>
+              <div class="queue-head-collapsed">
+                <span class="sum-marker">◌</span>
+                <img class="sum-av" src="avatars/socrates.svg" alt="" data-agent="socrates">
+                <span class="sum-who">Socrates</span>
+                <span class="sum-state">◌ preparing</span>
+                <span class="sum-divider">·</span>
+                <span class="sum-next-label">↪</span>
+                <span class="sum-next">First Principles</span>
+                <span class="sum-divider">·</span>
+                <span class="sum-rest">+1 queued</span>
+              </div>
+              <button type="button" class="queue-toggle" title="collapse / expand" aria-expanded="true">
+                <span class="chev">▼</span>
+              </button>
+            </div>
+            <ul class="queue-list">
+
+              <li class="queue-row preparing speaking" data-slug="socrates">
+                <span class="pos">◌</span>
+                <img src="avatars/socrates.svg" alt="" data-agent="socrates">
+                <span class="who">Socrates</span>
+                <span class="state">preparing</span>
+                <span class="actions"></span>
+              </li>
+
+              <li class="queue-row next" data-slug="first-principles">
+                <span class="pos">①</span>
+                <img src="avatars/first-principles.svg" alt="" data-agent="first-principles">
+                <span class="who">First Principles</span>
+                <span class="state">next</span>
+                <span class="actions">
+                  <a href="#" class="queue-action promote" title="promote to next">↑</a>
+                  <a href="#" class="queue-action skip" title="skip this turn">✕</a>
+                </span>
+              </li>
+
+              <li class="queue-row" data-slug="value-investor">
+                <span class="pos">②</span>
+                <img src="avatars/value-investor.svg" alt="" data-agent="value-investor">
+                <span class="who">Value Investor</span>
+                <span class="state">queued</span>
+                <span class="actions">
+                  <a href="#" class="queue-action promote" title="promote to next">↑</a>
+                  <a href="#" class="queue-action skip" title="skip this turn">✕</a>
+                </span>
+              </li>
+
+            </ul>
+            <div class="queue-foot">
+              click <kbd>↑</kbd> to promote · <kbd>✕</kbd> to skip · type to interject · <kbd>@</kbd> to direct
+            </div>
+          </div>
+
+          <footer class="input-bar">
+            <div class="input-wrap">
+              <input type="text" placeholder="interject anytime · @first_p to direct a director...">
+              <button class="send-btn">[ Send ]</button>
+            </div>
+          </footer>
+        </div>
+
+        <!-- Resizable handle: chat | notes -->
+        <div class="col-resizer" data-resize data-var="--notes-w" data-side="right" data-min="200" data-max="480" title="drag to resize"></div>
+
+        <aside class="notes">
+          <div class="notes-head">
+            <div class="notes-title"><span class="live-dot"></span> capturing live</div>
+            <div class="notes-meta">14:42 · 0 turns</div>
+          </div>
+
+          <div class="notes-stream">
+
+            <div class="note-entry t-fresh">
+              <div class="note-time">14:42</div>
+              <div class="note-body">
+                <span class="note-tag t-origin">topic</span>
+                build an AI assistant for enterprise HR — resume screening + interview guides. does the idea hold up under scrutiny?
+              </div>
+            </div>
+
+          </div>
+
+          <div class="notes-capturing">
+            <span class="caret">▌</span>
+            <span>waiting for first contribution…</span>
+          </div>
+        </aside>
+
+      </div>
+
+      </div><!-- /main-view room -->
+
+      <!-- Agent profile view (filled by agent-profile.js) -->
+      <div class="main-view" data-main-view="agent" hidden></div>
+
+    </main>
+
+  </div>
+
+</div>
+
+<script>
+  (function () {
+    const root = document.documentElement;
+    const STORAGE_KEY = "boardroom.layout";
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      if (saved["--sidebar-w"]) root.style.setProperty("--sidebar-w", saved["--sidebar-w"]);
+      if (saved["--notes-w"]) root.style.setProperty("--notes-w", saved["--notes-w"]);
+    } catch (e) {}
+
+    function persist() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          "--sidebar-w": getComputedStyle(root).getPropertyValue("--sidebar-w").trim(),
+          "--notes-w": getComputedStyle(root).getPropertyValue("--notes-w").trim()
+        }));
+      } catch (e) {}
+    }
+
+    function attach(el) {
+      const varName = el.dataset.var;
+      const side = el.dataset.side || "left";
+      const min = parseInt(el.dataset.min, 10) || 200;
+      const max = parseInt(el.dataset.max, 10) || 600;
+
+      let dragging = false;
+      let startX = 0;
+      let startW = 0;
+
+      el.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        startX = e.clientX;
+        startW = parseFloat(getComputedStyle(root).getPropertyValue(varName));
+        el.classList.add("dragging");
+        document.body.classList.add("col-resizing");
+        try { el.setPointerCapture(e.pointerId); } catch (err) {}
+        e.preventDefault();
+      });
+
+      el.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        let delta = e.clientX - startX;
+        if (side === "right") delta = -delta;
+        const next = Math.max(min, Math.min(max, startW + delta));
+        root.style.setProperty(varName, next + "px");
+      });
+
+      function end(e) {
+        if (!dragging) return;
+        dragging = false;
+        el.classList.remove("dragging");
+        document.body.classList.remove("col-resizing");
+        try { el.releasePointerCapture(e.pointerId); } catch (err) {}
+        persist();
+      }
+      el.addEventListener("pointerup", end);
+      el.addEventListener("pointercancel", end);
+
+      el.addEventListener("dblclick", () => {
+        const def = varName === "--sidebar-w" ? "280px" : "240px";
+        root.style.setProperty(varName, def);
+        persist();
+      });
+    }
+
+    document.querySelectorAll("[data-resize]").forEach(attach);
+  })();
+
+  /* ─── Speaking queue: collapse, promote, skip, summary sync ─── */
+  (function () {
+    const queue = document.getElementById("speaking-queue");
+    if (!queue) return;
+    const list = queue.querySelector(".queue-list");
+    const toggleBtn = queue.querySelector(".queue-toggle");
+    const POS_SYMBOLS = ["①", "②", "③", "④", "⑤", "⑥"];
+    const STORAGE_KEY = "boardroom.queue.collapsed";
+
+    // ── Collapse / expand persistence
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === "1") {
+        queue.classList.add("collapsed");
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    } catch (e) {}
+    toggleBtn.addEventListener("click", () => {
+      queue.classList.toggle("collapsed");
+      const collapsed = queue.classList.contains("collapsed");
+      toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      try { localStorage.setItem(STORAGE_KEY, collapsed ? "1" : "0"); } catch (e) {}
+    });
+
+    // ── Re-number positions and refresh the collapsed summary
+    function renumber() {
+      const queued = list.querySelectorAll(".queue-row:not(.speaking)");
+      queued.forEach((row, i) => {
+        row.classList.toggle("next", i === 0);
+        const stateEl = row.querySelector(".state");
+        if (stateEl && !row.classList.contains("objection") && !row.classList.contains("directed")) {
+          stateEl.textContent = i === 0 ? "next" : "queued";
+        }
+        const posEl = row.querySelector(".pos");
+        if (posEl) posEl.textContent = POS_SYMBOLS[i] || (i + 1);
+      });
+      syncSummary();
+    }
+
+    function syncSummary() {
+      const speaking = list.querySelector(".queue-row.speaking");
+      const next = list.querySelector(".queue-row.next");
+      const queued = list.querySelectorAll(".queue-row:not(.speaking):not(.next)");
+
+      const sumAv     = queue.querySelector(".sum-av");
+      const sumWho    = queue.querySelector(".sum-who");
+      const sumNext   = queue.querySelector(".sum-next");
+      const sumRest   = queue.querySelector(".sum-rest");
+      const sumNextLb = queue.querySelector(".sum-next-label");
+      const dividers  = queue.querySelectorAll(".queue-head-collapsed .sum-divider");
+
+      if (speaking) {
+        sumAv.src = speaking.querySelector("img").src;
+        sumAv.setAttribute("data-agent", speaking.dataset.slug);
+        sumWho.textContent = speaking.querySelector(".who").textContent;
+      }
+      if (next) {
+        sumNext.textContent = next.querySelector(".who").textContent;
+        sumNext.style.display = "";
+        sumNextLb.style.display = "";
+        if (dividers[0]) dividers[0].style.display = "";
+      } else {
+        sumNext.style.display = "none";
+        sumNextLb.style.display = "none";
+        if (dividers[0]) dividers[0].style.display = "none";
+      }
+      if (queued.length > 0) {
+        sumRest.textContent = "+" + queued.length + " queued";
+        sumRest.style.display = "";
+        if (dividers[1]) dividers[1].style.display = next ? "" : "none";
+      } else {
+        sumRest.style.display = "none";
+        if (dividers[1]) dividers[1].style.display = "none";
+      }
+    }
+
+    // Initial sync (handles whatever state markup ships with)
+    syncSummary();
+
+    // ── Row actions
+    list.addEventListener("click", (e) => {
+      const promote = e.target.closest(".queue-action.promote");
+      if (promote) {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = promote.closest(".queue-row");
+        const speaking = list.querySelector(".queue-row.speaking");
+        if (speaking && speaking.nextSibling !== row) {
+          speaking.parentNode.insertBefore(row, speaking.nextSibling);
+        } else if (!speaking) {
+          list.insertBefore(row, list.firstChild);
+        }
+        renumber();
+        return;
+      }
+      const skip = e.target.closest(".queue-action.skip");
+      if (skip) {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = skip.closest(".queue-row");
+        row.style.transition = "opacity 0.15s";
+        row.style.opacity = "0";
+        setTimeout(() => {
+          row.remove();
+          renumber();
+        }, 150);
+        return;
+      }
+    });
+  })();
+
+  /* ─── Reply-to: scroll + highlight on click ───────── */
+  (function () {
+    document.querySelectorAll(".msg-replyto").forEach((link) => {
+      const targetId = link.dataset.replyto;
+      if (!targetId) return;
+      const target = document.getElementById(targetId);
+      if (!target) return;
+
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.classList.add("highlight");
+        setTimeout(() => target.classList.remove("highlight"), 1200);
+      });
+
+      // Soft hover preview — highlight the source while pointing
+      link.addEventListener("mouseenter", () => target.classList.add("highlight"));
+      link.addEventListener("mouseleave", () => target.classList.remove("highlight"));
+    });
+  })();
+
+  /* ─── Bottom-of-list pagination (Slack-style flash) ─── */
+  (function () {
+    const container = document.querySelector(".sessions-scroll");
+    const hint = container && container.querySelector("[data-scroll-end]");
+    if (!container || !hint || !("IntersectionObserver" in window)) return;
+    let cooldown = false;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting && !cooldown) {
+          cooldown = true;
+          hint.classList.add("loading");
+          setTimeout(() => {
+            hint.classList.remove("loading");
+            setTimeout(() => { cooldown = false; }, 600);
+          }, 1400);
+        }
+      });
+    }, { root: container, threshold: 1.0 });
+    io.observe(hint);
+  })();
+
+  /* ─── Pin toggle (visual demo) ─── */
+  (function () {
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pin-toggle]");
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const row = btn.closest(".session-row, .agent-row");
+      if (!row) return;
+      row.classList.toggle("pinned");
+      btn.title = row.classList.contains("pinned") ? "Unpin" : "Pin";
+    });
+  })();
+
+  /* ─── Sidebar tabs (Rooms / Agents) ─── */
+  (function () {
+    const tabs = document.querySelectorAll(".sidebar-tab[data-sidebar-tab]");
+    const panels = document.querySelectorAll(".sidebar-panel[data-sidebar-panel]");
+    if (!tabs.length || !panels.length) return;
+    function activate(which) {
+      tabs.forEach((t) => {
+        const on = t.dataset.sidebarTab === which;
+        t.classList.toggle("active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      panels.forEach((p) => {
+        if (p.dataset.sidebarPanel === which) p.removeAttribute("hidden");
+        else p.setAttribute("hidden", "");
+      });
+      if (which === "agents" && typeof window.openAgentProfile === "function") {
+        const first = document.querySelector(".agent-row[data-agent-profile]");
+        if (first && first.dataset.agentProfile) window.openAgentProfile(first.dataset.agentProfile);
+      } else if (which === "rooms" && typeof window.closeAgentProfile === "function") {
+        window.closeAgentProfile();
+      }
+    }
+    tabs.forEach((t) => t.addEventListener("click", (e) => {
+      e.preventDefault();
+      activate(t.dataset.sidebarTab);
+    }));
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,338 @@
+/* ═══════════════════════════════════════════
+   THEMES — 5 zsh-inspired palettes + light Atrium
+   Plus: chat-content typeface (PPLX Sans variable).
+   ═══════════════════════════════════════════
+   The default (no [data-theme] attribute) is "eastwood"
+   and is defined inline in each page's :root block. The
+   themes below override the same variables when
+   <html data-theme="..."> is set.
+
+   Specificity note: :root[data-theme="…"] is (0,1,1),
+   beats plain :root (0,0,1) regardless of source order.
+*/
+
+/* ─── Chat typography: humans vs agents ───
+   Human-authored text (the user's messages, input bar, topic
+   question) renders in Human Sans. Agent-authored text
+   (every director's bubble, intent quotes from agents) renders
+   in Agent (an italic-shaped face) so the eye separates the two
+   speakers without needing a label.
+
+   Both faces are declared font-style: normal so their glyphs
+   are used directly via font-family — the italic shape of the
+   Agent face is baked in. */
+@font-face {
+  font-family: "Human Sans";
+  src: url("fonts/human-sans.woff2") format("woff2-variations"),
+       url("fonts/human-sans.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  /* Latin + extended + general punctuation only. Without this, the
+     browser treats Human Sans as covering all Unicode and never falls
+     through to system fonts for CJK — Chinese drops in body text and
+     especially in print-to-PDF. */
+  unicode-range: U+0000-024F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF, U+2100-214F;
+}
+@font-face {
+  font-family: "Agent";
+  src: url("fonts/agent-Italic.woff2") format("woff2-variations"),
+       url("fonts/agent-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-024F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF, U+2100-214F;
+}
+
+:root {
+  --font-human: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+  /* Agent italic-faced font. ui-sans-serif is a CSS generic keyword
+     (must be unquoted) and resolves to the OS default sans-serif before
+     hitting -apple-system / system-ui — gives a clean italic synth on
+     systems where the bundled "Agent" face fails to load. */
+  --font-agent: "Agent", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+  /* --sans defaults to the human face — chat input, topic question,
+     replies, and live notes use it unless an agent override applies. */
+  --sans: var(--font-human);
+}
+
+/* ─── ALANPEABODY · cool blue with green git ─── */
+:root[data-theme="alanpeabody"] {
+  --bg: #0E1419;
+  --panel: #131A21;
+  --panel-2: #1A2128;
+  --panel-3: #212931;
+  --hi: #2A323B;
+
+  --line: #1B232C;
+  --line-bright: #2A323B;
+  --line-strong: #3A434E;
+
+  --text: #C8D0DA;
+  --text-soft: #8E96A0;
+  --text-dim: #5C6470;
+  --text-faint: #3A4148;
+
+  --lime: #6BAFE0;
+  --lime-deep: #3F7AAA;
+  --lime-dim: #285678;
+
+  --amber: #C8A463;
+  --amber-dim: #74603A;
+  --red: #D67373;
+  --red-dim: #6E3A3A;
+  --cyan: #6FB5A8;
+  --magenta: #9B7FB5;
+}
+
+/* ─── AMUSE · magenta + cyan ─── */
+:root[data-theme="amuse"] {
+  --bg: #1A0E14;
+  --panel: #21121A;
+  --panel-2: #29161E;
+  --panel-3: #311A23;
+  --hi: #391E29;
+
+  --line: #2B1822;
+  --line-bright: #391E29;
+  --line-strong: #4D2B3A;
+
+  --text: #DECBD2;
+  --text-soft: #A38B95;
+  --text-dim: #6B585F;
+  --text-faint: #443239;
+
+  --lime: #D67BC0;
+  --lime-deep: #9C4884;
+  --lime-dim: #6B2F58;
+
+  --amber: #DCBE5D;
+  --amber-dim: #75643A;
+  --red: #E07F84;
+  --red-dim: #743F44;
+  --cyan: #6FBFC2;
+  --magenta: #D67BC0;
+}
+
+/* ─── JTRILEY · bright lime + yellow ─── */
+:root[data-theme="jtriley"] {
+  --bg: #0A0F0A;
+  --panel: #131914;
+  --panel-2: #1A211B;
+  --panel-3: #212822;
+  --hi: #29322B;
+
+  --line: #1A211B;
+  --line-bright: #29322B;
+  --line-strong: #3A463D;
+
+  --text: #C8D6BE;
+  --text-soft: #8E9C84;
+  --text-dim: #5C6A52;
+  --text-faint: #3A422F;
+
+  --lime: #B5DA40;
+  --lime-deep: #6E8E27;
+  --lime-dim: #4A5F1C;
+
+  --amber: #F0CC4E;
+  --amber-dim: #80692C;
+  --red: #D67762;
+  --red-dim: #6E3D32;
+  --cyan: #6FBE9A;
+  --magenta: #B57FCB;
+}
+
+/* ─── NEBIRHOS · teal-heavy with warm orange ─── */
+:root[data-theme="nebirhos"] {
+  --bg: #0A1414;
+  --panel: #11201F;
+  --panel-2: #142724;
+  --panel-3: #1B2E2C;
+  --hi: #243938;
+
+  --line: #1B2E2C;
+  --line-bright: #243938;
+  --line-strong: #314E4B;
+
+  --text: #B8D4D0;
+  --text-soft: #7E9692;
+  --text-dim: #4F6663;
+  --text-faint: #2F4543;
+
+  --lime: #5EB1A6;
+  --lime-deep: #357770;
+  --lime-dim: #1F4F4A;
+
+  --amber: #DD9258;
+  --amber-dim: #774E30;
+  --red: #D87060;
+  --red-dim: #6E3B33;
+  --cyan: #6FBEC2;
+  --magenta: #B58FA6;
+}
+
+/* ─── ATRIUM · the only light theme · OpenAI-inspired
+       Warm off-white paper, dark forest-green primary.
+       Inverts the brightness ordering of the green family:
+       on light bg, "dim" must be a paler tint (low contrast)
+       while "lime" / "lime-deep" become the dark accents. */
+:root[data-theme="atrium"] {
+  --bg: #FBFBF7;
+  --panel: #F4F2EC;
+  --panel-2: #EAE7DD;
+  --panel-3: #DBD7CA;
+  --hi: #C5BFAE;
+
+  --line: #E8E5DA;
+  --line-bright: #D2CDB9;
+  --line-strong: #ADA690;
+
+  --text: #1F1E1A;
+  --text-soft: #4A4842;
+  --text-dim: #7A776E;
+  --text-faint: #ADAA9F;
+
+  --lime: #2E7D32;
+  --lime-deep: #1B5E20;
+  --lime-dim: #B7CFB8;
+
+  --amber: #A86C2A;
+  --amber-dim: #DCC2A0;
+  --red: #A8403D;
+  --red-dim: #DBA8A6;
+  --cyan: #2E7D7A;
+  --magenta: #6E4F73;
+}
+
+/* ─── APPLE · pure-white minimalism · Apple.com aesthetic ─────
+       Light theme inspired by Apple's brand language: pure-white
+       primary background, the iconic #F5F5F7 off-white for cards,
+       Apple's near-black #1D1D1F for text, and system-blue #0071E3
+       mapped onto --lime (the codebase's primary-accent role) so
+       every CTA reads as that signature blue. */
+:root[data-theme="apple"] {
+  --bg: #FFFFFF;
+  --panel: #F5F5F7;
+  --panel-2: #FBFBFD;
+  --panel-3: #ECECEE;
+  --hi: #D2D2D7;
+
+  --line: #E5E5EA;
+  --line-bright: #D2D2D7;
+  --line-strong: #86868B;
+
+  --text: #1D1D1F;
+  --text-soft: #424245;
+  --text-dim: #6E6E73;
+  --text-faint: #86868B;
+
+  --lime: #0071E3;
+  --lime-deep: #0051A8;
+  --lime-dim: #D6E8FA;
+
+  --amber: #FF9500;
+  --amber-dim: #FFE6C2;
+  --red: #FF3B30;
+  --red-dim: #FFE0DC;
+  --cyan: #5AC8FA;
+  --magenta: #BF5AF2;
+}
+
+/* ─── PINTEREST · clean white surface, signature red accent ───
+       Light theme inspired by Pinterest's brand: true-white
+       background, soft gray cards, neutral grayscale text, and the
+       classic Pinterest red mapped onto --lime (the codebase's
+       primary-accent role) so every CTA / selection / live dot reads
+       as that signature red. */
+:root[data-theme="pinterest"] {
+  --bg: #FFFFFF;
+  --panel: #FAFAFA;
+  --panel-2: #F1F1F1;
+  --panel-3: #E9E9E9;
+  --hi: #DDDDDD;
+
+  --line: #EFEFEF;
+  --line-bright: #E2E2E2;
+  --line-strong: #B8B8B8;
+
+  --text: #111111;
+  --text-soft: #5F5F5F;
+  --text-dim: #767676;
+  --text-faint: #B5B5B5;
+
+  --lime: #E60023;
+  --lime-deep: #AD081B;
+  --lime-dim: #FFD1D8;
+
+  --amber: #F4A100;
+  --amber-dim: #FCE5A8;
+  --red: #E60023;
+  --red-dim: #FFD1D8;
+  --cyan: #2E7D7A;
+  --magenta: #D33682;
+}
+
+/* ─── WEDISAGREE · orange/red-leaning, literal name ─── */
+:root[data-theme="wedisagree"] {
+  --bg: #14110E;
+  --panel: #1F1A14;
+  --panel-2: #2B231A;
+  --panel-3: #352B20;
+  --hi: #3D3225;
+
+  --line: #2B231A;
+  --line-bright: #3D3225;
+  --line-strong: #574635;
+
+  --text: #D8CBBC;
+  --text-soft: #A09280;
+  --text-dim: #6F6354;
+  --text-faint: #463E33;
+
+  --lime: #DD7B40;
+  --lime-deep: #A8521E;
+  --lime-dim: #703613;
+
+  --amber: #E6B872;
+  --amber-dim: #76603A;
+  --red: #E26060;
+  --red-dim: #7A3535;
+  --cyan: #6FB28A;
+  --magenta: #C5839E;
+}
+
+/* ─── REGENT · gold-on-warm-dark · the eastwood twin
+       The same warm dark palette as the default eastwood, with the
+       primary forest-green accent swapped for the warm gold used by
+       the report's italic-em mark (#C9A46B). Built for the 私董会
+       brand — gold reads "premium / dignified" without shouting. */
+:root[data-theme="regent"] {
+  --bg: #0A0A0A;
+  --panel: #131312;
+  --panel-2: #1A1A18;
+  --panel-3: #21211E;
+  --hi: #2A2A26;
+
+  --line: #26241F;
+  --line-bright: #3A3934;
+  --line-strong: #4D4B45;
+
+  --text: #C8C5BE;
+  --text-soft: #8E8B83;
+  --text-dim: #5C5A52;
+  --text-faint: #5C5A4D;
+
+  /* Primary accent (the slot that holds the green in eastwood) is now
+     gold. Token names stay `--lime*` so every callsite that already
+     references the primary accent keeps working without rewrites. */
+  --lime: #C9A46B;
+  --lime-deep: #9A7B40;
+  --lime-dim: #5C4422;
+  --amber: #A57843;
+  --amber-dim: #5E441F;
+  --red: #B5706A;
+  --red-dim: #6B4540;
+  --cyan: #6A9B97;
+  --magenta: #8E7A8E;
+}

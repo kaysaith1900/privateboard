@@ -1,0 +1,763 @@
+/* ═══════════════════════════════════════════
+   CONVENE-A-SESSION OVERLAY — shared modal
+   Scoped under .convene-overlay so selectors
+   don't collide with host page CSS.
+   ═══════════════════════════════════════════ */
+
+.convene-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 900;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.convene-overlay.open {
+  display: flex;
+  animation: cv-fade 0.14s ease-out;
+}
+@keyframes cv-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.convene-modal {
+  position: relative;
+  width: 100%;
+  max-width: 900px;
+  max-height: calc(100vh - 48px);
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text, #C8C5BE);
+  animation: cv-rise 0.18s ease-out;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.convene-modal::before, .convene-modal::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.convene-modal::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.convene-modal::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.convene-modal > .convene-classification,
+.convene-modal > .convene-head,
+.convene-modal > .convene-foot {
+  flex: 0 0 auto;
+}
+.convene-modal > .convene-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+@keyframes cv-rise {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.convene-classification {
+  background: var(--panel-2, #1A1A18);
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 6px 14px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.convene-classification .right { color: var(--text-faint, #3A382F); letter-spacing: 0.12em; }
+
+.convene-head {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 18px 12px;
+  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.convene-head .step-num {
+  font-size: 9.5px;
+  color: var(--lime, #6FB572);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.convene-head .step-num::before { content: "[ "; color: var(--text-dim, #5C5A52); }
+.convene-head .step-num::after  { content: " ]"; color: var(--text-dim, #5C5A52); }
+.convene-head .step-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.convene-head .step-title em {
+  font-style: normal;
+  color: var(--lime, #6FB572);
+}
+.convene-head .step-track { display: flex; gap: 4px; }
+.convene-head .step-dot {
+  width: 22px; height: 5px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+}
+.convene-head .step-dot.current {
+  background: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+}
+.convene-head .close-btn {
+  width: 28px; height: 28px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-dim, #5C5A52);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: var(--mono);
+  transition: all 0.12s;
+}
+.convene-head .close-btn:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+.convene-body { padding: 14px 18px 0; }
+
+/* Topic hero */
+.convene-overlay .topic-hero {
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime-dim, #2D5532);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  position: relative;
+}
+.convene-overlay .topic-hero::before, .convene-overlay .topic-hero::after {
+  content: "";
+  position: absolute;
+  width: 8px; height: 8px;
+  border: 0.5px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.convene-overlay .topic-hero::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.convene-overlay .topic-hero::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+.convene-overlay .topic-eyebrow {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.convene-overlay .topic-eyebrow::before { content: "[ "; }
+.convene-overlay .topic-eyebrow::after  { content: " ]"; }
+
+.convene-overlay .topic-prompt {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+.convene-overlay .topic-prompt em {
+  font-style: normal;
+  color: var(--lime, #6FB572);
+}
+.convene-overlay .topic-prompt::before { content: "▸ "; color: var(--lime, #6FB572); }
+
+.convene-overlay .topic-input-wrap {
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  transition: border-color 0.1s;
+}
+.convene-overlay .topic-input-wrap:focus-within { border-color: var(--lime, #6FB572); }
+.convene-overlay .topic-input-wrap::before {
+  content: ">";
+  display: inline-block;
+  color: var(--lime, #6FB572);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 11px 0 0 11px;
+  vertical-align: top;
+}
+.convene-overlay .topic-input {
+  width: calc(100% - 28px);
+  padding: 11px 13px;
+  border: none;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text, #C8C5BE);
+  resize: vertical;
+  min-height: 100px;
+  outline: none;
+  display: inline-block;
+  vertical-align: top;
+}
+.convene-overlay .topic-input::placeholder {
+  color: var(--text-faint, #3A382F);
+  font-size: 14px;
+}
+
+.convene-overlay .topic-counter {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.convene-overlay .topic-counter .accent { color: var(--lime, #6FB572); }
+
+.convene-overlay .topic-suggestions {
+  display: flex;
+  gap: 5px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.convene-overlay .suggest-label {
+  font-size: 9.5px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+.convene-overlay .suggest-chip {
+  padding: 2px 8px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text, #C8C5BE);
+  cursor: pointer;
+  text-decoration: none;
+}
+.convene-overlay .suggest-chip:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+/* Config row */
+.convene-overlay .config-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+@media (max-width: 820px) { .convene-overlay .config-row { grid-template-columns: 1fr; } }
+
+.convene-overlay .panel {
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  position: relative;
+}
+.convene-overlay .panel.bracketed::before,
+.convene-overlay .panel.bracketed::after {
+  content: "";
+  position: absolute;
+  width: 8px; height: 8px;
+  border: 0.5px solid var(--lime-dim, #2D5532);
+  pointer-events: none;
+}
+.convene-overlay .panel.bracketed::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.convene-overlay .panel.bracketed::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+.convene-overlay .panel-head {
+  background: var(--panel-2, #1A1A18);
+  padding: 5px 12px;
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.convene-overlay .panel-head h2 {
+  font-size: 10px;
+  color: var(--text, #C8C5BE);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  margin: 0;
+}
+.convene-overlay .panel-head h2::before { content: "// "; color: var(--lime, #6FB572); }
+.convene-overlay .panel-meta {
+  font-size: 9.5px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.convene-overlay .panel-meta .num { color: var(--lime, #6FB572); font-weight: 700; }
+
+.convene-overlay .panel-body { padding: 12px; }
+
+/* Director picker · 4 tiles per row at default desktop width; falls
+   back to 3 on a mid-narrow window and 2 on tablet/phone widths so
+   the cards never collapse to a single squished column. */
+.convene-overlay .directors-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+@media (max-width: 1000px) { .convene-overlay .directors-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px)  { .convene-overlay .directors-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.convene-overlay .director-mini {
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  padding: 14px 12px 12px;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text, #C8C5BE);
+  position: relative;
+  transition: all 0.1s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+}
+.convene-overlay .director-mini:hover { border-color: var(--lime-dim, #2D5532); }
+.convene-overlay .director-mini.picked {
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.convene-overlay .director-mini.picked::after {
+  content: "✓";
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 14px; height: 14px;
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.convene-overlay .mini-img {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-radius: 1px;
+  transition: outline-offset 0.12s, outline 0.12s;
+  outline: 0.5px solid transparent;
+  outline-offset: 2px;
+  cursor: pointer;
+}
+.convene-overlay .mini-img:hover {
+  outline: 0.5px solid var(--lime, #6FB572);
+  outline-offset: 3px;
+}
+.convene-overlay .mini-img::after {
+  content: "ⓘ";
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text-faint, #3A382F);
+  font-size: 9px;
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+  pointer-events: none;
+}
+.convene-overlay .director-mini:hover .mini-img::after { opacity: 1; }
+.convene-overlay .mini-img:hover::after {
+  color: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+  opacity: 1;
+}
+.convene-overlay .mini-img img {
+  width: 100%; height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  position: relative;
+  z-index: 1;
+}
+
+.convene-overlay .mini-info { width: 100%; min-width: 0; }
+.convene-overlay .mini-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text, #C8C5BE);
+  margin-bottom: 1px;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+}
+.convene-overlay .director-mini.picked .mini-name { color: var(--lime, #6FB572); }
+.convene-overlay .mini-role {
+  font-family: var(--font-human);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--lime, #6FB572);
+  letter-spacing: -0.002em;
+  margin-bottom: 4px;
+}
+.convene-overlay .mini-tag {
+  font-size: 9.5px;
+  color: var(--text-faint, #3A382F);
+  margin-top: 4px;
+}
+
+/* Native checkbox · sits in the top-left of every director-mini
+   so the multi-select affordance is unambiguous. The label-as-card
+   pattern means clicking anywhere on the card (other than the avatar
+   image, which has its own handler) toggles the checkbox natively. */
+.convene-overlay .director-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--lime, #6FB572);
+}
+.convene-overlay .directors-empty {
+  grid-column: 1 / -1;
+  padding: 18px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  border: 0.5px dashed var(--line-bright);
+}
+
+/* Config blocks */
+.convene-overlay .config-block { margin-bottom: 12px; }
+.convene-overlay .config-block:last-child { margin-bottom: 0; }
+.convene-overlay .config-label {
+  font-size: 9.5px;
+  color: var(--lime, #6FB572);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.convene-overlay .config-label::before { content: "[ "; color: var(--text-dim, #5C5A52); }
+.convene-overlay .config-label::after  { content: " ]"; color: var(--text-dim, #5C5A52); }
+.convene-overlay .config-label .hint {
+  color: var(--text-dim, #5C5A52);
+  font-size: 9.5px;
+  text-transform: lowercase;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.convene-overlay .config-label .hint::before,
+.convene-overlay .config-label .hint::after { content: ""; }
+
+.convene-overlay .lineup { display: flex; gap: 4px; flex-wrap: wrap; }
+.convene-overlay .lineup-slot {
+  width: 30px; height: 30px;
+  border: 0.5px dashed var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: var(--text-faint, #3A382F);
+  text-transform: uppercase;
+}
+.convene-overlay .lineup-slot.filled {
+  border: 0.5px solid var(--lime, #6FB572);
+  border-style: solid;
+  overflow: hidden;
+  padding: 0;
+}
+.convene-overlay .lineup-slot.filled img {
+  width: 100%; height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.convene-overlay .mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+.convene-overlay .mode-chip {
+  padding: 5px 18px 5px 8px;        /* extra right padding for ⓘ icon */
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  cursor: pointer;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  line-height: 1.2;
+  position: relative;
+}
+.convene-overlay .mode-chip:hover { border-color: var(--lime-dim, #2D5532); color: var(--lime, #6FB572); }
+.convene-overlay .mode-chip.active {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border-color: var(--lime, #6FB572);
+}
+.convene-overlay .mode-chip .desc {
+  display: block;
+  font-size: 8.5px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: lowercase;
+  font-weight: 400;
+  margin-top: 1px;
+}
+.convene-overlay .mode-chip.active .desc { color: var(--bg, #0A0A0A); opacity: 0.7; }
+
+/* ⓘ icon on tone tiles · click opens a description popover. Shared
+   selector — same styling reused for room-settings's `.rs-chip` (the
+   chip container is `position: relative` in both places). */
+.mode-chip .mode-info-btn,
+.rs-chip .mode-info-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  background: transparent;
+  border: 0.5px solid var(--line-strong);
+  color: var(--text-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s, border-color 0.1s, background 0.1s;
+  z-index: 1;
+}
+.mode-chip .mode-info-btn:hover,
+.rs-chip .mode-info-btn:hover {
+  color: var(--lime);
+  border-color: var(--lime);
+  background: var(--bg);
+}
+.mode-chip.active .mode-info-btn,
+.rs-chip.active .mode-info-btn {
+  border-color: rgba(10, 10, 10, 0.4);
+  color: rgba(10, 10, 10, 0.65);
+}
+.mode-chip.active .mode-info-btn:hover,
+.rs-chip.active .mode-info-btn:hover {
+  background: rgba(10, 10, 10, 0.1);
+  color: var(--bg);
+  border-color: var(--bg);
+}
+
+/* Tone info popover · floating card spawned by the ⓘ icons. Pinned
+   to body so it can escape any overflow:hidden ancestors; positioned
+   in JS. */
+#tone-info-popover.tone-info-popover {
+  position: fixed;
+  z-index: 9500;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 12px 14px;
+  box-sizing: border-box;
+  font-family: var(--font-human);
+  animation: tone-pop 0.12s ease-out;
+}
+.tone-info-popover .tone-info-head {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 6px;
+}
+.tone-info-popover .tone-info-body {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+  white-space: pre-line;
+}
+@keyframes tone-pop {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.convene-overlay .temp-bar {
+  height: 14px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  position: relative;
+  overflow: hidden;
+}
+.convene-overlay .temp-track {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, var(--lime, #6FB572) 0%, var(--amber, #B59560) 50%, var(--red, #B5706A) 100%);
+  opacity: 0.5;
+}
+.convene-overlay .temp-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(90deg, transparent 0, transparent 7px, rgba(0,0,0,0.4) 7px, rgba(0,0,0,0.4) 8px);
+}
+.convene-overlay .temp-thumb {
+  position: absolute;
+  top: -1px; bottom: -1px;
+  left: 50%;
+  width: 5px;
+  background: var(--text, #C8C5BE);
+  transform: translateX(-50%);
+}
+.convene-overlay .temp-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.convene-overlay .style-row { display: flex; gap: 3px; flex-wrap: wrap; }
+.convene-overlay .style-chip {
+  padding: 2px 8px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text, #C8C5BE);
+  cursor: pointer;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.convene-overlay .style-chip:hover { border-color: var(--lime-dim, #2D5532); color: var(--lime, #6FB572); }
+.convene-overlay .style-chip.active {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border-color: var(--lime, #6FB572);
+  font-weight: 700;
+}
+
+/* Footer / CTA */
+.convene-foot {
+  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 12px 18px;
+  background: var(--panel-2, #1A1A18);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+.convene-foot .readout-label {
+  font-size: 9.5px;
+  color: var(--lime, #6FB572);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.convene-foot .readout-label::before { content: "[ "; color: var(--text-dim, #5C5A52); }
+.convene-foot .readout-label::after  { content: " ]"; color: var(--text-dim, #5C5A52); }
+.convene-foot .readout-text {
+  font-size: 12.5px;
+  color: var(--text, #C8C5BE);
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.convene-foot .readout-text::before { content: "▸ "; color: var(--lime, #6FB572); }
+.convene-foot .readout-meta {
+  font-size: 10px;
+  color: var(--text-dim, #5C5A52);
+}
+.convene-foot .readout-meta strong { color: var(--lime, #6FB572); font-weight: 700; }
+
+.convene-cta {
+  padding: 9px 16px;
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--lime, #6FB572);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.convene-cta:hover { background: var(--bg, #0A0A0A); color: var(--lime, #6FB572); }
+
+@media (max-width: 700px) {
+  .convene-overlay { padding: 12px; }
+  .convene-head { grid-template-columns: 1fr auto; gap: 10px; padding: 12px 14px; }
+  .convene-head .step-track { display: none; }
+  .convene-overlay .topic-prompt { font-size: 14px; }
+  .convene-foot { grid-template-columns: 1fr; padding: 10px 14px; }
+}
+
+/* Sidebar trigger button (lives in dashboard sidebar head) */
+.convene-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--lime, #6FB572);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  margin-bottom: 8px;
+  transition: all 0.12s;
+}
+.convene-trigger:hover {
+  background: var(--bg, #0A0A0A);
+  color: var(--lime, #6FB572);
+}
+.convene-trigger .plus {
+  font-size: 13px;
+  line-height: 1;
+}

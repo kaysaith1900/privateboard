@@ -1,0 +1,3230 @@
+/* ═══════════════════════════════════════════
+   AGENT PROFILE — single-page layout
+   No tabs. Just: Bio · Instruction · Memory · Knowledge.
+   Stacked, generously spaced, easy to read.
+   ═══════════════════════════════════════════ */
+
+.agent-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+/* ─── Cover ─── */
+.agent-page-cover {
+  height: 88px;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 22px,
+      rgba(111, 181, 114, 0.04) 22px 23px
+    ),
+    linear-gradient(120deg, var(--lime-dim) 0%, var(--panel-3) 42%, var(--panel) 100%);
+  border-bottom: 0.5px solid var(--line-bright);
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+.agent-page-cover .cover-quote {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 32px;
+  font-family: "Agent", var(--font-agent);
+  font-size: 22px;
+  color: var(--lime);
+  opacity: 0.42;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* Top-left corner: creator + joined date, on a small dark backdrop
+   so it stays legible against the gradient cover. */
+.agent-page-cover .cover-meta-corner {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-soft);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: rgba(10, 10, 10, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  padding: 3px 8px;
+  border: 0.5px solid rgba(111, 181, 114, 0.3);
+  pointer-events: none;
+  user-select: none;
+}
+.agent-page-cover .cover-meta-corner .sep { color: var(--text-faint); margin: 0 5px; }
+.agent-page-cover .cover-meta-corner .v { color: var(--text); font-weight: 700; }
+
+/* ─── Identity row (avatar overlaps cover) ─── */
+.agent-page-identity {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: start;
+  padding: 12px 32px 14px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 0.5px solid var(--line-bright);
+  position: relative;
+}
+.agent-page-avatar {
+  width: 76px;
+  height: 76px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
+  padding: 5px;
+  margin-top: -42px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  position: relative;
+  z-index: 2;
+}
+
+.agent-page-id { padding-top: 6px; min-width: 0; }
+.agent-page-id .name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.agent-page-id .name {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.018em;
+  line-height: 1.1;
+}
+.agent-page-id .role-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding: 2px 8px;
+  background: rgba(111, 181, 114, 0.10);
+  border: 0.5px solid var(--lime-dim);
+  color: var(--lime);
+}
+.agent-page-id .status-pill {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 2px 8px;
+  border: 0.5px solid;
+}
+.agent-page-id .status-pill.active   { color: var(--lime); border-color: var(--lime); }
+.agent-page-id .status-pill.intern   { color: var(--amber); border-color: var(--amber); }
+.agent-page-id .status-pill.off-duty { color: var(--text-dim); border-color: var(--line-bright); }
+.agent-page-id .status-pill.active::before   { content: "● "; }
+.agent-page-id .status-pill.intern::before   { content: "▲ "; }
+.agent-page-id .status-pill.off-duty::before { content: "◌ "; }
+/* Bio: single line truncated next to the avatar; full text on hover. */
+.agent-page-id .bio {
+  position: relative;
+  margin-top: 6px;
+  max-width: 600px;
+}
+.agent-page-id .bio-line {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  color: var(--text-soft);
+  line-height: 1.6;
+  letter-spacing: -0.003em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+  padding-right: 8px;
+  border-bottom: 0.5px dotted transparent;
+  transition: border-color 0.12s;
+}
+.agent-page-id .bio:hover .bio-line {
+  border-bottom-color: var(--lime-dim);
+}
+.agent-page-id .bio-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 460px;
+  max-width: 90vw;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 0.5px solid var(--lime-dim);
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  color: var(--text-soft);
+  line-height: 1.65;
+  letter-spacing: -0.003em;
+  z-index: 50;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+  pointer-events: none;
+}
+.agent-page-id .bio-tooltip::before, .agent-page-id .bio-tooltip::after {
+  content: "";
+  position: absolute;
+  width: 8px; height: 8px;
+  border: 0.5px solid var(--lime);
+  pointer-events: none;
+}
+.agent-page-id .bio-tooltip::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.agent-page-id .bio-tooltip::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.agent-page-id .bio-tooltip p + p { margin-top: 8px; }
+.agent-page-id .bio:hover .bio-tooltip,
+.agent-page-id .bio:focus-within .bio-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s;
+}
+
+.agent-page-id-buttons { display: flex; gap: 6px; padding-top: 8px; }
+.agent-page-id-buttons .ap-pill-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 6px 11px;
+  border: 0.5px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.12s;
+}
+.agent-page-id-buttons .ap-pill-btn:hover { border-color: var(--lime); color: var(--lime); }
+.agent-page-id-buttons .ap-pill-btn.primary {
+  background: var(--lime); color: var(--bg); border-color: var(--lime);
+}
+.agent-page-id-buttons .ap-pill-btn.primary:hover {
+  background: transparent; color: var(--lime);
+}
+
+/* ─── Metrics row · inline body block, sits right under bio ─── */
+.agent-page-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line-bright);
+  border: 0.5px solid var(--line-bright);
+}
+@media (max-width: 700px) {
+  .agent-page-metrics { grid-template-columns: repeat(2, 1fr); }
+}
+.agent-page-metrics .cell {
+  background: var(--bg);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agent-page-metrics .lbl {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+}
+.agent-page-metrics .v {
+  font-family: var(--mono);
+  font-size: 20px;
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+.agent-page-metrics .v.text {
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
+}
+.agent-page-metrics .v .unit {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+.agent-page-metrics .deck {
+  font-family: var(--font-human);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  letter-spacing: -0.003em;
+}
+.agent-page-metrics .deck .lime { color: var(--lime); }
+
+/* ─── Body — single scroll, stacked sections ─── */
+.agent-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.agent-page-stack {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 32px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+/* Section primitives */
+.ap-sec { display: flex; flex-direction: column; gap: 14px; }
+.ap-sec-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 0.5px solid var(--line-bright);
+}
+.ap-sec-head .label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.ap-sec-head .eyebrow {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+}
+.ap-sec-head .title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.ap-sec-head .deck {
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  letter-spacing: -0.003em;
+  margin-top: 4px;
+}
+.ap-sec-head .right {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ─── Bio (top of body) ─── */
+.ap-bio-block {
+  font-family: var(--font-human);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+}
+.ap-bio-block p + p { margin-top: 10px; }
+.ap-bio-block .bio-tag {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+  margin-bottom: 10px;
+}
+
+/* ─── Instruction (read-only doc) ─── */
+.ap-instr-doc {
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: relative;
+}
+.ap-instr-doc .meta-strip {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ap-instr-doc .meta-strip::before { content: "🔒 "; font-size: 9px; }
+.ap-instr-section .lbl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.ap-instr-section p {
+  font-family: var(--font-human);
+  font-size: 13px;
+  color: var(--text-soft);
+  line-height: 1.65;
+  letter-spacing: -0.003em;
+}
+.ap-instr-section p .ink { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.ap-instr-section p .mono { font-family: var(--mono); color: var(--text); }
+
+/* ─── Memory · About You ─── */
+.about-you-card {
+  background: linear-gradient(135deg, var(--bg) 0%, rgba(111, 181, 114, 0.04) 100%);
+  border: 0.5px solid var(--lime-dim);
+  padding: 22px 24px;
+  position: relative;
+}
+.about-you-card::before, .about-you-card::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--lime);
+  pointer-events: none;
+}
+.about-you-card::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.about-you-card::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.about-you-card .headline {
+  font-family: var(--font-human);
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.about-you-card .summary {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  color: var(--text-soft);
+  line-height: 1.65;
+  letter-spacing: -0.003em;
+}
+.about-you-card .summary p + p { margin-top: 8px; }
+.about-you-card .grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 0.5px dashed var(--lime-dim);
+}
+@media (max-width: 700px) { .about-you-card .grid { grid-template-columns: 1fr; } }
+.about-you-card .group .lbl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  margin-bottom: 8px;
+  color: var(--lime);
+}
+.about-you-card .group.warn .lbl { color: var(--amber); }
+.about-you-card .group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.about-you-card .group li {
+  font-family: var(--font-human);
+  font-size: 12px;
+  color: var(--text-soft);
+  line-height: 1.55;
+  letter-spacing: -0.003em;
+  padding-left: 14px;
+  position: relative;
+}
+.about-you-card .group.traits li::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  color: var(--lime);
+  font-weight: 700;
+}
+.about-you-card .group.warn li::before {
+  content: "▲";
+  position: absolute;
+  left: 0;
+  color: var(--amber);
+  font-size: 9px;
+  top: 4px;
+}
+.about-you-card .relationship {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 0.5px dashed var(--lime-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+.about-you-card .relationship .cell .l {
+  font-family: var(--font-human);
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  display: block;
+  margin-bottom: 2px;
+}
+.about-you-card .relationship .cell .v {
+  font-family: var(--mono);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+
+/* ─── Memory · Per-room cards ─── */
+.room-mem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.room-mem-card {
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 16px 18px;
+  transition: border-color 0.12s;
+}
+.room-mem-card:hover { border-color: var(--lime-dim); }
+.room-mem-card .head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.room-mem-card .name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.room-mem-card .num {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--lime);
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.room-mem-card .name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.008em;
+}
+.room-mem-card .stats {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.room-mem-card .stats .v { color: var(--text-soft); }
+.room-mem-card .summary {
+  font-family: var(--font-human);
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  letter-spacing: -0.003em;
+  margin-bottom: 12px;
+}
+.room-mem-card .lessons {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 11px;
+  border-top: 0.5px dotted var(--line-bright);
+}
+.room-mem-card .lessons li {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  color: var(--text-soft);
+  line-height: 1.5;
+  letter-spacing: -0.003em;
+  padding-left: 14px;
+  position: relative;
+}
+.room-mem-card .lessons li::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  color: var(--lime);
+  font-size: 9px;
+}
+
+/* ─── Knowledge ─── */
+.ap-know-block { display: flex; flex-direction: column; gap: 12px; }
+
+.ap-know-drop {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 0.5px dashed var(--line-strong);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.ap-know-drop:hover {
+  border-color: var(--lime);
+  border-style: solid;
+  background: linear-gradient(135deg, var(--bg) 0%, rgba(111, 181, 114, 0.04) 100%);
+}
+.ap-know-drop .icon {
+  width: 36px;
+  height: 36px;
+  border: 0.5px solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.ap-know-drop:hover .icon { border-color: var(--lime); color: var(--lime); }
+.ap-know-drop .title {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.003em;
+}
+.ap-know-drop .deck {
+  font-family: var(--font-human);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  letter-spacing: -0.003em;
+}
+.ap-know-drop .pill {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 5px 10px;
+  border: 0.5px solid var(--line-strong);
+  color: var(--text-soft);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+.ap-know-drop:hover .pill { border-color: var(--lime); color: var(--lime); }
+
+.ap-know-list { display: flex; flex-direction: column; }
+.ap-know-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 14px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  border-top: none;
+  transition: background 0.1s;
+}
+.ap-know-row:first-child { border-top: 0.5px solid var(--line-bright); }
+.ap-know-row:hover { background: var(--panel-2); }
+.ap-know-row .ext {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 0.5px solid;
+  color: var(--text-soft);
+  background: var(--panel-2);
+}
+.ap-know-row .ext[data-type="pdf"]   { color: var(--red);   border-color: rgba(181, 112, 106, 0.5); background: rgba(181, 112, 106, 0.06); }
+.ap-know-row .ext[data-type="md"]    { color: var(--lime);  border-color: var(--lime-dim);          background: rgba(111, 181, 114, 0.06); }
+.ap-know-row .ext[data-type="doc"]   { color: var(--cyan);  border-color: rgba(106, 155, 151, 0.4); background: rgba(106, 155, 151, 0.06); }
+.ap-know-row .ext[data-type="epub"]  { color: var(--magenta); border-color: rgba(142, 122, 142, 0.5); background: rgba(142, 122, 142, 0.06); }
+.ap-know-row .ext[data-type="txt"]   { color: var(--text-soft); border-color: var(--line-strong); }
+.ap-know-row .ext[data-type="link"]  { color: var(--amber); border-color: rgba(181, 149, 96, 0.5);  background: rgba(181, 149, 96, 0.06); }
+
+.ap-know-row .info { min-width: 0; }
+.ap-know-row .name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.003em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-know-row .meta {
+  font-family: var(--font-human);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+.ap-know-row .meta .sep { color: var(--line-bright); margin: 0 5px; }
+.ap-know-row .indexed {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--lime);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ap-know-row .indexed::before { content: "● "; }
+.ap-know-row .indexed.pending { color: var(--amber); }
+.ap-know-row .indexed.pending::before { content: "▲ "; }
+.ap-know-row .actions { display: flex; gap: 4px; }
+.ap-know-row .actions .icon-btn {
+  width: 24px; height: 24px;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition: all 0.12s;
+}
+.ap-know-row .actions .icon-btn:hover { border-color: var(--lime); color: var(--lime); }
+.ap-know-row .actions .icon-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+.ap-know-empty {
+  padding: 24px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 0.5px dashed var(--line-bright);
+}
+
+/* Active state for sidebar agent rows is defined in each dashboard's
+   stylesheet (matched to .session-row.active for consistency). */
+
+/* Mobile */
+@media (max-width: 600px) {
+  .agent-page-cover { height: 70px; }
+  .agent-page-identity { grid-template-columns: auto 1fr; padding: 10px 16px 14px; }
+  .agent-page-id-buttons { display: none; }
+  .agent-page-avatar { width: 64px; height: 64px; margin-top: -34px; }
+  .agent-page-id .name { font-size: 18px; }
+  .agent-page-stack { padding: 22px 16px 36px; gap: 28px; }
+  .ap-instr-doc { padding: 18px 16px; }
+}
+
+
+/* ═══════════════════════════════════════════
+   GAME-CARD layout (Director console)
+   ─────────────────────────────────────────────
+   New chrome inspired by an RPG character sheet:
+   header tabs · left portrait · right 2x2 grid
+   (Badges / Intel / Skills / Equipment) · roster row
+   · single bright lime CTA. Boardroom palette
+   (lime on charcoal), no shadows, hairline lines.
+   ═════════════════════════════════════════════ */
+
+/* NOTE: agent-picker.css also defines `.ap-card` (each director tile in
+   the convene overlay is an .ap-card grid of avatar + info + add-btn).
+   That stylesheet loads earlier but defines `display: grid`, a hover
+   background, etc. — and our rule below doesn't redeclare those, so
+   the grid + hover would leak into the profile. Override every
+   conflicting prop (including :hover) to keep the profile shell calm. */
+.ap-card {
+  display: block;
+  grid-template-columns: none;
+  gap: 0;
+  align-items: stretch;
+  cursor: default;
+  text-decoration: none;
+  transition: none;
+  max-width: 1100px;
+  margin: 22px auto 40px;
+  padding: 0 28px;
+  background: transparent;
+  border: none;
+  position: relative;
+  font-family: var(--sans);
+}
+/* Full-width profile card variant · sibling of .ap-card directly
+   inside .main-view, so it spans the entire main-view width without
+   the 1100px max-width or horizontal padding that constrains the
+   two-column layout below. Sticky to the top of the scroll container
+   (.main-view) so the avatar/name banner stays visible while the
+   content below scrolls. */
+.ap-profile-card.ap-profile-card-full {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+.ap-card:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.ap-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 880px) {
+  .ap-layout { grid-template-columns: 1fr; }
+}
+.ap-main-col,
+.ap-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/* Standalone module card · used by every block in both columns.
+   Soft rounded corners + a single subtle border so the card reads as
+   a calm surface, not a HUD chrome panel. Works equally well on
+   dark themes (eastwood/jtriley) and light themes (atrium/pinterest). */
+/* Block · column layout, padding lives on the body so the header
+   reads as a full-width strip (mirrors the convene overlay's
+   .panel + .panel-head pattern). */
+.ap-block {
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+.ap-block > *:not(.ap-block-h) {
+  padding: 18px 22px 20px;
+}
+.ap-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+/* Section header · compact strip across the top of the block. Tight
+   padding, panel-3 surface, mono uppercase title with the lime "// "
+   prefix lifted from the convene overlay's tune_room treatment. */
+.ap-block-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 6px 14px;
+  background: var(--panel-3);
+  border-bottom: 0.5px solid var(--line-bright);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+  line-height: 1.4;
+  min-height: 28px;
+}
+.ap-block-h-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.2;
+}
+.ap-block-h-title::before {
+  content: "// ";
+  color: var(--lime);
+}
+.ap-block-h-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.ap-block-h-action {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.ap-block-h-action:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+  background: var(--panel);
+}
+.ap-sec-hint {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-left: 8px;
+}
+/* Profile card · the new-agent overlay still uses the corner brackets,
+   so scope them to .ap-card.create only. The read-only profile reads
+   as a calmer panel. */
+.ap-card.create::before, .ap-card.create::after,
+.ap-card.create .ap-card-corner {
+  content: "";
+  position: absolute;
+  width: 10px; height: 10px;
+  border: 2px solid var(--lime);
+  pointer-events: none;
+}
+.ap-card.create::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.ap-card.create::after  { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+.ap-card.create .ap-card-corner.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; }
+.ap-card.create .ap-card-corner.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; }
+.ap-card.create { border: 2px solid var(--lime-dim); }
+
+/* ── Header bar with tabs ─────────────────────────── */
+.ap-card-head {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--line-bright);
+  background: var(--panel-3);
+}
+.ap-back, .ap-menu {
+  width: 32px; height: 32px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+}
+.ap-back:hover, .ap-menu:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.ap-tabs {
+  display: inline-flex;
+  justify-content: center;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 3px;
+  margin: 0 auto;
+}
+.ap-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-soft);
+  padding: 6px 16px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.ap-tab:hover {
+  color: var(--lime);
+}
+.ap-tab.active {
+  background: var(--lime);
+  color: var(--bg);
+  cursor: default;
+}
+.ap-tab[disabled] { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+/* ── Profile-header card (cover + overlapping avatar) ──
+   The cover image fills the top of the card edge-to-edge;
+   the circular avatar is absolutely positioned so it
+   overlaps the cover/body boundary; name + meta sit in
+   the body below. Reference: Dribbble Amanda Smith. */
+.ap-profile-card {
+  position: relative;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  overflow: hidden;
+}
+.ap-cover {
+  height: 84px;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 0.5px solid var(--line-bright);
+}
+.ap-cover-art {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, var(--panel-3) 0%, var(--panel-2) 100%);
+}
+/* ⋯ menu now lives inside the body row at the right end · sits in
+   line with the name+meta column rather than floating in the cover. */
+.ap-id-menu {
+  flex-shrink: 0;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.ap-id-menu:hover { background: var(--panel-3); color: var(--text); border-color: var(--text-faint); }
+
+/* ⋯ menu popover · floats over the profile, anchored to the
+   menu button via fixed positioning set in JS. */
+.ap-id-menu-pop {
+  position: fixed;
+  z-index: 9100;
+  min-width: 220px;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  display: flex;
+  flex-direction: column;
+}
+.ap-id-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 0.5px solid var(--line-bright);
+  color: var(--text);
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.ap-id-menu-item:last-child { border-bottom: none; }
+.ap-id-menu-item:hover { background: var(--panel-2); }
+.ap-id-menu-mark { font-family: var(--mono); font-size: 11px; color: var(--lime); }
+/* Disabled state · used for the chair's locked-avatar row. Looks like
+   the active items but doesn't react to hover and the mark switches
+   to the muted ⊘ glyph. */
+.ap-id-menu-item.disabled {
+  cursor: not-allowed;
+  color: var(--text-faint);
+  opacity: 0.85;
+}
+.ap-id-menu-item.disabled:hover { background: transparent; }
+.ap-id-menu-item.disabled .ap-id-menu-mark { color: var(--text-faint); }
+/* Hairline divider · separates routine actions from destructive ones
+   (Delete) so the menu reads as two distinct groups. */
+.ap-id-menu-divider {
+  height: 0.5px;
+  background: var(--line-strong);
+  margin: 4px 0;
+}
+/* Danger variant · used for "Delete director". Red label + glyph
+   on idle, full red fill on hover so the destructive action is
+   unmistakeably distinct from the regular ones. */
+.ap-id-menu-item-danger {
+  color: var(--red, #B5706A);
+}
+.ap-id-menu-item-danger .ap-id-menu-mark {
+  color: var(--red, #B5706A);
+}
+.ap-id-menu-item-danger:hover {
+  background: var(--red, #B5706A);
+  color: var(--bg);
+}
+.ap-id-menu-item-danger:hover .ap-id-menu-mark { color: var(--bg); }
+.ap-profile-body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 32px 12px;
+}
+.ap-avatar {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  margin-top: -46px;
+  margin-bottom: 0;
+  border-radius: 50%;
+  background: var(--panel-2);
+  /* Ring color follows the page bg so the avatar reads as separated
+     from the cover gradient on every theme · in light themes the ring
+     is white against the gray cover; in dark themes the ring is the
+     near-black bg against the panel-toned cover. */
+  border: 4px solid var(--bg);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.ap-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+/* Text column · sits to the right of the avatar in the same row,
+   so name + meta read as one tight identifier block. */
+.ap-id-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+.ap-id-name {
+  font-family: var(--font-human);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.018em;
+  line-height: 1.15;
+  margin: 0;
+}
+.ap-id-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  line-height: 1.2;
+}
+.ap-id-role {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.ap-id-dot { color: var(--text-faint); font-size: 10px; }
+.ap-id-handle {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+.ap-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  margin-left: 6px;
+  background: var(--panel-3);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+/* ── Body · single-column module stack ─────────────── */
+.ap-card-body {
+  padding: 18px 28px 32px;
+}
+
+/* ── Module grid (single col by default; sections opt-in to span) ── */
+.ap-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 560px) {
+  .ap-grid { grid-template-columns: 1fr; }
+}
+.ap-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--panel);
+  border: 0.5px solid var(--line-bright);
+  position: relative;
+}
+.ap-sec h3 {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 0.5px dashed var(--line-bright);
+}
+.ap-sec.full { grid-column: 1 / -1; }
+
+/* Badges · square tiles */
+.ap-badges-tiles {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 48px;
+}
+.ap-tile {
+  width: 44px; height: 44px;
+  border: 0.5px solid var(--lime-dim);
+  background: var(--panel-3);
+  color: var(--lime);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-family: var(--mono);
+  position: relative;
+}
+.ap-tile .ap-tile-label {
+  position: absolute;
+  bottom: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ap-tile.empty {
+  border-style: dashed;
+  border-color: var(--line-bright);
+  color: var(--text-faint);
+  background: transparent;
+}
+
+/* Intel · bio prose. The .ap-intel-view variant matches body but
+   rendered inside the .ap-intel container so the edit toggle can swap
+   it with a textarea (mirrors the Instruction edit pattern). */
+.ap-intel-view,
+.ap-intel-body {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  letter-spacing: -0.003em;
+}
+
+/* Skills · 4 progress bars */
+.ap-skill-rows { display: flex; flex-direction: column; gap: 9px; }
+.ap-skill-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 32px;
+  align-items: center;
+  gap: 10px;
+}
+.ap-skill-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.ap-skill-bar {
+  height: 8px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  position: relative;
+  overflow: hidden;
+}
+.ap-skill-fill {
+  height: 100%;
+  background: var(--lime);
+  /* Pixel-art segment scan so the bar feels 8-bit. */
+  background-image: linear-gradient(
+    90deg, transparent 0, transparent 7px,
+    rgba(0,0,0,0.18) 7px, rgba(0,0,0,0.18) 8px
+  );
+  background-size: 8px 100%;
+}
+.ap-skill-val {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--lime);
+  font-weight: 700;
+  text-align: right;
+}
+
+/* ─── Skills v2 · uploaded Skill.md files ────────────────────────────
+   Replaces the prototype inventory grid. Pattern · radar at top,
+   per-skill rows below, drop-zone at the foot. PRD: docs/PRD-skills.md. */
+.ap-skills-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ap-skills-radar-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ap-radar {
+  width: 100%;
+  max-width: 290px;
+  height: auto;
+  display: block;
+}
+.ap-radar-grid {
+  fill: none;
+  stroke: var(--line-bright);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+.ap-radar-spoke {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.ap-radar-base {
+  fill: var(--text-faint);
+  fill-opacity: 0.18;
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-opacity: 0.7;
+}
+.ap-radar-current {
+  fill: var(--lime);
+  fill-opacity: 0.32;
+  stroke: var(--lime);
+  stroke-width: 1.5;
+}
+.ap-radar-axis-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  fill: var(--text-soft);
+  text-transform: uppercase;
+}
+
+/* List · scrolls internally past 6 rows so a 12-skill chair doesn't
+   blow up the panel height. The thumb fades in on hover/scroll via the
+   same auto-hide pattern used in the agent overlay. */
+.ap-skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 252px;
+  overflow-y: auto;
+  margin: 0 -2px;
+  padding: 0 2px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+}
+.ap-skills-list:hover { scrollbar-color: var(--text-faint) transparent; }
+.ap-skills-list::-webkit-scrollbar { width: 6px; }
+.ap-skills-list::-webkit-scrollbar-track { background: transparent; }
+.ap-skills-list::-webkit-scrollbar-thumb { background: transparent; transition: background 0.18s; }
+.ap-skills-list:hover::-webkit-scrollbar-thumb { background: var(--text-faint); }
+
+/* Single-line dense row · ◆ + name + inline deltas + ⋯ menu.
+   Total height ≈ 32px. Uninstall folded into the popover so the row
+   stays single-line at common widths. */
+.ap-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  font-family: var(--font-human);
+  transition: border-color 0.12s, background 0.12s;
+  min-height: 32px;
+}
+.ap-skill-row:hover {
+  border-color: var(--text-faint);
+  background: var(--panel);
+}
+.ap-skill-row-mark {
+  flex-shrink: 0;
+  color: var(--lime);
+  font-size: 9px;
+  line-height: 1;
+}
+.ap-skill-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-skill-row-deltas {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 50%;
+  text-overflow: ellipsis;
+}
+.ap-skill-row-menu {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: 0.5px solid transparent;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.ap-skill-row-menu:hover {
+  color: var(--text);
+  border-color: var(--line-bright);
+  background: var(--bg);
+}
+
+/* Inline delta · "rigor +2" · axis label muted, value color-coded by
+   sign. Tight gap so multiple deltas read as one breath. */
+.ap-sd { display: inline-flex; align-items: baseline; gap: 3px; }
+.ap-sd-l {
+  color: var(--text-faint);
+  text-transform: lowercase;
+  letter-spacing: 0;
+}
+.ap-sd-v { font-weight: 700; }
+.ap-sd-v.pos { color: var(--lime); }
+.ap-sd-v.neg { color: var(--amber); }
+.ap-sd-empty {
+  color: var(--text-faint);
+  font-style: italic;
+  font-family: var(--font-human);
+  font-size: 10px;
+}
+
+.ap-skills-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--panel);
+  border: 0.5px dashed var(--line-bright);
+  color: var(--text-soft);
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: -0.003em;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.ap-skills-drop:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+  background: var(--panel-2);
+}
+.ap-skills-drop.dragging {
+  border-color: var(--lime);
+  color: var(--lime);
+  background: var(--panel-3);
+}
+.ap-skills-drop.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  border-color: var(--line);
+}
+.ap-skills-drop.disabled:hover {
+  border-color: var(--line);
+  color: var(--text-soft);
+  background: var(--panel);
+}
+.ap-skills-drop-mark { font-size: 12px; line-height: 1; color: var(--lime); }
+.ap-skills-drop-text code {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  color: inherit;
+}
+
+/* Skill info popover · fixed to the viewport, anchored above the
+   trigger. Folds info + uninstall into one menu so the row stays
+   single-line dense. Closed on outside click (capture-phase listener). */
+.ap-skill-info-pop {
+  position: fixed;
+  z-index: 9200;
+  width: 300px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  font-family: var(--font-human);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ap-skill-info-head {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.008em;
+  line-height: 1.25;
+}
+.ap-skill-info-sub {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-top: -6px;
+}
+.ap-skill-info-desc {
+  font-size: 12px;
+  color: var(--text-soft);
+  line-height: 1.55;
+  letter-spacing: -0.003em;
+}
+.ap-skill-info-when,
+.ap-skill-info-ability,
+.ap-skill-info-tips-wrap {
+  font-size: 11.5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.ap-skill-info-when .lbl,
+.ap-skill-info-ability .lbl,
+.ap-skill-info-tips-wrap .lbl {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+}
+.ap-skill-info-ability-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.ap-skill-info-tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ap-skill-info-tips li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 11.5px;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+.ap-skill-info-tips li::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  color: var(--lime);
+  font-weight: 700;
+}
+.ap-skill-info-empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+.ap-skill-info-actions {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--line-bright);
+  display: flex;
+  justify-content: flex-end;
+}
+.ap-skill-info-uninstall {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.ap-skill-info-uninstall:hover {
+  border-color: var(--red, #C85A5A);
+  color: var(--red, #C85A5A);
+}
+
+/* System skill variant · row tinted lime, "system" badge, locked notice
+   replaces the uninstall button in the popover. */
+.ap-skill-row-system .ap-skill-row-mark {
+  color: var(--lime);
+}
+.ap-skill-row-sys {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lime);
+  border: 0.5px solid var(--lime-dim, var(--lime));
+  background: transparent;
+  vertical-align: 1px;
+}
+.ap-skill-info-sys-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lime);
+  border: 0.5px solid var(--lime-dim, var(--lime));
+  background: transparent;
+  vertical-align: 2px;
+}
+.ap-skill-info-locked {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--line-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-skill-info-locked-mark {
+  color: var(--lime);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Equipment · 6 inventory slots */
+.ap-equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+/* Compact variant for the right rail · 3 cols, smaller slots. */
+.ap-equipment-grid.compact {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.ap-slot {
+  aspect-ratio: 1;
+  border: 0.5px solid var(--line);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  color: var(--text-faint);
+  font-size: 14px;
+  cursor: default;
+  position: relative;
+  opacity: 0.7;
+  transition: border-color 0.12s, background 0.12s, opacity 0.12s, color 0.12s;
+}
+.ap-slot:hover {
+  border-color: var(--line-bright);
+  background: var(--panel);
+  opacity: 1;
+  color: var(--text-soft);
+}
+.ap-slot.filled {
+  border-color: var(--line-bright);
+  color: var(--text);
+  background: var(--panel-3);
+  opacity: 1;
+}
+.ap-slot.filled:hover { border-color: var(--text-faint); }
+.ap-slot .ap-slot-ext {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 7.5px;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+/* Coming-soon block · used by sections (e.g., Equipment) whose feature
+   isn't shipped yet. Centered glyph + title + body copy + status tag,
+   so the section reads as deliberately reserved space rather than an
+   empty grid. */
+.ap-coming-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 6px 4px 4px;
+}
+.ap-coming-soon-mark {
+  font-family: var(--mono);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--lime-dim);
+  letter-spacing: 0;
+}
+.ap-coming-soon-title {
+  font-family: var(--font-human);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  line-height: 1.2;
+}
+.ap-coming-soon-body {
+  font-family: var(--font-human);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+  margin: 0;
+  max-width: 280px;
+}
+.ap-coming-soon-tag {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lime);
+  border: 0.5px solid var(--lime-dim);
+  padding: 3px 9px;
+}
+
+/* Roster · bottom-spanning row showing recent room avatars */
+.ap-roster-portraits {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ap-portrait-mini {
+  width: 56px; height: 56px;
+  border: 0.5px solid var(--line-strong);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.ap-portrait-mini img {
+  width: 80%; height: 80%;
+  image-rendering: pixelated;
+}
+.ap-portrait-mini.empty {
+  border-style: dashed;
+  border-color: var(--line-bright);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 18px;
+}
+
+/* ── Footer CTA bar ────────────────────────────────── */
+.ap-card-foot {
+  border-top: 0.5px solid var(--line-bright);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--panel-3);
+}
+.ap-foot-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--lime);
+  color: var(--bg);
+  border: 0.5px solid var(--lime);
+  padding: 11px 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.14s;
+}
+.ap-cta:hover {
+  background: transparent;
+  color: var(--lime);
+}
+.ap-cta-arrow { font-size: 14px; line-height: 1; }
+
+/* ═══════════════════════════════════════════
+   PROFILE · MODEL dropdown
+   ─────────────────────────────────────────────
+   Native <select> styled to match the calm
+   panel chrome — no lime accents.
+   ═════════════════════════════════════════════ */
+/* Model · custom dropdown trigger + popover (replaces native select). */
+.ap-model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Single-line trigger · name on the left, provider chip on the right,
+   caret last. Was previously a 2-row layout with provider stacked
+   below the name; the row read way too tall for what's effectively
+   a dropdown trigger. Long names still wrap-protected with ellipsis. */
+.ap-model-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+  min-width: 0;
+  transition: border-color 0.1s;
+}
+.ap-model-trigger-text {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.ap-model-trigger:hover { border-color: var(--line-bright); background: var(--panel); }
+.ap-model-trigger-name {
+  flex: 1 1 auto;
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.ap-model-trigger-provider {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.ap-model-trigger-caret {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Track Record stats · read-only counters shown below the model
+   selector. Deliberately no background / no border / no padding on
+   the cells: keeping stats as pure typography (vs. the bordered
+   model trigger above) signals that these are passive data, not
+   interactive controls. A hairline divider above the group
+   separates them from the dropdown; thin verticals between the
+   three cells form a clean spec-readout rhythm. */
+/* Inline status row · "12 rooms · 47 rounds · 1.2k tokens".
+   Replaces the older 3-up tile grid which read as a dashboard widget
+   detached from the rest of the block. Mono with tabular-nums keeps
+   the numerals aligned; lowercase labels match the memory meta-line
+   typography so the whole panel reads as one family. */
+.ap-stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 18px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--line);
+}
+.ap-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  text-align: left;
+  min-width: 0;
+}
+.ap-stat-v {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ap-stat-l {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+/* Popover — anchored under the trigger. Mirrors the room composer's
+   .cmp-dd-pop dropdown: tight rows, mono micro-type hint inline with
+   the label, provider section headers, hairline scrollbar. One
+   coherent dropdown vocabulary across the prototype. */
+.ap-model-picker {
+  position: fixed;
+  z-index: 9100;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  padding: 2px 0;
+  overflow-y: auto;
+  max-height: 60vh;
+  border-radius: 4px;
+}
+.ap-model-picker::-webkit-scrollbar { width: 6px; }
+.ap-model-picker::-webkit-scrollbar-thumb { background: var(--line-strong); }
+
+/* Provider section header · matches .cmp-dd-group · mono / faint /
+   uppercase, hairline divider above (suppressed on the first one). */
+.ap-model-group {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 8px 10px 3px;
+  border-top: 0.5px solid var(--line);
+}
+.ap-model-group:first-child {
+  border-top: none;
+  padding-top: 5px;
+}
+
+/* Row · single-line label + uppercase mono hint, baseline-aligned,
+   same vertical rhythm as .cmp-dd-opt. No per-row divider. */
+.ap-model-opt {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 10px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-family: inherit;
+  color: var(--text);
+  min-width: 0;
+}
+.ap-model-opt:hover { background: var(--panel-2); }
+.ap-model-opt.active { background: var(--panel-3); }
+.ap-model-opt-label {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.ap-model-opt.active .ap-model-opt-label { color: var(--lime); }
+.ap-model-opt-hint {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* `--text-dim` (not `--text-faint`) because the deck — "fast · cheap
+     · good", "reasoning · long context", etc. — carries the meaning of
+     each model. Matches `.cmp-dd-opt-hint` in the new-room composer. */
+  color: var(--text-dim);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Tiny mono square-tag on each picker row · "direct" / "OR" / "direct
+   · OR" so the user can tell at a glance how this model would route.
+   Mirrors `.composer-pick-model` from the new-room "select a director"
+   picker: square corners (no radius), no uppercase, tight 1×5 padding,
+   `--text-soft` on `--panel-2`, `0.5px var(--line)` border. Pinned to
+   the right edge so the label/hint pair keeps its layout. */
+.ap-model-opt-route {
+  margin-left: auto;
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  flex-shrink: 0;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.ap-model-opt.active .ap-model-opt-route {
+  color: var(--lime);
+  border-color: var(--lime-dim);
+}
+
+/* Stale-model warning under the trigger · the agent's saved modelV
+   isn't reachable with the current key set. Doesn't block the click
+   (runtime resolves to the global default), but the user should
+   know their pick won't actually be used. */
+.ap-model-stale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  border-radius: 3px;
+}
+.ap-model-stale-mark {
+  color: var(--amber, #C9A46B);
+  font-size: 11px;
+  line-height: 1;
+}
+.ap-model-stale-text {
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════
+   PROFILE · SKILL slot grid
+   ─────────────────────────────────────────────
+   Read-only mirror of the new-agent overlay's
+   slot grid. Same vocabulary (8 slots in a 4×2
+   inventory), same icons + names — just no
+   click-to-install affordance.
+   ═══════════════════════════════════════════ */
+.ap-skill-grid {
+  /* 3×3-ish inventory (8 slots, 3 per row + 2 in last row) · fits the
+     320px right rail with comfortable cell size. */
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.ap-skill-slot {
+  aspect-ratio: 1;
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  color: var(--text-faint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-family: var(--mono);
+  position: relative;
+  padding: 8px 6px;
+  cursor: default;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.ap-skill-slot.filled {
+  border-color: var(--line-bright);
+  background: var(--panel-3);
+  color: var(--text);
+}
+.ap-skill-slot.filled:hover { border-color: var(--text-faint); }
+/* Info badge · top-right of each filled slot. Hover shows the
+   skill description as a small popover-tooltip (CSS-only). */
+.ap-skill-info {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 14px;
+  height: 14px;
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  border-radius: 50%;
+  z-index: 2;
+  transition: color 0.1s, border-color 0.1s;
+}
+.ap-skill-info:hover { color: var(--text); border-color: var(--text-soft); }
+.ap-skill-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  padding: 6px 9px;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  font-family: var(--font-human);
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: -0.003em;
+  color: var(--text);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+  z-index: 3;
+}
+.ap-skill-info:hover::after { opacity: 1; }
+.ap-skill-slot .ap-skill-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+.ap-skill-slot.empty {
+  border-style: solid;
+  border-color: var(--line);
+  background: transparent;
+  opacity: 0.7;
+}
+.ap-skill-slot.empty .ap-skill-icon {
+  font-size: 20px;
+  font-weight: 300;
+  color: var(--text-faint);
+  opacity: 1;
+}
+.ap-skill-slot.empty:hover {
+  border-color: var(--text-faint);
+  background: var(--panel);
+  opacity: 1;
+}
+.ap-skill-slot.empty:hover .ap-skill-icon { color: var(--text-soft); }
+.ap-skill-slot .ap-skill-name {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.ap-skill-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+.ap-skill-meta .ap-skill-count {
+  color: var(--text);
+  font-weight: 700;
+}
+
+
+/* ═══════════════════════════════════════════
+   PROFILE · INSTRUCTION / RULES / MEMORY blocks
+   ═══════════════════════════════════════════ */
+
+/* Section subhead next to the h3, used to inline a short usage hint
+   (e.g. "click an empty slot to install"). */
+.ap-sec h3 .ap-sec-hint {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: var(--text-faint);
+  margin-left: 8px;
+}
+
+/* Generic empty-state for sections that have nothing to show. */
+.ap-empty {
+  padding: 10px 12px;
+  border: 0.5px dashed var(--line-bright);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  text-align: center;
+}
+
+/* INSTRUCTION block — labelled prose paragraphs. */
+/* INSTRUCTION · markdown view + edit toggle. View renders the
+   markdown to HTML; click 'edit' in the section header to swap to
+   the textarea editor. */
+.ap-instr { display: flex; flex-direction: column; gap: 0; }
+.ap-instr-view {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  /* Collapsed default · ~12 lines of body copy. JS adds an
+     .overflowing class on the parent when scrollHeight exceeds this,
+     which reveals the fade gradient and the show-more toggle. */
+  position: relative;
+  max-height: 240px;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+}
+.ap-instr-view.expanded {
+  max-height: none;
+}
+/* Fade-out gradient hugging the bottom edge while collapsed — fades to
+   the parent .ap-block panel colour so it reads as "more below". */
+.ap-instr-view::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  background: linear-gradient(to bottom, transparent, var(--panel-2));
+}
+.ap-instr.overflowing .ap-instr-view:not(.expanded)::after { opacity: 1; }
+/* Toggle button · hidden unless content actually overflows. Mirrors
+   .ap-block-h-action's mono-uppercase look so it sits in the page. */
+.ap-instr-toggle {
+  display: none;
+  align-self: flex-start;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+}
+.ap-instr-toggle:hover { border-color: var(--text-soft); color: var(--text); }
+.ap-instr.overflowing .ap-instr-toggle { display: inline-block; }
+.ap-instr-view > *:first-child { margin-top: 0; }
+.ap-instr-view > *:last-child { margin-bottom: 0; }
+.ap-instr-view h3 {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 14px 0 6px;
+  padding: 0;
+  border: none;
+}
+.ap-instr-view h4 {
+  font-family: var(--font-human);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 12px 0 4px;
+  letter-spacing: -0.005em;
+}
+.ap-instr-view h5 {
+  font-family: var(--font-human);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-soft);
+  margin: 10px 0 4px;
+}
+.ap-instr-view p { margin: 0 0 8px; }
+.ap-instr-view ul, .ap-instr-view ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+.ap-instr-view li { margin-bottom: 3px; }
+.ap-instr-view strong { color: var(--text); font-weight: 700; }
+.ap-instr-view em { color: var(--text-soft); font-style: italic; }
+.ap-instr-view code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 1px 5px;
+  color: var(--text);
+}
+.ap-instr-view pre {
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 10px 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+.ap-instr-view pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* Edit mode · textarea + footer with save/cancel. */
+.ap-instr-edit { display: flex; flex-direction: column; gap: 10px; }
+.ap-instr-textarea {
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 12px 14px;
+  min-height: 220px;
+  width: 100%;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.1s;
+}
+.ap-instr-textarea:focus { border-color: var(--text-soft); }
+.ap-instr-textarea::placeholder { color: var(--text-faint); }
+.ap-instr-edit-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ap-instr-edit-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-instr-edit-actions { display: flex; gap: 8px; }
+.ap-instr-cancel,
+.ap-instr-save {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+.ap-instr-cancel:hover { border-color: var(--text-soft); color: var(--text); }
+.ap-instr-save {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.ap-instr-save:hover { background: var(--text-soft); border-color: var(--text-soft); }
+
+/* Intel edit · same shape as the instruction editor but with a shorter
+   single-line textarea (bio is 8-280 chars, not multi-section markdown). */
+.ap-intel-edit { display: flex; flex-direction: column; gap: 10px; }
+.ap-intel-textarea {
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text);
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  min-height: 64px;
+  width: 100%;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.12s;
+  letter-spacing: -0.003em;
+}
+.ap-intel-textarea:focus { border-color: var(--text-soft); }
+.ap-intel-textarea::placeholder { color: var(--text-faint); }
+.ap-intel-edit-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ap-intel-edit-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-intel-edit-hint.error { color: var(--red, #C85A5A); text-transform: none; letter-spacing: 0; }
+.ap-intel-edit-actions { display: flex; gap: 8px; }
+
+/* RULES block · editable numbered list + add button. */
+.ap-rules-block { display: flex; flex-direction: column; gap: 8px; }
+.ap-rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ap-rule {
+  display: grid;
+  grid-template-columns: 22px 1fr 22px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  transition: border-color 0.1s;
+}
+.ap-rule:focus-within { border-color: var(--text-soft); }
+.ap-rule-num {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-soft);
+  text-align: center;
+}
+.ap-rule-input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 4px 0;
+  width: 100%;
+  outline: none;
+}
+.ap-rule-input::placeholder { color: var(--text-faint); }
+.ap-rule-rm {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+.ap-rule:hover .ap-rule-rm,
+.ap-rule:focus-within .ap-rule-rm { opacity: 1; }
+.ap-rule-rm:hover { color: var(--red); }
+.ap-rule-empty {
+  font-family: var(--font-human);
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 8px 10px;
+  border: 0.5px dashed var(--line-bright);
+  background: transparent;
+  text-align: center;
+}
+.ap-rule-empty strong { color: var(--text-soft); font-weight: 700; }
+/* (the rules add button now lives in the section heading as
+   .ap-block-h-action; the disabled state below applies there too.) */
+.ap-block-h-action[disabled] {
+  cursor: not-allowed;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ─── Memory · v1 (live, API-driven) ────────────────────────
+   List of editable rows pulled from /api/agents/:id/memories.
+   Each row · [kind tag + source] [content] [pin / edit / delete]. */
+.ap-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ap-memory-add {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.ap-memory-add[hidden] { display: none; }
+.ap-memory-add-cancel {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text-soft);
+  border: 0.5px solid var(--line-bright);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.ap-memory-add-cancel:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+  background: var(--panel-3);
+}
+.ap-memory-add-input {
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text);
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  padding: 9px 12px;
+  outline: none;
+  letter-spacing: -0.003em;
+  transition: border-color 0.1s;
+}
+.ap-memory-add-input:focus { border-color: var(--text-soft); }
+.ap-memory-add-input::placeholder { color: var(--text-faint); }
+.ap-memory-add-btn {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0 14px;
+  background: var(--text);
+  color: var(--bg);
+  border: 0.5px solid var(--text);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.ap-memory-add-btn:hover { background: var(--text-soft); border-color: var(--text-soft); }
+.ap-memory-add-btn[disabled] { opacity: 0.6; cursor: not-allowed; }
+
+/* Open list · rows are separated by hairlines, no per-row border or
+   filled background. Hover bleeds edge-to-edge inside the block-body
+   for a clean Notes/Notion-style read. The list uses negative margin
+   to escape the block-body's 22px horizontal padding so hover/dividers
+   reach the panel border. */
+.ap-memory-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -22px;
+  gap: 0;
+}
+.ap-memory-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 22px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 0.5px solid var(--line);
+  transition: background 0.12s;
+}
+.ap-memory-row:last-child { border-bottom: none; }
+.ap-memory-row:hover { background: var(--panel); }
+
+/* Overflow rows · everything past the first 5. Hidden by default,
+   revealed when the toggle below is clicked. Inline with the rest
+   of the list so dividers + hover states stay continuous. */
+.ap-memory-overflow {
+  display: contents;
+}
+.ap-memory-overflow[hidden] { display: none; }
+/* Toggle button · sits inside the already-outdented .ap-memory-list,
+   so it doesn't add its own negative margin (that double-outdent was
+   what was making it overflow the block on the right). Padding-only,
+   width 100% so the dashed-top hairline + fill span edge-to-edge. */
+.ap-memory-toggle {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 9px 22px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--panel-2);
+  border: none;
+  border-top: 0.5px dashed var(--line);
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+.ap-memory-toggle:hover {
+  background: var(--panel);
+  color: var(--lime);
+}
+.ap-memory-toggle-icon {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-faint);
+  transition: transform 0.18s ease, color 0.14s;
+}
+.ap-memory-toggle:hover .ap-memory-toggle-icon { color: var(--lime); }
+.ap-memory-toggle.expanded .ap-memory-toggle-icon { transform: rotate(180deg); }
+/* Show / hide labels swap based on the .expanded state. Default is
+   collapsed (▾ Show all N) · clicked → expanded (▴ Collapse). */
+.ap-memory-toggle-show,
+.ap-memory-toggle-hide { line-height: 1; }
+.ap-memory-toggle:not(.expanded) .ap-memory-toggle-hide { display: none; }
+.ap-memory-toggle.expanded .ap-memory-toggle-show { display: none; }
+
+/* Pinned · 2px lime bar on the very left edge, no layout shift. */
+.ap-memory-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.ap-memory-row.pinned::before { background: var(--lime); }
+
+.ap-memory-content {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  letter-spacing: -0.003em;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.ap-memory-row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+/* Meta · single mono micro-line "fact · manual" at the foot of the row.
+   No border / chip — just type in faint color, kind highlighted lime. */
+.ap-memory-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  line-height: 1.2;
+}
+.ap-memory-kind { color: var(--lime); font-weight: 700; }
+.ap-memory-meta-sep { opacity: 0.5; }
+.ap-memory-source { color: var(--text-faint); }
+.ap-memory-edit-area {
+  width: 100%;
+  background: var(--bg);
+  border: 0.5px solid var(--text-soft);
+  color: var(--text);
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  outline: none;
+  resize: vertical;
+  min-height: 56px;
+  letter-spacing: -0.003em;
+}
+.ap-memory-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ap-memory-edit-cancel,
+.ap-memory-edit-save {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  cursor: pointer;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+}
+.ap-memory-edit-save { background: var(--text); color: var(--bg); border-color: var(--text); }
+.ap-memory-edit-cancel:hover { color: var(--text); border-color: var(--text-soft); }
+.ap-memory-edit-save:hover { background: var(--text-soft); border-color: var(--text-soft); }
+
+.ap-memory-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.ap-memory-pin,
+.ap-memory-edit,
+.ap-memory-delete {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, opacity 0.12s;
+  opacity: 0;
+}
+.ap-memory-row:hover .ap-memory-pin,
+.ap-memory-row:hover .ap-memory-edit,
+.ap-memory-row:hover .ap-memory-delete { opacity: 0.7; }
+.ap-memory-pin:hover,
+.ap-memory-edit:hover {
+  opacity: 1;
+  color: var(--text);
+  background: var(--line-bright);
+}
+.ap-memory-pin { font-size: 12px; }
+.ap-memory-edit svg { display: block; width: 9px; height: 9px; }
+.ap-memory-delete { font-size: 14px; font-weight: 300; }
+.ap-memory-delete:hover {
+  opacity: 1;
+  color: var(--red, #C85A5A);
+  background: var(--line-bright);
+}
+
+.ap-memory-row.pinned .ap-memory-pin {
+  color: var(--lime);
+  opacity: 1;
+}
+.ap-memory-row.pinned .ap-memory-pin:hover { background: var(--line-bright); color: var(--lime); }
+
+.ap-memory-row.editing .ap-memory-actions { visibility: hidden; }
+
+/* ─── Memory · legacy prototype tile gallery (kept for callers
+   that still pass `p.memory` shape). v1 profiles render the
+   .ap-memory list above and never enter this block. */
+.ap-memory-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+/* Memory tile · game-HUD style. Reads like a save-slot / quest entry:
+   chunky room number set in mono display weight, corner brackets that
+   frame the tile like an old game card, a small "▸" affordance on
+   hover. Background uses a subtle linear gradient + scanline pattern
+   so each tile feels like a tactile chip rather than flat panel. */
+.ap-memory-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.ap-memory-tile {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 3px,
+      rgba(255,255,255,0.012) 3px,
+      rgba(255,255,255,0.012) 4px
+    ),
+    linear-gradient(135deg, var(--panel-3) 0%, var(--panel-2) 100%);
+  border: 0.5px solid var(--line-bright);
+  padding: 14px 14px 12px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 8px;
+  color: var(--text);
+  min-height: 128px;
+  transition: border-color 0.14s, transform 0.14s, box-shadow 0.14s;
+  overflow: hidden;
+}
+/* Corner brackets · classic HUD frame. */
+.ap-memory-tile::before,
+.ap-memory-tile::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--text-faint);
+  pointer-events: none;
+  transition: border-color 0.14s;
+}
+.ap-memory-tile::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.ap-memory-tile::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.ap-memory-tile:hover {
+  border-color: var(--text-soft);
+  transform: translateY(-2px);
+}
+.ap-memory-tile:hover::before,
+.ap-memory-tile:hover::after { border-color: var(--text); }
+
+/* ROOM # · two-line treatment ·   "ROOM"  on top, big "#04" below. */
+.ap-memory-tile-num {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  font-family: var(--mono);
+  color: var(--text-soft);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.ap-memory-tile-num::before {
+  content: attr(data-label);
+  font-size: 8.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.28em;
+  margin-bottom: 4px;
+}
+.ap-memory-tile-num-id {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+/* Name · the hero text. */
+.ap-memory-tile-name {
+  font-family: var(--font-human);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.008em;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Hint · stats row + open arrow. */
+.ap-memory-tile-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--line-bright);
+}
+.ap-memory-tile-hint::after {
+  content: "▸";
+  font-size: 11px;
+  color: var(--text-faint);
+  transition: transform 0.14s, color 0.14s;
+}
+.ap-memory-tile:hover .ap-memory-tile-hint::after {
+  color: var(--text);
+  transform: translateX(2px);
+}
+
+/* ── Memory · YOU tile (about-user) ─────────────────
+   Distinct warm amber treatment so the self-card reads
+   as the special "first card" in the gallery vs the
+   uniform room cards. */
+.ap-memory-tile-self {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 3px,
+      rgba(200, 152, 90, 0.04) 3px,
+      rgba(200, 152, 90, 0.04) 4px
+    ),
+    linear-gradient(135deg, rgba(200, 152, 90, 0.18) 0%, var(--panel-3) 60%);
+  border-color: var(--amber, #C8985A);
+  border-width: 1px;
+}
+.ap-memory-tile-self::before,
+.ap-memory-tile-self::after {
+  border-color: var(--amber, #C8985A);
+  border-width: 2px;
+  width: 11px;
+  height: 11px;
+}
+.ap-memory-tile-self:hover {
+  border-color: var(--amber, #C8985A);
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 3px,
+      rgba(200, 152, 90, 0.06) 3px,
+      rgba(200, 152, 90, 0.06) 4px
+    ),
+    linear-gradient(135deg, rgba(200, 152, 90, 0.26) 0%, var(--panel-3) 60%);
+}
+.ap-memory-tile-self .ap-memory-tile-num {
+  color: var(--amber, #C8985A);
+}
+.ap-memory-tile-self .ap-memory-tile-num::before {
+  color: rgba(200, 152, 90, 0.7);
+}
+.ap-memory-tile-self .ap-memory-tile-num-id {
+  color: var(--amber, #C8985A);
+  font-size: 22px;
+  letter-spacing: 0.08em;
+}
+.ap-memory-tile-self .ap-memory-tile-hint {
+  border-top-color: rgba(200, 152, 90, 0.28);
+  color: rgba(200, 152, 90, 0.7);
+}
+.ap-memory-tile-self .ap-memory-tile-hint::after { color: var(--amber, #C8985A); }
+/* Watermark star top-right */
+.ap-memory-self-mark {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--amber, #C8985A);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* Overlay shown when a tile is clicked. */
+.ap-memory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.ap-memory-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.ap-memory-overlay-card {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ap-memory-overlay-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ap-memory-overlay-close:hover { color: var(--text); border-color: var(--text-faint); }
+.ap-memory-detail-head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding-right: 32px;
+}
+.ap-memory-detail-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.ap-memory-detail-name {
+  font-family: var(--font-human);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.008em;
+}
+.ap-memory-detail-stats {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.ap-memory-detail-summary {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0;
+}
+.ap-memory-detail-body {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.ap-memory-detail-body p { margin: 0 0 8px; }
+.ap-memory-detail-body p:last-child { margin-bottom: 0; }
+.ap-memory-detail-lessons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ap-memory-detail-lessons li {
+  font-family: var(--font-human);
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+  padding-left: 16px;
+  position: relative;
+}
+.ap-memory-detail-lessons li::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text-soft);
+  font-family: var(--mono);
+}
+
+/* Profile skill slots are interactive (click to install / remove);
+   cursor signals affordance. Hover-state border colour changes were
+   removed at the user's request — the profile reads as a calm panel. */
+.ap-skill-slot[data-ap-skill-slot] { cursor: pointer; }
+
+/* ─── Web Search · per-agent toggle row ─── */
+.ap-skill-row-web-search {
+  /* the system row already has its own styling; we only touch the
+     middle cell (toggle / configure) */
+}
+.ap-skill-row-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+}
+.ap-skill-row-toggle-track {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--panel-3, #21211E);
+  border: 1px solid var(--line-strong, #4D4B45);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ap-skill-row-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  /* Off state uses --text-soft (visibly grey) so the knob reads
+     against the dark track without depending on theme nuance. The
+     `on` state below overrides this with the bg color so the gold
+     knob pops on the gold track. */
+  background: var(--text-soft, #8E8B83);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.ap-skill-row-toggle.on .ap-skill-row-toggle-track {
+  background: var(--lime, #6FB572);
+  border-color: var(--lime-deep, #427A48);
+}
+.ap-skill-row-toggle.on .ap-skill-row-toggle-knob {
+  left: 17px;
+  background: var(--bg, #0A0A0A);
+}
+.ap-skill-row-toggle.on .ap-skill-row-toggle-text { color: var(--text, #C8C5BE); }
+.ap-skill-row-toggle:hover .ap-skill-row-toggle-track {
+  border-color: var(--text-soft, #8E8B83);
+}
+
+/* ─── Web Search · "needs key" state · same toggle shape, dotted
+   track so the row layout never shifts. The click prompt +
+   Configure-key action live in the JS handler + ⋯ popover. ─── */
+.ap-skill-row-toggle.needs-key .ap-skill-row-toggle-track {
+  background: transparent;
+  border: 1px dashed var(--line-strong, #4D4B45);
+}
+.ap-skill-row-toggle.needs-key .ap-skill-row-toggle-knob {
+  background: var(--text-faint, #5C5A4D);
+  opacity: 0.65;
+}
+.ap-skill-row-toggle.needs-key .ap-skill-row-toggle-text {
+  color: var(--text-faint, #5C5A4D);
+}
+.ap-skill-row-toggle.needs-key:hover .ap-skill-row-toggle-track {
+  border-color: var(--lime, #6FB572);
+  border-style: solid;
+}
+.ap-skill-row-toggle.needs-key:hover .ap-skill-row-toggle-text {
+  color: var(--lime, #6FB572);
+}
+
+/* ─── Configure-key action inside the ⋯ skill-info popover ─── */
+.ap-skill-info-configure {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0.5px solid var(--lime, #6FB572);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  transition: background 0.12s ease, color 0.12s ease;
+  margin-bottom: 8px;
+}
+.ap-skill-info-configure:hover {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+}
+.ap-skill-info-configure-mark { font-size: 12px; }

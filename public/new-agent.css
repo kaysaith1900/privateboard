@@ -1,0 +1,1359 @@
+/* ═══════════════════════════════════════════
+   NEW AGENT OVERLAY
+   Triggered from the sidebar's [+ New agent] button.
+   Sections: name · description · instruction · model · knowledge
+   ═══════════════════════════════════════════ */
+
+.new-agent-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 920;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.new-agent-overlay.open {
+  display: flex;
+  animation: na-fade 0.14s ease-out;
+}
+@keyframes na-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.new-agent-modal {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  max-height: calc(100vh - 48px);
+  margin: auto;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text, #C8C5BE);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: na-rise 0.18s ease-out;
+}
+@keyframes na-rise {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+/* Lime corner brackets · TL + BR. Match room-settings overlay's
+   .room-settings-modal::before / ::after — this is the global modal
+   chrome, not a left-colored-border emphasis (which is the pattern
+   the user wants to avoid). */
+.new-agent-modal::before,
+.new-agent-modal::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.new-agent-modal::before { top: -1px;    left: -1px;   border-right: none; border-bottom: none; }
+.new-agent-modal::after  { bottom: -1px; right: -1px;  border-left: none;  border-top: none; }
+
+.new-agent-modal > .na-classification,
+.new-agent-modal > .na-head,
+.new-agent-modal > .na-foot {
+  flex: 0 0 auto;
+}
+.new-agent-modal > .na-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Classification + header · faithful match to room-settings overlay
+   (.rs-classification / .rs-head). Same proportions, same colour
+   discipline (lime classification, dashed header bottom, lime ▸
+   title prefix), different class names because the JSX is na-*. */
+.na-classification {
+  background: var(--panel-2, #1A1A18);
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.na-classification .dot { color: var(--lime, #6FB572); margin-right: 4px; }
+.na-classification .right {
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.12em;
+}
+
+.na-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: start;
+  padding: 16px 18px 14px;
+  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.na-head > div { min-width: 0; }
+.na-head .na-step-num {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 6px;
+}
+.na-head .na-step-num .hl {
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+}
+.na-head .na-step-title {
+  font-family: var(--font-human, "Inter", sans-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.na-head .na-step-title::before {
+  content: "▸ ";
+  color: var(--lime, #6FB572);
+}
+.na-head .na-step-title em {
+  font-style: italic;
+  color: var(--lime, #6FB572);
+}
+.na-head .na-close {
+  width: 28px; height: 28px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-dim, #5C5A52);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+.na-head .na-close:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+/* Body */
+.na-body { padding: 16px 22px 12px; }
+
+.na-section { margin-bottom: 18px; }
+.na-section:last-child { margin-bottom: 0; }
+.na-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.na-section-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--lime, #6FB572);
+}
+.na-section-label::before { content: "[ "; color: var(--text-dim, #5C5A52); }
+.na-section-label::after  { content: " ]"; color: var(--text-dim, #5C5A52); }
+.na-section-hint {
+  font-family: var(--font-human);
+  font-size: 11px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: -0.003em;
+}
+.na-section-hint .opt {
+  color: var(--text-dim, #5C5A52);
+  margin-left: 4px;
+}
+
+/* Inputs */
+.na-input-wrap, .na-textarea-wrap {
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  transition: border-color 0.12s;
+  display: flex;
+  align-items: stretch;
+}
+.na-input-wrap:focus-within, .na-textarea-wrap:focus-within {
+  border-color: var(--lime, #6FB572);
+}
+.na-input-wrap::before, .na-textarea-wrap::before {
+  content: ">";
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 7px 0 0 10px;
+  align-self: flex-start;
+}
+.na-input-wrap input,
+.na-textarea-wrap textarea {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: var(--font-human);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text, #C8C5BE);
+  outline: none;
+  padding: 7px 12px;
+  letter-spacing: -0.003em;
+}
+.na-input-wrap input::placeholder,
+.na-textarea-wrap textarea::placeholder {
+  color: var(--text-faint, #3A382F);
+}
+.na-textarea-wrap textarea {
+  resize: vertical;
+  min-height: 52px;
+}
+.na-textarea-wrap.tall textarea { min-height: 110px; }
+
+.na-input-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.na-input-meta .accent { color: var(--lime, #6FB572); }
+.na-input-meta .handle { color: var(--text-soft, #8E8B83); }
+
+/* Avatar picker — 8-bit portrait + regenerate button */
+.na-avatar-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+}
+.na-avatar-frame {
+  width: 80px; height: 80px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  padding: 4px;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.na-avatar-frame::before, .na-avatar-frame::after {
+  content: "";
+  position: absolute;
+  width: 6px; height: 6px;
+  border: 0.5px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.na-avatar-frame::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.na-avatar-frame::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.na-avatar-frame.placeholder::before,
+.na-avatar-frame.placeholder::after {
+  border-color: var(--line-strong, #3A3A35);
+}
+.na-avatar-frame svg {
+  width: 100%; height: 100%;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  display: block;
+}
+.na-avatar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.na-avatar-regen {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel-2, #1A1A18);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-soft, #8E8B83);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.na-avatar-regen:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+.na-avatar-regen .icon {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+.na-avatar-regen:hover .icon {
+  animation: na-spin 0.6s ease-out;
+}
+@keyframes na-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+.na-avatar-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.na-avatar-meta-label::after { content: ":"; margin-right: 4px; }
+.na-avatar-seed { color: var(--lime, #6FB572); }
+.na-avatar-roll { color: var(--text-soft, #8E8B83); }
+.na-avatar-hint {
+  font-family: var(--font-human);
+  font-size: 10.5px;
+  color: var(--text-dim, #5C5A52);
+  letter-spacing: -0.003em;
+  line-height: 1.3;
+}
+.na-avatar-hint .ink { color: var(--text-soft, #8E8B83); }
+
+/* Model picker — dropdown selection */
+.na-model-select { position: relative; }
+.na-model-trigger {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: var(--mono);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s;
+}
+.na-model-trigger:hover { border-color: var(--lime-dim, #2D5532); }
+.na-model-select[data-open="true"] .na-model-trigger {
+  border-color: var(--lime, #6FB572);
+}
+.na-model-trigger .trigger-l {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.na-model-trigger .trigger-l .mark {
+  font-size: 8px;
+  color: var(--lime, #6FB572);
+}
+.na-model-trigger .trigger-l .name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.003em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.na-model-trigger .trigger-r {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-soft, #8E8B83);
+}
+.na-model-trigger .trigger-r .prov {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-faint, #3A382F);
+}
+.na-model-trigger .trigger-r .dot { color: var(--text-faint, #3A382F); }
+.na-model-trigger .trigger-r .deck {
+  font-family: var(--font-human);
+  font-size: 11px;
+  letter-spacing: -0.003em;
+  color: var(--text-soft, #8E8B83);
+}
+.na-model-trigger .chev {
+  margin-left: 4px;
+  color: var(--text-soft, #8E8B83);
+  font-size: 11px;
+  display: inline-block;
+  transition: transform 0.14s;
+}
+.na-model-select[data-open="true"] .chev {
+  transform: rotate(180deg);
+  color: var(--lime, #6FB572);
+}
+
+.na-model-dropdown {
+  display: none;
+  position: fixed;
+  z-index: 1100;
+  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--lime, #6FB572);
+  padding: 6px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--lime-dim, #2D5532) var(--panel-2, #1A1A18);
+}
+.na-model-dropdown::-webkit-scrollbar { width: 8px; }
+.na-model-dropdown::-webkit-scrollbar-track { background: var(--panel-2, #1A1A18); }
+.na-model-dropdown::-webkit-scrollbar-thumb {
+  background: var(--lime-dim, #2D5532);
+  border: 2px solid var(--panel-2, #1A1A18);
+}
+.na-model-dropdown::-webkit-scrollbar-thumb:hover { background: var(--lime, #6FB572); }
+.na-model-select[data-open="true"] .na-model-dropdown {
+  display: block;
+  animation: na-fade 0.12s ease-out;
+}
+.na-model-grp + .na-model-grp {
+  border-top: 0.5px dashed var(--line-bright, #2A2A26);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.na-model-grp-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-faint, #3A382F);
+  padding: 4px 14px 3px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.na-model-grp-status {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.na-model-grp-status.direct { color: var(--lime, #6FB572); }
+.na-model-grp-status.via    { color: var(--amber, #B59560); }
+.na-model-grp-status.none   { color: var(--text-faint, #3A382F); }
+.na-model-opt {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 14px;
+  font-family: var(--mono);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.na-model-opt .mark {
+  color: var(--lime, #6FB572);
+  font-size: 8px;
+  visibility: hidden;
+  text-align: center;
+}
+.na-model-opt .name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-soft, #8E8B83);
+  letter-spacing: -0.003em;
+}
+.na-model-opt .deck {
+  font-family: var(--font-human);
+  font-size: 10.5px;
+  color: var(--text-dim, #5C5A52);
+  letter-spacing: -0.003em;
+}
+.na-model-opt:hover {
+  background: rgba(111, 181, 114, 0.05);
+}
+.na-model-opt:hover .name { color: var(--text, #C8C5BE); }
+.na-model-opt.active {
+  background: rgba(111, 181, 114, 0.07);
+}
+.na-model-opt.active .mark { visibility: visible; }
+.na-model-opt.active .name { color: var(--lime, #6FB572); }
+.na-model-opt.active .deck { color: var(--text-soft, #8E8B83); }
+
+/* Knowledge upload */
+.na-know-drop {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px dashed var(--line-strong, #3A3A35);
+  cursor: pointer;
+  transition: all 0.12s;
+  text-decoration: none;
+  color: inherit;
+}
+.na-know-drop:hover {
+  border-color: var(--lime, #6FB572);
+  border-style: solid;
+  background: linear-gradient(135deg, var(--bg) 0%, rgba(111, 181, 114, 0.04) 100%);
+}
+.na-know-drop .icon {
+  width: 32px;
+  height: 32px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--text-dim, #5C5A52);
+  font-weight: 400;
+}
+.na-know-drop:hover .icon { border-color: var(--lime); color: var(--lime); }
+.na-know-drop .title {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text, #C8C5BE);
+  font-weight: 700;
+  letter-spacing: -0.003em;
+}
+.na-know-drop .deck {
+  font-family: var(--font-human);
+  font-size: 10.5px;
+  color: var(--text-dim, #5C5A52);
+  margin-top: 2px;
+  letter-spacing: -0.003em;
+}
+.na-know-drop .pill {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 4px 9px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text-soft, #8E8B83);
+  background: var(--panel-2, #1A1A18);
+  white-space: nowrap;
+}
+.na-know-drop:hover .pill {
+  border-color: var(--lime); color: var(--lime);
+}
+
+.na-know-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.na-know-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.na-know-item .ext {
+  width: 28px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8.5px; font-weight: 700;
+  text-transform: uppercase;
+  border: 0.5px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text-soft);
+}
+.na-know-item .ext[data-type="pdf"]  { color: var(--red); border-color: rgba(181,112,106,0.5); }
+.na-know-item .ext[data-type="md"]   { color: var(--lime); border-color: var(--lime-dim); }
+.na-know-item .ext[data-type="doc"]  { color: var(--cyan); border-color: rgba(106,155,151,0.5); }
+.na-know-item .name {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.003em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.na-know-item .size {
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.na-know-item .remove {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.na-know-item .remove:hover { color: var(--red); }
+
+/* Footer · padding aligned with the head's horizontal scale (22px) so
+   the modal's left/right edges feel like one ruled column. */
+.na-foot {
+  border-top: 0.5px solid var(--line, #1f1f1c);
+  padding: 10px 22px;
+  background: var(--panel-2, #1A1A18);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.na-foot .summary {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.06em;
+}
+.na-foot .summary .v { color: var(--text-soft, #8E8B83); }
+.na-foot-actions { display: flex; gap: 6px; }
+.na-foot .btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 7px 13px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: transparent;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.12s;
+}
+.na-foot .btn:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+.na-foot .btn.primary {
+  background: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+}
+.na-foot .btn.primary:hover {
+  background: transparent; color: var(--lime, #6FB572);
+}
+.na-foot .btn:disabled,
+.na-foot .btn.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--text-faint);
+  border-color: var(--line-bright);
+}
+
+@media (max-width: 600px) {
+  .new-agent-overlay { padding: 12px; }
+  .na-head { padding: 12px 14px; }
+  .na-body { padding: 14px 14px 10px; }
+  .na-foot { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
+  .na-foot .summary { text-align: center; }
+  .na-foot-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .na-avatar-row { grid-template-columns: 1fr; }
+  .na-model-trigger { grid-template-columns: 1fr; gap: 4px; }
+  .na-model-trigger .trigger-r { flex-wrap: wrap; }
+}
+
+
+/* ═══════════════════════════════════════════
+   NEW AGENT · LEGACY GAME-CARD OVERRIDES
+   ─────────────────────────────────────────────
+   This block remained from when the new-agent overlay tried to reuse
+   the .ap-card chrome from agent-profile.css. The current JSX uses
+   .new-agent-modal (top of file), not .ap-card — but the .ap-card
+   rules here still apply where any inner element happens to use
+   them (e.g. ap-id, ap-id-handle in the legacy fields). The overlay-
+   level override that conflicted with the canonical declaration up
+   top has been removed; the global modal chrome (centered, blurred
+   backdrop, lime corner brackets, z-index 920) lives at line 7.
+   ═══════════════════════════════════════════ */
+
+.new-agent-overlay .ap-card {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  max-height: calc(100vh - 48px);
+}
+
+/* Body becomes scrollable inside the modal so the header + footer stay
+   pinned when the form gets long. */
+.new-agent-overlay .ap-card-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Identity inputs in the left column (override the card's .ap-id which
+   was designed for read-only text). */
+.new-agent-overlay .ap-id { gap: 6px; }
+.new-agent-overlay .ap-id .na-name-wrap {
+  width: 100%;
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
+  padding: 0 10px;
+  transition: border-color 0.12s;
+}
+.new-agent-overlay .ap-id .na-name-wrap:focus-within { border-color: var(--lime); }
+.new-agent-overlay .na-name-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 8px 0;
+  font-family: var(--font-human);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+  outline: none;
+}
+.new-agent-overlay .na-name-input::placeholder { color: var(--text-faint); }
+.new-agent-overlay .ap-id-handle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.new-agent-overlay .ap-id-handle .na-handle-preview { color: var(--lime); font-weight: 700; }
+.new-agent-overlay .na-name-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.new-agent-overlay .na-avatar-regen {
+  color: var(--text-soft);
+  text-decoration: none;
+  border-bottom: 0.5px dashed var(--line-bright);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.new-agent-overlay .na-avatar-regen:hover {
+  color: var(--lime);
+  border-color: var(--lime);
+}
+
+/* Avatar frame – the generated SVG sits inside .ap-portrait, so the
+   na-avatar-frame is just the inner wrapper. */
+.new-agent-overlay .na-avatar-frame {
+  width: 100%; height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.new-agent-overlay .na-avatar-frame svg {
+  width: 80%; height: 80%;
+}
+
+/* Textareas + input wrappers inside the .ap-sec slots. */
+.new-agent-overlay .ap-sec .na-textarea-wrap {
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
+  padding: 8px 10px;
+  transition: border-color 0.12s;
+}
+.new-agent-overlay .ap-sec .na-textarea-wrap:focus-within { border-color: var(--lime); }
+.new-agent-overlay .ap-sec textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-human);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+}
+.new-agent-overlay .ap-sec .na-textarea-wrap.tall textarea { min-height: 130px; }
+.new-agent-overlay .ap-sec textarea::placeholder { color: var(--text-faint); white-space: pre-line; }
+.new-agent-overlay .ap-sec .na-input-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.new-agent-overlay .ap-sec .na-desc-count,
+.new-agent-overlay .ap-sec .na-instr-count,
+.new-agent-overlay .ap-sec .na-name-count { color: var(--lime); font-weight: 700; }
+
+/* Knowledge upload zone fits inside the equipment slot. */
+.new-agent-overlay .ap-sec .na-know-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 0.5px dashed var(--line-strong);
+  color: var(--text-soft);
+  font-family: var(--font-human);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.new-agent-overlay .ap-sec .na-know-drop:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.new-agent-overlay .ap-sec .na-know-drop .icon {
+  width: 28px; height: 28px;
+  border: 0.5px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 16px;
+}
+.new-agent-overlay .ap-sec .na-know-drop .title { font-weight: 700; }
+.new-agent-overlay .ap-sec .na-know-drop .deck {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+/* Footer · Cancel ghost + Deploy primary. */
+.new-agent-overlay .na-foot-actions {
+  display: flex;
+  gap: 8px;
+}
+.new-agent-overlay .ap-cta-ghost {
+  background: transparent;
+  border: 0.5px solid var(--line-strong);
+  color: var(--text-soft);
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.new-agent-overlay .ap-cta-ghost:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+.new-agent-overlay .ap-cta[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* (Previously hid .na-classification + .na-head when the overlay used
+   the .ap-card chrome. The overlay now uses .new-agent-modal directly
+   and these elements ARE the chrome — must not be hidden.) */
+
+
+/* ═══════════════════════════════════════════
+   RULES section
+   ═══════════════════════════════════════════ */
+.new-agent-overlay .na-rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.new-agent-overlay .na-rule {
+  display: grid;
+  grid-template-columns: 22px 1fr 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
+}
+.new-agent-overlay .na-rule:focus-within { border-color: var(--lime); }
+.new-agent-overlay .na-rule-num {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--lime);
+  text-align: center;
+}
+.new-agent-overlay .na-rule-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  color: var(--text);
+  padding: 5px 0;
+}
+.new-agent-overlay .na-rule-input::placeholder { color: var(--text-faint); }
+.new-agent-overlay .na-rule-rm {
+  background: transparent;
+  border: 0.5px solid transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 22px; height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+}
+.new-agent-overlay .na-rule-rm:hover { color: var(--red); border-color: var(--red); }
+.new-agent-overlay .na-rule-empty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border: 0.5px dashed var(--line-bright);
+  text-align: center;
+}
+.new-agent-overlay .na-rule-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0.5px dashed var(--line-strong);
+  color: var(--text-soft);
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.12s;
+  margin-top: 6px;
+  align-self: flex-start;
+}
+.new-agent-overlay .na-rule-add .plus { color: var(--lime); font-size: 13px; line-height: 1; }
+.new-agent-overlay .na-rule-add:hover { border-color: var(--lime); color: var(--lime); border-style: solid; }
+.new-agent-overlay .na-rule-add[disabled],
+.new-agent-overlay .na-rule-add.at-cap {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════
+   SKILLS slot grid
+   ─────────────────────────────────────────────
+   Inventory-style 4×2 grid of installable abilities.
+   Empty slots are dashed; filled slots show the
+   ability's icon + short name.
+   ═══════════════════════════════════════════ */
+.new-agent-overlay .na-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.new-agent-overlay .na-skill-slot {
+  aspect-ratio: 1;
+  background: var(--bg);
+  border: 0.5px dashed var(--line-bright);
+  color: var(--text-faint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: all 0.12s;
+  position: relative;
+  padding: 4px;
+}
+.new-agent-overlay .na-skill-slot.empty:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.new-agent-overlay .na-skill-slot.filled {
+  border-style: solid;
+  border-color: var(--lime-dim);
+  background: var(--panel-3);
+  color: var(--lime);
+}
+.new-agent-overlay .na-skill-slot.filled:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+.new-agent-overlay .na-skill-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+.new-agent-overlay .na-skill-slot.empty .na-skill-icon { font-size: 18px; }
+.new-agent-overlay .na-skill-name {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.new-agent-overlay .na-skill-slot.empty .na-skill-name { color: var(--text-faint); }
+
+/* Skill picker popover · floats over the modal so it can extend past
+   the modal boundary if needed. */
+.na-skill-picker {
+  position: fixed;
+  z-index: 9100;
+  min-width: 260px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  display: flex;
+  flex-direction: column;
+}
+.na-skill-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text, #C8C5BE);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-human);
+  transition: background 0.1s;
+}
+.na-skill-pick:last-child { border-bottom: none; }
+.na-skill-pick:hover { background: var(--panel-3, #21211E); }
+.na-skill-pick-icon {
+  width: 28px; height: 28px;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg, #0A0A0A);
+  color: var(--text, #C8C5BE);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.na-skill-pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.na-skill-pick-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+}
+.na-skill-pick-deck {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint, #5C5A52);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ════════════════════════════════════════════════════════════
+   SLIM FORM (post-redesign) — name + bio + avatar + instruction.
+   The earlier rich form (rules / skills / model / knowledge) is
+   gone; configuration lives in the agent profile after creation.
+   These rules sit under the same .new-agent-modal chrome and
+   layer onto the existing input/textarea/avatar styles.
+   ════════════════════════════════════════════════════════════ */
+
+/* Modal body padding override (was 18px 22px 14px). */
+.new-agent-modal > .na-body { padding: 20px 24px 22px; }
+
+/* Header — title + close. */
+.na-step-num {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--lime);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+.na-step-num::before { content: ""; }
+.na-step-num::after  { content: ""; }
+.na-step-title {
+  font-family: var(--font-human);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+.na-step-title em { font-style: normal; color: var(--lime); }
+.na-close {
+  width: 28px; height: 28px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s, color 0.12s;
+}
+.na-close:hover { border-color: var(--text); color: var(--text); }
+
+/* Body stack — single column. Avatar block on top, fields below.
+   Removed the old 2-col grid (.na-grid / .na-side) in favour of a
+   simple top-down flow. */
+.na-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.na-avatar-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.na-portrait {
+  width: 96px;
+  height: 96px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 4px;
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+/* Portrait corner brackets retired · matches the other compact-modal
+   surfaces (no decorative chrome on framed previews). */
+.na-portrait::before,
+.na-portrait::after { display: none; }
+.na-portrait .na-avatar-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.na-portrait .na-avatar-frame::before,
+.na-portrait .na-avatar-frame::after { display: none; }
+/* Avatar regenerate · centered button beneath the portrait. */
+.new-agent-overlay .na-avatar-regen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.new-agent-overlay .na-avatar-regen:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.new-agent-overlay .na-avatar-regen:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.na-avatar-regen-mark { font-size: 11px; color: var(--lime); line-height: 1; }
+/* Vibe caption · the LLM's one-line description that seeded the avatar. */
+.na-avatar-vibe {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.4;
+  min-height: 14px;
+}
+.na-avatar-vibe:empty { display: none; }
+
+/* Fields side — stacked field blocks. */
+.na-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.na-field { display: flex; flex-direction: column; gap: 5px; }
+.na-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+.na-field-label > span:first-child::before { content: "["; color: var(--text-faint); margin-right: 4px; }
+.na-field-label > span:first-child::after  { content: "]"; color: var(--text-faint); margin-left: 4px; }
+.na-field-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.na-field-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.na-field-hint .na-handle-preview {
+  color: var(--lime);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Slim form input/textarea overrides · one consistent typography
+   for every editable surface (name input, intro textarea, instruction
+   textarea). Same font, same size, same left-aligned text — including
+   placeholders — so the form reads as one coherent column.
+   The leading ">" prefix from the older convene-style inputs is
+   suppressed (each field already has a [LABEL] above it). */
+.new-agent-overlay .na-input-wrap::before,
+.new-agent-overlay .na-textarea-wrap::before { content: none; }
+.new-agent-overlay .na-input-wrap input,
+.new-agent-overlay .na-textarea-wrap textarea {
+  padding: 10px 12px;
+  font-family: var(--font-human);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text);
+  text-align: left;
+  letter-spacing: -0.003em;
+}
+.new-agent-overlay .na-input-wrap input::placeholder,
+.new-agent-overlay .na-textarea-wrap textarea::placeholder {
+  font-family: var(--font-human);
+  font-size: 13.5px;
+  color: var(--text-faint);
+  letter-spacing: -0.003em;
+  opacity: 1;
+}
+/* Intro · tall enough to comfortably fit a 1-2 sentence bio without
+   needing a scrollbar in the default empty state. overflow-y stays
+   `auto` so it only appears when the user actually overflows. */
+.new-agent-overlay .na-textarea-wrap.intro textarea {
+  min-height: 96px;
+  resize: vertical;
+  overflow-y: auto;
+}
+/* Instruction · stays monospace because it's markdown source, but
+   the font-size matches the rest of the form so the visual rhythm
+   is consistent. Default 200px tall, with a higher max-height to
+   discourage the scrollbar from appearing on common content. */
+.new-agent-overlay .na-textarea-wrap.tall textarea {
+  min-height: 220px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  overflow-y: auto;
+}
+
+/* Footer — slim summary + cancel/create. */
+.new-agent-modal > .na-foot {
+  border-top: 0.5px solid var(--line-bright);
+  background: var(--panel-2);
+  padding: 12px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.na-foot-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.na-summary-name {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  font-family: var(--font-human);
+  font-size: 13px;
+}
+.na-summary-handle { color: var(--lime); }
+.na-foot-sep { color: var(--text-faint); }
+.na-foot-actions { display: flex; gap: 8px; }
+.na-cancel,
+.na-create {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  cursor: pointer;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.na-cancel:hover { border-color: var(--text); color: var(--text); }
+.na-create {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: var(--bg);
+}
+.na-create:hover { background: transparent; color: var(--lime); }
+.na-create:disabled {
+  background: transparent;
+  border-color: var(--line-bright);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.na-create-mark { font-size: 11px; line-height: 1; }

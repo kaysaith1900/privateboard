@@ -1,0 +1,25 @@
+# deps + builds
+node_modules
+dist
+*.tsbuildinfo
+
+# logs / coverage
+*.log
+coverage
+.nyc_output
+
+# editor / OS
+.DS_Store
+.idea
+.vscode
+*.swp
+.claude/
+
+# local user state (never commit)
+.boardroom-local
+~/.boardroom
+
+# env
+.env
+.env.*
+!.env.example

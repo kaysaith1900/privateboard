@@ -1,0 +1,1082 @@
+/* Boardroom Dark · default spine. Research-dossier discipline in a
+   restrained dark palette. Lime is reserved for the load-bearing
+   anchors only (Bottom Line side bar, P0 badge, high-confidence
+   marks). All other emphasis is carried by typography + spacing. */
+:root {
+  --bg: #0A0A0A;
+  --panel: #131312;
+  --panel-2: #1A1A18;
+  --panel-3: #21211E;
+  --line-bright: #3A3934;
+  --line-strong: #4D4B45;
+  --text: #C8C5BE;
+  --text-soft: #8E8B83;
+  --text-dim: #5C5A52;
+  --text-faint: #5C5A4D;
+  /* Quiet near-white that replaces lime in decorative roles
+     (chapter numbers, list numerals, rule lines, micro-labels). */
+  --accent: #B6B0A2;
+  --accent-faint: #6B6660;
+  /* Load-bearing accent · Bottom Line top rule, P0 priority badge,
+     confidence-high text mark. Token name kept as `--lime` so every
+     existing callsite stays valid; the value is now warm gold to
+     match the Regent brand and the report's italic-em accent. */
+  --lime: #C9A46B;
+  --lime-dim: #5C4422;
+  --red: #B5706A;
+  /* Warm gold for italic accents in headlines (mirrors the Anthropic
+     prototype's `clay-deep` use). Used only on `em` inside h2/h3/rec
+     action / nq question / etc. — never as a decorative fill. */
+  --em: #C9A46B;
+  --em-deep: #B58950;
+  /* Sans + serif both carry explicit CJK fallbacks so Chinese body
+     text doesn't drop characters when "Human Sans"/"Inter"/Charter
+     load but lack CJK glyphs. Songti SC / STSong sit at the deep end
+     of every cascade — they're guaranteed-present on Mac and serve
+     as a last-resort glyph source if the preferred CJK families
+     aren't available (some print / headless contexts). */
+  --mono: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
+          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+          "Source Han Sans CN", "Noto Sans CJK SC",
+          "Songti SC", "STSong",
+          "Segoe UI", system-ui, sans-serif;
+  --sans: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
+          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+          "Source Han Sans CN", "Noto Sans CJK SC",
+          "Songti SC", "STSong",
+          "Segoe UI", system-ui, sans-serif;
+  --font-human: "Inter", -apple-system, BlinkMacSystemFont,
+                "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                "Source Han Sans CN", "Songti SC",
+                system-ui, sans-serif;
+  --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
+           "Georgia", "Songti SC", "STSong", "Source Han Serif CN",
+           "Noto Serif CJK SC", "PingFang SC", serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--line-bright); }
+
+.doc {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 0 96px;
+}
+
+/* Top frame — research-note brand bar. Anthropic-style: serif name on
+   the left (with a small accent dot mark), mono meta + back link on
+   the right. Reads like a journal masthead. */
+.top-rule {
+  background: var(--bg);
+  border-bottom: 0.5px solid var(--line-bright);
+  padding: 18px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.top-rule .crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  text-transform: none;
+}
+.top-rule .crumb::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  background: var(--em);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.top-rule .crumb .accent {
+  color: var(--text-faint);
+  font-style: italic;
+  font-weight: 400;
+}
+.top-rule .back {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--text-soft);
+  text-decoration: none;
+  border: none;
+  padding: 0;
+}
+.top-rule .back::before { content: "← "; color: var(--text-faint); }
+.top-rule .back:hover { color: var(--text); }
+
+.cover {
+  padding: 64px 32px 48px;
+  border-bottom: 1px solid var(--line-bright);
+  background: var(--bg);
+  position: relative;
+}
+/* Kicker — research-note dateline. Anthropic-style: mono uppercase
+   words separated by a 16×1px horizontal hairline (not a vertical
+   pipe). Reads quiet and editorial. */
+.cover-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--em-deep);
+  font-weight: 500;
+  margin: 0 0 56px;
+}
+.cover-tag > span:first-child {
+  color: var(--em-deep);
+  font-weight: 600;
+}
+.cover-tag .pipe {
+  width: 16px;
+  height: 1px;
+  background: var(--em);
+  opacity: 0.7;
+}
+.cover-tag .secondary { color: var(--text-faint); font-weight: 500; letter-spacing: 0.18em; }
+
+/* Title — serif weight 400, magazine scale. Italic accents (em) carry
+   the load-bearing word in warm gold. */
+.cover-title {
+  font-family: var(--serif);
+  font-size: 50px;
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin-bottom: 24px;
+  max-width: 800px;
+}
+.cover-title em {
+  font-style: italic;
+  color: var(--em);
+}
+.cover-title strong { font-weight: 500; color: var(--text); }
+
+/* Deck — serif italic subtitle. The room's subject question lives here
+   and now reads like an editorial deck. */
+.cover-deck {
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-soft);
+  max-width: 720px;
+  margin-bottom: 56px;
+  letter-spacing: -0.005em;
+}
+.cover-deck strong { color: var(--text); font-weight: 500; font-style: italic; }
+
+.cover-byline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 28px;
+  padding-top: 24px;
+  border-top: 0.5px solid var(--line-bright);
+}
+@media (max-width: 720px) {
+  .cover-byline { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+}
+.byline-block .label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.byline-block .value {
+  font-size: 13.5px;
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.45;
+}
+.byline-block .signed-avatars { display: flex; margin-top: 4px; }
+.byline-block .signed-avatars img {
+  width: 22px; height: 22px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 0.5px solid var(--line-strong);
+  background: var(--bg);
+  margin-left: -6px;
+}
+.byline-block .signed-avatars img:first-child { margin-left: 0; }
+
+.cover-versions {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 0.5px solid var(--line-bright);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cover-versions-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.cover-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.cover-version:hover { border-color: var(--text-soft); color: var(--text); }
+.cover-version.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+  pointer-events: none;
+}
+.cover-version .num { font-weight: 700; }
+.cover-version .sep { color: var(--text-faint); }
+.cover-version .hint {
+  color: var(--text-faint);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.04em;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cover-version.active .hint { color: var(--text-soft); }
+
+.body { padding: 0 32px; color: var(--text); }
+
+/* Headlines · serif weight 400, italic accents in warm gold. Sans
+   stays for body and mono kickers. */
+.body h1, .body h2, .body h3, .body h4 {
+  font-family: var(--serif);
+  color: var(--text);
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
+}
+.body h2 em, .body h3 em, .body h4 em {
+  font-style: italic;
+  color: var(--em);
+}
+.body h1 { display: none; }
+.body .chapter-num {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  margin: 64px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--line-bright);
+}
+.body h2 {
+  font-size: 34px;
+  line-height: 1.18;
+  margin: 0 0 22px;
+  padding: 0;
+  border: none;
+  max-width: 760px;
+  letter-spacing: -0.018em;
+}
+.body h2::before { display: none; }
+.body h3 {
+  font-size: 22px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: -0.012em;
+  line-height: 1.28;
+  margin: 32px 0 12px;
+}
+/* H4 stays mono — utilitarian sub-label inside dense sections. */
+.body h4 {
+  font-family: var(--mono);
+  font-size: 11px;
+  margin: 22px 0 8px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-weight: 600;
+}
+.body p { margin: 14px 0; line-height: 1.78; color: var(--text-soft); font-size: 16px; }
+.body p strong { color: var(--text); font-weight: 600; }
+.body p em     { color: var(--em-deep); font-style: italic; }
+.body ul, .body ol { margin: 14px 0 18px 22px; }
+.body li { margin: 8px 0; line-height: 1.72; color: var(--text-soft); font-size: 16px; }
+.body li strong { color: var(--text); font-weight: 600; }
+.body li em     { color: var(--em-deep); font-style: italic; }
+.body ol li::marker { color: var(--text-faint); font-weight: 500; font-family: var(--mono); font-size: 13px; }
+.body strong { color: var(--text); font-weight: 600; }
+.body em { color: var(--em-deep); font-style: italic; }
+.body code {
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 1px 7px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+.body code.badge-confidence-high   { color: var(--lime); border-color: var(--lime-dim); }
+.body code.badge-confidence-medium { color: #C99826; border-color: rgba(201, 152, 38, 0.35); }
+.body code.badge-confidence-low    { color: #C85A5A; border-color: rgba(200, 90, 90, 0.35); }
+.body code.badge-priority-p0 {
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.body code.badge-priority-p1 { background: var(--panel-3); color: var(--text); font-weight: 700; }
+.body code.badge-priority-p2 { color: var(--text-soft); }
+
+.body blockquote {
+  padding: 8px 0 8px 28px;
+  margin: 22px 0;
+  color: var(--text-soft);
+  font-style: italic;
+  font-size: 16.5px;
+  line-height: 1.6;
+  position: relative;
+}
+.body blockquote::before {
+  content: "“";
+  position: absolute;
+  left: 0;
+  top: -4px;
+  font-size: 32px;
+  color: var(--text-faint);
+  font-style: normal;
+  line-height: 1;
+}
+.body blockquote p { margin: 4px 0; }
+.body blockquote em { color: var(--text); font-style: italic; }
+.body blockquote strong { color: var(--text); font-style: normal; }
+
+/* Bottom Line · the report's anchor. Restraint over decoration —
+   thin top double-rule, serif italic judgement, no slab tint shouts. */
+.body section.section-bottom-line {
+  background: transparent;
+  margin: 0 0 56px;
+  padding: 36px 0 32px;
+  border-top: 1.5px solid var(--text);
+  border-bottom: 0.5px solid var(--line-bright);
+  position: relative;
+}
+.body section.section-bottom-line::before {
+  content: "";
+  position: absolute;
+  top: -1.5px;
+  left: 0;
+  width: 56px;
+  height: 1.5px;
+  background: var(--lime);
+}
+.body h2.section-bottom-line {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  margin: 0 0 18px;
+  padding-top: 0;
+  line-height: 1;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+.body section.section-bottom-line p {
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1.42;
+  margin: 12px 0;
+  color: var(--text);
+  max-width: 720px;
+  letter-spacing: -0.005em;
+  font-weight: 400;
+}
+.body section.section-bottom-line p:first-child em {
+  color: var(--text);
+  font-style: italic;
+  font-weight: 400;
+  font-family: var(--serif);
+}
+.body section.section-bottom-line p:not(:first-child) {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  margin-top: 18px;
+}
+.body section.section-bottom-line p strong { color: var(--text); }
+.body section.section-bottom-line + .chapter-num,
+.body .chapter-num.before-bottom-line { display: none; }
+
+/* Thesis · anchor substitute. Pull-statement treatment, no panel. */
+.body h2.section-thesis {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  margin: 0 0 18px;
+  line-height: 1;
+}
+.body section.section-thesis {
+  margin: 0 0 56px;
+  padding: 8px 0 32px;
+  border-bottom: 1px solid var(--line-bright);
+}
+.body section.section-thesis p:first-child {
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1.28;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  font-weight: 400;
+  font-style: italic;
+  margin: 0 0 18px;
+}
+.body section.section-thesis p:first-child em { color: var(--text); font-style: italic; font-family: var(--serif); }
+.body section.section-thesis p:not(:first-child) {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--text-soft);
+}
+
+/* Working hypothesis · essay-style anchor substitute. */
+.body section.section-working-hypothesis {
+  margin-bottom: 40px;
+}
+.body section.section-working-hypothesis p {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.body section.section-working-hypothesis p {
+  font-family: var(--serif);
+  font-size: 17.5px;
+  line-height: 1.72;
+  color: var(--text);
+  font-weight: 400;
+}
+.body section.section-working-hypothesis p:first-child::first-letter {
+  font-family: var(--serif);
+  font-size: 44px;
+  font-weight: 600;
+  float: left;
+  line-height: 1;
+  padding: 4px 10px 0 0;
+  color: var(--text);
+}
+
+.body section.section-frame-shift { margin-bottom: 32px; }
+.body section.section-frame-shift p:first-child { font-size: 17px; line-height: 1.6; color: var(--text); }
+
+/* Headline Findings · 3 pillars on wide screens. */
+.body section.section-headline-findings .pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin: 28px 0 16px;
+}
+@media (max-width: 760px) {
+  .body section.section-headline-findings .pillars-grid { grid-template-columns: 1fr; gap: 28px; }
+}
+.body section.section-headline-findings .pillar {
+  border-top: 3px solid var(--text);
+  padding-top: 18px;
+}
+.body section.section-headline-findings .pillar .pillar-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.body section.section-headline-findings .pillar h3 {
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.28;
+  color: var(--text);
+  margin: 0 0 12px;
+  padding: 0;
+  border: none;
+  text-transform: none;
+  letter-spacing: -0.012em;
+}
+.body section.section-headline-findings .pillar h3 em { font-style: italic; color: var(--em); }
+.body section.section-headline-findings .pillar p,
+.body section.section-headline-findings .pillar li {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-soft);
+  margin: 8px 0;
+}
+.body section.section-headline-findings .pillar p strong,
+.body section.section-headline-findings .pillar li strong { color: var(--text); }
+.body section.section-headline-findings .pillar code.badge-confidence-high { color: var(--lime); }
+.body section.section-headline-findings .pillar code.badge-confidence-medium { color: #C99826; }
+.body section.section-headline-findings .pillar code.badge-confidence-low { color: #C85A5A; }
+
+/* Big Ideas · numbered list, lighter than headline-findings. */
+.body section.section-big-ideas ol {
+  counter-reset: bigidea;
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+}
+.body section.section-big-ideas ol > li {
+  counter-increment: bigidea;
+  position: relative;
+  padding: 18px 0 18px 72px;
+  border-top: 0.5px solid var(--line-bright);
+  line-height: 1.6;
+}
+.body section.section-big-ideas ol > li:last-child { border-bottom: 0.5px solid var(--line-bright); }
+.body section.section-big-ideas ol > li::before {
+  content: counter(bigidea);
+  position: absolute;
+  top: 14px;
+  left: 0;
+  color: var(--em);
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1;
+}
+.body section.section-big-ideas ol > li p { margin: 6px 0; font-size: 14.5px; }
+.body section.section-big-ideas ol > li p:first-child strong {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  line-height: 1.3;
+}
+.body section.section-big-ideas ol > li p em { color: var(--em-deep); font-style: italic; }
+
+.body section.section-convergence blockquote {
+  background: transparent;
+  padding: 14px 0 14px 0;
+  font-style: normal;
+  font-size: 14.5px;
+  color: var(--text-soft);
+  margin: 18px 0;
+  border-top: 0.5px solid var(--line-bright);
+  border-bottom: 0.5px solid var(--line-bright);
+}
+.body section.section-convergence blockquote::before { display: none; }
+.body section.section-convergence blockquote strong { color: var(--text); }
+
+.body section.section-divergence table.md-table { margin: 22px 0; }
+.body section.section-divergence h4 { margin-top: 22px; }
+
+.body section.section-planning-assumption {
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 22px 28px;
+  margin: 18px 0 28px;
+  position: relative;
+}
+.body section.section-planning-assumption::before {
+  content: "";
+  position: absolute;
+  top: -0.5px;
+  left: 0;
+  width: 48px;
+  height: 1.5px;
+  background: var(--accent);
+}
+.body section.section-planning-assumption blockquote {
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: var(--text);
+  font-style: normal;
+  font-size: 15px;
+}
+.body section.section-planning-assumption blockquote::before { display: none; }
+.body section.section-planning-assumption blockquote strong:first-child {
+  display: block;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 10px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+.body section.section-planning-assumption blockquote em { color: var(--text-soft); }
+
+/* Recommendations / Considerations · editorial-style cards. Each rec
+   reads top-down: rule (priority + 01 + thin line) → action headline →
+   rationale prose → inline meta row → italic risk one-liner. */
+.body section.section-recommendations ol,
+.body section.section-considerations ol {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+}
+.body section.section-recommendations li.rec-item,
+.body section.section-considerations li.rec-item {
+  position: relative;
+  padding: 0;
+  margin: 44px 0 0;
+  list-style: none;
+  border: none;
+  background: transparent;
+}
+.body section.section-recommendations li.rec-item:first-child,
+.body section.section-considerations li.rec-item:first-child {
+  margin-top: 24px;
+}
+.body section.section-recommendations li.rec-item::before,
+.body section.section-considerations li.rec-item::before { display: none; }
+
+/* The rule bar at the top of each rec — `01` + `P0` + thin line. */
+.rec-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.rec-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.28em;
+  flex: 0 0 auto;
+}
+.rec-rule code {
+  flex: 0 0 auto;
+  letter-spacing: 0.12em;
+}
+.rec-rule-line {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line-bright);
+  display: block;
+}
+.rec-priority-p0 .rec-rule-line { background: var(--text); height: 1px; }
+
+/* Action · serif headline weight 500. The recommendation's takeaway
+   reads as a research-note finding, not a button label. */
+.rec-action {
+  font-family: var(--serif);
+  font-size: 24px;
+  line-height: 1.28;
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: -0.014em;
+  margin: 0 0 18px;
+  max-width: 68ch;
+}
+.rec-action strong { color: var(--text); font-weight: 500; }
+.rec-action em { color: var(--em); font-style: italic; }
+
+/* Rationale · body prose, no label. */
+.rec-rationale {
+  font-size: 15px;
+  line-height: 1.72;
+  color: var(--text-soft);
+  margin: 0 0 22px;
+  max-width: 70ch;
+}
+.rec-rationale strong { color: var(--text); }
+.rec-rationale em { color: var(--text); font-style: italic; }
+
+/* Meta · single inline row. Mono micro-labels next to values, separated
+   by middle dots. Wraps gracefully on narrow screens. */
+.rec-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.rec-meta-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.rec-meta-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.rec-meta-value {
+  color: var(--text);
+  font-weight: 500;
+}
+.rec-meta-value em { color: var(--text); font-style: italic; }
+.rec-meta-sep {
+  color: var(--text-faint);
+  user-select: none;
+}
+
+/* Risk · quiet typographic one-liner. Mono uppercase label, em-dash
+   separator, italic body. No icon, no red — restraint signals
+   seriousness more than alarm color does. */
+.rec-risk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  margin: 0;
+  font-style: italic;
+}
+.rec-risk-prefix {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.rec-risk-sep {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-style: normal;
+}
+.rec-risk-text { flex: 1 1 auto; min-width: 0; }
+.rec-risk-text strong { color: var(--text); font-style: normal; font-weight: 600; }
+.rec-risk-text em     { color: var(--text); font-style: italic; }
+
+/* The Bet · keeps the older in-prose numbered layout. */
+.body section.section-the-bet ol {
+  counter-reset: rec; list-style: none; margin: 24px 0 0; padding: 0;
+}
+.body section.section-the-bet ol > li {
+  counter-increment: rec;
+  position: relative;
+  padding: 22px 0 22px 64px;
+  margin: 0;
+  line-height: 1.6;
+  border-top: 0.5px solid var(--line-bright);
+}
+.body section.section-the-bet ol > li:last-child { border-bottom: 0.5px solid var(--line-bright); }
+.body section.section-the-bet ol > li::before {
+  content: counter(rec, decimal-leading-zero);
+  position: absolute; top: 24px; left: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+}
+.body section.section-the-bet ol > li p { margin: 6px 0; font-size: 14.5px; }
+.body section.section-the-bet ol > li p:first-child strong { font-size: 16.5px; color: var(--text); }
+.body section.section-the-bet > blockquote {
+  margin-top: 24px;
+  background: rgba(181, 112, 106, 0.06);
+  padding: 14px 20px;
+  border-top: 1.5px solid var(--red);
+  font-style: normal;
+}
+
+/* Why Now · single-callout treatment. */
+.body section.section-why-now {
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 24px 28px;
+  margin: 22px 0 32px;
+  position: relative;
+}
+.body section.section-why-now::before {
+  content: "";
+  position: absolute;
+  top: -0.5px;
+  left: 0;
+  width: 56px;
+  height: 1.5px;
+  background: var(--accent);
+}
+.body section.section-why-now p { font-size: 14.5px; line-height: 1.65; }
+.body section.section-why-now p:first-child { color: var(--text); font-weight: 500; }
+
+/* Two Paths · 2-column comparison block. */
+.body section.section-two-paths .two-paths-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 22px 0;
+}
+@media (max-width: 720px) {
+  .body section.section-two-paths .two-paths-grid { grid-template-columns: 1fr; }
+}
+.body section.section-two-paths .path {
+  border-top: 2px solid var(--text);
+  padding-top: 14px;
+}
+.body section.section-two-paths .path .path-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.body section.section-two-paths .path h3 { font-size: 16px; margin: 0 0 10px; }
+.body section.section-two-paths .path p { font-size: 13.5px; color: var(--text-soft); margin: 6px 0; }
+
+.body section.section-pre-mortem table.md-table { margin: 18px 0; }
+
+/* New Questions · op-ed style. Top rule (Q1 mono · thin line · director
+   name right) → italic display question → why-it-matters body prose.
+   Generous whitespace; no boxes. */
+.body section.section-new-questions ol {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+}
+.body section.section-new-questions li.nq-item {
+  position: relative;
+  padding: 0;
+  margin: 44px 0 0;
+  list-style: none;
+  border: none;
+}
+.body section.section-new-questions li.nq-item:first-child { margin-top: 24px; }
+.body section.section-new-questions li.nq-item::before { display: none; }
+
+.nq-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.nq-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.28em;
+  flex: 0 0 auto;
+}
+.nq-rule-line {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line-bright);
+  display: block;
+}
+.nq-attribution {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.nq-attribution-prefix { color: var(--text-faint); }
+.nq-attribution-who    { color: var(--text); font-weight: 600; letter-spacing: 0.18em; }
+
+/* Question · serif upright weight 500. Reads like an editorial
+   research prompt — restrained but clearly the most important sentence
+   in the section. Italic accents in warm gold. */
+.nq-question {
+  font-family: var(--serif);
+  font-size: 24px;
+  line-height: 1.32;
+  color: var(--text);
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: -0.014em;
+  margin: 0 0 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  max-width: 60ch;
+}
+.nq-question strong { color: var(--text); font-weight: 500; }
+.nq-question em     { color: var(--em); font-style: italic; }
+
+.nq-why {
+  font-size: 15px;
+  line-height: 1.72;
+  color: var(--text-soft);
+  margin: 0;
+  max-width: 64ch;
+}
+.nq-why strong { color: var(--text); }
+.nq-why em     { color: var(--text); font-style: italic; }
+
+.body h2.section-methodology {
+  margin-top: 80px;
+  padding-top: 22px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-weight: 700;
+  border-top: 0.5px solid var(--line-bright);
+}
+.body section.section-methodology { color: var(--text-soft); font-size: 12px; line-height: 1.55; }
+.body section.section-methodology p { margin: 8px 0; }
+.body section.section-methodology em { color: var(--text-faint); font-style: italic; }
+.body section.section-methodology strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.body table.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 22px 0 24px;
+  font-size: 13.5px;
+  border-top: 1.5px solid var(--text);
+}
+.body table.md-table th,
+.body table.md-table td {
+  padding: 12px 14px;
+  border-bottom: 0.5px solid var(--line-bright);
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.55;
+}
+.body table.md-table th {
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-bottom: 0.5px solid var(--line-strong);
+  padding: 10px 14px;
+}
+.body table.md-table td:first-child {
+  font-family: var(--font-human);
+  font-weight: 600;
+  color: var(--text);
+}
+.body table.md-table tr:hover td { background: rgba(255, 255, 255, 0.018); }
+
+.body pre.codeblock {
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 12px 14px;
+  margin: 14px 0;
+  overflow-x: auto;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.body pre.codeblock code { background: transparent; border: none; padding: 0; font-size: 12px; }
+
+/* Mermaid figure · framed like a research-note exhibit. The H3 above
+   each chart already reads as the caption; this is its frame. */
+.body pre.mermaid {
+  background: var(--panel-2);
+  border-top: 1.5px solid var(--text);
+  border-bottom: 0.5px solid var(--line-bright);
+  padding: 28px 24px 24px;
+  margin: 22px 0 28px;
+  text-align: center;
+  overflow-x: auto;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.4;
+  min-height: 360px;
+}
+.body pre.mermaid svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+.body pre.mermaid svg text {
+  font-family: var(--font-human) !important;
+}
+/* Tighten mermaid's own title — the H3 above already names the chart,
+   so we hide the duplicate inside the SVG. */
+.body pre.mermaid svg .quadrant-chart > .quadrant-title,
+.body pre.mermaid svg text.quadrant-title { display: none; }
+/* Section heading just before a mermaid chart reads as an exhibit caption. */
+.body section.section-options-analysis h3,
+.body h3 + pre.mermaid {
+  /* leave the existing H3 styling — the framing comes from pre.mermaid above. */
+}
+
+.foot-rule {
+  margin: 56px 32px 0;
+  padding: 18px 0;
+  border-top: 0.5px solid var(--line-bright);
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+}
+
+.placeholder {
+  text-align: center;
+  padding: 120px 32px;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+}
+.placeholder.error { color: var(--red); }

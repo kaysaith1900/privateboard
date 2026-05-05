@@ -1,0 +1,895 @@
+/* ═══════════════════════════════════════════
+   ROOM SETTINGS OVERLAY
+   Shows the current room's topic, members, configuration,
+   and statistics. Members can be added/removed inline.
+   ═══════════════════════════════════════════ */
+
+.room-settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 950;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.room-settings-overlay.open {
+  display: flex;
+  animation: rs-fade 0.14s ease-out;
+}
+@keyframes rs-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.room-settings-modal {
+  position: relative;
+  width: 100%;
+  /* Trimmed from 760 to 700 so the panel doesn't dominate at the
+     viewport's edges; the 4-col member grid still fits comfortably
+     and section content reads tighter. */
+  max-width: 700px;
+  max-height: calc(100vh - 48px);
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text, #C8C5BE);
+  animation: rs-rise 0.18s ease-out;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.room-settings-modal > .rs-classification,
+.room-settings-modal > .rs-head,
+.room-settings-modal > .rs-foot {
+  flex: 0 0 auto;
+}
+.room-settings-modal > .rs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+@keyframes rs-rise {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.room-settings-modal::before, .room-settings-modal::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.room-settings-modal::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.room-settings-modal::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+.rs-classification {
+  background: var(--panel-2, #1A1A18);
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 5px 14px;
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rs-classification .right {
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.12em;
+}
+
+.rs-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px 12px;
+  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.rs-head .meta {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+.rs-head .meta .live {
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+}
+.rs-head .meta .live::before {
+  content: "● ";
+  animation: rs-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.rs-head .title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.rs-head .title::before {
+  content: "▸ ";
+  color: var(--lime, #6FB572);
+}
+.rs-head .close-btn {
+  width: 24px; height: 24px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-dim, #5C5A52);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--mono);
+  border-radius: 3px;
+  transition: all 0.12s;
+}
+.rs-head .close-btn:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+.rs-body { padding: 14px 16px 4px; }
+
+/* Legacy section block (kept for any leftover .rs-block consumers). */
+.rs-block { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 0.5px solid var(--line, #1F1E1A); }
+.rs-block:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+
+/* ─── Configuration · 3-row compact spec sheet ──────────────────────
+   Each row is a single line: a short label + hint on the left, an
+   inline control on the right. No nested boxed items, no slider, no
+   verbose multi-line callouts. Hairline divider between rows so the
+   list reads as a tidy table. */
+.rs-config-list {
+  display: flex;
+  flex-direction: column;
+}
+.rs-config-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--line, #1F1E1A);
+}
+.rs-config-row:last-child { border-bottom: none; }
+.rs-config-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rs-config-row-name {
+  font-family: var(--font-human);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.005em;
+}
+.rs-config-row-hint {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim, #5C5A52);
+}
+@media (max-width: 600px) {
+  .rs-config-row { grid-template-columns: 1fr; gap: 6px; }
+}
+
+/* Tone + intensity chip rows · explicit grid columns (4 / 3) so the
+   chips always sit in a single row at content width. flex-wrap was
+   the prior approach but allowed chips to fold onto a second line on
+   tight viewports — the user wants them locked to one row. */
+.rs-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  gap: 3px;
+}
+.rs-intensity-chips {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 3px;
+}
+
+/* Tighter chip variant · single-line label paired with a small `i`
+   info icon. Sharp corners (no border-radius), compact padding,
+   chips size to content. The `.rs-chip-info` opens a hover popover
+   carrying the description text — separated out from the label so
+   clicking the label still stages the chip's value. */
+.rs-chip-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 0;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  white-space: nowrap;
+}
+.rs-chip-mini:hover {
+  border-color: var(--lime-dim, #2D5532);
+  color: var(--lime, #6FB572);
+}
+.rs-chip-mini.active {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border-color: var(--lime, #6FB572);
+}
+.rs-chip-label { line-height: 1; }
+.rs-chip-info {
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-human);
+  font-style: italic;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-faint, #3A382F);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  cursor: help;
+  user-select: none;
+  transition: color 0.12s, border-color 0.12s;
+}
+.rs-chip-mini:hover .rs-chip-info {
+  color: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+}
+.rs-chip-mini.active .rs-chip-info {
+  color: var(--bg, #0A0A0A);
+  border-color: var(--bg, #0A0A0A);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* Info popover · hover-driven floating panel carrying the chip's
+   description. Title + body, anchored above/below the icon. Higher
+   z-index than the modal so it floats on top. */
+.rs-info-popover {
+  position: fixed;
+  z-index: 9100;
+  max-width: 320px;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  padding: 10px 12px;
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-soft, #8E8B83);
+  letter-spacing: -0.005em;
+  border-radius: 4px;
+}
+.rs-info-popover-head {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.rs-info-popover-body { color: var(--text-soft, #8E8B83); }
+
+/* Directors trigger button · stacks the first 5 active director
+   avatars with a +N overflow chip + count label, matching the
+   new-room composer's .cmp-cast-btn vocabulary. Click opens the
+   picker popover. */
+.rs-cast-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft, #8E8B83);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px 4px 6px;
+  cursor: pointer;
+  border-radius: 0;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.rs-cast-btn:hover,
+.rs-cast-btn.on {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+.rs-cast-stack {
+  display: inline-flex;
+  align-items: center;
+}
+.rs-cast-av {
+  width: 18px;
+  height: 18px;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg, #0A0A0A);
+  margin-left: -4px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border-radius: 0;
+}
+.rs-cast-av:first-child { margin-left: 0; }
+.rs-cast-more {
+  margin-left: -4px;
+  width: 18px; height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-faint, #3A382F);
+  border-radius: 0;
+}
+.rs-cast-count { white-space: nowrap; }
+.rs-cast-chevron {
+  font-size: 9px;
+  color: var(--text-faint, #3A382F);
+  margin-left: 2px;
+}
+.rs-cast-btn:hover .rs-cast-chevron,
+.rs-cast-btn.on .rs-cast-chevron { color: var(--lime, #6FB572); }
+
+/* Picker popover · same composition as the room composer's
+   .composer-pick-pop · 360px wide, scrollable list of director rows. */
+.rs-cast-pop {
+  position: fixed;
+  z-index: 9001;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: 56vh;
+  overflow-y: auto;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  border-radius: 4px;
+}
+.rs-cast-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--line, #1F1E1A);
+  position: sticky;
+  top: 0;
+  background: var(--panel, #131312);
+  z-index: 1;
+}
+.rs-cast-title {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.rs-cast-hint {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.rs-cast-list { padding: 2px 0; }
+.rs-cast-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* Inline memory toggle · checkbox + single-line label. Drops the
+   verbose 2-line description box used previously; the row's hint
+   above carries the explanation. */
+.rs-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  cursor: pointer;
+  border-radius: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+.rs-toggle-row:hover { border-color: var(--text-faint, #3A382F); }
+.rs-toggle-row .rs-incognito-check {
+  margin: 0;
+  accent-color: var(--lime, #6FB572);
+  cursor: pointer;
+  width: 13px;
+  height: 13px;
+}
+.rs-toggle-label {
+  font-family: var(--font-human);
+  font-size: 12px;
+  color: var(--text-soft, #8E8B83);
+  letter-spacing: -0.005em;
+}
+.rs-toggle-row:has(.rs-incognito-check:checked) {
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.rs-toggle-row:has(.rs-incognito-check:checked) .rs-toggle-label {
+  color: var(--lime, #6FB572);
+}
+
+/* Section label · matches the new composer's mono micro-type kicker.
+   No leading lime bullet — the inline count chip carries enough
+   visual weight, and dropping the bullet lets the labels sit flush
+   left like the rest of the prototype's section heads. */
+.rs-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-faint, #3A382F);
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rs-label .count {
+  margin-left: auto;
+  font-size: 8.5px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 1px 6px;
+  text-transform: lowercase;
+  border-radius: 2px;
+}
+
+/* Topic display (read-only) */
+.rs-topic {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft, #8E8B83);
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 8px 11px;
+  letter-spacing: -0.003em;
+  border-radius: 3px;
+}
+.rs-topic::before {
+  content: "> ";
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+}
+
+/* Members section · flat list of horizontal rows mirroring the
+   new-room composer's `.composer-pick-row` (checkbox · avatar · name
+   + role · model badge · info button). Compact, hairline-separated,
+   one screen-line per director. The whole list scrolls inside a
+   bordered shell so a long catalog stays inside the section. */
+.rs-members {
+  display: flex;
+  flex-direction: column;
+  max-height: 380px;
+  overflow-y: auto;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg, #0A0A0A);
+  border-radius: 3px;
+  padding: 2px 0;
+}
+.rs-members::-webkit-scrollbar { width: 6px; }
+.rs-members::-webkit-scrollbar-thumb { background: var(--line-strong); }
+
+.rs-member-section-label {
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  margin: 6px 0 3px;
+  font-weight: 700;
+}
+
+/* Row · 5-col grid: checkbox · avatar · main · model · info. Whole
+   row is clickable (toggles staged membership); the avatar + info
+   columns route to the agent profile via separate handlers. */
+.rs-member {
+  display: grid;
+  grid-template-columns: 12px 22px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 10px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  transition: background 0.1s;
+}
+.rs-member:hover { background: var(--panel-2, #1A1A18); }
+.rs-member.on { background: var(--panel-3, #21211E); }
+.rs-member.on .rs-member-name { color: var(--lime, #6FB572); }
+
+.rs-member-check {
+  margin: 0;
+  width: 12px; height: 12px;
+  accent-color: var(--lime, #6FB572);
+  cursor: pointer;
+}
+
+.rs-member-img {
+  width: 22px; height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.rs-member-img:hover { border-color: var(--lime, #6FB572); }
+.rs-member-av {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.rs-member-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.rs-member-name {
+  font-family: var(--font-human);
+  font-size: 12.5px;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rs-member-tag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* Was text-faint · same readability problem as
+     `.composer-pick-tag` — bumped to text-dim so the role label
+     (skeptic / physicist / …) is actually legible. */
+  color: var(--text-dim, #5C5A52);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-member-model {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft, #8E8B83);
+  padding: 1px 5px;
+  border: 0.5px solid var(--line, #1F1E1A);
+  background: var(--panel-2, #1A1A18);
+  white-space: nowrap;
+  border-radius: 2px;
+}
+
+.rs-member-info {
+  width: 16px; height: 16px;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: transparent;
+  color: var(--text-faint, #3A382F);
+  font-family: var(--font-human);
+  font-style: italic;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s, color 0.12s;
+  border-radius: 2px;
+}
+.rs-member-info:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+.rs-empty {
+  color: var(--text-faint, #3A382F);
+  font-size: 11px;
+  padding: 8px 10px;
+  border: 0.5px dashed var(--line-bright, #2A2A26);
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+}
+
+/* History list — chronological log of room mutations */
+.rs-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg, #0A0A0A);
+  max-height: 160px;
+  overflow-y: auto;
+  border-radius: 3px;
+}
+.rs-history-row {
+  display: grid;
+  grid-template-columns: 100px 14px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-soft, #8E8B83);
+  letter-spacing: -0.003em;
+}
+.rs-history-row + .rs-history-row {
+  border-top: 0.5px dotted rgba(255, 255, 255, 0.04);
+}
+.rs-history-row .h-time {
+  font-size: 9px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.rs-history-row .h-icon {
+  font-weight: 700;
+  text-align: center;
+  font-size: 10.5px;
+}
+.rs-history-row .h-label {
+  color: var(--text, #C8C5BE);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+.rs-history-row .h-who {
+  font-size: 8.5px;
+  color: var(--text-faint, #3A382F);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+.rs-history-row.h-add    .h-icon { color: var(--lime, #6FB572); }
+.rs-history-row.h-remove .h-icon { color: var(--red, #B5706A); }
+.rs-history-row.h-config .h-icon { color: var(--amber, #B59560); }
+.rs-history-row.h-system .h-icon { color: var(--text-dim, #5C5A52); }
+
+/* Configuration block */
+.rs-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+@media (max-width: 600px) { .rs-config-grid { grid-template-columns: 1fr; } }
+
+.rs-config-item {
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 7px 9px;
+  border-radius: 3px;
+}
+.rs-config-item.full { grid-column: 1 / -1; }
+
+/* Incognito · per-room opt-out for long-term memory extraction.
+   Renders as a labeled checkbox row with a short rationale. */
+.rs-incognito-row {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 11px;
+  background: var(--bg);
+  border: 0.5px dashed var(--line-strong);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.rs-incognito-row:hover { border-color: var(--text-faint); }
+.rs-incognito-check {
+  margin: 2px 0 0;
+  accent-color: var(--lime);
+  cursor: pointer;
+}
+.rs-incognito-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rs-incognito-title {
+  font-family: var(--font-human);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.rs-incognito-desc {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+.rs-incognito-row:has(.rs-incognito-check:checked) {
+  border-style: solid;
+  border-color: var(--lime);
+  background: var(--panel-2);
+}
+.rs-incognito-row:has(.rs-incognito-check:checked) .rs-incognito-title {
+  color: var(--lime);
+}
+.rs-config-item-label {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  margin-bottom: 5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rs-config-item-label::before { content: "[ "; color: var(--text-dim); }
+.rs-config-item-label::after { content: " ]"; color: var(--text-dim); }
+.rs-config-item-label .hint {
+  font-weight: 400;
+  color: var(--text-dim);
+  text-transform: lowercase;
+  letter-spacing: 0;
+}
+.rs-config-item-label .hint::before, .rs-config-item-label .hint::after { content: ""; }
+
+/* Legacy v1 rules removed · `.rs-mode-grid`, `.rs-chip`, `.rs-temp-*`,
+   `.rs-style-*` were overriding the v2 rules above (same specificity,
+   later in source order). The current overlay uses `.rs-mode-grid`
+   (flex) + `.rs-chip-mini` defined earlier in this file. */
+
+/* Stats */
+.rs-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line-bright, #2A2A26);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rs-stat {
+  background: var(--panel, #131312);
+  padding: 7px 8px;
+  text-align: center;
+}
+.rs-stat .v {
+  font-family: var(--mono);
+  font-size: 14.5px;
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+.rs-stat .l {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-faint, #3A382F);
+  margin-top: 3px;
+  font-weight: 700;
+}
+@media (max-width: 600px) { .rs-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* Footer actions */
+.rs-foot {
+  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 9px 16px;
+  background: var(--panel-2, #1A1A18);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.rs-foot .saved {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+}
+.rs-foot .saved::before {
+  content: "○ ";
+}
+.rs-foot .saved.pending {
+  color: var(--amber, #B59560);
+  animation: rs-pending-pulse 1.4s ease-in-out infinite;
+}
+.rs-foot .saved.pending::before { content: "● "; }
+.rs-foot .saved.error { color: var(--red, #B5706A); animation: none; }
+.rs-foot .saved.error::before { content: "✕ "; }
+@keyframes rs-pending-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+
+.rs-action {
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding: 6px 11px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: transparent;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.12s;
+}
+.rs-action:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+/* Confirm button picks up a primary-action treatment when there are
+   staged changes, so the user knows the action is live. */
+.rs-action.dirty {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border-color: var(--lime, #6FB572);
+}
+.rs-action.dirty:hover {
+  background: transparent;
+  color: var(--lime, #6FB572);
+}
+.rs-action[disabled] { opacity: 0.55; cursor: progress; pointer-events: none; }
+.rs-action.danger { color: var(--red, #B5706A); border-color: rgba(181, 112, 106, 0.4); }
+.rs-action.danger:hover { background: var(--red, #B5706A); color: var(--bg, #0A0A0A); border-color: var(--red, #B5706A); }
+
+/* Icon-only buttons in the room-head action bar */
+.head-icon-btn,
+.room-settings-trigger {
+  width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text-soft, #8E8B83);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.12s;
+}
+.head-icon-btn:hover,
+.room-settings-trigger:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+@media (max-width: 600px) {
+  .room-settings-overlay { padding: 12px; }
+  .rs-head { padding: 12px 14px; }
+  .rs-body { padding: 12px 14px 4px; }
+  .rs-foot { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
+  .rs-foot > * { text-align: center; }
+}

@@ -1,0 +1,11 @@
+-- Per-agent carrier preference.
+--
+-- The same modelV (e.g. "gpt-5-5") may be reachable via multiple
+-- carriers when the user has more than one provider key configured —
+-- e.g. OpenRouter (`google/gpt-5.5`) vs OpenAI direct (`gpt-5.5`).
+-- The adapter's default precedence rules pick one carrier; this column
+-- lets each agent override that pick. NULL means "use the default
+-- precedence" (the prior behavior). Values: 'openrouter' | 'anthropic'
+-- | 'openai' | 'google' | 'xai'. Validation lives in the application
+-- layer; SQLite isn't asked to enforce the enum.
+ALTER TABLE agents ADD COLUMN carrier_pref TEXT;

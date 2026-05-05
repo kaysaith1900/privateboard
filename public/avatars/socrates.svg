@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -4 48 56" shape-rendering="crispEdges">
+  <!-- 48×52 head-only · Socrates · rounded face (chamfered top corners
+       + tapered chin), bald scalp + laurel wreath + bushy gray brows
+       + cascading white beard + small neck stub.
+       Palettes:
+         skin    #FFE5C5 · #FFCFA2 · #F2B585 · #D69570 · #A8704A · #5A3520
+         beard   #FFFFFF · #F0EDE5 · #DAD5C8 · #B8B0A0 · #8E8675 · #4D4538
+         laurel  #7CD850 · #5DBE3F · #4DA53D · #2F7A24 · #1A4818 · #0E2A0E
+         berry   #FFE072 · #F2C037 · #C99826 · #7A5A14
+  -->
+
+  <!-- ═══ LAUREL WREATH ═══ -->
+  <!-- top leaves (rising) -->
+  <rect x="22" y="2" width="4" height="1" fill="#1A4818"/>
+  <rect x="22" y="3" width="4" height="1" fill="#2F7A24"/>
+  <rect x="23" y="4" width="2" height="1" fill="#5DBE3F"/>
+  <rect x="16" y="3" width="3" height="1" fill="#1A4818"/>
+  <rect x="15" y="4" width="4" height="1" fill="#2F7A24"/>
+  <rect x="16" y="5" width="3" height="1" fill="#4DA53D"/>
+  <rect x="29" y="3" width="3" height="1" fill="#1A4818"/>
+  <rect x="29" y="4" width="4" height="1" fill="#2F7A24"/>
+  <rect x="29" y="5" width="3" height="1" fill="#4DA53D"/>
+  <rect x="9"  y="5" width="3" height="1" fill="#1A4818"/>
+  <rect x="9"  y="6" width="4" height="1" fill="#2F7A24"/>
+  <rect x="10" y="7" width="3" height="1" fill="#4DA53D"/>
+  <rect x="36" y="5" width="3" height="1" fill="#1A4818"/>
+  <rect x="35" y="6" width="4" height="1" fill="#2F7A24"/>
+  <rect x="35" y="7" width="3" height="1" fill="#4DA53D"/>
+  <!-- laurel circlet band -->
+  <rect x="8"  y="8"  width="32" height="1" fill="#0E2A0E"/>
+  <rect x="7"  y="9"  width="34" height="1" fill="#1A4818"/>
+  <rect x="7"  y="10" width="34" height="2" fill="#2F7A24"/>
+  <rect x="7"  y="12" width="34" height="1" fill="#4DA53D"/>
+  <rect x="9"  y="11" width="3" height="1" fill="#5DBE3F"/>
+  <rect x="14" y="11" width="3" height="1" fill="#7CD850"/>
+  <rect x="20" y="11" width="3" height="1" fill="#5DBE3F"/>
+  <rect x="26" y="11" width="3" height="1" fill="#7CD850"/>
+  <rect x="32" y="11" width="3" height="1" fill="#5DBE3F"/>
+  <!-- berries -->
+  <rect x="13" y="9" width="2" height="2" fill="#7A5A14"/>
+  <rect x="13" y="9" width="2" height="1" fill="#F2C037"/>
+  <rect x="13" y="9" width="1" height="1" fill="#FFE072"/>
+  <rect x="22" y="9" width="2" height="2" fill="#7A5A14"/>
+  <rect x="22" y="9" width="2" height="1" fill="#F2C037"/>
+  <rect x="22" y="9" width="1" height="1" fill="#FFE072"/>
+  <rect x="31" y="9" width="2" height="2" fill="#7A5A14"/>
+  <rect x="31" y="9" width="2" height="1" fill="#F2C037"/>
+  <rect x="31" y="9" width="1" height="1" fill="#FFE072"/>
+
+  <!-- ═══ HEAD · ROUNDED face shape ═══
+       Chamfered corners: top narrows to 24w, then 28w, then full 30w main,
+       then narrows back to 28w, 24w, 18w (chin tip). -->
+
+  <!-- Outline (silhouette pixels for the rounded shape) -->
+  <!-- top corner chamfers -->
+  <rect x="13" y="13" width="22" height="1" fill="#5A3520"/>
+  <rect x="11" y="14" width="2"  height="1" fill="#5A3520"/>
+  <rect x="35" y="14" width="2"  height="1" fill="#5A3520"/>
+  <rect x="9"  y="15" width="2"  height="1" fill="#5A3520"/>
+  <rect x="37" y="15" width="2"  height="1" fill="#5A3520"/>
+  <!-- vertical sides (main face height) -->
+  <rect x="8"  y="16" width="1" height="14" fill="#5A3520"/>
+  <rect x="39" y="16" width="1" height="14" fill="#5A3520"/>
+  <!-- bottom corner chamfers (chin taper) -->
+  <rect x="9"  y="30" width="2" height="1" fill="#5A3520"/>
+  <rect x="37" y="30" width="2" height="1" fill="#5A3520"/>
+  <rect x="11" y="31" width="2" height="1" fill="#5A3520"/>
+  <rect x="35" y="31" width="2" height="1" fill="#5A3520"/>
+  <rect x="13" y="32" width="22" height="1" fill="#5A3520"/>
+
+  <!-- Skin fill (rounded interior) -->
+  <rect x="13" y="13" width="22" height="1" fill="#F2B585"/>
+  <rect x="11" y="14" width="26" height="1" fill="#F2B585"/>
+  <rect x="9"  y="15" width="30" height="1" fill="#F2B585"/>
+  <rect x="9"  y="16" width="30" height="14" fill="#F2B585"/>
+  <rect x="9"  y="30" width="30" height="1" fill="#F2B585"/>
+  <rect x="11" y="31" width="26" height="1" fill="#F2B585"/>
+  <rect x="13" y="32" width="22" height="1" fill="#F2B585"/>
+
+  <!-- Forehead highlight -->
+  <rect x="13" y="13" width="22" height="2" fill="#FFCFA2"/>
+  <rect x="14" y="14" width="20" height="1" fill="#FFE5C5"/>
+  <rect x="15" y="13" width="18" height="1" fill="#FFE5C5"/>
+  <!-- forehead wisdom-furrow -->
+  <rect x="14" y="17" width="20" height="1" fill="#D69570"/>
+  <rect x="13" y="18" width="22" height="1" fill="#D69570" opacity="0.45"/>
+  <!-- temple shadow -->
+  <rect x="9"  y="20" width="2" height="9" fill="#A8704A"/>
+  <rect x="37" y="20" width="2" height="9" fill="#A8704A"/>
+  <!-- cheekbone highlight -->
+  <rect x="11" y="22" width="3" height="3" fill="#FFCFA2"/>
+  <rect x="34" y="22" width="3" height="3" fill="#FFCFA2"/>
+  <!-- chin shadow before beard -->
+  <rect x="11" y="27" width="26" height="2" fill="#D69570"/>
+  <rect x="13" y="29" width="22" height="2" fill="#A8704A"/>
+
+  <!-- ═══ BUSHY GRAY EYEBROWS ═══ -->
+  <rect x="13" y="19" width="9" height="1" fill="#4D4538"/>
+  <rect x="26" y="19" width="9" height="1" fill="#4D4538"/>
+  <rect x="13" y="20" width="9" height="1" fill="#8E8675"/>
+  <rect x="26" y="20" width="9" height="1" fill="#8E8675"/>
+  <rect x="14" y="18" width="1" height="1" fill="#8E8675"/>
+  <rect x="20" y="18" width="1" height="1" fill="#8E8675"/>
+  <rect x="28" y="18" width="1" height="1" fill="#8E8675"/>
+  <rect x="33" y="18" width="1" height="1" fill="#8E8675"/>
+
+  <!-- ═══ EYES ═══ -->
+  <rect x="14" y="21" width="6" height="3" fill="#FFFFFF"/>
+  <rect x="15" y="21" width="4" height="3" fill="#1F1F1F"/>
+  <rect x="15" y="21" width="2" height="2" fill="#3E78C8"/>
+  <rect x="15" y="21" width="1" height="1" fill="#FFFFFF"/>
+  <rect x="14" y="20" width="6" height="1" fill="#5A3520"/>
+  <rect x="28" y="21" width="6" height="3" fill="#FFFFFF"/>
+  <rect x="29" y="21" width="4" height="3" fill="#1F1F1F"/>
+  <rect x="29" y="21" width="2" height="2" fill="#3E78C8"/>
+  <rect x="29" y="21" width="1" height="1" fill="#FFFFFF"/>
+  <rect x="28" y="20" width="6" height="1" fill="#5A3520"/>
+  <!-- crow's feet -->
+  <rect x="13" y="22" width="1" height="1" fill="#A8704A"/>
+  <rect x="34" y="22" width="1" height="1" fill="#A8704A"/>
+
+  <!-- ═══ NOSE ═══ -->
+  <rect x="22" y="20" width="4" height="6" fill="#F2B585"/>
+  <rect x="22" y="20" width="1" height="6" fill="#FFCFA2"/>
+  <rect x="22" y="20" width="1" height="3" fill="#FFE5C5"/>
+  <rect x="25" y="22" width="1" height="4" fill="#D69570"/>
+  <rect x="22" y="26" width="4" height="1" fill="#A8704A"/>
+  <rect x="21" y="26" width="1" height="1" fill="#A8704A"/>
+  <rect x="26" y="26" width="1" height="1" fill="#A8704A"/>
+  <rect x="23" y="26" width="1" height="1" fill="#5A3520"/>
+
+  <!-- ═══ MUSTACHE ═══ -->
+  <rect x="13" y="27" width="9" height="1" fill="#8E8675"/>
+  <rect x="26" y="27" width="9" height="1" fill="#8E8675"/>
+  <rect x="12" y="28" width="11" height="1" fill="#DAD5C8"/>
+  <rect x="25" y="28" width="11" height="1" fill="#DAD5C8"/>
+  <rect x="11" y="29" width="13" height="1" fill="#FFFFFF"/>
+  <rect x="24" y="29" width="13" height="1" fill="#FFFFFF"/>
+  <rect x="10" y="29" width="1" height="2" fill="#DAD5C8"/>
+  <rect x="37" y="29" width="1" height="2" fill="#DAD5C8"/>
+
+  <!-- ═══ BEARD · cascading from chin to bottom ═══ -->
+  <!-- beard outline -->
+  <rect x="9"  y="30" width="1" height="14" fill="#4D4538"/>
+  <rect x="38" y="30" width="1" height="14" fill="#4D4538"/>
+  <!-- beard rounded bottom -->
+  <rect x="11" y="44" width="2" height="1" fill="#4D4538"/>
+  <rect x="35" y="44" width="2" height="1" fill="#4D4538"/>
+  <rect x="13" y="45" width="22" height="1" fill="#4D4538"/>
+  <!-- beard fill -->
+  <rect x="10" y="30" width="28" height="14" fill="#F0EDE5"/>
+  <rect x="13" y="44" width="22" height="1" fill="#F0EDE5"/>
+  <!-- beard top highlight -->
+  <rect x="11" y="30" width="26" height="2" fill="#FFFFFF"/>
+  <!-- mid shadow band -->
+  <rect x="10" y="38" width="28" height="2" fill="#DAD5C8"/>
+  <rect x="10" y="40" width="28" height="2" fill="#B8B0A0"/>
+  <rect x="10" y="42" width="28" height="2" fill="#8E8675"/>
+  <!-- individual beard strand clusters -->
+  <rect x="13" y="32" width="1" height="12" fill="#DAD5C8"/>
+  <rect x="17" y="33" width="1" height="11" fill="#B8B0A0"/>
+  <rect x="20" y="32" width="1" height="12" fill="#DAD5C8"/>
+  <rect x="24" y="33" width="1" height="11" fill="#B8B0A0"/>
+  <rect x="27" y="32" width="1" height="12" fill="#DAD5C8"/>
+  <rect x="31" y="33" width="1" height="11" fill="#B8B0A0"/>
+  <rect x="34" y="32" width="1" height="12" fill="#DAD5C8"/>
+  <!-- highlight strands (lighter wisps) -->
+  <rect x="15" y="31" width="1" height="3" fill="#FFFFFF"/>
+  <rect x="22" y="31" width="1" height="3" fill="#FFFFFF"/>
+  <rect x="29" y="31" width="1" height="3" fill="#FFFFFF"/>
+
+  <!-- ═══ NECK STUB · skin showing under beard at the very bottom ═══ -->
+  <rect x="20" y="46" width="8" height="3" fill="#F2B585"/>
+  <rect x="20" y="46" width="8" height="1" fill="#A8704A"/>
+  <rect x="20" y="46" width="1" height="3" fill="#A8704A"/>
+  <rect x="27" y="46" width="1" height="3" fill="#A8704A"/>
+  <!-- neck shadow -->
+  <rect x="21" y="48" width="6" height="1" fill="#D69570"/>
+
+  <!-- sparkles -->
+  <rect x="2"  y="14" width="1" height="1" fill="#FFFFFF"/>
+  <rect x="3"  y="13" width="1" height="1" fill="#FFFFFF"/>
+  <rect x="44" y="15" width="1" height="1" fill="#FFFFFF"/>
+  <rect x="45" y="14" width="1" height="1" fill="#FFFFFF"/>
+  <rect x="1"  y="22" width="1" height="1" fill="#FFFFFF" opacity="0.7"/>
+  <rect x="46" y="26" width="1" height="1" fill="#FFFFFF" opacity="0.7"/>
+</svg>

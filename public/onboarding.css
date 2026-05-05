@@ -1,0 +1,628 @@
+/* ═══════════════════════════════════════════
+   ONBOARDING OVERLAY · first-run wizard
+   4 steps: name → theme → API key → done/demo
+   ═══════════════════════════════════════════ */
+
+.onb-overlay {
+  position: fixed;
+  inset: 0;
+  /* Soft blur · the dashboard underneath is intentionally visible
+     through the overlay so the user feels they're configuring INTO
+     a live product, not a separate gate. Lower bg opacity + heavier
+     gaussian blur (14px) makes the panel softly defocused while the
+     overlay content stays readable. */
+  background: rgba(8, 8, 8, 0.42);
+  -webkit-backdrop-filter: blur(14px) saturate(1.05);
+  backdrop-filter: blur(14px) saturate(1.05);
+  z-index: 1500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.onb-overlay.open {
+  display: flex;
+  animation: onb-fade 0.2s ease-out;
+}
+@keyframes onb-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.onb-modal {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime, #6FB572);
+  color: var(--text, #C8C5BE);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Cap the modal so the final step (5 starter cards + final
+     card) doesn't stretch the modal close to viewport height.
+     The body inside is overflow-y: auto, so anything taller than
+     this cap simply scrolls within. */
+  max-height: min(calc(100vh - 48px), 680px);
+  /* Soft outer glow · separates the modal from the blurred dashboard
+     behind it without the heavy black backdrop carrying the contrast. */
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.25);
+  animation: onb-rise 0.24s ease-out;
+}
+@keyframes onb-rise {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.onb-modal::before, .onb-modal::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 2px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.onb-modal::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.onb-modal::after  { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+/* Header */
+.onb-classification {
+  background: var(--panel-2, #1A1A18);
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 6px 14px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.onb-classification .right { color: var(--text-faint, #3A382F); letter-spacing: 0.12em; }
+
+.onb-head {
+  padding: 18px 24px 10px;
+  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+  flex: 0 0 auto;
+}
+.onb-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  margin-bottom: 6px;
+}
+.onb-title {
+  font-family: var(--font-human, var(--mono));
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.014em;
+  line-height: 1.22;
+  margin-bottom: 6px;
+}
+.onb-deck {
+  font-family: var(--font-human, var(--mono));
+  font-size: 13px;
+  color: var(--text-soft, #8E8B83);
+  line-height: 1.55;
+}
+
+/* Progress dots */
+.onb-progress {
+  display: flex;
+  gap: 6px;
+  padding: 10px 24px;
+  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+  flex: 0 0 auto;
+}
+.onb-dot {
+  flex: 1;
+  height: 3px;
+  background: var(--line-strong, #3A3A35);
+  transition: background 0.16s;
+}
+.onb-dot.active { background: var(--lime, #6FB572); }
+.onb-dot.done   { background: var(--lime-dim, #2D5532); }
+
+/* Body — pane is scrollable; nav is fixed at footer */
+.onb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 24px 18px;
+}
+
+/* Inputs */
+.onb-field { margin-bottom: 16px; }
+.onb-field-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  margin-bottom: 6px;
+}
+.onb-field-hint {
+  font-family: var(--font-human, var(--mono));
+  font-size: 11.5px;
+  color: var(--text-dim, #5C5A52);
+  line-height: 1.5;
+  margin-top: 5px;
+}
+.onb-field-hint a {
+  color: var(--lime, #6FB572);
+  text-decoration: underline;
+  text-decoration-color: var(--lime-dim, #2D5532);
+  text-underline-offset: 2px;
+}
+
+.onb-input-wrap {
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  display: flex;
+  align-items: stretch;
+  transition: border-color 0.12s;
+}
+.onb-input-wrap:focus-within { border-color: var(--lime, #6FB572); }
+.onb-input-wrap::before {
+  content: ">";
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--mono);
+  padding: 9px 0 0 11px;
+  align-self: flex-start;
+}
+.onb-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: var(--font-human, var(--mono));
+  font-size: 14px;
+  color: var(--text, #C8C5BE);
+  outline: none;
+  padding: 9px 12px;
+  letter-spacing: -0.003em;
+  width: 100%;
+}
+.onb-input::placeholder { color: var(--text-faint, #3A382F); }
+
+/* Show / hide toggle for the API-key input. Sits inside .onb-input-wrap
+   on the right edge — flat, mono, lowercase so it reads as an
+   inline affordance rather than a primary action. */
+.onb-input-reveal {
+  background: none;
+  border: 0;
+  color: var(--text-dim, #5C5A52);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0 12px;
+  align-self: stretch;
+  transition: color 0.12s;
+}
+.onb-input-reveal:hover { color: var(--text-soft, #8E8B83); }
+.onb-input-reveal[aria-pressed="true"] { color: var(--lime, #6FB572); }
+
+/* Prevent browser autofill (Chrome / Edge / Safari) from painting the
+   API-key input with a white/yellow background under dark themes.
+   Autofill ignores `background: transparent`, so we use a long inset
+   box-shadow set to the active theme's bg, plus a -webkit-text-fill-
+   color override so the typed text colour stays correct. Mirrors
+   `.us-input` in user-settings.css. */
+.onb-input:-webkit-autofill,
+.onb-input:-webkit-autofill:hover,
+.onb-input:-webkit-autofill:focus,
+.onb-input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text, #C8C5BE);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg, #0A0A0A) inset;
+  caret-color: var(--text, #C8C5BE);
+  transition: background-color 0s 9999s;
+}
+/* Match form-control color-scheme to the active theme so the password-
+   reveal icon and other native chrome don't render against a light
+   background under dark themes. Atrium (the only light theme) opts
+   back to light. */
+:root .onb-input { color-scheme: dark; }
+:root[data-theme="atrium"] .onb-input,
+:root[data-theme="pinterest"] .onb-input,
+:root[data-theme="apple"] .onb-input { color-scheme: light; }
+
+/* Theme grid (mirrors Preference) */
+.onb-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+@media (max-width: 500px) { .onb-theme-grid { grid-template-columns: 1fr; } }
+.onb-theme {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text, #C8C5BE);
+  transition: all 0.12s;
+}
+.onb-theme:hover { border-color: var(--lime-dim, #2D5532); }
+.onb-theme.active {
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.onb-theme-swatch {
+  display: inline-grid;
+  grid-template-columns: repeat(4, 6px);
+  grid-template-rows: repeat(2, 6px);
+  gap: 1px;
+  padding: 3px;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg, #0A0A0A);
+}
+.onb-theme-swatch span { width: 6px; height: 6px; display: block; }
+.onb-theme-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+}
+.onb-theme.active .onb-theme-name { color: var(--lime, #6FB572); }
+.onb-theme-desc {
+  font-family: var(--font-human);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+/* Starter-question list — shown on the final onboarding step.
+   Each row is a full-width card with the question prominent. */
+.onb-starters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Three-column grid keeps the title, hint, meta tags, and avatar block
+   aligned at the same horizontal position on every card. */
+.onb-starter {
+  display: grid;
+  grid-template-columns: 92px 1fr 280px;
+  column-gap: 16px;
+  padding: 13px 18px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s;
+  position: relative;
+  color: var(--text, #C8C5BE);
+  min-height: 96px;
+}
+.onb-starter:hover {
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.onb-starter-tag {
+  align-self: start;
+  padding-top: 2px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  white-space: nowrap;
+}
+/* All title-aligned content (title, hint, meta tags) stacks here so the
+   left edge is identical regardless of tag width. */
+.onb-starter-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.onb-starter-text {
+  font-family: var(--font-human);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+}
+.onb-starter-hint {
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  color: var(--text-soft, #8E8B83);
+  line-height: 1.4;
+}
+.onb-starter-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+/* Cast lives in the third grid column at a fixed width, so the avatar
+   block lines up at the same x-position across every card regardless of
+   how long the tag or title is. */
+.onb-starter-cast {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: start;
+  align-self: start;
+  gap: 8px;
+  width: 100%;
+}
+.onb-starter-agent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  min-width: 0;
+}
+.onb-starter-av {
+  width: 52px;
+  height: 52px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg, #0A0A0A);
+  transition: transform 0.12s, border-color 0.12s;
+}
+.onb-starter-agent:hover .onb-starter-av {
+  border-color: var(--lime, #6FB572);
+  transform: translateY(-1px);
+}
+.onb-starter-name {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-soft, #8E8B83);
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onb-starter-agent:hover .onb-starter-name { color: var(--lime, #6FB572); }
+/* Start button hovers in the bottom-right of the card, so it doesn't
+   nudge the cast or the title row. */
+.onb-starter-start {
+  position: absolute;
+  bottom: 12px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--lime, #6FB572);
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 0.12s, transform 0.12s, background 0.12s, color 0.12s;
+  pointer-events: none;
+}
+.onb-starter:hover .onb-starter-start {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+.onb-starter-start:hover {
+  background: var(--bg, #0A0A0A);
+  color: var(--lime, #6FB572);
+}
+.onb-starter-start-arrow { font-size: 8.5px; line-height: 1; }
+.onb-final-divider {
+  text-align: center;
+  margin: 14px 0 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  position: relative;
+}
+.onb-final-divider::before,
+.onb-final-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 18px);
+  height: 1px;
+  background: var(--line-bright, #2A2A26);
+}
+.onb-final-divider::before { left: 0; }
+.onb-final-divider::after { right: 0; }
+.onb-final-divider span { padding: 0 10px; }
+
+/* Final step "two cards" */
+.onb-final {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (max-width: 500px) { .onb-final { grid-template-columns: 1fr; } }
+.onb-final-card {
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  padding: 16px 16px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.14s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  font-family: inherit;
+  width: 100%;
+  color: var(--text, #C8C5BE);
+}
+.onb-final-card:hover {
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.onb-final-card.primary { border-color: var(--lime-dim, #2D5532); }
+.onb-final-mark {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+}
+.onb-final-card.primary .onb-final-mark { color: var(--lime, #6FB572); }
+.onb-final-title {
+  font-family: var(--font-human);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.005em;
+}
+.onb-final-deck {
+  font-family: var(--font-human);
+  font-size: 12px;
+  color: var(--text-soft, #8E8B83);
+  line-height: 1.5;
+}
+
+/* Provider selector · inline label row that declares which provider
+   the single input below is for. Intentionally NOT styled as cards —
+   no backgrounds, no borders — so the row reads as a label/legend,
+   not a second set of input fields. */
+.onb-key-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 18px;
+  margin-bottom: 14px;
+}
+.onb-key-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0 4px 14px;
+  background: none;
+  border: 0;
+  color: var(--text-dim, #5C5A52);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-human, "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  transition: color 0.12s;
+}
+.onb-key-tab:hover {
+  color: var(--text-soft, #8E8B83);
+}
+.onb-key-tab.active {
+  color: var(--text, #C8C5BE);
+  font-weight: 600;
+}
+.onb-key-tab.active::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--lime, #6FB572);
+}
+.onb-key-tab-label { font: inherit; }
+.onb-key-tab-sub { display: none; }
+/* Configured · single small lime dot trailing the label. With the
+   single-provider invariant on this step, at most one tab carries
+   the dot at any time. */
+.onb-key-tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--lime, #6FB572);
+  display: inline-block;
+  font-size: 0;
+  line-height: 0;
+  opacity: 0.85;
+}
+.onb-key-tab.active .onb-key-tab-dot { opacity: 1; }
+
+/* Status chip on the API key field */
+.onb-key-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+.onb-key-status.ok    { color: var(--lime, #6FB572); }
+.onb-key-status.warn  { color: var(--amber, #B59560); }
+.onb-key-status.error { color: var(--red, #B5706A); }
+
+/* Footer · nav */
+.onb-foot {
+  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--panel-2, #1A1A18);
+  padding: 12px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.onb-foot-left,
+.onb-foot-right { display: flex; gap: 6px; }
+
+.onb-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 7px 13px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: transparent;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.12s;
+}
+.onb-btn:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+.onb-btn.primary {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border-color: var(--lime, #6FB572);
+}
+.onb-btn.primary:hover { background: transparent; color: var(--lime, #6FB572); }
+.onb-btn:disabled,
+.onb-btn.primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--text-faint);
+  border-color: var(--line-bright);
+}
+
+/* When onboarding is open, prevent the rest of the dashboard from scrolling */
+.onb-locked {
+  overflow: hidden;
+}

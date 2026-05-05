@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boardroom Perspectives · AI Recruiting Assistant</title>
+<style>
+  :root {
+    --black: #0A0A0A;
+    --black-soft: #1A1A1A;
+    --white: #FFFFFF;
+    --off-white: #FAFAF8;
+    --warm-bg: #FFF4EE;
+
+    --ink: #0A0A0A;
+    --ink-soft: #3D3D3D;
+    --ink-faint: #707070;
+    --ink-muted: #A8A8A8;
+
+    --rule: #E8E5E0;
+    --rule-strong: #C8C5C0;
+
+    --accent: #E8472D;
+    --accent-deep: #B83419;
+    --accent-pale: #FFE9E0;
+
+    --green: #1F7A4D;
+    --red: #B83419;
+
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "PingFang SC", sans-serif;
+    --display: "Inter", -apple-system, "SF Pro Display", "Helvetica Neue", "PingFang SC", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--white);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ─────────── COVER (full-bleed black) ─────────── */
+  .cover {
+    background: var(--black);
+    color: var(--white);
+    padding: 80px 0 120px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: "";
+    position: absolute;
+    top: -200px; right: -200px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(232, 71, 45, 0.18) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .cover-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 64px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 80px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .cover-eyebrow .pipe {
+    width: 1px;
+    height: 14px;
+    background: rgba(232, 71, 45, 0.5);
+  }
+  .cover-eyebrow .vol {
+    color: var(--ink-muted);
+  }
+
+  .cover-title {
+    font-family: var(--display);
+    font-size: 76px;
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    color: var(--white);
+    margin-bottom: 40px;
+    max-width: 1000px;
+  }
+  .cover-title .accent {
+    color: var(--accent);
+  }
+
+  .cover-deck {
+    font-size: 22px;
+    font-weight: 300;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.78);
+    max-width: 760px;
+    margin-bottom: 88px;
+    letter-spacing: -0.005em;
+  }
+
+  .cover-byline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .byline-block .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .byline-block .value {
+    font-size: 15px;
+    color: var(--white);
+    font-weight: 500;
+  }
+
+  /* ─────────── BODY ─────────── */
+  .body-wrap {
+    background: var(--white);
+  }
+  .container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+  .container-wide {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 64px;
+  }
+
+  /* ─────────── THESIS (large pull statement) ─────────── */
+  .thesis {
+    padding: 120px 0 100px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .thesis-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 32px;
+    font-weight: 600;
+  }
+  .thesis-text {
+    font-family: var(--display);
+    font-size: 38px;
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .thesis-text .em {
+    color: var(--accent);
+  }
+  .thesis-text .strike {
+    color: var(--ink-faint);
+    text-decoration: line-through;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 3px;
+  }
+
+  /* ─────────── BIG IDEAS ─────────── */
+  .big-ideas {
+    padding: 100px 0;
+  }
+
+  .section-eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+    font-weight: 600;
+  }
+  .section-h2 {
+    font-family: var(--display);
+    font-size: 48px;
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    margin-bottom: 80px;
+  }
+
+  .idea {
+    padding: 64px 0;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+  .idea-num {
+    font-family: var(--display);
+    font-size: 80px;
+    font-weight: 900;
+    line-height: 0.9;
+    color: var(--accent);
+    letter-spacing: -0.04em;
+  }
+  .idea-num .hash {
+    font-size: 32px;
+    color: var(--ink-muted);
+    vertical-align: top;
+    margin-right: 4px;
+  }
+  .idea-headline {
+    font-family: var(--display);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    margin-bottom: 20px;
+  }
+  .idea-body {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+  }
+  .idea-body strong {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .idea-body p { margin-bottom: 14px; }
+  .idea-body p:last-child { margin-bottom: 0; }
+
+  /* ─────────── WHY NOW ─────────── */
+  .why-now {
+    background: var(--black);
+    color: var(--white);
+    padding: 120px 0;
+  }
+  .why-now .section-eyebrow { color: var(--accent); }
+  .why-now .section-h2 { color: var(--white); }
+
+  .why-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 48px 64px;
+  }
+  .why-item {
+    padding-top: 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .why-item-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    font-weight: 500;
+  }
+  .why-item-text {
+    font-size: 18px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.85);
+  }
+  .why-item-text strong { color: var(--white); font-weight: 600; }
+
+  /* ─────────── DISAGREEMENT (director cards) ─────────── */
+  .disagreement {
+    padding: 120px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .director-card {
+    margin-bottom: 56px;
+    padding: 48px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .director-card:last-child { margin-bottom: 0; }
+
+  .director-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .director-bug {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--black);
+    color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    font-family: var(--display);
+  }
+  .director-bug.b1 { background: var(--accent); }
+  .director-bug.b2 { background: var(--black); }
+  .director-bug.b3 { background: var(--green); color: white; }
+
+  .director-info .name {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .director-info .role {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .director-quote {
+    font-family: var(--display);
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    margin-bottom: 24px;
+    position: relative;
+    padding-left: 28px;
+  }
+  .director-quote::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 8px;
+    width: 4px;
+    height: calc(100% - 16px);
+    background: var(--accent);
+  }
+
+  .director-stance {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    padding-left: 28px;
+  }
+
+  /* ─────────── TWO PATHS visualization ─────────── */
+  .paths {
+    padding: 120px 0;
+    background: var(--off-white);
+  }
+
+  .paths-grid {
+    display: grid;
+    grid-template-columns: 1fr 80px 1fr;
+    gap: 0;
+    align-items: stretch;
+    margin-top: 32px;
+  }
+
+  .path {
+    padding: 40px 36px;
+    background: var(--white);
+    border: 1px solid var(--rule);
+  }
+  .path.dead {
+    border-top: 4px solid var(--red);
+  }
+  .path.alive {
+    border-top: 4px solid var(--green);
+  }
+
+  .path-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .path.dead .path-label { color: var(--red); }
+  .path.alive .path-label { color: var(--green); }
+
+  .path-name {
+    font-family: var(--display);
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    margin-bottom: 28px;
+  }
+
+  .path ul {
+    list-style: none;
+  }
+  .path li {
+    padding: 12px 0 12px 32px;
+    position: relative;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--rule);
+  }
+  .path li:last-child { border-bottom: none; }
+  .path li::before {
+    position: absolute;
+    left: 0; top: 11px;
+    font-size: 16px;
+    font-weight: 700;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .path.dead li::before {
+    content: "✕";
+    color: var(--white);
+    background: var(--red);
+    font-size: 11px;
+  }
+  .path.alive li::before {
+    content: "✓";
+    color: var(--white);
+    background: var(--green);
+    font-size: 11px;
+  }
+
+  .paths-divider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .paths-divider .arrow {
+    font-size: 32px;
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-weight: 300;
+  }
+
+  /* ─────────── THE BET ─────────── */
+  .bet {
+    padding: 120px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .bet-list {
+    counter-reset: bet;
+  }
+  .bet-item {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 32px;
+    padding: 36px 0;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+  .bet-item::before {
+    counter-increment: bet;
+    content: counter(bet);
+    font-family: var(--display);
+    font-size: 56px;
+    font-weight: 900;
+    line-height: 0.9;
+    color: var(--accent);
+    letter-spacing: -0.04em;
+  }
+  .bet-headline {
+    font-family: var(--display);
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    margin-bottom: 10px;
+  }
+  .bet-detail {
+    font-size: 15.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+
+  /* ─────────── OPEN QUESTIONS ─────────── */
+  .open {
+    padding: 120px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .open-q {
+    padding: 28px 0;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 24px;
+  }
+  .open-q-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    padding-top: 4px;
+  }
+  .open-q-text {
+    font-size: 19px;
+    line-height: 1.4;
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+
+  /* ─────────── CLOSE ─────────── */
+  .close {
+    background: var(--black);
+    color: var(--white);
+    padding: 140px 0 120px;
+  }
+  .close-text {
+    font-family: var(--display);
+    font-size: 56px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    color: var(--white);
+  }
+  .close-text .em { color: var(--accent); }
+  .close-mark {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-top: 56px;
+    font-weight: 600;
+  }
+
+  /* ─────────── FOOTER ─────────── */
+  .doc-footer {
+    background: var(--black);
+    color: var(--ink-muted);
+    padding: 32px 64px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .doc-footer .brand {
+    color: var(--white);
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 880px) {
+    .container, .container-wide { padding: 0 24px; }
+    .cover-inner { padding: 0 24px; }
+    .cover-title { font-size: 44px; }
+    .cover-deck { font-size: 18px; }
+    .cover-byline { gap: 24px; }
+    .thesis-text { font-size: 26px; }
+    .section-h2 { font-size: 32px; }
+    .idea { grid-template-columns: 1fr; gap: 16px; }
+    .idea-num { font-size: 56px; }
+    .idea-headline { font-size: 24px; }
+    .why-grid { grid-template-columns: 1fr; gap: 32px; }
+    .director-quote { font-size: 22px; }
+    .paths-grid { grid-template-columns: 1fr; gap: 16px; }
+    .paths-divider { padding: 16px 0; }
+    .bet-item { grid-template-columns: 1fr; gap: 8px; }
+    .bet-item::before { font-size: 36px; }
+    .close-text { font-size: 32px; }
+    .doc-footer { padding: 20px 24px; flex-direction: column; gap: 8px; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── COVER ─────────── -->
+<section class="cover">
+  <div class="cover-inner">
+    <div class="cover-eyebrow">
+      <span>Boardroom Perspectives</span>
+      <span class="pipe"></span>
+      <span>April 2026</span>
+      <span class="pipe"></span>
+      <span class="vol">№ 001</span>
+    </div>
+
+    <h1 class="cover-title">
+      AI Recruiting Assistants:<br>
+      为什么"显而易见的赌注"<br>
+      <span class="accent">是错的。</span>
+    </h1>
+
+    <p class="cover-deck">
+      HR Tech 是企业软件最被低估的角落之一。机会真实——但大多数创始人下注的方向（"AI 替代 HR"）从第一天就死了。三位董事的对话指向一个截然不同的赌注。
+    </p>
+
+    <div class="cover-byline">
+      <div class="byline-block">
+        <div class="label">By</div>
+        <div class="value">苏格拉底 · 第一性原理 · 价值投资者</div>
+      </div>
+      <div class="byline-block">
+        <div class="label">Session</div>
+        <div class="value">23 min · 47 turns · Constructive Debate</div>
+      </div>
+      <div class="byline-block">
+        <div class="label">Issue</div>
+        <div class="value">BRP-2026-001</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── THESIS ─────────── -->
+<div class="body-wrap">
+<section class="thesis">
+  <div class="container">
+    <div class="thesis-label">The Thesis</div>
+    <p class="thesis-text">
+      HR Tech 的真正赌注不是 <span class="strike">让 AI 替代 HR</span>——<br>
+      而是<span class="em"> 让 AI 把 HR 从行政工作中解放</span>，<br>
+      把工作流变成你独有的、不可被复制的飞轮。
+    </p>
+  </div>
+</section>
+
+<!-- ─────────── THE BIG IDEAS ─────────── -->
+<section class="big-ideas">
+  <div class="container">
+    <div class="section-eyebrow">The Big Ideas</div>
+    <h2 class="section-h2">三个改变问题形状的判断。</h2>
+
+    <div class="idea">
+      <div class="idea-num"><span class="hash">№</span>01</div>
+      <div>
+        <h3 class="idea-headline">Buyer-User 错配是默认死局，不是细节问题。</h3>
+        <div class="idea-body">
+          <p>HR 不会购买价值主张是"取代他们"的工具。这不是营销话术能化解的，是结构性矛盾——<strong>谁付钱、谁使用、谁被替代，三个角色不能错位。</strong></p>
+          <p>把定位从"替代 HR"改为"增强 HR"，整个商业账本翻面：HR 从对手变成 advocate，预算从威胁变成机会，销售周期从 12 个月被压到 3 个月以内。这是一字之差的产品形态。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="idea">
+      <div class="idea-num"><span class="hash">№</span>02</div>
+      <div>
+        <h3 class="idea-headline">护城河不在模型——开源 + RAG 一周可复刻。</h3>
+        <div class="idea-body">
+          <p>"AI 简历筛选"作为产品定位，技术稀缺性接近零。开源模型 + 微调 + RAG 是通用配方，任何一支团队能在 7 天内复制出 80% 的能力。</p>
+          <p>真正的护城河在<strong>工作流深度嵌入</strong>和<strong>专属数据飞轮</strong>。客户用得越深，你越懂他们的招聘历史；他们越依赖，离开成本越高。这是慢的、累积的、可防守的——和 AI 模型本身无关。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="idea">
+      <div class="idea-num"><span class="hash">№</span>03</div>
+      <div>
+        <h3 class="idea-headline">GTM 决定生死——纯 SLG 是 cash flow 自杀。</h3>
+        <div class="idea-body">
+          <p>企业 HR 软件采购周期 6–12 个月。如果你只有 SLG（销售驱动），意味着前 18 个月几乎没有现金流入——这是初创团队的死亡区。</p>
+          <p>正确的姿势是 <strong>PLG-first, SLG-second</strong>：免费层在 HR 工作流中建立嵌入和数据飞轮，规模化后再触发企业版的销售对话。这条路缩短现金流周期，并把销售从 6–12 月压回到 3 月以内。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── WHY NOW ─────────── -->
+<section class="why-now">
+  <div class="container">
+    <div class="section-eyebrow">Why Now</div>
+    <h2 class="section-h2">为什么现在这个机会真的存在。</h2>
+
+    <div class="why-grid">
+      <div class="why-item">
+        <div class="why-item-label">Capability</div>
+        <div class="why-item-text"><strong>LLM 终于跨过质量阈值。</strong> 简历理解、行业语境、岗位匹配都能在生产环境跑出可用结果——这件事 18 个月前还做不到。</div>
+      </div>
+      <div class="why-item">
+        <div class="why-item-label">Demand</div>
+        <div class="why-item-text"><strong>HR 团队正处于历史性压力之下。</strong> 后疫情用工模式重塑、人才战争、合规复杂度——HR 比以往任何时候都更需要工具上的杠杆。</div>
+      </div>
+      <div class="why-item">
+        <div class="why-item-label">Distribution</div>
+        <div class="why-item-text"><strong>企业 SaaS 的购买范式已转向 PLG。</strong> 自下而上的嵌入比自上而下的销售更容易冷启动，这是 5 年前不存在的窗口。</div>
+      </div>
+      <div class="why-item">
+        <div class="why-item-label">Window</div>
+        <div class="why-item-text"><strong>LLM-native 工作流仍在被定义。</strong> 18 个月后这片空间会被在位玩家占据；现在仍然有真实的 land grab 窗口。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── DISAGREEMENT ─────────── -->
+<section class="disagreement">
+  <div class="container">
+    <div class="section-eyebrow">Where We Disagreed</div>
+    <h2 class="section-h2">三位董事，三种切入。</h2>
+
+    <div class="director-card">
+      <div class="director-meta">
+        <div class="director-bug b1">苏</div>
+        <div class="director-info">
+          <div class="name">苏格拉底</div>
+          <div class="role">Skeptic · 不停追问</div>
+        </div>
+      </div>
+      <p class="director-quote">"如果 ROI 不能在 90 天内被证明，那就是 dead on arrival——别浪费 18 个月去验证一件大概率验证不了的事。"</p>
+      <p class="director-stance">把"价值兑现速度"作为产品决策的最高约束。任何不能在 90 天内让 HR 看到具体改变的功能都应该被砍掉。这不是产品哲学，这是 cash flow 的物理定律。</p>
+    </div>
+
+    <div class="director-card">
+      <div class="director-meta">
+        <div class="director-bug b2">原</div>
+        <div class="director-info">
+          <div class="name">第一性原理</div>
+          <div class="role">First Principles · 把问题剥到骨头</div>
+        </div>
+      </div>
+      <p class="director-quote">"壁垒不在 AI 模型，在工作流。开源模型一周可复刻；客户的招聘历史数据十年累不来。"</p>
+      <p class="director-stance">从底层重新定义产品的护城河来源。模型是商品，工作流是资产，数据是飞轮。建议从 Day 1 设计数据飞轮的最小可行结构——这件事不能事后补。</p>
+    </div>
+
+    <div class="director-card">
+      <div class="director-meta">
+        <div class="director-bug b3">价</div>
+        <div class="director-info">
+          <div class="name">价值投资者</div>
+          <div class="role">Value Lens · 十年视角</div>
+        </div>
+      </div>
+      <p class="director-quote">"历史告诉我们：替代型 SaaS 在 HR 领域几乎都死了。这不是巧合，是 buyer-user 错配的结构性死亡。"</p>
+      <p class="director-stance">从 20 年 HR Tech 史中提炼模式：所有曾经走"替代"路线的玩家最终都被并购或边缘化，凡走"增强"路线的都跑出来了。这是一个被市场反复验证过的判断，没有理由忽视它。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── TWO PATHS ─────────── -->
+<section class="paths">
+  <div class="container-wide">
+    <div class="section-eyebrow">Two Paths</div>
+    <h2 class="section-h2">同一片市场，两个完全不同的命运。</h2>
+
+    <div class="paths-grid">
+      <div class="path dead">
+        <div class="path-label">Path A · Dead on Arrival</div>
+        <div class="path-name">"AI 替代 HR"——<br>简历筛选作为唯一价值主张</div>
+        <ul>
+          <li>HR 是 buyer，但产品要替代 HR——结构性 buyer-user 错配</li>
+          <li>简历筛选模型可被开源 + RAG 一周复刻——零护城河</li>
+          <li>纯 SLG 销售周期 6–12 个月——cash flow 自杀</li>
+          <li>没有数据飞轮——上线即天花板，无复利</li>
+          <li>历史模式：HR Tech 替代型玩家 20 年来几乎全军覆没</li>
+        </ul>
+      </div>
+
+      <div class="paths-divider">
+        <div class="arrow">→</div>
+        <div>Pivot</div>
+      </div>
+
+      <div class="path alive">
+        <div class="path-label">Path B · The Real Bet</div>
+        <div class="path-name">"AI 增强 HR"——<br>工作流嵌入 + 数据飞轮</div>
+        <ul>
+          <li>HR 是 buyer 也是 user，成为产品的内部 advocate</li>
+          <li>护城河来自工作流锁定——模型可被复制，流程不能</li>
+          <li>PLG-first → SLG-second，销售周期压到 3 月内</li>
+          <li>专属数据飞轮——客户用得越深，迁移成本越高</li>
+          <li>历史模式：HR Tech 增强型玩家是过去 10 年增长最强的子赛道</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── THE BET ─────────── -->
+<section class="bet">
+  <div class="container">
+    <div class="section-eyebrow">The Bet</div>
+    <h2 class="section-h2">如果是我们投，我们会要求做这四件事。</h2>
+
+    <div class="bet-list">
+      <div class="bet-item">
+        <div>
+          <h3 class="bet-headline">把所有产品语言从"替代"改为"增强"。</h3>
+          <p class="bet-detail">这不是营销改动，是产品形态的重构。Buyer-user 对齐之后，整个商业账本翻面。从落地页到 sales deck 到产品 UI——一字不留。</p>
+        </div>
+      </div>
+
+      <div class="bet-item">
+        <div>
+          <h3 class="bet-headline">从单一垂直行业切入，不水平铺开。</h3>
+          <p class="bet-detail">优先选择招聘流程标准化、需求集中、采购决策链短的行业（制造业、零售连锁、客服中心）。第一个垂直跑出来之前，不碰第二个。</p>
+        </div>
+      </div>
+
+      <div class="bet-item">
+        <div>
+          <h3 class="bet-headline">PLG-first, SLG-second——双轨设计从 Day 1。</h3>
+          <p class="bet-detail">免费层必须真的能用，且天然嵌入 HR 现有工作流（不是 standalone tool）。付费转化的触发点是团队规模、协作需求和数据导出——不是更多 AI 功能。</p>
+        </div>
+      </div>
+
+      <div class="bet-item">
+        <div>
+          <h3 class="bet-headline">数据飞轮的最小可行结构在 Day 1 就要设计。</h3>
+          <p class="bet-detail">明确：什么数据由谁产生、谁拥有、如何反哺产品。这不是后期优化项，是产品 DNA。如果到第 12 个月才开始想这件事，护城河永远建不起来。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── OPEN QUESTIONS ─────────── -->
+<section class="open">
+  <div class="container">
+    <div class="section-eyebrow">Still Open</div>
+    <h2 class="section-h2">下一次开会，先解决这些。</h2>
+
+    <div class="open-q">
+      <div class="open-q-tag">P0</div>
+      <div class="open-q-text">"增强"定位下，超越简历筛选之外的第二、第三个增强动作是什么？这关系到 stickiness。</div>
+    </div>
+    <div class="open-q">
+      <div class="open-q-tag">P0</div>
+      <div class="open-q-text">数据飞轮的最小可行结构（数据来源、所有权、反哺机制）。</div>
+    </div>
+    <div class="open-q">
+      <div class="open-q-tag">P1</div>
+      <div class="open-q-text">从单一垂直切入，制造业 vs 零售 vs 客服中心，哪个先打？依据是什么？</div>
+    </div>
+    <div class="open-q">
+      <div class="open-q-tag">P1</div>
+      <div class="open-q-text">免费层的边界——既要建立工作流嵌入，又不能侵蚀付费转化。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── THE CLOSE ─────────── -->
+<section class="close">
+  <div class="container">
+    <p class="close-text">
+      需求是真的。<br>
+      赛道是真的。<br>
+      <span class="em">但当前的赌注是错的。</span><br>
+      把它换掉，机会就在那里。
+    </p>
+    <div class="close-mark">— 三位董事 一致判断</div>
+  </div>
+</section>
+
+<!-- ─────────── FOOTER ─────────── -->
+<footer class="doc-footer">
+  <div class="brand">Boardroom Perspectives</div>
+  <div>BRP-2026-001 · April 2026 · Powered by 私董会</div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOARDROOM // BRIEF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="themes.css">
+<!-- Spine CSS · loaded dynamically below based on brief.spine. The
+     default href below is rendered immediately so the report doesn't
+     show unstyled until the brief fetch returns. -->
+<link rel="stylesheet" href="report/spines/boardroom-dark.css" id="spine-css">
+<style>
+  /* ─── Top-rule "Download PDF" button ──────────────────────────
+     Styled to match the existing back link (mono uppercase low-key
+     link, not a punchy CTA). The download glyph prefix is a typographic
+     down-arrow, not an emoji icon. */
+  .top-rule .top-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 18px;
+    flex: 0 0 auto;
+  }
+  .top-rule .download {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font: inherit;
+    /* Match the back link's mono treatment (per-spine CSS sets the
+       precise font-size + color; we only inherit). */
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    text-transform: none;
+  }
+  .top-rule .download::before { content: "↓ "; color: var(--text-faint); }
+  .top-rule .download:hover { color: var(--text); }
+
+  /* ─── Print / Save-as-PDF discipline ───────────────────────────
+     Two responsibilities here:
+     (1) Strip the on-screen chrome (top-rule, foot-rule, version
+         strip, download button) so the PDF reads as a filed
+         deliverable, not a webpage screenshot.
+     (2) For the dark spine specifically, invert to a light-paper
+         palette by redefining the CSS variables at body level. This
+         removes the dependency on Chrome's "Background graphics"
+         checkbox and produces a PDF that's universally readable on
+         screen and on physical paper. Other spines are already light
+         and pass through unchanged. */
+  @media print {
+    *, *::before, *::after {
+      print-color-adjust: exact !important;
+      -webkit-print-color-adjust: exact !important;
+      box-shadow: none !important;
+    }
+    @page { size: A4; margin: 14mm 12mm; }
+
+    /* Strip browser chrome from the PDF. */
+    .top-rule,
+    .foot-rule,
+    .cover-versions,
+    [data-back],
+    [data-download],
+    .top-actions {
+      display: none !important;
+    }
+
+    /* Page-frame backgrounds — the html element is what fills the
+       paper outside the body's box. Force white universally. */
+    html { background: #FFFFFF !important; }
+
+    /* Container resets so .doc fills the printable area instead of
+       being clipped at its 880px on-screen max-width. */
+    .doc { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+    main.doc > [data-report-content] { padding: 0 !important; }
+
+    /* Cover gets its own page so the body opens on a fresh sheet. */
+    .cover {
+      padding: 8mm 0 18mm !important;
+      break-after: page;
+      page-break-after: always;
+      border-bottom: none !important;
+    }
+
+    /* ─── Dark spine · invert to light paper for printing ───────
+       Token-level swap on body. Every callsite that uses var(--bg)
+       / var(--text) / var(--text-soft) / etc. picks up these
+       printed-paper values for the duration of the print render. */
+    body[data-spine="boardroom-dark"] {
+      background: #FAF7F0 !important;
+      color: #1A1814 !important;
+      --bg: #FAF7F0;
+      --panel: #F4F0E8;
+      --panel-2: #EDE6D6;
+      --panel-3: #E2D9C4;
+      --hi: #DDD5C8;
+      --line: #DDD5C8;
+      --line-bright: #DDD5C8;
+      --line-strong: #C0B8A8;
+      --text: #1A1814;
+      --text-soft: #4A4338;
+      --text-dim: #6B6359;
+      --text-faint: #978C7E;
+      --accent: #6B6660;
+      --accent-faint: #B5AB9B;
+      /* Gold (--lime / --em) reads well on cream — keep slightly
+         deeper values for paper contrast. */
+      --lime: #B58950;
+      --lime-dim: #5C4422;
+      --em: #B58950;
+      --em-deep: #8C6730;
+    }
+    /* The Bottom Line panel had a transparent bg + top rule; on paper
+       give it a faint cream wash so it reads as a callout. */
+    body[data-spine="boardroom-dark"] .body section.section-bottom-line {
+      background: transparent !important;
+      border-top-color: #1A1814 !important;
+    }
+    /* Dark spine's mermaid frame — give it a paper bg in print. */
+    body[data-spine="boardroom-dark"] .body pre.mermaid {
+      background: #FFFFFF !important;
+      border-color: #DDD5C8 !important;
+    }
+
+    /* ─── CJK font fallback for print ────────────────────────────
+       In headless Chrome's PDF render path, "PingFang SC" and
+       "Hiragino Sans GB" are often unreachable — they live outside
+       the standard font directories. "Songti SC" (at /System/Library
+       /Fonts/Supplemental/Songti.ttc) IS reachable, so it anchors
+       every cascade as the dependable CJK fallback. Latin text still
+       renders in the spine's preferred face; only CJK falls through. */
+
+    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK in Songti SC */
+    body, .body, .body p, .body li,
+    .body td, .body th,
+    .rec-rationale, .rec-risk, .rec-risk-text, .rec-meta-value, .rec-action,
+    .nq-why, .cover-deck {
+      font-family: "Helvetica Neue", "Inter", "Arial",
+                   "Songti SC", "STSong",
+                   "Hiragino Sans GB", "PingFang SC",
+                   "Source Han Sans CN", "Noto Sans CJK SC",
+                   sans-serif !important;
+    }
+    /* Serif-anchored display copy · headlines, italic claims, big-idea
+       kickers — the typographic moments worth preserving in serif. */
+    .body h1, .body h2, .body h3, .body h4,
+    .body section.section-bottom-line p,
+    .body section.section-thesis p,
+    .body section.section-working-hypothesis p,
+    .body section.section-headline-findings .pillar h3,
+    .body section.section-big-ideas ol > li p:first-child strong,
+    .nq-question, .cover-title {
+      font-family: "Charter", "Source Serif Pro", "Iowan Old Style",
+                   "Georgia",
+                   "Songti SC", "STSong",
+                   "Source Han Serif CN", "Noto Serif CJK SC",
+                   "PingFang SC", "Hiragino Sans GB", serif !important;
+    }
+    /* Mono kickers / labels stay mono with Songti SC as CJK fallback. */
+    .top-rule .crumb,
+    .body .chapter-num,
+    .cover-tag, .cover-tag .secondary,
+    .byline-block .label,
+    .cover-versions-label, .cover-version,
+    .body section.section-bottom-line h2,
+    .body section.section-thesis h2,
+    .body section.section-headline-findings .pillar .pillar-num,
+    .rec-num, .rec-meta-label, .rec-risk-prefix,
+    .nq-num, .nq-attribution,
+    .body section.section-planning-assumption blockquote strong:first-child,
+    .body section.section-methodology strong,
+    .body code,
+    .body table.md-table th {
+      font-family: "SF Mono", "JetBrains Mono", "Menlo",
+                   "Helvetica Neue", "Arial",
+                   "Songti SC", "STSong", "Hiragino Sans GB", "PingFang SC",
+                   monospace !important;
+    }
+
+    /* ─── Page-break discipline (all spines) ─────────────────────
+       Avoid splitting short cards / panels across pages. */
+    .body section.section-bottom-line,
+    .body section.section-thesis,
+    .body section.section-working-hypothesis,
+    .body section.section-frame-shift,
+    .body section.section-planning-assumption,
+    .body section.section-why-now,
+    .body section.section-two-paths,
+    .body section.section-headline-findings .pillar,
+    .body section.section-recommendations li.rec-item,
+    .body section.section-considerations li.rec-item,
+    .body section.section-the-bet > ol > li,
+    .body section.section-new-questions li.nq-item,
+    .body pre.mermaid,
+    .body table.md-table {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .body h2, .body h3, .body h4 {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    .body section.section-methodology {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    /* Mermaid charts shouldn't reserve big empty boxes when the SVG
+       is small. */
+    .body pre.mermaid { min-height: auto !important; padding: 14px !important; }
+    .body pre.mermaid svg { max-width: 100% !important; height: auto !important; }
+  }
+
+  /* ─── Suppress duplicate borders at section boundaries ──────────
+     When a numbered-list section (The Bet, Big Ideas) is immediately
+     followed by a .chapter-num divider for the next chapter, the
+     list's `:last-child` `border-bottom` and the chapter-num's own
+     `border-bottom` (the rule below "Section 0X") render as two
+     parallel hairlines right at the section boundary. Drop the
+     list's closing rule — the chapter-num underline already
+     provides the visual break. Spine-agnostic; the inline-style
+     block loads after the spine CSS and the `:has()` selector
+     gives it strictly higher specificity than the per-spine rule. */
+  .body section.section-the-bet:has(+ .chapter-num) ol > li:last-child,
+  .body section.section-big-ideas:has(+ .chapter-num) ol > li:last-child {
+    border-bottom: none;
+  }
+
+  /* ─── Same fix at the Methodology footer boundary ────────────────
+     The Methodology h2 carries its own `border-top` to act as a
+     section divider, but it's skipped by `injectChapterNumbers`, so
+     there's no chapter-num to absorb that role. When the preceding
+     section already ends with its own closing rule (a markdown
+     table's last-row `border-bottom`, or The Bet / Big Ideas
+     `:last-child` `border-bottom`), the boundary renders two
+     parallel hairlines. Suppress the Methodology border-top in
+     those exact cases. */
+  .body section:has(> table.md-table:last-child) + h2.section-methodology,
+  .body section.section-the-bet + h2.section-methodology,
+  .body section.section-big-ideas + h2.section-methodology {
+    border-top: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="top-rule">
+  <span class="crumb">Boardroom <span class="accent">·</span> Insights</span>
+  <div class="top-actions">
+    <button type="button" class="download" data-download title="Save this brief as a PDF">Download PDF</button>
+    <a href="#" class="back" data-back>↩ back to room</a>
+  </div>
+</div>
+
+<main class="doc">
+  <div data-report-content>
+    <div class="placeholder">loading the brief…</div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const roomId = params.get("r");
+  const briefId = params.get("b");
+  const root = document.querySelector("[data-report-content]");
+  const back = document.querySelector("[data-back]");
+  if (back) back.href = roomId ? `/#/r/${encodeURIComponent(roomId)}` : "/";
+
+  /** Save as PDF · just trigger the browser's print dialog. The
+   *  @media print rules below hide chrome and tighten margins so the
+   *  output reads as a filed deliverable. The user picks "Save as
+   *  PDF" as the destination — every modern browser supports it. */
+  const downloadBtn = document.querySelector("[data-download]");
+  if (downloadBtn) downloadBtn.addEventListener("click", () => {
+    // Render the brief's title as the suggested filename (most
+    // browsers default to document.title when saving a print-PDF).
+    window.print();
+  });
+
+  /** Available spines · keys must match `composer.ts` SPINES. The link
+   *  href is rewritten when the brief loads — pre-validated so a typo
+   *  / unknown value falls back to boardroom-dark instead of 404'ing. */
+  const SPINES = new Set([
+    "boardroom-dark",
+    "a16z-thesis",
+    "anthropic-essay",
+    "gartner-note",
+    "mckinsey-deck",
+    "openai-paper",
+  ]);
+  function swapSpine(spine) {
+    const link = document.getElementById("spine-css");
+    if (!link) return;
+    const safe = SPINES.has(spine) ? spine : "boardroom-dark";
+    const href = `report/spines/${safe}.css`;
+    if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+    document.body.setAttribute("data-spine", safe);
+  }
+
+  function escape(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function inline(s) {
+    return s
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+      // Underscore italics — common in Recommendations / New Questions
+      // metadata labels (`_Rationale:_`, `_Owner:_` …). Without this, the
+      // labels render as literal underscores and the whole card looks raw.
+      .replace(/(^|[\s(\[])_([^_\n]+)_(?=$|[\s.,;:!?·\)\]])/g, "$1<em>$2</em>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  }
+
+  /** Mermaid 10.9.5 quadrantChart lexer is strict: anything beyond ASCII
+   *  alphanumerics + spaces breaks UNQUOTED axis/quadrant/item labels
+   *  (CJK, parens, `+`, etc. all fail with "Unrecognized text"). The
+   *  fix is to ALWAYS wrap those labels in double quotes; titles are
+   *  exempt. Mirrors src/utils/mermaid-sanitize.ts — keep in sync. */
+  function sanitizeMermaid(src) {
+    if (!src) return src;
+    if (!/^\s*quadrantChart\b/i.test(src)) return src;
+
+    const clamp01 = (n) => {
+      if (!Number.isFinite(n)) return 0.5;
+      return Math.max(0.02, Math.min(0.98, n));
+    };
+    const cleanLabel = (s) => s
+      .replace(/（/g, "(")
+      .replace(/）/g, ")")
+      .replace(/，/g, " ")
+      .replace(/：/g, " ")
+      .replace(/、/g, " ")
+      .replace(/。/g, " ")
+      .replace(/；/g, " ")
+      .replace(/["'`\[\]:]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return src.split("\n").map((line) => {
+      const indentMatch = /^(\s*)/.exec(line);
+      const indent = indentMatch ? indentMatch[1] || "    " : "    ";
+      const t = line.trim();
+      if (!t) return line;
+
+      // Title · cleaned but unquoted.
+      const titleM = /^title\s+(.+)$/i.exec(t);
+      if (titleM) return `${indent}title ${cleanLabel(titleM[1])}`;
+
+      // Axis lines · always quoted both-ends.
+      const ax = /^(x-axis|y-axis)\s+(.+)$/i.exec(t);
+      if (ax) {
+        const which = ax[1].toLowerCase();
+        const rest = ax[2].trim();
+        if (rest.includes("-->")) {
+          const parts = rest.split("-->").map((s) => cleanLabel(s));
+          if (parts.length === 2 && parts[0] && parts[1]) {
+            return `${indent}${which} "${parts[0]}" --> "${parts[1]}"`;
+          }
+        }
+        const cleaned = cleanLabel(rest);
+        return `${indent}${which} "Low ${cleaned}" --> "High ${cleaned}"`;
+      }
+
+      // Quadrant labels · always quoted.
+      const qM = /^(quadrant-[1-4])\s+(.+)$/i.exec(t);
+      if (qM) return `${indent}${qM[1]} "${cleanLabel(qM[2])}"`;
+
+      // Item lines · always quoted, coords clamped.
+      const item = /^"?([^"\[\]]+?)"?\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]\s*$/.exec(t);
+      if (item) {
+        const label = cleanLabel(item[1]);
+        const x = clamp01(parseFloat(item[2]));
+        const y = clamp01(parseFloat(item[3]));
+        return `${indent}"${label}": [${x.toFixed(2)}, ${y.toFixed(2)}]`;
+      }
+
+      return line;
+    }).join("\n");
+  }
+
+  // Slightly richer markdown than the in-room renderer — supports h1–h4,
+  // bullets, ordered lists, paragraphs, blockquotes, fenced code blocks
+  // (incl. ```mermaid for diagrams), and pipe tables.
+  function renderMarkdown(md) {
+    // Pre-pass · pull out fenced ```code blocks before splitting on blank
+    // lines, since a code block can legally contain blank lines.
+    const placeholders = [];
+    let stripped = "";
+    {
+      const lines = md.split("\n");
+      let i = 0;
+      while (i < lines.length) {
+        const fence = /^```(\w*)\s*$/.exec(lines[i]);
+        if (fence) {
+          const lang = (fence[1] || "").toLowerCase();
+          const start = i + 1;
+          let end = lines.length;
+          for (let j = start; j < lines.length; j++) {
+            if (/^```\s*$/.test(lines[j])) { end = j; break; }
+          }
+          const body = lines.slice(start, end).join("\n");
+          const idx = placeholders.length;
+          if (lang === "mermaid") {
+            placeholders.push(`<pre class="mermaid">${escape(sanitizeMermaid(body))}</pre>`);
+          } else {
+            placeholders.push(
+              `<pre class="codeblock${lang ? ` lang-${escape(lang)}` : ""}"><code>${escape(body)}</code></pre>`,
+            );
+          }
+          stripped += `\n\n@@CODEBLOCK_${idx}@@\n\n`;
+          i = end + 1;
+        } else {
+          stripped += lines[i] + "\n";
+          i += 1;
+        }
+      }
+    }
+
+    const blocks = stripped.split(/\n\s*\n/);
+    const out = [];
+    for (const raw of blocks) {
+      const lines = raw.split("\n").filter((l) => l.length > 0);
+      if (lines.length === 0) continue;
+
+      // Code block placeholder — passes through unchanged.
+      if (lines.length === 1) {
+        const m = /^@@CODEBLOCK_(\d+)@@$/.exec(lines[0].trim());
+        if (m) {
+          out.push(placeholders[Number(m[1])] || "");
+          continue;
+        }
+      }
+
+      // Heading · also handles the "## Title\nbody" case (no blank line
+      // between heading and content). Some prompts produce that pattern
+      // — without the multi-line branch the H2 leaks as literal `## …`
+      // text into a paragraph fallback. The trailing lines are processed
+      // as a separate paragraph block so we don't lose them.
+      {
+        const m = /^(#{1,4})\s+(.+)$/.exec(lines[0]);
+        if (m) {
+          const level = Math.min(m[1].length, 4);
+          out.push(`<h${level}>${inline(escape(m[2]))}</h${level}>`);
+          if (lines.length > 1) {
+            const rest = lines.slice(1).join(" ").trim();
+            if (rest) out.push(`<p>${inline(escape(rest))}</p>`);
+          }
+          continue;
+        }
+      }
+
+      // Pipe table · header row · separator · data rows.
+      // Detect: ≥ 2 lines, first looks like `| h1 | h2 |`, second is `|---|---|`.
+      if (
+        lines.length >= 2 &&
+        /\|/.test(lines[0]) &&
+        /^\s*\|?[\s:|\-]+\|?\s*$/.test(lines[1]) &&
+        /-/.test(lines[1])
+      ) {
+        const splitRow = (l) =>
+          l
+            .replace(/^\s*\|/, "")
+            .replace(/\|\s*$/, "")
+            .split("|")
+            .map((c) => c.trim());
+        const headers = splitRow(lines[0]);
+        const rows = lines.slice(2).map(splitRow);
+        const thead = `<thead><tr>${headers.map((h) => `<th>${inline(escape(h))}</th>`).join("")}</tr></thead>`;
+        const tbody = `<tbody>${rows
+          .map((r) => `<tr>${r.map((c) => `<td>${inline(escape(c))}</td>`).join("")}</tr>`)
+          .join("")}</tbody>`;
+        out.push(`<table class="md-table">${thead}${tbody}</table>`);
+        continue;
+      }
+
+      // Blockquote?
+      if (lines.every((l) => /^>\s?/.test(l))) {
+        const inner = lines.map((l) => inline(escape(l.replace(/^>\s?/, "")))).join("<br>");
+        out.push(`<blockquote>${inner}</blockquote>`);
+        continue;
+      }
+
+      // Bulleted?
+      if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
+        const items = lines.map((l) => `<li>${inline(escape(l.replace(/^\s*[-*]\s+/, "")))}</li>`);
+        out.push(`<ul>${items.join("")}</ul>`);
+        continue;
+      }
+
+      // Ordered list · first line starts with `1. `. Subsequent lines
+      // either start a new item (`2. ...`) or are indented continuation
+      // lines (e.g. the `_Rationale:_ ...` rows under each rec). Each
+      // continuation becomes its own <p> inside the <li>, which is what
+      // the post-render Recommendations / New Questions restructurers
+      // expect to find.
+      const olStart = /^\s*\d+[\.)]\s+/;
+      if (olStart.test(lines[0])) {
+        const items = []; // Array<string[]> — one bucket per item, lines kept separate
+        let cur = null;
+        for (const line of lines) {
+          if (olStart.test(line)) {
+            if (cur !== null) items.push(cur);
+            cur = [line.replace(olStart, "")];
+          } else if (cur !== null) {
+            const t = line.trim();
+            if (t.length > 0) cur.push(t);
+          }
+        }
+        if (cur !== null) items.push(cur);
+        const itemsHtml = items.map((parts) => {
+          const ps = parts
+            .filter((p) => p.length > 0)
+            .map((p) => `<p>${inline(escape(p))}</p>`)
+            .join("");
+          return `<li>${ps}</li>`;
+        });
+        out.push(`<ol>${itemsHtml.join("")}</ol>`);
+        continue;
+      }
+
+      // Paragraph
+      out.push(`<p>${inline(escape(lines.join(" ")))}</p>`);
+    }
+    return out.join("");
+  }
+
+  function fmtTime(ms) {
+    if (!ms) return "";
+    const d = new Date(ms);
+    return d.toLocaleString();
+  }
+
+  /** Map H2 heading text → section class. We match on a normalised lowercase
+   *  comparison so the report writer can produce minor variations (e.g.
+   *  "Where We Diverged · The Crux") and the wrapper still applies. */
+  const SECTION_MATCHERS = [
+    { re: /^bottom\s*line/i,                     cls: "section-bottom-line" },
+    { re: /^the\s*thesis|^thesis$/i,             cls: "section-thesis" },
+    { re: /^a\s+working\s+hypothesis|^working\s*hypothesis/i, cls: "section-working-hypothesis" },
+    { re: /^strategic\s*outlook|^战略前景|^战略展望/i, cls: "section-strategic-outlook" },
+    { re: /^frame\s*shift/i,                     cls: "section-frame-shift" },
+    { re: /^headline\s*findings?/i,              cls: "section-headline-findings" },
+    { re: /^three\s*big\s*ideas|^big\s*ideas/i,  cls: "section-big-ideas" },
+    { re: /^(where\s*we\s*)?converge[d]?/i,      cls: "section-convergence" },
+    { re: /^(where\s*we\s*)?diverge[d]?|crux/i,  cls: "section-divergence" },
+    { re: /^positions?/i,                        cls: "section-positions" },
+    { re: /^options?\s*analysis/i,               cls: "section-options-analysis" },
+    { re: /^two\s*paths|^two\s*futures|^two\s*scenarios/i, cls: "section-two-paths" },
+    { re: /^why\s*now/i,                         cls: "section-why-now" },
+    // Gartner-density blocks · placed in classifier order so a brief
+    // with all four reads top-to-bottom: outlook → assumptions → tree
+    // → indicators. The matchers tolerate light wording variation
+    // (e.g. "Critical Assumptions Log").
+    { re: /^critical\s*assumptions?|^load[-\s]bearing\s*assumptions?|^承重假设|^关键假设/i, cls: "section-critical-assumptions" },
+    { re: /^scenario\s*tree|^scenarios?$|^情景树|^情景分析|^命名情景/i, cls: "section-scenario-tree" },
+    { re: /^leading\s*indicators?|^watch[-\s]list|^先行指标|^监测指标|^监控信号/i, cls: "section-leading-indicators" },
+    { re: /^recommendations?/i,                  cls: "section-recommendations" },
+    { re: /^the\s*bet$|^the\s*bet[\s·:]/i,       cls: "section-the-bet" },
+    { re: /^considerations?/i,                   cls: "section-considerations" },
+    { re: /^pre[-\s]?mortem|risks?/i,            cls: "section-pre-mortem" },
+    { re: /^new\s*questions?/i,                  cls: "section-new-questions" },
+    { re: /^strategic\s*planning\s*assumption|^planning\s*assumption/i, cls: "section-planning-assumption" },
+    { re: /^open\s*questions?/i,                 cls: "section-open-questions" },
+    { re: /^methodology|^方法论|^methods?$/i,    cls: "section-methodology" },
+  ];
+
+  function classifyHeading(text) {
+    const t = (text || "").trim().toLowerCase();
+    for (const m of SECTION_MATCHERS) if (m.re.test(t)) return m.cls;
+    return null;
+  }
+
+  /** Walk the body, tag each H2 + wrap its following content (until the
+   *  next H2 or end of body) in a <section> with the matching class. */
+  function wrapSections(body) {
+    const h2s = Array.from(body.querySelectorAll("h2"));
+    for (const h2 of h2s) {
+      const cls = classifyHeading(h2.textContent);
+      if (!cls) continue;
+      h2.classList.add(cls);
+      // Collect siblings until next H2.
+      const between = [];
+      let n = h2.nextSibling;
+      while (n && !(n.nodeType === 1 && n.tagName === "H2")) {
+        const next = n.nextSibling;
+        between.push(n);
+        n = next;
+      }
+      if (!between.length) continue;
+      const section = document.createElement("section");
+      section.classList.add(cls);
+      // Insert section right after the H2.
+      h2.parentNode.insertBefore(section, h2.nextSibling);
+      for (const node of between) section.appendChild(node);
+    }
+  }
+
+  /** Tag inline `<code>` elements that look like confidence / priority
+   *  badges so CSS can color them. Looks at text content only. */
+  function tagBadges(body) {
+    const codes = Array.from(body.querySelectorAll("code"));
+    for (const c of codes) {
+      const t = (c.textContent || "").trim();
+      if (/^P0$/i.test(t)) c.classList.add("badge-priority-p0");
+      else if (/^P1$/i.test(t)) c.classList.add("badge-priority-p1");
+      else if (/^P2$/i.test(t)) c.classList.add("badge-priority-p2");
+      else if (/^high$/i.test(t)) c.classList.add("badge-confidence-high");
+      else if (/^medium$/i.test(t)) c.classList.add("badge-confidence-medium");
+      else if (/^low$/i.test(t)) c.classList.add("badge-confidence-low");
+    }
+  }
+
+  /** Inject mono "section 0X" labels above each chapter H2 (skipping
+   *  the Bottom Line, which has its own treatment, and the Methodology
+   *  footer). McKinsey-style chapter numbering. */
+  function injectChapterNumbers(body) {
+    const h2s = Array.from(body.querySelectorAll("h2"));
+    let n = 0;
+    for (const h2 of h2s) {
+      // Skip the anchor sections (executive-summary slot, not a numbered
+      // chapter) and Methodology (footer treatment).
+      if (h2.classList.contains("section-bottom-line")) continue;
+      if (h2.classList.contains("section-thesis")) continue;
+      if (h2.classList.contains("section-working-hypothesis")) continue;
+      if (h2.classList.contains("section-methodology")) continue;
+      n += 1;
+      const num = String(n).padStart(2, "0");
+      const label = document.createElement("div");
+      label.className = "chapter-num";
+      label.textContent = `Section ${num}`;
+      h2.parentNode.insertBefore(label, h2);
+    }
+  }
+
+  /** Inside the Headline Findings section, transform 3 H3 sub-headings
+   *  into a pillar grid. Each pillar = .pillar div containing the H3
+   *  + everything until the next H3. Three pillars side-by-side on
+   *  wide screens (CSS handles responsive collapse). */
+  function buildHeadlinePillars(body) {
+    const section = body.querySelector("section.section-headline-findings");
+    if (!section) return;
+    const h3s = Array.from(section.querySelectorAll("h3"));
+    if (h3s.length === 0) return;
+    const grid = document.createElement("div");
+    grid.className = "pillars-grid";
+    h3s.forEach((h3, i) => {
+      const pillar = document.createElement("div");
+      pillar.className = "pillar";
+      const num = document.createElement("div");
+      num.className = "pillar-num";
+      num.textContent = String(i + 1).padStart(2, "0");
+      pillar.appendChild(num);
+      pillar.appendChild(h3.cloneNode(true));
+      let n = h3.nextSibling;
+      while (n && !(n.nodeType === 1 && n.tagName === "H3")) {
+        const next = n.nextSibling;
+        pillar.appendChild(n.cloneNode(true));
+        n = next;
+      }
+      grid.appendChild(pillar);
+    });
+    // Replace original H3 + content with the grid.
+    // Remove the H3s and their following siblings up to (but not including) the next non-h3 element after the last h3 group.
+    const firstH3 = h3s[0];
+    const insertAt = firstH3;
+    // Collect all the nodes to remove (H3s + everything between them + after the last H3 within the section).
+    const toRemove = [];
+    let cur = firstH3;
+    while (cur && cur !== section.lastChild?.nextSibling) {
+      toRemove.push(cur);
+      cur = cur.nextSibling;
+    }
+    section.insertBefore(grid, firstH3);
+    for (const node of toRemove) {
+      if (node && node.parentNode === section) section.removeChild(node);
+    }
+  }
+
+  /** Number Visual H3s as Exhibit 01 / 02 / … inside the Options
+   *  Analysis section. */
+  function injectExhibitLabels(body) {
+    const section = body.querySelector("section.section-options-analysis");
+    if (!section) return;
+    const h3s = Array.from(section.querySelectorAll("h3"));
+    h3s.forEach((h3, i) => {
+      const num = String(i + 1).padStart(2, "0");
+      const label = document.createElement("div");
+      label.className = "chapter-num";
+      label.style.margin = "32px 0 6px";
+      label.textContent = `Exhibit ${num}`;
+      h3.parentNode.insertBefore(label, h3);
+    });
+  }
+
+  /** Recommendations / Considerations · the prompt produces a numbered
+   *  list where each `<li>` is a wall of `<em>Label:</em> value`
+   *  paragraphs. Without restructuring, every metadata field looks
+   *  identical — readers can't scan owner/horizon/metric/risk apart.
+   *
+   *  We rebuild each `<li>` into:
+   *    · header  · priority badge + action sentence
+   *    · meta    · 3-column dl of Owner / Horizon / Success metric
+   *    · prose   · rationale paragraph (no label)
+   *    · risk    · soft alert callout
+   *
+   *  Field detection is by the leading `<em>` text after the lead p.
+   *  Robust to two fields-per-paragraph (`_Owner:_ X · _Horizon:_ Y`),
+   *  to fields appearing in any order, and to mixed en/zh content. */
+
+  // Canonical key per known label. Substring match (case-insensitive,
+  // colons stripped). Considerations uses different label words for the
+  // same fields — both map here.
+  const REC_LABEL_MAP = [
+    { key: "rationale", patterns: ["rationale", "worth thinking about because"] },
+    { key: "owner",     patterns: ["owner", "who'd own it", "who would own it"] },
+    { key: "horizon",   patterns: ["horizon", "on what horizon"] },
+    { key: "metric",    patterns: ["success metric", "what you'd watch", "what you would watch"] },
+    { key: "risk",      patterns: ["risk if skipped", "what you'd give up by not doing this", "what you'd give up"] },
+  ];
+  function recLabelKey(rawLabel) {
+    const t = String(rawLabel || "").toLowerCase().replace(/[:：]\s*$/, "").trim();
+    if (!t) return null;
+    for (const m of REC_LABEL_MAP) {
+      for (const p of m.patterns) {
+        if (t === p || t.startsWith(p)) return m.key;
+      }
+    }
+    return null;
+  }
+
+  // Walk a `<p>` that may contain one or more `<em>Label:</em> value`
+  // pairs separated by ` · ` (or commas / pipes). Return [{ key, value }].
+  function parseRecMetaParagraph(p) {
+    const ems = Array.from(p.querySelectorAll(":scope > em, :scope > strong > em"));
+    const out = [];
+    if (ems.length === 0) return out;
+    for (let i = 0; i < ems.length; i++) {
+      const em = ems[i];
+      const key = recLabelKey(em.textContent);
+      if (!key) continue;
+      // Walk siblings until the next <em> (or end of paragraph),
+      // accumulating text + inline markup.
+      const stop = ems[i + 1] || null;
+      let value = "";
+      let n = em.nextSibling;
+      while (n && n !== stop) {
+        if (n.nodeType === 1 || n.nodeType === 3) {
+          value += n.nodeType === 1 ? n.outerHTML || n.textContent : n.textContent;
+        }
+        n = n.nextSibling;
+      }
+      // Trim whitespace and the leading `· ` separator that might
+      // sit between two fields.
+      value = value
+        .replace(/^[\s·,|]+/, "")
+        .replace(/[\s·,|]+$/, "")
+        .trim();
+      if (value) out.push({ key, valueHtml: value });
+    }
+    return out;
+  }
+
+  function buildRecommendationItem(li, index) {
+    const ps = Array.from(li.children).filter((n) => n.tagName === "P");
+    if (ps.length === 0) return null;
+
+    // Lead paragraph · expects priority `<code>` + action `<strong>`.
+    const lead = ps[0];
+    const codeBadge = lead.querySelector("code");
+    const priority = codeBadge ? codeBadge.textContent.trim() : "";
+    // Action text = lead minus the priority badge (and its wrapping
+    // <strong> when the badge is alone inside one).
+    const leadClone = lead.cloneNode(true);
+    const cloneBadge = leadClone.querySelector("code");
+    if (cloneBadge) {
+      const wrappingStrong = cloneBadge.parentElement;
+      const isAloneInStrong = wrappingStrong
+        && wrappingStrong.tagName === "STRONG"
+        && wrappingStrong.childNodes.length === 1;
+      (isAloneInStrong ? wrappingStrong : cloneBadge).remove();
+    }
+    // The remaining text is the action — typically still wrapped in a
+    // single <strong>. Unwrap it so .rec-action's own typography wins.
+    if (leadClone.children.length === 1
+        && leadClone.firstElementChild.tagName === "STRONG"
+        && leadClone.firstElementChild.textContent.trim() === leadClone.textContent.trim()) {
+      leadClone.firstElementChild.outerHTML = leadClone.firstElementChild.innerHTML;
+    }
+    const actionHtml = leadClone.innerHTML.trim();
+
+    const fields = {};
+    for (let i = 1; i < ps.length; i++) {
+      const parsed = parseRecMetaParagraph(ps[i]);
+      for (const { key, valueHtml } of parsed) {
+        if (!fields[key]) fields[key] = valueHtml;
+      }
+    }
+
+    // ── New editorial DOM ───────────────────────────────────────────
+    //   ┌── rule ──┐
+    //   │ 01  P0   │ ── thin line filling the rest of the row
+    //   ├──────────┤
+    //   │ ACTION   │ large display
+    //   │ rational │ body prose
+    //   │ MO·HO·SM │ inline meta row
+    //   │ ⚠ risk   │ italic one-liner
+    //   └──────────┘
+    const newLi = document.createElement("li");
+    newLi.className = "rec-item";
+    if (priority) newLi.classList.add(`rec-priority-${priority.toLowerCase()}`);
+
+    const rule = document.createElement("div");
+    rule.className = "rec-rule";
+    const num = document.createElement("span");
+    num.className = "rec-num";
+    num.textContent = String(index).padStart(2, "0");
+    rule.appendChild(num);
+    if (priority) {
+      const badge = document.createElement("code");
+      const lvl = priority.toLowerCase();
+      if (/^p[012]$/.test(lvl)) badge.className = `badge-priority-${lvl}`;
+      badge.textContent = priority;
+      rule.appendChild(badge);
+    }
+    const ruleLine = document.createElement("span");
+    ruleLine.className = "rec-rule-line";
+    ruleLine.setAttribute("aria-hidden", "true");
+    rule.appendChild(ruleLine);
+    newLi.appendChild(rule);
+
+    const action = document.createElement("h3");
+    action.className = "rec-action";
+    action.innerHTML = actionHtml;
+    newLi.appendChild(action);
+
+    if (fields.rationale) {
+      const ratP = document.createElement("p");
+      ratP.className = "rec-rationale";
+      ratP.innerHTML = fields.rationale;
+      newLi.appendChild(ratP);
+    }
+
+    const metaPairs = [];
+    if (fields.owner)   metaPairs.push({ label: "Owner",   value: fields.owner });
+    if (fields.horizon) metaPairs.push({ label: "Horizon", value: fields.horizon });
+    if (fields.metric)  metaPairs.push({ label: "Metric",  value: fields.metric });
+    if (metaPairs.length) {
+      const meta = document.createElement("div");
+      meta.className = "rec-meta";
+      metaPairs.forEach((p, i) => {
+        const pair = document.createElement("span");
+        pair.className = "rec-meta-pair";
+        const lbl = document.createElement("span");
+        lbl.className = "rec-meta-label";
+        lbl.textContent = p.label;
+        const val = document.createElement("span");
+        val.className = "rec-meta-value";
+        val.innerHTML = p.value;
+        pair.appendChild(lbl);
+        pair.appendChild(val);
+        meta.appendChild(pair);
+        if (i < metaPairs.length - 1) {
+          const sep = document.createElement("span");
+          sep.className = "rec-meta-sep";
+          sep.setAttribute("aria-hidden", "true");
+          sep.textContent = "·";
+          meta.appendChild(sep);
+        }
+      });
+      newLi.appendChild(meta);
+    }
+
+    if (fields.risk) {
+      const risk = document.createElement("p");
+      risk.className = "rec-risk";
+      const prefix = document.createElement("span");
+      prefix.className = "rec-risk-prefix";
+      prefix.textContent = "Risk if skipped";
+      const sep = document.createElement("span");
+      sep.className = "rec-risk-sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = "—";
+      const text = document.createElement("span");
+      text.className = "rec-risk-text";
+      text.innerHTML = fields.risk;
+      risk.appendChild(prefix);
+      risk.appendChild(sep);
+      risk.appendChild(text);
+      newLi.appendChild(risk);
+    }
+
+    return newLi;
+  }
+
+  /** The brief writer separates list items with blank lines, which the
+   *  markdown renderer turns into multiple consecutive `<ol>` blocks
+   *  rather than one. Merge them before restructuring so item numbering
+   *  is continuous and CSS sees a single list. */
+  function mergeConsecutiveOls(section) {
+    const ols = Array.from(section.querySelectorAll(":scope > ol"));
+    if (ols.length <= 1) return ols[0] || null;
+    const first = ols[0];
+    for (let i = 1; i < ols.length; i++) {
+      while (ols[i].firstChild) first.appendChild(ols[i].firstChild);
+      ols[i].remove();
+    }
+    return first;
+  }
+
+  function restructureRecommendations(body) {
+    const sections = Array.from(body.querySelectorAll(
+      "section.section-recommendations, section.section-considerations"
+    ));
+    for (const section of sections) {
+      const ol = mergeConsecutiveOls(section);
+      if (!ol) continue;
+      const lis = Array.from(ol.children).filter((n) => n.tagName === "LI");
+      lis.forEach((li, idx) => {
+        const newLi = buildRecommendationItem(li, idx + 1);
+        if (newLi) li.replaceWith(newLi);
+      });
+    }
+  }
+
+  /** New Questions · same wall-of-em-labels problem. We rebuild each
+   *  `<li>` into a card with a Q-numeral, italic question text (large
+   *  & inviting), a why-it-matters prose paragraph (no label), and a
+   *  small attribution byline at the bottom. */
+  const NQ_LABEL_MAP = [
+    { key: "why", patterns: ["why it matters", "why matters"] },
+    { key: "by",  patterns: ["surfaced by", "raised by", "asked by"] },
+  ];
+  function nqLabelKey(rawLabel) {
+    const t = String(rawLabel || "").toLowerCase().replace(/[:：]\s*$/, "").trim();
+    if (!t) return null;
+    for (const m of NQ_LABEL_MAP) {
+      for (const p of m.patterns) {
+        if (t === p || t.startsWith(p)) return m.key;
+      }
+    }
+    return null;
+  }
+  function parseNqMetaParagraph(p) {
+    const ems = Array.from(p.querySelectorAll(":scope > em, :scope > strong > em"));
+    const out = [];
+    if (ems.length === 0) return out;
+    for (let i = 0; i < ems.length; i++) {
+      const em = ems[i];
+      const key = nqLabelKey(em.textContent);
+      if (!key) continue;
+      const stop = ems[i + 1] || null;
+      let value = "";
+      let n = em.nextSibling;
+      while (n && n !== stop) {
+        if (n.nodeType === 1 || n.nodeType === 3) {
+          value += n.nodeType === 1 ? n.outerHTML || n.textContent : n.textContent;
+        }
+        n = n.nextSibling;
+      }
+      value = value.replace(/^[\s·,|]+/, "").replace(/[\s·,|]+$/, "").trim();
+      if (value) out.push({ key, valueHtml: value });
+    }
+    return out;
+  }
+
+  function buildNewQuestionItem(li, index) {
+    const ps = Array.from(li.children).filter((n) => n.tagName === "P");
+    if (ps.length === 0) return null;
+
+    const leadClone = ps[0].cloneNode(true);
+    if (leadClone.children.length === 1 && leadClone.firstElementChild.tagName === "STRONG"
+        && leadClone.firstElementChild.textContent.trim() === leadClone.textContent.trim()) {
+      leadClone.firstElementChild.outerHTML = leadClone.firstElementChild.innerHTML;
+    }
+    const questionHtml = leadClone.innerHTML.trim();
+
+    const fields = {};
+    for (let i = 1; i < ps.length; i++) {
+      const parsed = parseNqMetaParagraph(ps[i]);
+      for (const { key, valueHtml } of parsed) {
+        if (!fields[key]) fields[key] = valueHtml;
+      }
+    }
+
+    // ── Op-ed style DOM ─────────────────────────────────────────────
+    //   ┌── rule ──┐
+    //   │ Q1 ── line ── Director Name (right) │
+    //   ├──────────────────────────────────────┤
+    //   │ "italic display question"            │
+    //   │ why-it-matters body prose            │
+    //   └──────────────────────────────────────┘
+    const newLi = document.createElement("li");
+    newLi.className = "nq-item";
+
+    const rule = document.createElement("div");
+    rule.className = "nq-rule";
+    const num = document.createElement("span");
+    num.className = "nq-num";
+    num.textContent = `Q${index}`;
+    rule.appendChild(num);
+    const ruleLine = document.createElement("span");
+    ruleLine.className = "nq-rule-line";
+    ruleLine.setAttribute("aria-hidden", "true");
+    rule.appendChild(ruleLine);
+    if (fields.by) {
+      const by = document.createElement("span");
+      by.className = "nq-attribution";
+      const byPrefix = document.createElement("span");
+      byPrefix.className = "nq-attribution-prefix";
+      byPrefix.textContent = "Surfaced by";
+      const who = document.createElement("span");
+      who.className = "nq-attribution-who";
+      who.innerHTML = fields.by;
+      by.appendChild(byPrefix);
+      by.appendChild(who);
+      rule.appendChild(by);
+    }
+    newLi.appendChild(rule);
+
+    const q = document.createElement("blockquote");
+    q.className = "nq-question";
+    q.innerHTML = questionHtml;
+    newLi.appendChild(q);
+
+    if (fields.why) {
+      const why = document.createElement("p");
+      why.className = "nq-why";
+      why.innerHTML = fields.why;
+      newLi.appendChild(why);
+    }
+
+    return newLi;
+  }
+
+  function restructureNewQuestions(body) {
+    const section = body.querySelector("section.section-new-questions");
+    if (!section) return;
+    const ol = mergeConsecutiveOls(section);
+    if (!ol) return;
+    const lis = Array.from(ol.children).filter((n) => n.tagName === "LI");
+    lis.forEach((li, idx) => {
+      const newLi = buildNewQuestionItem(li, idx + 1);
+      if (newLi) li.replaceWith(newLi);
+    });
+  }
+
+  /** Merge consecutive `<ol>` blocks in every wrapped section. The
+   *  brief writer separates numbered items with blank lines, which the
+   *  markdown renderer turns into N adjacent OLs — each restarts the
+   *  counter at 01 and produces a doubled rule between siblings (item-1's
+   *  bottom border + item-2's top border). Big Ideas, The Bet, and any
+   *  other section with `1. … 2. …` content all need this merge before
+   *  the spine CSS sees the list. */
+  function mergeAllOlsInSections(body) {
+    const sections = body.querySelectorAll("section");
+    for (const s of sections) mergeConsecutiveOls(s);
+  }
+
+  function decorateReport(body) {
+    if (!body) return;
+    try {
+      wrapSections(body);
+      mergeAllOlsInSections(body);
+      tagBadges(body);
+      injectChapterNumbers(body);
+      buildHeadlinePillars(body);
+      injectExhibitLabels(body);
+      restructureRecommendations(body);
+      restructureNewQuestions(body);
+    } catch (e) {
+      // Decoration is purely visual — log and leave the raw markdown
+      // standing if anything goes sideways.
+      console.warn("[report] decorate failed:", e);
+    }
+  }
+
+  function showError(msg) {
+    root.innerHTML = `<div class="placeholder error">${escape(msg)}</div>`;
+  }
+
+  async function load() {
+    if (!roomId) {
+      showError("no room id in url");
+      return;
+    }
+    let room, brief, members, briefs;
+    try {
+      // Load room state + ALL briefs for this room in parallel. The
+      // viewer picks the requested brief (when ?b= present) or the
+      // newest, then renders the version-tab strip if there are ≥ 2.
+      const briefEndpoint = briefId
+        ? "/api/briefs/" + encodeURIComponent(briefId)
+        : "/api/rooms/" + encodeURIComponent(roomId) + "/brief";
+      const [stateRes, briefRes, listRes] = await Promise.all([
+        fetch("/api/rooms/" + encodeURIComponent(roomId)),
+        fetch(briefEndpoint),
+        fetch("/api/rooms/" + encodeURIComponent(roomId) + "/briefs"),
+      ]);
+      if (!briefRes.ok) {
+        showError(briefRes.status === 404 ? "no brief filed for this room yet" : "failed to load brief");
+        return;
+      }
+      brief = await briefRes.json();
+      if (stateRes.ok) {
+        const j = await stateRes.json();
+        room = j.room;
+        members = j.members || [];
+      } else {
+        members = [];
+      }
+      if (listRes.ok) {
+        const j = await listRes.json();
+        briefs = Array.isArray(j.briefs) ? j.briefs : [];
+      } else {
+        briefs = [];
+      }
+    } catch (e) {
+      showError("network error: " + (e && e.message ? e.message : String(e)));
+      return;
+    }
+
+    document.title = "BOARDROOM // " + (brief.title || "brief");
+    swapSpine(brief.spine || "boardroom-dark");
+
+    const signed = members
+      .map((a) => `<img src="${escape(a.avatarPath)}" alt="${escape(a.name)}" title="${escape(a.name)}">`)
+      .join("");
+
+    const filedDate = brief.createdAt
+      ? new Date(brief.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+      : "—";
+    const docId = (brief.id || "").slice(0, 12).toUpperCase();
+    const subjectShort = room?.subject ? escape(room.subject.length > 64 ? room.subject.slice(0, 64) + "…" : room.subject) : "—";
+
+    // Version strip · only when ≥ 2 briefs filed for this room. Lets
+    // the reader see they're holding "version 02 of 03" of this room's
+    // research note, with siblings linkable. Sorted oldest → newest so
+    // "01" reads as the original.
+    const sortedBriefs = (briefs || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const showVersions = sortedBriefs.length > 1;
+    const versionsHtml = showVersions ? `
+      <div class="cover-versions">
+        <span class="cover-versions-label">Versions</span>
+        ${sortedBriefs.map((bf, i) => {
+          const num = String(i + 1).padStart(2, "0");
+          const isActive = bf.id === brief.id;
+          const isInitial = i === 0;
+          const hint = isInitial
+            ? "Initial brief"
+            : (bf.supplement && bf.supplement.trim()
+                ? `Supplement: ${bf.supplement.trim().slice(0, 120)}${bf.supplement.trim().length > 120 ? "…" : ""}`
+                : "Regenerated brief");
+          const href = `/report.html?r=${encodeURIComponent(roomId)}&b=${encodeURIComponent(bf.id)}`;
+          return `<a class="cover-version${isActive ? " active" : ""}" href="${href}" title="${escape(hint)}"><span class="num">${num}</span><span class="sep">/</span><span class="hint">${escape(isInitial ? "Initial" : (bf.supplement || "—").trim().slice(0, 22))}${(!isInitial && bf.supplement && bf.supplement.length > 22) ? "…" : ""}</span></a>`;
+        }).join("")}
+      </div>
+    ` : "";
+
+    // Masthead: the dossier strip at the top of the cover. Reads like
+    // a research-note dateline rather than a marketing eyebrow.
+    const isoFiled = brief.createdAt
+      ? new Date(brief.createdAt).toISOString().slice(0, 10).replace(/-/g, ".")
+      : "—";
+    root.innerHTML = `
+      <header class="cover">
+        <div class="cover-tag">
+          <span>Boardroom · Research Note</span>
+          <span class="pipe"></span>
+          <span class="secondary">Dossier ${escape(docId || "—")}</span>
+          <span class="pipe"></span>
+          <span class="secondary">Filed ${escape(isoFiled)}</span>
+        </div>
+        <h1 class="cover-title">${escape(brief.title || "(untitled)")}</h1>
+        ${room?.subject ? `<div class="cover-deck">${escape(room.subject)}</div>` : ""}
+        <div class="cover-byline">
+          <div class="byline-block">
+            <div class="label">Filed</div>
+            <div class="value">${escape(filedDate)}</div>
+          </div>
+          <div class="byline-block">
+            <div class="label">Authors</div>
+            <div class="value">
+              ${members.length} director${members.length === 1 ? "" : "s"}
+              ${members.length ? `<div class="signed-avatars">${signed}</div>` : ""}
+            </div>
+          </div>
+          <div class="byline-block">
+            <div class="label">Subject</div>
+            <div class="value">${subjectShort}</div>
+          </div>
+          <div class="byline-block">
+            <div class="label">Doc ID</div>
+            <div class="value" style="font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">${escape(docId || "—")}</div>
+          </div>
+        </div>
+        ${versionsHtml}
+      </header>
+
+      <article class="body" data-report-body>${renderMarkdown(brief.bodyMd || "_(empty brief)_")}</article>
+
+      <div class="foot-rule">// end of brief · boardroom</div>
+    `;
+
+    // ── Post-render pass · tag specific sections + inline badges so
+    //    CSS can apply distinctive treatments. Idempotent and tolerant
+    //    to missing sections (a report may skip Frame Shift, etc.).
+    decorateReport(document.querySelector("[data-report-body]"));
+
+    // Render any mermaid blocks. Wrapped in try/catch — a syntax error in
+    // one diagram should not blank the whole report. The mermaid script is
+    // deferred, so it may not be available the instant `load()` resolves;
+    // poll up to 5s before giving up and leaving the raw fenced text in
+    // place as a graceful fallback.
+    if (document.querySelector(".mermaid")) {
+      const mermaid = await new Promise((resolve) => {
+        if (window.mermaid) return resolve(window.mermaid);
+        let elapsed = 0;
+        const t = setInterval(() => {
+          if (window.mermaid) { clearInterval(t); resolve(window.mermaid); }
+          else if ((elapsed += 50) > 5000) { clearInterval(t); resolve(null); }
+        }, 50);
+      });
+      if (mermaid) {
+        try {
+          // Pick mermaid theme variables based on the active spine.
+          // Each spine uses neutral quadrant fills (no colored tints —
+          // all four quadrants share one fill for a clean Gartner / BCG
+          // matrix look) and the spine's accent for plotted points.
+          const spineKey = (brief.spine && SPINES.has(brief.spine)) ? brief.spine : "boardroom-dark";
+          const themes = {
+            "boardroom-dark": {
+              base: "dark",
+              vars: {
+                background: "#131312",
+                quadrantFill: "#1A1A18",
+                quadrantText: "#B6B0A2",
+                pointFill: "#C8C5BE",
+                pointText: "#8E8B83",
+                titleFill: "#C8C5BE",
+                axisText: "#8E8B83",
+                border: "#3A3A35",
+                inner: "#2A2A26",
+              },
+              fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
+            },
+            "a16z-thesis": {
+              base: "default",
+              vars: {
+                background: "#F7F3E8",
+                quadrantFill: "#F7F3E8",
+                quadrantText: "#57503F",
+                pointFill: "#14110C",
+                pointText: "#14110C",
+                titleFill: "#14110C",
+                axisText: "#847B65",
+                border: "#BCB39A",
+                inner: "#DCD3BD",
+              },
+              fontFamily: '"Inter", "Helvetica Neue", -apple-system, system-ui, sans-serif',
+            },
+            "anthropic-essay": {
+              base: "default",
+              vars: {
+                background: "#FAF7F0",
+                quadrantFill: "#F4F0E8",
+                quadrantText: "#6B6359",
+                pointFill: "#1A1814",
+                pointText: "#4A4338",
+                titleFill: "#1A1814",
+                axisText: "#978C7E",
+                border: "#DDD5C8",
+                inner: "#E8E1D2",
+              },
+              fontFamily: '"Charter", "Source Serif Pro", "Iowan Old Style", Georgia, serif',
+            },
+            "gartner-note": {
+              base: "default",
+              vars: {
+                background: "#FFFFFF",
+                quadrantFill: "#FAFBFC",
+                quadrantText: "#455364",
+                pointFill: "#0A4DA1",
+                pointText: "#1A2332",
+                titleFill: "#1A2332",
+                axisText: "#6B7785",
+                border: "#BFC8D3",
+                inner: "#DDE2E8",
+              },
+              fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
+            },
+            "mckinsey-deck": {
+              base: "default",
+              vars: {
+                background: "#FFFFFF",
+                quadrantFill: "#FBFCFD",
+                quadrantText: "#4A5870",
+                pointFill: "#2251FF",
+                pointText: "#051C2C",
+                titleFill: "#051C2C",
+                axisText: "#758296",
+                border: "#B8C2D0",
+                inner: "#D5DCE4",
+              },
+              fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
+            },
+            "openai-paper": {
+              base: "default",
+              vars: {
+                background: "#FFFFFF",
+                quadrantFill: "#FAFAFA",
+                quadrantText: "#404040",
+                pointFill: "#10A37F",
+                pointText: "#0D0D0D",
+                titleFill: "#0D0D0D",
+                axisText: "#6E6E80",
+                border: "#E5E5E5",
+                inner: "#EFEFEF",
+              },
+              fontFamily: '"Söhne", "Inter", -apple-system, system-ui, sans-serif',
+            },
+          };
+          const t = themes[spineKey];
+          // themeCSS shapes the rendered SVG beyond what themeVariables
+          // expose. The chart title is hidden because the markdown
+          // already renders an H3 caption directly above each chart —
+          // showing it twice is the single ugliest mermaid default.
+          const themeCSS = `
+            g.quadrant-chart text { font-family: ${t.fontFamily}; }
+            g.quadrant-point > circle, .quadrant-point circle {
+              stroke: ${t.vars.background};
+              stroke-width: 1.5px;
+            }
+            text.quadrant-title { display: none !important; }
+          `;
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: t.base,
+            fontFamily: t.fontFamily,
+            themeCSS,
+            quadrantChart: {
+              chartWidth: 640,
+              chartHeight: 480,
+              // Hide mermaid's own title slot — the H3 above the chart
+              // is the caption. Setting padding/size to 0 keeps the
+              // layout from leaving an empty band at the top.
+              titlePadding: 0,
+              titleFontSize: 0,
+              titleTextMargin: 0,
+              quadrantPadding: 8,
+              quadrantInternalBorderStrokeWidth: 0.5,
+              quadrantExternalBorderStrokeWidth: 1,
+              quadrantLabelFontSize: 12,
+              quadrantTextTopPadding: 12,
+              pointRadius: 6,
+              pointLabelFontSize: 12,
+              pointTextPadding: 8,
+              xAxisLabelFontSize: 13,
+              xAxisLabelPadding: 8,
+              yAxisLabelFontSize: 13,
+              yAxisLabelPadding: 8,
+              xAxisPosition: "bottom",
+              yAxisPosition: "left",
+            },
+            themeVariables: {
+              background: t.vars.background,
+              primaryColor: t.vars.quadrantFill,
+              primaryTextColor: t.vars.titleFill,
+              primaryBorderColor: t.vars.border,
+              lineColor: t.vars.border,
+              secondaryColor: t.vars.quadrantFill,
+              tertiaryColor: t.vars.background,
+              // All 4 quadrants share the same fill — clean matrix.
+              quadrant1Fill: t.vars.quadrantFill,
+              quadrant2Fill: t.vars.quadrantFill,
+              quadrant3Fill: t.vars.quadrantFill,
+              quadrant4Fill: t.vars.quadrantFill,
+              quadrant1TextFill: t.vars.quadrantText,
+              quadrant2TextFill: t.vars.quadrantText,
+              quadrant3TextFill: t.vars.quadrantText,
+              quadrant4TextFill: t.vars.quadrantText,
+              quadrantPointFill: t.vars.pointFill,
+              quadrantPointTextFill: t.vars.pointText,
+              quadrantTitleFill: t.vars.titleFill,
+              quadrantXAxisTextFill: t.vars.axisText,
+              quadrantYAxisTextFill: t.vars.axisText,
+              quadrantInternalBorderStrokeFill: t.vars.inner,
+              quadrantExternalBorderStrokeFill: t.vars.border,
+            },
+            flowchart: { useMaxWidth: true, htmlLabels: true },
+          });
+          await mermaid.run({ querySelector: ".mermaid" });
+        } catch (e) {
+          // Per-diagram failures already render as inline error overlays —
+          // log and move on.
+          console.warn("[mermaid] render failed:", e);
+        }
+      }
+    }
+  }
+
+  load();
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+
+</body>
+</html>

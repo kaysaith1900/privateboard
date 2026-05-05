@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boardroom Inquiry · On Defensibility in AI-Native HR Tech</title>
+<style>
+  :root {
+    --paper: #F4F0E8;
+    --paper-soft: #EDE6D6;
+    --paper-deep: #E2D9C4;
+    --surface: #FAF7F0;
+    --surface-hover: #F0EBDD;
+
+    --ink: #1A1814;
+    --ink-soft: #4A4338;
+    --ink-mid: #6B6359;
+    --ink-faint: #978C7E;
+    --ink-muted: #B5AB9B;
+
+    --rule: #DDD5C8;
+    --rule-soft: #E8E1D2;
+
+    --clay: #CC785C;
+    --clay-deep: #A85A41;
+    --clay-pale: #F2E0D5;
+    --sage: #8B9D7F;
+    --sage-deep: #6B7D5F;
+    --sage-pale: #E5EAE0;
+
+    --serif: "Tiempos Headline", "Tiempos", "Source Serif Pro", "Charter", "Iowan Old Style", "Palatino", Georgia, serif;
+    --sans: "Söhne", "Styrene B", "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif;
+    --mono: "Söhne Mono", "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ─────────── Top frame ─────────── */
+  .frame {
+    padding: 22px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+  }
+  .frame-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--serif);
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .frame-mark {
+    width: 10px;
+    height: 10px;
+    background: var(--clay);
+    border-radius: 50%;
+  }
+  .frame-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-mid);
+    letter-spacing: 0.04em;
+  }
+
+  .container {
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+  .container-wide {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* ─────────── Cover ─────────── */
+  .cover {
+    padding: 96px 0 88px;
+  }
+
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--clay-deep);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 56px;
+  }
+  .kicker .pipe {
+    width: 16px;
+    height: 1px;
+    background: var(--clay);
+  }
+  .kicker .secondary {
+    color: var(--ink-faint);
+  }
+
+  .cover-title {
+    font-family: var(--serif);
+    font-size: 56px;
+    font-weight: 400;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin-bottom: 28px;
+    max-width: 800px;
+  }
+  .cover-title em {
+    font-style: italic;
+    color: var(--clay-deep);
+  }
+
+  .cover-deck {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 400;
+    font-style: italic;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 680px;
+    margin-bottom: 64px;
+    letter-spacing: -0.005em;
+  }
+
+  .authors {
+    padding-top: 28px;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    gap: 36px;
+  }
+  .author-block { display: flex; flex-direction: column; gap: 4px; }
+  .author-name {
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .author-role {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+  }
+  .cover-foot {
+    margin-top: 28px;
+    display: flex;
+    gap: 28px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+  }
+
+  /* ─────────── Section primitives ─────────── */
+  .section {
+    padding: 80px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--clay-deep);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 400;
+    line-height: 1.18;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    margin-bottom: 28px;
+    max-width: 720px;
+  }
+  .section-title em {
+    font-style: italic;
+    color: var(--clay-deep);
+  }
+  .section-lead {
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    margin-bottom: 40px;
+    max-width: 680px;
+  }
+
+  p { color: var(--ink-soft); margin-bottom: 18px; line-height: 1.75; font-size: 16px; }
+  p:last-child { margin-bottom: 0; }
+  p strong { color: var(--ink); font-weight: 600; }
+  p em { color: var(--clay-deep); font-style: italic; }
+
+  /* ─────────── Introduction (essay-style) ─────────── */
+  .intro {
+    padding: 64px 0 56px;
+  }
+  .intro p {
+    font-size: 18px;
+    line-height: 1.75;
+  }
+  .intro p:first-of-type::first-letter {
+    font-family: var(--serif);
+    font-size: 64px;
+    font-weight: 400;
+    color: var(--clay-deep);
+    float: left;
+    line-height: 0.85;
+    margin: 8px 12px 0 0;
+  }
+
+  /* ─────────── Observations (numbered, essay-like) ─────────── */
+  .obs {
+    padding: 36px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .obs:first-child { border-top: none; padding-top: 8px; }
+
+  .obs-num {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 14px;
+    color: var(--clay-deep);
+    margin-bottom: 8px;
+  }
+  .obs-headline {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 400;
+    line-height: 1.25;
+    color: var(--ink);
+    margin-bottom: 18px;
+    letter-spacing: -0.012em;
+    max-width: 680px;
+  }
+  .obs-headline em { font-style: italic; color: var(--clay-deep); }
+  .obs-body {
+    font-size: 16px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  .obs-body p { margin-bottom: 14px; }
+  .obs-attr {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 16px;
+    letter-spacing: 0.06em;
+  }
+
+  /* ─────────── Pull quote ─────────── */
+  .pullquote {
+    padding: 64px 0;
+    text-align: left;
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  .pullquote-text {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 400;
+    font-style: italic;
+    line-height: 1.3;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    border-left: 2px solid var(--clay);
+    padding-left: 28px;
+    margin-bottom: 20px;
+  }
+  .pullquote-attr {
+    padding-left: 28px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* ─────────── Figure ─────────── */
+  .figure {
+    margin: 32px 0;
+    padding: 36px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+  }
+  .figure-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .figure-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--clay-deep);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .figure-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+  .figure-title {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.3;
+    color: var(--ink);
+    margin-bottom: 32px;
+    letter-spacing: -0.012em;
+    max-width: 720px;
+  }
+  .figure-source {
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule-soft);
+    font-family: var(--mono);
+    letter-spacing: 0.04em;
+  }
+
+  /* ─────────── Forces diagram (warm muted) ─────────── */
+  .forces-svg {
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+  }
+
+  /* ─────────── Considerations (instead of "recommendations") ─────────── */
+  .considerations {
+    margin-top: 8px;
+  }
+  .consideration {
+    padding: 32px 0;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+  .consideration:first-child { border-top: none; padding-top: 0; }
+
+  .consideration-num {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 28px;
+    color: var(--clay);
+    line-height: 1;
+    padding-top: 4px;
+  }
+  .consideration-headline {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.3;
+    color: var(--ink);
+    margin-bottom: 12px;
+    letter-spacing: -0.01em;
+  }
+  .consideration-headline em { font-style: italic; color: var(--clay-deep); }
+  .consideration-body {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+  .consideration-body strong { color: var(--ink); font-weight: 600; }
+
+  /* ─────────── Two paths comparison ─────────── */
+  .paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 8px;
+  }
+  .path {
+    padding: 32px;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .path.weak { border-top: 3px solid var(--clay); }
+  .path.strong { border-top: 3px solid var(--sage-deep); }
+
+  .path-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 12px;
+  }
+  .path.weak .path-tag { color: var(--clay-deep); }
+  .path.strong .path-tag { color: var(--sage-deep); }
+
+  .path-name {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 400;
+    line-height: 1.3;
+    color: var(--ink);
+    margin-bottom: 20px;
+    letter-spacing: -0.01em;
+  }
+  .path ul { list-style: none; }
+  .path li {
+    padding: 10px 0 10px 22px;
+    position: relative;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .path li:last-child { border-bottom: none; }
+  .path li::before {
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .path.weak li::before { background: var(--clay); }
+  .path.strong li::before { background: var(--sage-deep); }
+
+  /* ─────────── Open questions ─────────── */
+  .open-list {
+    counter-reset: oq;
+  }
+  .open-q {
+    padding: 24px 0;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .open-q::before {
+    counter-increment: oq;
+    content: counter(oq, decimal-leading-zero);
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 22px;
+    color: var(--clay);
+    line-height: 1.2;
+  }
+  .open-q-text {
+    font-family: var(--serif);
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .open-q-text em { font-style: italic; color: var(--clay-deep); }
+
+  /* ─────────── Acknowledgments ─────────── */
+  .acknowledgments {
+    background: var(--paper-soft);
+    padding: 40px 48px;
+    margin-top: 16px;
+    border: 1px solid var(--rule);
+  }
+  .ack-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--clay-deep);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 16px;
+  }
+  .ack-text {
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+    max-width: 720px;
+  }
+  .ack-text strong { color: var(--ink); font-weight: 600; }
+  .ack-text em { font-style: italic; color: var(--clay-deep); }
+
+  /* ─────────── Footer ─────────── */
+  .doc-footer {
+    padding: 28px 56px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+    background: var(--paper);
+  }
+  .doc-footer .brand {
+    font-family: var(--serif);
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+  }
+
+  @media (max-width: 760px) {
+    .frame, .doc-footer { padding: 16px 24px; flex-direction: column; gap: 8px; align-items: flex-start; }
+    .container, .container-wide { padding: 0 24px; }
+    .cover { padding: 56px 0 48px; }
+    .cover-title { font-size: 36px; }
+    .cover-deck { font-size: 18px; }
+    .authors { grid-template-columns: 1fr; gap: 16px; }
+    .section-title { font-size: 26px; }
+    .obs-headline { font-size: 22px; }
+    .pullquote-text { font-size: 24px; }
+    .figure { padding: 24px; }
+    .paths { grid-template-columns: 1fr; }
+    .consideration { grid-template-columns: 1fr; gap: 8px; }
+    .acknowledgments { padding: 28px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── FRAME ─────────── -->
+<header class="frame">
+  <div class="frame-brand">
+    <div class="frame-mark"></div>
+    <span>Boardroom · An Inquiry</span>
+  </div>
+  <div class="frame-meta">issue · 04 · april 2026</div>
+</header>
+
+<!-- ─────────── COVER ─────────── -->
+<section class="cover">
+  <div class="container">
+    <div class="kicker">
+      <span>An Inquiry</span>
+      <span class="pipe"></span>
+      <span class="secondary">on AI-native HR Tech</span>
+      <span class="pipe"></span>
+      <span class="secondary">issue 04</span>
+    </div>
+
+    <h1 class="cover-title">Where, exactly, does <em>defensibility</em> live in AI-native HR Tech?</h1>
+    <p class="cover-deck">An attempt to think carefully about an opportunity that looks obvious, the reasons that obviousness is misleading, and what — if anything — replaces it.</p>
+
+    <div class="authors">
+      <div class="author-block">
+        <div class="author-name">Socrates</div>
+        <div class="author-role">skeptical inquiry</div>
+      </div>
+      <div class="author-block">
+        <div class="author-name">First Principles</div>
+        <div class="author-role">causal reasoning</div>
+      </div>
+      <div class="author-block">
+        <div class="author-name">Value Investor</div>
+        <div class="author-role">long-horizon patterns</div>
+      </div>
+    </div>
+
+    <div class="cover-foot">
+      <span>23 minutes</span>
+      <span>47 turns</span>
+      <span>private boardroom session</span>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── INTRODUCTION ─────────── -->
+<section class="intro" style="border-top: 1px solid var(--rule);">
+  <div class="container">
+    <div class="section-num">— Introduction</div>
+    <h2 class="section-title">A working hypothesis, and the reasons it may be wrong.</h2>
+
+    <p>The proposition under consideration is straightforward. <em>Build an AI assistant for enterprise HR teams that screens resumes and generates interview guides.</em> The need is real, the technology is sufficient, and the market is large.</p>
+
+    <p>And yet, after attempting to take the proposition seriously across three perspectives, we are left less confident than we began. The opportunity remains. The product, as initially imagined, does not.</p>
+
+    <p>This note is an attempt to articulate why—and to sketch what might replace it. It is offered as a working hypothesis rather than a conclusion: the kind of reasoning we believe holds up under scrutiny, while remaining open to the possibility that further evidence will revise it.</p>
+  </div>
+</section>
+
+<!-- ─────────── OBSERVATIONS ─────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-num">01 — Observations</div>
+    <h2 class="section-title">Three forces that <em>seem</em> to invalidate the obvious bet.</h2>
+    <p class="section-lead">Each emerged independently across the three director perspectives, which we take as suggestive — though not dispositive — evidence of structural rather than incidental dynamics.</p>
+
+    <div class="obs">
+      <div class="obs-num">— observation one</div>
+      <h3 class="obs-headline">A tool whose value proposition is to <em>replace</em> its buyer encounters predictable resistance.</h3>
+      <div class="obs-body">
+        <p>HR teams act as both procurer and end user of HR Tech. Tools framed as replacement create a structural conflict at the buying stage that no amount of feature work appears to overcome. The pattern repeats across two decades of HR Tech history with sufficient regularity to suggest it is not coincidence.</p>
+        <p>Reframing the same tool as <em>augmentation</em> appears to invert the dynamic. The HR team becomes an internal advocate. Procurement velocity increases. Pricing power expands.</p>
+      </div>
+      <div class="obs-attr">— Socrates, on observed patterns in HR Tech adoption</div>
+    </div>
+
+    <div class="obs">
+      <div class="obs-num">— observation two</div>
+      <h3 class="obs-headline">The model — once <em>the</em> defining capability — is becoming a commodity.</h3>
+      <div class="obs-body">
+        <p>Resume screening, candidate matching, and interview guide generation can now be assembled from open-weight models, retrieval, and modest fine-tuning within a matter of days. The asymmetry in capability that defined the field even a year ago is collapsing.</p>
+        <p>What does not collapse, and may in fact compound, is the depth of <strong>workflow embedding</strong> and the accumulation of <strong>proprietary data</strong>. These appear to us to be the durable forms of advantage in this category — not the model.</p>
+      </div>
+      <div class="obs-attr">— First Principles, on the trajectory of capability commoditization</div>
+    </div>
+
+    <div class="obs">
+      <div class="obs-num">— observation three</div>
+      <h3 class="obs-headline">The <em>physics of cash flow</em> punish pure sales-led approaches in this segment.</h3>
+      <div class="obs-body">
+        <p>Enterprise HR software typically takes six to twelve months to procure. A company relying solely on sales-led growth therefore enters an extended period during which expenses accumulate without offsetting revenue. For early-stage teams, this gap is often existential.</p>
+        <p>Product-led growth as the primary motion — with sales as the secondary — appears to compress this cycle by orders of magnitude, while simultaneously creating the workflow embedding required for the longer-term defensibility we describe above.</p>
+      </div>
+      <div class="obs-attr">— Value Investor, on enterprise SaaS go-to-market dynamics</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── PULL QUOTE ─────────── -->
+<section style="background: var(--paper-soft); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);">
+  <div class="container">
+    <div class="pullquote">
+      <p class="pullquote-text">"The model is not the moat. We can replicate any of these capabilities in a week. What we cannot replicate is the depth of a customer's workflow accumulated over years."</p>
+      <div class="pullquote-attr">— First Principles</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── FIGURE ─────────── -->
+<section class="section">
+  <div class="container-wide">
+    <div class="section-num">02 — Figure</div>
+    <h2 class="section-title">A picture of the trajectory we believe is unfolding.</h2>
+
+    <div class="figure">
+      <div class="figure-meta">
+        <div class="figure-label">Figure 1</div>
+        <div class="figure-id">brd-inq-04 · fig.01</div>
+      </div>
+      <h3 class="figure-title">Capability is converging toward a baseline. Defensibility, where built, compounds.</h3>
+
+      <svg class="forces-svg" viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg">
+        <!-- Axes -->
+        <line x1="80" y1="320" x2="600" y2="320" stroke="#DDD5C8" stroke-width="1"/>
+        <line x1="80" y1="40" x2="80" y2="320" stroke="#DDD5C8" stroke-width="1"/>
+
+        <!-- Y axis labels -->
+        <text x="70" y="48" text-anchor="end" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">high</text>
+        <text x="70" y="184" text-anchor="end" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">mid</text>
+        <text x="70" y="324" text-anchor="end" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">low</text>
+
+        <!-- X axis labels -->
+        <text x="80" y="345" text-anchor="middle" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">2024</text>
+        <text x="210" y="345" text-anchor="middle" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">2025</text>
+        <text x="340" y="345" text-anchor="middle" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">2026</text>
+        <text x="470" y="345" text-anchor="middle" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">2027</text>
+        <text x="600" y="345" text-anchor="middle" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#978C7E">2028</text>
+
+        <!-- Capability curve - dashed clay -->
+        <path d="M 80 280 Q 160 240 210 180 Q 290 100 410 70 Q 510 60 600 60" stroke="#CC785C" stroke-width="2" fill="none" stroke-dasharray="5 4" opacity="0.7"/>
+        <text x="430" y="50" font-family="Tiempos Headline, Source Serif Pro, Charter, serif" font-style="italic" font-size="14" fill="#A85A41">capability ceiling, falling cost</text>
+
+        <!-- Defensibility curve - solid sage -->
+        <path d="M 80 305 Q 200 295 290 260 Q 380 215 470 150 Q 540 90 600 60" stroke="#6B7D5F" stroke-width="2.5" fill="none"/>
+        <text x="430" y="120" font-family="Tiempos Headline, Source Serif Pro, Charter, serif" font-style="italic" font-size="14" fill="#6B7D5F">defensibility, where cultivated</text>
+
+        <!-- Starting points -->
+        <circle cx="80" cy="280" r="4" fill="#CC785C"/>
+        <circle cx="80" cy="305" r="4" fill="#6B7D5F"/>
+
+        <!-- Crossover -->
+        <circle cx="340" cy="180" r="6" fill="#FAF7F0" stroke="#A85A41" stroke-width="2"/>
+        <text x="340" y="170" text-anchor="middle" font-family="Söhne Mono, JetBrains Mono" font-size="9" fill="#A85A41" letter-spacing="1">inflection</text>
+
+        <!-- Today marker -->
+        <line x1="340" y1="40" x2="340" y2="320" stroke="#A85A41" stroke-width="1" stroke-dasharray="2 4" opacity="0.4"/>
+        <text x="346" y="50" font-family="Söhne Mono, JetBrains Mono" font-size="10" fill="#A85A41" letter-spacing="1">— now</text>
+      </svg>
+
+      <div class="figure-source">— Source: Boardroom inquiry, April 2026, three-director session, 47 turns. Curves are heuristic rather than data-fitted.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── PATHS ─────────── -->
+<section class="section">
+  <div class="container-wide">
+    <div class="section-num">03 — A Comparison</div>
+    <h2 class="section-title">Two trajectories, departing from the same starting point.</h2>
+    <p class="section-lead">The choice between framing the product as <em>replacement</em> versus <em>augmentation</em> is, in our view, not cosmetic. It propagates through every subsequent decision.</p>
+
+    <div class="paths">
+      <div class="path weak">
+        <div class="path-tag">Path A · structurally fragile</div>
+        <div class="path-name">Replace HR with AI<br>Resume screening as the primary value proposition</div>
+        <ul>
+          <li>HR procurement resists tools positioned as threat</li>
+          <li>Capability replicable from open weights within days</li>
+          <li>Pure sales-led growth creates 6–12 month cash-flow gap</li>
+          <li>No proprietary data accumulates; advantage plateaus on day one</li>
+          <li>Pattern across two decades of HR Tech: replacement plays consistently fail</li>
+        </ul>
+      </div>
+
+      <div class="path strong">
+        <div class="path-tag">Path B · plausibly defensible</div>
+        <div class="path-name">Augment HR with AI<br>Workflow embedding and proprietary data flywheel</div>
+        <ul>
+          <li>HR is buyer and user; becomes internal advocate</li>
+          <li>Defensibility from workflow lock-in; the model commoditizes, the process does not</li>
+          <li>Product-led embedding compresses sales cycles to under three months</li>
+          <li>Proprietary data flywheel; switching costs compound with usage</li>
+          <li>Pattern: augmentation plays have dominated the last decade of HR Tech growth</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── CONSIDERATIONS ─────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-num">04 — Considerations</div>
+    <h2 class="section-title">Four <em>commitments</em> that, if accepted, restructure the opportunity.</h2>
+    <p class="section-lead">Each appears to us to be a precondition for the others; we do not see how they can be sequenced or partially adopted.</p>
+
+    <div class="considerations">
+      <div class="consideration">
+        <div class="consideration-num">i.</div>
+        <div>
+          <h3 class="consideration-headline">Reposition <em>everything</em> from "replacement" to "augmentation."</h3>
+          <p class="consideration-body">Not a marketing change. A product reconstruction, propagating from landing page to UI affordances to onboarding to enterprise pitch. The buyer-user alignment is restored only when this is done <strong>completely</strong>, not partially.</p>
+        </div>
+      </div>
+
+      <div class="consideration">
+        <div class="consideration-num">ii.</div>
+        <div>
+          <h3 class="consideration-headline">Choose <em>one</em> vertical industry as the entry point.</h3>
+          <p class="consideration-body">The candidate verticals — manufacturing, retail, contact centers — share the structural preconditions: high-frequency hiring, standardized workflows, short procurement chains. Win one before opening a second.</p>
+        </div>
+      </div>
+
+      <div class="consideration">
+        <div class="consideration-num">iii.</div>
+        <div>
+          <h3 class="consideration-headline">Architect a <em>product-led</em> go-to-market from day one.</h3>
+          <p class="consideration-body">The free tier must be genuinely useful and naturally embedded in HR workflows. Paid conversion should be triggered by team scale and collaboration needs — <strong>not by additional AI capability</strong>, which would simply reproduce the commoditization problem.</p>
+        </div>
+      </div>
+
+      <div class="consideration">
+        <div class="consideration-num">iv.</div>
+        <div>
+          <h3 class="consideration-headline">Specify the <em>data flywheel</em> before writing the first line of product code.</h3>
+          <p class="consideration-body">What data will be generated, by whom, owned by whom, governed how, looping back to product improvement how? <strong>This question cannot be deferred</strong>. Companies that answer it on month twelve discover that the moat they intended to build was foreclosed in month one.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── OPEN QUESTIONS ─────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-num">05 — Open Questions</div>
+    <h2 class="section-title">What we have <em>not</em> resolved, and would want to before proceeding.</h2>
+
+    <div class="open-list">
+      <div class="open-q">
+        <div class="open-q-text">Beyond resume screening, what are the <em>second and third</em> augmentation actions that HR teams will demonstrably pay for? Without an answer, retention is unproven.</div>
+      </div>
+      <div class="open-q">
+        <div class="open-q-text">What is the <em>minimum viable structure</em> of the data flywheel — sources, ownership, governance, feedback mechanisms?</div>
+      </div>
+      <div class="open-q">
+        <div class="open-q-text">Among the candidate verticals, which should be entered first, and on what evidence? We have a hypothesis but lack first-hand data from any of the three.</div>
+      </div>
+      <div class="open-q">
+        <div class="open-q-text">Where, precisely, is the line between the free tier and the paid tier? Generous enough to embed, restrained enough to preserve conversion economics.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── ACKNOWLEDGMENTS ─────────── -->
+<section class="section" style="border-top: none; padding-top: 24px;">
+  <div class="container">
+    <div class="acknowledgments">
+      <div class="ack-label">— Acknowledgments & Method</div>
+      <p class="ack-text">
+        This inquiry was conducted as a <strong>private boardroom session</strong> on April 27, 2026, comprising 47 turns of dialogue across three director perspectives — <strong>Socrates</strong> (skeptical inquiry), <strong>First Principles</strong> (causal reasoning), and <strong>Value Investor</strong> (long-horizon pattern recognition). Findings reflect three-director consensus where indicated; minority positions are preserved in the supporting transcript.
+      </p>
+      <p class="ack-text" style="margin-top: 14px;">
+        We offer this as a <em>working hypothesis</em>: the kind of reasoning we believe holds up to scrutiny while remaining open to revision should additional evidence come to light. We invite challenge, correction, and replacement.
+      </p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- ─────────── FOOTER ─────────── -->
+<footer class="doc-footer">
+  <div class="brand">Boardroom · An Inquiry</div>
+  <div>brd-inq-04 · april 2026 · powered by 私董会</div>
+</footer>
+
+</body>
+</html>
