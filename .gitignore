@@ -23,3 +23,6 @@ coverage
 .env
 .env.*
 !.env.example
+
+# npm pack output
+*.tgz

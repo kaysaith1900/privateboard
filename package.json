@@ -9,14 +9,24 @@
   "files": [
     "dist",
     "public",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "tsup --watch --onSuccess \"node dist/cli.js --no-open\"",
     "build": "tsup",
     "start": "node dist/cli.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaysaith1900/privateboard.git"
+  },
+  "homepage": "https://github.com/kaysaith1900/privateboard#readme",
+  "bugs": {
+    "url": "https://github.com/kaysaith1900/privateboard/issues"
   },
   "engines": {
     "node": ">=20"
