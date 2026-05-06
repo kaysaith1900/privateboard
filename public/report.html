@@ -61,47 +61,17 @@
       box-shadow: none !important;
     }
 
-    /* Per-page safe area · @page margin gives EVERY page a
-       consistent 14mm top/bottom + 12mm side gutter. Edge-to-edge
-       paper colour is painted via a JS-injected @page { background }
-       rule (see swapSpine in the script block). The bottom-center
-       margin box carries the page counter — that's the ONLY thing
-       in the bleed area; no document title, no logo, no "page X of
-       Y", no spine name. The cover page (`@page :first`) suppresses
-       the counter so the title sheet stays clean. */
-    @page {
-      size: A4;
-      margin: 14mm 12mm;
-      /* Explicitly claim every margin box and leave the top + side
-         ones empty. Chrome's print engine inserts its own
-         title / url / date in the top-* boxes by default; declaring
-         them in CSS (even with empty content) tells Chrome we're
-         managing this margin area, suppressing the auto-headers.
-         The bottom-center carries the page counter — that's the
-         only thing in the bleed area. The bottom-left / bottom-right
-         are also explicitly emptied so the page number sits alone.
-         Note: a user who manually re-enables "Headers and footers"
-         in the print preview dialog can still override CSS — that
-         toggle is browser chrome, not document CSS. */
-      @top-left      { content: ""; }
-      @top-center    { content: ""; }
-      @top-right     { content: ""; }
-      @bottom-left   { content: ""; }
-      @bottom-right  { content: ""; }
-      @bottom-center {
-        content: counter(page);
-        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        font-size: 9px;
-        letter-spacing: 0.14em;
-        color: #978C7E;
-        vertical-align: top;
-        padding-top: 4mm;
-      }
-    }
-    @page :first {
-      @bottom-center { content: none; }
-    }
-    body { padding: 0 !important; }
+    /* Edge-to-edge backgrounds in PDF · zero @page margin so the
+       body's paper colour fills every pixel of the page. The visible
+       gutter is recreated via body padding so existing per-section
+       paddings (cover / chapters / methodology) keep working
+       unchanged. Without this, A4 PDFs of light-paper spines
+       (anthropic-essay #F4F0E8 / a16z-thesis #F7F3E8 / cream-printed
+       boardroom-dark #FAF7F0) showed a jarring white perimeter
+       outside a tan content rectangle — the user's "why is there
+       white around my yellow report" complaint. */
+    @page { size: A4; margin: 0; }
+    body { padding: 14mm 12mm !important; }
 
     /* Strip browser chrome from the PDF. */
     .top-rule,
@@ -281,82 +251,25 @@
       page-break-after: avoid;
     }
     /* Don't let a heading land alone in the page footer with its
-       opener on the next page. The adjacent-sibling selector matches
-       the FIRST element after the heading and refuses to break
-       before it · effectively keeps "heading + opener" as one unit.
-       Coverage extended past the original p / blockquote / table /
-       metric-strip set to also include ol / ul / pillars-grid /
-       mermaid / h3 — these were the silent culprits behind sections
-       that opened with a list (very common) or a sub-heading
-       getting their h2 stranded at the bottom of a page. Same set
-       applied at the top-of-body level (no <section> wrap, e.g. a
-       model-invented heading like "共识忽视的三件事") so the glue
-       holds even when the H2 didn't match a section classifier. */
+       paragraph / table on the next page. The adjacent-sibling
+       selector matches the FIRST element after the heading and
+       refuses to break before it · effectively keeps "heading +
+       opener" as one unit. */
     .body section > h2 + p,
     .body section > h2 + blockquote,
     .body section > h2 + table.md-table,
     .body section > h2 + .metric-strip,
-    .body section > h2 + ol,
-    .body section > h2 + ul,
-    .body section > h2 + .pillars-grid,
-    .body section > h2 + h3,
-    .body section > h2 + pre.mermaid,
     .body section > h3 + p,
     .body section > h3 + blockquote,
-    .body section > h3 + table.md-table,
-    .body section > h3 + ol,
-    .body section > h3 + ul,
-    .body section > h3 + h4,
-    .body > h2 + p,
-    .body > h2 + blockquote,
-    .body > h2 + table.md-table,
-    .body > h2 + ol,
-    .body > h2 + ul,
-    .body > h2 + .pillars-grid,
-    .body > h3 + p,
-    .body > h3 + ol,
-    .body > h3 + ul {
+    .body section > h3 + table.md-table {
       break-before: avoid;
       page-break-before: avoid;
     }
     /* Paragraph-level orphan / widow control · a paragraph isn't
-       allowed to leave only 1-3 lines on either side of a page
-       break. Bumped from 3 → 4 — at typical line height + heading
-       cadence, 3 still let a 4-line para split 1+3 which reads as
-       a stranded line. 4 forces moves like "pull whole paragraph
-       to next page" which is the desired behaviour. Cheapest
-       typographic discipline; massive effect on multi-page feel. */
-    .body { orphans: 4; widows: 4; }
-    /* H3 sub-section heading · same anti-orphan rule as h2. The
-       prior block only set this on h2 / h3 / h4, but break-after
-       on h3 still allowed h3 to slip to the bottom of the page
-       with content on the next. The companion break-before: avoid
-       on h3 + (next sibling) above completes the pair. */
-    .body section > h3,
-    .body > h3 {
-      break-after: avoid;
-      page-break-after: avoid;
-    }
-    /* Bottom-line / convergence callouts shouldn't split. They're
-       short by design (1-3 paragraphs), so forcing them whole is
-       cheap and a split mid-callout reads as a layout bug. */
-    .body section.section-bottom-line,
-    .body section.section-the-bet > blockquote,
-    .body blockquote.callout {
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
-    /* The "▼ session output ▼" / "// end of session" frame around
-       brief output is not part of the report PDF (it's a chat-side
-       UI), but a sibling rule — the brief title block (h1 / kicker /
-       byline rows together) MUST stay glued. Same pattern. */
-    .body .brief-info,
-    .body .brief-kicker,
-    .body .brief-meta-row {
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
-    .body .brief-kicker { break-after: avoid; page-break-after: avoid; }
+       allowed to leave only 1-2 lines on either side of a page
+       break. Cheapest typographic discipline; massive effect on the
+       feel of multi-page reports. */
+    .body { orphans: 3; widows: 3; }
 
     /* ─── Tier B · CSS Grid → flex-wrap in print ────────────────
        Chrome's PDF engine notoriously ignores `break-inside: avoid`
@@ -702,74 +615,54 @@
     letter-spacing: -0.003em;
   }
 
-  /* PDF-only credit · default hidden, flipped to a center-stacked
-     letterpress-style sign-off in the @media print block below. Reads
-     as a typographic colophon (think hardcover endmatter, academic
-     journal, or O'Reilly book), not a marketing footer. The vertical
-     stack is: short top rule (centered hairline) → tiny uppercase
-     eyebrow → pixel mark + product name on one line → muted url. No
-     border around it, no panel fill, no full-width edge — the
-     whitespace is the framing. */
+  /* PDF-only credit line · default hidden, flipped to flex by the
+     @media print block below. Single horizontal row with a tiny
+     pixel mark + "// generated with" + name + url. No frame, no
+     corners, no marketing copy — reads as a typographic sign-off,
+     not an advertisement. */
   .colophon-card {
     display: none;
-    flex-direction: column;
     align-items: center;
-    gap: 14px;
-    padding: 36px 12px 18px;
-    margin-top: 36px;
+    gap: 9px;
+    padding: 12px 0 0;
+    margin-top: 16px;
+    border-top: 0.5px solid var(--line, rgba(0, 0, 0, 0.12));
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
     color: var(--text-soft, #6B6B6B);
   }
-  .colophon-rule {
-    width: 64px;
-    height: 0.5px;
-    background: var(--text-faint, #978C7E);
-    opacity: 0.6;
-  }
-  .colophon-eyebrow {
-    color: var(--text-faint, var(--text-dim, #8A8780));
-    text-transform: uppercase;
-    letter-spacing: 0.34em;
-    font-size: 8.5px;
-    font-weight: 600;
-    font-family: var(--mono);
-    /* Optical centering · letter-spacing pushes content right; nudge
-       the whole eyebrow back so it reads centered under the rule. */
-    padding-left: 0.34em;
-  }
-  .colophon-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-  }
   .colophon-mark {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
-    opacity: 0.85;
+    opacity: 0.7;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
   .colophon-mark-bg { fill: var(--lime, #6FB572); }
   .colophon-mark-fg { fill: var(--bg, #FFFFFF); }
+  .colophon-eyebrow {
+    color: var(--text-faint, var(--text-dim, #8A8780));
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 9px;
+    font-weight: 600;
+  }
   .colophon-name {
     color: var(--text, #1A1A1A);
-    font-family: var(--serif, var(--font-human, Georgia, serif));
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.005em;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  .colophon-sep {
+    color: var(--text-faint, var(--text-dim, #8A8780));
+    opacity: 0.7;
   }
   .colophon-cta-url {
     color: var(--text-soft, #6B6B6B);
-    font-family: var(--mono);
-    font-size: 10px;
     font-weight: 500;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+    letter-spacing: 0;
   }
-  /* Backwards-compat · the "·" separator from the prior horizontal
-     layout no longer renders meaningfully in a vertical stack. Keep
-     the selector defined so old markup doesn't error if rendered. */
-  .colophon-sep { display: none; }
 
   /* Print discipline · the share strip disappears, the credit line
      materialises, and both stay whole on whatever final page they
@@ -780,17 +673,10 @@
       page-break-inside: avoid;
     }
     .colophon-share { display: none !important; }
+    .colophon-card { display: flex !important; }
     .colophon-card {
-      display: flex !important;
-      flex-direction: column !important;
       break-inside: avoid;
       page-break-inside: avoid;
-      /* If the colophon would orphan onto a near-empty last page,
-         pull it up so it lands at the bottom of the prior page
-         instead. The avoid hint is honoured by Chrome's PDF
-         engine when there's any room at all. */
-      break-before: avoid;
-      page-break-before: avoid;
     }
   }
 </style>
@@ -845,24 +731,6 @@
     "mckinsey-deck",
     "openai-paper",
   ]);
-  /** Per-spine paper colour · used both as a CSS variable on the
-   *  document AND injected into @page { background } so the PDF
-   *  margin area (the safe-zone gutter outside body) gets painted
-   *  with the same paper colour as the body itself. Without the
-   *  @page background, Chrome leaves @page margin transparent and
-   *  it falls back to white — sections sit inside cream paper but
-   *  the 14mm bleed around them shows white, reading as a print
-   *  bug. CSS @page can't be selected by spine class, hence the
-   *  JS-driven inline rule below. */
-  const SPINE_PAPER = {
-    "boardroom-dark":   "#FAF7F0",
-    "anthropic-essay":  "#F4F0E8",
-    "a16z-thesis":      "#F7F3E8",
-    "mckinsey-deck":    "#FFFFFF",
-    "gartner-note":     "#FFFFFF",
-    "openai-paper":     "#FFFFFF",
-  };
-
   function swapSpine(spine) {
     const link = document.getElementById("spine-css");
     if (!link) return;
@@ -870,18 +738,6 @@
     const href = `report/spines/${safe}.css`;
     if (link.getAttribute("href") !== href) link.setAttribute("href", href);
     document.body.setAttribute("data-spine", safe);
-    // Inject (or replace) the per-spine @page background rule so the
-    // PDF page bleed matches the paper colour. Replaces any prior
-    // injected rule for this same id, so swapping spines repaints
-    // cleanly without stacking style nodes.
-    const paper = SPINE_PAPER[safe] || "#FFFFFF";
-    let pageStyle = document.getElementById("spine-page-bg");
-    if (!pageStyle) {
-      pageStyle = document.createElement("style");
-      pageStyle.id = "spine-page-bg";
-      document.head.appendChild(pageStyle);
-    }
-    pageStyle.textContent = `@media print { @page { background: ${paper}; } }`;
   }
 
   function escape(s) {
@@ -1920,21 +1776,19 @@
         </div>
 
         <div class="colophon-card" aria-hidden="true">
-          <span class="colophon-rule" aria-hidden="true"></span>
-          <span class="colophon-eyebrow">a brief generated with</span>
-          <span class="colophon-brand">
-            <svg class="colophon-mark" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="PrivateBoard">
-              <rect class="colophon-mark-bg" width="16" height="16"/>
-              <rect class="colophon-mark-fg" x="3"  y="2"  width="2" height="2"/>
-              <rect class="colophon-mark-fg" x="7"  y="2"  width="2" height="2"/>
-              <rect class="colophon-mark-fg" x="11" y="2"  width="2" height="2"/>
-              <rect class="colophon-mark-fg" x="2"  y="4"  width="12" height="2"/>
-              <rect class="colophon-mark-fg" x="1"  y="7"  width="14" height="2"/>
-              <rect class="colophon-mark-fg" x="2"  y="10" width="1"  height="4"/>
-              <rect class="colophon-mark-fg" x="13" y="10" width="1"  height="4"/>
-            </svg>
-            <span class="colophon-name">PrivateBoard</span>
-          </span>
+          <svg class="colophon-mark" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="PrivateBoard">
+            <rect class="colophon-mark-bg" width="16" height="16"/>
+            <rect class="colophon-mark-fg" x="3"  y="2"  width="2" height="2"/>
+            <rect class="colophon-mark-fg" x="7"  y="2"  width="2" height="2"/>
+            <rect class="colophon-mark-fg" x="11" y="2"  width="2" height="2"/>
+            <rect class="colophon-mark-fg" x="2"  y="4"  width="12" height="2"/>
+            <rect class="colophon-mark-fg" x="1"  y="7"  width="14" height="2"/>
+            <rect class="colophon-mark-fg" x="2"  y="10" width="1"  height="4"/>
+            <rect class="colophon-mark-fg" x="13" y="10" width="1"  height="4"/>
+          </svg>
+          <span class="colophon-eyebrow">// generated with</span>
+          <span class="colophon-name">PrivateBoard</span>
+          <span class="colophon-sep" aria-hidden="true">·</span>
           <span class="colophon-cta-url">privateboard.ai</span>
         </div>
       </aside>
