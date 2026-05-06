@@ -23,9 +23,11 @@ import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
   buildExtractMessages,
   buildScaffoldMessages,
+  buildContractRetryAddendum,
   buildWriteMessages,
   parseDirectorSignals,
   parseScaffold,
+  validateBriefBody,
   type BriefScaffold,
   type DirectorSignals,
 } from "../ai/prompts/brief-stages.js";
@@ -790,13 +792,19 @@ interface ComposerArgs {
 }
 
 async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
-  // No signals → no compose. Fall back to the safe set so Stage 2/3 still
-  // try to produce something (legacy behaviour).
+  // Mode is the primary axis · the composer's parser/validator + the
+  // safety-net default both branch on it. Reading once at entry and
+  // threading the value through means a malformed mode string can't
+  // smuggle decision-grade kinds into a brainstorm brief.
+  const mode = args.room.mode || "constructive";
+
+  // No signals → no compose. Fall back to the mode-appropriate preset
+  // so Stage 2/3 still try to produce something (legacy behaviour).
   const totalSignals = args.perDirectorSignals.reduce(
     (acc, d) => acc + d.signals.length,
     0,
   );
-  if (totalSignals === 0) return defaultComposition("no signals — fallback preset");
+  if (totalSignals === 0) return defaultComposition("no signals — fallback preset", mode);
 
   const messages = buildComposerMessages({
     room: args.room,
@@ -816,7 +824,7 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
         maxTokens: 600,
       });
       billChair(args.chairId, usage);
-      const parsed = parseComposerOutput(raw);
+      const parsed = parseComposerOutput(raw, mode);
       if (parsed) return parsed;
       process.stderr.write(`[brief.compose] ${modelV} produced unusable composition; trying next model\n`);
     } catch (e) {
@@ -825,7 +833,7 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
       );
     }
   }
-  return defaultComposition("composer call failed — fallback preset");
+  return defaultComposition("composer call failed — fallback preset", mode);
 }
 
 /* ─────────────────────────── Stage 2 ──────────────────────────────────── */
@@ -876,6 +884,7 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           raw,
           args.room.subject,
           args.room.subject,
+          args.room.mode,
         );
         if (scaffold) {
           if (attempt > 0) {
@@ -926,46 +935,91 @@ interface Stage3Result {
 
 async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
   const { roomId, briefId, chairId, room, members, scaffold, perDirectorSignals, language, supplement, picked, houseStyle } = args;
-  const messages = buildWriteMessages({ room, members, scaffold, perDirectorSignals, language, supplement, picked, houseStyle, briefId });
 
-  let lastError = "no model attempted";
-  for (const modelV of stageFlagshipList()) {
-    if (!isModelV(modelV)) continue;
-    let buf = "";
-    let errored = false;
-    try {
-      for await (const chunk of callLLMStream({
-        modelV,
-        messages,
-        temperature: 0.4,
-        maxTokens: 12000,
-      })) {
-        if (chunk.type === "text") {
-          buf += chunk.delta;
-          updateBriefBody(briefId, buf);
-          roomBus.emit(roomId, {
-            type: "config-event",
-            kind: "brief-token",
-            payload: { briefId, delta: chunk.delta },
-            createdAt: Date.now(),
-          });
-        } else if (chunk.type === "usage") {
-          billChair(chairId, {
-            totalTokens: chunk.totalTokens,
-          });
-        } else if (chunk.type === "error") {
-          errored = true;
-          lastError = chunk.message;
-          break;
+  // One internal pass · streams to the client and returns the body.
+  // Called twice at most — once with no retryAddendum (first attempt),
+  // once with the addendum (after contract validation flags violations).
+  const runOnePass = async (retryAddendum?: string): Promise<Stage3Result> => {
+    const messages = buildWriteMessages({
+      room, members, scaffold, perDirectorSignals, language,
+      supplement, picked, houseStyle, briefId, retryAddendum,
+    });
+
+    let lastError = "no model attempted";
+    for (const modelV of stageFlagshipList()) {
+      if (!isModelV(modelV)) continue;
+      let buf = "";
+      let errored = false;
+      try {
+        for await (const chunk of callLLMStream({
+          modelV,
+          messages,
+          temperature: 0.4,
+          maxTokens: 12000,
+        })) {
+          if (chunk.type === "text") {
+            buf += chunk.delta;
+            updateBriefBody(briefId, buf);
+            roomBus.emit(roomId, {
+              type: "config-event",
+              kind: "brief-token",
+              payload: { briefId, delta: chunk.delta },
+              createdAt: Date.now(),
+            });
+          } else if (chunk.type === "usage") {
+            billChair(chairId, {
+              totalTokens: chunk.totalTokens,
+            });
+          } else if (chunk.type === "error") {
+            errored = true;
+            lastError = chunk.message;
+            break;
+          }
         }
+      } catch (e) {
+        errored = true;
+        lastError = e instanceof Error ? e.message : String(e);
       }
-    } catch (e) {
-      errored = true;
-      lastError = e instanceof Error ? e.message : String(e);
+      if (!errored && buf.length > 0) return { body: buf, model: modelV };
     }
-    if (!errored && buf.length > 0) return { body: buf, model: modelV };
+    return { body: "", model: null, error: lastError };
+  };
+
+  // First pass.
+  const first = await runOnePass();
+  if (!first.body) return first;
+
+  // Mode-contract validator · brainstorm rooms can't carry decision-
+  // defense language ("the bet", "the moat", "must hold"); critique
+  // rooms must carry visible severity tags. Other modes have no
+  // contract — validateBriefBody returns [] for them. On violation,
+  // retry ONCE with a stricter system addendum naming the violations.
+  const violations = validateBriefBody(first.body, room.mode);
+  if (violations.length === 0) return first;
+
+  const tags = violations.map((v) => v.tag).join(", ");
+  process.stderr.write(
+    `[brief.stage3] mode-contract violations in ${room.mode} brief: ${tags} · retrying once with corrective addendum\n`,
+  );
+
+  const addendum = buildContractRetryAddendum(violations, room.mode);
+  const second = await runOnePass(addendum);
+  // If the retry STILL violates the contract, log it and return the
+  // retry's body anyway — a single retry is the cap so we don't loop
+  // burning tokens. The brief lands; downstream analytics can flag
+  // repeat violators.
+  if (second.body) {
+    const stillBad = validateBriefBody(second.body, room.mode);
+    if (stillBad.length > 0) {
+      process.stderr.write(
+        `[brief.stage3] retry still has violations: ${stillBad.map((v) => v.tag).join(", ")} · accepting anyway (retry cap)\n`,
+      );
+    }
+    return second;
   }
-  return { body: "", model: null, error: lastError };
+  // Retry failed to produce output · fall back to the first pass body.
+  // It violates the contract, but it's better than no brief at all.
+  return first;
 }
 
 /* ─────────────────────────── Methodology footer ───────────────────────── */

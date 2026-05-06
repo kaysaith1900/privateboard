@@ -575,6 +575,203 @@ export interface TwoPaths {
   pathB: TwoPathPanel;
 }
 
+/* ───────────────────── Brainstorm-mode components ──────────────────────
+ *
+ * Used ONLY when `room.mode === "brainstorm"`. The composer's brainstorm
+ * pool picks from these instead of the decision-grade kinds (thesis,
+ * critical-assumptions, the-bet, etc.).
+ *
+ * Discipline that separates these from the constructive/decision pool:
+ *   · No anchor that commits to a judgement (no `bottomLine` / `thesis`).
+ *   · No action section (no `recommendations` / `the-bet`).
+ *   · Verbs are exploratory (`could`, `might`, `what if`), never `must`
+ *     / `will` / `should`.
+ *   · Every "winner pick" is REPLACED by an enumeration. The brief
+ *     should leave the user with MORE angles to chase, not one to act on.
+ *
+ * Field shapes are intentionally narrow — we want Stage 2 to resist the
+ * temptation to inflate. Three angles, three consequences, three
+ * questions. Quality is in the spread, not the depth.
+ * ────────────────────────────────────────────────────────────────────── */
+
+/** Opening hook · 1–2 sentence "what changes if this is real" lead-in.
+ *  Replaces `bottomLine` as the brainstorm anchor — explicitly does NOT
+ *  state a judgement. Restatement is a pull-quote-style line the renderer
+ *  may surface as an italic block above the prose. */
+export interface OpeningHook {
+  hook: string;
+  restatement?: string | null;
+}
+
+/** Opportunity shape · "size of the room" beat. Three dimensions:
+ *    · scope    · who / where the topic reaches if it plays out
+ *    · gravity  · why it pulls attention worth this conversation
+ *    · tempo    · the time texture (window opening / decade-long shift)
+ *  Optional sizing hint surfaces an analogue (other industry, prior wave)
+ *  WITHOUT committing to a forecast number. */
+export interface OpportunityShape {
+  scope: string;
+  gravity: string;
+  tempo: string;
+  sizingHint?: string | null;
+}
+
+/** Adjacent angles · 3–5 distinct ways INTO the topic. Each angle gets a
+ *  name (re-usable handle), the lens it takes, and what becomes
+ *  interesting when seen this way. NOT ranked, NOT a recommendation —
+ *  the deliberate goal is "here are 4 doors, all worth opening." */
+export interface AdjacentAngle {
+  name: string;
+  framing: string;
+  whatOpens: string;
+}
+
+/** What if this works · the optimistic, generative branch. A 1-sentence
+ *  setup ("if this plays out as described") followed by 3 short
+ *  consequences worth playing out. Each consequence is exploration, not
+ *  prediction — the writer must phrase them as "could / might / would
+ *  open up", never as forecasts. */
+export interface WhatIfThisWorks {
+  setup: string;
+  consequences: string[];
+}
+
+/** Worth chasing · 3–5 angles the room actually generated heat around.
+ *  Replaces `recommendations`. Each gets:
+ *    · handle              · 1–4 word reusable label
+ *    · whyItPulled         · what made the room return to this angle
+ *    · nextTestableQuestion · open-ended question that would advance
+ *                              understanding (NOT a milestone / OKR /
+ *                              kill-criterion). */
+export interface WorthChasingAngle {
+  handle: string;
+  whyItPulled: string;
+  nextTestableQuestion: string;
+}
+
+/** Dead ends noted · 0–3 angles the room briefly considered then dropped.
+ *  Naming these prevents re-traversal and signals the conversation
+ *  actually ranged. Distinct from `pre-mortem` (failure modes for an
+ *  action) — this is "we walked down this corridor and turned back."  */
+export interface DeadEndNoted {
+  angle: string;
+  whyDropped: string;
+}
+
+/** Brainstorm-mode open question. Different from `OpenQuestion` (which
+ *  carries P0/P1 priority for action follow-up). Brainstorm questions are
+ *  generative — they expand the field, not close it. Optional
+ *  `whatWouldShift` names what answering this would unlock; not a
+ *  prediction, not a kill criterion — purely "why this question
+ *  matters." */
+export interface BrainstormQuestion {
+  question: string;
+  whatWouldShift?: string | null;
+}
+
+/* ───────────────────── Critique-mode components ────────────────────────
+ *
+ * Used ONLY when `room.mode === "critique"`. The composer's critique
+ * pool picks from these instead of the decision-grade kinds. Distinct
+ * from brainstorm: critique is AUDIT-shaped (sharp, ranked, procedural)
+ * rather than EXPLORATION-shaped.
+ *
+ * Discipline that separates these from the constructive/decision pool:
+ *   · No thesis, no recommendations, no scenarios, no opportunity-shape.
+ *     The brief is a deliverable review, not a forward strategy.
+ *   · Severity is ranked explicitly. Every issue and every fix is
+ *     tagged high/medium/low.
+ *   · "What's already good" comes BEFORE issues — auditor decorum +
+ *     calibrates the reviewer's signal-to-noise. Skipping it tilts the
+ *     critique toward "nothing works", which tanks credibility.
+ *   · Voice: inspector / standards-officer. Sharper than constructive,
+ *     more procedural than debate.
+ * ─────────────────────────────────────────────────────────────────── */
+
+/** Severity tag · used on quality-issues and severity-ranked-fixes. */
+export type CritiqueSeverity = "high" | "medium" | "low";
+
+/** Deliverable summary · 1–2 sentence framing of what's being critiqued.
+ *  Replaces `bottomLine` as the critique anchor — does NOT pass judgement
+ *  on the deliverable, just states what the audit is reviewing. */
+export interface DeliverableSummary {
+  /** What's under review (e.g. "the v2 onboarding spec", "the proposed
+   *  pricing matrix", "the migration runbook"). */
+  subject: string;
+  /** 1-sentence framing of the audit context: what shape the
+   *  deliverable takes (doc / plan / artifact), what the critique is
+   *  scoped to. */
+  context: string;
+  /** Optional one-line audit charter ("called to surface blockers
+   *  before launch", "scope: technical correctness only"). */
+  charter?: string | null;
+}
+
+/** What's already good · 2–4 things working in the deliverable, named
+ *  explicitly. Critique discipline says these come BEFORE the issues
+ *  — calibrates the reviewer's signal and signals the audit isn't a
+ *  hatchet job. Each entry is a 1-sentence note. */
+export interface WhatsGood {
+  point: string;
+  /** Optional · the director who flagged it (their phrasing IS the
+   *  point), or which lens the praise comes from. */
+  attribution?: string | null;
+}
+
+/** Quality issue · a discovered problem with the deliverable. Each
+ *  issue is severity-ranked and pairs the symptom (the issue) with
+ *  the impact (why it matters). NOT the fix — fixes live in the
+ *  severity-ranked-fixes section so the room's diagnosis is separate
+ *  from its prescription. */
+export interface QualityIssue {
+  /** Short title · ≤ 60 chars. */
+  title: string;
+  /** Severity tag · drives the rendered ordering and the colour band
+   *  in spines that show severity visually. */
+  severity: CritiqueSeverity;
+  /** The issue itself · 1–2 sentences. */
+  issue: string;
+  /** Why it matters · 1–2 sentences. Concrete impact, not generic
+   *  hand-wringing ("this confuses readers"). */
+  impact: string;
+  /** Optional · which director flagged it / which lens (data,
+   *  structural, etc.) surfaced the problem. */
+  attribution?: string | null;
+}
+
+/** Severity-ranked fix · the prescription paired with each issue (or
+ *  cluster of issues). Distinct from `recommendations` — fixes are
+ *  scoped to the deliverable under review, not the broader strategy. */
+export interface SeverityRankedFix {
+  /** Short title · ≤ 60 chars. Phrased as a do-action ("Tighten the
+   *  contract for X", "Add a check before Y"). */
+  title: string;
+  /** Severity matches the issue(s) this fix addresses. */
+  severity: CritiqueSeverity;
+  /** What to change · 1–2 sentences, concrete and applicable. */
+  fix: string;
+  /** Rough effort estimate · 1 word ("trivial" / "small" / "medium"
+   *  / "large") OR a 1-line note ("~half a day", "needs a re-spec"). */
+  effort: string;
+  /** Optional · who owns the fix or which role/team it sits with.
+   *  Critique is a review — it doesn't dictate ownership unless the
+   *  room actually agreed. */
+  owner?: string | null;
+}
+
+/** Residual risk · things that may still bite even after the fixes
+ *  land. Distinct from pre-mortem (which is forward-looking for an
+ *  action plan) — these are caveats specific to this deliverable that
+ *  can't be neutralised inside this audit's scope. */
+export interface ResidualRisk {
+  risk: string;
+  /** Why this can't be closed inside the audit (out of scope, requires
+   *  external dependency, needs more data, etc.). */
+  whyResidual: string;
+  /** Optional · severity, if it's worth flagging vs. just noting. */
+  severity?: CritiqueSeverity | null;
+}
+
 /** Top-level scaffold. Composer-driven · only the picked component
  *  fields are filled by Stage 2; the rest are left at their zero values
  *  (empty array, null) so the existing renderer's "skip if empty" rules
@@ -636,6 +833,26 @@ export interface BriefScaffold {
    *  `visuals` (which holds discrete options-comparison artefacts) —
    *  metric-strip is "by the numbers", visuals is "by the options". */
   metricStrip?: MetricStrip | null;
+  // ── Brainstorm-mode components (optional · only set when
+  //    `room.mode === "brainstorm"` and the composer picked them).
+  //    All decision-grade fields above are left at their zero values
+  //    in brainstorm-mode briefs so the writer doesn't render them. ──
+  openingHook?: OpeningHook | null;
+  opportunityShape?: OpportunityShape | null;
+  adjacentAngles?: AdjacentAngle[] | null;
+  whatIfThisWorks?: WhatIfThisWorks | null;
+  worthChasing?: WorthChasingAngle[] | null;
+  deadEndsNoted?: DeadEndNoted[] | null;
+  brainstormQuestions?: BrainstormQuestion[] | null;
+  // ── Critique-mode components (optional · only set when
+  //    `room.mode === "critique"` and the composer picked them).
+  //    All decision-grade + brainstorm fields are zero-valued in
+  //    critique-mode briefs. ──
+  deliverableSummary?: DeliverableSummary | null;
+  whatsGood?: WhatsGood[] | null;
+  qualityIssues?: QualityIssue[] | null;
+  severityRankedFixes?: SeverityRankedFix[] | null;
+  residualRisks?: ResidualRisk[] | null;
   // ── Residual ──
   openQuestions: OpenQuestion[];
 }
@@ -1107,6 +1324,23 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     "threats-to-validity",
     // Dashboard-style indicator strip
     "metric-strip",
+    // Brainstorm-mode components · used only when room.mode === "brainstorm".
+    // Discipline at the composer level prevents these from mixing with the
+    // decision-grade pool above; listing them here so picked-block routing
+    // is uniform for the scaffold prompt regardless of mode.
+    "opening-hook",
+    "opportunity-shape",
+    "adjacent-angles",
+    "what-if-this-works",
+    "worth-chasing",
+    "dead-ends-noted",
+    "brainstorm-questions",
+    // Critique-mode components · used only when room.mode === "critique".
+    "deliverable-summary",
+    "whats-good",
+    "quality-issues",
+    "severity-ranked-fixes",
+    "residual-risks",
   ]);
   const set = new Set(picked.filter((k) => allKnown.has(k)));
   if (!set.size) return "";
@@ -1125,6 +1359,196 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     `─── END PICKED ───`,
   ].join("\n");
 }
+
+/* ─────────────────── Stage 2 · brainstorm scaffold prompt ─────────────────
+ *
+ * Used when `room.mode === "brainstorm"`. A complete replacement for
+ * SCAFFOLD_SYSTEM — not an addendum. The brainstorm scaffold's whole
+ * job is the OPPOSITE of the decision-grade scaffold: enumerate angles,
+ * surface possibilities, refuse to pick a winner.
+ *
+ * Hard rules in the prompt:
+ *   · NEVER fill `bottomLine` / `thesis` / `recommendations` / `theBet` /
+ *     `criticalAssumptions` / `headlineFindings` / `bigIdeas`. Leave them
+ *     null / empty array. The brainstorm-only fields below replace them.
+ *   · Verbs are exploratory: "could / might / what if / opens up". Banned
+ *     verbs in any brainstorm scaffold field: "must / will / should / is".
+ *   · Three is the magic number — exactly 3 consequences, 3-5 angles,
+ *     3-5 worth-chasing handles, 5-8 brainstorm questions.
+ *   · The brief should leave the user with MORE angles to chase, not
+ *     one to act on.
+ * ──────────────────────────────────────────────────────────────────── */
+const BRAINSTORM_SCAFFOLD_SYSTEM = [
+  "You are the chair of a boardroom session run in BRAINSTORM mode. The user explicitly chose `mode: brainstorm` for this room — they want the conversation to OPEN UP the topic, not narrow it to a decision.",
+  "",
+  "Produce a JSON scaffold for a brainstorm-shaped brief. The brief that gets written from this scaffold MUST read as exploration, not as a thesis or a decision memo.",
+  "",
+  "## Hard rules · violations are rejected",
+  "",
+  "1. **Never fill decision-grade fields.** Leave these at their zero values:",
+  "   - `bottomLine` → set `judgement` to empty string `\"\"`, `confidence` to `\"low\"`, `rationale` to `\"\"`. The renderer will skip the section.",
+  "   - `thesis` / `workingHypothesis` / `headlineFindings` (`[]`) / `bigIdeas` (`null`) / `recommendations` (`[]`) / `theBet` (`null`) / `considerations` (`null`) / `criticalAssumptions` (`null`) / `scenarioTree` (`null`) / `leadingIndicators` (`null`) / `preMortem` (`[]`) / `planningAssumption` (`null`) / `whyNow` (`null`) / `frameShift` → use `{ shifted: false, original: \"\", reframed: \"\", trigger: \"\" }`.",
+  "",
+  "2. **Fill brainstorm-only fields.** The composer's pick list tells you exactly which to fill. Possible kinds (the composer picks 4–7 of these per brief):",
+  "   - `opening-hook` → `openingHook` · 1–2 sentence \"what changes if this is real\" lead-in. NOT a judgement.",
+  "   - `opportunity-shape` → `opportunityShape` · 3 dimensions: scope (who/where), gravity (why it pulls attention), tempo (time texture). Optional `sizingHint` is an analogue, NOT a forecast number.",
+  "   - `adjacent-angles` → `adjacentAngles` · 3–5 distinct angles. Each gets `name` (1–4 word handle), `framing` (the lens), `whatOpens` (what becomes interesting). NOT ranked. NOT \"the best one\".",
+  "   - `what-if-this-works` → `whatIfThisWorks` · 1-sentence `setup` + EXACTLY 3 short `consequences`. Phrased as \"could open up\" / \"might unlock\", NEVER as predictions.",
+  "   - `worth-chasing` → `worthChasing` · 3–5 angles the room generated heat around. Each gets `handle`, `whyItPulled`, `nextTestableQuestion`. The next-question is OPEN-ENDED — not a milestone, not a kill criterion, not an OKR.",
+  "   - `dead-ends-noted` → `deadEndsNoted` · 0–3 angles the room dropped. `angle` + `whyDropped`. Naming these signals the conversation actually ranged.",
+  "   - `brainstorm-questions` → `brainstormQuestions` · 5–8 generative questions. `question` + optional `whatWouldShift`. NOT a P0/P1 todo list.",
+  "",
+  "3. **Voice rules.**",
+  "   - Verbs allowed: `could`, `might`, `would open up`, `seems to`, `looks like`, `if X, then Y might`, `what if`.",
+  "   - Verbs FORBIDDEN: `must`, `will`, `should`, `the bet is`, `the moat is`, `必须`, `应该`, `护城河`, `要做的是`, `the answer is`, `we recommend`.",
+  "   - First-person framing is fine (`the room found` / `a few of us pulled toward` / `房间里反复回到`).",
+  "   - Do NOT name a winner. If two angles seem strongest, surface both as `worth-chasing` entries — the user picks.",
+  "",
+  "4. **Title.** The `title` field MUST be exploratory — an open-ended question (\"What changes if 50 humans + 5000 agents is real?\") OR a \"shape of the space\" framing (\"Five doors into [topic]\" / \"如果 X 成立的几种打开方式\"). Never a thesis-style claim. Never a moat / underwriting / commitment framing.",
+  "",
+  "## JSON shape",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. Field shapes:",
+  "",
+  "```json",
+  "{",
+  '  "title": "Open-ended question or \"shape of the space\" framing.",',
+  '  "openingHook": { "hook": "1–2 sentence what-if lead-in.", "restatement": "≤30-char pull-quote OR null" },',
+  '  "opportunityShape": {',
+  '    "scope": "Who / where the topic reaches if it plays out.",',
+  '    "gravity": "Why it pulls attention worth this conversation.",',
+  '    "tempo": "Time texture · window opening / decade-long shift.",',
+  '    "sizingHint": "Analogue from another industry / prior wave OR null"',
+  "  },",
+  '  "adjacentAngles": [',
+  '    { "name": "1–4 words", "framing": "the lens this angle takes", "whatOpens": "1–2 sentences on what becomes interesting" }',
+  "  ],",
+  '  "whatIfThisWorks": {',
+  '    "setup": "If this plays out as described, …",',
+  '    "consequences": ["consequence 1", "consequence 2", "consequence 3"]',
+  "  },",
+  '  "worthChasing": [',
+  '    { "handle": "1–4 word handle", "whyItPulled": "why the room kept returning", "nextTestableQuestion": "open question to advance understanding" }',
+  "  ],",
+  '  "deadEndsNoted": [',
+  '    { "angle": "the angle", "whyDropped": "why the room turned back" }',
+  "  ],",
+  '  "brainstormQuestions": [',
+  '    { "question": "the question", "whatWouldShift": "what answering this unlocks OR null" }',
+  "  ],",
+  "  // Below this line: leave unchanged at zero values · the writer will skip them.",
+  '  "bottomLine":         { "judgement": "", "confidence": "low", "rationale": "" },',
+  '  "frameShift":         { "shifted": false, "original": "", "reframed": "", "trigger": "" },',
+  '  "headlineFindings":   [],',
+  '  "convergence":        [],',
+  '  "divergence":         null,',
+  '  "positions":          [],',
+  '  "visuals":            [],',
+  '  "recommendations":    [],',
+  '  "preMortem":          [],',
+  '  "newQuestions":       [],',
+  '  "planningAssumption": null,',
+  '  "openQuestions":      []',
+  "}",
+  "```",
+  "",
+  "Skipped components in the COMPOSER PICKED COMPONENTS block stay at their zero values per the rule above. Filled components get rich content per the field shapes.",
+].join("\n");
+
+/* ───────────────────── Stage 2 · critique scaffold prompt ─────────────────
+ *
+ * Used when `room.mode === "critique"`. A complete replacement for
+ * SCAFFOLD_SYSTEM. Critique is AUDIT-shaped: severity-ranked, "what's
+ * good first", procedural. The opposite shape from brainstorm
+ * (exploratory) and from constructive (decision-grade).
+ *
+ * Hard rules in the prompt:
+ *   · NEVER fill `bottomLine` / `thesis` / `recommendations` /
+ *     `criticalAssumptions` / `headlineFindings` / `bigIdeas` / brain-
+ *     storm fields. Leave them at their zero values.
+ *   · `whatsGood` MUST be filled with 2–4 entries when picked. Skipping
+ *     it makes the audit read as a hatchet job and tanks credibility.
+ *   · Issues and fixes are EXPLICITLY severity-ranked — every entry
+ *     carries a `severity` tag from {high, medium, low}.
+ *   · Voice: inspector / standards-officer. Sharper than constructive,
+ *     more procedural than debate. NEVER prescriptive about strategy
+ *     ("you should pivot the product") — only about the deliverable.
+ * ──────────────────────────────────────────────────────────────────── */
+const CRITIQUE_SCAFFOLD_SYSTEM = [
+  "You are the chair of a boardroom session run in CRITIQUE mode. The user explicitly chose `mode: critique` for this room — they want a deliverable AUDIT, not a strategic memo.",
+  "",
+  "Produce a JSON scaffold for a critique-shaped brief. The brief that gets written from this scaffold MUST read as an audit: framed → what's good → what's broken (severity-ranked) → fixes (severity-ranked) → residual risks. No thesis. No strategy recommendations. No exploration.",
+  "",
+  "## Hard rules · violations are rejected",
+  "",
+  "1. **Never fill decision-grade or brainstorm fields.** Leave these at their zero values:",
+  "   - `bottomLine` → set `judgement: \"\"`, `confidence: \"low\"`, `rationale: \"\"`. The renderer will skip the section.",
+  "   - `thesis` / `workingHypothesis` / `headlineFindings` (`[]`) / `bigIdeas` (`null`) / `recommendations` (`[]`) / `theBet` (`null`) / `considerations` (`null`) / `criticalAssumptions` (`null`) / `scenarioTree` (`null`) / `leadingIndicators` (`null`) / `preMortem` (`[]`) / `planningAssumption` (`null`) / `whyNow` (`null`) / `frameShift` → use `{ shifted: false, original: \"\", reframed: \"\", trigger: \"\" }`.",
+  "   - All brainstorm fields (`openingHook` / `opportunityShape` / `adjacentAngles` / `whatIfThisWorks` / `worthChasing` / `deadEndsNoted` / `brainstormQuestions`) → null / [].",
+  "",
+  "2. **Fill critique-only fields.** The composer's pick list tells you exactly which to fill. Possible kinds (the composer picks 4–7 of these per brief):",
+  "   - `deliverable-summary` → `deliverableSummary` · `subject` (what's under review) + `context` (1-sentence framing) + optional `charter` (audit scope).",
+  "   - `whats-good` → `whatsGood` · 2–4 entries, each `point` (the strength) + optional `attribution` (director or lens). REQUIRED — must come BEFORE issues.",
+  "   - `quality-issues` → `qualityIssues` · 3–7 issues, each `title` + `severity` (high/medium/low) + `issue` (the symptom) + `impact` (why it matters) + optional `attribution`. Diagnosis only — fixes belong in the next section.",
+  "   - `severity-ranked-fixes` → `severityRankedFixes` · 3–7 fixes, each `title` (do-action phrasing) + `severity` (matches the issues addressed) + `fix` (concrete change) + `effort` (1 word or 1-line note) + optional `owner`. Prescription scoped to the deliverable.",
+  "   - `residual-risks` → `residualRisks` · 0–4 entries, each `risk` + `whyResidual` (why it can't close inside this audit) + optional `severity`.",
+  "   - `openQuestions` → `openQuestions` · standard P0/P1 residual TODO list — questions for the deliverable's owner.",
+  "",
+  "3. **Severity discipline.**",
+  "   - `severity` MUST be one of `\"high\"`, `\"medium\"`, `\"low\"`. No other strings, no prose.",
+  "   - High = blocks shipping / correctness defect / data loss / contract break.",
+  "   - Medium = degrades quality but ships viably / can be fixed in next iteration.",
+  "   - Low = polish / nit / forward-looking.",
+  "   - Issues and fixes should mostly pair · for every high-severity issue there's typically a high-severity fix. The renderer will surface mismatches.",
+  "",
+  "4. **Voice.** Inspector / standards-officer register. Sharp, procedural, evidence-anchored. NOT debate-style adversarial — this is review, not opposition. Verbs: `surfaces`, `breaks`, `omits`, `under-specifies`, `narrows`. Avoid `must` / `should` outside fixes; in fixes, `do X` / `add Y` is fine because that's the prescription. NEVER prescriptive about strategy beyond the deliverable.",
+  "",
+  "5. **Title.** The `title` field MUST name the deliverable + the audit's headline finding. Examples: \"Onboarding spec audit · 3 high-severity gaps in error states\" / \"v2 pricing matrix · sound on tiering, weak on enterprise carve-outs\". NOT a thesis. NOT exploratory.",
+  "",
+  "## JSON shape",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. Field shapes:",
+  "",
+  "```json",
+  "{",
+  '  "title": "Deliverable name · headline finding.",',
+  '  "deliverableSummary": {',
+  '    "subject": "What\'s under review (≤120 chars).",',
+  '    "context": "1-sentence framing of shape + scope.",',
+  '    "charter": "1-line audit charter OR null"',
+  "  },",
+  '  "whatsGood": [',
+  '    { "point": "1-sentence note on what works", "attribution": "director name OR lens OR null" }',
+  "  ],",
+  '  "qualityIssues": [',
+  '    { "title": "≤60 chars", "severity": "high|medium|low", "issue": "1-2 sentences · the symptom", "impact": "1-2 sentences · why it matters", "attribution": "director name OR lens OR null" }',
+  "  ],",
+  '  "severityRankedFixes": [',
+  '    { "title": "Do-action phrasing (≤60 chars)", "severity": "high|medium|low", "fix": "1-2 sentences · concrete change", "effort": "trivial|small|medium|large OR \\"~half a day\\"", "owner": "role/team OR null" }',
+  "  ],",
+  '  "residualRisks": [',
+  '    { "risk": "the risk", "whyResidual": "why it can\'t close inside this audit", "severity": "high|medium|low OR null" }',
+  "  ],",
+  '  "openQuestions": [',
+  '    { "question": "question for the deliverable owner", "priority": "P0|P1" }',
+  "  ],",
+  "  // Below this line: leave at zero values · the writer skips them.",
+  '  "bottomLine":         { "judgement": "", "confidence": "low", "rationale": "" },',
+  '  "frameShift":         { "shifted": false, "original": "", "reframed": "", "trigger": "" },',
+  '  "headlineFindings":   [],',
+  '  "convergence":        [],',
+  '  "divergence":         null,',
+  '  "positions":          [],',
+  '  "visuals":            [],',
+  '  "recommendations":    [],',
+  '  "preMortem":          [],',
+  '  "newQuestions":       [],',
+  '  "planningAssumption": null',
+  "}",
+  "```",
+  "",
+  "Skipped components in the COMPOSER PICKED COMPONENTS block stay at their zero values per the rule above.",
+].join("\n");
 
 export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
   const { room, members, perDirectorSignals, language, picked } = opts;
@@ -1159,10 +1583,22 @@ export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
       ].join("\n")
     : "";
 
+  // Mode-axis dispatch · brainstorm and critique rooms each get a
+  // completely different scaffold system prompt. Brainstorm produces
+  // an exploration-shaped JSON (no thesis / no recommendations);
+  // critique produces an audit-shaped JSON (severity-ranked issues +
+  // fixes, "what's good" first). Constructive / debate / research
+  // fall through to SCAFFOLD_SYSTEM.
+  const scaffoldSystem = room.mode === "brainstorm"
+    ? BRAINSTORM_SCAFFOLD_SYSTEM
+    : room.mode === "critique"
+      ? CRITIQUE_SCAFFOLD_SYSTEM
+      : SCAFFOLD_SYSTEM;
+
   return [
     {
       role: "system",
-      content: [SCAFFOLD_SYSTEM, "", languageInstruction(language)].join("\n"),
+      content: [scaffoldSystem, "", languageInstruction(language)].join("\n"),
     },
     {
       role: "user",
@@ -1215,6 +1651,14 @@ interface WriteOpts {
    *  rotation kinds (anchor / findings / action / pre-mortem / etc.).
    *  Optional — omitted callers pin to variant 0 of every entry. */
   briefId?: string;
+  /** Mode-contract retry addendum · injected verbatim into the writer
+   *  system prompt when the previous Stage-3 attempt produced a brief
+   *  that violated the room's mode contract (decision-defense language
+   *  in a brainstorm brief, missing severity tags in a critique brief,
+   *  etc.). Built by `buildContractRetryAddendum` from the violation
+   *  list returned by `validateBriefBody`. Empty / undefined on the
+   *  first attempt. */
+  retryAddendum?: string;
 }
 
 const WRITE_SYSTEM = [
@@ -1603,6 +2047,23 @@ const DEFAULT_KIND_LABELS: Partial<Record<ComponentKind, string>> = {
   "new-questions":         "New Questions This Surfaced",
   "planning-assumption":   "Strategic Planning Assumption",
   "open-questions":        "Open Questions",
+  // Brainstorm-mode component default headings · used only when
+  // `room.mode === "brainstorm"` and the composer picked them. House
+  // styles can override these per the standard label-table mechanism.
+  "opening-hook":          "What If This Is Real",
+  "opportunity-shape":     "The Shape of the Room",
+  "adjacent-angles":       "Doors Worth Opening",
+  "what-if-this-works":    "If This Plays Out",
+  "worth-chasing":         "Threads Worth Pulling",
+  "dead-ends-noted":       "Roads We Walked Back From",
+  "brainstorm-questions":  "Questions Worth Sitting With",
+  // Critique-mode component default headings · used only when
+  // `room.mode === "critique"`.
+  "deliverable-summary":   "Under Review",
+  "whats-good":            "What's Already Working",
+  "quality-issues":        "Issues Found",
+  "severity-ranked-fixes": "Fixes, Ranked",
+  "residual-risks":        "Residual Risks",
 };
 
 /** Build the house-style addendum to WRITE_SYSTEM · two blocks:
@@ -1669,6 +2130,162 @@ function buildHouseStyleAddendum(
 
   return lines.join("\n");
 }
+
+/* ─────────────── Stage 3 · brainstorm writer system prompt ───────────────
+ *
+ * Used when `room.mode === "brainstorm"`. A complete replacement for
+ * WRITE_SYSTEM. The brainstorm writer's job is the OPPOSITE of the
+ * decision-grade writer:
+ *
+ *   · NEVER produce thesis / bottom-line / recommendations sections
+ *     even if the scaffold somehow contains those fields. The composer
+ *     pool prevents this upstream, but defending the contract here too
+ *     means a malformed scaffold can't leak decision-grade prose into
+ *     a brainstorm brief.
+ *   · Verbs are exploratory throughout: "could / might / would open up /
+ *     opens up / makes possible". Banned: "must / will / should / 必须 /
+ *     应该 / the bet is / the moat is / 护城河".
+ *   · Title is exploratory · open-ended question OR "shape of the
+ *     space" framing. Never claim-front.
+ *
+ * Each brainstorm component has its own narrow render template below.
+ * The writer renders ONLY the components in the COMPOSER PICKED
+ * COMPONENTS block — skipped components are silent. ──────────────── */
+const BRAINSTORM_WRITE_SYSTEM = [
+  "You are the chair of a boardroom session run in BRAINSTORM mode. The user explicitly chose `mode: brainstorm` — they want a brief that OPENS UP the topic, not one that narrows it to a decision. Write the final report in markdown.",
+  "",
+  "## Hard contract · this brief is NOT a decision document",
+  "",
+  "  · Verbs allowed: `could`, `might`, `would open up`, `makes possible`, `seems to`, `looks like`, `if X, then Y might`, `what if`. In Chinese: `可能`, `也许`, `会打开`, `若 X 成立`, `值得想想`.",
+  "  · Verbs FORBIDDEN: `must`, `will`, `should`, `the bet is`, `the moat is`, `we recommend`, `the answer is`, `we conclude`. In Chinese: `必须`, `应该`, `护城河`, `要做的是`, `结论是`, `下注的是`.",
+  "  · Heading style: open-ended questions or noun-phrase frames (\"Doors worth opening\", \"Three threads pulling on us\"). NEVER claim-front (\"The thesis is X\", \"The moat is Y\"). The user explicitly did not ask for thesis/decision output.",
+  "  · Do NOT pick a winner. If two angles seem strongest, render both as `worth-chasing` entries — let the reader decide.",
+  "",
+  "## Required structure",
+  "",
+  "Start with a single H2 title from `scaffold.title` verbatim. The title is already exploratory — do not rewrite it.",
+  "",
+  "Render the picked components in this order (skip any not in the picked list):",
+  "",
+  "  ## What If This Is Real    ← `opening-hook`",
+  "  Render `openingHook.hook` as 1–2 prose sentences. If `openingHook.restatement` is set, render it on its own line above the hook as italicized pull-quote: `*\"{restatement}\"*`. NO judgement, NO confidence line, NO commitment.",
+  "",
+  "  ## The Shape of the Room    ← `opportunity-shape`",
+  "  Render `opportunityShape` as exactly three short paragraphs (1–3 sentences each), in order: scope, gravity, tempo. NO heading per paragraph — the prose flows. If `sizingHint` is set, append it as a closing italic line: `*Worth comparing to: {sizingHint}*`.",
+  "",
+  "  ## Doors Worth Opening    ← `adjacent-angles`",
+  "  Render each angle in `adjacentAngles` as an H3 sub-section:",
+  "    ### {angle.name}",
+  "    *{angle.framing}*",
+  "    {angle.whatOpens}",
+  "  3–5 angles total. Do NOT rank. Do NOT pick a favourite. The list IS the point.",
+  "",
+  "  ## If This Plays Out    ← `what-if-this-works`",
+  "  Open with `whatIfThisWorks.setup` italicized: `*{setup}*`. Then bullet the 3 consequences:",
+  "    - {consequence 1}",
+  "    - {consequence 2}",
+  "    - {consequence 3}",
+  "  Each bullet is 1 sentence, exploratory verbs only.",
+  "",
+  "  ## Threads Worth Pulling    ← `worth-chasing`",
+  "  Render each `worthChasing` entry as an H3 sub-section:",
+  "    ### {entry.handle}",
+  "    {entry.whyItPulled}",
+  "    > {entry.nextTestableQuestion}",
+  "  The blockquote on the question is deliberate — it makes the open-question shape visible. NO P0/P1 priority tags. NO milestones. NO kill criteria.",
+  "",
+  "  ## Roads We Walked Back From    ← `dead-ends-noted` (skip if empty)",
+  "  Render each entry as a single bullet: `- **{angle}** — {whyDropped}`. Plain language; no judgement of why it was wrong, just what made the room turn back.",
+  "",
+  "  ## Questions Worth Sitting With    ← `brainstorm-questions`",
+  "  Render each entry as a numbered item:",
+  "    1. **{question}**",
+  "       *{whatWouldShift}*  ← only when set; skip the second line otherwise.",
+  "  5–8 entries total. These are the questions the room OPENS UP — not a residual TODO list.",
+  "",
+  "## Methodology footer",
+  "",
+  "The orchestrator appends a deterministic `## Methodology` section after your output. Do NOT write one yourself.",
+  "",
+  "## Voice register · brainstorm-default",
+  "",
+  "Warm, curious, exploratory. First-person plural is welcome (\"the room kept returning\", \"we found ourselves pulled toward\", \"房间反复回到\"). Reference specific moments from the conversation when they're load-bearing. NO forecasting numbers, NO TAM/SAM math, NO competitive moats. The scaffold's voice register may be overridden by a house-style addendum below — when present, follow that override on top of these defaults.",
+].join("\n");
+
+/* ─────────────── Stage 3 · critique writer system prompt ───────────────
+ *
+ * Used when `room.mode === "critique"`. A complete replacement for
+ * WRITE_SYSTEM. Audit-shaped, severity-ranked, "what's good first."
+ *
+ * Hard rules:
+ *   · NEVER produce thesis / bottom-line / recommendations / strategic
+ *     sections. Even if the scaffold has those fields filled, skip them.
+ *   · ALWAYS render `whats-good` BEFORE `quality-issues`. Audit
+ *     decorum — surfacing strengths first calibrates the reviewer's
+ *     signal-to-noise.
+ *   · Severity tags are visible in the rendered prose. Each issue and
+ *     each fix opens with `**Severity: high/medium/low** ·` so the
+ *     reader can scan the audit by severity at a glance.
+ *   · Title is the deliverable name + headline finding. Never
+ *     thesis-front, never exploratory.
+ * ──────────────────────────────────────────────────────────────────── */
+const CRITIQUE_WRITE_SYSTEM = [
+  "You are the chair of a boardroom session run in CRITIQUE mode. The user explicitly chose `mode: critique` — they want a deliverable AUDIT, not a strategic memo. Write the final report in markdown.",
+  "",
+  "## Hard contract · this brief is an audit",
+  "",
+  "  · NEVER write thesis / bottom-line / recommendations / strategic-implication sections. Even if the scaffold has those fields filled, skip them — only the critique-mode sections render.",
+  "  · Voice: inspector / standards-officer. Sharp, procedural, evidence-anchored. Verbs: `surfaces`, `breaks`, `omits`, `under-specifies`, `narrows`, `mis-handles`. Avoid `must` / `should` outside fixes.",
+  "  · ALWAYS render `whats-good` BEFORE `quality-issues`. Audit decorum.",
+  "  · Severity tags are visible in the prose. Issues open with `**Severity: high** · {title}` (or medium / low). Fixes do the same.",
+  "  · Heading style: noun-phrase or audit-style framings (\"Issues found\", \"Fixes, ranked\", \"Residual risks\"). Not claim-front, not exploratory.",
+  "",
+  "## Required structure",
+  "",
+  "Start with a single H2 title from `scaffold.title` verbatim. The scaffold's title is already audit-shaped — do not rewrite it.",
+  "",
+  "Render the picked components in this order (skip any not in the picked list):",
+  "",
+  "  ## Under Review    ← `deliverable-summary`",
+  "  Open with `deliverableSummary.subject` italicized as the lead-in: `*{subject}*`. Then 1–2 sentences of `context`. If `charter` is set, render it as a closing italic line: `*Audit charter: {charter}*`.",
+  "",
+  "  ## What's Already Working    ← `whats-good`",
+  "  REQUIRED to come BEFORE issues. Render each `whatsGood` entry as a single bullet:",
+  "    - {point} {`(via {attribution})`} ← attribution in italics, only when set",
+  "  2–4 entries. Plain affirmation, no hedging — \"this works\" not \"this seems to work\".",
+  "",
+  "  ## Issues Found    ← `quality-issues`",
+  "  Open with one short intro paragraph (1 sentence) framing the diagnostic scope.",
+  "  Then for each issue, render an H3 sub-section sorted by severity descending (high → medium → low):",
+  "    ### {issue.title}",
+  "    **Severity: {severity}** · *{attribution if set}*",
+  "    {issue.issue}",
+  "    *Impact:* {issue.impact}",
+  "  3–7 issues total. Each issue is diagnosis only — fixes are in the next section.",
+  "",
+  "  ## Fixes, Ranked    ← `severity-ranked-fixes`",
+  "  Sort by severity descending (high → medium → low). Each fix as an H3:",
+  "    ### {fix.title}",
+  "    **Severity: {severity}** · effort: *{effort}* {`· owner: {owner}` if set}",
+  "    {fix.fix}",
+  "  3–7 fixes total. Pair fixes with issues by severity — the renderer surfaces the audit's prescription.",
+  "",
+  "  ## Residual Risks    ← `residual-risks` (skip if empty)",
+  "  Open with one sentence framing what \"residual\" means (\"risks the audit can't close inside its scope\"). Then for each:",
+  "    - {`**Severity: {severity}** · ` if set}**{risk}** — {whyResidual}",
+  "  0–4 entries.",
+  "",
+  "  ## Open Questions for the Owner    ← `open-questions` (skip if empty)",
+  "  Standard residual P0/P1 list. One bullet per question, prefixed with priority: `- **[P0]** {question}` (or P1).",
+  "",
+  "## Methodology footer",
+  "",
+  "The orchestrator appends a deterministic `## Methodology` section after your output. Do NOT write one yourself.",
+  "",
+  "## Voice register · critique-default",
+  "",
+  "Procedural, evidence-anchored, severity-aware. The deliverable is the subject — keep recommendations scoped to it (no \"and you should also pivot the product\"). Cite directors when their phrasing IS the diagnostic point. The scaffold's voice register may be overridden by a house-style addendum below — when present, follow that override on top of these defaults.",
+].join("\n");
 
 export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
   const { room, members, scaffold, perDirectorSignals, language, picked, houseStyle, briefId } = opts;
@@ -2047,6 +2664,126 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
       ].join("\n")
     : "  (no metric-strip — composer did not pick this component)";
 
+  // ── Brainstorm-mode scaffold blocks ──
+  // Populated only when room.mode === "brainstorm" and the composer
+  // picked the corresponding kind. Otherwise rendered as a "(not
+  // picked)" placeholder · the writer system prompt explicitly
+  // instructs the model to skip non-picked sections.
+  const openingHookBlock = scaffold.openingHook && scaffold.openingHook.hook
+    ? [
+        `  Hook: ${scaffold.openingHook.hook}`,
+        `  Restatement: ${scaffold.openingHook.restatement || "(none — skip the pull-quote line)"}`,
+      ].join("\n")
+    : "  (no opening-hook — composer did not pick this component)";
+
+  const opportunityShapeBlock = scaffold.opportunityShape && scaffold.opportunityShape.scope
+    ? [
+        `  Scope: ${scaffold.opportunityShape.scope}`,
+        `  Gravity: ${scaffold.opportunityShape.gravity}`,
+        `  Tempo: ${scaffold.opportunityShape.tempo}`,
+        `  SizingHint: ${scaffold.opportunityShape.sizingHint || "(none — skip the closing italic line)"}`,
+      ].join("\n")
+    : "  (no opportunity-shape — composer did not pick this component)";
+
+  const adjacentAnglesBlock = scaffold.adjacentAngles && scaffold.adjacentAngles.length
+    ? scaffold.adjacentAngles
+        .map((a, i) =>
+          [
+            `  Angle ${i + 1}: ${a.name}`,
+            `    Framing: ${a.framing}`,
+            `    What opens: ${a.whatOpens}`,
+          ].join("\n"),
+        )
+        .join("\n\n")
+    : "  (no adjacent-angles — composer did not pick this component)";
+
+  const whatIfThisWorksBlock = scaffold.whatIfThisWorks && scaffold.whatIfThisWorks.consequences.length
+    ? [
+        `  Setup: ${scaffold.whatIfThisWorks.setup}`,
+        `  Consequences:`,
+        ...scaffold.whatIfThisWorks.consequences.map((c, i) => `    ${i + 1}. ${c}`),
+      ].join("\n")
+    : "  (no what-if-this-works — composer did not pick this component)";
+
+  const worthChasingBlock = scaffold.worthChasing && scaffold.worthChasing.length
+    ? scaffold.worthChasing
+        .map((w, i) =>
+          [
+            `  Thread ${i + 1}: ${w.handle}`,
+            `    Why it pulled: ${w.whyItPulled}`,
+            `    Next testable question: ${w.nextTestableQuestion}`,
+          ].join("\n"),
+        )
+        .join("\n\n")
+    : "  (no worth-chasing — composer did not pick this component)";
+
+  const deadEndsBlock = scaffold.deadEndsNoted && scaffold.deadEndsNoted.length
+    ? scaffold.deadEndsNoted
+        .map((d, i) => `  ${i + 1}. ${d.angle} — ${d.whyDropped}`)
+        .join("\n")
+    : "  (no dead-ends-noted — composer did not pick this component)";
+
+  const brainstormQuestionsBlock = scaffold.brainstormQuestions && scaffold.brainstormQuestions.length
+    ? scaffold.brainstormQuestions
+        .map((q, i) => {
+          const shift = q.whatWouldShift ? `\n     What would shift: ${q.whatWouldShift}` : "";
+          return `  ${i + 1}. ${q.question}${shift}`;
+        })
+        .join("\n")
+    : "  (no brainstorm-questions — composer did not pick this component)";
+
+  // ── Critique-mode scaffold blocks ──
+  const deliverableSummaryBlock = scaffold.deliverableSummary && scaffold.deliverableSummary.subject
+    ? [
+        `  Subject: ${scaffold.deliverableSummary.subject}`,
+        `  Context: ${scaffold.deliverableSummary.context}`,
+        `  Charter: ${scaffold.deliverableSummary.charter || "(none — skip the charter line)"}`,
+      ].join("\n")
+    : "  (no deliverable-summary — composer did not pick this component)";
+
+  const whatsGoodBlock = scaffold.whatsGood && scaffold.whatsGood.length
+    ? scaffold.whatsGood
+        .map((g, i) => `  ${i + 1}. ${g.point}${g.attribution ? `  (via ${g.attribution})` : ""}`)
+        .join("\n")
+    : "  (no whats-good — composer did not pick this component)";
+
+  const qualityIssuesBlock = scaffold.qualityIssues && scaffold.qualityIssues.length
+    ? scaffold.qualityIssues
+        .map((q, i) =>
+          [
+            `  Issue ${i + 1}: ${q.title}`,
+            `    Severity: ${q.severity}`,
+            `    Issue: ${q.issue}`,
+            `    Impact: ${q.impact}`,
+            `    Attribution: ${q.attribution || "(none)"}`,
+          ].join("\n"),
+        )
+        .join("\n\n")
+    : "  (no quality-issues — composer did not pick this component)";
+
+  const severityRankedFixesBlock = scaffold.severityRankedFixes && scaffold.severityRankedFixes.length
+    ? scaffold.severityRankedFixes
+        .map((f, i) =>
+          [
+            `  Fix ${i + 1}: ${f.title}`,
+            `    Severity: ${f.severity}`,
+            `    Fix: ${f.fix}`,
+            `    Effort: ${f.effort}`,
+            `    Owner: ${f.owner || "(unowned — surface as a generic ask)"}`,
+          ].join("\n"),
+        )
+        .join("\n\n")
+    : "  (no severity-ranked-fixes — composer did not pick this component)";
+
+  const residualRisksBlock = scaffold.residualRisks && scaffold.residualRisks.length
+    ? scaffold.residualRisks
+        .map((r, i) => {
+          const sev = r.severity ? `[${r.severity}] ` : "";
+          return `  ${i + 1}. ${sev}${r.risk} — ${r.whyResidual}`;
+        })
+        .join("\n")
+    : "  (no residual-risks — composer did not pick this component)";
+
   const pickedNote = picked && picked.length
     ? [
         ``,
@@ -2061,14 +2798,28 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
 
   const houseStyleAddendum = buildHouseStyleAddendum(houseStyle, language, briefId);
 
+  // Mode-axis dispatch · brainstorm and critique rooms each get a
+  // dedicated writer system prompt. Brainstorm renders the
+  // exploration-shaped scaffold; critique renders the audit-shaped
+  // scaffold. Constructive / debate / research fall through to
+  // WRITE_SYSTEM. The user message below carries every scaffold
+  // field (mode-irrelevant fields are zero-valued, so they read as
+  // silent skips per the writer's "skip if empty" rules).
+  const writerSystem = room.mode === "brainstorm"
+    ? BRAINSTORM_WRITE_SYSTEM
+    : room.mode === "critique"
+      ? CRITIQUE_WRITE_SYSTEM
+      : WRITE_SYSTEM;
+
   return [
     {
       role: "system",
       content: [
-        WRITE_SYSTEM,
+        writerSystem,
         "",
         languageInstruction(language),
         houseStyleAddendum,
+        opts.retryAddendum || "",
       ].filter((s) => s).join("\n"),
     },
     {
@@ -2159,6 +2910,42 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         `## Metric Strip (dashboard · KPI cards)`,
         metricStripBlock,
         ``,
+        `## Opening Hook (brainstorm anchor)`,
+        openingHookBlock,
+        ``,
+        `## Opportunity Shape (brainstorm)`,
+        opportunityShapeBlock,
+        ``,
+        `## Adjacent Angles (brainstorm)`,
+        adjacentAnglesBlock,
+        ``,
+        `## What If This Works (brainstorm)`,
+        whatIfThisWorksBlock,
+        ``,
+        `## Worth Chasing (brainstorm)`,
+        worthChasingBlock,
+        ``,
+        `## Dead Ends Noted (brainstorm)`,
+        deadEndsBlock,
+        ``,
+        `## Brainstorm Questions (brainstorm residual)`,
+        brainstormQuestionsBlock,
+        ``,
+        `## Deliverable Summary (critique anchor)`,
+        deliverableSummaryBlock,
+        ``,
+        `## What's Already Working (critique decorum · render BEFORE issues)`,
+        whatsGoodBlock,
+        ``,
+        `## Quality Issues (critique · severity-ranked diagnosis)`,
+        qualityIssuesBlock,
+        ``,
+        `## Severity-Ranked Fixes (critique · prescription)`,
+        severityRankedFixesBlock,
+        ``,
+        `## Residual Risks (critique)`,
+        residualRisksBlock,
+        ``,
         `─── END SCAFFOLD ───`,
         pickedNote,
         ``,
@@ -2178,6 +2965,143 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
       ].join("\n"),
     },
   ];
+}
+
+/* ─────────────────── Mode contract validator ─────────────────────────
+ *
+ * Runs after Stage 3 produces markdown · checks the body for mode-
+ * contract violations. Returns a list of violation reasons (empty when
+ * the brief is clean). The orchestrator uses this to decide whether to
+ * retry Stage 3 once with a stricter prompt.
+ *
+ * Brainstorm violations: decision-defense language ("the bet", "the
+ * moat", "must hold", "护城河") that contradicts the open-up shape.
+ * Critique violations: missing severity tags, strategy-creep verbs.
+ * Constructive / debate / research / unknown modes: no violations
+ * (the existing pipeline doesn't have a contract to validate against).
+ *
+ * Light-touch by design — the prompt-level constraints in the writer
+ * system prompts catch most contract drift. This is the safety net for
+ * the cases where a flagship model still slips into thesis register
+ * despite explicit instructions to the contrary.
+ * ────────────────────────────────────────────────────────────────── */
+
+interface ContractViolation {
+  /** Short tag to include in the retry prompt (e.g. "decision-defense
+   *  language: \"the bet\""). */
+  tag: string;
+  /** Human-readable explanation for logging. */
+  reason: string;
+}
+
+const BRAINSTORM_FORBIDDEN_PHRASES: { phrase: RegExp; tag: string }[] = [
+  // Decision-defense / thesis register · these are the patterns that
+  // most often leak into brainstorm briefs from the constructive prior.
+  { phrase: /\bthe bet (is|on the table)\b/i,        tag: '"the bet is/on the table"' },
+  { phrase: /\bthe moat\b/i,                          tag: '"the moat"' },
+  { phrase: /\bcritical assumptions?\b/i,             tag: '"critical assumption(s)"' },
+  { phrase: /\bmust hold\b/i,                         tag: '"must hold"' },
+  { phrase: /\bwhat has to be true\b/i,               tag: '"what has to be true"' },
+  { phrase: /\bunderwriting\b/i,                      tag: '"underwriting"' },
+  { phrase: /\bwe recommend\b/i,                      tag: '"we recommend"' },
+  // Chinese equivalents.
+  { phrase: /护城河/,                                  tag: '"护城河"' },
+  { phrase: /必须成立/,                                tag: '"必须成立"' },
+  { phrase: /下注的(是|点是|对象是)/,                  tag: '"下注的是/点是"' },
+  { phrase: /我们建议/,                                tag: '"我们建议"' },
+];
+
+const CRITIQUE_FORBIDDEN_PHRASES: { phrase: RegExp; tag: string }[] = [
+  // Strategy creep — critique is scoped to the deliverable, not the
+  // broader product / org direction.
+  { phrase: /\bthe thesis is\b/i,                     tag: '"the thesis is" (strategy creep · critique is deliverable-scoped)' },
+  { phrase: /\bthe moat is\b/i,                       tag: '"the moat is" (strategy creep)' },
+  { phrase: /\byou should pivot\b/i,                  tag: '"you should pivot" (strategy creep)' },
+  { phrase: /\bopportunity shape\b/i,                 tag: '"opportunity shape" (brainstorm leakage)' },
+  { phrase: /护城河是/,                                tag: '"护城河是" (策略外延出 deliverable 范围)' },
+  { phrase: /应该转型/,                                tag: '"应该转型" (策略外延)' },
+];
+
+/** Validate a Stage-3 markdown body against its room's mode contract.
+ *  Returns an empty array for clean briefs and for modes without a
+ *  contract (constructive / debate / research / other). */
+export function validateBriefBody(body: string, mode: string): ContractViolation[] {
+  if (!body) return [];
+  const lower = body;  // case is preserved · regexes are case-insensitive where appropriate
+  const out: ContractViolation[] = [];
+
+  if (mode === "brainstorm") {
+    for (const rule of BRAINSTORM_FORBIDDEN_PHRASES) {
+      if (rule.phrase.test(lower)) {
+        out.push({
+          tag: rule.tag,
+          reason: `brainstorm brief contains decision-defense phrase ${rule.tag}`,
+        });
+      }
+    }
+    return out;
+  }
+
+  if (mode === "critique") {
+    for (const rule of CRITIQUE_FORBIDDEN_PHRASES) {
+      if (rule.phrase.test(lower)) {
+        out.push({
+          tag: rule.tag,
+          reason: `critique brief contains out-of-scope phrase ${rule.tag}`,
+        });
+      }
+    }
+    // Critique briefs that include quality-issues / severity-ranked-fixes
+    // sections (heuristic: presence of "Issues" or "Fixes" H2 / H3) MUST
+    // carry visible severity tags. Missing severity = the audit lost
+    // its severity-ranking discipline.
+    const hasIssuesOrFixes = /(^|\n)#{2,3}\s+(Issues|Fixes|严重|问题|修复)/i.test(body);
+    const hasSeverityTag = /\*\*Severity:\s*(high|medium|low)\*\*/i.test(body)
+      || /\*\*严重程度[：:]\s*(高|中|低)\*\*/i.test(body);
+    if (hasIssuesOrFixes && !hasSeverityTag) {
+      out.push({
+        tag: "missing severity tags",
+        reason: "critique brief has issues/fixes sections but no `**Severity: …**` markers",
+      });
+    }
+    return out;
+  }
+
+  // Other modes: no contract validation (existing behaviour).
+  return out;
+}
+
+/** Build a "retry · violations" addendum to inject into the writer
+ *  system prompt on a retry. Names the violations and reiterates the
+ *  contract so the second attempt has explicit corrections to make. */
+export function buildContractRetryAddendum(violations: ContractViolation[], mode: string): string {
+  if (violations.length === 0) return "";
+  const lines: string[] = [
+    "",
+    "## RETRY · contract violations in previous attempt",
+    "",
+    "Your previous attempt produced these contract violations:",
+    "",
+    ...violations.map((v) => `  · ${v.tag}`),
+    "",
+  ];
+  if (mode === "brainstorm") {
+    lines.push(
+      "This brief MUST be brainstorm-shaped. Rewrite from scratch:",
+      "  · Replace any thesis / decision / commitment language with exploratory phrasing (`could`, `might`, `would open up`).",
+      "  · Remove any \"the bet\", \"the moat\", \"critical assumptions\", \"must hold\" — those belong in decision briefs, not brainstorms.",
+      "  · No `## Bottom Line`. No `## Recommendations`. No `## Critical Assumptions`. Use the brainstorm sections (`## Doors Worth Opening`, `## If This Plays Out`, `## Threads Worth Pulling`, etc.).",
+      "  · The user will see a brief that OPENS UP the topic, not one that closes it down.",
+    );
+  } else if (mode === "critique") {
+    lines.push(
+      "This brief MUST be critique-shaped. Rewrite from scratch:",
+      "  · Every issue and every fix MUST open with `**Severity: high/medium/low** ·` — visible tags are non-negotiable.",
+      "  · Stay scoped to the deliverable. Strategy creep (`you should pivot`, `the moat is`, `应该转型`) is out of scope — the audit reviews what was submitted, not the broader product direction.",
+      "  · `## What's Already Working` MUST come BEFORE `## Issues Found` — audit decorum.",
+    );
+  }
+  return lines.join("\n");
 }
 
 /* ─────────────────────── JSON parsing helpers ────────────────────────── */
@@ -2944,21 +3868,223 @@ function parseMetricStrip(raw: unknown): MetricStrip | null {
   return { intro, cards };
 }
 
+/* ─────────────── Brainstorm-mode field parsers ─────────────────── */
+
+function parseOpeningHook(raw: unknown): OpeningHook | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const hook = typeof o.hook === "string" ? o.hook.trim() : "";
+  if (!hook) return null;
+  const restatement = typeof o.restatement === "string" && o.restatement.trim()
+    ? o.restatement.trim()
+    : null;
+  return { hook, restatement };
+}
+
+function parseOpportunityShape(raw: unknown): OpportunityShape | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const scope = typeof o.scope === "string" ? o.scope.trim() : "";
+  const gravity = typeof o.gravity === "string" ? o.gravity.trim() : "";
+  const tempo = typeof o.tempo === "string" ? o.tempo.trim() : "";
+  if (!scope || !gravity || !tempo) return null;
+  const sizingHint = typeof o.sizingHint === "string" && o.sizingHint.trim()
+    ? o.sizingHint.trim()
+    : null;
+  return { scope, gravity, tempo, sizingHint };
+}
+
+function parseAdjacentAngles(raw: unknown): AdjacentAngle[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AdjacentAngle[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const name = typeof o.name === "string" ? o.name.trim() : "";
+    const framing = typeof o.framing === "string" ? o.framing.trim() : "";
+    const whatOpens = typeof o.whatOpens === "string" ? o.whatOpens.trim() : "";
+    if (!name || !framing || !whatOpens) continue;
+    out.push({ name, framing, whatOpens });
+    if (out.length >= 5) break;  // composer cap
+  }
+  return out;
+}
+
+function parseWhatIfThisWorks(raw: unknown): WhatIfThisWorks | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const setup = typeof o.setup === "string" ? o.setup.trim() : "";
+  if (!setup) return null;
+  const consRaw = Array.isArray(o.consequences) ? o.consequences : [];
+  const consequences = consRaw
+    .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+    .map((c) => c.trim())
+    .slice(0, 3);  // composer cap · exactly 3
+  if (consequences.length < 2) return null;  // 2-3 acceptable; 1 reads as half-baked
+  return { setup, consequences };
+}
+
+function parseWorthChasing(raw: unknown): WorthChasingAngle[] {
+  if (!Array.isArray(raw)) return [];
+  const out: WorthChasingAngle[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const handle = typeof o.handle === "string" ? o.handle.trim() : "";
+    const whyItPulled = typeof o.whyItPulled === "string" ? o.whyItPulled.trim() : "";
+    const nextTestableQuestion = typeof o.nextTestableQuestion === "string" ? o.nextTestableQuestion.trim() : "";
+    if (!handle || !whyItPulled || !nextTestableQuestion) continue;
+    out.push({ handle, whyItPulled, nextTestableQuestion });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+function parseDeadEndsNoted(raw: unknown): DeadEndNoted[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DeadEndNoted[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const angle = typeof o.angle === "string" ? o.angle.trim() : "";
+    const whyDropped = typeof o.whyDropped === "string" ? o.whyDropped.trim() : "";
+    if (!angle || !whyDropped) continue;
+    out.push({ angle, whyDropped });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+function parseBrainstormQuestions(raw: unknown): BrainstormQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BrainstormQuestion[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const question = typeof o.question === "string" ? o.question.trim() : "";
+    if (!question) continue;
+    const whatWouldShift = typeof o.whatWouldShift === "string" && o.whatWouldShift.trim()
+      ? o.whatWouldShift.trim()
+      : null;
+    out.push({ question, whatWouldShift });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+/* ─────────────── Critique-mode field parsers ─────────────────── */
+
+function parseSeverity(raw: unknown): CritiqueSeverity | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase();
+  if (v === "high" || v === "medium" || v === "low") return v;
+  return null;
+}
+
+function parseDeliverableSummary(raw: unknown): DeliverableSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const subject = typeof o.subject === "string" ? o.subject.trim() : "";
+  const context = typeof o.context === "string" ? o.context.trim() : "";
+  if (!subject || !context) return null;
+  const charter = typeof o.charter === "string" && o.charter.trim() ? o.charter.trim() : null;
+  return { subject, context, charter };
+}
+
+function parseWhatsGood(raw: unknown): WhatsGood[] {
+  if (!Array.isArray(raw)) return [];
+  const out: WhatsGood[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const point = typeof o.point === "string" ? o.point.trim() : "";
+    if (!point) continue;
+    const attribution = typeof o.attribution === "string" && o.attribution.trim()
+      ? o.attribution.trim()
+      : null;
+    out.push({ point, attribution });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+function parseQualityIssues(raw: unknown): QualityIssue[] {
+  if (!Array.isArray(raw)) return [];
+  const out: QualityIssue[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const title = typeof o.title === "string" ? o.title.trim() : "";
+    const severity = parseSeverity(o.severity);
+    const issue = typeof o.issue === "string" ? o.issue.trim() : "";
+    const impact = typeof o.impact === "string" ? o.impact.trim() : "";
+    if (!title || !severity || !issue || !impact) continue;
+    const attribution = typeof o.attribution === "string" && o.attribution.trim()
+      ? o.attribution.trim()
+      : null;
+    out.push({ title, severity, issue, impact, attribution });
+    if (out.length >= 7) break;
+  }
+  return out;
+}
+
+function parseSeverityRankedFixes(raw: unknown): SeverityRankedFix[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SeverityRankedFix[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const title = typeof o.title === "string" ? o.title.trim() : "";
+    const severity = parseSeverity(o.severity);
+    const fix = typeof o.fix === "string" ? o.fix.trim() : "";
+    const effort = typeof o.effort === "string" ? o.effort.trim() : "";
+    if (!title || !severity || !fix || !effort) continue;
+    const owner = typeof o.owner === "string" && o.owner.trim() ? o.owner.trim() : null;
+    out.push({ title, severity, fix, effort, owner });
+    if (out.length >= 7) break;
+  }
+  return out;
+}
+
+function parseResidualRisks(raw: unknown): ResidualRisk[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ResidualRisk[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const risk = typeof o.risk === "string" ? o.risk.trim() : "";
+    const whyResidual = typeof o.whyResidual === "string" ? o.whyResidual.trim() : "";
+    if (!risk || !whyResidual) continue;
+    const severity = parseSeverity(o.severity);
+    out.push({ risk, whyResidual, severity });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 /** Validate + coerce the chair's stage-2 scaffold.
  *
- *  Validity floor: at minimum the scaffold must carry a load-bearing
- *  anchor (bottomLine OR thesis) AND a load-bearing findings block
- *  (≥ 1 headlineFinding OR a complete bigIdeas array). Other sections
- *  fall back to empty / null / default.
+ *  Mode-aware validity floor:
+ *    · constructive / debate / research / critique / (default) · the
+ *      scaffold must carry a load-bearing anchor (bottomLine OR thesis)
+ *      AND a load-bearing findings block (≥ 1 headlineFinding OR a
+ *      complete bigIdeas array). The legacy contract.
+ *    · brainstorm · the scaffold must carry the brainstorm shape:
+ *      `openingHook` filled AND ≥ 2 `adjacentAngles` AND ≥ 2
+ *      `worthChasing`. Decision-grade fields (bottomLine / thesis /
+ *      headlineFindings / recommendations / etc.) are explicitly
+ *      ALLOWED to be empty — the brainstorm Stage 2 prompt instructs
+ *      the LLM to leave them at zero values.
  *
- *  Substitute fields (`thesis`, `bigIdeas`, `theBet`) are net-additive:
- *  the parser returns them when filled and `null` otherwise. The
- *  renderer's "skip if empty" rules do the rest.
+ *  Substitute fields (`thesis`, `bigIdeas`, `theBet`) are net-additive
+ *  in any mode: the parser returns them when filled and `null` otherwise.
+ *  The renderer's "skip if empty" rules do the rest.
  */
 export function parseScaffold(
   raw: string,
   fallbackTitle: string,
   fallbackOriginalQuestion: string,
+  mode: string = "constructive",
 ): BriefScaffold | null {
   const parsed = extractJson<Record<string, unknown>>(raw);
   if (!parsed) return null;
@@ -2967,17 +4093,59 @@ export function parseScaffold(
     ? parsed.title.trim()
     : fallbackTitle;
 
+  const isBrainstorm = mode === "brainstorm";
+  const isCritique = mode === "critique";
+
   // Anchor · at minimum one of bottomLine / thesis / workingHypothesis.
   const bottomLine = parseBottomLine(parsed.bottomLine, title);
   const thesis = parseThesis(parsed.thesis);
   const workingHypothesis = parseWorkingHypothesis(parsed.workingHypothesis);
-  const hasAnchor =
-    (bottomLine.judgement && bottomLine.judgement.trim().length > 0) ||
-    (thesis && thesis.claim.length > 0) ||
-    (workingHypothesis && workingHypothesis.hypothesis.length > 0);
-  if (!hasAnchor) return null;
 
-  // Findings · either headlineFindings (≥1) or bigIdeas (=3).
+  // Brainstorm-specific fields · parsed regardless of mode (the field
+  // is optional on BriefScaffold), but only required-validated when
+  // mode === "brainstorm".
+  const openingHook = parseOpeningHook(parsed.openingHook);
+  const opportunityShape = parseOpportunityShape(parsed.opportunityShape);
+  const adjacentAngles = parseAdjacentAngles(parsed.adjacentAngles);
+  const whatIfThisWorks = parseWhatIfThisWorks(parsed.whatIfThisWorks);
+  const worthChasing = parseWorthChasing(parsed.worthChasing);
+  const deadEndsNoted = parseDeadEndsNoted(parsed.deadEndsNoted);
+  const brainstormQuestions = parseBrainstormQuestions(parsed.brainstormQuestions);
+
+  // Critique-specific fields · parsed regardless of mode, only
+  // required-validated when mode === "critique".
+  const deliverableSummary = parseDeliverableSummary(parsed.deliverableSummary);
+  const whatsGood = parseWhatsGood(parsed.whatsGood);
+  const qualityIssues = parseQualityIssues(parsed.qualityIssues);
+  const severityRankedFixes = parseSeverityRankedFixes(parsed.severityRankedFixes);
+  const residualRisks = parseResidualRisks(parsed.residualRisks);
+
+  if (isBrainstorm) {
+    // Brainstorm contract: opening-hook + ≥2 adjacent-angles + ≥2
+    // worth-chasing.
+    if (!openingHook) return null;
+    if (adjacentAngles.length < 2) return null;
+    if (worthChasing.length < 2) return null;
+  } else if (isCritique) {
+    // Critique contract: deliverable-summary + whats-good (≥2) +
+    // quality-issues OR severity-ranked-fixes (≥2 entries on whichever
+    // is filled). "What's good" before issues is enforced by the
+    // writer prompt's render order — at parse time we just need the
+    // shape to be load-bearing.
+    if (!deliverableSummary) return null;
+    if (whatsGood.length < 2) return null;
+    if (qualityIssues.length < 2 && severityRankedFixes.length < 2) return null;
+  } else {
+    // Decision/constructive contract: anchor + findings.
+    const hasAnchor =
+      (bottomLine.judgement && bottomLine.judgement.trim().length > 0) ||
+      (thesis && thesis.claim.length > 0) ||
+      (workingHypothesis && workingHypothesis.hypothesis.length > 0);
+    if (!hasAnchor) return null;
+  }
+
+  // Findings · either headlineFindings (≥1) or bigIdeas (=3) for
+  // decision-grade rooms. Brainstorm and critique rooms skip this gate.
   const findingsRaw = Array.isArray(parsed.headlineFindings) ? parsed.headlineFindings : [];
   const headlineFindings: HeadlineFinding[] = [];
   for (const f of findingsRaw) {
@@ -2986,7 +4154,7 @@ export function parseScaffold(
     if (headlineFindings.length >= 3) break;
   }
   const bigIdeas = parseBigIdeas(parsed.bigIdeas);
-  if (headlineFindings.length < 1 && !bigIdeas) return null;
+  if (!isBrainstorm && !isCritique && headlineFindings.length < 1 && !bigIdeas) return null;
 
   // Action substitutes are all best-effort — having none is allowed (the
   // composer may have skipped action entirely for an essay-style brief).
@@ -3022,6 +4190,23 @@ export function parseScaffold(
     leadingIndicators: parseLeadingIndicators(parsed.leadingIndicators),
     threatsToValidity: parseThreatsToValidity(parsed.threatsToValidity),
     metricStrip: parseMetricStrip(parsed.metricStrip),
+    // Brainstorm-mode fields · null in non-brainstorm rooms (the parsers
+    // return empty arrays / null for missing input, which we collapse to
+    // null here so the scaffold body_json column doesn't carry empty
+    // brainstorm fields for decision-grade briefs).
+    openingHook,
+    opportunityShape,
+    adjacentAngles: adjacentAngles.length ? adjacentAngles : null,
+    whatIfThisWorks,
+    worthChasing: worthChasing.length ? worthChasing : null,
+    deadEndsNoted: deadEndsNoted.length ? deadEndsNoted : null,
+    brainstormQuestions: brainstormQuestions.length ? brainstormQuestions : null,
+    // Critique-mode fields · null in non-critique rooms.
+    deliverableSummary,
+    whatsGood: whatsGood.length ? whatsGood : null,
+    qualityIssues: qualityIssues.length ? qualityIssues : null,
+    severityRankedFixes: severityRankedFixes.length ? severityRankedFixes : null,
+    residualRisks: residualRisks.length ? residualRisks : null,
     openQuestions: parseOpenQuestions(parsed.openQuestions),
   };
 }
