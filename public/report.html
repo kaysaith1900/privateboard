@@ -1223,6 +1223,34 @@
     { re: /^strategic\s*planning\s*assumption|^planning\s*assumption/i, cls: "section-planning-assumption" },
     { re: /^open\s*questions?/i,                 cls: "section-open-questions" },
     { re: /^methodology|^方法论|^methods?$/i,    cls: "section-methodology" },
+
+    // ── Brainstorm-mode sections (room.mode === "brainstorm") ──
+    // Match the field-notes house-style label variants + writer prompt
+    // headings. Patterns are permissive — the writer occasionally adds
+    // suffixes / decorations.
+    { re: /^what\s+if\s+this\s+is\s+real|^what\s+changes\s+if|^the\s+premise\s+worth|^如果这事成立|^若这件事真的发生|^值得呆一会儿的前提/i, cls: "section-opening-hook" },
+    { re: /^the\s+shape\s+of\s+the\s+room|^how\s+big\s+the\s+question|^where\s+this\s+lives|^房间的形状|^这个问题有多大|^这事生活在哪里/i, cls: "section-opportunity-shape" },
+    { re: /^doors\s+worth\s+opening|^different\s+ways\s+in|^angles\s+the\s+room|^值得打开的几扇门|^几种不同的进入方式|^房间试戴过的几个角度/i, cls: "section-adjacent-angles" },
+    { re: /^if\s+this\s+plays\s+out|^what\s+this\s+could\s+open\s+up|^如果这条线走通了|^这会打开什么/i, cls: "section-what-if-this-works" },
+    { re: /^threads\s+worth\s+pulling|^where\s+the\s+heat\s+is|^things\s+the\s+room\s+kept\s+returning|^值得拉的几条线|^热度在哪里|^房间反复回到的事/i, cls: "section-worth-chasing" },
+    { re: /^roads\s+we\s+walked\s+back|^paths\s+the\s+room\s+set\s+down|^我们折返的几条路|^房间放下的几条路径/i, cls: "section-dead-ends-noted" },
+    { re: /^questions\s+worth\s+sitting\s+with|^what\s+this\s+opens\s+up|^the\s+field's\s+next\s+horizon|^值得多坐一会儿的问题|^由此打开的问题|^这个领域的下一道地平线/i, cls: "section-brainstorm-questions" },
+    // Mode-neutral writer-prompt headings the brainstorm writer uses
+    // for frame-shift / convergence / divergence (the brainstorm
+    // writer prompt phrases them differently from the constructive
+    // ones, so add narrow matchers for those exact phrasings).
+    { re: /^how\s+the\s+question\s+moved/i,     cls: "section-frame-shift" },
+    { re: /^where\s+the\s+room\s+aligned/i,     cls: "section-convergence" },
+    { re: /^where\s+the\s+room\s+split/i,       cls: "section-divergence" },
+    { re: /^sketches\s+from\s+the\s+room|^房间里的草图/i, cls: "section-options-analysis" },
+
+    // ── Critique-mode sections (room.mode === "critique") ──
+    // The audit-memo house style + the critique writer prompt.
+    { re: /^under\s+review|^what\s+this\s+audit\s+covers|^审查对象|^本次审查的范围/i, cls: "section-deliverable-summary" },
+    { re: /^what's\s+already\s+working|^strengths\s+worth\s+preserving|^what\s+the\s+deliverable\s+gets\s+right|^已经在起作用的部分|^值得保留的优点|^交付物已经做对的事/i, cls: "section-whats-good" },
+    { re: /^issues\s+found|^where\s+the\s+deliverable\s+breaks\s+down|^quality\s+defects|^发现的问题|^交付物的失效点|^质量缺陷/i, cls: "section-quality-issues" },
+    { re: /^fixes,\s*ranked|^what\s+to\s+change|^prescriptions?|^修复方案|^需要修改的地方|^处方/i, cls: "section-severity-ranked-fixes" },
+    { re: /^residual\s+risks?|^risks?\s+the\s+audit\s+couldn't\s+close|^残余风险|^本次审查无法关闭的风险/i, cls: "section-residual-risks" },
   ];
 
   function classifyHeading(text) {
@@ -1284,6 +1312,11 @@
       if (h2.classList.contains("section-thesis")) continue;
       if (h2.classList.contains("section-working-hypothesis")) continue;
       if (h2.classList.contains("section-methodology")) continue;
+      // Brainstorm anchor (opening-hook) + critique anchor
+      // (deliverable-summary) play the same "executive-summary slot"
+      // role as bottom-line/thesis — exempt from chapter numbering.
+      if (h2.classList.contains("section-opening-hook")) continue;
+      if (h2.classList.contains("section-deliverable-summary")) continue;
       n += 1;
       const num = String(n).padStart(2, "0");
       const label = document.createElement("div");

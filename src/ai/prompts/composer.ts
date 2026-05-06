@@ -108,18 +108,33 @@ export const FINDINGS = ["headline-findings", "big-ideas"] as const satisfies re
 export const ACTIONS = ["recommendations", "the-bet", "considerations"] as const satisfies readonly ComponentKind[];
 
 /** Brainstorm-mode kind sets. The composer's brainstorm branch picks
- *  ONLY from BRAINSTORM_KINDS; mixing in any decision-grade kind from
- *  the pool above is a validation error.
+ *  ONLY from BRAINSTORM_KINDS. Decision-grade kinds (thesis / bottom-
+ *  line / headline-findings / big-ideas / recommendations / the-bet /
+ *  considerations / critical-assumptions / scenario-tree / leading-
+ *  indicators / pre-mortem / planning-assumption / why-now / positions
+ *  / two-paths / strategic-outlook / threats-to-validity) are
+ *  EXCLUDED — keeps the brainstorm shape "open" instead of collapsing
+ *  to a thesis.
  *
- *  Required: opening-hook (anchor) · adjacent-angles (lens enumeration) ·
- *            worth-chasing (threads with open questions).
- *  Optional but encouraged: opportunity-shape · what-if-this-works ·
- *            brainstorm-questions.
- *  Optional: dead-ends-noted · visuals (the existing `visuals` kind is
- *            still allowed in brainstorm mode for timeline / pie /
- *            comparison-table — the only constructive kind that crosses
- *            over because visuals are mode-agnostic). */
+ *  Brainstorm-specific (the open-up core):
+ *    Required:    opening-hook · adjacent-angles · worth-chasing.
+ *    Encouraged:  opportunity-shape · what-if-this-works ·
+ *                 brainstorm-questions.
+ *    Optional:    dead-ends-noted.
+ *
+ *  Mode-neutral additions (richer rendering when the room produced
+ *  material for them):
+ *    visuals       · mermaid charts (timeline / pie / comparison /
+ *                    bar / quadrant / force-field).
+ *    metric-strip  · KPI dashboard when the room had ≥3 numbers.
+ *    frame-shift   · descriptive "how the question moved".
+ *    convergence   · descriptive "where directors aligned".
+ *    divergence    · descriptive "where directors split".
+ *    new-questions · generative emergent questions.
+ *    open-questions · residual P0/P1 list (brainstorm-questions is
+ *                     the preferred richer cousin). */
 export const BRAINSTORM_KINDS = [
+  // Brainstorm-specific (the open-up core)
   "opening-hook",
   "opportunity-shape",
   "adjacent-angles",
@@ -127,20 +142,32 @@ export const BRAINSTORM_KINDS = [
   "worth-chasing",
   "dead-ends-noted",
   "brainstorm-questions",
-  "visuals",  // mode-agnostic · timeline / pie / comparison-table fit brainstorm fine
+  // Mode-neutral (richer rendering / charts / KPI cards)
+  "visuals",
+  "metric-strip",
+  "frame-shift",
+  "convergence",
+  "divergence",
+  "new-questions",
+  "open-questions",
 ] as const satisfies readonly ComponentKind[];
 
 export const BRAINSTORM_REQUIRED = ["opening-hook", "adjacent-angles", "worth-chasing"] as const satisfies readonly ComponentKind[];
 
 /** Default brainstorm preset · safety net when the composer fails on a
- *  brainstorm room. 6 components, all from BRAINSTORM_KINDS. */
+ *  brainstorm room. 8 components mixing the open-up core with mode-
+ *  neutral pieces (frame-shift + metric-strip) so the fallback brief
+ *  still has visual rhythm — not just a flat list of brainstorm-only
+ *  prose sections. */
 export const DEFAULT_BRAINSTORM_PRESET: ComponentPick[] = [
   { kind: "opening-hook",         order: 1 },
   { kind: "opportunity-shape",    order: 2 },
-  { kind: "adjacent-angles",      order: 3 },
-  { kind: "what-if-this-works",   order: 4 },
-  { kind: "worth-chasing",        order: 5 },
-  { kind: "brainstorm-questions", order: 6 },
+  { kind: "frame-shift",          order: 3 },
+  { kind: "metric-strip",         order: 4 },
+  { kind: "adjacent-angles",      order: 5 },
+  { kind: "what-if-this-works",   order: 6 },
+  { kind: "worth-chasing",        order: 7 },
+  { kind: "brainstorm-questions", order: 8 },
 ];
 
 /** Critique-mode kind sets. Mirror brainstorm's structure.
@@ -374,10 +401,13 @@ const BRAINSTORM_SYSTEM_PROMPT = [
   '  "components": [',
   '    { "kind": "opening-hook",         "order": 1 },',
   '    { "kind": "opportunity-shape",    "order": 2 },',
-  '    { "kind": "adjacent-angles",      "order": 3 },',
-  '    { "kind": "what-if-this-works",   "order": 4 },',
-  '    { "kind": "worth-chasing",        "order": 5 },',
-  '    { "kind": "brainstorm-questions", "order": 6 }',
+  '    { "kind": "frame-shift",          "order": 3 },',
+  '    { "kind": "metric-strip",         "order": 4 },',
+  '    { "kind": "adjacent-angles",      "order": 5 },',
+  '    { "kind": "visuals",              "order": 6 },',
+  '    { "kind": "what-if-this-works",   "order": 7 },',
+  '    { "kind": "worth-chasing",        "order": 8 },',
+  '    { "kind": "brainstorm-questions", "order": 9 }',
   "  ],",
   '  "rationale": "≤ 120 chars · why this brainstorm shape fits the room"',
   "}",
@@ -385,14 +415,23 @@ const BRAINSTORM_SYSTEM_PROMPT = [
   "",
   "## Brainstorm component pool — pick ONLY from this list",
   "",
+  "Brainstorm-specific (the open-up core):",
   "  · `opening-hook`           1–2 sentence \"what changes if this is real\" lead-in. NOT a judgement, NOT a thesis. REQUIRED — every brainstorm brief has one.",
-  "  · `opportunity-shape`      3-dimension \"size of the room\" beat (scope · gravity · tempo). Recommended — sets the field for everything that follows.",
+  "  · `opportunity-shape`      3-dimension \"size of the room\" beat (scope · gravity · tempo). Strongly recommended — sets the field for everything that follows.",
   "  · `adjacent-angles`        3–5 distinct ways INTO the topic, each with a name + framing + what-opens. NOT ranked. REQUIRED — the lens enumeration IS the point of a brainstorm.",
   "  · `what-if-this-works`     1 setup + 3 exploratory consequences. Phrased as \"could / might\", never as predictions.",
   "  · `worth-chasing`          3–5 threads the room generated heat around. Each gets a handle + why it pulled + an open testable question (NOT a milestone). REQUIRED — these are the user's takeaways, in question form.",
   "  · `dead-ends-noted`        0–3 angles the room dropped. Optional. Naming these signals the conversation actually ranged.",
   "  · `brainstorm-questions`   5–8 generative questions that opened up. Different from a P0/P1 todo list — these are the field's next horizon.",
-  "  · `visuals`                Optional. Timeline (chronology / waves), pie (distribution of attention), or comparison-table (angle vs angle). bar-chart and quadrant-chart are also allowed but rarely fit a brainstorm.",
+  "",
+  "Mode-neutral additions (use liberally — these give the brief visual + analytical rhythm):",
+  "  · `visuals`                STRONGLY ENCOURAGED when the room has any chart-fittable material. Timeline (chronology / waves of a trend), pie (distribution of attention / where the energy went), comparison-table (angle vs angle), bar-chart (ranked numeric reads), quadrant-chart (2-axis plot of options), force-field (drivers vs resistors). A brainstorm brief without ANY visual usually reads flat — pick this whenever the room produced anything plottable.",
+  "  · `metric-strip`           STRONGLY ENCOURAGED when the room produced ≥3 numbers (counts, ranges, time windows, ratios, percentages, even back-of-envelope sizing). Renders as a 3–5 KPI card row right after the framing — massively higher information density than the same numbers buried in prose. Brainstorms often surface analogue numbers (\"X grew 5×\", \"Y is 2027\", \"Z costs ~$\"); these belong here.",
+  "  · `frame-shift`            How the question itself moved during the room (or held). Descriptive, mode-neutral. Use when the brainstorm visibly reframed the topic between opening and end.",
+  "  · `convergence`            Where independent directors arrived at the same point via different paths. Use when ≥2 directors via ≥2 lenses landed on the same observation.",
+  "  · `divergence`             The hinge where directors split. Use when the room had a real central tension worth surfacing.",
+  "  · `new-questions`          Questions that didn't exist when the room opened. Lighter cousin of brainstorm-questions; pick at most ONE of the two.",
+  "  · `open-questions`         Residual P0/P1 list. Pick only if the room produced clear unresolved tactical asks; brainstorm-questions is preferred for generative ones.",
   "",
   "## FORBIDDEN kinds — do not pick any of these",
   "",
@@ -402,14 +441,15 @@ const BRAINSTORM_SYSTEM_PROMPT = [
   "  · `headline-findings` / `big-ideas` (claim-front findings)",
   "  · `recommendations` / `the-bet` / `considerations` (action prescriptions)",
   "  · `critical-assumptions` / `scenario-tree` / `leading-indicators` (decision uncertainty analysis)",
-  "  · `pre-mortem` / `planning-assumption` / `why-now` / `frame-shift` / `convergence` / `divergence` / `positions` / `two-paths` / `strategic-outlook` / `threats-to-validity` / `metric-strip` / `new-questions` / `open-questions`",
+  "  · `pre-mortem` / `planning-assumption` / `why-now` / `positions` / `two-paths` / `strategic-outlook` / `threats-to-validity`",
   "",
   "If the conversation feels like it COULD be turned into a thesis, that's because brainstorm directors are doing their job — opening up the field. The composer's job is to KEEP it open, not collapse it into a thesis prematurely.",
   "",
   "## Composition rules",
   "",
   "  · MUST include: `opening-hook`, `adjacent-angles`, `worth-chasing`. These three define the brainstorm shape; missing any of them and the brief reads as something else.",
-  "  · Total components: 4–8. Below 4 = thin; above 8 = decision-document creep.",
+  "  · Total components: 6–12. Below 6 reads as a stub; above 12 turns into noise.",
+  "  · LEAN INTO the mode-neutral additions when material exists. A brainstorm brief that picks 5 brainstorm-only sections and nothing else lands flat — visual rhythm comes from `visuals` / `metric-strip` / `frame-shift` / `convergence` / `divergence`.",
   "  · `subject_type` is ALWAYS `\"exploration\"` for brainstorm briefs. Do not pick from the decision-grade subject-type list.",
   "",
   "## House style — pick a brainstorm-friendly one",
@@ -790,8 +830,13 @@ function validatePicks(picks: ComponentPick[]): ValidationProblem | null {
  *      tighter ceiling than 12 — brainstorm briefs are short by design).
  */
 function validateBrainstormPicks(picks: ComponentPick[]): ValidationProblem | null {
-  if (picks.length < 4) return { reason: `brainstorm: too few components (${picks.length} < 4)` };
-  if (picks.length > 8) return { reason: `brainstorm: too many components (${picks.length} > 8)` };
+  // 6–12 component cap · the brainstorm pool is wider now (brainstorm-
+  // specific core + mode-neutral additions for richer rendering), and
+  // the brief should land thicker than 6 sections to feel like more
+  // than a stub. Above 12 turns into noise, same ceiling as the
+  // constructive validator.
+  if (picks.length < 6) return { reason: `brainstorm: too few components (${picks.length} < 6)` };
+  if (picks.length > 12) return { reason: `brainstorm: too many components (${picks.length} > 12)` };
 
   const kinds = new Set(picks.map((p) => p.kind));
   const missing: string[] = [];
