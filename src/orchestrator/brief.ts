@@ -152,6 +152,12 @@ interface BriefGenerationState {
    *  stage first transitions to active. The frontend treats absent
    *  keys as "still pending". */
   stages: Partial<Record<StageKey, BriefStageSnapshot>>;
+  /** AbortController for in-flight cancellation. The pipeline plumbs
+   *  `controller.signal` into every `callLLMStream` / `callLLMWithUsage`
+   *  call so the underlying fetch dies the moment the user deletes
+   *  the in-progress brief. Cooperative — stages still need to check
+   *  `signal.aborted` between LLM calls to short-circuit cleanly. */
+  controller: AbortController;
 }
 const inFlightBriefs = new Map<string, BriefGenerationState>();
 
@@ -165,6 +171,23 @@ export function isBriefGenerating(briefId: string): boolean {
  *  the loading UI mid-pipeline. */
 export function getBriefGenerationState(briefId: string): BriefGenerationState | null {
   return inFlightBriefs.get(briefId) ?? null;
+}
+
+/** Abort an in-flight brief generation. Called by the DELETE route
+ *  when the user explicitly deletes a brief that's still streaming.
+ *  The controller's `abort()` propagates into every plumbed
+ *  `callLLMStream` / `callLLMWithUsage` request — the upstream HTTP
+ *  fetches die immediately, the streaming for-await loops see the
+ *  abort exception and unwind, and the pipeline's `finally` block
+ *  clears the in-flight map entry. Subsequent `updateBriefBody` calls
+ *  on a deleted brief row are silent no-ops at the SQLite level. */
+export function abortBriefGeneration(briefId: string): boolean {
+  const state = inFlightBriefs.get(briefId);
+  if (!state) return false;
+  try {
+    state.controller.abort();
+  } catch { /* idempotent · already-aborted controllers throw on re-abort in some node versions */ }
+  return true;
 }
 
 export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: string }> {
@@ -193,6 +216,12 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
   // before the first SSE event fires.
   const chairForState = getChairAgent();
   const inferredLang: "zh" | "en" = /[一-鿿]/.test(room.subject || "") ? "zh" : "en";
+  // Per-brief AbortController · plumbed into every LLM call inside
+  // the pipeline so a user-initiated DELETE (via `abortBriefGeneration`)
+  // immediately kills the upstream fetches. Without this, deletion
+  // mid-generation would leave the LLM calls running to completion
+  // (burning tokens) even though the row is gone.
+  const controller = new AbortController();
   inFlightBriefs.set(placeholder.id, {
     briefId: placeholder.id,
     roomId,
@@ -201,6 +230,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     language: inferredLang,
     pipelineStartedAt: Date.now(),
     stages: {},
+    controller,
   });
   void runPipeline({
     briefId: placeholder.id,
@@ -210,6 +240,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     transcript,
     room,
     supplement: opts.supplement,
+    signal: controller.signal,
   }).finally(() => {
     inFlightBriefs.delete(placeholder.id);
   });
@@ -225,6 +256,11 @@ interface PipelineArgs {
   transcript: ReturnType<typeof listMessages>;
   room: NonNullable<ReturnType<typeof getRoom>>;
   supplement?: string;
+  /** AbortController.signal · plumbed into every LLM call so a
+   *  `abortBriefGeneration(briefId)` call kills upstream fetches
+   *  immediately. The pipeline checks `signal.aborted` between
+   *  stages to short-circuit cleanly when the user deletes mid-run. */
+  signal?: AbortSignal;
 }
 
 /** Stage labels that ship to the UI checklist. Frontend matches on
@@ -530,7 +566,14 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
           stage1Eta,
         );
       },
+      args.signal,
     );
+
+    // Short-circuit if the user deleted the brief while Stage 1 ran.
+    // The pipeline's `finally` block will clear the in-flight map
+    // entry; we just skip the remaining work to avoid wasting tokens
+    // on stages whose output will never be used.
+    if (args.signal?.aborted) return;
     emitStage(roomId, briefId, "extract", "done");
 
     // Persist Stage-1 signals on the brief row so future follow-up
@@ -580,7 +623,9 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       perDirectorSignals,
       language,
       supplement,
+      signal: args.signal,
     });
+    if (args.signal?.aborted) return;
     updateBriefCompose(briefId, {
       spine: composition.spine,
       components: composition.components,
@@ -624,7 +669,9 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       language,
       supplement,
       picked: pickedKinds,
+      signal: args.signal,
     });
+    if (args.signal?.aborted) return;
     emitStage(roomId, briefId, "scaffold", "done");
 
     if (!scaffold) {
@@ -653,7 +700,9 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
         supplement,
         picked: pickedKinds,
         houseStyle: composition.houseStyle,
+        signal: args.signal,
       });
+      if (args.signal?.aborted) return;
       buf = r3.body;
       stage3Model = r3.model;
       if (!buf.length) {
@@ -722,6 +771,7 @@ async function runStage1(
   language: "zh" | "en",
   chairId: string | null,
   onDirectorComplete?: (current: number) => void,
+  signal?: AbortSignal,
 ): Promise<DirectorSignals[]> {
   if (!directors.length) return [];
 
@@ -752,6 +802,7 @@ async function runStage1(
           messages,
           temperature: 0.2,
           maxTokens: 800,
+          signal,
         });
         billChair(chairId, usage);
         const result = parseDirectorSignals(raw, director);
@@ -789,6 +840,7 @@ interface ComposerArgs {
   perDirectorSignals: DirectorSignals[];
   language: "zh" | "en";
   supplement?: string;
+  signal?: AbortSignal;
 }
 
 async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
@@ -822,6 +874,7 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
         messages,
         temperature: 0.2,
         maxTokens: 600,
+        signal: args.signal,
       });
       billChair(args.chairId, usage);
       const parsed = parseComposerOutput(raw, mode);
@@ -849,6 +902,7 @@ interface Stage2Args {
   /** Composer's component picks (Stage 1.5). When empty, Stage 2 falls
    *  back to filling all 12 sections — preserves legacy behaviour. */
   picked?: readonly string[];
+  signal?: AbortSignal;
 }
 
 async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
@@ -878,6 +932,7 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           messages,
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
           maxTokens: 8000,
+          signal: args.signal,
         });
         billChair(args.chairId, usage);
         const scaffold = parseScaffold(
@@ -925,6 +980,7 @@ interface Stage3Args {
   /** Composer-picked house-style preset slug. Drives section vocabulary
    *  + voice register at write time. Defaults to `boardroom-default`. */
   houseStyle?: string;
+  signal?: AbortSignal;
 }
 
 interface Stage3Result {
@@ -956,6 +1012,7 @@ async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
           messages,
           temperature: 0.4,
           maxTokens: 12000,
+          signal: args.signal,
         })) {
           if (chunk.type === "text") {
             buf += chunk.delta;

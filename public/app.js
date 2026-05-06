@@ -2454,13 +2454,22 @@
       if (!briefId) return;
       const target = (this.currentBriefs || []).find((b) => b.id === briefId);
       const lang = (this.currentBrief?.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
+      // If the target brief is still being generated, the confirmation
+      // copy is sharper · the user is also cancelling an in-flight
+      // pipeline (LLM calls actively burning tokens), not just removing
+      // a finished row. Server aborts the upstream fetches when we DELETE.
+      const isStillGenerating = !!(target && (!target.bodyMd || !target.bodyMd.trim()));
       const confirmText = lang === "zh"
-        ? (target?.supplement
-            ? `删除这份"${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}"补充视角的报告？此操作不可恢复。`
-            : "删除这份报告？此操作不可恢复。")
-        : (target?.supplement
-            ? `Delete the "${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}" version? This can't be undone.`
-            : "Delete this report? This can't be undone.");
+        ? (isStillGenerating
+            ? "这份报告还在生成中。删除会立即停止生成并删除这份报告，此操作不可恢复。"
+            : (target?.supplement
+                ? `删除这份"${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}"补充视角的报告？此操作不可恢复。`
+                : "删除这份报告？此操作不可恢复。"))
+        : (isStillGenerating
+            ? "This report is still generating. Deleting will stop the generation and remove the report. This can't be undone."
+            : (target?.supplement
+                ? `Delete the "${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}" version? This can't be undone.`
+                : "Delete this report? This can't be undone."));
       if (!confirm(confirmText)) return;
       try {
         const r = await fetch("/api/briefs/" + encodeURIComponent(briefId), { method: "DELETE" });

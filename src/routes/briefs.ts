@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 import { Hono } from "hono";
 
-import { getBriefGenerationState, isBriefGenerating } from "../orchestrator/brief.js";
+import { abortBriefGeneration, getBriefGenerationState, isBriefGenerating } from "../orchestrator/brief.js";
 import { countBriefs, deleteBrief, getBrief, listAllBriefs } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 
@@ -64,8 +64,15 @@ export function briefsRouter(): Hono {
 
   r.delete("/:id", async (c) => {
     const id = c.req.param("id");
+    // If the brief is still being generated, abort the in-flight
+    // pipeline FIRST so the LLM upstream fetches die immediately
+    // (saves tokens). The pipeline's `finally` block will clear the
+    // in-flight map entry. We then delete the row regardless — a
+    // user-initiated cancellation IS the deletion. The previous
+    // 409-return-and-block behaviour was hostile to users who
+    // realised mid-generation they didn't want this brief after all.
     if (isBriefGenerating(id)) {
-      return c.json({ error: "brief is still generating; wait for it to finish" }, 409);
+      abortBriefGeneration(id);
     }
     const ok = deleteBrief(id);
     if (!ok) return c.json({ error: "not found" }, 404);
