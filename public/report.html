@@ -1571,6 +1571,36 @@
   function mergeAllOlsInSections(body) {
     const sections = body.querySelectorAll("section");
     for (const s of sections) mergeConsecutiveOls(s);
+    // Body-wide groupwise pass · catches H2s that didn't match a known
+    // section classifier (e.g. model-invented "共识忽视的三件事" /
+    // "What we're missing"). Their ordered-list content sits as loose
+    // body children between H2s and was never wrapped in a <section>,
+    // so the per-section merge above never reached it — every
+    // blank-line-separated `1. …` item rendered as its own <ol>
+    // restarting at "1". Walks direct body children groupwise: H2 (or
+    // any non-OL sibling) breaks the run so we never merge across
+    // unrelated headings.
+    mergeAdjacentOlSiblings(body);
+  }
+
+  /** Merge each run of consecutive sibling `<ol>` elements directly
+   *  under `parent` into a single `<ol>`. Any non-OL sibling (H2, P,
+   *  HR, ...) breaks the run. Idempotent: a run of one is a no-op. */
+  function mergeAdjacentOlSiblings(parent) {
+    const children = Array.from(parent.children);
+    let head = null;
+    for (const child of children) {
+      if (child.tagName === "OL") {
+        if (head === null) {
+          head = child;
+        } else {
+          while (child.firstChild) head.appendChild(child.firstChild);
+          child.remove();
+        }
+      } else {
+        head = null;
+      }
+    }
   }
 
   function decorateReport(body) {
