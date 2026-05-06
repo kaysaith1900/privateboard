@@ -31,7 +31,16 @@ import { parseSkillMd } from "../skills/parse.js";
 import { analyzeSkillAbility } from "../skills/analyze.js";
 import { getSystemSkillsForAgent, isSystemSkillSlug } from "../skills/system-skills.js";
 import { callLLM } from "../ai/adapter.js";
-import { buildAgentSpecMessages, parseAgentSpec } from "../ai/prompts/agent-spec.js";
+import { utilityModelFor } from "../ai/availability.js";
+import {
+  buildAgentProfileMessages,
+  buildAgentSpecMessages,
+  parseAgentProfile,
+  parseAgentSpec,
+  type AgentProfile,
+} from "../ai/prompts/agent-spec.js";
+import { runBraveSearch } from "../ai/skills/web-search.js";
+import { getKey, hasBraveKey } from "../storage/keys.js";
 import { newId } from "../utils/id.js";
 
 /** Caps from PRD-skills §4. Server-enforced; UI mirrors. */
@@ -43,7 +52,9 @@ const NAME_MAX = 32;
 const BIO_MIN = 8;
 const BIO_MAX = 280;
 const INSTR_MIN = 1;       // permissive — empty allowed too with generic fallback
-const INSTR_MAX = 4000;
+// Bumped from 4000 → 6000 alongside the eight-section instruction
+// template the generator now emits. Manual entry has the same headroom.
+const INSTR_MAX = 6000;
 const HANDLE_MAX = 18;
 // Allow data: URLs (the SVG-generated client-side avatars) and absolute
 // paths under /avatars/. Anything else gets normalized to a default.
@@ -146,6 +157,61 @@ function uniqueHandle(base: string): string {
   return "/" + base + "_" + Math.floor(Math.random() * 9999);
 }
 
+/** Cheap LLM call to turn the user's freeform description into a focused
+ *  search query. Better recall than feeding Brave the whole description
+ *  (Brave matches keywords; long prose dilutes the signal). Falls back
+ *  to the raw description when the utility call fails or returns junk —
+ *  worst case we search with a weaker query, never zero results. */
+async function refineSearchQuery(description: string): Promise<string> {
+  const utility = utilityModelFor();
+  if (!utility) return description.slice(0, 180);
+  const prompt = [
+    "Distill the user's description of a person / role into a SHORT search query that would surface real domain references (named thinkers, cases, concepts) about that kind of role.",
+    "",
+    "Rules:",
+    "· One line. ≤ 12 words. No quotes, no hashtags, no boolean operators.",
+    "· Prefer NOUN phrases naming the domain (e.g. 'venture capital pattern matching disruption theorists' rather than 'a smart investor who is critical').",
+    "· If the description names a real domain (product, security, biotech, monetary policy, etc.), keep that domain word in the query.",
+    "· Output ONLY the query. No prose, no preamble.",
+    "",
+    "Description:",
+    description,
+  ].join("\n");
+  try {
+    const raw = await callLLM({
+      modelV: utility,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      maxTokens: 80,
+    });
+    const cleaned = raw
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split("\n")[0]
+      .slice(0, 180);
+    if (cleaned && cleaned.length >= 4) return cleaned;
+  } catch (e) {
+    process.stderr.write(`[agent-spec/refineQuery] ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+  return description.slice(0, 180);
+}
+
+/** Format Brave results into the compact context block fed to Stage A
+ *  (and echoed into Stage B). Mirrors the SHARED MATERIALS shape used
+ *  by the chair / director web-search path so the LLM sees a familiar
+ *  layout. Keeps each result tight — title + 1-line description + url —
+ *  to stay well under any model's context budget for this sub-task. */
+function formatProfileWebContext(query: string, results: Array<{ title: string; url: string; description: string }>): string {
+  const lines: string[] = [`Search query: ${query}`, ""];
+  results.forEach((r, i) => {
+    lines.push(`[${i + 1}] ${r.title}`);
+    if (r.description) lines.push(`    ${r.description.slice(0, 200)}`);
+    lines.push(`    ${r.url}`);
+  });
+  return lines.join("\n");
+}
+
 export function agentsRouter(): Hono {
   const r = new Hono();
 
@@ -161,16 +227,37 @@ export function agentsRouter(): Hono {
     return c.json(a);
   });
 
-  // ── AI-generated agent spec · accepts a free-text description and
-  //    returns a fully-formed director spec (name, handle, role tag,
-  //    bio, cover quote, instruction, model). The frontend's new-agent
-  //    composer renders this as a preview the user can edit + save.
-  //    Tries opus-4-7 first, falls back to sonnet-4-6.
+  // ── AI-generated agent spec · multi-stage pipeline.
+  //
+  // Body fields:
+  //   description : free-text describing the director (4–1200 chars, required)
+  //   webSearch   : when true AND a Brave key is configured, the route
+  //                 first runs a Brave search to ground the spec in
+  //                 real domain references. Silently no-ops when the
+  //                 key is missing — the toggle is best-effort.
+  //
+  // Pipeline:
+  //   1. (optional) refineQuery       · cheap utility LLM turns the
+  //      description into a 1-line search query (better recall than
+  //      raw description).
+  //   2. (optional) Brave search      · top 6 results, formatted as a
+  //      compact context block.
+  //   3. Stage A · build profile      · structured intellectual profile
+  //      JSON (lineage, concepts, referent set, failure modes, takes).
+  //      Tries opus-4-7 → sonnet-4-6.
+  //   4. Stage B · build spec         · the actual director spec, with
+  //      the profile + web context fed in as source material so the
+  //      eight-section instruction has real anchors instead of LLM
+  //      generic-isms. Tries opus-4-7 → sonnet-4-6.
+  //
+  // Each optional step degrades gracefully: web search failure → no
+  // web context. Profile failure → spec generator runs with just the
+  // description (single-stage fallback). Spec failure → 502.
   r.post("/generate-spec", async (c) => {
     let body: unknown;
     try { body = await c.req.json(); }
     catch { return c.json({ error: "invalid JSON body" }, 400); }
-    const b = (body ?? {}) as { description?: unknown };
+    const b = (body ?? {}) as { description?: unknown; webSearch?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
     if (description.length < 4) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
@@ -178,17 +265,74 @@ export function agentsRouter(): Hono {
     if (description.length > 1200) {
       return c.json({ error: "description too long (max 1200 chars)" }, 400);
     }
-    const messages = buildAgentSpecMessages({ description });
-    const candidates = ["opus-4-7", "sonnet-4-6"] as const;
-    for (const modelV of candidates) {
+    const wantsWebSearch = b.webSearch === true;
+
+    // ── Step 1+2 · optional web context ─────────────────────────────
+    let webContext: string | null = null;
+    if (wantsWebSearch && hasBraveKey()) {
+      try {
+        const refinedQuery = await refineSearchQuery(description);
+        const apiKey = getKey("brave") || "";
+        if (apiKey && refinedQuery) {
+          const results = await runBraveSearch({
+            apiKey,
+            query: refinedQuery,
+            count: 6,
+            timeoutMs: 6500,
+          });
+          if (results && results.length > 0) {
+            webContext = formatProfileWebContext(refinedQuery, results);
+          }
+        }
+      } catch (e) {
+        process.stderr.write(`[agent-spec] web context failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
+
+    // ── Step 3 · Stage A · profile ──────────────────────────────────
+    let profile: AgentProfile | null = null;
+    {
+      const profileMessages = buildAgentProfileMessages({ description, webContext });
+      const profileCandidates = ["opus-4-7", "sonnet-4-6"] as const;
+      for (const modelV of profileCandidates) {
+        if (!isModelV(modelV)) continue;
+        try {
+          const raw = await callLLM({
+            modelV,
+            messages: profileMessages,
+            temperature: 0.6,
+            maxTokens: 1600,
+          });
+          const parsed = parseAgentProfile(raw);
+          if (parsed) {
+            profile = parsed;
+            break;
+          }
+        } catch (e) {
+          process.stderr.write(`[agent-spec/profile] ${modelV} failed: ${e instanceof Error ? e.message : String(e)}\n`);
+        }
+      }
+    }
+
+    // ── Step 4 · Stage B · spec ─────────────────────────────────────
+    // Profile is best-effort: if Stage A failed entirely we fall through
+    // to a single-stage generation (same shape as the old route) so the
+    // user still gets a usable preview.
+    const specMessages = buildAgentSpecMessages({ description, profile, webContext });
+    const specCandidates = ["opus-4-7", "sonnet-4-6"] as const;
+    for (const modelV of specCandidates) {
       if (!isModelV(modelV)) continue;
       try {
-        const raw = await callLLM({ modelV, messages, temperature: 0.55, maxTokens: 1800 });
+        const raw = await callLLM({
+          modelV,
+          messages: specMessages,
+          temperature: 0.55,
+          // Bumped from 1800 → 3000 for the eight-section instruction
+          // template (~1500-2800 chars typical).
+          maxTokens: 3000,
+        });
         const spec = parseAgentSpec(raw);
         if (spec) {
-          // Guarantee a non-flat ability profile in the preview · if the
-          // LLM omitted or flattened it, synthesize from bio + roleTag
-          // + description so the radar always shows real personality.
           if (!spec.ability || Object.keys(spec.ability).length === 0) {
             spec.ability = synthesizeAbility(`${spec.bio} ${spec.roleTag} ${description}`);
           }

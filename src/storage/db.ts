@@ -30,6 +30,7 @@ import agentCarrierPref017 from "./migrations/017_agent_carrier_pref.sql";
 import briefHouseStyle018 from "./migrations/018_brief_house_style.sql";
 import roomSummaries019 from "./migrations/019_room_summaries.sql";
 import roomFollowup020 from "./migrations/020_room_followup.sql";
+import notes021 from "./migrations/021_notes.sql";
 
 interface Migration {
   name: string;
@@ -57,6 +58,7 @@ const MIGRATIONS: Migration[] = [
   { name: "018_brief_house_style.sql", sql: briefHouseStyle018 },
   { name: "019_room_summaries.sql", sql: roomSummaries019 },
   { name: "020_room_followup.sql", sql: roomFollowup020 },
+  { name: "021_notes.sql", sql: notes021 },
 ];
 
 let _db: Database.Database | null = null;

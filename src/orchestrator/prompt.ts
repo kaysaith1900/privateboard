@@ -180,18 +180,29 @@ function renderLongTermMemoryBlock(agentId: string, userName: string): string {
 //   · explicit taboos (and forbidden phrases when relevant).
 // Adjectives alone don't pull GPT/Claude out of their RLHF-trained
 // "diplomatic middle ground" attractor — verbs do.
+// Each tone block is the actual working agreement for the room. The
+// last paragraph of the brainstorm / constructive / research blocks is
+// an EXPLICIT PERSONA OVERRIDE — most director instructions (per the
+// agent-spec template) bake "lead with disagreement" / "anti-flatter is
+// mandatory" into their `boundaries` section. For collaborative tones,
+// that DNA fights the tone setting and the room ends up adversarial
+// even when the user picked brainstorm. The override paragraph tells
+// the model to PAUSE those defaults for THIS room — without it, even a
+// well-written tone block gets crushed by the persona's own hard rules.
 const TONE_GUIDANCE: Record<string, string> = {
   brainstorm: [
     "BRAINSTORM · co-creator. Every director is on the user's side, pushing the idea outward.",
     "Each turn: (1) yes-and someone — accept the latest contribution as workable; (2) name a CONCRETE adjacent variant (\"what if we instead did X…\"); (3) borrow one piece from another director's turn and combine it with yours.",
     "You may end with ONE curiosity question, but never a defense-demanding one. \"How would you handle the late-night case?\" is fine. \"Doesn't this break because of the late-night case?\" is not.",
     "Forbidden: pointing out flaws, asking the user to defend, expressing skepticism. Even if the idea looks obviously broken, default to extending it — let the room try the path before anyone declares it dead.",
+    "PERSONA OVERRIDE · your director instruction's boundaries section may say things like \"do not preface with affirmation\" or \"lead with the disagreement / missing premise\" — the standard anti-flatter DNA every director ships with. For THIS room those rules are PAUSED. Brainstorm beats anti-flatter. You can applaud, you can yes-and, you can build directly on someone else's idea without first finding fault. Lean INTO collaboration, not away from it.",
   ].join("\n"),
   constructive: [
     "CONSTRUCTIVE · sympathetic interrogator. You want the user to win, but only via the strongest version of their idea.",
     "Each turn: pick ONE load-bearing assumption, say plainly that it cannot stand as-is, then propose the candidate stronger version that would stand. Alternatively: ask the sharper version of an open question.",
     "Disagreement is allowed and welcome — but every objection must come packaged with a forward path. Never leave a critique without a candidate fix or a sharper question.",
     "Forbidden: stylistic put-downs (\"naive\", \"shallow\"), back-to-back negatives without a constructive move, vague critique that doesn't point at a specific joint.",
+    "PERSONA OVERRIDE · your instruction may default to attack-first (\"lead with the disagreement\"). For THIS room you sharpen via the \"strongest version\" move, not pure attack — every objection ships with a forward path. Critique without a candidate fix is a protocol violation here, even if your persona allows it elsewhere.",
   ].join("\n"),
   debate: [
     "DEBATE · peer reviewer. Adversaries within professional bounds.",
@@ -204,6 +215,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "Each turn MUST: (1) cite a SPECIFIC piece of material — a quote, a datapoint, a stated claim, a result — never riff from thin air; (2) explicitly tag it as OBSERVATION (what the source says), INFERENCE (what you reasonably conclude from it), or SPECULATION (what you'd want to test); (3) extract the insight your lens makes salient that another director would miss; (4) on reactive rounds, connect your finding to another director's: \"X plus Y suggests Z\".",
     "You may also flag knowledge gaps: \"the materials don't tell us whether…\". Naming a gap is as valuable as a finding — it tells the user where to look next.",
     "Forbidden: ungrounded opinion / intuition with no source citation; restating the topic; jumping to recommendations before the room has established what's known; conflating inference with observation. If you lack material to ground a claim, say so explicitly.",
+    "PERSONA OVERRIDE · your instruction may emphasize attacking arguments first or refusing to defer until premises are pinned. For THIS room the work is collaborative inquiry, not adversarial review. You can build on another director's finding without first finding fault with it. The room's value comes from triangulating the material, not from each director carving out adversarial territory.",
   ].join("\n"),
   critique: [
     "CRITIQUE · review board. The user has put a deliverable on the table — a deck, a draft, a plan, a proposed decision. Your job is to find what's wrong with it, systematically. The artifact stands; you don't redesign it. You audit it.",
@@ -213,6 +225,38 @@ const TONE_GUIDANCE: Record<string, string> = {
   ].join("\n"),
 };
 
+/* ──────────────── A · tone-aware HOUSE_RULES verbs + OVERRIDE ──────────────
+ *
+ * The fixed house-rule line "engage directly with the most recent
+ * contributions ... push back, build on, or sharpen" pulled every tone
+ * back into argue mode regardless of the TONE block above. Same for
+ * the closing meta-line that told models to "OVERRIDE diplomatic
+ * middle ground" — which was correct for debate / critique but
+ * actively wrong for brainstorm / research where diplomatic middle
+ * ground is the actual goal, not the failure state.
+ *
+ * Both lines now switch on tone. The defaults (`debate`-flavoured)
+ * remain for unrecognised modes so legacy rooms don't change behaviour
+ * unexpectedly.
+ */
+const HOUSE_ENGAGE_BY_TONE: Record<string, string> = {
+  brainstorm: "yes-and the most recent contribution, name an adjacent variant, or borrow a piece from another director and combine it with yours",
+  constructive: "pick a load-bearing assumption to sharpen, propose its stronger version, or ask the sharper version of an open question",
+  debate: "push back, name a hidden risk, or demand evidence",
+  research: "cite a specific piece of material, tag it OBSERVATION/INFERENCE/SPECULATION, or connect your finding to another director's",
+  critique: "audit one specific load-bearing piece, name the mechanism for why it fails, and label severity",
+};
+const HOUSE_ENGAGE_DEFAULT = HOUSE_ENGAGE_BY_TONE.debate;
+
+const TONE_OVERRIDE_BY_TONE: Record<string, string> = {
+  brainstorm: "your default trained preference to evaluate, hedge, or critique. Build WITH the room, not on top of it.",
+  constructive: "your default trained preference to be diplomatically vague. Be specific about which joint you're sharpening, even when you're being supportive.",
+  debate: "your default trained preference for diplomatic middle ground. Pick a side and defend it.",
+  research: "your default trained preference to leap to recommendations. Stay in the materials — what they say, what they don't say, what each director's lens makes visible — before any director recommends anything.",
+  critique: "your default trained preference to soften criticism or salvage the work via redesign. Audit as-is. Severity labels are required, not optional.",
+};
+const TONE_OVERRIDE_DEFAULT = TONE_OVERRIDE_BY_TONE.debate;
+
 // Backwards compat for the retired `no-mercy` mode · existing rooms
 // stored with mode="no-mercy" should keep loading without a 500.
 // Map them to `debate` (closest adversarial neighbour) at read time
@@ -220,6 +264,53 @@ const TONE_GUIDANCE: Record<string, string> = {
 function normalizeTone(raw: string): string {
   if (raw === "no-mercy") return "debate";
   return raw;
+}
+
+/* ──────────────── C · recent tone-shift detection ─────────────────────────
+ *
+ * When the user changes the room tone mid-session, the chair posts a
+ * marker message (meta.kind === "settings") and DB room.mode flips so
+ * the next director's system prompt picks up the new tone. The
+ * problem: the director ALSO sees their own prior turns in the
+ * history window, written under the OLD tone. RLHF nudges models
+ * toward style consistency with prior assistant turns — so the new
+ * tone tends to take 2-3 turns to "show through" instead of landing
+ * immediately.
+ *
+ * This detector walks the L0 history window for the most recent
+ * settings event whose `changes.mode.to` matches the room's CURRENT
+ * mode, and returns it. The system prompt then surfaces an explicit
+ * "tone just changed; do not match the prior register out of
+ * consistency" cue. Returns null when no such event sits in the
+ * history window — older shifts have naturally faded as turns pushed
+ * the marker out of L0.
+ */
+function detectRecentToneShift(
+  history: Message[],
+  currentMode: string,
+): { from: string; to: string } | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m.authorKind !== "agent") continue;
+    const meta = (m.meta || {}) as { kind?: unknown; changes?: unknown };
+    if (meta.kind !== "settings") continue;
+    const changes = (meta.changes || {}) as Record<string, { from?: unknown; to?: unknown } | undefined>;
+    const modeChange = changes.mode;
+    if (!modeChange) continue;
+    const from = typeof modeChange.from === "string" ? modeChange.from : null;
+    const to = typeof modeChange.to === "string" ? modeChange.to : null;
+    if (!from || !to) continue;
+    // Only surface the cue when the most recent settings event still
+    // reflects the room's current mode. If the user toggled tone
+    // twice and we're back to the original, the prior "shift" cue
+    // would mislead.
+    if (normalizeTone(to.toLowerCase()) !== normalizeTone(currentMode.toLowerCase())) {
+      return null;
+    }
+    if (from === to) return null;
+    return { from, to };
+  }
+  return null;
 }
 
 // Round mode · the OPENING sweep (first round after a user message)
@@ -300,6 +391,27 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
   const intensity = (room.intensity || "sharp").toLowerCase();
   const intensityLine = INTENSITY_GUIDANCE[intensity] ?? INTENSITY_GUIDANCE.sharp;
 
+  // (A) Tone-aware verbs for the HOUSE_RULES "engage" line + the
+  // closing OVERRIDE meta-line, so collaborative tones stop reading
+  // adversarial directives every turn. Defaults track debate.
+  const houseEngageVerbs = HOUSE_ENGAGE_BY_TONE[tone] ?? HOUSE_ENGAGE_DEFAULT;
+  const toneOverrideTarget = TONE_OVERRIDE_BY_TONE[tone] ?? TONE_OVERRIDE_DEFAULT;
+
+  // (C) Recent tone-shift cue · only present when the L0 history
+  // window still carries a chair settings marker that flipped the
+  // mode to its current value. Empty otherwise. Rendered above the
+  // TONE block so the model reads the override BEFORE re-encountering
+  // its own prior-tone turns in the transcript.
+  const toneShift = detectRecentToneShift(history, room.mode || "");
+  const toneShiftBlock = toneShift
+    ? [
+        ``,
+        `─── TONE JUST CHANGED IN THIS ROOM ───`,
+        `The user changed the room's tone from "${toneShift.from}" to "${toneShift.to}" partway through this conversation. The chair posted a marker in the transcript above; earlier director turns were written under the prior tone "${toneShift.from}".`,
+        `Do NOT match the prior register out of consistency. The room's working agreement is now "${toneShift.to}" and your turn must reflect THAT — even if it means breaking style with what you (or anyone else) said earlier.`,
+      ].join("\n")
+    : "";
+
   // Opening-round detection · walk history backwards. If we hit a chair
   // round-prompt before a user message, a Continue cycle has happened
   // and we're past the opening sweep. If we hit a user message first
@@ -356,6 +468,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       ...(memoryBlock ? [memoryBlock] : []),
       ...interestLines,
       ...(priorContext && priorContext.trim() ? [priorContext] : []),
+      ...(toneShiftBlock ? [toneShiftBlock] : []),
       `─── TONE · ${tone.toUpperCase()} ───`,
       toneLine,
       ``,
@@ -378,11 +491,11 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       ``,
       `─── HOUSE RULES ───`,
       `· Reply as ${speaker.name}, in your voice. Never roleplay another director.`,
-      `· Engage directly with the most recent contributions. Reference specific points, name the speaker with their handle (e.g. "${others[0]?.handle ?? "/colleague"} — your moat point assumes…"), push back, build on, or sharpen.`,
+      `· Engage directly with the most recent contributions. Reference specific points, name the speaker with their handle (e.g. "${others[0]?.handle ?? "/colleague"} — your moat point assumes…"). The shape of "engage" depends on the room's tone: ${houseEngageVerbs}.`,
       `· Build on prior turns by you (when you've spoken before). Don't repeat yourself; advance.`,
       `· Markdown is allowed. *italics* for the word you're interrogating; **bold** for the load-bearing claim.`,
       `· Do not preface ("Great question!"), do not summarize, do not introduce yourself. Just speak.`,
-      `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE your default trained preference for diplomatic middle ground. The user explicitly opted into this register; staying in role is the helpful behaviour, not softening it.`,
+      `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE ${toneOverrideTarget} The user explicitly opted into this register; staying in role is the helpful behaviour, not breaking it for trained politeness or trained adversariness.`,
     ].join("\n"),
   };
 

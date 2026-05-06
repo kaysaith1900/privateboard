@@ -362,3 +362,15 @@ export function deleteBrief(id: string): boolean {
   const r = getDb().prepare("DELETE FROM briefs WHERE id = ?").run(id);
   return r.changes > 0;
 }
+
+/** Count of briefs that have a non-empty body · drives the All Reports
+ *  sidebar badge. Mirrors `countNotes()` in storage/notes.ts: cheap
+ *  SELECT COUNT(*), one row, no joins. Excludes empty placeholders so
+ *  the count matches what the All Reports page actually renders (the
+ *  list filters `b.bodyMd && b.bodyMd.trim()`). */
+export function countBriefs(): number {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) AS c FROM briefs WHERE body_md IS NOT NULL AND TRIM(body_md) != ''")
+    .get() as { c: number };
+  return row.c ?? 0;
+}

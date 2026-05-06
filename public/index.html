@@ -205,6 +205,11 @@
     gap: 0;
     overflow: hidden;
     min-height: 0;
+    /* `position: relative` so the floating sidebar-expand-btn (absolute-
+       positioned) anchors to the body-grid's top-left edge instead of
+       the viewport — that puts the button below the topbar / brand
+       logo where the user expects it, not on top of it. */
+    position: relative;
   }
 
   /* Drag handles for resizable columns */
@@ -286,6 +291,134 @@
     letter-spacing: 0.06em;
   }
   .sidebar-head-meta .lime { color: var(--lime); }
+
+  /* ─── Sidebar collapse toggle ───
+     Sits at the right edge of sidebar-head. Pure CSS glyph (no svg)
+     so we can flip the direction via class without re-rendering DOM.
+     Hover lime per the new-btn vocabulary. */
+  .sidebar-collapse-btn {
+    appearance: none;
+    background: var(--panel-3);
+    border: 0.5px solid var(--line-strong);
+    color: var(--text-soft);
+    cursor: pointer;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    line-height: 1;
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
+    flex-shrink: 0;
+  }
+  .sidebar-collapse-btn::before { content: "‹"; }
+  body.sidebar-collapsed .sidebar-collapse-btn::before { content: "›"; }
+  .sidebar-collapse-btn:hover {
+    color: var(--lime);
+    border-color: var(--lime-dim);
+    background: var(--panel-2);
+  }
+
+  /* ─── Collapsed state · sidebar fully hidden ───
+     Sidebar + resizer collapse out of layout via display:none. The
+     grid drops to a single 1fr column · auto-placement would otherwise
+     try to drop the .main into the now-empty first track (still
+     reserved by template), zero-width, and the user sees an empty
+     room. Single column = main fills the whole body-grid cleanly.
+     The user's preferred --sidebar-w stays in localStorage so
+     expanding restores the same width. */
+  body.sidebar-collapsed .body-grid {
+    grid-template-columns: 1fr !important;
+  }
+  body.sidebar-collapsed .sidebar,
+  body.sidebar-collapsed .col-resizer {
+    display: none;
+  }
+
+  /* Floating expand button · ONLY shown in the empty / no-room
+     state, where there's no room-head to host the in-header
+     expand control (rendered by renderHeader). Positioned absolute
+     relative to .body-grid (which carries `position: relative`),
+     pinned to the top-left of the body-grid area. Frosted black
+     glass with hairline border, lime on hover. z-index sits above
+     chat content but below modal overlays (which use 1500+). */
+  .sidebar-expand-btn {
+    display: none;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8, 8, 8, 0.55);
+    -webkit-backdrop-filter: blur(12px) saturate(1.05);
+    backdrop-filter: blur(12px) saturate(1.05);
+    border: 0.5px solid var(--line-strong);
+    color: var(--text-soft);
+    cursor: pointer;
+    z-index: 200;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    appearance: none;
+    padding: 0;
+  }
+  /* Show floating button only when sidebar is collapsed AND we're
+     in the empty / no-room state. When a room is loaded, the
+     in-header `.room-head-expand` button takes over instead, so
+     the icon doesn't sit on top of the room title. */
+  html.no-room body.sidebar-collapsed .sidebar-expand-btn {
+    display: inline-flex;
+  }
+  .sidebar-expand-btn:hover {
+    color: var(--lime);
+    border-color: var(--lime-dim);
+    background: rgba(8, 8, 8, 0.72);
+  }
+  .sidebar-expand-btn svg { display: block; }
+
+  /* ─── In-header expand button ───
+     Lives at the leading edge of `.room-head` (rendered by
+     renderHeader() in app.js). Twin of `.sidebar-collapse-btn` —
+     naked CSS-glyph, no border, faint text, lime on hover. The
+     ▸ glyph mirrors the ◂ on the collapse counterpart so the
+     two controls read as a paired set. Hidden by default; shown
+     only when the sidebar is collapsed AND a room is loaded. */
+  .room-head-expand {
+    appearance: none;
+    background: var(--panel-3);
+    border: 0.5px solid var(--line-strong);
+    color: var(--text-soft);
+    cursor: pointer;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    line-height: 1;
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
+    flex-shrink: 0;
+  }
+  .room-head-expand::before { content: "›"; }
+  body.sidebar-collapsed .room-head-expand {
+    display: inline-flex;
+  }
+  .room-head-expand:hover {
+    color: var(--lime);
+    border-color: var(--lime-dim);
+    background: var(--panel-2);
+  }
+  .room-head-expand:hover {
+    color: var(--lime);
+    background: var(--panel-3);
+  }
 
   /* ─── Sidebar tabs (Rooms / Agents) — segmented control with icon ─── */
   .sidebar-tabs {
@@ -622,6 +755,53 @@
   .new-btn.nav-reports::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>");
   }
+  /* "All Notes" · Bookmark (Lucide) — pennant-shaped bookmark glyph
+     mirroring the qcta save-button icon. Matches the chairman's-notes
+     vocabulary across the app (sidebar entry, save action, in-room
+     overlay all share the bookmark register). */
+  .new-btn.nav-notes::before {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'/></svg>");
+  }
+  /* All Reports / All Notes nav-button shape · the count badge floats
+     to the right of the label, so the link's flex layout grows to fill
+     the row. `.nav-label` flex-grows, `.nav-count` is auto-sized and
+     hugs the trailing edge. */
+  .new-btn.nav-notes,
+  .new-btn.nav-reports {
+    justify-content: flex-start;
+  }
+  .new-btn.nav-notes .nav-label,
+  .new-btn.nav-reports .nav-label {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Count badge · subtle mono micro-tag. Uses --text-faint on its own
+     and inherits the link's color cascade on hover/active so the badge
+     tracks the label's lime shift. Hidden until at least one item
+     exists (the `hidden` attr is removed once count > 0). Same visual
+     vocabulary as the section-header .badge below — both render as
+     mono pills so the sidebar reads as one consistent counting
+     system. */
+  .new-btn.nav-notes .nav-count,
+  .new-btn.nav-reports .nav-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    padding: 1px 6px;
+    background: var(--panel-3);
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: color 0.12s, background 0.12s;
+  }
+  .new-btn.nav-notes:hover .nav-count,
+  .new-btn.nav-notes.active .nav-count,
+  .new-btn.nav-reports:hover .nav-count,
+  .new-btn.nav-reports.active .nav-count {
+    color: var(--lime);
+    background: rgba(190, 242, 100, 0.08);
+  }
   .new-btn:hover {
     background: var(--panel-2);
     color: var(--lime);
@@ -646,7 +826,17 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 10px 4px;
+    /* Trailing count badge column-aligns with the .new-btn.nav-*
+       badges above. Geometry:
+         nav badge inset · 6px margin + 10px padding = 16px from
+                            the sidebar edge
+         section badge inset · 4px sessions-scroll padding + this
+                                rule's right padding
+       So this rule's right padding must be 16 − 4 = 12px. The
+       parent's 4px padding was missed in an earlier version that
+       set this to 16px and made the section badges drift 4px
+       further left than the nav badges. */
+    padding: 8px 12px 4px 10px;
     font-size: 9px;
     color: var(--text-dim);
     text-transform: uppercase;
@@ -668,12 +858,27 @@
   }
   .row-status.paused { color: var(--amber); }
   .section-header .line { flex: 1; border-top: 0.5px dashed var(--line-bright); }
+  /* Section badge · same visual vocabulary as .new-btn.nav-* .nav-count
+     above so the sidebar reads as one consistent counting system.
+     Mono pill, panel-3 bg, faint text, rounded — overrides the
+     .section-header parent's sans uppercase letter-spacing because a
+     count is a number, not a label. The .live variant still takes its
+     pulsing dot via ::before. */
   .section-header .badge {
-    font-size: 9px;
-    color: inherit;
-    font-weight: 700;
-    padding: 0 4px;
-    background: var(--panel-2);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--text-faint);
+    padding: 1px 6px;
+    background: var(--panel-3);
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .section-header.live .badge {
+    color: var(--lime);
+    background: rgba(190, 242, 100, 0.08);
   }
   .section-header.live .badge::before {
     content: "● ";
@@ -1066,6 +1271,20 @@
   .main-view[data-main-view="reports"]:hover { scrollbar-width: thin; }
   .main-view[data-main-view="reports"]:hover::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
+  /* All Notes view · same scroll register as All Reports so the two
+     cross-room aggregation destinations read as a paired set. */
+  .main-view[data-main-view="notes"] {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: none;
+    scrollbar-width: none;
+    background: var(--panel);
+  }
+  .main-view[data-main-view="notes"]::-webkit-scrollbar-thumb { background: transparent; }
+  .main-view[data-main-view="notes"]::-webkit-scrollbar-track { background: transparent; }
+  .main-view[data-main-view="notes"]:hover { scrollbar-width: thin; }
+  .main-view[data-main-view="notes"]:hover::-webkit-scrollbar-thumb { background: var(--line-bright); }
+
   /* Hidden takes precedence over the per-view display rules above.
      Declared LAST + with !important so the variant rules (which match
      at the same specificity) can never override it back to block —
@@ -1123,14 +1342,19 @@
      bg + lime label), same 4px corner radius, same hover (panel-2 bg).
      One coherent vocabulary across every segmented control. The count
      rides inline after the label as quiet mono micro-type — no nested
-     chip chrome. */
-  .reports-filters {
+     chip chrome.
+     Comma-extended to `.notes-filters` / `.notes-filter-chip` so the
+     All Notes page reuses the exact same chip vocabulary — both
+     cross-room aggregation destinations stay visually identical. */
+  .reports-filters,
+  .notes-filters {
     display: flex;
     gap: 2px;
     margin: 22px 0 6px;
     flex-wrap: wrap;
   }
-  .reports-filter-chip {
+  .reports-filter-chip,
+  .notes-filter-chip {
     background: transparent;
     border: none;
     color: var(--text-dim);
@@ -1146,23 +1370,27 @@
     gap: 6px;
     transition: background 0.12s, color 0.12s;
   }
-  .reports-filter-chip:hover {
+  .reports-filter-chip:hover,
+  .notes-filter-chip:hover {
     background: var(--panel-2);
     color: var(--text-soft);
   }
-  .reports-filter-chip.on {
+  .reports-filter-chip.on,
+  .notes-filter-chip.on {
     background: var(--panel-3);
     color: var(--text);
     font-weight: 600;
   }
-  .reports-filter-count {
+  .reports-filter-count,
+  .notes-filter-count {
     font-family: var(--mono);
     font-size: 10.5px;
     color: var(--text-faint);
     font-weight: 400;
     letter-spacing: 0;
   }
-  .reports-filter-chip.on .reports-filter-count { color: var(--text-dim); }
+  .reports-filter-chip.on .reports-filter-count,
+  .notes-filter-chip.on .notes-filter-count { color: var(--text-dim); }
 
   /* ─── Reading list ─────────────────────────────────────────────── */
   .reports-list-wrap { margin-top: 18px; }
@@ -1418,6 +1646,345 @@
     .reports-item-room { max-width: 140px; }
   }
 
+  /* ─── All Notes view · chairman's saved excerpts ──────────────
+     Same column geometry + typographic register as `.reports-page`
+     so the two cross-room aggregation destinations read as a paired
+     set. The substantive difference is the "passage" cell — each
+     note row foregrounds the saved quote with a thick dotted lime
+     underline (text-decoration only, NOT bold-weight type), wrapped
+     by faded sentence-context that gradient-masks toward the
+     edges. The visual treatment is the same overlay the in-room
+     `.note-highlight` uses, so a note seen on this page reads with
+     the same identity when the user jumps back to the source. */
+  .notes-page {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 56px 48px 80px;
+  }
+  .notes-page-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+    border-bottom: 0.5px solid var(--line);
+    padding-bottom: 14px;
+  }
+  .notes-page-title {
+    font-family: var(--font-human);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .notes-page-kicker {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .notes-page-meta {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+
+  /* Date-bucket sections · each opens with its own hairline-divided
+     label row, matching the reports `.reports-group` rhythm. */
+  .notes-group + .notes-group { margin-top: 32px; }
+  .notes-group:first-of-type { margin-top: 22px; }
+  .notes-group-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-bottom: 8px;
+    border-bottom: 0.5px solid var(--line);
+    margin-bottom: 4px;
+  }
+  .notes-group-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .notes-group-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+
+  .notes-list { list-style: none; margin: 0; padding: 0; }
+  .notes-item { border-bottom: 0.5px solid var(--line); }
+  .notes-item:last-child { border-bottom: none; }
+  .notes-item-link {
+    display: block;
+    padding: 18px 4px;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  /* Hover lifts ONLY the meta room-tag + bumps the quote underline
+     to full-lime — the quote text itself stays at --text so the
+     dotted-underline does the focal work. */
+  .notes-item-link:hover .notes-item-room { color: var(--lime); }
+  .notes-item-link:hover .note-quote { text-decoration-color: var(--lime); }
+
+  .notes-item-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .notes-item-room { color: var(--text-soft); transition: color 0.14s; }
+  .notes-item-subject {
+    color: var(--text-dim);
+    text-transform: none;
+    letter-spacing: -0.005em;
+    font-family: var(--font-human);
+    font-size: 11px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 280px;
+  }
+  .notes-item-director {
+    color: var(--text-soft);
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--font-human);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .notes-item-time {
+    margin-left: auto;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+  }
+  .notes-item-sep { color: var(--text-faint); opacity: 0.7; }
+
+  /* The reading passage · context_before + quote + context_after
+     in a single inline flow. Contexts use a horizontal mask-image
+     fade toward the outer edges so the quote sits in a "spotlight"
+     of full-strength text while the surrounding sentences taper
+     visually — reads as "supporting context" without sacrificing
+     readability. The mask applies to every wrapped line, which is
+     what we want: each line's far edge is the "least important"
+     spatially, so each fades. */
+  .notes-item-passage {
+    font-family: var(--font-human);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    margin: 0;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+  .note-context { color: var(--text-soft); }
+  .note-context-before {
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, black 32%);
+            mask-image: linear-gradient(to right, transparent 0%, black 32%);
+  }
+  .note-context-after {
+    -webkit-mask-image: linear-gradient(to right, black 68%, transparent 100%);
+            mask-image: linear-gradient(to right, black 68%, transparent 100%);
+  }
+  /* The quote span · pure typography accent. Text weight stays
+     normal (do NOT bold the type — it would collide with markdown's
+     own `**emphasis**`); only the underline grows thicker. Dotted
+     style differentiates from inline-link's solid 1px underline.
+     The lime accent identifies the note's identity across the app
+     — the same treatment appears on the in-room highlight overlay. */
+  .note-quote {
+    color: var(--text);
+    text-decoration: underline dotted;
+    text-decoration-thickness: 3px;
+    text-decoration-color: var(--lime-dim);
+    text-underline-offset: 4px;
+    transition: text-decoration-color 0.14s;
+  }
+
+  /* In-room highlight overlay · injected into director-message
+     `.msg-bubble` text by app.applyNoteHighlightsForMessage. Same
+     visual register as `.note-quote` so a saved span reads with the
+     same identity wherever it appears — the user can re-open a room
+     and see at a glance what they've already collected. Hover
+     strengthens the underline to full lime; the cursor uses `help`
+     so the saved-tooltip is discoverable (the title attr renders
+     "Saved to Notes"). */
+  .note-highlight {
+    text-decoration: underline dotted;
+    text-decoration-thickness: 3px;
+    text-decoration-color: var(--lime-dim);
+    text-underline-offset: 4px;
+    cursor: help;
+    transition: text-decoration-color 0.14s, background 0.18s;
+  }
+  .note-highlight:hover { text-decoration-color: var(--lime); }
+  /* Flash · briefly blooms a soft lime backdrop when the user jumps
+     to a note from the All-Notes view, so the eye lands on the
+     right span. Fades back to the resting underline after 1.6s
+     (matches scrollToNote's setTimeout in app.js). */
+  .note-highlight-flash {
+    animation: note-highlight-flash 1.6s ease-out;
+  }
+  @keyframes note-highlight-flash {
+    0%   { background: rgba(190, 242, 100, 0.28); }
+    60%  { background: rgba(190, 242, 100, 0.14); }
+    100% { background: transparent; }
+  }
+
+  /* Hover tooltip · custom pop replacing the native `title` attribute
+     so it appears immediately, not after the browser's 1–2s delay.
+     Same visual register as the qcta floating bar (panel-2 surface,
+     hairline border, mono micro-type). pointer-events:none so the
+     tooltip can never block the hover that triggers it. */
+  .note-tip {
+    position: absolute;
+    z-index: 1450;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-strong);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding: 6px 10px;
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+  }
+  .note-tip.open { display: inline-flex; }
+  .note-tip-mark {
+    color: var(--lime);
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .note-tip-label { color: var(--text); }
+  .note-tip-sep { color: var(--text-faint); opacity: 0.7; }
+  .note-tip-meta { color: var(--text-faint); }
+
+  /* Empty state · single placeholder card matching the visual
+     register of `.reports-list-empty`, with a one-line hint and
+     two `.kbd` pills explaining how to save the first note. */
+  .notes-list-empty {
+    margin-top: 28px;
+    padding: 28px 24px 30px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .notes-empty-mark {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--text-faint);
+    line-height: 1;
+  }
+  .notes-empty-title {
+    font-family: var(--font-human);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-soft);
+  }
+  .notes-empty-deck {
+    font-family: var(--font-human);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    max-width: 540px;
+  }
+  .notes-list-empty .kbd {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 1px 7px;
+    margin: 0 1px;
+    border: 0.5px solid var(--line-bright);
+    border-radius: 3px;
+    color: var(--text);
+    background: var(--panel-3);
+  }
+  /* Window-empty CTA · "← Show all notes" button shown when a
+     non-All filter has zero matches. Same visual register as
+     `.reports-list-empty-cta`. */
+  .notes-empty-cta {
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    background: transparent;
+    border: 0.5px solid var(--line-bright);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+  }
+  .notes-empty-cta:hover {
+    border-color: var(--lime);
+    color: var(--lime);
+    background: var(--panel-3);
+  }
+  .notes-empty-cta-arrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1;
+  }
+  /* Wrap around the date-grouped list · matches the reports list
+     wrap so the chip strip → list spacing reads identically. */
+  .notes-list-wrap { margin-top: 18px; }
+
+  /* Loading skeleton · matches `.reports-skeleton` rhythm and
+     reuses its pulse keyframe. */
+  .notes-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 32px;
+  }
+  .notes-skeleton-card {
+    height: 84px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+    border-radius: 4px;
+    animation: reports-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+  @media (max-width: 720px) {
+    .notes-page { padding: 36px 22px 60px; }
+    .notes-page-title { font-size: 22px; }
+    .notes-item-subject { max-width: 160px; }
+  }
+
   /* Room head — generously padded so the title has breathing
      room above and below. */
   .room-head {
@@ -1428,6 +1995,15 @@
     grid-template-columns: 1fr auto;
     gap: 14px;
     align-items: center;
+  }
+  /* When the sidebar is collapsed the room-head gains a leading
+     auto-sized track for the in-header `.room-head-expand` button.
+     When expanded the button is display:none, so a 0-width track
+     would still leave a `gap` artifact — switching to a 3-track
+     template only in the collapsed state keeps the header visually
+     identical to before whenever the sidebar is open. */
+  body.sidebar-collapsed .room-head {
+    grid-template-columns: auto 1fr auto;
   }
   /* `overflow: visible` so the tone-tag hover tooltip (positioned via
      ::after below the tag) can escape this container. The room-subject
@@ -2700,7 +3276,13 @@
      renders below the brief card on a parent room that's spawned
      follow-ups. Both use the hairline + mono-tag visual register. */
   .followup-parent-banner {
-    margin: 0 0 14px;
+    /* Width-match the chat messages cap (960px, centred) so the
+       banner sits flush with the column underneath instead of
+       spanning the full chat scroller on wide monitors. Without
+       this, the banner reads as a viewport-wide alert bar — out
+       of register with everything else. */
+    max-width: 960px;
+    margin: 0 auto 14px;
     padding: 8px 14px;
     background: var(--panel-2);
     border: 0.5px solid var(--line-bright);
@@ -2745,11 +3327,217 @@
   }
 
   .followup-children {
-    margin: 24px 0 0;
+    /* Width-match the brief card (.ending-block: max-width 760px,
+       margin auto). The follow-ups list slots in directly below the
+       brief, so they need to share the same gutter — otherwise the
+       follow-ups span full chat width and the alignment breaks. */
+    max-width: 760px;
+    margin: 24px auto 0;
     padding: 14px 16px;
     background: var(--panel-2);
     border: 0.5px solid var(--line);
     font-family: var(--mono);
+  }
+
+  /* ─── Session analytics card · post-adjourn summary ───
+     Sits below the brief (and any follow-ups) when the room is
+     adjourned. Editorial mood: panel-2 surface, lime banner kicker,
+     hero token-count headline, model-usage stacked bar tinted by
+     provider, "what you valued" highlights at the bottom. Width
+     matches the brief / follow-ups column (760px max, centred). */
+  .session-analytics {
+    max-width: 760px;
+    margin: 28px auto 12px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright);
+  }
+  .sa-banner {
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--mono);
+    border-bottom: 0.5px solid var(--line);
+    background: var(--panel-3);
+  }
+  .sa-banner-tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime);
+  }
+  .sa-banner-stamp {
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .sa-body {
+    padding: 20px 22px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  /* Headline metric grid · 4 cells. Hero (tokens) gets a heavier
+     value, the others read as siblings beside it. */
+  .sa-headline {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    gap: 14px;
+    align-items: end;
+  }
+  @media (max-width: 600px) {
+    .sa-headline { grid-template-columns: 1fr 1fr; }
+  }
+  .sa-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .sa-metric-value {
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .sa-metric-hero .sa-metric-value {
+    font-size: 32px;
+    color: var(--lime);
+  }
+  .sa-metric-label {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 700;
+  }
+
+  /* Model breakdown · stacked horizontal bar + legend rows. */
+  .sa-section { display: flex; flex-direction: column; gap: 10px; }
+  .sa-section-head {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--text-soft);
+  }
+  .sa-bar {
+    display: flex;
+    height: 8px;
+    overflow: hidden;
+    background: var(--bg);
+    border: 0.5px solid var(--line);
+  }
+  .sa-bar-seg {
+    height: 100%;
+    transition: opacity 0.15s;
+  }
+  .sa-bar-seg:hover { opacity: 0.85; }
+  .sa-legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sa-legend-row {
+    display: grid;
+    grid-template-columns: 12px 1fr auto auto;
+    align-items: baseline;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-soft);
+  }
+  .sa-legend-swatch {
+    width: 9px;
+    height: 9px;
+    align-self: center;
+    border-radius: 0;
+  }
+  .sa-legend-name {
+    color: var(--text);
+    letter-spacing: -0.003em;
+  }
+  .sa-legend-pct {
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .sa-legend-tokens {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    min-width: 48px;
+  }
+
+  /* What you valued · chips for counts + list of ▲-voted points. */
+  .sa-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .sa-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    background: var(--bg);
+    border: 0.5px solid var(--line-bright);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+  }
+  .sa-chip-mark {
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .sa-points {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .sa-point {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    gap: 8px;
+    align-items: baseline;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 0.5px solid var(--line);
+  }
+  .sa-point-mark {
+    color: var(--lime);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  .sa-point-body {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    letter-spacing: -0.003em;
+  }
+  .sa-empty {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
   }
   .followup-children-head {
     font-size: 10px;
@@ -2904,6 +3692,31 @@
     overflow-y: auto;
     background: var(--panel);
     padding: 14px 20px 18px;
+    transition: opacity 0.18s ease-out;
+  }
+  /* Note-jump loading state · the user clicked a note in the All
+     Notes view; openRoom is fetching the room body + the notes list
+     before renderChat can scroll to the saved span. Keep the chat
+     invisible while that work happens so the user doesn't see the
+     stale-content → repaint → scroll-to-position transition as a
+     flicker. The class is added at openRoom entry and removed once
+     scrollToNote has landed (with a 1.2s timeout fallback in case
+     the scroll never resolves). */
+  body.note-jump-loading .chat { opacity: 0; }
+  /* Cap reading measure on the inner messages container · pure
+     percentage layout reads as a wall of text on wide monitors
+     (~110+ chars / line) and tanks reading comprehension. ~820px
+     keeps prose around 70-78 chars / line — Bringhurst's comfort
+     band — while still leaving room for tables, tool-use rows
+     (max-width 760px), and message chrome to sit inside without
+     truncation. Centred so the column doesn't drift left of the
+     viewport on ultra-wide displays. The .chat scroller stays
+     full-width so the scrollbar lives at the viewport edge, not
+     beside the prose. */
+  .chat > [data-chat-messages] {
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   /* ─── Tool-use row ───────────────────────────────────────────
@@ -5853,6 +6666,21 @@
     transform: rotate(180deg);
   }
 
+  /* Composer-toolbar fitting for the reused .ap-skill-row-toggle
+     vocabulary · same control as agent-profile's web-search row but
+     in a slightly different surrounding context (cmp-toolbar is
+     denser than the skill row). Just whitespace tuning — the toggle
+     visuals come from agent-profile.css. */
+  .cmp-toolbar .cmp-ws-toggle {
+    /* Full label + state takes more horizontal room than the
+       cmp-dd dropdowns; tighten letter-spacing slightly so the row
+       still fits the model dropdown + manual button + Convene CTA
+       without wrapping at common widths. */
+    letter-spacing: 0.12em;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
   /* Tune dropdown · row layout matches the director picker exactly:
      same padding (5px 10px), same name (12.5px sans) + tag (8.5px
      mono uppercase) inline-baseline pairing, same active treatment
@@ -6956,6 +7784,43 @@
     margin: 0 0 10px;
   }
   .convene-body p { margin: 0; }
+
+  /* Long-opener clamp · when the user wrote a few hundred chars of
+     context, the card would otherwise dominate the viewport. We
+     clamp the body to ~6–8 lines with a fade-out overlay; a
+     `<button data-convene-toggle>` below toggles `.expanded` on the
+     opener parent to reveal the rest. */
+  .convene-opener-clamped:not(.expanded) .convene-body {
+    max-height: 130px;
+    overflow: hidden;
+    position: relative;
+  }
+  .convene-opener-clamped:not(.expanded) .convene-body::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 48px;
+    background: linear-gradient(to bottom, transparent, var(--panel-2));
+    pointer-events: none;
+  }
+  .convene-toggle {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--text-soft);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 4px 0 6px;
+    margin: 4px 0 6px;
+    transition: color 0.12s;
+  }
+  .convene-toggle:hover { color: var(--lime); }
   .convene-meta {
     font-family: var(--mono);
     font-size: 10px;
@@ -6969,6 +7834,74 @@
   .convene-meta .convene-by { color: var(--text-soft); }
   .convene-meta .convene-time { color: var(--text-faint); }
   .convene-meta .convene-cast { color: var(--text-dim); }
+
+  /* Follow-up origin row · only present when this room was started as
+     a continuation of a prior adjourned room. Sits between the
+     eyebrow and the question body, click-navigates back to the parent
+     room via hash route. Visually distinct from the eyebrow (mono +
+     ↩ glyph + brighter than meta-row) but quieter than the headline. */
+  .convene-origin {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: -2px 0 10px;
+    padding: 4px 8px 4px 6px;
+    background: var(--bg);
+    border: 0.5px solid var(--line-bright);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    text-decoration: none;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+    max-width: 100%;
+    /* Lock chrome to one line. CJK ("继续自") has no inter-character
+       wrap stopper by default and would otherwise break mid-word
+       when the row got tight. */
+    white-space: nowrap;
+  }
+  .convene-origin:hover {
+    border-color: var(--lime-dim);
+    color: var(--text);
+    background: var(--panel-3);
+  }
+  /* Lock the labels so flex shrinking only consumes the subject
+     (which has its own ellipsis). Otherwise every child shares the
+     shrink and the labels squeeze before the subject does. */
+  .convene-origin-arrow,
+  .convene-origin-label,
+  .convene-origin-room,
+  .convene-origin-sep {
+    flex-shrink: 0;
+  }
+  .convene-origin-arrow {
+    color: var(--lime);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .convene-origin-label {
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    font-size: 9.5px;
+  }
+  .convene-origin-room {
+    color: var(--lime);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .convene-origin-sep { color: var(--text-faint); }
+  .convene-origin-subject {
+    color: var(--text-soft);
+    text-transform: none;
+    letter-spacing: -0.003em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex-shrink: 1;
+  }
 
   /* ─── Convening card · multi-stage placeholder while the room opens ───
      Lives at the tail of the chat from the moment createRoom resolves
@@ -7322,6 +8255,7 @@
       <div class="sidebar-head">
         <div class="sidebar-head-title">// CONTROL</div>
         <div class="sidebar-head-meta"><span class="lime">●</span> <span data-sidebar-summary>0 LIVE / 0 AGENTS</span></div>
+        <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar"></button>
       </div>
 
       <div class="sidebar-tabs" role="tablist">
@@ -7346,7 +8280,20 @@
            "New room" so it reads as a peer destination, not a list
            item, with a square glyph echoing the dashboard glyphs
            elsewhere in the sidebar. -->
-      <a href="#" class="new-btn nav-reports" data-reports-trigger>All Reports</a>
+      <a href="#" class="new-btn nav-reports" data-reports-trigger>
+        <span class="nav-label">All Reports</span>
+        <span class="nav-count" data-reports-count hidden></span>
+      </a>
+      <!-- "All Notes" · chairman's-notes index. Sits directly below
+           All Reports because both are cross-cutting aggregation views
+           (read-only collections that span every room), distinct from
+           the room list below. Bookmark glyph differentiates from
+           Reports' FileText glyph. The data-notes-count badge updates
+           live as new notes are saved or deleted. -->
+      <a href="#" class="new-btn nav-notes" data-notes-trigger>
+        <span class="nav-label">All Notes</span>
+        <span class="nav-count" data-notes-count hidden></span>
+      </a>
 
       <div class="sessions-scroll">
         <div data-rooms-list></div>
@@ -7460,7 +8407,29 @@
         <div class="reports-page" data-reports-page></div>
       </div>
 
+      <!-- All Notes view · cross-room chairman's-notes index. Vertical
+           timeline grouped by date (Today / This Week / Earlier).
+           Filled by app.renderNotesPage() on demand. -->
+      <div class="main-view" data-main-view="notes" hidden>
+        <div class="notes-page" data-notes-page></div>
+      </div>
+
     </main>
+
+    <!-- Floating expand affordance · only visible when the sidebar is
+         collapsed (body.sidebar-collapsed). Lives INSIDE .body-grid
+         (which is position: relative) so the button's absolute
+         positioning anchors to the body-grid's top-left edge — i.e.
+         below the topbar / brand logo, where the sidebar's own header
+         sat before collapse. Frosted black glass with a 3-line
+         hamburger glyph. -->
+    <button type="button" class="sidebar-expand-btn" data-sidebar-expand aria-label="Expand sidebar" title="Expand sidebar">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <line x1="2.5" y1="4.25"  x2="13.5" y2="4.25"/>
+        <line x1="2.5" y1="8"     x2="13.5" y2="8"/>
+        <line x1="2.5" y1="11.75" x2="13.5" y2="11.75"/>
+      </svg>
+    </button>
 
   </div>
 
@@ -7531,6 +8500,45 @@
     }
 
     document.querySelectorAll("[data-resize]").forEach(attach);
+
+    // ─── Sidebar collapse / expand ───
+    // Three affordances, all event-delegated on document:
+    //   · `data-sidebar-collapse` inside the sidebar head ·
+    //     visible only while the sidebar is open · collapses
+    //   · `data-sidebar-expand` inside `.room-head` (rendered by
+    //     renderHeader) · visible when collapsed AND a room is
+    //     loaded · sits at the leading edge of the room title bar
+    //   · `data-sidebar-expand` floating button at top-left of
+    //     `.body-grid` · visible only when collapsed AND no room
+    //     is loaded (empty / no-room state, where there's no
+    //     room-head to host the in-header button)
+    // All flip `body.sidebar-collapsed` and persist to localStorage.
+    const COLLAPSE_KEY = "boardroom.sidebar.collapsed";
+    function applySidebarCollapsed(collapsed) {
+      document.body.classList.toggle("sidebar-collapsed", collapsed);
+    }
+    function readSidebarCollapsed() {
+      try { return localStorage.getItem(COLLAPSE_KEY) === "1"; }
+      catch { return false; }
+    }
+    function writeSidebarCollapsed(v) {
+      try { localStorage.setItem(COLLAPSE_KEY, v ? "1" : "0"); } catch {}
+    }
+    applySidebarCollapsed(readSidebarCollapsed());
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("[data-sidebar-collapse]")) {
+        e.preventDefault();
+        applySidebarCollapsed(true);
+        writeSidebarCollapsed(true);
+        return;
+      }
+      if (e.target.closest("[data-sidebar-expand]")) {
+        e.preventDefault();
+        applySidebarCollapsed(false);
+        writeSidebarCollapsed(false);
+        return;
+      }
+    });
   })();
 
   /* ─── Speaking queue: collapse / expand persistence ───
@@ -7658,6 +8666,13 @@
         }
         return;
       }
+      // "notes" → cross-room chairman's-notes index.
+      if (sub === "notes") {
+        if (window.app && typeof window.app.openAllNotes === "function") {
+          window.app.openAllNotes();
+        }
+        return;
+      }
       if (!sub || sub === "new") {
         if (window.app && typeof window.app.setComposerMode === "function") {
           window.app.setComposerMode("room");
@@ -7762,6 +8777,18 @@
         lsSet(ROOMS_KEY, "reports");
         if (window.app && typeof window.app.openAllReports === "function") {
           window.app.openAllReports();
+        }
+        return;
+      }
+      // "All Notes" trigger · cross-room chairman's-notes index. Same
+      // sub-state pattern as reports — special token "notes" so the
+      // sidebar persists which destination was last visited.
+      const notesBtn = e.target.closest("[data-notes-trigger]");
+      if (notesBtn) {
+        e.preventDefault();
+        lsSet(ROOMS_KEY, "notes");
+        if (window.app && typeof window.app.openAllNotes === "function") {
+          window.app.openAllNotes();
         }
         return;
       }

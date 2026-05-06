@@ -1171,6 +1171,18 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
       // agent profile under "Track Record · Tokens"). Charged in full
       // even on error / partial responses — those still cost upstream.
       incrementAgentTokens(speaker.id, chunk.totalTokens);
+      // Persist usage on the message's own meta so per-room aggregations
+      // (session-analytics card after adjourn) can sum across messages
+      // without needing a per-room ledger. Mutating placeholderMeta is
+      // safe because the streaming loop spreads it into every subsequent
+      // updateMessageBody call · the final write at the end of the
+      // function carries this through.
+      placeholderMeta.tokens = {
+        prompt: chunk.promptTokens,
+        completion: chunk.completionTokens,
+        total: chunk.totalTokens,
+      };
+      placeholderMeta.modelV = speaker.modelV;
       rlog(roomId, "speaker-usage", {
         agent: speaker.name,
         modelV: speaker.modelV,

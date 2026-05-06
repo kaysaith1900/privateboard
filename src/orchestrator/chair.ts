@@ -645,8 +645,19 @@ async function streamChairMessage(args: DispatchArgs & {
         });
       } else if (chunk.type === "usage") {
         // Chair turns are short but still bill tokens; track on the
-        // chair agent so its profile reflects total spend.
+        // chair agent so its profile reflects total spend, AND persist
+        // on the message meta so the post-adjourn session-analytics
+        // card can sum tokens across every speaker (chair + directors)
+        // without a separate per-room ledger. Mutates the local `meta`
+        // object so the next streaming updateMessageBody and the final
+        // write at the bottom of this function spread it through.
         incrementAgentTokens(chair.id, chunk.totalTokens);
+        (meta as Record<string, unknown>).tokens = {
+          prompt: chunk.promptTokens,
+          completion: chunk.completionTokens,
+          total: chunk.totalTokens,
+        };
+        (meta as Record<string, unknown>).modelV = chair.modelV;
       } else if (chunk.type === "error") {
         errored = true;
         errorMessage = chunk.message || errorMessage;
@@ -1387,7 +1398,9 @@ export function announceMemberChange(
 /**
  * Announce a settings change in chat as a chair message. Template-driven
  * (no LLM call) so it's instant and free; the chair persona keeps the
- * voice consistent with their other turns.
+ * voice consistent with their other turns. Output language follows the
+ * room subject: CJK characters → Chinese marker, otherwise English.
+ * Hardcoded English used to read out-of-character in CN rooms.
  */
 export function announceSettingsChange(
   roomId: string,
@@ -1396,19 +1409,28 @@ export function announceSettingsChange(
   const chair = getChairAgent();
   if (!chair) return;
 
+  const room = getRoom(roomId);
+  const isZh = !!(room && room.subject && /[一-鿿]/.test(room.subject));
+
   const lines: string[] = [];
   if (changes.mode) {
-    lines.push(`Tone: ${String(changes.mode.from)} → **${String(changes.mode.to)}**.`);
+    lines.push(isZh
+      ? `语气：${String(changes.mode.from)} → **${String(changes.mode.to)}**。`
+      : `Tone: ${String(changes.mode.from)} → **${String(changes.mode.to)}**.`);
   }
   if (changes.intensity) {
-    lines.push(`Intensity: ${String(changes.intensity.from)} → **${String(changes.intensity.to)}**.`);
+    lines.push(isZh
+      ? `强度:${String(changes.intensity.from)} → **${String(changes.intensity.to)}**。`
+      : `Intensity: ${String(changes.intensity.from)} → **${String(changes.intensity.to)}**.`);
   }
   if (changes.briefStyle) {
-    lines.push(`Report style: ${String(changes.briefStyle.from)} → **${String(changes.briefStyle.to)}**.`);
+    lines.push(isZh
+      ? `报告风格:${String(changes.briefStyle.from)} → **${String(changes.briefStyle.to)}**。`
+      : `Report style: ${String(changes.briefStyle.from)} → **${String(changes.briefStyle.to)}**.`);
   }
   if (lines.length === 0) return;
 
-  const body = lines.join(" ") + " Continuing.";
+  const body = lines.join(" ") + (isZh ? " 继续。" : " Continuing.");
   const m = insertMessage({
     roomId,
     authorKind: "agent",

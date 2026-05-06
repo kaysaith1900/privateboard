@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 
 import { getBriefGenerationState, isBriefGenerating } from "../orchestrator/brief.js";
-import { deleteBrief, getBrief, listAllBriefs } from "../storage/briefs.js";
+import { countBriefs, deleteBrief, getBrief, listAllBriefs } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 
 export function briefsRouter(): Hono {
@@ -31,6 +31,13 @@ export function briefsRouter(): Hono {
   r.get("/", (c) => {
     const briefs = listAllBriefs().filter((b) => !isBriefGenerating(b.id) && b.bodyMd && b.bodyMd.trim());
     return c.json({ briefs });
+  });
+
+  // Cheap count for the All Reports sidebar badge · mirrors
+  // /api/notes/count. Counts briefs with non-empty body so the badge
+  // matches what /api/briefs actually renders.
+  r.get("/count", (c) => {
+    return c.json({ total: countBriefs() });
   });
 
   r.get("/:id", (c) => {

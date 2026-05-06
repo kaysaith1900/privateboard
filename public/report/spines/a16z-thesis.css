@@ -1085,3 +1085,9 @@ html, body {
 .body .metric-trend[data-trend="down"] { color: var(--oxblood-deep); }
 .body .metric-qualifier { color: var(--ink-soft); }
 .body .metric-attribution { color: var(--ink-faint); letter-spacing: 0.08em; }
+
+/* Colophon · 56px horizontal gutter to match this spine's wider
+   body padding (most spines use 32px; a16z is the outlier). Without
+   this the brand card sits flush with the .doc edge while the body
+   content above sits 56px inset — visibly misaligned. */
+.colophon { margin: 32px 56px 8px; }

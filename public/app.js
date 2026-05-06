@@ -153,8 +153,81 @@
       // been applied since the user last opened the app. Fire-and-forget
       // so a slow / failed call doesn't block the dashboard rendering.
       void this.checkMigrationNotice();
+      // Convene-opener "Show more / less" toggle · doc-level delegate
+      // since the opener is re-rendered on every chat repaint and we
+      // don't want to re-bind per render. Just flips an `.expanded`
+      // class on the .convene-opener parent and swaps the label.
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-convene-toggle]");
+        if (!btn) return;
+        e.preventDefault();
+        const card = btn.closest(".convene-opener");
+        if (!card) return;
+        const expanded = card.classList.toggle("expanded");
+        const label = expanded
+          ? (btn.getAttribute("data-less") || "Show less")
+          : (btn.getAttribute("data-more") || "Show more");
+        btn.textContent = label;
+      });
       window.addEventListener("hashchange", () => this.handleRoute());
       this.handleRoute();
+
+      // Sidebar count badges · refresh on boot.
+      // Notes: also refreshed on every note:created / note:deleted
+      // (handlers below). Reports: refreshed when a brief lands or
+      // is deleted (see SSE brief-final / brief-deleted handlers).
+      this.refreshNotesCount();
+      this.refreshReportsCount();
+      document.addEventListener("note:created", (e) => {
+        this.refreshNotesCount();
+        // Live-update currentNotes for the active room so the new
+        // span gets its highlight without waiting for a navigation.
+        const note = e && e.detail && e.detail.note;
+        if (note && note.roomId === this.currentRoomId) {
+          if (!this.currentNotes) this.currentNotes = new Map();
+          const arr = this.currentNotes.get(note.messageId) || [];
+          arr.push(note);
+          this.currentNotes.set(note.messageId, arr);
+          this.applyNoteHighlightsForMessage(note.messageId);
+        }
+      });
+      document.addEventListener("note:deleted", (e) => {
+        this.refreshNotesCount();
+        const detail = e && e.detail;
+        if (detail && detail.noteId && this.currentNotes) {
+          for (const [mid, arr] of this.currentNotes) {
+            const next = arr.filter((n) => n.id !== detail.noteId);
+            if (next.length !== arr.length) {
+              this.currentNotes.set(mid, next);
+              this.applyNoteHighlightsForMessage(mid);
+              break;
+            }
+          }
+        }
+      });
+
+      // Hover tooltip on `.note-highlight` spans · the native browser
+      // `title` attr has a 1–2s delay that feels broken; this custom
+      // pop appears immediately. mouseover/mouseout bubble (unlike
+      // mouseenter/leave) so a single document-level delegation
+      // covers every saved span across every message.
+      document.addEventListener("mouseover", (e) => {
+        const span = e.target && e.target.closest && e.target.closest(".note-highlight");
+        if (!span) return;
+        this.showNoteTooltip(span);
+      });
+      document.addEventListener("mouseout", (e) => {
+        const span = e.target && e.target.closest && e.target.closest(".note-highlight");
+        if (!span) return;
+        // If the pointer is leaving the span entirely (not into a
+        // child of the same span), hide.
+        const related = e.relatedTarget;
+        if (related && span.contains(related)) return;
+        this.hideNoteTooltip();
+      });
+      // Hide on scroll · the tooltip is absolute-positioned, so any
+      // scroll would leave it floating in stale coords.
+      window.addEventListener("scroll", () => this.hideNoteTooltip(), true);
     },
 
     /** Surface a one-line "storage was upgraded" notice when the user
@@ -289,9 +362,37 @@
 
     // ── Routing ───────────────────────────────────────────────
     handleRoute() {
-      const m = (location.hash || "").match(/^#\/r\/([a-z0-9]+)/i);
+      const hash = location.hash || "";
+      const m = hash.match(/^#\/r\/([a-z0-9]+)/i);
       if (m && m[1]) {
-        if (this.currentRoomId !== m[1]) this.openRoom(m[1]);
+        // `?note=<id>` segment in the hash · "jump to this note"
+        // payload from the All-Notes view. Parsed BEFORE openRoom so
+        // loadRoomNotes can pick it up off `_pendingNoteScroll` once
+        // the overlay is painted (see scrollToNote).
+        const noteMatch = hash.match(/[?&]note=([a-z0-9]+)/i);
+        this._pendingNoteScroll = noteMatch ? noteMatch[1] : null;
+        if (this.currentRoomId !== m[1]) {
+          this.openRoom(m[1]);
+        } else if (this._pendingNoteScroll) {
+          // Already in this room · loadRoomNotes wouldn't re-fire
+          // for a same-room navigation, so the overlay-paint→scroll
+          // path doesn't trigger. Try the scroll directly. If it
+          // misses (rare race · notes still mid-paint), keep the
+          // flag armed and retry once on a short timer; only clear
+          // the flag once the scroll lands a real target.
+          const id = this._pendingNoteScroll;
+          const ok = this.scrollToNote(id);
+          if (ok) {
+            this._pendingNoteScroll = null;
+          } else {
+            setTimeout(() => {
+              if (this._pendingNoteScroll === id) {
+                this.scrollToNote(id);
+                this._pendingNoteScroll = null;
+              }
+            }, 500);
+          }
+        }
         return;
       }
       // All Reports has its own hash so refresh / back-button preserve
@@ -300,6 +401,12 @@
       // composer takes over the highlight.
       if (/^#\/reports$/i.test(location.hash || "")) {
         this.openAllReports();
+        return;
+      }
+      // All Notes — same pattern as reports. Distinct hash + sidebar
+      // active state preserved across refresh.
+      if (/^#\/notes$/i.test(location.hash || "")) {
+        this.openAllNotes();
         return;
       }
       // No explicit room in the hash — land on the new-room composer
@@ -331,6 +438,44 @@
     async openRoom(roomId) {
       this.disconnectSSE();
 
+      // Capture whether this open came from a note jump · this LOCAL
+      // is what gates the bottom-of-chat auto-scroll at the bottom
+      // of openRoom, NOT the live `_pendingNoteScroll` field. The
+      // field gets cleared by applyAllNoteHighlights inside renderRoom
+      // when scrollToNote successfully lands on the saved span; if
+      // we read the field after renderRoom, it's already null and
+      // the guard fails open — the force-scroll-to-bottom fires and
+      // snaps the chat to the tail right after the note jump landed.
+      // Reading once up front and stashing in a local guarantees the
+      // guard reflects intent at entry, not lifecycle state.
+      const isNoteJump = !!this._pendingNoteScroll;
+
+      // If a note jump is queued, lock out non-forced auto-scrolls
+      // for the entire room-open lifecycle (~4s covers room fetch +
+      // notes fetch + chat render + grace). SSE events that arrive
+      // on connect — message-token streams, queue-update fan-outs,
+      // key-point round-end re-renders — each call scrollChatToBottom()
+      // (no force); without this upfront lock, any of them can snap
+      // the chat to bottom and override the user's intended jump.
+      // Forced scrolls (force=true · the user sending a message)
+      // still bypass the lock so user-initiated actions remain immediate.
+      if (isNoteJump) {
+        this._suppressBottomScrollUntil = Date.now() + 4000;
+        // Hide the chat (opacity 0) until scrollToNote lands. Without
+        // this, the user sees a brief "stale chat → repaint → scroll
+        // to position" transition as a flicker — the previous room's
+        // content is still in the DOM when the room view becomes
+        // visible, and renderChat + the scroll only finalise after
+        // loadRoomNotes resolves. scrollToNote removes the class on
+        // success; the 1.2s timer is the safety net so a failed jump
+        // never leaves the chat permanently invisible.
+        document.body.classList.add("note-jump-loading");
+        if (this._noteJumpRevealTimer) clearTimeout(this._noteJumpRevealTimer);
+        this._noteJumpRevealTimer = setTimeout(() => {
+          document.body.classList.remove("note-jump-loading");
+        }, 1200);
+      }
+
       let data;
       try {
         const r = await fetch("/api/rooms/" + encodeURIComponent(roomId));
@@ -351,15 +496,18 @@
       // when a saved agent id resolves mid-navigation) from sitting
       // on top of the room the user just opened.
       const reportsView = document.querySelector('[data-main-view="reports"]');
+      const notesView = document.querySelector('[data-main-view="notes"]');
       const roomView = document.querySelector('[data-main-view="room"]');
       const agentView = document.querySelector('[data-main-view="agent"]');
       if (reportsView) reportsView.setAttribute("hidden", "");
+      if (notesView)   notesView.setAttribute("hidden", "");
       if (agentView && !agentView.hasAttribute("hidden")) {
         agentView.setAttribute("hidden", "");
         agentView.innerHTML = "";
       }
       if (roomView)    roomView.removeAttribute("hidden");
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
 
       // Drop conveneState if it belongs to a different room — protects
       // against stale "preparing…" leaking into a sibling room when
@@ -384,6 +532,27 @@
       this.currentQueue = data.queue || [];
       this.currentRound = data.round || { spoken: 0, total: 0 };
       this.currentKeyPoints = data.keyPoints || [];
+      // Chairman's notes for this room · fetched in parallel-ish
+      // with the room body so the in-room highlight overlay can
+      // wrap saved spans on first paint. Stored as a Map keyed by
+      // messageId. Failure is silent (the chat still renders, just
+      // without highlights).
+      //
+      // Two paths:
+      //   · No pending note jump · fire-and-forget. Chat renders
+      //     immediately; highlights paint when notes arrive.
+      //   · Pending note jump · AWAIT the load. Without this, the
+      //     chat renders at the top, then later jumps to the note —
+      //     a visible flicker. Awaiting means renderChat below has
+      //     access to the notes map AND can scroll synchronously to
+      //     the saved span before the browser paints, so the user
+      //     only ever sees the final position.
+      this.currentNotes = new Map();
+      if (this._pendingNoteScroll) {
+        await this.loadRoomNotes(roomId);
+      } else {
+        this.loadRoomNotes(roomId);
+      }
       // Follow-up tree fragment · parent ref (when this room is a
       // continuation) + child rooms (follow-ups other rooms started
       // off of THIS room). Both come from the server's snapshot;
@@ -430,10 +599,21 @@
       this.renderRoom();
       this.markActiveRoom(roomId);
       this.connectSSE(roomId);
-      // Fresh room · force-scroll to the latest message and start the
-      // scroll watcher so subsequent auto-scrolls respect the user.
+      // Fresh room · force-scroll to the latest message and start
+      // the scroll watcher so subsequent auto-scrolls respect the
+      // user. Exception: when this open came from a note jump, the
+      // saved span is the user's intended target — auto-scrolling
+      // to bottom here would land RIGHT AFTER scrollToNote already
+      // positioned the chat at the span, snapping it back to the
+      // chat tail. We use the captured `isNoteJump` local instead of
+      // the live `_pendingNoteScroll` field because applyAllNote-
+      // Highlights inside renderRoom above already cleared the field
+      // when its scrollToNote succeeded — checking the field here
+      // would always pass and the bottom-scroll would fire.
       this.chatStuckToBottom = true;
-      this.scrollChatToBottom(true);
+      if (!isNoteJump) {
+        this.scrollChatToBottom(true);
+      }
       this.bindChatScrollWatch();
     },
 
@@ -661,6 +841,30 @@
           document.documentElement.setAttribute("data-status", "adjourned");
           this.renderHeader();
           syncSidebar({ status: "adjourned", adjournedAt: ts });
+          // Refetch the full room state so the session-analytics card
+          // sees up-to-date per-message meta (especially `tokens`,
+          // which is mutated server-side during streaming but never
+          // re-sent over SSE). Without this, the in-memory
+          // `currentMessages` retains the streaming-time meta — no
+          // tokens field — so the analytics totals always read 0
+          // until a hard refresh. Refetch + renderRoom() also paints
+          // the analytics card itself (renderHeader alone doesn't).
+          const rid = this.currentRoomId;
+          if (rid) {
+            (async () => {
+              try {
+                const r = await fetch("/api/rooms/" + encodeURIComponent(rid));
+                if (r.ok) {
+                  const data = await r.json();
+                  if (this.currentRoomId === rid) {
+                    this.currentMessages = data.messages || this.currentMessages;
+                    if (data.room) this.currentRoom = data.room;
+                    this.renderRoom();
+                  }
+                }
+              } catch (e) { /* analytics card just stays empty · non-fatal */ }
+            })();
+          }
         } else if (kind === "brief-started") {
           this.markBriefEvent();
           this.currentBrief = {
@@ -758,6 +962,8 @@
           this.stopBriefStallWatch();
           this.renderBrief();
           this.renderHeader();
+          // A new brief just landed → bump the All Reports badge.
+          this.refreshReportsCount();
           // Refresh the FULL brief list so the tab strip picks up the
           // newly filed brief (including any "add a perspective"
           // regenerations). Active brief = the just-finalised one.
@@ -2272,6 +2478,7 @@
         this.currentBrief = this.currentBriefs[0] || null;
       }
       this.renderBrief();
+      this.refreshReportsCount();
     },
 
     /** Retry handler for the orphaned-brief recovery UI. Posts to the
@@ -3104,9 +3311,11 @@
       document.querySelectorAll(".session-row-shell").forEach((el) => {
         el.classList.toggle("active", roomId !== null && el.dataset.roomId === roomId);
       });
-      // The All Reports view is its own destination · navigating to a
-      // room or to a composer always clears its highlight.
+      // The All Reports / All Notes views are their own destinations ·
+      // navigating to a room or to a composer always clears their
+      // highlights so only the new focus reads as active.
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
       // Sidebar's "+ New room" / "+ New agent" entries · whichever
       // composer mode is active gets the highlight when no room is
       // selected; both clear when a room IS selected.
@@ -3142,11 +3351,13 @@
       document.querySelectorAll(".session-row-shell.active").forEach((el) => {
         el.classList.remove("active");
       });
-      // The All-Reports trigger highlight + URL hash both belong to a
-      // separate destination. Drop them when an agent profile takes
-      // focus so refresh on the profile doesn't bounce to /reports.
+      // The All-Reports / All-Notes trigger highlights + URL hash both
+      // belong to separate destinations. Drop them when an agent
+      // profile takes focus so refresh on the profile doesn't bounce
+      // back to /reports or /notes.
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
-      if (/^#\/reports$/i.test(location.hash || "")) {
+      document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
+      if (/^#\/(reports|notes)$/i.test(location.hash || "")) {
         try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
       }
       // Mark the agent row matching the active slug.
@@ -3324,6 +3535,7 @@
       this.renderBrief();
       this.renderPausedBar();
       this.renderFollowUpFragments();
+      this.renderSessionAnalytics();
     },
 
     /** Render the follow-up tree fragments around the current room:
@@ -3394,30 +3606,304 @@
       }
     },
 
+    /** Aggregate post-adjourn session metrics from the in-memory room
+     *  state. All inputs already loaded by openRoom · no additional
+     *  fetches needed. Returns null when the room isn't adjourned (the
+     *  card only ships at end-of-session). */
+    computeSessionStats() {
+      const room = this.currentRoom;
+      if (!room || room.status !== "adjourned") return null;
+      const messages = this.currentMessages || [];
+
+      let totalTokens = 0, promptTokens = 0, completionTokens = 0;
+      const modelTokens = new Map(); // modelV → cumulative tokens
+      for (const m of messages) {
+        const tokens = m.meta && m.meta.tokens;
+        if (!tokens) continue;
+        const t = Number(tokens.total) || 0;
+        const p = Number(tokens.prompt) || 0;
+        const c = Number(tokens.completion) || 0;
+        totalTokens += t;
+        promptTokens += p;
+        completionTokens += c;
+        const mv = m.meta && m.meta.modelV;
+        if (mv && t > 0) modelTokens.set(mv, (modelTokens.get(mv) || 0) + t);
+      }
+
+      // Round count = highest round_num seen (rounds are 1-indexed).
+      let roundCount = 0;
+      for (const m of messages) {
+        if (typeof m.roundNum === "number" && m.roundNum > roundCount) roundCount = m.roundNum;
+      }
+
+      // Visible-message count · skip system noise + procedural chair
+      // markers (round-open, round-prompt, settings) so the headline
+      // reflects what the user would call a "message".
+      const skipKinds = new Set(["round-open", "round-prompt", "settings"]);
+      const messageCount = messages.filter((m) => {
+        if (m.authorKind === "system") return false;
+        const kind = m.meta && m.meta.kind;
+        if (kind && skipKinds.has(kind)) return false;
+        return true;
+      }).length;
+
+      const durationMs = (room.adjournedAt && room.createdAt && room.adjournedAt > room.createdAt)
+        ? room.adjournedAt - room.createdAt
+        : 0;
+
+      // User-value highlights · key points the chair surfaced that the
+      // user voted ▲ on. These are the points the user weighted as
+      // worth chasing — the strongest "what stuck" signal we have.
+      const upvotedPoints = (this.currentKeyPoints || []).filter((p) => p.vote === "up");
+
+      // User contribution mix · plain messages vs probe / second
+      // (quote-CTA-driven user messages, recognised by leading `> `
+      // blockquote + the canonical reaction line).
+      const userMessages = messages.filter((m) => m.authorKind === "user");
+      let secondCount = 0, probeCount = 0;
+      for (const m of userMessages) {
+        const body = m.body || "";
+        if (!/^>\s/m.test(body)) continue;
+        if (/(^|\n)Seconded\.\s*$|(^|\n)附议。\s*$/.test(body)) secondCount++;
+        else probeCount++;
+      }
+
+      const modelBreakdown = Array.from(modelTokens.entries())
+        .map(([modelV, tokens]) => ({
+          modelV,
+          tokens,
+          pct: totalTokens > 0 ? tokens / totalTokens : 0,
+        }))
+        .sort((a, b) => b.tokens - a.tokens);
+
+      return {
+        totalTokens, promptTokens, completionTokens,
+        modelBreakdown,
+        roundCount,
+        messageCount,
+        userMessageCount: userMessages.length,
+        secondCount, probeCount,
+        durationMs,
+        upvotedPoints,
+        upvotedCount: upvotedPoints.length,
+      };
+    },
+
+    /** "Session analytics" card · ceremonial post-adjourn summary that
+     *  surfaces totals (tokens / messages / rounds / duration), the
+     *  model usage split as a stacked bar, and the user-value
+     *  highlights (▲-voted key points, second / probe counts).
+     *  Inserted right ABOVE the brief card so the post-adjourn
+     *  reading order is analytics → brief → follow-ups. Idempotent:
+     *  re-renders by removing the prior card first. */
+    renderSessionAnalytics() {
+      const existing = document.querySelector(".session-analytics");
+      if (existing) existing.remove();
+      const stats = this.computeSessionStats();
+      if (!stats) return;
+      const briefCard = document.querySelector("[data-brief-card]");
+      if (!briefCard) return;
+
+      const isZh = this.composerLanguage() === "zh";
+      const t = isZh
+        ? {
+            head: "// 会议数据",
+            stamp: "已结束",
+            tokens: "tokens",
+            messages: "条消息",
+            rounds: "轮讨论",
+            minutes: "分钟",
+            modelHead: "模型用量",
+            valueHead: "你认为有价值的",
+            valueEmpty: "本次没有 ▲ key point 投票，也没有用 probe / second。",
+            voted: "▲ 投票",
+            seconded: "附议",
+            probed: "追问",
+          }
+        : {
+            head: "// session analytics",
+            stamp: "closed",
+            tokens: "tokens",
+            messages: "msgs",
+            rounds: "rounds",
+            minutes: "min",
+            modelHead: "Model usage",
+            valueHead: "What you valued",
+            valueEmpty: "No ▲ key-point votes, probes, or seconds in this session.",
+            voted: "▲ voted",
+            seconded: "★ seconded",
+            probed: "✎ probed",
+          };
+
+      const fmtTokens = (n) => {
+        if (!Number.isFinite(n) || n <= 0) return "0";
+        if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 2) + "M";
+        if (n >= 1_000)     return (n / 1_000).toFixed(n >= 10_000 ? 0 : 1) + "k";
+        return String(Math.round(n));
+      };
+      const fmtDuration = (ms) => {
+        if (!Number.isFinite(ms) || ms <= 0) return "—";
+        const totalMin = Math.round(ms / 60_000);
+        if (totalMin < 60) return `${totalMin} ${t.minutes}`;
+        const h = Math.floor(totalMin / 60);
+        const mm = totalMin % 60;
+        return mm === 0 ? `${h} h` : `${h} h ${mm} ${t.minutes}`;
+      };
+
+      // Model → provider lookup via the cached models snapshot. Falls
+      // back to "unknown" when the registry hasn't been fetched yet
+      // (e.g. cold start) — provider colour just defaults to neutral.
+      const modelsCache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
+      const reachable = (modelsCache && Array.isArray(modelsCache.reachable)) ? modelsCache.reachable : [];
+      const PROVIDER_COLOR_VAR = {
+        anthropic: "--lime",
+        openai:    "--cyan",
+        google:    "--amber",
+        xai:       "--magenta",
+        deepseek:  "--red",
+        unknown:   "--text-soft",
+      };
+      const providerOf = (modelV) => {
+        const hit = reachable.find((m) => m.modelV === modelV);
+        return hit && hit.provider ? hit.provider : "unknown";
+      };
+      const modelLabel = (modelV) => MODEL_LABELS[modelV] || modelV;
+
+      // Stacked bar · one segment per model, width = pct. Each segment
+      // tinted with its provider's theme variable so the strip carries
+      // the same visual vocabulary as user-settings' usage screen.
+      const barSegments = stats.modelBreakdown.map((row) => {
+        const colorVar = PROVIDER_COLOR_VAR[providerOf(row.modelV)] || PROVIDER_COLOR_VAR.unknown;
+        const widthPct = (row.pct * 100).toFixed(2);
+        return `<span class="sa-bar-seg" style="width: ${widthPct}%; background: var(${colorVar});" title="${this.escape(modelLabel(row.modelV) + " · " + fmtTokens(row.tokens) + " tokens")}"></span>`;
+      }).join("");
+      const barHtml = stats.modelBreakdown.length > 0
+        ? `<div class="sa-bar" role="img" aria-label="${this.escape(t.modelHead)}">${barSegments}</div>`
+        : "";
+
+      const modelLegend = stats.modelBreakdown.map((row) => {
+        const colorVar = PROVIDER_COLOR_VAR[providerOf(row.modelV)] || PROVIDER_COLOR_VAR.unknown;
+        const pctTxt = (row.pct * 100).toFixed(row.pct < 0.1 ? 1 : 0) + "%";
+        return `
+          <li class="sa-legend-row">
+            <span class="sa-legend-swatch" style="background: var(${colorVar});"></span>
+            <span class="sa-legend-name">${this.escape(modelLabel(row.modelV))}</span>
+            <span class="sa-legend-pct">${this.escape(pctTxt)}</span>
+            <span class="sa-legend-tokens">${this.escape(fmtTokens(row.tokens))}</span>
+          </li>
+        `;
+      }).join("");
+
+      const valueChips = [
+        stats.upvotedCount > 0 ? `<span class="sa-chip"><span class="sa-chip-mark">▲</span>${stats.upvotedCount} ${this.escape(t.voted)}</span>` : "",
+        stats.secondCount > 0  ? `<span class="sa-chip"><span class="sa-chip-mark">★</span>${stats.secondCount} ${this.escape(t.seconded)}</span>` : "",
+        stats.probeCount > 0   ? `<span class="sa-chip"><span class="sa-chip-mark">✎</span>${stats.probeCount} ${this.escape(t.probed)}</span>` : "",
+      ].filter(Boolean).join("");
+
+      const upvotedHtml = stats.upvotedPoints.length > 0
+        ? `<ul class="sa-points">${stats.upvotedPoints.map((p) =>
+            `<li class="sa-point"><span class="sa-point-mark">▲</span><span class="sa-point-body">${this.escape(p.body)}</span></li>`
+          ).join("")}</ul>`
+        : "";
+      const valueBlock = (valueChips || upvotedHtml)
+        ? `
+          <div class="sa-section">
+            <div class="sa-section-head">${this.escape(t.valueHead)}</div>
+            ${valueChips ? `<div class="sa-chips">${valueChips}</div>` : ""}
+            ${upvotedHtml}
+          </div>
+        `
+        : `
+          <div class="sa-section sa-section-empty">
+            <div class="sa-section-head">${this.escape(t.valueHead)}</div>
+            <div class="sa-empty">${this.escape(t.valueEmpty)}</div>
+          </div>
+        `;
+
+      const block = document.createElement("div");
+      block.className = "session-analytics";
+      block.innerHTML = `
+        <div class="sa-banner">
+          <span class="sa-banner-tag">${this.escape(t.head)}</span>
+          <span class="sa-banner-stamp">${this.escape(t.stamp)}</span>
+        </div>
+        <div class="sa-body">
+          <div class="sa-headline">
+            <div class="sa-metric sa-metric-hero">
+              <div class="sa-metric-value">${this.escape(fmtTokens(stats.totalTokens))}</div>
+              <div class="sa-metric-label">${this.escape(t.tokens)}</div>
+            </div>
+            <div class="sa-metric">
+              <div class="sa-metric-value">${stats.messageCount}</div>
+              <div class="sa-metric-label">${this.escape(t.messages)}</div>
+            </div>
+            <div class="sa-metric">
+              <div class="sa-metric-value">${stats.roundCount}</div>
+              <div class="sa-metric-label">${this.escape(t.rounds)}</div>
+            </div>
+            <div class="sa-metric">
+              <div class="sa-metric-value">${this.escape(fmtDuration(stats.durationMs))}</div>
+              <div class="sa-metric-label">${this.escape(t.minutes)}</div>
+            </div>
+          </div>
+          ${stats.modelBreakdown.length > 0 ? `
+            <div class="sa-section">
+              <div class="sa-section-head">${this.escape(t.modelHead)}</div>
+              ${barHtml}
+              <ul class="sa-legend">${modelLegend}</ul>
+            </div>
+          ` : ""}
+          ${valueBlock}
+        </div>
+      `;
+
+      // Insert ABOVE the brief card BUT BELOW the `▼ session output ▼`
+      // divider, so the ceremonial header still frames everything in
+      // the post-adjourn section. Layout inside [data-brief-card]:
+      //
+      //   <header.ending-block-head> (the divider)
+      //   ← analytics tile inserted here
+      //   <div.brief-card>           (the report)
+      //   <footer.ending-block-foot>
+      //
+      // Falls back to inserting above the entire [data-brief-card]
+      // container when the divider isn't present (e.g. error state
+      // before renderBrief has populated the container).
+      const dividerHead = briefCard.querySelector(":scope > .ending-block-head");
+      const briefInner = briefCard.querySelector(":scope > .brief-card");
+      if (dividerHead && briefInner) {
+        briefCard.insertBefore(block, briefInner);
+      } else {
+        briefCard.parentNode.insertBefore(block, briefCard);
+      }
+    },
+
     renderPausedBar() {
       const bar = document.querySelector(".paused-bar");
       if (!bar || !this.currentRoom) return;
-      // Find the last user message + the next director that would speak.
-      const lastUser = [...this.currentMessages]
-        .reverse()
-        .find((m) => m.authorKind === "user");
-      const lastUserAt = lastUser ? this.timeFmt(lastUser.createdAt) : "—";
+      // Next director that would speak when discussion resumes · the
+      // only other piece of info still useful here. The "last input"
+      // line was dropped as redundant — the user's last message is
+      // visible right above the bar.
       const nextSpeaker = this.currentQueue[0]
         ? this.agentsById[this.currentQueue[0].agentId]
         : this.currentMembers[0];
       const nextHandle = nextSpeaker
         ? this.escape(nextSpeaker.handle.replace(/^\//, ""))
-        : "—";
+        : "";
 
       const lang = this.composerLanguage();
       const addInputLabel = lang === "zh" ? "[ + 补充观点 ]" : "[ + Add input ]";
       const adjournLabel  = lang === "zh" ? "[ ▸ 结束并存档 ]" : "[ ▸ Adjourn & File Brief ]";
       const resumeLabel   = lang === "zh" ? "[ ▶ 恢复讨论 ]"   : "[ ▶ Resume Discussion ]";
+      const pausedLabel   = lang === "zh" ? "已暂停" : "paused";
+      const nextLabel     = lang === "zh" ? "下一位" : "next";
+      const nextChunk = nextHandle
+        ? ` · ${nextLabel} → <span class="lime">${nextHandle}</span>`
+        : "";
       bar.innerHTML = `
         <div class="paused-bar-text">
-          <strong>// discussion paused.</strong>
-          last input · your message at ${lastUserAt}.
-          next turn · <span class="lime">${nextHandle}</span>.
+          <strong>// ${pausedLabel}</strong>${nextChunk}
         </div>
         <div class="paused-bar-actions">
           <a href="#" class="ghost-btn" data-paused-supplement>${this.escape(addInputLabel)}</a>
@@ -3503,6 +3989,15 @@
       const head = document.querySelector("[data-room-head]");
       if (head) head.innerHTML = "";  // CSS hides via html.no-room
 
+      // Strip stale follow-up fragments inserted by renderFollowUp-
+      // Fragments() when a follow-up room was previously open. These
+      // live as SIBLINGS of [data-chat-messages] / [data-brief-card]
+      // (not inside them), so closeRoom's `chat.innerHTML = ""` doesn't
+      // touch them — without this cleanup the "// following up Room #N"
+      // banner and "Follow-up rooms · N" tile list bleed into the new-
+      // room and new-agent empty states.
+      document.querySelectorAll(".followup-parent-banner, .followup-children").forEach((el) => el.remove());
+
       const chat = document.querySelector("[data-chat-messages]");
       if (chat) {
         if (this.composerMode === "agent") {
@@ -3570,19 +4065,22 @@
       if (typeof window.closeAgentProfile === "function") {
         try { window.closeAgentProfile(); } catch { /* ignore */ }
       }
-      // Hide room/agent main-views, show reports.
+      // Hide room/agent/notes main-views, show reports.
       const room = document.querySelector('[data-main-view="room"]');
       const agent = document.querySelector('[data-main-view="agent"]');
       const reports = document.querySelector('[data-main-view="reports"]');
+      const notes = document.querySelector('[data-main-view="notes"]');
       if (room) room.setAttribute("hidden", "");
       if (agent) agent.setAttribute("hidden", "");
+      if (notes) notes.setAttribute("hidden", "");
       if (reports) reports.removeAttribute("hidden");
-      // Mark the sidebar trigger active. Both new-room + new-agent
-      // highlights get cleared so only "All Reports" reads as the
-      // current focus.
+      // Mark the sidebar trigger active. All sibling tab highlights
+      // (new-room, new-agent, all-notes) get cleared so only
+      // "All Reports" reads as the current focus.
       this.composerMode = "room"; // logical fallback when leaving reports
       document.querySelectorAll("[data-convene-trigger], [data-agent-composer-trigger]").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll(".session-row-shell.active, .agent-row.active").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-reports-trigger]").forEach((el) => el.classList.add("active"));
 
       // Persist the view via URL hash so refresh / back-button restore
@@ -3864,6 +4362,616 @@
       `;
     },
 
+    // ── All Notes view · chairman's notes index ───────────────
+    /** Open the All Notes page · cross-room saved-excerpt index in
+     *  the same main-view-replacement pattern as openAllReports.
+     *  Pulls the live list and renders three time-bucket sections
+     *  (Today / This Week / Earlier). */
+    async openAllNotes() {
+      // Same view-leaving routine as openAllReports.
+      if (this.currentRoomId) {
+        this.disconnectSSE?.();
+        this.currentRoomId = null;
+        this.currentRoom = null;
+        this.currentMessages = [];
+        this.currentMembers = [];
+        this.currentQueue = [];
+        this.currentBrief = null;
+        if (/^#\/r\//.test(location.hash)) {
+          history.replaceState(null, "", location.pathname + location.search);
+        }
+      }
+      if (typeof window.closeAgentProfile === "function") {
+        try { window.closeAgentProfile(); } catch { /* ignore */ }
+      }
+      const room = document.querySelector('[data-main-view="room"]');
+      const agent = document.querySelector('[data-main-view="agent"]');
+      const reports = document.querySelector('[data-main-view="reports"]');
+      const notes = document.querySelector('[data-main-view="notes"]');
+      if (room) room.setAttribute("hidden", "");
+      if (agent) agent.setAttribute("hidden", "");
+      if (reports) reports.setAttribute("hidden", "");
+      if (notes) notes.removeAttribute("hidden");
+
+      this.composerMode = "room";
+      document.querySelectorAll("[data-convene-trigger], [data-agent-composer-trigger]").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll(".session-row-shell.active, .agent-row.active").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll("[data-notes-trigger]").forEach((el) => el.classList.add("active"));
+
+      if (location.hash !== "#/notes") {
+        try { history.replaceState(null, "", "#/notes"); } catch { /* ignore */ }
+      }
+
+      const page = document.querySelector("[data-notes-page]");
+      if (page) {
+        page.innerHTML = `
+          <div class="notes-page-head">
+            <div>
+              <div class="notes-page-kicker">// chairman · saved excerpts</div>
+              <h1 class="notes-page-title">All Notes</h1>
+            </div>
+            <div class="notes-page-meta">loading…</div>
+          </div>
+          <div class="notes-skeleton">
+            ${Array.from({ length: 3 }, () => `<div class="notes-skeleton-card"></div>`).join("")}
+          </div>
+        `;
+      }
+
+      let notesList = [];
+      try {
+        const r = await fetch("/api/notes");
+        if (r.ok) {
+          const j = await r.json();
+          notesList = Array.isArray(j.notes) ? j.notes : [];
+        }
+      } catch { /* keep empty → empty-state */ }
+
+      this.renderNotesPage(notesList);
+    },
+
+    /** Render the All Notes timeline · same filter-strip + date-
+     *  group rhythm as the All Reports page so the two cross-room
+     *  destinations behave identically. The chip strip lives below
+     *  the head; clicks re-render in place via setNotesFilter using
+     *  the cached dataset (no /api/notes round trip per chip).
+     *
+     *  Bucket boundaries mirror the reports filter exactly:
+     *    today    · createdAt >= start-of-today
+     *    week     · createdAt >= start-of-today − 6d (7-day rolling
+     *               window INCLUDING today)
+     *    earlier  · createdAt <  weekStart
+     */
+    renderNotesPage(notesList) {
+      const page = document.querySelector("[data-notes-page]");
+      if (!page) return;
+      const total = notesList.length;
+
+      // Cache so chip clicks can re-render without re-fetching.
+      this._notesCache = notesList;
+      const activeFilter = this._notesFilter || "all";
+
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const todayStart = startOfToday.getTime();
+      const weekStart = todayStart - 6 * 86400_000;
+      const todayCount = notesList.filter((n) => (n.createdAt || 0) >= todayStart).length;
+      const weekCount = notesList.filter((n) => (n.createdAt || 0) >= weekStart).length;
+      const earlierCount = notesList.filter((n) => (n.createdAt || 0) < weekStart).length;
+      const distinctRooms = new Set(notesList.map((n) => n.roomId)).size;
+
+      const filterChip = (key, label, count) => {
+        const on = key === activeFilter ? " on" : "";
+        return `
+          <button type="button" class="notes-filter-chip${on}" data-notes-filter="${key}">
+            <span class="notes-filter-label">${this.escape(label)}</span>
+            <span class="notes-filter-count">${count}</span>
+          </button>
+        `;
+      };
+      const filtersHtml = `
+        <div class="notes-filters" role="tablist" aria-label="Filter notes by recency">
+          ${filterChip("all", "All", total)}
+          ${filterChip("today", "Today", todayCount)}
+          ${filterChip("week", "This week", weekCount)}
+          ${filterChip("earlier", "Earlier", earlierCount)}
+        </div>
+      `;
+
+      // Cold empty state · no saved notes at all. Distinct from
+      // "filter window empty" (chip click into a slot with 0 hits)
+      // which keeps the chips visible and offers a back-to-All CTA.
+      if (total === 0) {
+        page.innerHTML = `
+          <div class="notes-page-head">
+            <div>
+              <div class="notes-page-kicker">// chairman · saved excerpts</div>
+              <h1 class="notes-page-title">All Notes</h1>
+            </div>
+            <div class="notes-page-meta">0 notes</div>
+          </div>
+          ${filtersHtml}
+          <div class="notes-list-empty">
+            <div class="notes-empty-mark">○</div>
+            <div class="notes-empty-title">no saved notes yet</div>
+            <div class="notes-empty-deck">
+              While reading a director's reply, select an interesting passage and hit
+              <span class="kbd">S</span> or click <span class="kbd">⌖ Save</span>
+              on the floating bar to bookmark it here.
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const filtered = notesList.filter((n) => {
+        const ts = n.createdAt || 0;
+        if (activeFilter === "today")   return ts >= todayStart;
+        if (activeFilter === "week")    return ts >= weekStart;
+        if (activeFilter === "earlier") return ts < weekStart;
+        return true;
+      });
+
+      // Group filtered items by date label so even an "All" view has
+      // visual rhythm. When a recency filter narrows to a single
+      // bucket, only that bucket's section renders — no empty headers.
+      const groupLabelFor = (ts) => {
+        if (ts >= todayStart) return "Today";
+        if (ts >= weekStart)  return "This week";
+        return "Earlier";
+      };
+      const groups = [];
+      let currentGroup = null;
+      for (const n of filtered) {
+        const label = groupLabelFor(n.createdAt || 0);
+        if (!currentGroup || currentGroup.label !== label) {
+          currentGroup = { label, items: [] };
+          groups.push(currentGroup);
+        }
+        currentGroup.items.push(n);
+      }
+
+      const filterLabels = { all: "the archive", today: "Today", week: "This week", earlier: "Earlier" };
+      const groupsHtml = groups.length === 0
+        ? `
+          <div class="notes-list-empty">
+            <div class="notes-empty-mark">○</div>
+            <div class="notes-empty-title">No notes in ${this.escape(filterLabels[activeFilter] || "this window")}</div>
+            <div class="notes-empty-deck">Pick a different filter, or jump back to the full archive.</div>
+            ${activeFilter !== "all" ? `
+              <button type="button" class="notes-empty-cta" data-notes-filter="all">
+                <span class="notes-empty-cta-arrow">←</span>
+                <span>Show all notes</span>
+              </button>
+            ` : ""}
+          </div>
+        `
+        : groups.map((g) => `
+          <section class="notes-group">
+            <div class="notes-group-head">
+              <span class="notes-group-label">${this.escape(g.label)}</span>
+              <span class="notes-group-count">${g.items.length}</span>
+            </div>
+            <ul class="notes-list">
+              ${g.items.map((n) => this.renderNoteItemHtml(n)).join("")}
+            </ul>
+          </section>
+        `).join("");
+
+      const totalLabel = `${total} ${total === 1 ? "note" : "notes"}`;
+      const roomLabel = distinctRooms > 0
+        ? ` · ${distinctRooms} ${distinctRooms === 1 ? "room" : "rooms"}`
+        : "";
+
+      page.innerHTML = `
+        <div class="notes-page-head">
+          <div>
+            <div class="notes-page-kicker">// chairman · saved excerpts</div>
+            <h1 class="notes-page-title">All Notes</h1>
+          </div>
+          <div class="notes-page-meta">${this.escape(totalLabel)}${this.escape(roomLabel)}</div>
+        </div>
+        ${filtersHtml}
+        <div class="notes-list-wrap">${groupsHtml}</div>
+      `;
+    },
+
+    /** Switch the active recency filter without a re-fetch — uses
+     *  the cached dataset captured by renderNotesPage. */
+    setNotesFilter(key) {
+      this._notesFilter = key;
+      if (Array.isArray(this._notesCache)) {
+        this.renderNotesPage(this._notesCache);
+      }
+    },
+
+    /** A single note card · meta line + faded-context-around-quote
+     *  reading block + jump-to-source action. Quote is rendered with
+     *  the dotted-underline overlay treatment that also appears
+     *  in-room (see the .note-highlight rule). */
+    renderNoteItemHtml(n) {
+      const time = this.relTime(n.createdAt) || "";
+      const roomNum = n.roomNumber != null ? `#${String(n.roomNumber).padStart(3, "0")}` : "";
+      const roomSubject = (n.roomSubject || "").slice(0, 100);
+      const author = n.authorName || "Director";
+      // The jump link uses the room's hash route + the note id as a
+      // fragment-style query so openRoom can scroll to + flash the
+      // matching span (Step 5 wires the receiver). For now the link
+      // just navigates · the in-room overlay step adds the scroll.
+      const href = `#/r/${this.escape(n.roomId)}?note=${this.escape(n.id)}`;
+      return `
+        <li class="notes-item" data-note-id="${this.escape(n.id)}">
+          <a class="notes-item-link" href="${href}" data-note-jump="${this.escape(n.id)}" data-note-room="${this.escape(n.roomId)}">
+            <div class="notes-item-meta">
+              <span class="notes-item-room">ROOM ${this.escape(roomNum)}</span>
+              ${roomSubject ? `<span class="notes-item-sep">·</span><span class="notes-item-subject">${this.escape(roomSubject)}</span>` : ""}
+              <span class="notes-item-sep">·</span>
+              <span class="notes-item-director">${this.escape(author)}</span>
+              <span class="notes-item-time">${this.escape(time)}</span>
+            </div>
+            <p class="notes-item-passage">${
+              n.contextBefore ? `<span class="note-context note-context-before">${this.escape(n.contextBefore)}</span>` : ""
+            }<span class="note-quote">${this.escape(n.quoteText)}</span>${
+              n.contextAfter ? `<span class="note-context note-context-after">${this.escape(n.contextAfter)}</span>` : ""
+            }</p>
+          </a>
+        </li>
+      `;
+    },
+
+    /** Refresh the sidebar count badge · called on boot, after
+     *  every successful save (note:created event), and after a
+     *  delete. Hits /api/notes/count which is cheap (one COUNT query),
+     *  so we don't need to debounce.
+     *
+     *  When count is 0 the badge is hidden (the `hidden` attr stays
+     *  on); otherwise the count renders. The CSS bumps the colour to
+     *  lime on hover/active so the badge tracks the link's cascade. */
+    async refreshNotesCount() {
+      try {
+        const r = await fetch("/api/notes/count");
+        if (!r.ok) return;
+        const j = await r.json();
+        const total = typeof j.total === "number" ? j.total : 0;
+        const badge = document.querySelector("[data-notes-count]");
+        if (!badge) return;
+        if (total > 0) {
+          badge.textContent = String(total);
+          badge.removeAttribute("hidden");
+        } else {
+          badge.textContent = "";
+          badge.setAttribute("hidden", "");
+        }
+      } catch { /* fail closed — leave badge as-is */ }
+    },
+
+    /** Mirror of refreshNotesCount for the All Reports sidebar badge.
+     *  Hits /api/briefs/count (cheap COUNT, excludes empty placeholder
+     *  rows). Called on boot and whenever a brief is filed / deleted
+     *  so the badge stays in sync with the All Reports list. */
+    async refreshReportsCount() {
+      try {
+        const r = await fetch("/api/briefs/count");
+        if (!r.ok) return;
+        const j = await r.json();
+        const total = typeof j.total === "number" ? j.total : 0;
+        const badge = document.querySelector("[data-reports-count]");
+        if (!badge) return;
+        if (total > 0) {
+          badge.textContent = String(total);
+          badge.removeAttribute("hidden");
+        } else {
+          badge.textContent = "";
+          badge.setAttribute("hidden", "");
+        }
+      } catch { /* fail closed */ }
+    },
+
+    // ── In-room note highlight overlay ────────────────────────
+    /** Fetch every note for the currently-open room and store as a
+     *  Map<messageId, Note[]>. Re-runs the full-room highlight pass
+     *  when the data arrives so a just-loaded room paints highlights
+     *  even though renderChat already ran from openRoom. Silent on
+     *  failure — the chat is still useful without highlights. */
+    async loadRoomNotes(roomId) {
+      try {
+        const r = await fetch("/api/notes/by-room/" + encodeURIComponent(roomId));
+        if (!r.ok) return;
+        const j = await r.json();
+        const list = Array.isArray(j.notes) ? j.notes : [];
+        // Race guard · the user may have clicked another room while
+        // /api/notes/by-room was in flight. Drop the response if it
+        // no longer matches the active room.
+        if (this.currentRoomId !== roomId) return;
+        const map = new Map();
+        for (const n of list) {
+          const arr = map.get(n.messageId) || [];
+          arr.push(n);
+          map.set(n.messageId, arr);
+        }
+        this.currentNotes = map;
+        // applyAllNoteHighlights consumes `_pendingNoteScroll` itself
+        // — we just trigger it. Whichever runs last (this call or
+        // renderChat's at-the-end call) lands the scroll once the
+        // articles are actually in the DOM.
+        this.applyAllNoteHighlights();
+      } catch { /* silent */ }
+    },
+
+    /** Walk every director article in the chat and apply highlights
+     *  for whichever notes match. Called by renderChat after a full
+     *  re-render and by loadRoomNotes when notes land late.
+     *
+     *  Also consumes a pending `?note=<id>` jump request once the
+     *  highlight is actually in the DOM · avoids the race where
+     *  loadRoomNotes resolves BEFORE renderChat (chat empty, span
+     *  doesn't exist yet, scrollToNote silently misses). The scroll
+     *  request stays armed until the span exists, so whichever path
+     *  lands later (notes-fetch-after-chat-render, or chat-render-
+     *  after-notes-fetch) succeeds. */
+    applyAllNoteHighlights() {
+      if (this.currentNotes && this.currentNotes.size > 0) {
+        for (const messageId of this.currentNotes.keys()) {
+          this.applyNoteHighlightsForMessage(messageId);
+        }
+      }
+      if (this._pendingNoteScroll) {
+        const ok = this.scrollToNote(this._pendingNoteScroll);
+        if (ok) this._pendingNoteScroll = null;
+      }
+    },
+
+    /** Inject `<span class="note-highlight">` over each saved char
+     *  range in this message's bubble. Skip if the article isn't in
+     *  the DOM yet (mid-stream / not-yet-appended) — the next render
+     *  pass will catch it. */
+    applyNoteHighlightsForMessage(messageId) {
+      if (!messageId) return;
+      const notes = this.currentNotes && this.currentNotes.get(messageId);
+      if (!notes || notes.length === 0) return;
+      const article = document.querySelector(`article[data-message-id="${messageId}"]`);
+      if (!article) return;
+      // Custom chair cards have their own body container · same
+      // resolution order as updateMessageBodyDom so highlights find
+      // the right element regardless of message kind.
+      const bubble =
+        article.querySelector(".cd-body") ||
+        article.querySelector(".ci-body") ||
+        article.querySelector(".msg-bubble");
+      if (!bubble) return;
+      // De-dupe: clear any pre-existing highlights inside this bubble
+      // before re-applying. Otherwise a re-render that runs before
+      // the note count changes would double-wrap.
+      bubble.querySelectorAll(".note-highlight").forEach((el) => {
+        // Replace the span with its child nodes (preserve text). The
+        // ordering matters: collect children first, then swap, so we
+        // don't lose nodes mid-iteration.
+        const parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+      });
+      // Re-merge adjacent text nodes that prior wrap/unwrap cycles
+      // left fragmented · keeps the char-offset walker's `pos`
+      // accumulation aligned with the source text on every pass.
+      bubble.normalize();
+      // Apply newest-last so overlapping ranges paint in a stable order.
+      // Sort ascending by start offset so we wrap from beginning to end
+      // (wrapping a later range first would shift earlier offsets).
+      const sorted = notes.slice().sort((a, b) => a.charOffsetStart - b.charOffsetStart);
+      for (const note of sorted) {
+        this._wrapRangeAsNoteHighlight(bubble, note);
+      }
+    },
+
+    /** Wrap [note.charOffsetStart, note.charOffsetEnd) inside the
+     *  given container with `<span class="note-highlight">` markers.
+     *
+     *  Per-text-node wrapping (NOT a single big range) · saved
+     *  selections often cross inline-element boundaries (e.g. a span
+     *  that runs from plain text into `<strong>`/`<code>` and back).
+     *  A single Range across those would fail `surroundContents` and
+     *  the natural fallback — `extractContents()` + `insertNode` —
+     *  splits the enclosing block element when the range starts or
+     *  ends near its boundary. For `<li>`/`<p>` that means the
+     *  saved span gets sandwiched between two empty siblings (the
+     *  "phantom bullets" bug). Wrapping each text node's slice in
+     *  its own span sidesteps that entirely: every sub-range is
+     *  text-only, so `surroundContents` always succeeds and the
+     *  document structure stays intact. The visual underline reads
+     *  continuous because all spans share the same class. */
+    _wrapRangeAsNoteHighlight(container, note) {
+      const start = note.charOffsetStart;
+      const end = note.charOffsetEnd;
+      if (!(end > start) || start < 0) return;
+
+      // Collect every text node that contributes to the range,
+      // along with the slice [from, to) within that node, BEFORE
+      // any DOM mutation. Walker references stay valid because we
+      // wrap one slice at a time and only mutate within its own
+      // text node — the others keep their pre-mutation identities.
+      const slices = [];
+      let pos = 0;
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const len = node.nodeValue.length;
+        const nodeStart = pos;
+        const nodeEnd = pos + len;
+        pos = nodeEnd;
+        if (nodeEnd <= start) continue;     // entirely before · skip
+        if (nodeStart >= end) break;        // entirely after · done
+        const sliceStart = Math.max(0, start - nodeStart);
+        const sliceEnd = Math.min(len, end - nodeStart);
+        if (sliceEnd > sliceStart) {
+          slices.push({ node, sliceStart, sliceEnd });
+        }
+      }
+      if (slices.length === 0) return;
+
+      for (const s of slices) {
+        const range = document.createRange();
+        try {
+          range.setStart(s.node, s.sliceStart);
+          range.setEnd(s.node, s.sliceEnd);
+        } catch { continue; }
+        const span = document.createElement("span");
+        span.className = "note-highlight";
+        span.dataset.noteId = note.id;
+        // aria-label (not `title`) · we don't want the native browser
+        // tooltip's 1–2s delay competing with the custom `.note-tip`
+        // popover wired up in init(); aria-label still surfaces the
+        // affordance for screen readers.
+        span.setAttribute("aria-label", "Saved to Notes");
+        // Text-only ranges always satisfy surroundContents' "no
+        // partial non-Text node" precondition · the catch is just
+        // a safety belt for browsers that surprise us.
+        try { range.surroundContents(span); }
+        catch { /* skip this slice · others may still succeed */ }
+      }
+    },
+
+    // ── Hover tooltip on .note-highlight spans ────────────────
+    /** Lazy-create the singleton tooltip element. Lives on
+     *  document.body so it can position absolutely above any chat
+     *  message regardless of the bubble's overflow chain. */
+    _ensureNoteTip() {
+      if (this._noteTip) return this._noteTip;
+      const el = document.createElement("div");
+      el.className = "note-tip";
+      el.setAttribute("role", "tooltip");
+      document.body.appendChild(el);
+      this._noteTip = el;
+      return el;
+    },
+
+    showNoteTooltip(span) {
+      if (!span) return;
+      const tip = this._ensureNoteTip();
+      const noteId = span.dataset.noteId;
+      // Resolve note metadata from currentNotes · used for the time
+      // stamp. If the lookup fails (rare race: tip fired between
+      // openRoom and loadRoomNotes completing), we just show the
+      // bare label without the time.
+      let note = null;
+      if (this.currentNotes && noteId) {
+        for (const list of this.currentNotes.values()) {
+          const found = list.find((n) => n.id === noteId);
+          if (found) { note = found; break; }
+        }
+      }
+      const time = note ? this.relTime(note.createdAt) : "";
+      tip.innerHTML = `
+        <span class="note-tip-mark">✓</span>
+        <span class="note-tip-label">Saved to Notes</span>
+        ${time ? `<span class="note-tip-sep">·</span><span class="note-tip-meta">${this.escape(time)}</span>` : ""}
+      `;
+      const rect = span.getBoundingClientRect();
+      // Render the tooltip BEFORE measuring · width/height are 0
+      // until the `.open` class flips display to inline-flex.
+      tip.classList.add("open");
+      const tipW = tip.offsetWidth;
+      const tipH = tip.offsetHeight;
+      let top = window.scrollY + rect.top - tipH - 6;
+      if (rect.top - tipH - 6 < 4) {
+        top = window.scrollY + rect.bottom + 6;
+      }
+      let left = window.scrollX + rect.left + rect.width / 2 - tipW / 2;
+      left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + window.innerWidth - tipW - 8));
+      tip.style.top = top + "px";
+      tip.style.left = left + "px";
+    },
+
+    hideNoteTooltip() {
+      if (this._noteTip) this._noteTip.classList.remove("open");
+    },
+
+    /** Scroll the chat to the given note's highlight span and flash
+     *  it briefly. Used by the All-Notes "Jump to source" path: when
+     *  the URL hash carries `?note=<id>`, openRoom + loadRoomNotes
+     *  populate the overlay, then we land here.
+     *
+     *  Returns true when a target was found and scrolled to; false
+     *  when neither the highlight span nor the source message article
+     *  exists yet (caller should re-arm and try again on the next
+     *  render pass — see applyAllNoteHighlights). The flash is a
+     *  class toggle; CSS animates a soft lime backdrop → fade.
+     *
+     *  Fallback: when the highlight span isn't in the DOM (e.g.
+     *  notes loaded before the chat rendered, or the saved offsets
+     *  don't align with the current text), we still scroll to the
+     *  source message article so the user lands in the right region
+     *  rather than at the top of the chat. */
+    scrollToNote(noteId) {
+      if (!noteId) return false;
+      const span = document.querySelector(`.note-highlight[data-note-id="${noteId}"]`);
+      if (span) {
+        try {
+          // Instant jump (not smooth) · the smooth animation visibly
+          // slides from current position (usually the top of the
+          // chat right after innerHTML replacement) to the saved
+          // span, which reads as a flicker on initial room open.
+          // The lime flash animation kicks in immediately afterward
+          // and is enough visual cue that the saved span is "the
+          // thing the user came here for" — no need for a slide.
+          span.scrollIntoView({ behavior: "auto", block: "center" });
+        } catch { /* old browsers · no-op */ }
+        // Reveal the chat now that the scroll has landed · openRoom
+        // hid it (opacity 0 via body.note-jump-loading) so the user
+        // doesn't see the "stale content → repaint → scroll" frame.
+        // The CSS transition fades the chat in over ~180ms.
+        document.body.classList.remove("note-jump-loading");
+        if (this._noteJumpRevealTimer) {
+          clearTimeout(this._noteJumpRevealTimer);
+          this._noteJumpRevealTimer = null;
+        }
+        span.classList.add("note-highlight-flash");
+        setTimeout(() => span.classList.remove("note-highlight-flash"), 1600);
+        // Lock out non-forced auto-scrolls for a grace window so
+        // SSE token streams, queue updates, or key-point round-end
+        // re-renders that fire during the same render cycle can't
+        // snap the chat back to bottom and override the user's
+        // intended jump. Forced scrolls (the user sending a
+        // message) still fire — those are explicit user actions
+        // and should win.
+        this.chatStuckToBottom = false;
+        this._suppressBottomScrollUntil = Date.now() + 2000;
+        // Belt-and-braces · one delayed re-snap covers any path that
+        // somehow bypassed the suppression check. Idempotent — if
+        // the chat is already at the span, scrollIntoView is a no-op.
+        setTimeout(() => {
+          const s = document.querySelector(`.note-highlight[data-note-id="${noteId}"]`);
+          if (s) {
+            try { s.scrollIntoView({ behavior: "auto", block: "center" }); } catch { /* */ }
+            this.chatStuckToBottom = false;
+          }
+        }, 600);
+        return true;
+      }
+      // Span isn't there yet · fall back to the source message article
+      // if we know it (look it up in currentNotes). The article is in
+      // the DOM as soon as renderChat has run; if even that's missing,
+      // bail and let the next render pass retry.
+      let messageId = null;
+      if (this.currentNotes) {
+        for (const list of this.currentNotes.values()) {
+          const found = list.find((n) => n.id === noteId);
+          if (found) { messageId = found.messageId; break; }
+        }
+      }
+      if (!messageId) return false;
+      const article = document.querySelector(`article[data-message-id="${messageId}"]`);
+      if (!article) return false;
+      try {
+        article.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch { /* */ }
+      // Return false so the caller keeps `_pendingNoteScroll` armed —
+      // when the highlight span eventually paints (next applyAllNote-
+      // Highlights cycle), we want to re-trigger the precise scroll +
+      // flash, not stop at "good enough."
+      return false;
+    },
+
     /** Switch composer mode. Updates state + sidebar highlights, then
      *  re-renders the empty-state view.
      *
@@ -3888,12 +4996,15 @@
         try { window.closeAgentProfile(); } catch { /* ignore */ }
       }
       const reportsView = document.querySelector('[data-main-view="reports"]');
+      const notesView   = document.querySelector('[data-main-view="notes"]');
       const roomView    = document.querySelector('[data-main-view="room"]');
       if (reportsView) reportsView.setAttribute("hidden", "");
+      if (notesView)   notesView.setAttribute("hidden", "");
       if (roomView)    roomView.removeAttribute("hidden");
-      // Drop the All-Reports trigger highlight regardless of which
-      // composer we're switching to.
+      // Drop the All-Reports / All-Notes trigger highlights regardless
+      // of which composer we're switching to.
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
       // If the URL still carries the All-Reports hash from a prior
       // navigation, drop it — otherwise refresh would bounce the user
       // back to the reports view.
@@ -4097,8 +5208,14 @@
     autosizeComposerTextarea() {
       const ta = document.querySelector("[data-composer-subject]");
       if (!ta) return;
+      const MIN = 84;
+      const MAX = 360;
+      // Quick path · skip the auto-cycle when content already fits.
+      // See autosizeAgentComposerTextarea for the why.
+      const explicitH = parseInt(ta.style.height, 10) || MIN;
+      if (ta.scrollHeight <= explicitH) return;
       ta.style.height = "auto";
-      const h = Math.min(360, Math.max(84, ta.scrollHeight));
+      const h = Math.min(MAX, Math.max(MIN, ta.scrollHeight));
       ta.style.height = h + "px";
     },
 
@@ -4188,6 +5305,39 @@
       } catch { /* ignore */ }
     },
 
+    /** True when the global Brave Search key is configured · gates the
+     *  websearch toggle's "on" state. Reads through window.boardroomKeys
+     *  (cached on boot, refetched after any /api/keys mutation), so the
+     *  composer reflects the current key state without its own fetch. */
+    agentComposerBraveConfigured() {
+      try {
+        if (typeof window.boardroomKeys !== "function") return false;
+        const k = window.boardroomKeys();
+        return !!(k && k.brave);
+      } catch { return false; }
+    },
+
+    /** Read the user's last websearch toggle preference. Defaults TRUE
+     *  when the key is configured (the user opted into the feature by
+     *  configuring the key, no reason to default OFF) and FALSE when
+     *  not configured (no point pretending it's on). */
+    loadAgentComposerWebSearch() {
+      const configured = this.agentComposerBraveConfigured();
+      if (!configured) return false;
+      try {
+        const raw = localStorage.getItem("boardroom.composer.agent.websearch");
+        if (raw === "0") return false;
+        if (raw === "1") return true;
+      } catch { /* ignore */ }
+      return true;
+    },
+
+    saveAgentComposerWebSearch(on) {
+      try {
+        localStorage.setItem("boardroom.composer.agent.websearch", on ? "1" : "0");
+      } catch { /* ignore */ }
+    },
+
     setAgentComposerModel(modelV) {
       if (!modelV) return;
       // Accept any modelV the registry knows about (MODEL_LABELS) so
@@ -4224,24 +5374,49 @@
      *  define when each stage transitions to "active". When the real
      *  /generate-spec response returns, remaining stages fast-forward
      *  to done and the preview card crossfades in. */
-    AGENT_GEN_STAGES_EN: [
-      { key: "imagine",     label: "Imagining the role",        startSec: 0,  sub: ["sketching tone", "deciding posture", "framing the lens"] },
-      { key: "name",        label: "Naming the director",       startSec: 2,  sub: ["trying short names", "checking handle slugs"] },
-      { key: "bio",         label: "Drafting the bio",          startSec: 4,  sub: ["one or two sentences", "naming the method"] },
-      { key: "quote",       label: "Sketching the cover quote", startSec: 7,  sub: ["the opening question they'd ask"] },
-      { key: "instruction", label: "Composing the instruction", startSec: 9,  sub: ["numbered method", "voice rules", "boundaries"] },
-      { key: "voice",       label: "Picking the model voice",   startSec: 13, sub: ["matching depth to role"] },
-      { key: "polish",      label: "Polishing",                 startSec: 15, sub: ["clamping lengths", "final tightening"] },
+    AGENT_GEN_STAGES_EN_BASE: [
+      { key: "lineage",     label: "Drafting the intellectual profile", startSec: 0,  sub: ["mapping influences", "naming opposed traditions", "picking concrete referents"] },
+      { key: "imagine",     label: "Imagining the role",                startSec: 8,  sub: ["sketching tone", "deciding posture", "framing the lens"] },
+      { key: "name",        label: "Naming the director",               startSec: 11, sub: ["trying short names", "checking handle slugs"] },
+      { key: "bio",         label: "Drafting the bio",                  startSec: 14, sub: ["one or two sentences", "naming the method"] },
+      { key: "quote",       label: "Sketching the cover quote",         startSec: 17, sub: ["the opening question they'd ask"] },
+      { key: "instruction", label: "Composing the instruction",         startSec: 20, sub: ["lineage + concepts", "method + referent set", "voice + boundaries", "failure modes"] },
+      { key: "voice",       label: "Picking the model voice",           startSec: 28, sub: ["matching depth to role"] },
+      { key: "polish",      label: "Polishing",                         startSec: 31, sub: ["clamping lengths", "final tightening"] },
     ],
-    AGENT_GEN_STAGES_ZH: [
-      { key: "imagine",     label: "构思角色",       startSec: 0,  sub: ["勾画语气", "拟定立场", "确定视角"] },
-      { key: "name",        label: "起名 + handle",  startSec: 2,  sub: ["试几个短名", "排查 handle 重名"] },
-      { key: "bio",         label: "起草 bio",       startSec: 4,  sub: ["一两句话", "点明方法"] },
-      { key: "quote",       label: "写一句开场问",   startSec: 7,  sub: ["这位董事每次会议会先问什么"] },
-      { key: "instruction", label: "撰写 instruction", startSec: 9, sub: ["编号 method", "语气规则", "边界条件"] },
-      { key: "voice",       label: "挑选模型嗓音",   startSec: 13, sub: ["按角色深度匹配 model"] },
-      { key: "polish",      label: "收尾打磨",       startSec: 15, sub: ["长度修剪", "最后一遍"] },
+    AGENT_GEN_STAGES_ZH_BASE: [
+      { key: "lineage",     label: "勾画智识画像",   startSec: 0,  sub: ["梳理思想脉络", "标记反对的传统", "挑出具体引用"] },
+      { key: "imagine",     label: "构思角色",       startSec: 8,  sub: ["勾画语气", "拟定立场", "确定视角"] },
+      { key: "name",        label: "起名 + handle",  startSec: 11, sub: ["试几个短名", "排查 handle 重名"] },
+      { key: "bio",         label: "起草 bio",       startSec: 14, sub: ["一两句话", "点明方法"] },
+      { key: "quote",       label: "写一句开场问",   startSec: 17, sub: ["这位董事每次会议会先问什么"] },
+      { key: "instruction", label: "撰写 instruction", startSec: 20, sub: ["脉络 + 概念", "method + 引用集", "语气 + 边界", "失效模式"] },
+      { key: "voice",       label: "挑选模型嗓音",   startSec: 28, sub: ["按角色深度匹配 model"] },
+      { key: "polish",      label: "收尾打磨",       startSec: 31, sub: ["长度修剪", "最后一遍"] },
     ],
+    /** Web-search prefix · prepended to the base list when the user
+     *  opted into web search this run. Adds ~5s to the perceived
+     *  pipeline; downstream startSecs are shifted in agentGenStagesFor. */
+    AGENT_GEN_STAGES_WS_EN: { key: "search", label: "Searching the web for context", startSec: 0, sub: ["refining the query", "scanning Brave results", "distilling 5–6 named sources"] },
+    AGENT_GEN_STAGES_WS_ZH: { key: "search", label: "联网检索领域上下文",         startSec: 0, sub: ["精炼查询", "扫描 Brave 结果", "提炼 5–6 条具名来源"] },
+
+    /** Build the active stage list for THIS generation. When web search
+     *  is on, prepend the search stage and shift everything else later. */
+    agentGenStagesFor(lang) {
+      const base = lang === "zh" ? this.AGENT_GEN_STAGES_ZH_BASE : this.AGENT_GEN_STAGES_EN_BASE;
+      const useWs = !!this._agentGenUsingWebSearch;
+      if (!useWs) return base;
+      const wsEntry = lang === "zh" ? this.AGENT_GEN_STAGES_WS_ZH : this.AGENT_GEN_STAGES_WS_EN;
+      const SHIFT = 5;
+      const shifted = base.map((s) => ({ ...s, startSec: s.startSec + SHIFT }));
+      return [wsEntry, ...shifted];
+    },
+
+    /** Back-compat shims · existing references read these names directly.
+     *  Resolved at call-time so the web-search variant is picked when
+     *  the flag is set. */
+    get AGENT_GEN_STAGES_EN() { return this.agentGenStagesFor("en"); },
+    get AGENT_GEN_STAGES_ZH() { return this.agentGenStagesFor("zh"); },
 
     /** Start the stage tick. Called when /generate-spec request fires.
      *  Idempotent — calling twice is safe. */
@@ -4498,6 +5673,49 @@
                 <span class="ag-cmp-manual-mark">⚙</span>
                 <span class="ag-cmp-manual-label">${this.escape(t.manual)}</span>
               </button>
+              ${(() => {
+                // Reuses the agent-profile websearch toggle vocabulary
+                // (track + knob + text) so both surfaces feel like the
+                // same control. Class set: `ap-skill-row-toggle` +
+                // `on` / `off` / `needs-key` modifiers, mirroring the
+                // skill row at agent-profile.js:1411.
+                const configured = this.agentComposerBraveConfigured();
+                const on = configured && this.loadAgentComposerWebSearch();
+                const stateLabel = !configured
+                  ? (lang === "zh" ? "未配置" : "needs key")
+                  : on
+                    ? (lang === "zh" ? "已开启" : "enabled")
+                    : (lang === "zh" ? "已关闭" : "disabled");
+                const titleText = !configured
+                  ? (lang === "zh"
+                    ? "联网搜索需要 Brave Search API key · 点击配置"
+                    : "Web search needs a Brave Search API key · click to configure")
+                  : on
+                    ? (lang === "zh"
+                      ? "生成时联网检索领域真实案例 · 点击关闭"
+                      : "Search the web for real domain references during generation · click to disable")
+                    : (lang === "zh"
+                      ? "生成时不联网 · 点击开启"
+                      : "Generation runs offline · click to enable web search");
+                const wsLabel = lang === "zh" ? "联网搜索" : "web search";
+                const cls = [
+                  "ap-skill-row-toggle",
+                  "cmp-ws-toggle",
+                  on ? "on" : "off",
+                  configured ? "" : "needs-key",
+                ].filter(Boolean).join(" ");
+                return `
+                  <button type="button" class="${cls}"
+                    data-agent-composer-ws-toggle
+                    data-configured="${configured ? "1" : "0"}"
+                    data-on="${on ? "1" : "0"}"
+                    aria-pressed="${on ? "true" : "false"}"
+                    title="${this.escape(titleText)}">
+                    <span class="ap-skill-row-toggle-track"><span class="ap-skill-row-toggle-knob"></span></span>
+                    <span class="ap-skill-row-toggle-text">${this.escape(wsLabel)} · ${this.escape(stateLabel)}</span>
+                  </button>
+                `;
+              })()}
               <button type="button" class="cmp-go ${generating ? "busy" : ""}" data-agent-composer-go title="${this.escape(t.cta)} (⏎)" ${generating ? "disabled" : ""}>
                 <span class="cmp-go-arrow">${generating ? "…" : "→"}</span>
               </button>
@@ -4684,8 +5902,21 @@
     autosizeAgentComposerTextarea() {
       const ta = document.querySelector("[data-agent-composer-desc]");
       if (!ta) return;
+      const MIN = 84;
+      const MAX = 360;
+      // Quick path · if content fits within the current explicit
+      // height (or the min when no explicit height has been set yet),
+      // skip the auto-cycle entirely. Without this, every keystroke
+      // ran style.height = "auto" → measure → restore, which made the
+      // textarea visibly twitch on each input — even when the height
+      // wasn't going to change. After the change, short content (any
+      // input that fits in the placeholder-sized slot) is a no-op.
+      const explicitH = parseInt(ta.style.height, 10) || MIN;
+      if (ta.scrollHeight <= explicitH) return;
+      // Grow path · content overflowed; reset to auto so scrollHeight
+      // reflects the natural content height and resize up.
       ta.style.height = "auto";
-      const h = Math.min(360, Math.max(84, ta.scrollHeight));
+      const h = Math.min(MAX, Math.max(MIN, ta.scrollHeight));
       ta.style.height = h + "px";
     },
 
@@ -4700,13 +5931,18 @@
       this._agentComposerLastDesc = description;
       this.agentSpec = null;
       this.agentSpecGenerating = true;
+      // Snapshot websearch state for THIS run · drives the stage list
+      // (whether the "searching the web" prefix shows) and the POST
+      // body. Snapshotted up-front so a mid-run toggle change doesn't
+      // half-rewrite the visible stages while generation is in flight.
+      this._agentGenUsingWebSearch = this.loadAgentComposerWebSearch();
       this.renderEmptyState();
       this.startAgentGenTick();
       try {
         const r = await fetch("/api/agents/generate-spec", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ description }),
+          body: JSON.stringify({ description, webSearch: this._agentGenUsingWebSearch }),
         });
         if (!r.ok) {
           const e = await r.json().catch(() => ({}));
@@ -4762,6 +5998,7 @@
       }
       this.agentSpec = null;
       this.agentSpecGenerating = true;
+      this._agentGenUsingWebSearch = this.loadAgentComposerWebSearch();
       this.renderEmptyState();
       this.startAgentGenTick();
       // Submit again with the same description.
@@ -4770,7 +6007,7 @@
           const r = await fetch("/api/agents/generate-spec", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ description: desc }),
+            body: JSON.stringify({ description: desc, webSearch: this._agentGenUsingWebSearch }),
           });
           if (!r.ok) {
             const e = await r.json().catch(() => ({}));
@@ -4922,10 +6159,36 @@
         </div>
       `;
       document.body.appendChild(pop);
-      // Position
+      // Position with viewport collision detection. Generous buffer
+      // (24px from viewport edges + 8px from the anchor) so the
+      // popover never sits flush with the screen edge, and max-height
+      // honours the ACTUAL space on the chosen side — no synthetic
+      // floor that would otherwise overflow when room is tight (the
+      // prior `Math.max(160, cap)` did exactly that and pushed rows
+      // off-screen). Decision: prefer the side where the natural
+      // popover fits; tie → side with more space; when neither side
+      // fits, pick the larger and let internal scroll handle it.
       const r = anchorBtn.getBoundingClientRect();
+      const buffer = 24;
+      const gap = 8;
+      const viewH = window.innerHeight || document.documentElement.clientHeight;
+      const spaceBelow = Math.max(0, viewH - r.bottom - buffer);
+      const spaceAbove = Math.max(0, r.top - buffer);
+      const naturalH = pop.offsetHeight;
+      let placeBelow;
+      if (naturalH <= spaceBelow) placeBelow = true;
+      else if (naturalH <= spaceAbove) placeBelow = false;
+      else placeBelow = spaceBelow >= spaceAbove;
+      const cap = placeBelow ? spaceBelow : spaceAbove;
+      pop.style.maxHeight = cap + "px";
       pop.style.left = Math.max(8, r.left) + "px";
-      pop.style.top = (r.bottom + 6) + "px";
+      if (placeBelow) {
+        pop.style.top = (r.bottom + gap) + "px";
+        pop.style.bottom = "";
+      } else {
+        pop.style.top = "";
+        pop.style.bottom = (viewH - r.top + gap) + "px";
+      }
       // Close handlers
       this._composerPickEsc = (ev) => {
         if (ev.key === "Escape") {
@@ -5414,7 +6677,14 @@
       //   live      → [ ❚❚ Pause ]    (amber, secondary)
       //   paused    → [ ▶ Resume ]    (lime, primary)
       //   adjourned → [ View Report ] (lime, primary)
+      // Leading expand button — naked CSS-glyph (▸ from ::before),
+      // matching the .sidebar-collapse-btn vocabulary. Visible only
+      // when body.sidebar-collapsed (CSS-gated). Always rendered so
+      // the DOM stays stable; the collapsed state flips room-head's
+      // grid template to a 3-track layout so this button takes the
+      // leading auto-track slot.
       head.innerHTML = `
+        <button type="button" class="room-head-expand" data-sidebar-expand title="Expand sidebar" aria-label="Expand sidebar"></button>
         <div class="room-info">
           <div class="room-id">
             <span class="room-name">Meeting Room</span>
@@ -5505,6 +6775,10 @@
         banner +
         messages.map((m) => this.messageHtml(m, m.id === openerId)).join("") +
         conveneCard;
+      // Apply chairman's-notes highlights for every message in the
+      // freshly-rendered chat. Single pass over this.currentNotes
+      // since the full DOM was just replaced.
+      this.applyAllNoteHighlights();
     },
 
     /** Convening card · multi-stage placeholder rendered while a fresh
@@ -5592,6 +6866,10 @@
       // The very first user message in the room renders as the convene block.
       const isOpener = msg.id === this.firstUserMessageId();
       chat.insertAdjacentHTML("beforeend", this.messageHtml(msg, isOpener));
+      // Apply highlights for the newly-appended message · cheap
+      // (single message, single map lookup) and keeps brand-new
+      // bubbles consistent with the rest of the chat.
+      this.applyNoteHighlightsForMessage(msg.id);
     },
 
     /** "Thinking…" bouncing-dots placeholder shown before the first token. */
@@ -5632,6 +6910,13 @@
         bubble.innerHTML = this.renderBody(display);
         article.classList.toggle("thinking", false);
         article.classList.toggle(isChairCard ? "is-streaming" : "streaming", !!streaming);
+        // Re-apply chairman's-notes highlights · the bubble's
+        // innerHTML rewrite above wipes any previously-injected
+        // .note-highlight spans. Skip mid-stream (offsets won't match
+        // partial text) and reapply once streaming finishes.
+        if (!streaming) {
+          this.applyNoteHighlightsForMessage(messageId);
+        }
       }
     },
 
@@ -5897,10 +7182,61 @@
       // Convene opener — the room's seed question, distinct from regular chat.
       if (isOpener && m.authorKind === "user") {
         const who = this.escape(this.prefs?.name || "You");
+        // Long openers (the user wrote more than a couple of sentences
+        // of context) get clamped behind a fade with a "Show more"
+        // toggle so the card doesn't dominate the viewport. Clamp is
+        // tight (~4 lines of body text) so even mid-length openers
+        // collapse — the user can always one-click to read the full
+        // text. Toggle handler lives at doc level (see init).
+        const isLongOpener = (m.body || "").length > 160;
+        // Follow-up rooms get an "origin" row above the question that
+        // names the parent room (number + subject) and links back to
+        // it via the hash route. Without this, a follow-up looks
+        // identical to a fresh room — there's no signal that the cast
+        // is treating it as continuation. Lookup uses the sidebar's
+        // rooms list since it's already loaded; if the parent isn't
+        // there yet (rare race) we fall back to a reference-only line.
+        const parentId = this.currentRoom?.parentRoomId;
+        let originHtml = "";
+        if (parentId) {
+          const parent = (this.rooms || []).find((r) => r.id === parentId);
+          const parentNum = parent?.number ?? "?";
+          const parentSubject = (parent?.subject || "").trim();
+          const truncated = parentSubject.length > 70
+            ? parentSubject.slice(0, 70) + "…"
+            : parentSubject;
+          const isZh = /[一-鿿]/.test(this.currentRoom?.subject || "");
+          const label = isZh ? "继续自" : "Following up on";
+          const roomTag = isZh ? "Room #" : "Room #";
+          const subjectChunk = truncated
+            ? `<span class="convene-origin-sep">·</span><span class="convene-origin-subject">${this.escape(truncated)}</span>`
+            : "";
+          originHtml = `
+            <a class="convene-origin" href="#/r/${this.escape(parentId)}" data-parent-room-id="${this.escape(parentId)}" title="${this.escape((isZh ? "返回上一场会议 · " : "Open the prior session · ") + (parentSubject || parentId))}">
+              <span class="convene-origin-arrow">↩</span>
+              <span class="convene-origin-label">${this.escape(label)}</span>
+              <span class="convene-origin-room">${this.escape(roomTag)}${this.escape(String(parentNum))}</span>
+              ${subjectChunk}
+            </a>
+          `;
+        }
+        const articleCls = [
+          "convene-opener",
+          parentId ? "convene-opener-followup" : "",
+          isLongOpener ? "convene-opener-clamped" : "",
+        ].filter(Boolean).join(" ");
+        const isZhLang = /[一-鿿]/.test(m.body || "") || /[一-鿿]/.test(this.currentRoom?.subject || "");
+        const moreLabel = isZhLang ? "展开全文 ↓" : "Show more ↓";
+        const lessLabel = isZhLang ? "收起 ↑" : "Show less ↑";
+        const toggleHtml = isLongOpener
+          ? `<button type="button" class="convene-toggle" data-convene-toggle data-more="${this.escape(moreLabel)}" data-less="${this.escape(lessLabel)}">${moreLabel}</button>`
+          : "";
         return `
-          <article class="convene-opener" data-message-id="${this.escape(m.id)}">
+          <article class="${articleCls}" data-message-id="${this.escape(m.id)}">
             <div class="convene-eyebrow">▸ Convene · Initial Question</div>
+            ${originHtml}
             <h2 class="convene-body">${this.renderBody(m.body)}</h2>
+            ${toggleHtml}
             <div class="convene-meta">
               <span class="convene-by">${who}</span>
               <span class="convene-time">· ${this.timeFmt(m.createdAt)}</span>
@@ -6504,6 +7840,11 @@
       if (!this.currentBrief) {
         card.innerHTML = "";
         card.classList.remove("ending-block");
+        // Even with no brief yet (e.g. just-adjourned, generation
+        // hasn't started), analytics should still show for an
+        // adjourned room. Call out so the fallback "outside the
+        // brief container" insertion path runs.
+        this.renderSessionAnalytics();
         return;
       }
       card.classList.add("ending-block");
@@ -6586,6 +7927,8 @@
             </div>
           </div>
         `;
+        // Re-anchor analytics here too · error path also wipes innerHTML.
+        this.renderSessionAnalytics();
         return;
       }
 
@@ -6701,6 +8044,15 @@
           <span class="ending-block-foot-line"></span>
         </footer>
       `;
+      // Re-anchor the session-analytics tile after every brief
+      // re-render. Analytics is inserted INSIDE [data-brief-card]
+      // (between the divider header and the brief card itself), and
+      // setting card.innerHTML above wipes it. Without this call,
+      // analytics would flicker into existence after the initial
+      // adjourn refetch and then vanish on the very next brief
+      // SSE event (brief-started / brief-token / brief-final). The
+      // re-render is idempotent and cheap (small DOM, no fetch).
+      this.renderSessionAnalytics();
     },
 
     /** Per-stage ETA range (seconds) shown next to the active stage. Once
@@ -7092,11 +8444,20 @@
 
     /** Scroll the chat to the bottom. If `force` is omitted/false, the
      *  scroll is gated by chatStuckToBottom — i.e. the auto-scroll only
-     *  fires when the user is already following the live feed. */
+     *  fires when the user is already following the live feed.
+     *
+     *  Also gated by a short-lived suppression window (`_suppress-
+     *  BottomScrollUntil`) that scrollToNote sets after a successful
+     *  note jump. Without this gate, an SSE token or queue-update
+     *  event landing during the smooth scroll-to-span would call
+     *  scrollChatToBottom() and snap the chat back to bottom, undoing
+     *  the user's intended jump. Forced scrolls (`force === true`)
+     *  bypass the lock so user-initiated actions still work. */
     scrollChatToBottom(force) {
       const chat = document.querySelector(".chat");
       if (!chat) return;
       if (!force && !this.chatStuckToBottom) return;
+      if (!force && this._suppressBottomScrollUntil && Date.now() < this._suppressBottomScrollUntil) return;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           chat.scrollTop = chat.scrollHeight;
@@ -7449,6 +8810,14 @@
       app.setReportsFilter(key);
       return;
     }
+    // ─── All Notes · filter chip click (mirrors the reports strip)
+    const notesFilterChip = e.target.closest("[data-notes-filter]");
+    if (notesFilterChip) {
+      e.preventDefault();
+      const key = notesFilterChip.getAttribute("data-notes-filter");
+      app.setNotesFilter(key);
+      return;
+    }
     // ─── Agent composer · submit
     if (e.target.closest("[data-agent-composer-go]")) {
       e.preventDefault();
@@ -7459,6 +8828,51 @@
     if (e.target.closest("[data-agent-composer-manual]")) {
       e.preventDefault();
       if (typeof window.openNewAgent === "function") window.openNewAgent();
+      return;
+    }
+    // ─── Agent composer · websearch toggle. Three paths:
+    //   · unconfigured → confirm + open Preferences → Brave row
+    //   · on  → save off + flip toggle in place
+    //   · off → save on + flip toggle in place
+    // Done with in-place class / text mutation rather than a full
+    // renderEmptyState() repaint — repaint blew the textarea away
+    // and caused a visible page flash on every click.
+    const wsToggle = e.target.closest("[data-agent-composer-ws-toggle]");
+    if (wsToggle) {
+      e.preventDefault();
+      const configured = wsToggle.getAttribute("data-configured") === "1";
+      const isZh = (app.composerLanguage && app.composerLanguage()) === "zh";
+      if (!configured) {
+        const ok = confirm(isZh
+          ? "联网搜索需要 Brave Search API key。\n\nBrave Search · 约 $5 / 1000 次查询 · 注重隐私\n\n现在去 Preferences 配置吗？"
+          : "Web Search needs a Brave Search API key.\n\nBrave Search · ≈ $5 per 1000 queries · privacy-respecting\n\nOpen Preferences to paste your key now?");
+        if (ok && typeof window.openUserSettings === "function") {
+          window.openUserSettings({ section: "keys", focusProvider: "brave" });
+        }
+        return;
+      }
+      const wasOn = wsToggle.getAttribute("data-on") === "1";
+      const next = !wasOn;
+      app.saveAgentComposerWebSearch(next);
+      wsToggle.classList.toggle("on", next);
+      wsToggle.classList.toggle("off", !next);
+      wsToggle.setAttribute("data-on", next ? "1" : "0");
+      wsToggle.setAttribute("aria-pressed", next ? "true" : "false");
+      const txt = wsToggle.querySelector(".ap-skill-row-toggle-text");
+      if (txt) {
+        const wsLabel = isZh ? "联网搜索" : "web search";
+        const stateLabel = next
+          ? (isZh ? "已开启" : "enabled")
+          : (isZh ? "已关闭" : "disabled");
+        txt.textContent = `${wsLabel} · ${stateLabel}`;
+      }
+      wsToggle.title = next
+        ? (isZh
+          ? "生成时联网检索领域真实案例 · 点击关闭"
+          : "Search the web for real domain references during generation · click to disable")
+        : (isZh
+          ? "生成时不联网 · 点击开启"
+          : "Generation runs offline · click to enable web search");
       return;
     }
     // ─── Agent spec preview · field actions

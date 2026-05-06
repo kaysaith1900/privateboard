@@ -2,7 +2,7 @@
    QUOTE CTA · selection-driven follow-up
    ═══════════════════════════════════════════
    When the user selects text inside a director's message bubble,
-   a small floating bar appears above the selection with two
+   a small floating bar appears above the selection with three
    actions:
 
      ✎ Probe / 追问     →  opens an overlay; user types a question;
@@ -18,11 +18,22 @@
                           the quote, signalling the user co-signs the
                           director's point. Same routing.
 
+     ⌖ Save / 收藏     →  one-click; bookmarks the selection to the
+                          chairman's notes (POST /api/notes). No room
+                          message is created — this is a personal
+                          collection, not a room interaction. Works
+                          even in adjourned rooms (re-reading a
+                          finished session is a primary use-case).
+                          Keyboard shortcut: `S` (when a director
+                          selection is live).
+
    Director scope · selection only counts when both ends sit inside
    the same `article.msg` whose class is neither `user` nor `chair`.
 
-   No backend changes · everything rides on existing /api/rooms/:id/
-   messages POST and the markdown blockquote renderer in app.js.
+   Probe / Second ride existing /api/rooms/:id/messages. Save POSTs
+   to /api/notes with quote + sentence-based context + char offsets
+   (computed against the bubble's textContent so the in-room overlay
+   can re-wrap the same span on next render).
 */
 (function () {
   let cta = null;             // floating button bar
@@ -56,15 +67,81 @@
     // director bubbles (added in app.js messageHtml). Name comes from
     // the visible .msg-name span in the same message header.
     const directorId = article.dataset.authorId || "";
+    const messageId = article.dataset.messageId || "";
     const nameEl = article.querySelector(".msg-name");
     const directorName = nameEl ? nameEl.textContent.trim() : "";
-    // Adjourned rooms · CTA still shows but in a read-only state with
-    // a hint instead of buttons. Surfacing the bar (rather than
-    // silently doing nothing) tells the user "your selection was
-    // detected" and explains why probe / second aren't available.
+    // Adjourned rooms · the room is closed for new replies (Probe /
+    // Second are disabled), but the user can still save notes from
+    // it — re-reading a finished session is a primary use case.
     const app = window.app;
     const adjourned = !!(app && app.currentRoom && app.currentRoom.status === "adjourned");
-    return { article, bubble, range, text, directorId, directorName, adjourned };
+
+    // Char offsets relative to bubble.textContent · let the in-room
+    // overlay (Step 5) wrap the same span on next render. Computed
+    // once here so save can fire on either the button click or the
+    // `S` keyboard shortcut without re-walking the DOM.
+    const offsets = computeOffsets(bubble, range);
+
+    return {
+      article, bubble, range, text, messageId,
+      directorId, directorName, adjourned,
+      charOffsetStart: offsets.start,
+      charOffsetEnd: offsets.end,
+      bubbleText: offsets.bubbleText,
+    };
+  }
+
+  // Compute the char offset of a Range's start / end relative to a
+  // container's textContent. Uses Range.toString().length on a
+  // synthetic range that spans [container start → selection point],
+  // which honours rendered text the same way textContent does (skips
+  // markup, preserves visible characters). Returns -1 / -1 if the
+  // walk fails (renderer falls back to no overlay).
+  function computeOffsets(container, range) {
+    const bubbleText = container.textContent || "";
+    try {
+      const before = document.createRange();
+      before.setStart(container, 0);
+      before.setEnd(range.startContainer, range.startOffset);
+      const start = before.toString().length;
+      const inner = document.createRange();
+      inner.setStart(range.startContainer, range.startOffset);
+      inner.setEnd(range.endContainer, range.endOffset);
+      const end = start + inner.toString().length;
+      return { start, end, bubbleText };
+    } catch {
+      return { start: -1, end: -1, bubbleText };
+    }
+  }
+
+  // Sentence-based context expansion · grabs ~1–2 sentences on each
+  // side of the quote (capped at MAX_CHARS). Honours both ASCII
+  // (.!?) and CJK (。！？) sentence terminators. Falls back to the
+  // char cap if no boundary is found within the cap window.
+  function expandContext(fullText, quoteStart, quoteEnd) {
+    if (!fullText || quoteStart < 0 || quoteEnd < quoteStart) {
+      return { before: "", after: "" };
+    }
+    const MAX_CHARS = 200;
+    const SENTENCE_END = /[.!?。！？]/;
+    let beforeStart = Math.max(0, quoteStart - MAX_CHARS);
+    for (let i = quoteStart - 1; i >= beforeStart; i--) {
+      if (SENTENCE_END.test(fullText[i])) {
+        beforeStart = Math.min(i + 1, quoteStart);
+        break;
+      }
+    }
+    let afterEnd = Math.min(fullText.length, quoteEnd + MAX_CHARS);
+    for (let i = quoteEnd; i < afterEnd; i++) {
+      if (SENTENCE_END.test(fullText[i])) {
+        afterEnd = Math.min(i + 1, fullText.length);
+        break;
+      }
+    }
+    return {
+      before: fullText.slice(beforeStart, quoteStart),
+      after: fullText.slice(quoteEnd, afterEnd),
+    };
   }
 
   function lang() {
@@ -83,13 +160,20 @@
     cta.className = "qcta";
     cta.setAttribute("role", "toolbar");
     const t = lang() === "zh"
-      ? { ask: "追问", love: "附议" }
-      : { ask: "Probe", love: "Second" };
+      ? { ask: "追问", love: "附议", save: "收藏" }
+      : { ask: "Probe", love: "Second", save: "Save" };
     // Inline chat-bubble SVG · uses currentColor so it inherits the
     // hover lime / base text colour like the ★ glyph does.
     const askIcon = `
       <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="miter" stroke-linecap="square" aria-hidden="true">
         <path d="M2 3 H12 V9 H6.5 L4 11 L4 9 H2 Z"/>
+      </svg>
+    `;
+    // Bookmark glyph · matches the All Notes sidebar entry's icon
+    // semantics (this action lands in that view).
+    const saveIcon = `
+      <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="miter" stroke-linecap="square" aria-hidden="true">
+        <path d="M3.5 1.5 H10.5 V12.5 L7 9.5 L3.5 12.5 Z"/>
       </svg>
     `;
     cta.innerHTML = `
@@ -98,6 +182,9 @@
       </button>
       <button type="button" class="qcta-btn" data-qcta="second">
         <span class="ico">★</span><span>${t.love}</span>
+      </button>
+      <button type="button" class="qcta-btn qcta-btn-save" data-qcta="save" title="Save to Notes · S">
+        <span class="ico">${saveIcon}</span><span>${t.save}</span>
       </button>
       <span class="qcta-hint" data-qcta-hint></span>
     `;
@@ -108,16 +195,17 @@
     cta.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-qcta]");
       if (!btn) return;
-      // Read-only state · the bar shows a hint about why instead of
-      // doing anything. Bail before hideCTA so the user can keep
-      // reading the hint while their selection stays.
-      if (cta.classList.contains("qcta-readonly")) return;
       const action = btn.getAttribute("data-qcta");
+      // Read-only state (adjourned rooms) blocks Probe / Second since
+      // they post messages to a closed room. Save is exempt — the
+      // user is bookmarking for personal review, not interacting.
+      if (cta.classList.contains("qcta-readonly") && action !== "save") return;
       const sel = lastSelection;
       hideCTA();
       if (!sel || !sel.text) return;
       if (action === "ask") openAskOverlay(sel);
       else if (action === "second") submitSecond(sel);
+      else if (action === "save") submitSave(sel);
     });
     document.body.appendChild(cta);
     return cta;
@@ -129,10 +217,14 @@
       text: ctx.text,
       directorId: ctx.directorId,
       directorName: ctx.directorName,
+      messageId: ctx.messageId,
+      charOffsetStart: ctx.charOffsetStart,
+      charOffsetEnd: ctx.charOffsetEnd,
+      bubbleText: ctx.bubbleText,
     };
-    // Read-only state · adjourned room. Hide buttons, show hint text
-    // so the user knows the selection was detected but the room is
-    // closed for new replies.
+    // Read-only state · adjourned room. Hide Probe / Second (they
+    // post to a closed room); Save stays available — review-mode
+    // bookmarking is a primary use case for adjourned sessions.
     bar.classList.toggle("qcta-readonly", !!ctx.adjourned);
     const hint = bar.querySelector("[data-qcta-hint]");
     if (hint) {
@@ -190,7 +282,34 @@
   window.addEventListener("scroll", hideCTA, true);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hideCTA();
+
+    // `S` shortcut · save current selection to Notes. Only fires
+    // when (a) a director-scoped selection is live, (b) no modifier
+    // keys are pressed (Cmd/Ctrl/Alt would clobber browser
+    // shortcuts), (c) the user isn't typing into an input. Skipping
+    // when an input/textarea is focused avoids hijacking the `s`
+    // key during composer typing — the qcta bar wouldn't have
+    // shown for a non-director selection anyway.
+    if ((e.key === "s" || e.key === "S")
+        && !e.metaKey && !e.ctrlKey && !e.altKey
+        && !isEditableTarget(e.target)
+        && lastSelection
+        && lastSelection.text
+        && cta && cta.classList.contains("open")) {
+      e.preventDefault();
+      const sel = lastSelection;
+      hideCTA();
+      submitSave(sel);
+    }
   });
+
+  function isEditableTarget(node) {
+    if (!node) return false;
+    const tag = (node.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") return true;
+    if (node.isContentEditable) return true;
+    return false;
+  }
 
   // ── Ask-follow-up overlay ────────────────────────────────────
   function openAskOverlay(sel) {
@@ -313,6 +432,85 @@
     const body = quoteBlock(sel.text, sel.directorName) + "\n\n" + userText;
     const mentions = sel.directorId ? [sel.directorId] : [];
     routeSend(body, mentions);
+  }
+
+  // ── Save to Notes ─────────────────────────────────────────────
+  // POST /api/notes with quote + sentence-based context + char
+  // offsets. No room interaction — this is a personal bookmark.
+  async function submitSave(sel) {
+    const app = window.app;
+    const room = app && app.currentRoom;
+    if (!room || !room.id) {
+      toast(lang() === "zh" ? "无法保存：未打开房间" : "Can't save: no room open", "error");
+      return;
+    }
+    if (!sel.messageId) {
+      toast(lang() === "zh" ? "无法保存：未识别原文位置" : "Can't save: source not identified", "error");
+      return;
+    }
+    const ctx = expandContext(
+      sel.bubbleText || "",
+      typeof sel.charOffsetStart === "number" ? sel.charOffsetStart : -1,
+      typeof sel.charOffsetEnd === "number" ? sel.charOffsetEnd : -1,
+    );
+    const payload = {
+      roomId: room.id,
+      messageId: sel.messageId,
+      quoteText: sel.text,
+      contextBefore: ctx.before,
+      contextAfter: ctx.after,
+      charOffsetStart: sel.charOffsetStart,
+      charOffsetEnd: sel.charOffsetEnd,
+      authorName: sel.directorName,
+    };
+    try {
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || ("HTTP " + res.status));
+      }
+      const note = await res.json();
+      toast(lang() === "zh" ? "已收藏到笔记" : "Saved to Notes", "ok");
+
+      // Tell the rest of the app a note was created · sidebar badge
+      // refreshes its count, in-room overlay (Step 5) wraps the
+      // saved span. Listeners that don't exist yet are no-ops.
+      try {
+        document.dispatchEvent(new CustomEvent("note:created", { detail: { note } }));
+      } catch { /* */ }
+    } catch (err) {
+      toast(
+        (lang() === "zh" ? "保存失败：" : "Save failed: ") + (err && err.message ? err.message : err),
+        "error",
+      );
+    }
+  }
+
+  // Lightweight toast · the app already has `app.notify(...)` in
+  // some paths but not all; using a self-contained one keeps this
+  // module independent. Lime for ok, red-tinted for error. Auto-
+  // dismisses after 1.8s; click to dismiss early.
+  let toastEl = null;
+  let toastTimer = null;
+  function toast(msg, kind) {
+    if (!toastEl) {
+      toastEl = document.createElement("div");
+      toastEl.className = "qcta-toast";
+      toastEl.addEventListener("click", () => toastEl.classList.remove("open"));
+      document.body.appendChild(toastEl);
+    }
+    toastEl.classList.remove("kind-ok", "kind-error");
+    toastEl.classList.add("kind-" + (kind === "error" ? "error" : "ok"));
+    toastEl.textContent = msg;
+    toastEl.classList.add("open");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      if (toastEl) toastEl.classList.remove("open");
+    }, 1800);
   }
 
   /** Routing matrix:

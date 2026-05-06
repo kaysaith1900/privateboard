@@ -542,10 +542,12 @@ html, body {
    <style>; this block tweaks surface, accent + typography to match
    the spine's voice. No `border-left`, no parallel borders against
    adjacent .chapter-num / section h2. */
-/* Dense table-like treatment · 4-up grid by default, monospace
-   everywhere, the value is primary but disciplined (not display-sized). */
+/* Dense table-like treatment · monospace everywhere, value is
+   primary but disciplined (not display-sized). The grid keeps its
+   1px-rule "table cells" look but inherits the baseline's
+   data-cards templates so the orphan-card problem (5 cards
+   wrapping as 4+1 with the lone card stretched) is solved. */
 .body .metric-strip-grid {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 1px;
   background: var(--rule, rgba(0, 0, 0, 0.08));
   border: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.12));

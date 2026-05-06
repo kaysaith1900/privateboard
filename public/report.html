@@ -79,7 +79,8 @@
     .cover-versions,
     [data-back],
     [data-download],
-    .top-actions {
+    .top-actions,
+    .colophon-share {
       display: none !important;
     }
 
@@ -393,77 +394,139 @@
        · Metric value is the eye-catch · big tabular numerals.
        · Trend glyph is small and doesn't compete with the value. */
   .body .metric-strip {
-    margin: 18px 0 22px;
+    margin: 26px 0 30px;
   }
   .body .metric-strip-intro {
     font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-soft, #8E8B83);
-    margin: 0 0 10px;
+    margin: 0 0 14px;
   }
+  /* Grid · explicit columns per card count keeps cards uniform and
+     kills the "lonely 5th card" problem you get from auto-fit when
+     a row doesn't fully fill. The renderer stamps `data-cards` on
+     the grid wrapper (see renderMetricStrip in this file). */
   .body .metric-strip-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 10px;
+    gap: 12px;
     align-items: stretch;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .body .metric-strip-grid[data-cards="2"] { grid-template-columns: repeat(2, 1fr); }
+  .body .metric-strip-grid[data-cards="3"] { grid-template-columns: repeat(3, 1fr); }
+  .body .metric-strip-grid[data-cards="4"] { grid-template-columns: repeat(4, 1fr); }
+  .body .metric-strip-grid[data-cards="5"] { grid-template-columns: repeat(5, 1fr); }
+  /* Narrow viewports · collapse to two columns max so labels don't
+     truncate down to two letters. Print uses `display: block` from
+     the page-break rules above, so this only affects on-screen at
+     tablet / phone widths. */
+  @media (max-width: 720px) {
+    .body .metric-strip-grid,
+    .body .metric-strip-grid[data-cards="3"],
+    .body .metric-strip-grid[data-cards="4"],
+    .body .metric-strip-grid[data-cards="5"] {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
   .body .metric-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 14px 16px;
+    gap: 8px;
+    padding: 16px 18px;
     background: var(--panel-2, rgba(255, 255, 255, 0.025));
     border: 0.5px solid var(--line-bright, rgba(255, 255, 255, 0.08));
-    min-height: 92px;
+    min-height: 116px;
+    overflow: hidden;
   }
   .body .metric-label {
     font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-soft, #8E8B83);
     line-height: 1.3;
+    /* Long labels truncate to one line so the value lands on the
+       same baseline across all cards — predictable rhythm beats
+       fitting every word on cards with shorter labels. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .body .metric-value-row {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 6px;
     line-height: 1;
+    margin: 2px 0 0;
   }
   .body .metric-value {
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Helvetica Neue",
                  "Songti SC", monospace;
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 700;
     font-variant-numeric: tabular-nums lining-nums;
     color: var(--text, #C8C5BE);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.018em;
+    line-height: 1.05;
   }
   .body .metric-trend {
     font-family: "SF Mono", "JetBrains Mono", monospace;
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1;
     color: var(--text-dim, #5C5A52);
+    /* The big value's baseline sits a hair lower than the trend
+       glyph's at this size · 1px nudge brings them into visual
+       alignment without breaking baseline flow. */
+    position: relative;
+    top: -2px;
   }
   .body .metric-trend[data-trend="up"]   { color: var(--em, var(--lime, #6FB572)); }
   .body .metric-trend[data-trend="down"] { color: var(--red, #B5706A); }
   .body .metric-trend[data-trend="flat"] { color: var(--text-dim, #5C5A52); }
+  /* Qualifier · pinned to the BOTTOM of the card via `margin-top:
+     auto` so cards with vs without a qualifier still align their
+     value baselines. Capped to 2 lines · longer text truncates
+     rather than pushing the card height up. */
   .body .metric-qualifier {
     font-family: var(--sans);
     font-size: 11.5px;
-    line-height: 1.4;
+    line-height: 1.45;
     color: var(--text-soft, #8E8B83);
     letter-spacing: -0.003em;
+    margin: auto 0 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
+  /* Attribution · single line, ellipsis, mono uppercase footnote. */
   .body .metric-attribution {
     font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.06em;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-faint, #5C5A4D);
-    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* When a card carries BOTH qualifier and attribution, the
+     qualifier is no longer pinned to the bottom — the attribution
+     is. Use `:last-child` on attribution to pull it to the bottom
+     instead. */
+  .body .metric-card > .metric-attribution:last-child {
+    margin: auto 0 0;
+  }
+  .body .metric-card > .metric-qualifier:not(:last-child) {
+    margin: auto 0 0;
+  }
+  .body .metric-card > .metric-qualifier:not(:last-child) + .metric-attribution {
+    margin-top: 4px;
   }
   /* Print · keep cards intact across page breaks. */
   @media print {
@@ -483,6 +546,138 @@
     display: block;
     margin-bottom: 6px;
     color: var(--red, #B5706A);
+  }
+
+  /* ─── Colophon · two-element footer with split visibility.
+     ─────────────────────────────────────────────────────────────────
+       1. `.colophon-share` · SCREEN ONLY. A [↓ Download PDF] button
+          + hint copy that tells the current reader the PDF carries
+          the full styled brief. Hidden in print.
+       2. `.colophon-card` · PRINT ONLY. A quiet single-line "made
+          with" credit that travels at the foot of the PDF. Hidden
+          on screen so the in-app report doesn't read as marketing
+          surface; appears only when the PDF gets shared.
+          Visually muted on purpose — small mono micro-type, no
+          card frame, no corner brackets, no marketing deck. The
+          goal is "tasteful credit line," not "promotional card,"
+          so the sender doesn't feel like they're forwarding an ad.
+     Spine-agnostic baseline via CSS variables — each spine's
+     palette flows in naturally. Horizontal margin matches `.body`'s
+     32px padding so the footer aligns with the report content above
+     it (a16z-thesis overrides to 56px to match its wider gutter ·
+     see its spine CSS). `.foot-rule` follows the same pattern. */
+  .colophon {
+    margin: 32px 32px 8px;
+  }
+
+  .colophon-share {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
+    background: var(--panel-2, rgba(255, 255, 255, 0.025));
+    border: 0.5px solid var(--line-bright, rgba(0, 0, 0, 0.08));
+    flex-wrap: wrap;
+  }
+  .colophon-share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--lime, #6FB572);
+    color: var(--bg, #FFFFFF);
+    border: 0.5px solid var(--lime, #6FB572);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    flex-shrink: 0;
+  }
+  .colophon-share-btn:hover {
+    background: transparent;
+    color: var(--lime, #6FB572);
+  }
+  .colophon-share-icon {
+    font-size: 13px;
+    line-height: 1;
+  }
+  .colophon-share-hint {
+    flex: 1;
+    min-width: 220px;
+    margin: 0;
+    font-family: var(--sans, var(--font-human));
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-soft, #6B6B6B);
+    letter-spacing: -0.003em;
+  }
+
+  /* PDF-only credit line · default hidden, flipped to flex by the
+     @media print block below. Single horizontal row with a tiny
+     pixel mark + "// generated with" + name + url. No frame, no
+     corners, no marketing copy — reads as a typographic sign-off,
+     not an advertisement. */
+  .colophon-card {
+    display: none;
+    align-items: center;
+    gap: 9px;
+    padding: 12px 0 0;
+    margin-top: 16px;
+    border-top: 0.5px solid var(--line, rgba(0, 0, 0, 0.12));
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft, #6B6B6B);
+  }
+  .colophon-mark {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    opacity: 0.7;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  .colophon-mark-bg { fill: var(--lime, #6FB572); }
+  .colophon-mark-fg { fill: var(--bg, #FFFFFF); }
+  .colophon-eyebrow {
+    color: var(--text-faint, var(--text-dim, #8A8780));
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 9px;
+    font-weight: 600;
+  }
+  .colophon-name {
+    color: var(--text, #1A1A1A);
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  .colophon-sep {
+    color: var(--text-faint, var(--text-dim, #8A8780));
+    opacity: 0.7;
+  }
+  .colophon-cta-url {
+    color: var(--text-soft, #6B6B6B);
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+
+  /* Print discipline · the share strip disappears, the credit line
+     materialises, and both stay whole on whatever final page they
+     land on. */
+  @media print {
+    .colophon {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .colophon-share { display: none !important; }
+    .colophon-card { display: flex !important; }
+    .colophon-card {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
   }
 </style>
 </head>
@@ -514,11 +709,14 @@
   /** Save as PDF · just trigger the browser's print dialog. The
    *  @media print rules below hide chrome and tighten margins so the
    *  output reads as a filed deliverable. The user picks "Save as
-   *  PDF" as the destination — every modern browser supports it. */
-  const downloadBtn = document.querySelector("[data-download]");
-  if (downloadBtn) downloadBtn.addEventListener("click", () => {
-    // Render the brief's title as the suggested filename (most
-    // browsers default to document.title when saving a print-PDF).
+   *  PDF" as the destination — every modern browser supports it.
+   *  Delegated so the top-of-page button AND the bottom colophon
+   *  button (rendered later, after the brief loads) both trigger it
+   *  without re-binding on every render. */
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-download]");
+    if (!btn) return;
+    e.preventDefault();
     window.print();
   });
 
@@ -1402,18 +1600,15 @@
       showError("no room id in url");
       return;
     }
-    let room, brief, members, briefs;
+    let room, brief, members;
     try {
-      // Load room state + ALL briefs for this room in parallel. The
-      // viewer picks the requested brief (when ?b= present) or the
-      // newest, then renders the version-tab strip if there are ≥ 2.
+      // Load room state + the requested brief in parallel.
       const briefEndpoint = briefId
         ? "/api/briefs/" + encodeURIComponent(briefId)
         : "/api/rooms/" + encodeURIComponent(roomId) + "/brief";
-      const [stateRes, briefRes, listRes] = await Promise.all([
+      const [stateRes, briefRes] = await Promise.all([
         fetch("/api/rooms/" + encodeURIComponent(roomId)),
         fetch(briefEndpoint),
-        fetch("/api/rooms/" + encodeURIComponent(roomId) + "/briefs"),
       ]);
       if (!briefRes.ok) {
         showError(briefRes.status === 404 ? "no brief filed for this room yet" : "failed to load brief");
@@ -1426,12 +1621,6 @@
         members = j.members || [];
       } else {
         members = [];
-      }
-      if (listRes.ok) {
-        const j = await listRes.json();
-        briefs = Array.isArray(j.briefs) ? j.briefs : [];
-      } else {
-        briefs = [];
       }
     } catch (e) {
       showError("network error: " + (e && e.message ? e.message : String(e)));
@@ -1451,29 +1640,52 @@
     const docId = (brief.id || "").slice(0, 12).toUpperCase();
     const subjectShort = room?.subject ? escape(room.subject.length > 64 ? room.subject.slice(0, 64) + "…" : room.subject) : "—";
 
-    // Version strip · only when ≥ 2 briefs filed for this room. Lets
-    // the reader see they're holding "version 02 of 03" of this room's
-    // research note, with siblings linkable. Sorted oldest → newest so
-    // "01" reads as the original.
-    const sortedBriefs = (briefs || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    const showVersions = sortedBriefs.length > 1;
-    const versionsHtml = showVersions ? `
-      <div class="cover-versions">
-        <span class="cover-versions-label">Versions</span>
-        ${sortedBriefs.map((bf, i) => {
-          const num = String(i + 1).padStart(2, "0");
-          const isActive = bf.id === brief.id;
-          const isInitial = i === 0;
-          const hint = isInitial
-            ? "Initial brief"
-            : (bf.supplement && bf.supplement.trim()
-                ? `Supplement: ${bf.supplement.trim().slice(0, 120)}${bf.supplement.trim().length > 120 ? "…" : ""}`
-                : "Regenerated brief");
-          const href = `/report.html?r=${encodeURIComponent(roomId)}&b=${encodeURIComponent(bf.id)}`;
-          return `<a class="cover-version${isActive ? " active" : ""}" href="${href}" title="${escape(hint)}"><span class="num">${num}</span><span class="sep">/</span><span class="hint">${escape(isInitial ? "Initial" : (bf.supplement || "—").trim().slice(0, 22))}${(!isInitial && bf.supplement && bf.supplement.length > 22) ? "…" : ""}</span></a>`;
-        }).join("")}
-      </div>
-    ` : "";
+    // Cover deck · the subtitle under the H1. Derived from the brief's
+    // own opening prose (the lede) instead of a separate column —
+    // writers naturally put their punchiest framing in the first
+    // paragraph, so it reads as a written subtitle. Skips leading
+    // headings, fenced blocks, lists, blockquotes, and HTML so we land
+    // on real paragraph text. Strips inline markdown decoration and
+    // caps length so it fits in 2-3 lines under the title.
+    const deckText = (() => {
+      const md = (brief.bodyMd || "").trim();
+      if (!md) return "";
+      const lines = md.split(/\r?\n/);
+      const para = [];
+      let inFence = false;
+      for (const raw of lines) {
+        const line = raw.trimEnd();
+        if (/^```/.test(line)) { inFence = !inFence; if (para.length) break; continue; }
+        if (inFence) continue;
+        if (!line.trim()) { if (para.length) break; continue; }
+        if (/^#{1,6}\s/.test(line)) continue;
+        if (/^[-*+]\s|^\d+\.\s/.test(line)) { if (para.length) break; continue; }
+        if (/^>\s?/.test(line)) { if (para.length) break; continue; }
+        if (/^<[a-z!/]/i.test(line)) { if (para.length) break; continue; }
+        if (/^[-=*_]{3,}\s*$/.test(line)) { if (para.length) break; continue; }
+        if (/^\|/.test(line)) { if (para.length) break; continue; }
+        para.push(line.trim());
+      }
+      let text = para.join(" ");
+      text = text
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/!\[[^\]]*]\([^)]*\)/g, "")
+        .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/__([^_]+)__/g, "$1")
+        .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1")
+        .replace(/(?<!_)_([^_]+)_(?!_)/g, "$1")
+        .replace(/<[^>]+>/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const CAP = 220;
+      if (text.length > CAP) {
+        const cut = text.slice(0, CAP);
+        const lastSpace = cut.lastIndexOf(" ");
+        text = (lastSpace > CAP * 0.7 ? cut.slice(0, lastSpace) : cut).trim() + "…";
+      }
+      return text;
+    })();
 
     // Masthead: the dossier strip at the top of the cover. Reads like
     // a research-note dateline rather than a marketing eyebrow.
@@ -1490,7 +1702,7 @@
           <span class="secondary">Filed ${escape(isoFiled)}</span>
         </div>
         <h1 class="cover-title">${escape(brief.title || "(untitled)")}</h1>
-        ${room?.subject ? `<div class="cover-deck">${escape(room.subject)}</div>` : ""}
+        ${deckText ? `<div class="cover-deck">${escape(deckText)}</div>` : ""}
         <div class="cover-byline">
           <div class="byline-block">
             <div class="label">Filed</div>
@@ -1512,12 +1724,44 @@
             <div class="value" style="font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">${escape(docId || "—")}</div>
           </div>
         </div>
-        ${versionsHtml}
       </header>
 
       <article class="body" data-report-body>${renderMarkdown(brief.bodyMd || "_(empty brief)_")}</article>
 
       <div class="foot-rule">// end of brief · boardroom</div>
+
+      <!-- Colophon · the "growth" surface. Always rendered. The card
+           inside (brand mark + tagline + URL) appears in both screen
+           and PDF — that's the part designed to travel with a shared
+           PDF and tell the recipient where to try the product. The
+           share-CTA strip appears only on screen, prompting the
+           current reader to download + share the PDF. -->
+      <aside class="colophon" aria-label="About PrivateBoard">
+        <div class="colophon-share">
+          <button type="button" class="colophon-share-btn" data-download data-download-bottom>
+            <span class="colophon-share-icon" aria-hidden="true">↓</span>
+            <span class="colophon-share-label">Download PDF · share this brief</span>
+          </button>
+          <p class="colophon-share-hint">Send the PDF to anyone — they'll see the full styled report and a footer with where to try PrivateBoard themselves.</p>
+        </div>
+
+        <div class="colophon-card" aria-hidden="true">
+          <svg class="colophon-mark" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="PrivateBoard">
+            <rect class="colophon-mark-bg" width="16" height="16"/>
+            <rect class="colophon-mark-fg" x="3"  y="2"  width="2" height="2"/>
+            <rect class="colophon-mark-fg" x="7"  y="2"  width="2" height="2"/>
+            <rect class="colophon-mark-fg" x="11" y="2"  width="2" height="2"/>
+            <rect class="colophon-mark-fg" x="2"  y="4"  width="12" height="2"/>
+            <rect class="colophon-mark-fg" x="1"  y="7"  width="14" height="2"/>
+            <rect class="colophon-mark-fg" x="2"  y="10" width="1"  height="4"/>
+            <rect class="colophon-mark-fg" x="13" y="10" width="1"  height="4"/>
+          </svg>
+          <span class="colophon-eyebrow">// generated with</span>
+          <span class="colophon-name">PrivateBoard</span>
+          <span class="colophon-sep" aria-hidden="true">·</span>
+          <span class="colophon-cta-url">privateboard.ai</span>
+        </div>
+      </aside>
     `;
 
     // ── Post-render pass · tag specific sections + inline badges so

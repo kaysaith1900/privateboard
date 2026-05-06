@@ -11,6 +11,85 @@
  */
 import type { LLMMessage } from "../adapter.js";
 
+/* ────────────────────────── Stage A · profile ─────────────────────────────
+ *
+ * Before we write the spec, we ask the model to produce a structured
+ * "intellectual profile" of this director: their lineage, the concepts
+ * they reach for, the cases they cite, their blind spots. The profile
+ * is NOT returned to the user — it's intermediate scaffolding the spec
+ * generator (Stage B) reads in addition to the user's free-text
+ * description, so the resulting director has REAL anchors (named
+ * thinkers, concrete cases, specific concepts) to draw on at debate
+ * time instead of generic LLM-style abstractions.
+ *
+ * Empirically, two-stage generation is much more stable than one-shot
+ * for character coherence — the model commits to a worldview before
+ * picking a name, instead of inventing the worldview piecemeal as it
+ * fills slots in a single JSON object.
+ */
+const PROFILE_SYSTEM = [
+  "You are designing the intellectual profile of a NEW boardroom director the user has just described.",
+  "Your job in THIS step is NOT to write the director's spec. It's to produce a tight, opinionated PROFILE that a downstream prompt will use as the source material for the actual spec.",
+  "",
+  "The profile is a JSON object with five fields. Every field must be SPECIFIC, NAMED, and FALSIFIABLE — no abstract personality language ('insightful', 'thoughtful', 'analytical'), no marketing copy, no hedging.",
+  "",
+  "## Fields",
+  "",
+  "1. `intellectualLineage` · 2-4 named influences this director descends from + 1-2 traditions / schools they push back against.",
+  "   Format: { \"influencedBy\": [\"named thinker / school / tradition · 1-line on what they took\"], \"opposedTo\": [\"named tradition · 1-line on what they reject\"] }",
+  "   Examples:",
+  "     · influencedBy: [\"Karl Popper · falsifiability over fit\", \"Christensen · disruption read against incumbent advantage\", \"Charlie Munger · multidisciplinary mental models\"]",
+  "     · opposedTo: [\"vibes-based 'product-market fit' storytelling that won't name a metric\", \"VC narratives that treat scale as inherently virtuous\"]",
+  "",
+  "2. `loadBearingConcepts` · 3-5 concepts / frames / mental tools this director reaches for repeatedly. Each is a NAMED handle (not a description) + a one-line gloss.",
+  "   Format: [{ \"name\": \"short noun phrase\", \"gloss\": \"how they use it\" }]",
+  "   Examples (good): \"Chesterton's fence · before tearing down a constraint, name why it was put there\"; \"second-order effects · the move after the move\"; \"the 80% case vs the 20% case · which world is this decision FOR?\"",
+  "   Examples (bad — too generic): \"critical thinking\", \"strategic frameworks\", \"data-driven analysis\"",
+  "",
+  "3. `referentSet` · 3-5 specific anchors (companies, products, events, papers, eras, people) this director routinely cites. Each NAMED + 1-line on relevance.",
+  "   Format: [{ \"ref\": \"named anchor\", \"why\": \"why they cite it\" }]",
+  "   Examples (good): \"Quibi · case study in mistaking a clever distribution insight for a product insight\"; \"Concorde · technology can be 30 years too early in the wrong economic regime\"; \"Theranos / Worldcom · pattern of board capture by founder charisma\"",
+  "   Examples (bad — generic): \"successful tech companies\", \"market history\", \"famous failures\"",
+  "",
+  "4. `failureModes` · 2-3 SELF-AWARE blind spots / failure modes for this director. What goes wrong when they over-apply their own method?",
+  "   Format: [\"1-line specific failure mode\"]",
+  "   Examples (good): \"Tends to over-correct toward dissent when the room is already aligned, even when alignment is correct\"; \"Risks treating any non-falsifiable claim as low-quality, missing rich pre-paradigmatic ideas\"; \"Citing one historical case as if it settles a present argument\"",
+  "",
+  "5. `contrarianTakes` · 2-3 concrete positions this director ROUTINELY takes against the dominant industry view. Each must be a NAMED stance, not a posture.",
+  "   Format: [\"1-line stance against a specific common view\"]",
+  "   Examples (good): \"Brand is mostly distribution by another name — pure 'brand strategy' decks usually paper over weak channel economics\"; \"'AI-native' is rarely a feature; usually it's a marketing reframe of 'has an LLM in the workflow'\"",
+  "",
+  "## Output format",
+  "",
+  "Return ONE JSON object inside a fenced ```json block. No prose outside the block.",
+  "",
+  "```json",
+  "{",
+  "  \"intellectualLineage\": {",
+  "    \"influencedBy\": [\"...\"],",
+  "    \"opposedTo\": [\"...\"]",
+  "  },",
+  "  \"loadBearingConcepts\": [{ \"name\": \"...\", \"gloss\": \"...\" }],",
+  "  \"referentSet\": [{ \"ref\": \"...\", \"why\": \"...\" }],",
+  "  \"failureModes\": [\"...\"],",
+  "  \"contrarianTakes\": [\"...\"]",
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· DO NOT use generic personality words. Every entry names a person / case / concept / position.",
+  "· If the user description maps to a real domain (VC, product, security, biotech, monetary policy, etc.), prefer NAMED references from that domain.",
+  "· Avoid recreating the canonical six (Socrates, First Principles, Long Horizon, etc.) — pick a distinct angle.",
+].join("\n");
+
+/* ────────────────────────── Stage B · spec ────────────────────────────────
+ *
+ * With the profile in hand, Stage B writes the actual director spec. The
+ * instruction template now has 8 sections instead of 4 — the new sections
+ * (intellectual lineage, load-bearing concepts, referent set, failure
+ * modes) come pre-loaded with the Stage A material so the model isn't
+ * inventing them on the fly.
+ */
 const HOUSE_STYLE = [
   "## Boardroom directors · house style",
   "",
@@ -20,7 +99,7 @@ const HOUSE_STYLE = [
   "  · roleTag      · 1-word lowercase noun describing their stance (skeptic / physicist / observer / strategist / advocate / long-pattern)",
   "  · bio          · 1–2 sentences, ≤ 280 chars. Concrete, not flowery. Names the method, not the persona.",
   "  · coverQuote   · 1 sentence (≤ 200 chars). The opening question THIS director would ask in any room.",
-  "  · instruction  · multi-section markdown system prompt (~600–1200 chars). Sections: identity, method (numbered), voice, boundaries.",
+  "  · instruction  · multi-section markdown system prompt (~1500–2800 chars). EIGHT sections, in this exact order: identity, intellectual lineage, load-bearing concepts, method (numbered), referent set, voice, boundaries, failure modes. See template below.",
   "  · ability      · 6-axis personality map (each axis 0..10). Drives a radar chart that visualizes the director's strengths and limits. Distribution MUST be uneven — see 'Ability axes' below.",
   "",
   "## Voice rules (apply to bio, coverQuote, AND instruction)",
@@ -28,9 +107,46 @@ const HOUSE_STYLE = [
   "· Plain prose. Specific verbs. No marketing copy, no flattery, no 'will help you'.",
   "· The bio NAMES the method (\"refuses unclear premises\" / \"reads against thirty years of category history\"), not abstract personality (\"insightful and analytical\").",
   "· Italic for the word being interrogated. Bold for the load-bearing claim.",
-  "· Anti-flatter is mandatory in instruction's boundaries section: do not preface with affirmation or summary; lead with the disagreement / missing premise.",
-  "· Instructions must include a numbered \"method\" the director executes per turn (3–4 concrete steps).",
-  "· Instructions must include voice rules and boundaries (what they DO and what they REFUSE to do).",
+  "· Anti-flatter is mandatory in the boundaries section: do not preface with affirmation or summary; lead with the disagreement / missing premise.",
+  "",
+  "## Instruction template (eight sections — REQUIRED, in this order)",
+  "",
+  "Use literal `## Section name` markdown headings. Each section ~80–400 chars. Total instruction ~1500–2800 chars.",
+  "",
+  "```",
+  "You are {Name}, a board director whose role is the {roleTag}.",
+  "",
+  "## Identity",
+  "[1-2 sentences on who they are. Specific angle on the world, not a personality cluster.]",
+  "",
+  "## Intellectual lineage",
+  "[Influenced by: 2-3 named thinkers / schools / traditions, each with 1 line on what they took. Pushes back against: 1-2 named traditions or dominant narratives they reject.]",
+  "",
+  "## Load-bearing concepts",
+  "[3-5 named concepts / frames / mental tools they reach for repeatedly. Bullet list. Each entry: **concept name** · 1-line gloss on how they use it.]",
+  "",
+  "## Method (per turn)",
+  "1. [Concrete first move — what they DO when they read the room]",
+  "2. [Second step — usually where their lens applies]",
+  "3. [Third step — what they SAY that converts the lens into a usable claim]",
+  "4. [Optional fourth step — boundary check / next-question handoff]",
+  "",
+  "## Referent set",
+  "[3-5 named anchors (companies, papers, events, people, eras) they will cite by name when relevant. Bullet list. Each entry: **named anchor** · 1-line relevance.]",
+  "",
+  "## Voice",
+  "- [Format / length rule, e.g. 'one sharp question beats a paragraph']",
+  "- [Lexical rule — italics / bold usage, jargon they use or refuse]",
+  "- [Tone rule — direct / dry / patient / clipped, with one example]",
+  "",
+  "## Boundaries",
+  "- Do not preface with affirmation or summary. Lead with the disagreement, missing premise, or angle the user hasn't raised.",
+  "- [What they REFUSE to do — e.g. 'do not concede a definition before testing it against a counter-example']",
+  "- [Stance hold — what they will NOT cave on even under push-back]",
+  "",
+  "## Failure modes",
+  "- [1-2 self-aware blind spots. Honest, not hedging. e.g. 'Tends to over-correct toward dissent when the room is already aligned'.]",
+  "```",
   "",
   "## Ability axes (0..10 per axis)",
   "",
@@ -52,49 +168,12 @@ const HOUSE_STYLE = [
   "",
   "Reject any uniform vector (e.g. all 5s or all 7s) — directors must have a clear shape that matches their stated method. Total of all six axes should typically land in 30..40.",
   "",
-  "## Few-shot · canonical directors",
-  "",
-  "### Example 1 · Socrates",
-  "  name: Socrates",
-  "  handle: /socrates",
-  "  roleTag: skeptic",
-  "  bio: Refuses unclear premises. Forces you to define your terms before you defend them.",
-  "  coverQuote: What do you mean — exactly — when you say that word?",
-  "  instruction: |",
-  "    You are Socrates, a board director whose role is the skeptic.",
-  "    Your method:",
-  "    1. Locate the load-bearing words in the user's framing — usually abstractions like 'product-market fit', 'data flywheel', 'AI-native', 'engagement'.",
-  "    2. Ask them to name a sharper, more specific version: which kind of X? what would distinguish X from not-X here?",
-  "    3. If they accept your sharper definition, proceed. If they resist, that resistance is itself a signal worth pointing out.",
-  "    Voice:",
-  "    - Short. One or two sharp questions per turn beats a paragraph.",
-  "    - Concrete examples beat abstractions when you push back.",
-  "    - Use italics for the word you're interrogating: *which* kind of moat?",
-  "    Boundaries:",
-  "    - You do not provide answers. You provide questions that surface answers.",
-  "    - You do not concede a definition before testing whether it survives a counter-example.",
-  "    - Do not preface with affirmation or summary. Lead with the disagreement, the missing premise, the angle the user hasn't raised.",
-  "",
-  "### Example 2 · First Principles",
-  "  name: First Principles",
-  "  handle: /first_p",
-  "  roleTag: physicist",
-  "  bio: Strips problems down to observables and causal chains. Refuses to import assumptions from analogy.",
-  "  coverQuote: What do we know to be physically true here, and what are we just inheriting from a story?",
-  "  (same instruction shape — identity, numbered method, voice, boundaries)",
-  "",
-  "### Example 3 · Long Horizon",
-  "  name: Long Horizon",
-  "  handle: /long_h",
-  "  roleTag: strategist",
-  "  bio: Plays the move four steps out. Distinguishes 'right now' from 'right at the time horizon that matters'.",
-  "  coverQuote: If this works, what does the next move force you into — and is that a corner you want to be in?",
-  "",
   "## Constraints",
   "",
-  "· The new director must be DISTINCT from the canonical six. Don't recreate Socrates with a different name.",
+  "· The new director must be DISTINCT from the canonical six (Socrates, First Principles, Long Horizon, Phenomenologist, Critique Reviewer, Pattern-Match).",
   "· Pick a model from: opus-4-7 (default for nuanced / contrarian roles), sonnet-4-6 (faster, fine for analytical roles), haiku-4-5 (only for very tight / rule-based roles). When in doubt, opus-4-7.",
-  "· The instruction section MUST contain a numbered method, voice rules, and boundaries — even short ones.",
+  "· The instruction MUST contain ALL EIGHT sections in the order shown. Do NOT collapse or rename sections.",
+  "· EVERY entry in 'load-bearing concepts' and 'referent set' must be NAMED — concrete people, cases, papers, events. No generic placeholders ('various studies', 'historical examples', 'modern frameworks').",
   "",
   "## Output format",
   "",
@@ -107,30 +186,105 @@ const HOUSE_STYLE = [
   "  \"roleTag\": \"skeptic\",",
   "  \"bio\": \"1-2 sentences, ≤ 280 chars\",",
   "  \"coverQuote\": \"the question they'd open every room with, ≤ 200 chars\",",
-  "  \"instruction\": \"You are X, a board director...\\n\\nYour method:\\n1. ...\\n\\nVoice:\\n- ...\\n\\nBoundaries:\\n- ...\",",
+  "  \"instruction\": \"You are X, a board director...\\n\\n## Identity\\n...\\n\\n## Intellectual lineage\\n...\\n\\n## Load-bearing concepts\\n...\\n\\n## Method (per turn)\\n1. ...\\n\\n## Referent set\\n...\\n\\n## Voice\\n- ...\\n\\n## Boundaries\\n- ...\\n\\n## Failure modes\\n- ...\",",
   "  \"modelV\": \"opus-4-7\",",
   "  \"ability\": { \"dissent\": 9, \"pattern_recall\": 4, \"rigor\": 8, \"empathy\": 4, \"narrative\": 5, \"decisiveness\": 4 }",
   "}",
   "```",
 ].join("\n");
 
+/* ─────────────────────────── Stage A · profile ─────────────────────────── */
+
+export interface AgentProfile {
+  intellectualLineage: {
+    influencedBy: string[];
+    opposedTo: string[];
+  };
+  loadBearingConcepts: { name: string; gloss: string }[];
+  referentSet: { ref: string; why: string }[];
+  failureModes: string[];
+  contrarianTakes: string[];
+}
+
+export interface AgentProfileOpts {
+  description: string;
+  /** Optional web-search results, formatted as a brief context block.
+   *  Empty / null when web search is OFF or returned no results. */
+  webContext?: string | null;
+}
+
+export function buildAgentProfileMessages(opts: AgentProfileOpts): LLMMessage[] {
+  const web = (opts.webContext || "").trim();
+  const userBody: string[] = [
+    "User description of the director they want:",
+    "",
+    opts.description.trim(),
+  ];
+  if (web) {
+    userBody.push(
+      "",
+      "Reference material from the web (use to ground NAMED references — do not quote verbatim, distill into the profile fields):",
+      "",
+      web,
+    );
+  }
+  userBody.push(
+    "",
+    "Now produce the profile JSON object as specified.",
+  );
+  return [
+    { role: "system", content: PROFILE_SYSTEM },
+    { role: "user", content: userBody.join("\n") },
+  ];
+}
+
+/* ─────────────────────────── Stage B · spec ────────────────────────────── */
+
 export interface AgentSpecOpts {
   description: string;
+  /** Stage-A profile · always passed when available. The instruction
+   *  template's lineage / concepts / referent / failure-modes sections
+   *  pull directly from this so the model isn't reinventing them. */
+  profile?: AgentProfile | null;
+  /** Optional web context · the same block fed to Stage A, repeated
+   *  here so Stage B can also cite it directly when writing referent
+   *  set entries. */
+  webContext?: string | null;
 }
 
 export function buildAgentSpecMessages(opts: AgentSpecOpts): LLMMessage[] {
+  const userBody: string[] = [
+    "I want a new boardroom director described as:",
+    "",
+    opts.description.trim(),
+  ];
+  if (opts.profile) {
+    userBody.push(
+      "",
+      "## Profile (use this as the source for the lineage / concepts / referent / failure-modes sections)",
+      "",
+      "```json",
+      JSON.stringify(opts.profile, null, 2),
+      "```",
+      "",
+      "Translate the profile into the EIGHT-section instruction template literally — every named entry in `loadBearingConcepts` and `referentSet` must appear in the matching instruction section. The `failureModes` section of the spec mirrors `failureModes` from the profile. The Identity + Intellectual lineage sections may paraphrase but must keep the named influences.",
+    );
+  }
+  if (opts.webContext && opts.webContext.trim()) {
+    userBody.push(
+      "",
+      "## Web reference material (background, may corroborate referent set entries)",
+      "",
+      opts.webContext.trim(),
+    );
+  }
+  userBody.push(
+    "",
+    "Generate the full spec in the JSON format above. Match the house voice exactly.",
+  );
   return [
     { role: "system", content: HOUSE_STYLE },
-    {
-      role: "user",
-      content: [
-        "I want a new boardroom director described as:",
-        "",
-        opts.description.trim(),
-        "",
-        "Generate the full spec in the JSON format above. Match the house voice exactly.",
-      ].join("\n"),
-    },
+    { role: "user", content: userBody.join("\n") },
   ];
 }
 
@@ -247,8 +401,80 @@ export function parseAgentSpec(raw: string): AgentSpec | null {
     roleTag,
     bio: clamp(bio, 280),
     coverQuote,
-    instruction: clamp(instruction, 4000),
+    // Bumped from 4000 → 6000 to accommodate the new eight-section
+    // instruction template (~1500-2800 chars typical, with headroom
+    // for richer concept / referent lists).
+    instruction: clamp(instruction, 6000),
     modelV,
     ability,
+  };
+}
+
+/** Validate + coerce a Stage-A profile. Returns null when the JSON is
+ *  missing or so degraded it can't seed Stage B (no concepts AND no
+ *  referents — the two fields the spec template depends on). Drops
+ *  individual entries that don't carry a name/ref so the spec generator
+ *  doesn't see empty placeholders. */
+export function parseAgentProfile(raw: string): AgentProfile | null {
+  const parsed = extractJson<Record<string, unknown>>(raw);
+  if (!parsed) return null;
+
+  const lineage = (parsed.intellectualLineage && typeof parsed.intellectualLineage === "object")
+    ? parsed.intellectualLineage as Record<string, unknown>
+    : {};
+  const influencedByRaw = Array.isArray(lineage.influencedBy) ? lineage.influencedBy : [];
+  const opposedToRaw = Array.isArray(lineage.opposedTo) ? lineage.opposedTo : [];
+  const influencedBy = influencedByRaw
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => clamp(s.trim(), 200))
+    .slice(0, 5);
+  const opposedTo = opposedToRaw
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => clamp(s.trim(), 200))
+    .slice(0, 4);
+
+  const conceptsRaw = Array.isArray(parsed.loadBearingConcepts) ? parsed.loadBearingConcepts : [];
+  const loadBearingConcepts = conceptsRaw
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
+    .map((c) => ({
+      name: typeof c.name === "string" ? clamp(c.name.trim(), 80) : "",
+      gloss: typeof c.gloss === "string" ? clamp(c.gloss.trim(), 200) : "",
+    }))
+    .filter((c) => c.name.length > 0)
+    .slice(0, 6);
+
+  const referentsRaw = Array.isArray(parsed.referentSet) ? parsed.referentSet : [];
+  const referentSet = referentsRaw
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
+    .map((r) => ({
+      ref: typeof r.ref === "string" ? clamp(r.ref.trim(), 80) : "",
+      why: typeof r.why === "string" ? clamp(r.why.trim(), 200) : "",
+    }))
+    .filter((r) => r.ref.length > 0)
+    .slice(0, 6);
+
+  const failureModesRaw = Array.isArray(parsed.failureModes) ? parsed.failureModes : [];
+  const failureModes = failureModesRaw
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => clamp(s.trim(), 220))
+    .slice(0, 4);
+
+  const contrarianTakesRaw = Array.isArray(parsed.contrarianTakes) ? parsed.contrarianTakes : [];
+  const contrarianTakes = contrarianTakesRaw
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => clamp(s.trim(), 220))
+    .slice(0, 4);
+
+  // If both of the spec-template-load-bearing fields are empty we bail
+  // out so the route falls back to single-stage generation instead of
+  // feeding a useless profile downstream.
+  if (loadBearingConcepts.length === 0 && referentSet.length === 0) return null;
+
+  return {
+    intellectualLineage: { influencedBy, opposedTo },
+    loadBearingConcepts,
+    referentSet,
+    failureModes,
+    contrarianTakes,
   };
 }

@@ -2,10 +2,11 @@
    QUOTE CTA · selection-driven follow-up
    ═══════════════════════════════════════════
    When the user selects text inside a director's message bubble,
-   a small floating bar appears above the selection with two
-   actions: ask a follow-up (opens an overlay), or react with
-   "love it" (one-click, no typing). Both produce a user message
-   that quotes the selected snippet via markdown blockquote.
+   a small floating bar appears above the selection with three
+   actions: Probe (opens an overlay), Second (one-click), or Save
+   (bookmark to chairman's notes). Probe / Second produce a user
+   message that quotes the snippet via markdown blockquote; Save
+   is a personal bookmark with no room interaction.
 
    Visual vocabulary mirrors the rest of the app: panel-2 surface,
    lime accent, mono micro-type for the action labels. Per the
@@ -78,8 +79,51 @@
   padding: 8px 13px;
   white-space: nowrap;
 }
-.qcta.qcta-readonly .qcta-btn { display: none; }
+/* Adjourned-room state · Probe / Second hide (they post to a
+   closed room), but Save stays — bookmarking from a finished
+   session is a primary use case. */
+.qcta.qcta-readonly .qcta-btn:not(.qcta-btn-save) { display: none; }
 .qcta.qcta-readonly .qcta-hint { display: inline-flex; align-items: center; }
+
+/* ─── Save toast ─────────────────────────────────────────────
+   Lightweight feedback after a successful POST /api/notes (or a
+   failure). Bottom-center anchored, fades in/out. Lime for ok,
+   red-tinted for error. Click to dismiss early. */
+.qcta-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translate(-50%, 8px);
+  z-index: 1600;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime, #6FB572);
+  color: var(--text, #C8C5BE);
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 9px 16px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.16s ease-out, transform 0.16s ease-out;
+  white-space: nowrap;
+  box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.55);
+}
+.qcta-toast.open {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.qcta-toast.kind-error {
+  border-color: #d36a6a;
+  color: #f0bdbd;
+}
+.qcta-toast.kind-ok::before {
+  content: "✓ ";
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+}
 
 /* Ask-follow-up overlay · backdrop + modal. Same chrome family
    as openSendChoiceModal (.pc-overlay) so the family stays coherent. */
