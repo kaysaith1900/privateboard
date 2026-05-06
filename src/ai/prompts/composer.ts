@@ -76,14 +76,98 @@ export const COMPONENT_KINDS = [
   // claims worth surfacing side-by-side. Genuinely visual — emits
   // raw HTML that each spine styles into a card grid.
   "metric-strip",
+
+  // ── Brainstorm-mode kinds · used ONLY when room.mode === "brainstorm".
+  //    The mode-axis composer dispatch ensures these never mix with the
+  //    decision-grade pool above. Listing them in the same enum keeps
+  //    rendering / labelling / persistence uniform across modes. ──
+  "opening-hook",          // anchor-equivalent · 1–2 sentence "what if this is real" lead-in
+  "opportunity-shape",     // 3-dimension "size of the room" beat (scope / gravity / tempo)
+  "adjacent-angles",       // 3–5 distinct ways INTO the topic · NOT ranked
+  "what-if-this-works",    // 1 setup + 3 exploratory consequences
+  "worth-chasing",         // 3–5 threads the room generated heat around · open questions, not actions
+  "dead-ends-noted",       // 0–3 angles dropped · prevents re-traversal
+  "brainstorm-questions",  // 5–8 generative questions · NOT a P0/P1 todo list
+
+  // ── Critique-mode kinds · used ONLY when room.mode === "critique".
+  //    Audit-shaped: severity-ranked, "what's good first", procedural. ──
+  "deliverable-summary",   // anchor-equivalent · what's under review (subject + context)
+  "whats-good",            // 2–4 things already working · MUST come before issues
+  "quality-issues",        // 3–7 issues, severity-ranked, paired with impact
+  "severity-ranked-fixes", // 3–7 fixes, severity-ranked, with effort estimate
+  "residual-risks",        // 0–4 risks the audit can't close inside its scope
 ] as const;
 
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 
-/** Substitute groups · the composer picks exactly one kind from each. */
+/** Substitute groups · the composer picks exactly one kind from each.
+ *  Apply only to constructive / decision-grade modes — brainstorm has
+ *  its own substitute groups (see BRAINSTORM_* below). */
 export const ANCHORS = ["bottom-line", "thesis", "working-hypothesis"] as const satisfies readonly ComponentKind[];
 export const FINDINGS = ["headline-findings", "big-ideas"] as const satisfies readonly ComponentKind[];
 export const ACTIONS = ["recommendations", "the-bet", "considerations"] as const satisfies readonly ComponentKind[];
+
+/** Brainstorm-mode kind sets. The composer's brainstorm branch picks
+ *  ONLY from BRAINSTORM_KINDS; mixing in any decision-grade kind from
+ *  the pool above is a validation error.
+ *
+ *  Required: opening-hook (anchor) · adjacent-angles (lens enumeration) ·
+ *            worth-chasing (threads with open questions).
+ *  Optional but encouraged: opportunity-shape · what-if-this-works ·
+ *            brainstorm-questions.
+ *  Optional: dead-ends-noted · visuals (the existing `visuals` kind is
+ *            still allowed in brainstorm mode for timeline / pie /
+ *            comparison-table — the only constructive kind that crosses
+ *            over because visuals are mode-agnostic). */
+export const BRAINSTORM_KINDS = [
+  "opening-hook",
+  "opportunity-shape",
+  "adjacent-angles",
+  "what-if-this-works",
+  "worth-chasing",
+  "dead-ends-noted",
+  "brainstorm-questions",
+  "visuals",  // mode-agnostic · timeline / pie / comparison-table fit brainstorm fine
+] as const satisfies readonly ComponentKind[];
+
+export const BRAINSTORM_REQUIRED = ["opening-hook", "adjacent-angles", "worth-chasing"] as const satisfies readonly ComponentKind[];
+
+/** Default brainstorm preset · safety net when the composer fails on a
+ *  brainstorm room. 6 components, all from BRAINSTORM_KINDS. */
+export const DEFAULT_BRAINSTORM_PRESET: ComponentPick[] = [
+  { kind: "opening-hook",         order: 1 },
+  { kind: "opportunity-shape",    order: 2 },
+  { kind: "adjacent-angles",      order: 3 },
+  { kind: "what-if-this-works",   order: 4 },
+  { kind: "worth-chasing",        order: 5 },
+  { kind: "brainstorm-questions", order: 6 },
+];
+
+/** Critique-mode kind sets. Mirror brainstorm's structure.
+ *  Required: deliverable-summary (anchor) · whats-good (audit decorum) ·
+ *  quality-issues OR severity-ranked-fixes (the meat of the review).
+ *  Optional: residual-risks · open-questions · visuals (severity table). */
+export const CRITIQUE_KINDS = [
+  "deliverable-summary",
+  "whats-good",
+  "quality-issues",
+  "severity-ranked-fixes",
+  "residual-risks",
+  "open-questions",  // mode-agnostic · fits critique fine for the residual TODO list
+  "visuals",         // mode-agnostic · severity comparison-table fits critique
+] as const satisfies readonly ComponentKind[];
+
+export const CRITIQUE_REQUIRED = ["deliverable-summary", "whats-good"] as const satisfies readonly ComponentKind[];
+
+/** Default critique preset · safety net when the composer fails on a
+ *  critique room. 5 components, all from CRITIQUE_KINDS. */
+export const DEFAULT_CRITIQUE_PRESET: ComponentPick[] = [
+  { kind: "deliverable-summary",   order: 1 },
+  { kind: "whats-good",            order: 2 },
+  { kind: "quality-issues",        order: 3 },
+  { kind: "severity-ranked-fixes", order: 4 },
+  { kind: "residual-risks",        order: 5 },
+];
 
 /** Spines · v1 ships with `boardroom-dark` only. The catalogue is
  *  surfaced to the composer's prompt; the orchestrator coerces any
@@ -263,6 +347,172 @@ const SYSTEM_PROMPT = [
   "Pick one of: `investment-judgement`, `option-comparison`, `strategic-decision`, `philosophical`, `operational`, `market-forecast`, `retro`, `other`. This is recorded for analytics and future presets — keep it honest, no guessing for marketing reasons.",
 ].join("\n");
 
+/* ───────────────────── Brainstorm-mode system prompt ──────────────────────
+ *
+ * Used when `room.mode === "brainstorm"`. A complete replacement for the
+ * decision-grade SYSTEM_PROMPT above. Restricted to BRAINSTORM_KINDS so
+ * the composer cannot pick thesis / recommendations / the-bet / etc.
+ * even by accident.
+ *
+ * `subject_type` is FIXED to `exploration` for brainstorm rooms — the
+ * decision-grade subject types (investment-judgement, strategic-decision)
+ * misrepresent the conversation's intent. Persisted distinctly so
+ * analytics can tell brainstorm rooms apart from decision rooms.
+ * ────────────────────────────────────────────────────────────────────── */
+const BRAINSTORM_SYSTEM_PROMPT = [
+  "You are the Boardroom report composer running in BRAINSTORM mode. The user explicitly chose `mode: brainstorm` for this room — they want a brief that OPENS UP the topic, not one that narrows it to a thesis or a decision. Pick the components that produce the most generative brief for THIS specific room.",
+  "",
+  "## What you must output",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block.",
+  "",
+  "```json",
+  "{",
+  '  "house_style": "field-notes",',
+  '  "spine": "anthropic-essay",',
+  '  "subject_type": "exploration",',
+  '  "components": [',
+  '    { "kind": "opening-hook",         "order": 1 },',
+  '    { "kind": "opportunity-shape",    "order": 2 },',
+  '    { "kind": "adjacent-angles",      "order": 3 },',
+  '    { "kind": "what-if-this-works",   "order": 4 },',
+  '    { "kind": "worth-chasing",        "order": 5 },',
+  '    { "kind": "brainstorm-questions", "order": 6 }',
+  "  ],",
+  '  "rationale": "≤ 120 chars · why this brainstorm shape fits the room"',
+  "}",
+  "```",
+  "",
+  "## Brainstorm component pool — pick ONLY from this list",
+  "",
+  "  · `opening-hook`           1–2 sentence \"what changes if this is real\" lead-in. NOT a judgement, NOT a thesis. REQUIRED — every brainstorm brief has one.",
+  "  · `opportunity-shape`      3-dimension \"size of the room\" beat (scope · gravity · tempo). Recommended — sets the field for everything that follows.",
+  "  · `adjacent-angles`        3–5 distinct ways INTO the topic, each with a name + framing + what-opens. NOT ranked. REQUIRED — the lens enumeration IS the point of a brainstorm.",
+  "  · `what-if-this-works`     1 setup + 3 exploratory consequences. Phrased as \"could / might\", never as predictions.",
+  "  · `worth-chasing`          3–5 threads the room generated heat around. Each gets a handle + why it pulled + an open testable question (NOT a milestone). REQUIRED — these are the user's takeaways, in question form.",
+  "  · `dead-ends-noted`        0–3 angles the room dropped. Optional. Naming these signals the conversation actually ranged.",
+  "  · `brainstorm-questions`   5–8 generative questions that opened up. Different from a P0/P1 todo list — these are the field's next horizon.",
+  "  · `visuals`                Optional. Timeline (chronology / waves), pie (distribution of attention), or comparison-table (angle vs angle). bar-chart and quadrant-chart are also allowed but rarely fit a brainstorm.",
+  "",
+  "## FORBIDDEN kinds — do not pick any of these",
+  "",
+  "These are decision-grade kinds and don't belong in a brainstorm brief, no matter how strategic the topic feels:",
+  "",
+  "  · `bottom-line` / `thesis` / `working-hypothesis` (anchor commitment)",
+  "  · `headline-findings` / `big-ideas` (claim-front findings)",
+  "  · `recommendations` / `the-bet` / `considerations` (action prescriptions)",
+  "  · `critical-assumptions` / `scenario-tree` / `leading-indicators` (decision uncertainty analysis)",
+  "  · `pre-mortem` / `planning-assumption` / `why-now` / `frame-shift` / `convergence` / `divergence` / `positions` / `two-paths` / `strategic-outlook` / `threats-to-validity` / `metric-strip` / `new-questions` / `open-questions`",
+  "",
+  "If the conversation feels like it COULD be turned into a thesis, that's because brainstorm directors are doing their job — opening up the field. The composer's job is to KEEP it open, not collapse it into a thesis prematurely.",
+  "",
+  "## Composition rules",
+  "",
+  "  · MUST include: `opening-hook`, `adjacent-angles`, `worth-chasing`. These three define the brainstorm shape; missing any of them and the brief reads as something else.",
+  "  · Total components: 4–8. Below 4 = thin; above 8 = decision-document creep.",
+  "  · `subject_type` is ALWAYS `\"exploration\"` for brainstorm briefs. Do not pick from the decision-grade subject-type list.",
+  "",
+  "## House style — pick a brainstorm-friendly one",
+  "",
+  "  · `field-notes`         · narrative \"observer's notebook\" register · warm, curious, reference specific moments. Default for brainstorm.",
+  "  · `boardroom-default`   · neutral analyst voice. Fallback if no other style fits.",
+  "",
+  "Do NOT pick `sequoia-memo`, `a16z-thesis`, `bcg-strategy`, `gartner-research`, or `stanford-research` for brainstorm briefs — those are decision/thesis/research registers and they fight against the brainstorm shape.",
+  "",
+  "## Spine",
+  "",
+  "Brainstorm-friendly spines: `anthropic-essay` (default), `boardroom-dark`. Avoid `a16z-thesis` / `gartner-note` / `mckinsey-deck` — those signal decision content visually.",
+  "",
+  "## Subject type",
+  "",
+  "Always pick `\"exploration\"` for brainstorm rooms. This is the SINGLE allowed value in this branch.",
+  "",
+  "## Language",
+  "",
+  "Component kinds and spine slugs are LITERAL English strings — never translate them. The `rationale` field IS user-facing — produce it in the room's output language (zh / en).",
+].join("\n");
+
+/* ─────────────────────── Critique-mode system prompt ──────────────────────
+ *
+ * Used when `room.mode === "critique"`. A complete replacement for the
+ * decision-grade SYSTEM_PROMPT and a sibling to BRAINSTORM_SYSTEM_PROMPT.
+ * Restricted to CRITIQUE_KINDS so the composer cannot pick thesis /
+ * recommendations / opportunity-shape / etc. even by accident.
+ *
+ * `subject_type` is FIXED to `audit` for critique rooms.
+ * ────────────────────────────────────────────────────────────────────── */
+const CRITIQUE_SYSTEM_PROMPT = [
+  "You are the Boardroom report composer running in CRITIQUE mode. The user explicitly chose `mode: critique` for this room — they want a deliverable AUDIT, not a strategic memo. Pick the components that produce the sharpest critique brief for THIS specific deliverable.",
+  "",
+  "## What you must output",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block.",
+  "",
+  "```json",
+  "{",
+  '  "house_style": "audit-memo",',
+  '  "spine": "boardroom-dark",',
+  '  "subject_type": "audit",',
+  '  "components": [',
+  '    { "kind": "deliverable-summary",   "order": 1 },',
+  '    { "kind": "whats-good",            "order": 2 },',
+  '    { "kind": "quality-issues",        "order": 3 },',
+  '    { "kind": "severity-ranked-fixes", "order": 4 },',
+  '    { "kind": "residual-risks",        "order": 5 }',
+  "  ],",
+  '  "rationale": "≤ 120 chars · why this critique shape fits the deliverable"',
+  "}",
+  "```",
+  "",
+  "## Critique component pool — pick ONLY from this list",
+  "",
+  "  · `deliverable-summary`     1–2 sentence framing of what's being audited (subject + context + optional charter). REQUIRED.",
+  "  · `whats-good`              2–4 things working in the deliverable, named explicitly. REQUIRED — calibrates reviewer signal, signals the audit isn't a hatchet job. Goes BEFORE issues in render order.",
+  "  · `quality-issues`          3–7 severity-ranked issues, each pairing the symptom with its impact. The audit's diagnostic core.",
+  "  · `severity-ranked-fixes`   3–7 severity-ranked fixes, each with effort estimate. Distinct from `quality-issues`: issues are diagnosis, fixes are prescription.",
+  "  · `residual-risks`          0–4 risks the audit can't close inside its scope. Optional but recommended for any audit with non-trivial out-of-scope dependencies.",
+  "  · `open-questions`          Residual TODO questions for the deliverable's owner. Optional.",
+  "  · `visuals`                 Optional. Severity comparison-table is the natural fit.",
+  "",
+  "## FORBIDDEN kinds — do not pick any of these",
+  "",
+  "Critique is an audit, not a strategy memo. These kinds belong elsewhere:",
+  "",
+  "  · `bottom-line` / `thesis` / `working-hypothesis` (decision anchors don't fit an audit)",
+  "  · `headline-findings` / `big-ideas` (claim-front findings — wrong shape for a review)",
+  "  · `recommendations` / `the-bet` / `considerations` (use `severity-ranked-fixes` instead)",
+  "  · `critical-assumptions` / `scenario-tree` / `leading-indicators` / `pre-mortem` / `planning-assumption` / `why-now` (forward strategy, not deliverable review)",
+  "  · `frame-shift` / `convergence` / `divergence` / `positions` / `two-paths` / `strategic-outlook` / `threats-to-validity` / `metric-strip` / `new-questions`",
+  "  · All brainstorm kinds (`opening-hook`, `opportunity-shape`, `adjacent-angles`, etc.)",
+  "",
+  "## Composition rules",
+  "",
+  "  · MUST include: `deliverable-summary`, `whats-good`. These two define audit decorum.",
+  "  · MUST include at least one of: `quality-issues`, `severity-ranked-fixes`. A critique with neither is empty.",
+  "  · Total components: 4–7. Critique briefs are tight — long audits read as defensive.",
+  "  · `subject_type` is ALWAYS `\"audit\"` for critique briefs.",
+  "",
+  "## House style — pick a critique-friendly one",
+  "",
+  "  · `audit-memo`         · standards-officer register · sharp, procedural, severity-tagged. Default for critique.",
+  "  · `stanford-research`  · hedged academic register, fits when the deliverable IS analysis (a paper / a report).",
+  "  · `boardroom-default`  · neutral analyst voice. Fallback.",
+  "",
+  "Do NOT pick `sequoia-memo`, `a16z-thesis`, `bcg-strategy`, `gartner-research`, `field-notes`, or `first-round-essay` for critique briefs.",
+  "",
+  "## Spine",
+  "",
+  "Critique-friendly spines: `boardroom-dark` (default), `gartner-note`, `openai-paper`. Avoid `a16z-thesis` / `anthropic-essay` — those signal commitment / exploration visually.",
+  "",
+  "## Subject type",
+  "",
+  "Always pick `\"audit\"` for critique rooms. This is the SINGLE allowed value in this branch.",
+  "",
+  "## Language",
+  "",
+  "Component kinds and spine slugs are LITERAL English strings — never translate them. The `rationale` field IS user-facing — produce it in the room's output language (zh / en).",
+].join("\n");
+
 /* ─────────────────────────── Builder ───────────────────────────────────── */
 
 interface BuildOpts {
@@ -311,8 +561,19 @@ export function buildComposerMessages(opts: BuildOpts): LLMMessage[] {
       ].join("\n")
     : "";
 
+  // Mode-axis dispatch · brainstorm and critique rooms each get a
+  // completely different system prompt + component pool. The user
+  // message body is the same shape (room, signals, supplement) — only
+  // the system prompt changes. Other modes (constructive / debate /
+  // research) fall through to the decision-grade SYSTEM_PROMPT.
+  const systemPrompt = room.mode === "brainstorm"
+    ? BRAINSTORM_SYSTEM_PROMPT
+    : room.mode === "critique"
+      ? CRITIQUE_SYSTEM_PROMPT
+      : SYSTEM_PROMPT;
+
   return [
-    { role: "system", content: [SYSTEM_PROMPT, "", langLine].join("\n") },
+    { role: "system", content: [systemPrompt, "", langLine].join("\n") },
     {
       role: "user",
       content: [
@@ -343,6 +604,10 @@ const SPINE_SET: ReadonlySet<string> = new Set(SPINES);
 const ANCHOR_SET: ReadonlySet<string> = new Set(ANCHORS);
 const FINDINGS_SET: ReadonlySet<string> = new Set(FINDINGS);
 const ACTION_SET: ReadonlySet<string> = new Set(ACTIONS);
+const BRAINSTORM_KIND_SET: ReadonlySet<string> = new Set(BRAINSTORM_KINDS);
+const BRAINSTORM_REQUIRED_SET: ReadonlySet<string> = new Set(BRAINSTORM_REQUIRED);
+const CRITIQUE_KIND_SET: ReadonlySet<string> = new Set(CRITIQUE_KINDS);
+const CRITIQUE_REQUIRED_SET: ReadonlySet<string> = new Set(CRITIQUE_REQUIRED);
 const HOUSE_STYLE_SET: ReadonlySet<string> = new Set(HOUSE_STYLES.map((s) => s.id));
 
 const ALLOWED_SUBJECT_TYPES = new Set([
@@ -354,7 +619,27 @@ const ALLOWED_SUBJECT_TYPES = new Set([
   "market-forecast",
   "retro",
   "other",
+  // Brainstorm rooms record their distinctive subject type so analytics
+  // can tell exploration briefs apart from decision briefs. The brainstorm
+  // composer prompt FIXES `subject_type` to `exploration` for every
+  // brainstorm pick.
+  "exploration",
+  // Critique rooms record `audit` so the dataset shows three distinct
+  // brief shapes (decision / exploration / audit).
+  "audit",
 ]);
+
+/** House styles that are appropriate to recommend for brainstorm rooms.
+ *  Used by the brainstorm validator to coerce decision-grade picks
+ *  (sequoia-memo, a16z-thesis, bcg-strategy, gartner-research) down to a
+ *  brainstorm-friendly default. */
+const BRAINSTORM_HOUSE_STYLE_ALLOW = new Set(["field-notes", "boardroom-default"]);
+
+/** House styles that are appropriate to recommend for critique rooms.
+ *  Audit-shaped registers only · `audit-memo` is the new house style we
+ *  add for critique, `stanford-research` works when the deliverable IS
+ *  analysis, `boardroom-default` is the neutral fallback. */
+const CRITIQUE_HOUSE_STYLE_ALLOW = new Set(["audit-memo", "stanford-research", "boardroom-default"]);
 
 interface ValidationProblem {
   reason: string;
@@ -362,14 +647,18 @@ interface ValidationProblem {
 
 /**
  * Parse + validate the composer's raw JSON. Returns null when the
- * output is unrecoverable — callers fall back to DEFAULT_PRESET.
+ * output is unrecoverable — callers fall back to the mode-appropriate
+ * default preset.
  *
- * Validation enforces the catalogue's substitute-group rules and the
- * 5–9 total component cap. We're permissive on minor sins (unknown
- * kinds are dropped silently rather than rejecting the whole pick) so
- * one weird kind doesn't throw away an otherwise good composition.
+ * Mode-aware: brainstorm rooms run a brainstorm validator (BRAINSTORM_-
+ * KINDS pool, no anchor/findings/action substitute groups, no decision
+ * kinds) and coerce house style to a brainstorm-friendly preset. All
+ * other modes use the constructive/decision validator.
  */
-export function parseComposerOutput(raw: string): ComposerResult | null {
+export function parseComposerOutput(
+  raw: string,
+  mode: string = "constructive",
+): ComposerResult | null {
   const parsed = extractJson<{
     spine?: unknown;
     components?: unknown;
@@ -381,14 +670,24 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
   }>(raw);
   if (!parsed) return null;
 
-  // House style.
+  const isBrainstorm = mode === "brainstorm";
+  const isCritique = mode === "critique";
+
+  // House style · mode-aware coercion. Brainstorm coerces to
+  // `field-notes`, critique coerces to `audit-memo`, when the LLM
+  // picks a decision-grade style despite the prompt's instructions.
   const houseStyleRaw = typeof parsed.house_style === "string"
     ? parsed.house_style
     : typeof parsed.houseStyle === "string"
       ? parsed.houseStyle
       : "";
   const houseStyleTrim = houseStyleRaw.trim();
-  const houseStyle = HOUSE_STYLE_SET.has(houseStyleTrim) ? houseStyleTrim : "boardroom-default";
+  let houseStyle = HOUSE_STYLE_SET.has(houseStyleTrim) ? houseStyleTrim : "boardroom-default";
+  if (isBrainstorm && !BRAINSTORM_HOUSE_STYLE_ALLOW.has(houseStyle)) {
+    houseStyle = "field-notes";
+  } else if (isCritique && !CRITIQUE_HOUSE_STYLE_ALLOW.has(houseStyle)) {
+    houseStyle = "audit-memo";
+  }
 
   // Spine · default to the picked house style's preferred spine when
   // the composer didn't name one (or named an unknown slug). Keeps the
@@ -398,7 +697,9 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
     ? (spineRaw as Spine)
     : resolveHouseStyle(houseStyle).spine;
 
-  // Components · normalize, dedupe, drop unknowns.
+  // Components · normalize, dedupe, drop unknowns. In brainstorm mode
+  // any kind outside BRAINSTORM_KINDS is dropped silently — protects
+  // the brief from decision-grade kinds leaking in.
   if (!Array.isArray(parsed.components)) return null;
   const seen = new Set<ComponentKind>();
   const picks: ComponentPick[] = [];
@@ -407,6 +708,8 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
     const e = entry as Record<string, unknown>;
     const kind = typeof e.kind === "string" ? e.kind.trim() : "";
     if (!KIND_SET.has(kind)) continue;
+    if (isBrainstorm && !BRAINSTORM_KIND_SET.has(kind)) continue;
+    if (isCritique && !CRITIQUE_KIND_SET.has(kind)) continue;
     if (seen.has(kind as ComponentKind)) continue;
     const order = typeof e.order === "number" && Number.isFinite(e.order)
       ? Math.floor(e.order)
@@ -415,7 +718,11 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
     seen.add(kind as ComponentKind);
   }
 
-  const problem = validatePicks(picks);
+  const problem = isBrainstorm
+    ? validateBrainstormPicks(picks)
+    : isCritique
+      ? validateCritiquePicks(picks)
+      : validatePicks(picks);
   if (problem) return null;
 
   // Stable order: ascending `order`, ties broken by catalogue order.
@@ -434,9 +741,15 @@ export function parseComposerOutput(raw: string): ComposerResult | null {
     : typeof parsed.subjectType === "string"
       ? parsed.subjectType
       : "";
-  const subjectType = subjectTypeRaw && ALLOWED_SUBJECT_TYPES.has(subjectTypeRaw.trim())
-    ? subjectTypeRaw.trim()
-    : null;
+  // Brainstorm always → `exploration`; critique always → `audit`.
+  // Other modes use what the composer picks (or null if invalid).
+  const subjectType = isBrainstorm
+    ? "exploration"
+    : isCritique
+      ? "audit"
+      : (subjectTypeRaw && ALLOWED_SUBJECT_TYPES.has(subjectTypeRaw.trim())
+        ? subjectTypeRaw.trim()
+        : null);
 
   return {
     spine,
@@ -466,6 +779,60 @@ function validatePicks(picks: ComponentPick[]): ValidationProblem | null {
   return null;
 }
 
+/** Brainstorm-mode validator. Different rules from the decision-grade
+ *  validator above:
+ *    · No anchor / findings / action substitute groups (those are
+ *      decision-shaped and don't belong in a brainstorm brief).
+ *    · Required: opening-hook, adjacent-angles, worth-chasing — these
+ *      three define the brainstorm shape. Missing any and the brief
+ *      reads as something else.
+ *    · 4–8 component cap (looser floor than the constructive 5-min,
+ *      tighter ceiling than 12 — brainstorm briefs are short by design).
+ */
+function validateBrainstormPicks(picks: ComponentPick[]): ValidationProblem | null {
+  if (picks.length < 4) return { reason: `brainstorm: too few components (${picks.length} < 4)` };
+  if (picks.length > 8) return { reason: `brainstorm: too many components (${picks.length} > 8)` };
+
+  const kinds = new Set(picks.map((p) => p.kind));
+  const missing: string[] = [];
+  for (const required of BRAINSTORM_REQUIRED_SET) {
+    if (!kinds.has(required as ComponentKind)) missing.push(required);
+  }
+  if (missing.length) {
+    return { reason: `brainstorm: missing required component(s): ${missing.join(", ")}` };
+  }
+  return null;
+}
+
+/** Critique-mode validator. Audit-shaped rules:
+ *    · Required: deliverable-summary + whats-good. These two define
+ *      audit decorum; without them the brief reads as a hatchet job.
+ *    · Required: AT LEAST ONE of `quality-issues` / `severity-ranked-fixes`.
+ *      A critique with neither has no diagnostic content.
+ *    · 4–7 component cap. Critique briefs stay tight; long audits read
+ *      as defensive.
+ */
+function validateCritiquePicks(picks: ComponentPick[]): ValidationProblem | null {
+  if (picks.length < 4) return { reason: `critique: too few components (${picks.length} < 4)` };
+  if (picks.length > 7) return { reason: `critique: too many components (${picks.length} > 7)` };
+
+  const kinds = new Set(picks.map((p) => p.kind));
+  const missing: string[] = [];
+  for (const required of CRITIQUE_REQUIRED_SET) {
+    if (!kinds.has(required as ComponentKind)) missing.push(required);
+  }
+  if (missing.length) {
+    return { reason: `critique: missing required component(s): ${missing.join(", ")}` };
+  }
+  // At least one of quality-issues / severity-ranked-fixes — the
+  // diagnostic content. The required set above only mandates the
+  // decorum components.
+  if (!kinds.has("quality-issues") && !kinds.has("severity-ranked-fixes")) {
+    return { reason: `critique: must include at least one of quality-issues / severity-ranked-fixes` };
+  }
+  return null;
+}
+
 function countMembers(have: ReadonlySet<string>, group: ReadonlySet<string>): number {
   let n = 0;
   for (const k of have) if (group.has(k)) n++;
@@ -473,12 +840,36 @@ function countMembers(have: ReadonlySet<string>, group: ReadonlySet<string>): nu
 }
 
 /**
- * The safety-net composition · the same 12-section layout the codebase
- * shipped before Stage 1.5 existed. Used when (a) the LLM call failed,
+ * The safety-net composition · used when (a) the LLM call failed,
  * (b) output couldn't be parsed, (c) validation rejected the picks, or
  * (d) the room had no signals at all.
+ *
+ * Mode-aware: brainstorm rooms get DEFAULT_BRAINSTORM_PRESET (6
+ * brainstorm components + field-notes house style + anthropic-essay
+ * spine) so a fallback brief still lands as exploration, not as a
+ * decision document. All other modes get the legacy 12-section preset.
  */
-export function defaultComposition(reason: string): ComposerResult {
+export function defaultComposition(reason: string, mode: string = "constructive"): ComposerResult {
+  if (mode === "brainstorm") {
+    return {
+      spine: "anthropic-essay",
+      components: DEFAULT_BRAINSTORM_PRESET.map((p) => ({ ...p })),
+      rationale: reason,
+      subjectType: "exploration",
+      houseStyle: "field-notes",
+      fromComposer: false,
+    };
+  }
+  if (mode === "critique") {
+    return {
+      spine: "boardroom-dark",
+      components: DEFAULT_CRITIQUE_PRESET.map((p) => ({ ...p })),
+      rationale: reason,
+      subjectType: "audit",
+      houseStyle: "audit-memo",
+      fromComposer: false,
+    };
+  }
   return {
     spine: "boardroom-dark",
     components: DEFAULT_PRESET.map((p) => ({ ...p })),
