@@ -31,8 +31,8 @@
       "Long-form thinking aloud. Directors take the room slowly — pause to think, surface caveats, sit with ambiguity rather than rushing to resolve. Best for novel / ambiguous problems where premature conclusions cost more than slow ones.",
     sharp:
       "No hedging. Directors land each turn on a load-bearing claim and back it with the load-bearing reason. They cut the qualifying language (\"perhaps,\" \"could be,\" \"in some cases\") in favour of clear, falsifiable statements. Default for most rooms.",
-    brutal:
-      "No prisoners. Directors say what they actually think with zero softening — including \"this is wrong\" / \"this won't work because\" without preamble. Trades politeness for signal. Use when you're tired of being agreed with and want the strongest disagreements surfaced fast.",
+    terse:
+      "Telegraphic. One paragraph, often one sentence. Directors cut every warm-up, every diplomatic packaging, every \"I think\" — they state the conclusion and only justify if pressed. NOTE · this is the LENGTH dial, not the harshness dial. Whether a director pushes back hard or builds with you is set by Tone (brainstorm vs critique etc); Terse only decides how long they take saying it.",
   };
 
   /** Generic info popover · single floating element, hover-driven.
@@ -338,9 +338,9 @@
                     <span class="rs-chip-label">Sharp</span>
                     <span class="rs-chip-info rs-info-trigger" data-info-title="Sharp" data-info-body="${escape(INTENSITY_TIPS.sharp)}" tabindex="-1" aria-label="What 'Sharp' means">i</span>
                   </button>
-                  <button type="button" class="rs-chip rs-chip-mini" data-rs-intensity-pick="brutal">
-                    <span class="rs-chip-label">Brutal</span>
-                    <span class="rs-chip-info rs-info-trigger" data-info-title="Brutal" data-info-body="${escape(INTENSITY_TIPS.brutal)}" tabindex="-1" aria-label="What 'Brutal' means">i</span>
+                  <button type="button" class="rs-chip rs-chip-mini" data-rs-intensity-pick="terse">
+                    <span class="rs-chip-label">Terse</span>
+                    <span class="rs-chip-info rs-info-trigger" data-info-title="Terse" data-info-body="${escape(INTENSITY_TIPS.terse)}" tabindex="-1" aria-label="What 'Terse' means">i</span>
                   </button>
                 </div>
               </div>
@@ -539,7 +539,7 @@
   }
 
   function renderIntensity() {
-    // Intensity is now a 3-chip row (Calm / Sharp / Brutal) instead of
+    // Intensity is now a 3-chip row (Calm / Sharp / Terse) instead of
     // a slider · highlight the active chip. The hint line above shows
     // "currently: <value>" so the picked state stays self-evident.
     const cur = effective("intensity");
@@ -696,7 +696,10 @@
     renderConfirmState();
   }
   function stageIntensity(next) {
-    if (!["calm", "sharp", "brutal"].includes(next)) return;
+    // Accept legacy `brutal` from any code path that still emits it
+    // (cached HTML, third-party clients) and normalize to `terse`.
+    if (next === "brutal") next = "terse";
+    if (!["calm", "sharp", "terse"].includes(next)) return;
     STAGED.intensity = next === ROOM_STATE.intensity ? null : next;
     renderIntensity();
     renderConfirmState();
@@ -1001,7 +1004,7 @@
         const rect = bar.getBoundingClientRect();
         if (rect.width <= 0) return "sharp";
         const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-        return ratio < 0.33 ? "calm" : ratio < 0.67 ? "sharp" : "brutal";
+        return ratio < 0.33 ? "calm" : ratio < 0.67 ? "sharp" : "terse";
       };
       bar.addEventListener("pointerdown", (e) => {
         e.preventDefault();

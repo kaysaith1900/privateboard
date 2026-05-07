@@ -27,6 +27,189 @@ export const EVIDENCE_LENSES = [
 ] as const;
 export type EvidenceLens = (typeof EVIDENCE_LENSES)[number];
 
+/** Per-director asset bundle. Replaces the legacy 2-4 signals shape
+ *  with 9 typed fields so the composer / scaffold writer can see what
+ *  KIND of material the room produced and pick / fill components
+ *  accordingly. Every field is a (possibly empty) array — directors
+ *  who produced no quote, no risk, no tension simply return [] for
+ *  those fields. The schema is the single source of truth that flows
+ *  through the whole pipeline (Stage 1 extract → composer → scaffold
+ *  → writer). */
+export interface DirectorAssets {
+  directorId: string;
+  directorName: string;
+  /** Load-bearing claims this director made. Each carries a lens tag
+   *  + sources (indices into own message list) + optional confidence. */
+  claims: AssetClaim[];
+  /** Concrete material the director introduced: data points, named
+   *  cases, verbatim quotes pulled in from outside the room. */
+  evidence: AssetEvidence[];
+  /** Where this director pushed back on or differed from another
+   *  director. `with` lists the director ids implicated; empty array
+   *  means tension is with the framing / user, not another director. */
+  tensions: AssetTension[];
+  /** Foundational beliefs the director's reasoning rests on. Optional
+   *  falsifier names what would prove the assumption wrong. */
+  assumptions: AssetAssumption[];
+  /** Risks / failure modes the director raised, with optional severity. */
+  risks: AssetRisk[];
+  /** Opportunities or upside the director identified. */
+  opportunities: AssetOpportunity[];
+  /** Action proposals from this director, with optional owner /
+   *  horizon when stated. */
+  actions: AssetAction[];
+  /** Memorable verbatim phrasings worth preserving as pull quotes —
+   *  the director's OWN words, not paraphrases of someone else. */
+  quotes: AssetQuote[];
+  /** Open questions this director surfaced or pushed on, tagged with
+   *  P0 / P1 / P2 priority. */
+  openQuestions: AssetOpenQuestion[];
+}
+
+/** Sources are 0-based indices into the director's own message list.
+ *  Every asset entry carries at least one source so downstream stages
+ *  can cite back to the originating turn. */
+interface AssetSourceRef {
+  sources: number[];
+}
+
+export interface AssetClaim extends AssetSourceRef {
+  text: string;
+  lens: EvidenceLens;
+  confidence?: Confidence;
+}
+
+export interface AssetEvidence extends AssetSourceRef {
+  text: string;
+  /** Material kind:
+   *    · `data` — number / metric / statistic
+   *    · `case` — named precedent / example / story
+   *    · `quote` — verbatim phrasing from outside the room */
+  kind: "data" | "case" | "quote";
+}
+
+export interface AssetTension extends AssetSourceRef {
+  text: string;
+  /** Director ids the tension is *with*. Empty = tension with the
+   *  user / framing rather than another director. */
+  with: string[];
+}
+
+export interface AssetAssumption extends AssetSourceRef {
+  text: string;
+  falsifier?: string;
+}
+
+export interface AssetRisk extends AssetSourceRef {
+  text: string;
+  severity?: "high" | "medium" | "low";
+}
+
+export interface AssetOpportunity extends AssetSourceRef {
+  text: string;
+}
+
+export interface AssetAction extends AssetSourceRef {
+  text: string;
+  owner?: string;
+  horizon?: string;
+}
+
+export interface AssetQuote extends AssetSourceRef {
+  text: string;
+}
+
+export interface AssetOpenQuestion extends AssetSourceRef {
+  text: string;
+  priority: "P0" | "P1" | "P2";
+}
+
+/** Per-field caps · keep individual fields bounded so a runaway
+ *  director (extracting 50 claims in a single pass) can't blow Stage 2's
+ *  context. Caps are enforced by the parser, not the prompt — overflow
+ *  is dropped quietly after the per-field limit. Sum of all caps = 38,
+ *  so a fully-loaded director adds at most that many entries to the
+ *  pipeline. Realistically most directors land in 8-20 total. */
+export const ASSET_CAPS = {
+  claims: 6,
+  evidence: 6,
+  tensions: 4,
+  assumptions: 4,
+  risks: 4,
+  opportunities: 3,
+  actions: 4,
+  quotes: 3,
+  openQuestions: 4,
+} as const;
+
+/** Sum of every asset entry across the 9 fields. Used by the composer
+ *  to size density caps + by the scaffold writer to size content. */
+export function countAssets(a: DirectorAssets): number {
+  return (
+    a.claims.length + a.evidence.length + a.tensions.length +
+    a.assumptions.length + a.risks.length + a.opportunities.length +
+    a.actions.length + a.quotes.length + a.openQuestions.length
+  );
+}
+
+/** Transitional adapter · flattens a `DirectorAssets` bundle into the
+ *  legacy `DirectorSignals` shape that Stage 2 / Stage 3 still consume.
+ *  Each asset entry's KIND is encoded as a bracket prefix in the
+ *  signal `text` (e.g. `[risk·high] foo`, `[claim] bar`) so the
+ *  scaffold writer sees what kind of material it's citing without
+ *  needing to handle the new schema directly. Field order is stable
+ *  across regenerations: claims → evidence → tensions → assumptions
+ *  → risks → opportunities → actions → quotes → openQuestions. The
+ *  flattened index (used in `directorId#N` citations) is therefore
+ *  reproducible.
+ *
+ *  Phase 1 boundary helper · Phase 2 will replace it by rewriting the
+ *  scaffold prompt to consume assets natively. */
+export function assetsToSignals(a: DirectorAssets): DirectorSignals {
+  const signals: ExtractedSignal[] = [];
+  for (const c of a.claims) {
+    signals.push({ text: `[claim] ${c.text}`, lens: c.lens, sources: c.sources });
+  }
+  for (const e of a.evidence) {
+    const lens: EvidenceLens =
+      e.kind === "data" ? "data" :
+      e.kind === "quote" ? "narrative" : "narrative";
+    signals.push({ text: `[evidence·${e.kind}] ${e.text}`, lens, sources: e.sources });
+  }
+  for (const t of a.tensions) {
+    const withTag = t.with.length ? ` w/ ${t.with.join("+")}` : "";
+    signals.push({ text: `[tension${withTag}] ${t.text}`, lens: "dissent", sources: t.sources });
+  }
+  for (const u of a.assumptions) {
+    const falsTag = u.falsifier ? ` · falsifier: ${u.falsifier}` : "";
+    signals.push({ text: `[assumption${falsTag}] ${u.text}`, lens: "structural", sources: u.sources });
+  }
+  for (const r of a.risks) {
+    const sevTag = r.severity ? `·${r.severity}` : "";
+    signals.push({ text: `[risk${sevTag}] ${r.text}`, lens: "structural", sources: r.sources });
+  }
+  for (const o of a.opportunities) {
+    signals.push({ text: `[opportunity] ${o.text}`, lens: "structural", sources: o.sources });
+  }
+  for (const ac of a.actions) {
+    const ownerTag = ac.owner ? `·${ac.owner}` : "";
+    const horizonTag = ac.horizon ? `·${ac.horizon}` : "";
+    signals.push({ text: `[action${ownerTag}${horizonTag}] ${ac.text}`, lens: "structural", sources: ac.sources });
+  }
+  for (const q of a.quotes) {
+    signals.push({ text: `[quote] ${q.text}`, lens: "narrative", sources: q.sources });
+  }
+  for (const oq of a.openQuestions) {
+    signals.push({ text: `[open-q·${oq.priority}] ${oq.text}`, lens: "first-principle", sources: oq.sources });
+  }
+  return { directorId: a.directorId, directorName: a.directorName, signals };
+}
+
+/** Legacy flat signal shape · still consumed by Stage 2 (scaffold) and
+ *  Stage 3 (writer). Phase 1 keeps it alive as the boundary type
+ *  produced by `assetsToSignals()`. The text carries asset-kind
+ *  prefixes so the downstream prompts get the kind information for
+ *  free without needing schema changes. */
 export interface ExtractedSignal {
   text: string;
   lens: EvidenceLens;
@@ -282,6 +465,13 @@ export interface Recommendation {
   /** What MUST be true for this action to work (the load-bearing
    *  pre-condition). Empty/undefined on legacy scaffolds. */
   criticalDependency?: string;
+  /** What acting on this earns · the upside / payoff stated as a
+   *  concrete benefit, not a metric to watch. Distinct from
+   *  `successMetric` (observable proof) and `rationale` (why this
+   *  works) — this is "what you GET if you do this" stated for a
+   *  decision-maker who needs to justify the investment. Empty/
+   *  undefined on legacy scaffolds. */
+  expectedBenefit?: string;
 }
 
 /** Section 10 · Pre-mortem. How the recommendations could fail, with
@@ -293,6 +483,210 @@ export interface FailureMode {
   leadingIndicator: string;
   /** What to do if the leading indicator fires. */
   mitigation: string;
+}
+
+/** Risk-register item · structurally distinct from pre-mortem.
+ *  pre-mortem catalogs ways the *recommendation* fails ("if we ship
+ *  this, here are the leading indicators of failure"). risk-register
+ *  catalogs the *operating-environment* / *team* / *product* / *market*
+ *  risks the room raised — risks that exist whether or not we act on
+ *  the recommendations. severity + likelihood are independent axes;
+ *  owner is who watches it (functional / role, not a person name);
+ *  mitigation is the playbook if the risk materialises. 3-7 items. */
+export type RiskCategory =
+  | "market"      // demand / competition / regulation / macro
+  | "execution"   // build / launch / scale / hiring
+  | "product"     // user-experience / quality / scope creep
+  | "team"        // capacity / morale / key-person / coordination
+  | "financial"   // burn / runway / pricing / unit economics
+  | "compliance"  // legal / privacy / certification
+  | "technical";  // architecture / debt / security / reliability
+export type RiskSeverity = "high" | "medium" | "low";
+export type RiskLikelihood = "high" | "medium" | "low";
+export interface RiskItem {
+  /** One-sentence risk statement. ≤ 180 chars. */
+  risk: string;
+  /** Category drives the icon / colour band; pick the closest. */
+  category: RiskCategory;
+  /** Impact if it lands. */
+  severity: RiskSeverity;
+  /** Probability over the brief's planning horizon (≈12-18 months). */
+  likelihood: RiskLikelihood;
+  /** Functional owner who watches this risk · role label, not a name.
+   *  Examples: "product", "ops", "legal", "founders", "hiring lead". */
+  owner: string;
+  /** Concrete mitigation playbook if the risk fires · ≤ 220 chars.
+   *  When the room had no clear mitigation, set to "monitor only" so
+   *  the renderer surfaces it explicitly rather than rendering blank. */
+  mitigation: string;
+}
+
+/** Structured comparison of N candidate options the room weighed ·
+ *  shared criteria across all options, plus per-option pros / cons,
+ *  with one option flagged as the room's recommended pick. Distinct
+ *  from `comparison-table` (which is a raw matrix the writer assembles
+ *  ad-hoc) and `two-paths` (binary trajectory comparison). Used when
+ *  the room said "we considered options A, B, C and recommend B
+ *  because…". 2-5 options. */
+export interface DecisionOption {
+  /** Short label · ≤ 32 chars (e.g. "Build in-house", "Acquire", "Wait"). */
+  label: string;
+  /** One-sentence summary of the option. ≤ 200 chars. */
+  summary: string;
+  /** 2-4 pros · each a short clause ≤ 80 chars. */
+  pros: string[];
+  /** 2-4 cons · each a short clause ≤ 80 chars. */
+  cons: string[];
+  /** Estimated effort to pursue this option. */
+  effort: "low" | "medium" | "high";
+  /** Confidence the option pays off if pursued. */
+  confidence: Confidence;
+  /** True only on the option the room recommends. EXACTLY ONE option
+   *  in the array should have `recommended: true`; the renderer marks
+   *  it with a "Recommended" badge. */
+  recommended: boolean;
+}
+export interface DecisionOptionsBlock {
+  /** Optional one-sentence framing for the comparison. ≤ 200 chars. */
+  intro: string;
+  /** 2-5 options. The recommended option (`recommended: true`) is
+   *  rendered first regardless of array order. */
+  options: DecisionOption[];
+  /** Why the recommended option wins · ≤ 280 chars. Anchors the
+   *  reader's takeaway and connects this section to recommendations. */
+  rationale: string;
+}
+
+/** Director-perspectives comparison · MANDATORY in every brief with
+ *  ≥ 2 active directors. The component renders a "social map" of the
+ *  room: every director's stance + position + optional verbatim quote,
+ *  grouped by where they aligned and where they split, with the
+ *  chair's structural observation closing the block. Distinct from:
+ *    · `convergence` — narrow structural insight (≥2 directors hit
+ *      the same conclusion via independent lenses; not every director
+ *      has to appear).
+ *    · `divergence` — the SINGLE central tension (one fork, not a
+ *      multi-axis comparison).
+ *    · `positions` — 2-3 named camps with a pull-quote per camp; less
+ *      structured than this component's per-director rows.
+ *  views-compared is the bird's-eye view: every active director gets
+ *  a row, alignment / divergence groups are explicit, the chair's
+ *  meta-observation closes it. Reading just this section tells a
+ *  stakeholder who was in the room and where each one stood. */
+export interface DirectorPerspective {
+  /** Director id from the room's member list. Required. */
+  directorId: string;
+  /** ≤ 60 chars · short label of this director's angle on the topic
+   *  (e.g. "Sees this as a moat play", "Reads it as distribution
+   *  leverage", "Frames it as a regulatory-window question"). */
+  stance: string;
+  /** 1-2 sentences (≤ 300 chars) · the director's load-bearing
+   *  position. Should read as their argument, not the chair's
+   *  paraphrase. */
+  position: string;
+  /** Optional verbatim phrase from the director (≤ 40 words). Empty
+   *  when no memorable verbatim is available. Rendered as italic
+   *  pull-quote next to the position. */
+  quote: string;
+  /** The lens this director argued from. Helps the reader see WHY
+   *  two directors disagree (different lenses) or agree (independent
+   *  paths to same conclusion). */
+  lens: EvidenceLens;
+}
+export interface PerspectiveAlignment {
+  /** Short name for what this group converges on. ≤ 80 chars. */
+  pointOfAgreement: string;
+  /** Director ids in this group · ≥ 2. */
+  directorIds: string[];
+  /** ≤ 220 chars · why this convergence is structurally meaningful
+   *  (independent paths, contrarian agreement, etc.). */
+  note: string;
+}
+export interface PerspectiveDivergence {
+  /** The hinge that separates the directors. ≤ 140 chars. */
+  hinge: string;
+  /** 2-3 sides · each side has a label, the directors on that side,
+   *  and a 1-sentence stance. */
+  sides: { label: string; directorIds: string[]; stance: string }[];
+  /** What would resolve the split · ≤ 220 chars. Empty when the
+   *  divergence remains unresolved. */
+  resolution: string;
+}
+export interface DirectorPerspectivesBlock {
+  /** Optional one-sentence intro framing the comparison. ≤ 200 chars. */
+  intro: string;
+  /** Groups of directors who arrived at similar conclusions. Each
+   *  group ≥ 2 directors. ≥ 0 groups (all-divergence rooms have 0). */
+  alignment: PerspectiveAlignment[];
+  /** Where directors split. Most rooms have 0-1 entries; complex
+   *  rooms can have 2 (multi-axis disagreement). */
+  divergence: PerspectiveDivergence[];
+  /** EVERY active director gets one entry, no exceptions. The reader
+   *  should see all participants accounted for in their own row. */
+  perspectives: DirectorPerspective[];
+  /** The chair's synthesis · 2-4 sentences (≤ 400 chars). What the
+   *  chair takes away from comparing the views. Moderator-neutral
+   *  voice — observation, not advocacy. */
+  chairSynthesis: string;
+}
+
+/** Side-by-side structural comparison · ALWAYS exactly 2 paths, each
+ *  carrying a verdict tag (\"structurally fragile\" / \"plausibly
+ *  defensible\") and 4-6 characteristic bullets. The component's hinge
+ *  is a binary choice the room argued — replacement vs augmentation,
+ *  vertical vs horizontal, build vs partner — where one trajectory
+ *  is structurally weaker than the other. The accent colour visualises
+ *  the verdict immediately (clay / red for weak, sage / green for
+ *  strong) so a reader sees the shape of the room's judgment without
+ *  reading the bullets. Distinct from:
+ *    · `two-paths` (binary trajectories, but PROSE-only — no bullet
+ *      structure, no verdict tags, no accent encoding)
+ *    · `decision-options` (2-5 options with pros/cons and one recommended
+ *      flag, no structural-weakness framing)
+ *    · `force-field` (one outcome with drivers vs resistors, not two
+ *      named paths)
+ *  Reference design: anthropic-essay's "03 — A Comparison" block. */
+export interface ComparisonPath {
+  /** Verdict tag · short clause that carries the room's judgment in
+   *  2-5 words. Examples: \"structurally fragile\" / \"plausibly
+   *  defensible\" / \"high-conviction\" / \"speculative\" / \"the
+   *  obvious bet\" / \"the contrarian read\". ≤ 40 chars. Rendered
+   *  as a mono-uppercase tag in the path's accent colour. */
+  verdict: string;
+  /** Stance drives the accent colour and bullet marker:
+   *    · \"strong\"  — sage / green / supportive accent
+   *    · \"weak\"    — clay / red / cautioning accent
+   *    · \"neutral\" — rule colour, no verdict accent (used when both
+   *                    paths are presented without a structural pick)
+   *  At most one path should be \"strong\" and at most one \"weak\".
+   *  Two \"neutral\" paths are valid (the room laid out both without
+   *  taking a side). */
+  stance: "weak" | "strong" | "neutral";
+  /** Path name · serif headline. Can be a single phrase or two phrases
+   *  joined with \" · \" or a `\\n` for label + sublabel. ≤ 90 chars. */
+  name: string;
+  /** 4-6 bullet characteristics · what makes this path what it is.
+   *  Each ≤ 110 chars. NOT pros/cons — these are characteristics that
+   *  collectively describe the path's structural fit (\"HR procurement
+   *  resists tools positioned as threat\" / \"product-led embedding
+   *  compresses sales cycles\"). The bullets read as evidence FOR the
+   *  verdict tag. */
+  characteristics: string[];
+}
+export interface PathComparisonBlock {
+  /** Optional one-sentence framing for the comparison. ≤ 200 chars.
+   *  Names what the binary choice is about (e.g. \"the choice between
+   *  framing the product as replacement vs augmentation\"). */
+  intro: string;
+  /** EXACTLY 2 paths · the component is binary by design. The first
+   *  is rendered LEFT, the second RIGHT. Stance drives accent colour
+   *  but doesn't reorder the array. */
+  paths: [ComparisonPath, ComparisonPath];
+  /** Optional implication line · ≤ 220 chars. Anchors the comparison
+   *  to its downstream consequence (e.g. \"It propagates through every
+   *  subsequent decision\"). Rendered after both columns as a single
+   *  italic sentence in the spine's body voice. */
+  implication?: string;
 }
 
 /** Section 11 · New Questions Surfaced. Distinct from openQuestions
@@ -575,203 +969,6 @@ export interface TwoPaths {
   pathB: TwoPathPanel;
 }
 
-/* ───────────────────── Brainstorm-mode components ──────────────────────
- *
- * Used ONLY when `room.mode === "brainstorm"`. The composer's brainstorm
- * pool picks from these instead of the decision-grade kinds (thesis,
- * critical-assumptions, the-bet, etc.).
- *
- * Discipline that separates these from the constructive/decision pool:
- *   · No anchor that commits to a judgement (no `bottomLine` / `thesis`).
- *   · No action section (no `recommendations` / `the-bet`).
- *   · Verbs are exploratory (`could`, `might`, `what if`), never `must`
- *     / `will` / `should`.
- *   · Every "winner pick" is REPLACED by an enumeration. The brief
- *     should leave the user with MORE angles to chase, not one to act on.
- *
- * Field shapes are intentionally narrow — we want Stage 2 to resist the
- * temptation to inflate. Three angles, three consequences, three
- * questions. Quality is in the spread, not the depth.
- * ────────────────────────────────────────────────────────────────────── */
-
-/** Opening hook · 1–2 sentence "what changes if this is real" lead-in.
- *  Replaces `bottomLine` as the brainstorm anchor — explicitly does NOT
- *  state a judgement. Restatement is a pull-quote-style line the renderer
- *  may surface as an italic block above the prose. */
-export interface OpeningHook {
-  hook: string;
-  restatement?: string | null;
-}
-
-/** Opportunity shape · "size of the room" beat. Three dimensions:
- *    · scope    · who / where the topic reaches if it plays out
- *    · gravity  · why it pulls attention worth this conversation
- *    · tempo    · the time texture (window opening / decade-long shift)
- *  Optional sizing hint surfaces an analogue (other industry, prior wave)
- *  WITHOUT committing to a forecast number. */
-export interface OpportunityShape {
-  scope: string;
-  gravity: string;
-  tempo: string;
-  sizingHint?: string | null;
-}
-
-/** Adjacent angles · 3–5 distinct ways INTO the topic. Each angle gets a
- *  name (re-usable handle), the lens it takes, and what becomes
- *  interesting when seen this way. NOT ranked, NOT a recommendation —
- *  the deliberate goal is "here are 4 doors, all worth opening." */
-export interface AdjacentAngle {
-  name: string;
-  framing: string;
-  whatOpens: string;
-}
-
-/** What if this works · the optimistic, generative branch. A 1-sentence
- *  setup ("if this plays out as described") followed by 3 short
- *  consequences worth playing out. Each consequence is exploration, not
- *  prediction — the writer must phrase them as "could / might / would
- *  open up", never as forecasts. */
-export interface WhatIfThisWorks {
-  setup: string;
-  consequences: string[];
-}
-
-/** Worth chasing · 3–5 angles the room actually generated heat around.
- *  Replaces `recommendations`. Each gets:
- *    · handle              · 1–4 word reusable label
- *    · whyItPulled         · what made the room return to this angle
- *    · nextTestableQuestion · open-ended question that would advance
- *                              understanding (NOT a milestone / OKR /
- *                              kill-criterion). */
-export interface WorthChasingAngle {
-  handle: string;
-  whyItPulled: string;
-  nextTestableQuestion: string;
-}
-
-/** Dead ends noted · 0–3 angles the room briefly considered then dropped.
- *  Naming these prevents re-traversal and signals the conversation
- *  actually ranged. Distinct from `pre-mortem` (failure modes for an
- *  action) — this is "we walked down this corridor and turned back."  */
-export interface DeadEndNoted {
-  angle: string;
-  whyDropped: string;
-}
-
-/** Brainstorm-mode open question. Different from `OpenQuestion` (which
- *  carries P0/P1 priority for action follow-up). Brainstorm questions are
- *  generative — they expand the field, not close it. Optional
- *  `whatWouldShift` names what answering this would unlock; not a
- *  prediction, not a kill criterion — purely "why this question
- *  matters." */
-export interface BrainstormQuestion {
-  question: string;
-  whatWouldShift?: string | null;
-}
-
-/* ───────────────────── Critique-mode components ────────────────────────
- *
- * Used ONLY when `room.mode === "critique"`. The composer's critique
- * pool picks from these instead of the decision-grade kinds. Distinct
- * from brainstorm: critique is AUDIT-shaped (sharp, ranked, procedural)
- * rather than EXPLORATION-shaped.
- *
- * Discipline that separates these from the constructive/decision pool:
- *   · No thesis, no recommendations, no scenarios, no opportunity-shape.
- *     The brief is a deliverable review, not a forward strategy.
- *   · Severity is ranked explicitly. Every issue and every fix is
- *     tagged high/medium/low.
- *   · "What's already good" comes BEFORE issues — auditor decorum +
- *     calibrates the reviewer's signal-to-noise. Skipping it tilts the
- *     critique toward "nothing works", which tanks credibility.
- *   · Voice: inspector / standards-officer. Sharper than constructive,
- *     more procedural than debate.
- * ─────────────────────────────────────────────────────────────────── */
-
-/** Severity tag · used on quality-issues and severity-ranked-fixes. */
-export type CritiqueSeverity = "high" | "medium" | "low";
-
-/** Deliverable summary · 1–2 sentence framing of what's being critiqued.
- *  Replaces `bottomLine` as the critique anchor — does NOT pass judgement
- *  on the deliverable, just states what the audit is reviewing. */
-export interface DeliverableSummary {
-  /** What's under review (e.g. "the v2 onboarding spec", "the proposed
-   *  pricing matrix", "the migration runbook"). */
-  subject: string;
-  /** 1-sentence framing of the audit context: what shape the
-   *  deliverable takes (doc / plan / artifact), what the critique is
-   *  scoped to. */
-  context: string;
-  /** Optional one-line audit charter ("called to surface blockers
-   *  before launch", "scope: technical correctness only"). */
-  charter?: string | null;
-}
-
-/** What's already good · 2–4 things working in the deliverable, named
- *  explicitly. Critique discipline says these come BEFORE the issues
- *  — calibrates the reviewer's signal and signals the audit isn't a
- *  hatchet job. Each entry is a 1-sentence note. */
-export interface WhatsGood {
-  point: string;
-  /** Optional · the director who flagged it (their phrasing IS the
-   *  point), or which lens the praise comes from. */
-  attribution?: string | null;
-}
-
-/** Quality issue · a discovered problem with the deliverable. Each
- *  issue is severity-ranked and pairs the symptom (the issue) with
- *  the impact (why it matters). NOT the fix — fixes live in the
- *  severity-ranked-fixes section so the room's diagnosis is separate
- *  from its prescription. */
-export interface QualityIssue {
-  /** Short title · ≤ 60 chars. */
-  title: string;
-  /** Severity tag · drives the rendered ordering and the colour band
-   *  in spines that show severity visually. */
-  severity: CritiqueSeverity;
-  /** The issue itself · 1–2 sentences. */
-  issue: string;
-  /** Why it matters · 1–2 sentences. Concrete impact, not generic
-   *  hand-wringing ("this confuses readers"). */
-  impact: string;
-  /** Optional · which director flagged it / which lens (data,
-   *  structural, etc.) surfaced the problem. */
-  attribution?: string | null;
-}
-
-/** Severity-ranked fix · the prescription paired with each issue (or
- *  cluster of issues). Distinct from `recommendations` — fixes are
- *  scoped to the deliverable under review, not the broader strategy. */
-export interface SeverityRankedFix {
-  /** Short title · ≤ 60 chars. Phrased as a do-action ("Tighten the
-   *  contract for X", "Add a check before Y"). */
-  title: string;
-  /** Severity matches the issue(s) this fix addresses. */
-  severity: CritiqueSeverity;
-  /** What to change · 1–2 sentences, concrete and applicable. */
-  fix: string;
-  /** Rough effort estimate · 1 word ("trivial" / "small" / "medium"
-   *  / "large") OR a 1-line note ("~half a day", "needs a re-spec"). */
-  effort: string;
-  /** Optional · who owns the fix or which role/team it sits with.
-   *  Critique is a review — it doesn't dictate ownership unless the
-   *  room actually agreed. */
-  owner?: string | null;
-}
-
-/** Residual risk · things that may still bite even after the fixes
- *  land. Distinct from pre-mortem (which is forward-looking for an
- *  action plan) — these are caveats specific to this deliverable that
- *  can't be neutralised inside this audit's scope. */
-export interface ResidualRisk {
-  risk: string;
-  /** Why this can't be closed inside the audit (out of scope, requires
-   *  external dependency, needs more data, etc.). */
-  whyResidual: string;
-  /** Optional · severity, if it's worth flagging vs. just noting. */
-  severity?: CritiqueSeverity | null;
-}
-
 /** Top-level scaffold. Composer-driven · only the picked component
  *  fields are filled by Stage 2; the rest are left at their zero values
  *  (empty array, null) so the existing renderer's "skip if empty" rules
@@ -794,6 +991,13 @@ export interface BriefScaffold {
   convergence: ConvergencePoint[];
   divergence: Divergence | null;
   positions: PositionCamp[];
+  /** Director-perspectives comparison · MANDATORY in every brief with
+   *  ≥ 2 active directors. NOT a composer-picked optional component —
+   *  always populated by Stage 2 and always rendered by Stage 3 (skip
+   *  only when there's exactly 1 active director, in which case
+   *  `perspectives` will have ≤ 1 entry and the writer drops the
+   *  section). The "social map" of the room. */
+  directorPerspectives: DirectorPerspectivesBlock | null;
   // ── Exhibits (optional · 0-4) ──
   visuals: Visual[];
   /** Optional · 2 named trajectories side by side. */
@@ -827,34 +1031,54 @@ export interface BriefScaffold {
    *  (the foundations the brief rests on). Set when the composer picks
    *  the `threats-to-validity` component. */
   threatsToValidity?: ThreatToValidity[] | null;
+  /** 3-7 environmental / product / team risks the room surfaced ·
+   *  distinct from pre-mortem (which catalogs recommendation-failure
+   *  modes). risk-register exists whether or not we act on the
+   *  recommendations — surfaces the standing risk landscape with
+   *  severity × likelihood × owner × mitigation. Set when the
+   *  composer picks the `risk-register` component. */
+  riskRegister?: RiskItem[] | null;
+  /** Structured N-option comparison · used when the room weighed 2-5
+   *  named options and recommended one. Distinct from `comparison-table`
+   *  (raw matrix · column-and-row freeform) and `two-paths` (binary
+   *  trajectory). Set when the composer picks the `decision-options`
+   *  component. */
+  decisionOptions?: DecisionOptionsBlock | null;
+  /** Side-by-side binary structural comparison · 2 paths with verdict
+   *  tags + characteristic bullets, accent-colour-coded by stance.
+   *  Set when the composer picks the `path-comparison` component.
+   *  Structurally distinct from `two-paths` (prose-only) and
+   *  `decision-options` (N options + pros/cons + recommended flag);
+   *  this component carries the room's *structural* read — which
+   *  trajectory is fragile vs viable. */
+  pathComparison?: PathComparisonBlock | null;
   /** Dashboard-style KPI / indicator strip · 3-5 number cards that
    *  carry the room's quantitative reads side-by-side. Set when the
    *  composer picks the `metric-strip` component. Distinct from
    *  `visuals` (which holds discrete options-comparison artefacts) —
    *  metric-strip is "by the numbers", visuals is "by the options". */
   metricStrip?: MetricStrip | null;
-  // ── Brainstorm-mode components (optional · only set when
-  //    `room.mode === "brainstorm"` and the composer picked them).
-  //    All decision-grade fields above are left at their zero values
-  //    in brainstorm-mode briefs so the writer doesn't render them. ──
-  openingHook?: OpeningHook | null;
-  opportunityShape?: OpportunityShape | null;
-  adjacentAngles?: AdjacentAngle[] | null;
-  whatIfThisWorks?: WhatIfThisWorks | null;
-  worthChasing?: WorthChasingAngle[] | null;
-  deadEndsNoted?: DeadEndNoted[] | null;
-  brainstormQuestions?: BrainstormQuestion[] | null;
-  // ── Critique-mode components (optional · only set when
-  //    `room.mode === "critique"` and the composer picked them).
-  //    All decision-grade + brainstorm fields are zero-valued in
-  //    critique-mode briefs. ──
-  deliverableSummary?: DeliverableSummary | null;
-  whatsGood?: WhatsGood[] | null;
-  qualityIssues?: QualityIssue[] | null;
-  severityRankedFixes?: SeverityRankedFix[] | null;
-  residualRisks?: ResidualRisk[] | null;
+  /** Appendices · supplementary detail too dense for the main body
+   *  (verbatim quotes >80 words, raw signal extracts, supporting
+   *  calculations, source chains). Each appendix is a titled block
+   *  rendered AFTER methodology, with `page-break-before` in print.
+   *  Used sparingly — most briefs have none. Set only when the
+   *  scaffold writer judges that the body would suffer from carrying
+   *  the material inline. */
+  appendices?: AppendixItem[] | null;
   // ── Residual ──
   openQuestions: OpenQuestion[];
+}
+
+/** Section-level appendix item. The body is markdown — quotes,
+ *  bullets, tables all render normally. Title becomes `## Appendix
+ *  A: {title}` with the letter auto-assigned in render order. */
+export interface AppendixItem {
+  /** Short label · 4–10 words · "Verbatim director exchange on the
+   *  pricing question" / "Source chain for the 60% capture estimate". */
+  title: string;
+  /** Markdown body · paragraphs, blockquotes, tables, lists allowed. */
+  bodyMd: string;
 }
 
 /** Language tag for the report. Determined from the room subject by the
@@ -891,13 +1115,33 @@ interface ExtractOpts {
 const EXTRACT_SYSTEM = (director: Agent) =>
   [
     `You are ${director.name} (${director.handle}), ${director.roleTag}.`,
-    `Your job: re-read your own contributions to a boardroom session and surface the 2–4 signals you most want preserved in the final report.`,
+    `Your job: re-read your own contributions to a boardroom session and surface a structured asset bundle for the report — every kind of material worth preserving, by category. Do NOT collapse to a flat 2–4 signal list anymore; the report writer needs to see what KIND of material you brought (claim vs evidence vs risk vs question) so it can place each one in the right section.`,
     ``,
-    `## What counts as a signal`,
+    `## Walk every asset field once. Empty arrays are correct when you raised no material of that kind`,
     ``,
-    `A signal is a single load-bearing observation you made — a claim, a counterexample, a structural insight, a first-principles re-derivation, a story that crystallizes the point. Not a summary of what you said; the *one thing* that should outlive the conversation.`,
+    `Walking through your messages, capture every relevant entry per field. If you raised no risks, return \`"risks": []\`. If you didn't propose actions, return \`"actions": []\`. **Empty arrays are CORRECT** — do not fabricate to fill a field.`,
     ``,
-    `## Lens tags (pick exactly one per signal)`,
+    `## Asset fields`,
+    ``,
+    `· **claims** — load-bearing claims you made (the takeaways you stand behind). Each: \`{ "text": "...", "lens": "data|dissent|narrative|structural|first-principle", "sources": [...], "confidence": "high|medium|low" (optional) }\`. Up to 6.`,
+    ``,
+    `· **evidence** — concrete material you brought IN to the room: data points, named cases, verbatim quotes from outside. Distinct from claims (which interpret evidence). Each: \`{ "text": "...", "kind": "data|case|quote", "sources": [...] }\`. Up to 6.`,
+    ``,
+    `· **tensions** — places you pushed back on or differed from another director. Each: \`{ "text": "...", "with": [directorId, ...], "sources": [...] }\`. Use \`"with": []\` when the tension is with the framing / user rather than a director. Up to 4.`,
+    ``,
+    `· **assumptions** — foundational beliefs your reasoning rests on (often unstated). Each: \`{ "text": "...", "falsifier": "what would prove this wrong" (optional), "sources": [...] }\`. Up to 4.`,
+    ``,
+    `· **risks** — failure modes / downsides you raised. Each: \`{ "text": "...", "severity": "high|medium|low" (optional), "sources": [...] }\`. Up to 4.`,
+    ``,
+    `· **opportunities** — upside / openings you named that the room should chase. Each: \`{ "text": "...", "sources": [...] }\`. Up to 3.`,
+    ``,
+    `· **actions** — concrete moves you proposed. Each: \`{ "text": "...", "owner": "..." (optional), "horizon": "..." (optional · e.g. "30 days"), "sources": [...] }\`. Up to 4.`,
+    ``,
+    `· **quotes** — your own memorable lines worth pull-quoting in the report. Verbatim, not paraphrase. Each: \`{ "text": "...", "sources": [...] }\`. Up to 3.`,
+    ``,
+    `· **openQuestions** — questions you surfaced or pushed on, tagged with priority. Each: \`{ "text": "...", "priority": "P0|P1|P2", "sources": [...] }\`. Up to 4.`,
+    ``,
+    `## Lens tags (used in claims field)`,
     ``,
     `· \`data\`           — empirical data point, number, or named precedent`,
     `· \`dissent\`        — a counterexample or pushback against a default view`,
@@ -907,22 +1151,44 @@ const EXTRACT_SYSTEM = (director: Agent) =>
     ``,
     `## Output format`,
     ``,
-    `Return a single JSON object inside a fenced \`\`\`json code block. No prose outside the block.`,
+    `Strict JSON inside a fenced \`\`\`json code block. No prose outside the block. All 9 fields MUST be present (use \`[]\` for fields with no material).`,
     ``,
     `\`\`\`json`,
     `{`,
-    `  "signals": [`,
-    `    { "text": "Short 1–2 sentence statement of the signal in your voice.", "lens": "dissent", "sources": [0, 2] }`,
+    `  "claims": [`,
+    `    { "text": "Short 1–2 sentence claim in your voice.", "lens": "dissent", "sources": [0, 2], "confidence": "medium" }`,
+    `  ],`,
+    `  "evidence": [`,
+    `    { "text": "GMV declined 23% Q3 against a 7% category baseline.", "kind": "data", "sources": [3] }`,
+    `  ],`,
+    `  "tensions": [`,
+    `    { "text": "Long Horizon framed this as a moat play; I read it as distribution leverage.", "with": ["long-horizon"], "sources": [4] }`,
+    `  ],`,
+    `  "assumptions": [`,
+    `    { "text": "We assume regulator timing slips by ≥2 quarters.", "falsifier": "FTC files before March", "sources": [5] }`,
+    `  ],`,
+    `  "risks": [`,
+    `    { "text": "Channel concentration on 2 platforms creates fragility.", "severity": "high", "sources": [6] }`,
+    `  ],`,
+    `  "opportunities": [`,
+    `    { "text": "Underserved mid-market segment if we relax the enterprise-only stance.", "sources": [7] }`,
+    `  ],`,
+    `  "actions": [`,
+    `    { "text": "Run a 30-day pilot on the API-only tier.", "owner": "product", "horizon": "30 days", "sources": [8] }`,
+    `  ],`,
+    `  "quotes": [`,
+    `    { "text": "The defensibility lives in the data flywheel, not the UI.", "sources": [2] }`,
+    `  ],`,
+    `  "openQuestions": [`,
+    `    { "text": "What turns model-quality lead into a moat at our scale?", "priority": "P0", "sources": [3, 5] }`,
     `  ]`,
     `}`,
     `\`\`\``,
     ``,
-    `\`sources\` is an array of 0-based indices into your message list (provided in the user message). Cite at least one. If you said nothing worth preserving, return \`{"signals": []}\`.`,
-    ``,
     `Constraints:`,
-    `· 2–4 signals (or zero).`,
-    `· Each signal has a different lens tag if possible.`,
-    `· "text" is in your own voice, not a third-person paraphrase. Max 50 words.`,
+    `· Every entry's \`sources\` array is non-empty (cite at least one of your messages by 0-based index).`,
+    `· "text" is in your own voice, not third-person paraphrase. Each entry max 60 words.`,
+    `· If you said nothing in this room, return all 9 fields as \`[]\` (empty bundle, still valid JSON).`,
   ].join("\n");
 
 export function buildExtractMessages(opts: ExtractOpts): LLMMessage[] {
@@ -942,11 +1208,11 @@ export function buildExtractMessages(opts: ExtractOpts): LLMMessage[] {
       content: [
         `ROOM SUBJECT: ${room.subject}`,
         ``,
-        `Your messages in this room (indexed):`,
+        `Your messages in this room (indexed · cite by these indices in every \`sources\` array):`,
         ``,
         myMessages || "(you said nothing)",
         ``,
-        `Extract your signals now. JSON only.`,
+        `Walk every asset field. Empty arrays are correct when no material exists for a field. JSON only.`,
       ].join("\n"),
     },
   ];
@@ -973,13 +1239,17 @@ interface ScaffoldOpts {
 const SCAFFOLD_SYSTEM = [
   "You are the chair of a boardroom session. The directors have each surfaced their own signals (with lens tags). Your job is to produce a structured scaffold for a McKinsey-grade research note — pyramid principle, MECE, with multi-director thinking surfaced as a structural feature.",
   "",
+  "## Signal kind tags",
+  "",
+  "Each signal in the SIGNALS block carries a bracket prefix that names the KIND of material the director extracted: `[claim]`, `[evidence·data|case|quote]`, `[tension]`, `[assumption]`, `[risk·high|medium|low]`, `[opportunity]`, `[action·owner·horizon]`, `[quote]`, `[open-q·P0|P1|P2]`. **Use these tags to place each signal in the right scaffold section** — `[risk]` material belongs in `pre-mortem` or `threats-to-validity`, NOT in headline-findings; `[action]` belongs in `recommendations` or `the-bet`; `[tension]` belongs in `divergence` or as a tension on a finding; `[open-q]` belongs in `open-questions` or `new-questions`. Treat the tag as a routing hint — the writer who placed it there already classified it.",
+  "",
   "## Design philosophy",
   "",
   "A multi-director report's value is **not** a McKinsey report with multiple authors. It is the meta-output the conversation between directors produced — frame shifts, convergent independent reasoning, and questions that did not exist when the room opened. Your scaffold must surface those structurally, not bury them in an appendix.",
   "",
   "## What you must produce — 12 sections",
   "",
-  "1. **Title** · 8–14 words. The title IS a complete-sentence thesis (e.g. \"AI dynamic comics will not kill manga but will compress it into a 'clean version' refuge\"), not a topic.",
+  "1. **Title** · 8–18 words (≥ 14 Chinese characters). The title IS a complete-sentence thesis — a reader who hasn't seen the room subject MUST be able to read it standalone and understand what the brief argues. Examples: \"AI dynamic comics will not kill manga but will compress it into a 'clean version' refuge\" / \"为什么飞书的 AI agent 平台终局是责任清算层而不是 SaaS 升级\". Hard FORBIDDEN: 2–3 word slogans (\"The Bet on Workflow\", \"AI 终局\"); abstract noun phrases without verbs (\"On Routing\", \"关于多模态的思考\"); titles that omit the room's actual subject. Name the specific topic + state the actual claim.",
   "",
   "2. **Bottom Line** · one-sentence judgement + confidence (high/medium/low) + a one-sentence rationale on why the confidence is what it is (and why not higher).",
   "",
@@ -999,19 +1269,40 @@ const SCAFFOLD_SYSTEM = [
   "",
   "7. **Positions** · 2–3 named camps. Short evocative label (\"The Skeptics\", \"The Long-Horizon Camp\"), one-sentence collective claim, director ids, supporting signal refs. A director appears in only one camp.",
   "",
-  "8. **Visuals** · 0–4 blocks. Content-driven. Pick from:",
-  "   · `comparison-table`  — ≥ 2 named options compared on shared dimensions (text matrix)",
-  "   · `quadrant-chart`    — items plotted on two real axes (mermaid quadrantChart)",
-  "   · `force-field`       — drivers vs resistors of one outcome (text two-column)",
-  "   · `strengths-cautions`— strengths / cautions / verdict per option (text matrix)",
+  "7b. **Director Perspectives** (`directorPerspectives`) · MANDATORY in every brief with ≥ 2 active directors. The \"social map\" of the room — every active director gets a row, alignment / divergence groups are explicit, the chair's structural observation closes the block. Distinct from convergence (narrow), divergence (single central tension), positions (2-3 camps with quotes). views-compared is the bird's-eye view that lets a stakeholder skim WHO was in the room and where each one stood. Object shape: `{ intro, alignment: [...], divergence: [...], perspectives: [...], chairSynthesis }`. Each entry of `perspectives`: `directorId` (must match the room's member list), `stance` (≤ 60 chars short label of the director's angle), `position` (1-2 sentences ≤ 300 chars · the director's load-bearing argument in their voice), `quote` (optional verbatim ≤ 40 words; empty when no memorable line), `lens` (data | dissent | narrative | structural | first-principle). EVERY active director gets one entry — no exceptions. Each `alignment` group: `pointOfAgreement` (≤ 80 chars), `directorIds` (≥ 2), `note` (≤ 220 chars · why the convergence is structurally interesting · prefer to surface independent paths to same conclusion). Each `divergence` entry: `hinge` (≤ 140 chars · what separates them), `sides` (2-3 named sides; each: label / directorIds / 1-sentence stance), `resolution` (≤ 220 chars · what would settle it; empty when unresolved). `chairSynthesis` (2-4 sentences, ≤ 400 chars) is the chair's meta-observation comparing the views — moderator-neutral voice, observation not advocacy. Set the WHOLE block to `null` ONLY when there's exactly 1 active director (no comparison possible).",
+  "",
+  "8. **Visuals** · 0–4 blocks. Content-driven. **Strongly prefer mermaid sub-types over text matrices** — mermaid renders as a real diagram readers can scan in seconds; text matrices are dense tables that take paragraphs to absorb. Only fall back to text matrix when the data shape genuinely doesn't fit any mermaid form.",
+  "",
+  "   Mermaid (preferred):",
+  "   · `quadrant-chart`    — items plotted on two real axes (mermaid quadrantChart). Effort/impact, support/strength, urgency/uncertainty.",
   "   · `bar-chart`         — 2–8 named items ranked by ONE quantitative dimension (mermaid xychart-beta · cost / support / size / time)",
   "   · `timeline`          — 3–8 dated points telling a narrative arc (mermaid timeline · retro / historical analogue / projected sequence)",
   "   · `pie-chart`         — 2–6 slices showing a distribution (mermaid pie · scenario probabilities / lens shares / vote tallies / market mix). Numbers can be percentages OR raw counts — mermaid normalises.",
-  "   Strong rule: if the discussion contained ANY ranked numeric measure across items → bar-chart. ANY chronological sequence ≥ 3 events → timeline. ANY distribution that sums (probability split, votes, lens count, market share) → pie-chart. These three are massively higher information density than the equivalent prose.",
   "",
-  "9. **Recommendations** · 3–5 concrete actions, each with: `priority` (P0/P1/P2), `action` (imperative), `rationale`, `ownerType`, `horizon` (e.g. \"next 30 days\"), `successMetric` (observable proof of execution), `riskIfSkipped`. Recommendations are imperatives — \"Do X\" not \"X should happen\".",
+  "   Text matrices (fall back when no mermaid form fits):",
+  "   · `comparison-table`  — ≥ 2 named options compared on shared dimensions",
+  "   · `force-field`       — drivers vs resistors of one outcome",
+  "   · `strengths-cautions`— strengths / cautions / verdict per option",
+  "",
+  "   Strong rules (these are routing constraints — disregarding them = a lost visualisation):",
+  "   · ANY ranked numeric measure across items → `bar-chart` (NOT comparison-table).",
+  "   · ANY chronological sequence ≥ 3 events → `timeline` (NOT a numbered list in prose).",
+  "   · ANY distribution that sums (probability split, votes, lens count, market share) → `pie-chart` (NOT a sentence with percentages).",
+  "   · ANY 2-axis plot (effort × impact, urgency × confidence) → `quadrant-chart`.",
+  "   · ONLY when the data is N-options × M-criteria with mixed cell types (text + numbers + tags) → `comparison-table`.",
+  "   · ONLY when the room argued exactly one outcome with for/against forces → `force-field`.",
+  "   · ONLY when N options each need a strengths/cautions/verdict triplet AND no numeric ranking → `strengths-cautions`.",
+  "   These six routes cover most rooms. Default toward picking 2–3 visuals (one quantitative + one categorical) — the writer is forbidden from emitting only text matrices. Beyond these, the Stage 3 writer also emits inline mermaid (flowchart / mindmap / gantt / sequenceDiagram / stateDiagram / journey) where prose can't carry the structure efficiently — those don't go in the typed `visuals` list, so don't pre-allocate them here.",
+  "",
+  "9. **Recommendations** · 3–5 concrete actions, each with: `priority` (P0/P1/P2), `action` (imperative), `rationale`, `ownerType`, `horizon` (e.g. \"next 30 days\"), `successMetric` (observable proof of execution), `riskIfSkipped`, `expectedBenefit` (the upside if you act — stated as a concrete payoff, NOT a metric to watch). Recommendations are imperatives — \"Do X\" not \"X should happen\". The `expectedBenefit` is what gets a stakeholder to actually approve the action — it answers \"if I do this, what do I get?\" in one short sentence.",
   "",
   "10. **Pre-mortem** · 2–3 ways the recommendations could fail. Each: `scenario`, `leadingIndicator` (earliest observable warning), `mitigation`. McKinsey-grade risk thinking.",
+  "",
+  "10b. **Risk Register** (`riskRegister`) · ONLY emit when the composer picked `risk-register`; otherwise return null. 3–7 standing risks the operating environment poses, distinct from pre-mortem (which catalogs how the recommendation fails). Each entry: `risk` (≤180 chars), `category` (one of: market / execution / product / team / financial / compliance / technical), `severity` (high / medium / low), `likelihood` (high / medium / low), `owner` (functional role label · \"product\", \"ops\", \"legal\" — NOT a person), `mitigation` (≤220 chars · concrete playbook OR \"monitor only\"). Pick categories that match the actual risk; default to `execution` only when no other category fits.",
+  "",
+  "10c. **Decision Options** (`decisionOptions`) · ONLY emit when the composer picked `decision-options`; otherwise return null. 2–5 named candidate options the room weighed, with shared pros/cons. Object shape: `{ intro, options: [...], rationale }`. Each option: `label` (≤32 chars), `summary` (≤200 chars), `pros` (2–4 short clauses ≤80 chars each), `cons` (2–4 short clauses ≤80 chars each), `effort` (low / medium / high), `confidence` (high / medium / low), `recommended` (boolean). EXACTLY ONE option must have `recommended: true` — the room's pick. The `rationale` (≤280 chars) explains why the recommended option wins and connects back to the recommendations section.",
+  "",
+  "10d. **Path Comparison** (`pathComparison`) · ONLY emit when the composer picked `path-comparison`; otherwise return null. EXACTLY 2 paths, side-by-side, verdict-tagged. Object shape: `{ intro, paths: [pathA, pathB], implication }`. Each path: `verdict` (≤40 chars · short clause carrying the room's structural read · examples: \"structurally fragile\" / \"plausibly defensible\" / \"the obvious bet\" / \"the contrarian read\"), `stance` (one of: \"weak\" / \"strong\" / \"neutral\" · drives the accent colour at render time), `name` (≤90 chars · serif headline · can be a single phrase or two phrases joined by `\\n`), `characteristics` (4–6 bullets, each ≤110 chars · what makes this path what it is — NOT pros/cons, these are characteristics that collectively support the verdict). At most one path is \"strong\" and at most one is \"weak\"; both \"neutral\" is valid when the room presented both without picking. `intro` (≤200 chars · one-sentence framing of what the binary choice is about). `implication` (optional · ≤220 chars · downstream consequence of the choice). Reserve this for rooms that argued ONE binary structural hinge (replacement vs augmentation, vertical vs horizontal, build vs partner). For 3+ options use `decisionOptions`; for prose-only paths use `twoPaths`.",
   "",
   "11. **New Questions** · questions that did NOT exist when the room opened but emerged from the conversation. **This is distinct from openQuestions** (residuals). New questions are the highest-value generative output. 1–4 items, each with `question`, `whyItMatters`, `surfacedByDirectorId`. If genuinely no new questions surfaced, return [].",
   "",
@@ -1025,7 +1316,7 @@ const SCAFFOLD_SYSTEM = [
   "",
   "```json",
   "{",
-  '  "title": "Complete-sentence thesis · 8-14 words",',
+  '  "title": "Claim-style sentence · 8-18 words · the takeaway, NOT the topic · self-contained without context · prefer a quantified element when one fits naturally (a number / count / horizon / ratio). Strong: \\"Three commitments that change the trajectory\\" / \\"Build for obligation, not for the model\\" / \\"提升X销售额的三点建议\\". Weak: \\"反共识判断\\" / \\"Market analysis\\" / \\"关于X的报告\\" — those describe the topic, not the takeaway. Avoid noun-phrase labels.",',
   '  "bottomLine": {',
   '    "judgement": "One-sentence load-bearing judgement.",',
   '    "confidence": "medium",',
@@ -1072,6 +1363,20 @@ const SCAFFOLD_SYSTEM = [
   '  "positions": [',
   '    { "label": "The Skeptics", "claim": "One-sentence collective stance.", "directors": ["dirId-a"], "evidenceRefs": ["dirId-a#0"] }',
   '  ],',
+  '  "directorPerspectives": {',
+  '    "intro": "Optional one-sentence intro framing how the directors compared (≤ 200 chars). Leave empty when the H2 is enough.",',
+  '    "alignment": [',
+  '      { "pointOfAgreement": "≤ 80 chars · what they converge on", "directorIds": ["dirId-a", "dirId-b"], "note": "≤ 220 chars · why this convergence is structurally interesting (e.g. independent paths to the same conclusion)" }',
+  '    ],',
+  '    "divergence": [',
+  '      { "hinge": "≤ 140 chars · what separates them", "sides": [ { "label": "Side A", "directorIds": ["dirId-a"], "stance": "1-sentence stance" }, { "label": "Side B", "directorIds": ["dirId-b"], "stance": "1-sentence stance" } ], "resolution": "≤ 220 chars · what would settle the split (empty when unresolved)" }',
+  '    ],',
+  '    "perspectives": [',
+  '      { "directorId": "dirId-a", "stance": "≤ 60 chars · short label of this director\'s angle", "position": "1-2 sentence load-bearing argument in their voice (≤ 300 chars)", "quote": "Optional verbatim ≤ 40 words; empty when no memorable line", "lens": "structural" },',
+  '      { "directorId": "dirId-b", "stance": "...", "position": "...", "quote": "", "lens": "data" }',
+  '    ],',
+  '    "chairSynthesis": "2-4 sentences (≤ 400 chars) · the chair\'s structural observation from comparing the views. Moderator-neutral · observation, not advocacy."',
+  '  },',
   '  "visuals": [',
   '    { "type": "comparison-table", "title": "...", "rowLabel": "Option", "columns": ["Speed", "Risk", "Cost"], "rows": [ { "name": "Option A", "cells": ["Fast", "High", "Low"] } ] },',
   '    { "type": "quadrant-chart", "title": "...", "xLabel": "Effort", "yLabel": "Impact", "q1": "Quick wins", "q2": "Major projects", "q3": "Fill-ins", "q4": "Thankless tasks", "items": [ { "label": "Idea A", "x": 0.7, "y": 0.8 } ] },',
@@ -1082,7 +1387,7 @@ const SCAFFOLD_SYSTEM = [
   '    { "type": "pie-chart", "title": "Scenario probability split", "slices": [ { "label": "Base", "value": 55 }, { "label": "Upside", "value": 25 }, { "label": "Downside", "value": 20 } ] }',
   '  ],',
   '  "recommendations": [',
-  '    { "priority": "P0", "action": "Imperative concrete action.", "rationale": "Why this works.", "ownerType": "platform team", "horizon": "next 30 days", "successMetric": "Observable proof.", "riskIfSkipped": "What goes wrong.", "criticalDependency": "What MUST be true for this to work — the load-bearing pre-condition. Forces stress-testing." }',
+  '    { "priority": "P0", "action": "Imperative concrete action.", "rationale": "Why this works.", "ownerType": "platform team", "horizon": "next 30 days", "successMetric": "Observable proof.", "riskIfSkipped": "What goes wrong.", "criticalDependency": "What MUST be true for this to work — the load-bearing pre-condition. Forces stress-testing.", "expectedBenefit": "The concrete upside if you act — stated as the payoff a stakeholder cares about (revenue captured / risk avoided / position locked in)." }',
   '  ],',
   '  "preMortem": [',
   '    { "scenario": "How it fails.", "leadingIndicator": "Earliest warning.", "mitigation": "What to do." }',
@@ -1125,12 +1430,34 @@ const SCAFFOLD_SYSTEM = [
   '  "threatsToValidity": [',
   '    { "category": "Selection bias", "threat": "1-2 sentences naming WHAT about the analysis could mislead.", "observable": "What you\'d see if this threat is realized.", "severity": "high", "mitigation": "What would address it (or null)." }',
   '  ],',
+  '  "riskRegister": [',
+  '    { "risk": "≤ 180 chars · one-sentence risk statement.", "category": "market", "severity": "high", "likelihood": "medium", "owner": "product", "mitigation": "≤ 220 chars · concrete playbook OR \\"monitor only\\"." }',
+  '  ],',
+  '  "decisionOptions": {',
+  '    "intro": "Optional one-sentence framing for the comparison (≤ 200 chars).",',
+  '    "options": [',
+  '      { "label": "Build in-house", "summary": "≤ 200 chars one-sentence summary.", "pros": ["Pro 1", "Pro 2"], "cons": ["Con 1"], "effort": "high", "confidence": "medium", "recommended": false },',
+  '      { "label": "Acquire", "summary": "...", "pros": ["..."], "cons": ["..."], "effort": "medium", "confidence": "high", "recommended": true }',
+  '    ],',
+  '    "rationale": "≤ 280 chars · why the recommended option wins."',
+  '  },',
+  '  "pathComparison": {',
+  '    "intro": "Optional one-sentence framing of what the binary choice is about (≤ 200 chars).",',
+  '    "paths": [',
+  '      { "verdict": "structurally fragile", "stance": "weak", "name": "Replace HR with AI\\nResume screening as the primary value proposition", "characteristics": ["HR procurement resists tools positioned as threat", "Capability replicable from open weights within days", "No proprietary data accumulates; advantage plateaus", "Pattern across two decades of HR Tech: replacement plays consistently fail"] },',
+  '      { "verdict": "plausibly defensible", "stance": "strong", "name": "Augment HR with AI\\nWorkflow embedding and proprietary data flywheel", "characteristics": ["HR is buyer and user; becomes internal advocate", "Defensibility from workflow lock-in; the model commoditizes, the process does not", "Product-led embedding compresses sales cycles to under three months", "Proprietary data flywheel; switching costs compound with usage"] }',
+  '    ],',
+  '    "implication": "Optional · ≤ 220 chars · downstream consequence of the binary choice."',
+  '  },',
   '  "metricStrip": {',
   '    "intro": "Single sentence framing the strip (\'Three numbers worth pricing in\' / \'By the numbers\').",',
   '    "cards": [',
   '      { "label": "≤ 60 chars · what this number measures.", "value": "≤ 24 chars · the number-like reading (\'≤ 8%\', \'18 mo\').", "qualifier": "Optional · ≤ 80 chars context (\'of total ARR\').", "trend": "up | down | flat | null", "attribution": "Optional · which director / lens (≤ 80 chars)." }',
   '    ]',
-  '  }',
+  '  },',
+  '  "appendices": [',
+  '    { "title": "≤ 10 words · what the appendix carries.", "bodyMd": "Markdown body — paragraphs, blockquotes, tables, lists OK. For verbatim transcripts >80 words, raw signal extracts, supporting calculations, source chains. Empty array when no material warrants an appendix (most briefs). At most 4." }',
+  '  ]',
   "}",
   "```",
   "",
@@ -1324,23 +1651,8 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     "threats-to-validity",
     // Dashboard-style indicator strip
     "metric-strip",
-    // Brainstorm-mode components · used only when room.mode === "brainstorm".
-    // Discipline at the composer level prevents these from mixing with the
-    // decision-grade pool above; listing them here so picked-block routing
-    // is uniform for the scaffold prompt regardless of mode.
-    "opening-hook",
-    "opportunity-shape",
-    "adjacent-angles",
-    "what-if-this-works",
-    "worth-chasing",
-    "dead-ends-noted",
-    "brainstorm-questions",
-    // Critique-mode components · used only when room.mode === "critique".
-    "deliverable-summary",
-    "whats-good",
-    "quality-issues",
-    "severity-ranked-fixes",
-    "residual-risks",
+    // Phase 2B · structurally distinct components for richer briefs
+    "risk-register", "decision-options", "path-comparison",
   ]);
   const set = new Set(picked.filter((k) => allKnown.has(k)));
   if (!set.size) return "";
@@ -1359,212 +1671,6 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     `─── END PICKED ───`,
   ].join("\n");
 }
-
-/* ─────────────────── Stage 2 · brainstorm scaffold prompt ─────────────────
- *
- * Used when `room.mode === "brainstorm"`. A complete replacement for
- * SCAFFOLD_SYSTEM — not an addendum. The brainstorm scaffold's whole
- * job is the OPPOSITE of the decision-grade scaffold: enumerate angles,
- * surface possibilities, refuse to pick a winner.
- *
- * Hard rules in the prompt:
- *   · NEVER fill `bottomLine` / `thesis` / `recommendations` / `theBet` /
- *     `criticalAssumptions` / `headlineFindings` / `bigIdeas`. Leave them
- *     null / empty array. The brainstorm-only fields below replace them.
- *   · Verbs are exploratory: "could / might / what if / opens up". Banned
- *     verbs in any brainstorm scaffold field: "must / will / should / is".
- *   · Three is the magic number — exactly 3 consequences, 3-5 angles,
- *     3-5 worth-chasing handles, 5-8 brainstorm questions.
- *   · The brief should leave the user with MORE angles to chase, not
- *     one to act on.
- * ──────────────────────────────────────────────────────────────────── */
-const BRAINSTORM_SCAFFOLD_SYSTEM = [
-  "You are the chair of a boardroom session run in BRAINSTORM mode. The user explicitly chose `mode: brainstorm` for this room — they want the conversation to OPEN UP the topic, not narrow it to a decision.",
-  "",
-  "Produce a JSON scaffold for a brainstorm-shaped brief. The brief that gets written from this scaffold MUST read as exploration, not as a thesis or a decision memo.",
-  "",
-  "## Hard rules · violations are rejected",
-  "",
-  "1. **Never fill decision-grade fields.** Leave these at their zero values:",
-  "   - `bottomLine` → set `judgement` to empty string `\"\"`, `confidence` to `\"low\"`, `rationale` to `\"\"`. The renderer will skip the section.",
-  "   - `thesis` / `workingHypothesis` / `headlineFindings` (`[]`) / `bigIdeas` (`null`) / `recommendations` (`[]`) / `theBet` (`null`) / `considerations` (`null`) / `criticalAssumptions` (`null`) / `scenarioTree` (`null`) / `leadingIndicators` (`null`) / `preMortem` (`[]`) / `planningAssumption` (`null`) / `whyNow` (`null`) / `positions` (`[]`) / `twoPaths` (`null`) / `strategicOutlook` (`null`) / `threatsToValidity` (`null`).",
-  "",
-  "2. **Fill brainstorm-only fields** when the composer picked them. Possible kinds:",
-  "   - `opening-hook` → `openingHook` · 1–2 sentence \"what changes if this is real\" lead-in. NOT a judgement.",
-  "   - `opportunity-shape` → `opportunityShape` · 3 dimensions: scope (who/where), gravity (why it pulls attention), tempo (time texture). Optional `sizingHint` is an analogue, NOT a forecast number.",
-  "   - `adjacent-angles` → `adjacentAngles` · 3–5 distinct angles. Each gets `name` (1–4 word handle), `framing` (the lens), `whatOpens` (what becomes interesting). NOT ranked. NOT \"the best one\".",
-  "   - `what-if-this-works` → `whatIfThisWorks` · 1-sentence `setup` + EXACTLY 3 short `consequences`. Phrased as \"could open up\" / \"might unlock\", NEVER as predictions.",
-  "   - `worth-chasing` → `worthChasing` · 3–5 angles the room generated heat around. Each gets `handle`, `whyItPulled`, `nextTestableQuestion`. The next-question is OPEN-ENDED — not a milestone, not a kill criterion, not an OKR.",
-  "   - `dead-ends-noted` → `deadEndsNoted` · 0–3 angles the room dropped. `angle` + `whyDropped`. Naming these signals the conversation actually ranged.",
-  "   - `brainstorm-questions` → `brainstormQuestions` · 5–8 generative questions. `question` + optional `whatWouldShift`. NOT a P0/P1 todo list.",
-  "",
-  "3. **Fill mode-neutral fields** when the composer picked them. These give the brief visual + analytical rhythm; their voice in a brainstorm brief stays exploratory (descriptive, never claim-front):",
-  "   - `frame-shift` → `frameShift` · `{ shifted: bool, original, reframed, trigger }`. Describe how the question moved during the room (or held). Past-tense observational voice. NOT \"the room concluded X\" — \"the room kept asking Y after Z surfaced\".",
-  "   - `convergence` → `convergence` · array of points where ≥2 directors arrived at the same observation via different lenses. Each `{ point, directors[], lenses[] }`. Descriptive, NOT a thesis.",
-  "   - `divergence` → `divergence` · single hinge `{ summary, rows[], crux }` where directors split. Surface the tension; do NOT resolve it (this is brainstorm — the split stays open).",
-  "   - `visuals` → `visuals` · 0–4 mermaid charts. Pick visual subtypes that fit BRAINSTORM material: `timeline` (chronology of waves), `pie` (distribution of attention / where the energy went), `comparison-table` (angle vs angle), `bar-chart` (ranked numeric reads), `quadrant-chart` (2-axis plot of angles). Use the existing schema (caption, chart-specific fields).",
-  "   - `metric-strip` → `metricStrip` · `{ intro, cards[] }` with 3–5 KPI cards (label, value, qualifier, trend, attribution). For numeric reads the room surfaced (analogue numbers / sizing / time windows / ratios). Brainstorms often hint at quantities (\"X grew 5×\", \"by 2027\") — they belong here.",
-  "   - `new-questions` → `newQuestions` · list of `{ question, attribution, lens, why }`. Questions that emerged DURING the room. Different from `brainstormQuestions` which are residual generative; pick at most ONE of the two.",
-  "   - `open-questions` → `openQuestions` · residual P0/P1 list. Tactical asks only.",
-  "",
-  "4. **Voice rules.**",
-  "   - Verbs allowed: `could`, `might`, `would open up`, `seems to`, `looks like`, `if X, then Y might`, `what if`.",
-  "   - Verbs FORBIDDEN: `must`, `will`, `should`, `the bet is`, `the moat is`, `必须`, `应该`, `护城河`, `要做的是`, `the answer is`, `we recommend`.",
-  "   - First-person framing is fine (`the room found` / `a few of us pulled toward` / `房间里反复回到`).",
-  "   - Do NOT name a winner. If two angles seem strongest, surface both as `worth-chasing` entries — the user picks.",
-  "",
-  "5. **Title.** The `title` field MUST be exploratory — an open-ended question (\"What changes if 50 humans + 5000 agents is real?\") OR a \"shape of the space\" framing (\"Five doors into [topic]\" / \"如果 X 成立的几种打开方式\"). Never a thesis-style claim. Never a moat / underwriting / commitment framing.",
-  "",
-  "## JSON shape",
-  "",
-  "Strict JSON inside a fenced ```json code block. No prose outside the block. Field shapes:",
-  "",
-  "```json",
-  "{",
-  '  "title": "Open-ended question or \"shape of the space\" framing.",',
-  '  "openingHook": { "hook": "1–2 sentence what-if lead-in.", "restatement": "≤30-char pull-quote OR null" },',
-  '  "opportunityShape": {',
-  '    "scope": "Who / where the topic reaches if it plays out.",',
-  '    "gravity": "Why it pulls attention worth this conversation.",',
-  '    "tempo": "Time texture · window opening / decade-long shift.",',
-  '    "sizingHint": "Analogue from another industry / prior wave OR null"',
-  "  },",
-  '  "adjacentAngles": [',
-  '    { "name": "1–4 words", "framing": "the lens this angle takes", "whatOpens": "1–2 sentences on what becomes interesting" }',
-  "  ],",
-  '  "whatIfThisWorks": {',
-  '    "setup": "If this plays out as described, …",',
-  '    "consequences": ["consequence 1", "consequence 2", "consequence 3"]',
-  "  },",
-  '  "worthChasing": [',
-  '    { "handle": "1–4 word handle", "whyItPulled": "why the room kept returning", "nextTestableQuestion": "open question to advance understanding" }',
-  "  ],",
-  '  "deadEndsNoted": [',
-  '    { "angle": "the angle", "whyDropped": "why the room turned back" }',
-  "  ],",
-  '  "brainstormQuestions": [',
-  '    { "question": "the question", "whatWouldShift": "what answering this unlocks OR null" }',
-  "  ],",
-  "  // Mode-neutral fields · FILL when the composer picked them",
-  "  // (frame-shift / convergence / divergence / visuals / metric-strip /",
-  "  // new-questions / open-questions). Use the regular schema for each",
-  "  // (same as constructive briefs · only the voice changes — descriptive",
-  "  // and exploratory, never claim-front). Examples below show the shape;",
-  "  // OMIT each block when not picked (or use the zero value).",
-  '  "frameShift":         { "shifted": true, "original": "...", "reframed": "...", "trigger": "..." },',
-  '  "convergence":        [{ "point": "...", "directors": [], "lenses": [] }],',
-  '  "divergence":         { "summary": "...", "rows": [], "crux": "..." },',
-  '  "visuals":            [],   // 0–4 mermaid charts · use existing visual schema',
-  '  "metricStrip":        { "intro": "...", "cards": [] },',
-  '  "newQuestions":       [],',
-  '  "openQuestions":      [],',
-  "  // ALWAYS leave these decision-grade fields at their zero values:",
-  '  "bottomLine":         { "judgement": "", "confidence": "low", "rationale": "" },',
-  '  "headlineFindings":   [],',
-  '  "positions":          [],',
-  '  "recommendations":    [],',
-  '  "preMortem":          [],',
-  '  "planningAssumption": null',
-  "}",
-  "```",
-  "",
-  "Skipped components in the COMPOSER PICKED COMPONENTS block stay at their zero values per the rule above. Filled components get rich content per the field shapes.",
-].join("\n");
-
-/* ───────────────────── Stage 2 · critique scaffold prompt ─────────────────
- *
- * Used when `room.mode === "critique"`. A complete replacement for
- * SCAFFOLD_SYSTEM. Critique is AUDIT-shaped: severity-ranked, "what's
- * good first", procedural. The opposite shape from brainstorm
- * (exploratory) and from constructive (decision-grade).
- *
- * Hard rules in the prompt:
- *   · NEVER fill `bottomLine` / `thesis` / `recommendations` /
- *     `criticalAssumptions` / `headlineFindings` / `bigIdeas` / brain-
- *     storm fields. Leave them at their zero values.
- *   · `whatsGood` MUST be filled with 2–4 entries when picked. Skipping
- *     it makes the audit read as a hatchet job and tanks credibility.
- *   · Issues and fixes are EXPLICITLY severity-ranked — every entry
- *     carries a `severity` tag from {high, medium, low}.
- *   · Voice: inspector / standards-officer. Sharper than constructive,
- *     more procedural than debate. NEVER prescriptive about strategy
- *     ("you should pivot the product") — only about the deliverable.
- * ──────────────────────────────────────────────────────────────────── */
-const CRITIQUE_SCAFFOLD_SYSTEM = [
-  "You are the chair of a boardroom session run in CRITIQUE mode. The user explicitly chose `mode: critique` for this room — they want a deliverable AUDIT, not a strategic memo.",
-  "",
-  "Produce a JSON scaffold for a critique-shaped brief. The brief that gets written from this scaffold MUST read as an audit: framed → what's good → what's broken (severity-ranked) → fixes (severity-ranked) → residual risks. No thesis. No strategy recommendations. No exploration.",
-  "",
-  "## Hard rules · violations are rejected",
-  "",
-  "1. **Never fill decision-grade or brainstorm fields.** Leave these at their zero values:",
-  "   - `bottomLine` → set `judgement: \"\"`, `confidence: \"low\"`, `rationale: \"\"`. The renderer will skip the section.",
-  "   - `thesis` / `workingHypothesis` / `headlineFindings` (`[]`) / `bigIdeas` (`null`) / `recommendations` (`[]`) / `theBet` (`null`) / `considerations` (`null`) / `criticalAssumptions` (`null`) / `scenarioTree` (`null`) / `leadingIndicators` (`null`) / `preMortem` (`[]`) / `planningAssumption` (`null`) / `whyNow` (`null`) / `frameShift` → use `{ shifted: false, original: \"\", reframed: \"\", trigger: \"\" }`.",
-  "   - All brainstorm fields (`openingHook` / `opportunityShape` / `adjacentAngles` / `whatIfThisWorks` / `worthChasing` / `deadEndsNoted` / `brainstormQuestions`) → null / [].",
-  "",
-  "2. **Fill critique-only fields.** The composer's pick list tells you exactly which to fill. Possible kinds (the composer picks 4–7 of these per brief):",
-  "   - `deliverable-summary` → `deliverableSummary` · `subject` (what's under review) + `context` (1-sentence framing) + optional `charter` (audit scope).",
-  "   - `whats-good` → `whatsGood` · 2–4 entries, each `point` (the strength) + optional `attribution` (director or lens). REQUIRED — must come BEFORE issues.",
-  "   - `quality-issues` → `qualityIssues` · 3–7 issues, each `title` + `severity` (high/medium/low) + `issue` (the symptom) + `impact` (why it matters) + optional `attribution`. Diagnosis only — fixes belong in the next section.",
-  "   - `severity-ranked-fixes` → `severityRankedFixes` · 3–7 fixes, each `title` (do-action phrasing) + `severity` (matches the issues addressed) + `fix` (concrete change) + `effort` (1 word or 1-line note) + optional `owner`. Prescription scoped to the deliverable.",
-  "   - `residual-risks` → `residualRisks` · 0–4 entries, each `risk` + `whyResidual` (why it can't close inside this audit) + optional `severity`.",
-  "   - `openQuestions` → `openQuestions` · standard P0/P1 residual TODO list — questions for the deliverable's owner.",
-  "",
-  "3. **Severity discipline.**",
-  "   - `severity` MUST be one of `\"high\"`, `\"medium\"`, `\"low\"`. No other strings, no prose.",
-  "   - High = blocks shipping / correctness defect / data loss / contract break.",
-  "   - Medium = degrades quality but ships viably / can be fixed in next iteration.",
-  "   - Low = polish / nit / forward-looking.",
-  "   - Issues and fixes should mostly pair · for every high-severity issue there's typically a high-severity fix. The renderer will surface mismatches.",
-  "",
-  "4. **Voice.** Inspector / standards-officer register. Sharp, procedural, evidence-anchored. NOT debate-style adversarial — this is review, not opposition. Verbs: `surfaces`, `breaks`, `omits`, `under-specifies`, `narrows`. Avoid `must` / `should` outside fixes; in fixes, `do X` / `add Y` is fine because that's the prescription. NEVER prescriptive about strategy beyond the deliverable.",
-  "",
-  "5. **Title.** The `title` field MUST name the deliverable + the audit's headline finding. Examples: \"Onboarding spec audit · 3 high-severity gaps in error states\" / \"v2 pricing matrix · sound on tiering, weak on enterprise carve-outs\". NOT a thesis. NOT exploratory.",
-  "",
-  "## JSON shape",
-  "",
-  "Strict JSON inside a fenced ```json code block. No prose outside the block. Field shapes:",
-  "",
-  "```json",
-  "{",
-  '  "title": "Deliverable name · headline finding.",',
-  '  "deliverableSummary": {',
-  '    "subject": "What\'s under review (≤120 chars).",',
-  '    "context": "1-sentence framing of shape + scope.",',
-  '    "charter": "1-line audit charter OR null"',
-  "  },",
-  '  "whatsGood": [',
-  '    { "point": "1-sentence note on what works", "attribution": "director name OR lens OR null" }',
-  "  ],",
-  '  "qualityIssues": [',
-  '    { "title": "≤60 chars", "severity": "high|medium|low", "issue": "1-2 sentences · the symptom", "impact": "1-2 sentences · why it matters", "attribution": "director name OR lens OR null" }',
-  "  ],",
-  '  "severityRankedFixes": [',
-  '    { "title": "Do-action phrasing (≤60 chars)", "severity": "high|medium|low", "fix": "1-2 sentences · concrete change", "effort": "trivial|small|medium|large OR \\"~half a day\\"", "owner": "role/team OR null" }',
-  "  ],",
-  '  "residualRisks": [',
-  '    { "risk": "the risk", "whyResidual": "why it can\'t close inside this audit", "severity": "high|medium|low OR null" }',
-  "  ],",
-  '  "openQuestions": [',
-  '    { "question": "question for the deliverable owner", "priority": "P0|P1" }',
-  "  ],",
-  "  // Below this line: leave at zero values · the writer skips them.",
-  '  "bottomLine":         { "judgement": "", "confidence": "low", "rationale": "" },',
-  '  "frameShift":         { "shifted": false, "original": "", "reframed": "", "trigger": "" },',
-  '  "headlineFindings":   [],',
-  '  "convergence":        [],',
-  '  "divergence":         null,',
-  '  "positions":          [],',
-  '  "visuals":            [],',
-  '  "recommendations":    [],',
-  '  "preMortem":          [],',
-  '  "newQuestions":       [],',
-  '  "planningAssumption": null',
-  "}",
-  "```",
-  "",
-  "Skipped components in the COMPOSER PICKED COMPONENTS block stay at their zero values per the rule above.",
-].join("\n");
 
 export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
   const { room, members, perDirectorSignals, language, picked } = opts;
@@ -1599,29 +1705,21 @@ export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
       ].join("\n")
     : "";
 
-  // Mode-axis dispatch · brainstorm and critique rooms each get a
-  // completely different scaffold system prompt. Brainstorm produces
-  // an exploration-shaped JSON (no thesis / no recommendations);
-  // critique produces an audit-shaped JSON (severity-ranked issues +
-  // fixes, "what's good" first). Constructive / debate / research
-  // fall through to SCAFFOLD_SYSTEM.
-  const scaffoldSystem = room.mode === "brainstorm"
-    ? BRAINSTORM_SCAFFOLD_SYSTEM
-    : room.mode === "critique"
-      ? CRITIQUE_SCAFFOLD_SYSTEM
-      : SCAFFOLD_SYSTEM;
-
   return [
     {
       role: "system",
-      content: [scaffoldSystem, "", languageInstruction(language)].join("\n"),
+      content: [SCAFFOLD_SYSTEM, "", languageInstruction(language)].join("\n"),
     },
     {
       role: "user",
       content: [
         `ROOM #${room.number} · ${room.name}`,
         `Subject: ${room.subject}`,
-        `Mode: ${room.mode}`,
+        // `Mode: …` deliberately omitted · see composer.ts for the
+        // same change. Surfacing the room mode here biased the LLM
+        // toward critique-shaped / brainstorm-shaped output even
+        // though the standard scaffold prompt asks for decision-grade
+        // JSON, leading to parseScaffold rejecting every retry.
         ``,
         `Directors:`,
         `  · ${memberList}`,
@@ -1667,26 +1765,33 @@ interface WriteOpts {
    *  rotation kinds (anchor / findings / action / pre-mortem / etc.).
    *  Optional — omitted callers pin to variant 0 of every entry. */
   briefId?: string;
-  /** Mode-contract retry addendum · injected verbatim into the writer
-   *  system prompt when the previous Stage-3 attempt produced a brief
-   *  that violated the room's mode contract (decision-defense language
-   *  in a brainstorm brief, missing severity tags in a critique brief,
-   *  etc.). Built by `buildContractRetryAddendum` from the violation
-   *  list returned by `validateBriefBody`. Empty / undefined on the
-   *  first attempt. */
-  retryAddendum?: string;
 }
 
 const WRITE_SYSTEM = [
   "You are the chair of a boardroom session. You have a structured scaffold. Write the final report in markdown — a McKinsey-grade research note that makes the multi-director thinking visible. Pyramid principle, MECE, action-oriented.",
   "",
+  "## Signal kind tags in the source material",
+  "",
+  "When you cite a director's signal back into prose, the SIGNALS block in the user message tags each entry with its kind: `[claim]`, `[evidence·data|case|quote]`, `[tension]`, `[risk·severity]`, `[action·owner·horizon]`, `[open-q·P0|P1|P2]`, `[quote]`, etc. The tags are routing hints from the extract stage — `[evidence·data]` is hard data worth featuring as a number, `[risk]` is a downside the room raised, `[quote]` is a verbatim line worth preserving as a pull-quote. STRIP the bracket prefix when you weave a signal into your prose; keep the underlying claim. The prefix is metadata for placement, not content.",
+  "",
   "## Required structure (in order — never reorder)",
   "",
-  "Start with a single H2 title from `scaffold.title` verbatim.",
+  "Start with a single H2 title. Use `scaffold.title` if it's already claim-style (states the takeaway, ideally with a quantified element — \"Three commitments that change the trajectory\" / \"提升X销售额的三点建议\"). If `scaffold.title` is a topic label or noun-phrase (\"反共识判断\" / \"Market analysis\" / \"关于X的分析报告\"), rewrite it into a claim-style sentence that names what the report concludes. The H2 is the first thing a stakeholder reads — it must carry the takeaway, not the topic.",
   "",
   "  ## Bottom Line",
-  "  One short paragraph (1–3 sentences). Lead with the scaffold's `bottomLine.judgement` rephrased for impact, italicized. Then state the confidence inline using this exact format: `**Confidence: {high/medium/low}** — {rationale}`.",
-  "  This section is ALWAYS rendered. It is the report's visual anchor.",
+  "  Render as a STANDALONE executive summary — a stakeholder who reads only this section should know the call, the supporting evidence, and the action. ALWAYS rendered. The report's visual anchor.",
+  "  Open paragraph (1–2 sentences) with the scaffold's `bottomLine.judgement` rephrased for impact, italicized. Then state the confidence inline using this exact format: `**Confidence: {high/medium/low}** — {rationale}`.",
+  "  After that opening paragraph, add up to two sub-blocks — render each only when its source data is present in the scaffold:",
+  "    · `**What's behind it**` followed by a 2–3 bullet list, each bullet ≤ 18 words, distilling each Headline Finding's `claim` into a single line. Use the claim verbatim if it's already short; otherwise compress without changing the meaning. Skip this sub-block when `headlineFindings` and `bigIdeas` are both empty.",
+  "    · `**What to do**` followed by ONE bullet collapsing the highest-priority recommendation (the first item after sort) into ≤ 16 words — imperative voice, drop the metric / horizon / risk fields here, those live in the Recommendations section. Skip this sub-block when `recommendations` is empty. When `considerations` is the action substitute, replace the kicker with `**Worth considering**` and use the hedged voice (\"could ...\" / \"might ...\").",
+  "  Don't pad either sub-block with prose. The bullets carry the section. The expanded shape exists so a reader who stops here still leaves with the call + the why + the do-next.",
+  "",
+  "  ## Introduction",
+  "  Render this section ONLY when the brief has 6 or more body sections (a standalone reader needs framing before diving in; short briefs don't earn an intro). 2-3 sentences, no bullets:",
+  "    Sentence 1 · paraphrase the room's initial question — what was being investigated. Use the language the room used; don't editorialize.",
+  "    Sentence 2 · scope · the room's composition (e.g. \"three directors over X turns, working through Y\"). Pull from the methodology context provided in the user message.",
+  "    Sentence 3 (optional) · what kind of decision this brief supports — a forward investment / a retrospective audit / an open exploration / etc. Skip this sentence when it's obvious from the question and would feel redundant.",
+  "  Plain prose. No kicker labels. Skip entirely when total section count is 5 or fewer (the Bottom Line + a few chapters is its own intro).",
   "",
   "  ## Frame Shift",
   "  This is the most distinctive multi-director output. ALWAYS rendered. Two cases:",
@@ -1694,7 +1799,9 @@ const WRITE_SYSTEM = [
   "    · If `frameShift.shifted: false` — write \"The frame held: the room sharpened {original} rather than redefining it. {trigger as 1-sentence rationale}.\"",
   "",
   "  ## Headline Findings",
-  "  Exactly 3 findings. For each one, render as:",
+  "  Each finding must demonstrably support the anchor (Bottom Line / Thesis / Working Hypothesis). Before rendering, audit each scaffold finding against this question: \"would removing this finding weaken the anchor's case?\" If the answer is no — the finding is interesting but tangential — DROP it from the report. Do not render the H3. A 2-finding section that all carry the conclusion beats a 3-finding section where one is decorative. Cohesion of supporting evidence is what makes the report land; one weakly-connected finding dilutes the others.",
+  "  Length budget · the WHOLE Headline Findings section should land between 2,000 and 3,500 characters total (≈ 350–600 words across 2–3 findings). Per finding: ~1,000–1,200 chars. If you find yourself writing a 4th paragraph for a single finding, you've over-built — cut to 3 paragraphs and trust the reader. Density beats verbosity; this is the section a stakeholder is most likely to skim, so every paragraph must do work.",
+  "  Render up to 3 findings (drop weakly-connected ones to 2 if needed; never invent a third). For each one, render as:",
   "    ### {finding.title}",
   "    Open with the claim italicized in one line: *\"{claim}\"*",
   "    Then a `**Confidence: {high/medium/low}** · supported by {supporters as names} · challenged by {challengers as names, or \"none — full alignment\"}` line.",
@@ -1730,6 +1837,35 @@ const WRITE_SYSTEM = [
   "    Open with **bold restatement of `claim`**. Then 2–3 sentences of explanation drawing on the camp's evidence refs. End the subsection with a blockquote pulling the most evocative phrase from one of the camp's directors:",
   "    > *\"…\"* — {director name}",
   "    Use the director's actual words from their signal text — pick the one that best lands the point. Trim to ≤ 40 words. **Each camp gets exactly one pull-quote.**",
+  "",
+  "  ## Views Compared",
+  "  ALWAYS rendered when `directorPerspectives` is non-null (i.e. ≥ 2 active directors). This is the room's social map · every active director gets a row, alignment / divergence groups are explicit, the chair's structural observation closes the block. Skip ONLY when `directorPerspectives` is null (single-director rooms).",
+  "  Emit a fenced ```views-compared block · the renderer turns the strict JSON into a structured comparison view (alignment cards, divergence panels, per-director rows, chair synthesis card). Same dispatch pattern as `metric-strip` and `path-comparison`. Do NOT also write a markdown table or prose duplicating the same content.",
+  "    ```views-compared",
+  '    {',
+  '      \"intro\": \"{directorPerspectives.intro · or empty string when null}\",',
+  '      \"alignment\": [',
+  '        { \"pointOfAgreement\": \"...\", \"directorIds\": [\"...\", \"...\"], \"note\": \"...\" }',
+  '      ],',
+  '      \"divergence\": [',
+  '        { \"hinge\": \"...\", \"sides\": [ { \"label\": \"...\", \"directorIds\": [\"...\"], \"stance\": \"...\" } ], \"resolution\": \"...\" }',
+  '      ],',
+  '      \"perspectives\": [',
+  '        { \"directorId\": \"...\", \"stance\": \"...\", \"position\": \"...\", \"quote\": \"...\", \"lens\": \"structural\" }',
+  '      ],',
+  '      \"chairSynthesis\": \"...\"',
+  '    }',
+  "    ```",
+  "  Hard rules:",
+  "    · The fence info-string is exactly `views-compared` (no version, no extras). The renderer dispatches on this string.",
+  "    · Strict JSON inside · no comments, no trailing commas. Newlines inside string values must be escaped as `\\n`.",
+  "    · Use the EXACT director ids from the room's member list (provided in the user message). Misspelled ids leave directors stranded — they render as their raw id instead of their display name.",
+  "    · `perspectives` MUST include EVERY active director who spoke in the room. Don't omit a director because their position was thin — render their position with a low-confidence framing instead.",
+  "    · Each `alignment` group needs ≥ 2 directors. Single-director \"groups\" are dropped by the parser.",
+  "    · Each `divergence` entry needs ≥ 2 sides. Single-side divergence is also dropped.",
+  "    · `chairSynthesis` is moderator-neutral · observation about the SHAPE of the disagreement / agreement, NOT advocacy. Examples: \"Even directors who disagreed on X all converged on Y as the load-bearing question\" / \"What's striking is that the dissent came from the data lens, not the structural one — usually the opposite\".",
+  "    · Section title alternatives — pick one that matches the brief's voice: \"Views Compared\" (default), \"Where Each Director Stood\" (anthropic / first-round-essay), \"How the Room Read This\" (gartner-research), \"观点对比\" (zh).",
+  "    · Leave a BLANK LINE between the H2 heading and the fenced block.",
   "",
   "  ## Options Analysis",
   "  Skip if `visuals` is empty. Otherwise, for each visual render as below. Use the visual's `title` as the H3 heading.",
@@ -1820,6 +1956,176 @@ const WRITE_SYSTEM = [
   "        · 2–6 slices. Pies with > 6 slices stop being readable.",
   "        · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
   "",
+  "## Inline mermaid · additional chart types",
+  "",
+  "Beyond the typed visuals (`comparison-table` / `quadrant-chart` / `force-field` / `strengths-cautions` / `bar-chart` / `timeline` / `pie-chart`), the writer drops fenced ```mermaid blocks inline within body sections to surface logic, sequence, hierarchy, or state that prose can't carry as efficiently. Each must visualise something prose can't.",
+  "",
+  "**Mermaid bias · prefer mermaid where it fits naturally — no fixed quota.** Two sources count:",
+  "  · Typed visuals where the sub-type is mermaid (`quadrant-chart` / `bar-chart` / `timeline` / `pie-chart`).",
+  "  · Inline mermaid blocks from the catalogue below (`flowchart` / `mindmap` / `gantt` / `sequenceDiagram` / `journey` / `stateDiagram-v2`).",
+  "Quality over quantity. Emit a chart whenever the section's content has structure prose can't carry efficiently. Skip when the prose alone is clear — a forced chart is worse than no chart. There is NO minimum count; a substantive strategy brief might naturally land at 4–6 charts, a tight philosophical brief at 0–1, both are correct.",
+  "",
+  "**The default lean is YES** when a section's content matches one of these shapes: branching logic, sequenced events, multi-party interactions, hierarchical structure, state transitions, 2-axis comparisons, distributions, before/after framings. The cost of an extra chart is small; the cost of a wall of text is a reader who skips. But don't manufacture structure that isn't in the material — chart only what the room actually produced.",
+  "",
+  "**Complexity floor — never emit a trivial chart.** A trivial chart looks naive (\"幼齿\") and pulls down the report's register. The floor:",
+  "  · `flowchart` · MINIMUM 5 nodes AND at least one BRANCH (a node with 2+ outgoing edges, OR a `{diamond}` decision with branching paths). Pure linear `A → B → C` chains are FORBIDDEN — those belong in prose or as a numbered list, never as a flowchart.",
+  "  · `mindmap` · MINIMUM 4 top-level branches (or 3 branches × ≥ 2 children each = 9+ leaf nodes). A 2-3 branch mindmap is just a bullet list with extra steps.",
+  "  · `sequenceDiagram` · MINIMUM 4 messages across ≥ 2 actors. Below that, prose carries it.",
+  "  · `stateDiagram-v2` · MINIMUM 4 states with at least one cycle / back-transition. A pure linear state chain is a flowchart waiting to happen.",
+  "  · `gantt` · MINIMUM 2 sections OR 4 tasks. A 2-task gantt is overkill — use prose.",
+  "  · When a candidate chart fails the floor, **drop the chart and use prose / table instead**. A missing chart is fine; a trivial chart is worse than nothing.",
+  "",
+  "**Per-section trigger map** (consult this for EVERY rendered section · ✓ = strong fit when material is non-trivial; ◇ = optional, fire only when the complexity floor above is comfortably met):",
+  "  · `Bottom Line` → ◇ rarely; the executive summary is intentionally text.",
+  "  · `Frame Shift` → ◇ ONLY when the reframe involves ≥ 4 distinct moves with branching (e.g. original → trigger → 2-3 reframed angles → resolved frame). The 3-node `original → trigger → reframed` chain is exactly the trivial case banned above — render those as prose with the original quoted, the trigger named, the reframe as a callout.",
+  "  · `Headline Findings` → ◇ ONLY when ≥ 4 findings interrelate causally with at least one branch (rare). Three independent findings in a row → no chart.",
+  "  · `Convergence` → ◇ ONLY when there are ≥ 4 directors converging via ≥ 4 distinct lenses. With 2-3 directors / 2-3 lenses it's a small star that reads as decoration. Pair the chart only when the structural insight (many independent paths to one conclusion) survives the floor.",
+  "  · `Divergence` → ◇ ONLY when the divergence has ≥ 3 distinct positions PLUS the resolution requirements form their own sub-branches (5+ nodes, branched). The classic two-branch fork is not enough — render those as the typed divergence table, no chart.",
+  "  · `Positions` → ✓ `mindmap` when there are ≥ 3 named camps, EACH with ≥ 2 directors (= 9+ nodes). With only 2 camps OR 1 director per camp, render as prose; the mindmap of 2 branches × 1 leaf is naive.",
+  "  · `Options Analysis` / `Decision Options` → ◇ ONLY when there are ≥ 4 options OR each option branches into 2+ sub-considerations (5+ nodes total with branching). With 2-3 options, the typed table / decision-options block carries it — no chart.",
+  "  · `Two Paths` → ◇ rarely; two parallel trajectories joined at a hinge is exactly the trivial case. Render the typed table only.",
+  "  · `Strategic Outlook` → ◇ `mindmap` ONLY when the room named ≥ 4 distinct forces with internal sub-structure (4 branches × ≥ 2 children).",
+  "  · `Critical Assumptions` → ◇ `flowchart TD` ONLY when assumptions form a multi-step dependency chain WITH branching (assumption A holds → either B or C → recommendation D), 5+ nodes. Linear 3-step dependency = prose.",
+  "  · `Scenario Tree` → ✓ `flowchart TD` when there are ≥ 3 scenarios EACH with named effects/triggers as sub-nodes (root + 3 scenarios + 3-6 effect children = 7-10 nodes). Below that, the typed table is enough.",
+  "  · `Threats to Validity` → ◇ `flowchart TD` ONLY when threats compound (sample bias → selection bias → generalizability ceiling) with branching, 5+ nodes.",
+  "  · `Recommendations` → ✓ `gantt` for multi-phase rollouts (≥ 2 sections AND ≥ 4 tasks). For sequenced action chains under 4 tasks, use prose / numbered list — NOT a linear flowchart.",
+  "  · `Leading Indicators` → ◇ `stateDiagram-v2` when indicators map to ≥ 4 scenario states with at least one feedback loop / back-transition.",
+  "  · `Pre-mortem` → ✓ `flowchart TD` when there are ≥ 3 failure modes EACH with its own leading-indicator + mitigation as sub-nodes (root + 3 modes + 6+ children = 10 nodes). With 2 failure modes, the typed table alone reads cleanly.",
+  "  · `Risk Register` → ✓ `quadrantChart` of severity × likelihood (always — the quadrant chart is a 2-axis plot, not subject to the flowchart-complexity floor).",
+  "  · `New Questions This Surfaced` → ◇ `mindmap` when there are ≥ 4 new questions clustering into ≥ 3 themes.",
+  "  · `Strategic Planning Assumption` → ◇ rarely.",
+  "  · `Open Questions` → ◇ rarely.",
+  "",
+  "**Reading the trigger map**: ✓ does NOT mean \"always emit\". It means \"emit when the material is non-trivial AND the complexity floor is met\". When in doubt about whether content has enough structure, render prose / a typed table — those don't have a complexity floor and never read as naive.",
+  "",
+  "**Routing constraints** (avoid double-rendering the same content):",
+  "  · Pre-mortem flowchart + Pre-mortem table = ✓ both, complementary.",
+  "  · Risk Register quadrantChart + Risk Register table = ✓ both, complementary.",
+  "  · A single section gets at MOST one inline mermaid (plus the typed visual if any). Never stack 2+ inline charts in one section.",
+  "  · A `gantt` and a `flowchart` covering the SAME recommendation rollout = pick one (gantt if dates matter, flowchart if branching matters).",
+  "  · If a typed `visuals` block already covers a content shape (e.g. `bar-chart` for ranked options), don't add an inline `flowchart` for the same options.",
+  "",
+  "  ### flowchart · decision tree / process branches",
+  "  Use when a section argues a decision sequence (\"if X then Y else Z\") or a process where order + branching matters. Natural fits: pre-mortem branches (\"if leading-indicator A fires, do P; else hold\"), the divergence section when there are 3+ positions, scenario trees with named effects.",
+  "    ```",
+  "    flowchart TD",
+  "        A[Starting state] --> B{Decision point}",
+  "        B -->|condition true| C[Branch A]",
+  "        B -->|condition false| D[Branch B]",
+  "        C --> E[Outcome]",
+  "        D --> E",
+  "    ```",
+  "  Hard rules:",
+  "    · **Complexity floor · ≥ 5 nodes AND ≥ 1 branch** (a node with 2+ outgoing edges, OR a `{diamond}` decision with branching paths). Pure linear `A → B → C` flowcharts are FORBIDDEN — those read as naive (\"幼齿\") and must render as prose / a numbered list instead. If your candidate flowchart has 3-4 nodes OR no branching, **drop the chart and use prose**. A missing chart is fine; a trivial one is worse than nothing.",
+  "    · Direction is `TD` (top-down) or `LR` (left-right) ONLY. `TD` is the default for decision trees, `LR` for process sequences.",
+  "    · Node labels: square brackets `[label]` for boxes, curly `{label}` for diamonds (decisions), round `(label)` for terminal states. Keep labels ≤ 6 words.",
+  "    · Edge labels (`-->|text|`) are quoted only if they contain spaces — short text without spaces can be unquoted.",
+  "    · NO `:`, NO `(`, NO `)`, NO `\"` inside node labels. ASCII parens only — never fullwidth.",
+  "    · Maximum 8 nodes per chart. Above 8 stops being scannable; split into multiple charts.",
+  "    · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
+  "",
+  "  ### mindmap · hierarchical idea tree",
+  "  Use when a section needs to surface the *shape* of the room's thinking — typically in brainstorm-mode rooms (`adjacent-angles`, `worth-chasing`) where the directors generated multiple branches off a central premise. Avoid in decision-grade briefs where the structure is already linear (anchor → findings → action).",
+  "    ```",
+  "    mindmap",
+  "        root((Central question))",
+  "            Branch A",
+  "                Sub-thread A1",
+  "                Sub-thread A2",
+  "            Branch B",
+  "                Sub-thread B1",
+  "    ```",
+  "  Hard rules:",
+  "    · **Complexity floor · ≥ 4 top-level branches OR ≥ 3 branches with ≥ 2 children each (= 9+ leaf nodes total)**. A 2-3 branch mindmap is just a bullet list with extra steps and reads as naive — drop it and use a markdown bullet list instead.",
+  "    · Root node uses `root((label))` — double parens for the cloud shape. ASCII parens only.",
+  "    · Indentation IS the hierarchy — children indent 4 spaces under their parent.",
+  "    · Node text is plain — NO `:`, NO `\"`, NO brackets, NO leading `-` / `*`. Just the text.",
+  "    · 4–6 top-level branches (after the floor). Each branch 2–4 children. Above that the diagram unreads.",
+  "    · NO blank lines inside the fenced block.",
+  "",
+  "  ### gantt · execution timeline with dependencies",
+  "  Use when a section names a multi-phase rollout or campaign with time-bound activities and dependencies — typically inside Recommendations or a follow-up Strategic Outlook. Skip when the recommendations are atomic / not phased.",
+  "    ```",
+  "    gantt",
+  "        title Rollout phasing",
+  "        dateFormat YYYY-MM",
+  "        section Foundations",
+  "        Discovery        :a1, 2026-04, 2M",
+  "        Pilot scope      :a2, after a1, 1M",
+  "        section Build",
+  "        Vertical 1       :b1, after a2, 3M",
+  "        Vertical 2       :b2, after b1, 3M",
+  "    ```",
+  "  Hard rules:",
+  "    · **Complexity floor · ≥ 2 sections AND ≥ 4 tasks total**. A single-section gantt with 2-3 tasks is a bullet list with bars; drop it and render as numbered prose.",
+  "    · `title` plain text — NO quotes, NO `:` inside.",
+  "    · `dateFormat` is `YYYY-MM` (months) or `YYYY-MM-DD` (days). Pick one and stick to it.",
+  "    · Each task line: `Label :id, start, duration` — `start` is either an absolute date matching dateFormat OR `after {otherId}`. Duration is `Nd` / `Nw` / `Nm` (days/weeks/months).",
+  "    · Section headers (`section Name`) group tasks. 2–4 sections, 2–6 tasks per section.",
+  "    · Task labels: NO `:`, NO `\"`, NO commas, NO brackets. Replace with ` - ` if needed.",
+  "    · NO blank lines inside the fenced block.",
+  "",
+  "  ### sequenceDiagram · actor interactions over time",
+  "  Use when a section describes a multi-party negotiation, a system-call sequence, or a step-by-step protocol where the *order of who-talks-to-whom* matters. Best fit: technical workflow rooms, governance / approval-chain briefs.",
+  "    ```",
+  "    sequenceDiagram",
+  "        participant U as User",
+  "        participant S as Service",
+  "        participant A as Auth",
+  "        U->>S: Request resource",
+  "        S->>A: Validate token",
+  "        A-->>S: Token valid",
+  "        S-->>U: Resource",
+  "    ```",
+  "  Hard rules:",
+  "    · **Complexity floor · ≥ 2 participants AND ≥ 4 message lines**. A 3-message diagram between 2 actors is just a bullet list with arrow glyphs — drop it and render as prose.",
+  "    · `participant {alias} as {Display Name}` — short ASCII alias on the left, display name on the right. Use the alias in the message lines.",
+  "    · Message arrows: `->>` for solid (request), `-->>` for dashed (response). NEVER use plain `->` (renders as a bare line).",
+  "    · Message text after the colon: NO `:`, NO `\"` — bare text. ≤ 6 words per line.",
+  "    · 2–4 participants, 4–8 message lines. Above that the diagram becomes a wall.",
+  "    · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
+  "",
+  "  ### journey · user / stakeholder journey scoring",
+  "  Use when a section maps how a stakeholder experiences a process — best for product / UX rooms scoring touchpoints, or for adoption-friction analysis (\"the buyer's journey from awareness to renewal\"). Each step gets a 1–5 score for satisfaction.",
+  "    ```",
+  "    journey",
+  "        title Stakeholder adoption journey",
+  "        section Awareness",
+  "            Hear about it: 3: Buyer",
+  "            Read landing page: 4: Buyer",
+  "        section Trial",
+  "            Sign up: 2: Buyer",
+  "            First task: 1: Buyer, IT",
+  "        section Adopt",
+  "            Approve rollout: 4: Buyer, Legal",
+  "    ```",
+  "  Hard rules:",
+  "    · `title` plain text — NO quotes.",
+  "    · Each step: `Step text: score: Actor[, Actor2]` — score is 1–5 (5 = best). Actors comma-separated.",
+  "    · Step text: NO `:`, NO `\"`. ≤ 6 words.",
+  "    · 2–4 sections, 2–4 steps per section.",
+  "    · NO blank lines inside the fenced block. Indent body lines 4 spaces.",
+  "",
+  "  ### stateDiagram · lifecycle / phase transitions",
+  "  Use when a section names a process with discrete states the subject moves between (deal lifecycle, customer onboarding, product evolution, regulatory approval phases, scenario branching with feedback loops). Reads cleaner than a flowchart when the *states themselves* are the load-bearing concept, not the conditions. Best fit: execution-plan rollouts with stage gates, market-evolution narratives, retro post-mortems where the system passed through phases.",
+  "    ```",
+  "    stateDiagram-v2",
+  "        [*] --> Discovery",
+  "        Discovery --> Pilot: Hypothesis validated",
+  "        Pilot --> Scale: Pilot win-rate >= 60%",
+  "        Pilot --> Iterate: Pilot below threshold",
+  "        Iterate --> Pilot",
+  "        Scale --> [*]",
+  "    ```",
+  "  Hard rules:",
+  "    · **Complexity floor · ≥ 4 states AND at least one cycle / back-transition** (a state that loops back, OR a state that branches into 2+ next states). A pure linear `Discovery → Pilot → Scale` chain is a flowchart waiting to happen — drop it and use prose. The thing that justifies a stateDiagram (vs a flowchart or prose) is the back-transition / cycle.",
+  "    · First line is `stateDiagram-v2` (the v2 dialect — older `stateDiagram` syntax has lexer quirks). Indent body lines 4 spaces.",
+  "    · `[*]` is the start / end pseudo-state. Use `[*] --> First` for entry and `Last --> [*]` for exit. Both are optional.",
+  "    · Each transition: `From --> To` or `From --> To: condition label`. Condition label is plain text after `:` — NO `\"`, NO additional `:`, NO `[` `]` inside.",
+  "    · State names: ASCII identifiers (alphanumerics + underscore), ≤ 20 chars, no spaces. Use camelCase or snake_case. The diagram caption can carry the human-readable label via composite states (skip if not needed).",
+  "    · 4–7 states (after the floor). Below 4 isn't a lifecycle; above 7 stops being scannable.",
+  "    · NO blank lines inside the fenced block.",
+  "",
   "  ## Recommendations",
   "  Skip if `recommendations` is empty. Otherwise render as a numbered list, one per recommendation, sorted by priority. Each item:",
   "    1. **`P0`** **{action}**",
@@ -1828,11 +2134,84 @@ const WRITE_SYSTEM = [
   "       _Success metric:_ {successMetric}",
   "       _Critical dependency:_ {criticalDependency}",
   "       _Risk if skipped:_ {riskIfSkipped}",
+  "       _What this earns:_ {expectedBenefit}",
   "    Use **`P0`** / **`P1`** / **`P2`** as priority badges (literal backticked text, bolded). Each numbered item gets one blank line before the next.",
   "    The _Critical dependency_ line is the load-bearing pre-condition — what MUST be true for this action to actually work. Render it whenever `criticalDependency` is non-empty; skip the line only on legacy scaffolds where the field is absent.",
+  "    The _What this earns_ line is the upside payoff in a stakeholder's language (revenue captured / risk avoided / position locked in / time saved). Render it whenever `expectedBenefit` is non-empty; skip the line only when the field is absent or empty. This is the line that gets the action approved — without it, the recommendation reads as cost without payoff.",
+  "    Length budget · the WHOLE Recommendations section should land between 1,500 and 2,500 characters total. Per item: ~400–600 chars including all the labelled lines. The Rationale field is the only one that benefits from elaboration (1–2 sentences); every other labelled line is a single phrase or clause. Keep the action / metric / risk / dependency / benefit lines tight — verbose action items get skipped.",
   "",
   "  ## Pre-mortem",
-  "  Skip if `preMortem` is empty. Otherwise a markdown table with columns `Failure mode | Leading indicator | Mitigation`. One row per failure mode.",
+  "  Skip if `preMortem` is empty. Otherwise a markdown table with columns `Failure mode | Leading indicator | Mitigation`. One row per failure mode. Leave a BLANK LINE between the section heading / any intro prose and the table's header row — without that gap markdown parsers concatenate the prose with the table and the pipe syntax leaks as text.",
+  "",
+  "  ## Risk Register",
+  "  Skip if `riskRegister` is empty / null. Otherwise render TWO complementary blocks (in this order):",
+  "",
+  "    1. **Severity × Likelihood quadrant** — fenced `quadrantChart` plotting every risk on a 2-axis grid. Top-right = address now; top-left = monitor closely; bottom-right = accept the trade; bottom-left = log only. Layout each risk's coordinates from its `severity` × `likelihood`:",
+  "       severity high   → y ≈ 0.80 · medium → y ≈ 0.50 · low → y ≈ 0.20",
+  "       likelihood high → x ≈ 0.80 · medium → x ≈ 0.50 · low → x ≈ 0.20",
+  "       Add slight jitter (±0.05) when 2+ risks would land on the same coordinate. Use the risk's first 4–6 words (or a tightened paraphrase) as the item label — keep ≤ 24 chars per label, follow the same ASCII / no-`:` / no-quote rules from the `quadrant-chart` spec above.",
+  "       ```",
+  "       quadrantChart",
+  "           title \"Risks: severity × likelihood\"",
+  "           x-axis \"Low likelihood\" --> \"High likelihood\"",
+  "           y-axis \"Low severity\" --> \"High severity\"",
+  "           quadrant-1 \"Address now\"",
+  "           quadrant-2 \"Monitor closely\"",
+  "           quadrant-3 \"Log only\"",
+  "           quadrant-4 \"Accept the trade\"",
+  "           \"Channel concentration\": [0.80, 0.80]",
+  "           \"Hiring bench thin\": [0.50, 0.20]",
+  "       ```",
+  "       Leave a BLANK LINE between the H2 heading and the fenced ```mermaid block.",
+  "",
+  "    2. **Risk table** — markdown table with columns `Risk | Category | Severity | Likelihood | Owner | Mitigation`. One row per `RiskItem`. Sort rows: severity high before medium before low; within the same severity, likelihood high before medium before low. Render category and severity / likelihood as **bold inline tags** (`**Market**`, `**High**`). Leave a BLANK LINE between the quadrant chart and the table header row · same gluing rule as Pre-mortem.",
+  "       When `mitigation` is the literal string `\"monitor only\"`, render the cell as italic: `_monitor only_` so the reader sees this row as a watch-list rather than a closeable risk.",
+  "",
+  "  Section title alternatives — pick one that matches the brief's voice: \"Risk Register\" (default · McKinsey/Gartner), \"Standing Risks\" (a16z), \"Risks We're Carrying\" (Anthropic-essay).",
+  "",
+  "  ## A Comparison",
+  "  Skip if `pathComparison` is null. Otherwise emit a fenced ```path-comparison block · the renderer turns the strict JSON into a 2-column structured view (mono verdict tag + serif path name + bullet characteristics, accent-colour-coded by stance). Same dispatch pattern as `metric-strip`. The fenced JSON is the WHOLE rendering — do NOT also write a markdown table of the same content.",
+  "    ```path-comparison",
+  '    {',
+  '      \"intro\": \"{pathComparison.intro · or empty string when null}\",',
+  '      \"paths\": [',
+  '        {',
+  '          \"verdict\": \"{paths[0].verdict}\",',
+  '          \"stance\": \"{paths[0].stance}\",',
+  '          \"name\": \"{paths[0].name}\",',
+  '          \"characteristics\": [\"...\", \"...\", \"...\", \"...\"]',
+  '        },',
+  '        {',
+  '          \"verdict\": \"{paths[1].verdict}\",',
+  '          \"stance\": \"{paths[1].stance}\",',
+  '          \"name\": \"{paths[1].name}\",',
+  '          \"characteristics\": [\"...\", \"...\", \"...\", \"...\"]',
+  '        }',
+  '      ],',
+  '      \"implication\": \"{pathComparison.implication · or omit the field when null}\"',
+  '    }',
+  "    ```",
+  "  Hard rules:",
+  "    · The fence info-string is exactly `path-comparison` (no version, no extras). The renderer dispatches on this string.",
+  "    · Strict JSON inside · no comments, no trailing commas. Newlines inside string values must be escaped as `\\n`.",
+  "    · EXACTLY 2 entries in `paths` — the component is binary. If the scaffold somehow gives more or fewer, render the first 2 / pad with the available one.",
+  "    · stance values: literal `weak` / `strong` / `neutral`. The renderer falls back to `neutral` for anything else.",
+  "    · 4-6 characteristics per path. Each ≤ 110 chars. Avoid sentence-ending punctuation; these read as fragments.",
+  "    · Section title alternatives — pick one that matches the brief's voice: \"A Comparison\" (default · anthropic-essay), \"Two Trajectories\" (gartner / a16z), \"Side by Side\" (mckinsey), \"对比 / 两条路径\" (zh).",
+  "    · Leave a BLANK LINE between the H2 heading and the fenced block.",
+  "",
+  "  ## Decision Options",
+  "  Skip if `decisionOptions` is null. Otherwise render the comparison as a structured block:",
+  "    1. Optional one-sentence intro from `decisionOptions.intro` (skip the sentence if intro is empty).",
+  "    2. For each option (RECOMMENDED option first, then the rest in array order):",
+  "       ### {label} {RECOMMENDED badge if recommended}",
+  "       The recommended badge is the literal text `**✓ Recommended**` immediately after the H3 label, separated by a single space. Other options get no badge.",
+  "       Body line 1 (italic summary): `_{summary}_`",
+  "       Then a 2-column markdown table `Pros | Cons` — one cell row per pro/con (pad shorter side with empty cells so rows align).",
+  "       Body line under the table (mono caps for the tags): `**Effort:** {effort} · **Confidence:** {confidence}`. Use the literal title-cased values (Low / Medium / High).",
+  "    3. Final paragraph: `**Why {recommended.label}:** {rationale}` — the takeaway anchored to the recommended option.",
+  "  Section title alternatives: \"Decision Options\" (default), \"Options We Weighed\" (Anthropic-essay), \"The Path We're Recommending\" (a16z).",
+  "  Leave a BLANK LINE between the section H2 and the first H3 option, AND between each option's table and the next H3 — without those gaps the table syntax leaks. SAME gluing rule as Pre-mortem and Risk Register above.",
   "",
   "  ## New Questions This Surfaced",
   "  Skip if `newQuestions` is empty. Otherwise:",
@@ -1923,21 +2302,15 @@ const WRITE_SYSTEM = [
   "         _Falsified by:_ {falsifier}",
   "    The `_Falsified by_` line is what makes this Gartner-grade — every assumption has a single observable that would prove it wrong. Render even when confidence is high; high-confidence assumptions still need their falsifier named.",
   "",
-  "  ### scenarioTree (Gartner-density · 2–4 named futures with probabilities)",
-  "  When `scaffold.scenarioTree` is non-null AND was picked, render it AFTER critical assumptions:",
+  "  ### scenarioTree (2–4 named futures, side-by-side comparison TABLE)",
+  "  When `scaffold.scenarioTree` is non-null AND was picked, render it AFTER critical assumptions as a markdown table — NOT as nested H3 subsections. Scenarios are inherently a comparison artifact (\"if A then X, if B then Y, if C then Z\"); a table surfaces that comparison directly. The previous nested-H3 format produced a vertical wall of repeated `_Trigger:_` / `_Effects:_` / `_What this means_` labels per branch and lost the comparison-grid affordance entirely.",
   "    ## Scenario Tree",
   "    {scenarioTree.intro · 1 sentence framing the tree.}",
-  "    Then ONE subsection per branch (### header), in descending probability order:",
-  "      ### {label} · {probability}%",
-  "      _Trigger:_ {trigger}",
   "",
-  "      _Effects:_",
-  "      · {effect 1}",
-  "      · {effect 2}",
-  "      · {effect 3}",
-  "",
-  "      _What this means for the decision:_ {decisionImplication}",
-  "    Probabilities visible in the heading make the scenario weights legible at a glance. Effects render as a tight bulleted list (2–3 per branch). Decision implication closes each branch by linking it to action.",
+  "    | Scenario | Probability | Trigger | Key Effects | Decision Implication |",
+  "    | --- | --- | --- | --- | --- |",
+  "    | **{label}** | {probability}% | {trigger} | {effects joined by ` · `} | {decisionImplication} |",
+  "    Sort rows descending by probability so the most likely scenario reads first. **Bold the scenario name** in the first cell so it anchors the row. The Effects cell joins the 3 effects with ` · ` (space-middot-space) into one cell — keep each effect short (≤ 12 words) so the cell wraps cleanly. Trigger + Decision Implication stay as single short sentences per row. Probabilities visible inline make scenario weights legible at a glance.",
   "",
   "  ### leadingIndicators (Gartner-density · monitoring discipline)",
   "  When `scaffold.leadingIndicators` is non-empty AND was picked, render it AFTER the scenario tree (or after recommendations if there's no scenario tree):",
@@ -2000,7 +2373,59 @@ const WRITE_SYSTEM = [
   "         _Who'd own it:_ {ownerType} · _On what horizon:_ {horizon}",
   "         _What you'd watch:_ {successMetric}",
   "         _What you'd give up by not doing this:_ {riskIfSkipped}",
+  "         _What this could earn:_ {expectedBenefit}",
   "  No P0/P1/P2 priority badges in this voice — the priority is implicit in the order. Use \"might\", \"could\", \"worth considering\" instead of \"do\" / \"build\" / \"ship\". The data is the same as recommendations; the words around it are softer.",
+  "  Render the _What this could earn_ line whenever `expectedBenefit` is non-empty; skip the line when the field is absent. In hedged voice, this is the upside if the consideration is taken — phrased as a possibility (\"could capture\", \"may unlock\", \"would let us hold\") rather than a guaranteed outcome.",
+  "",
+  "## Editorial components (optional · use sparingly · 0–2 per brief)",
+  "",
+  "These are decorative fenced-block components the renderer styles into magazine-grade interludes. Each instance should EARN its space — over-using them dilutes the research-note voice. Skip entirely when no natural fit; silence beats forced theatre.",
+  "",
+  "  ### Display pull-quote · for the room's signature line",
+  "",
+  "  When ONE director phrasing captures the central tension or breakthrough that the brief is built around, lift it into a display pull-quote. Natural slot is right after `## Where We Converged`, or after the Headline Finding whose argument the quote lands. Maximum ONE per brief.",
+  "    ```callout-display-quote",
+  "    The model is not the moat. We can replicate any of these capabilities in a week. What we cannot replicate is the depth of a customer's workflow accumulated over years.",
+  "",
+  "    — First Principles",
+  "    ```",
+  "  · First paragraph(s) = the quote (italic serif 24px with a decorative `\"` glyph). Last line starting with `—` (em-dash) = attribution (director name, optionally `· lens`). Trim to ≤ 50 words.",
+  "  · Use the director's own words from their signal text. Don't paraphrase — the point is verbatim impact.",
+  "  · Skip when no quote is genuinely memorable. Don't manufacture one.",
+  "",
+  "  ### Sidebar callouts · case study / counterpoint / quote / note",
+  "",
+  "  Boxed interludes for evidence anchors and asides that don't fit linearly. Render as a fenced block; first non-empty line = title (serif headline); rest = paragraph body (sans). Each variant gets its own kicker label.",
+  "    ```callout-case-study",
+  "    Stripe's 2014–2017 trajectory",
+  "",
+  "    Stripe held workflow embedding above all else from year one — every product decision routed through \"does this make us harder to leave?\" The data flywheel they built in the first 18 months still compounds today.",
+  "    ```",
+  "  Variants — pick the closest fit:",
+  "    · `callout-case-study` · a real-world anchor exemplifying a finding (a company, a region, a historical episode). Best when the brief leans on one concrete precedent.",
+  "    · `callout-counterpoint` · a substantive opposing view that didn't earn its own divergence row but is worth surfacing. Use to demonstrate that the conclusion held up to a real challenge.",
+  "    · `callout-quote` · a director's verbatim line as evidence (italic serif body register). Use when the line is supporting argument, not signature — for the signature line, use `callout-display-quote` instead.",
+  "    · `callout-note` · short methodological aside or caveat. Use sparingly — most asides belong in Methodology.",
+  "  · 0–3 callouts per brief total. Density above this turns the report into a sidebar collage.",
+  "",
+  "  ### Part-cover divider · for long briefs with discrete movements",
+  "",
+  "  When the brief has clearly distinct movements that read as separate conversations (e.g. \"The Diagnosis\" → \"The Action\" → \"The Watch List\"), insert a part-cover banner BEFORE each new movement. Skip entirely for single-movement briefs (most briefs).",
+  "    ```part-cover",
+  "    Part Two",
+  "    The Operative Constraints",
+  "    ```",
+  "  · First line = mono kicker (typically `Part {N}` or `Coda` / `Postscript`).",
+  "  · Subsequent lines joined = serif title (the part's name, ≤ 8 words).",
+  "  · 1–2 banners per brief maximum. The banner forces a page break in PDF — only use when the structural break genuinely earns its own page.",
+  "",
+  "## Appendices · supplementary detail (optional)",
+  "",
+  "Render each item in `scaffold.appendices` AFTER all body sections (after Considerations / Recommendations / The Bet / New Questions / Open Questions, etc.) but BEFORE the orchestrator-appended Methodology footer. Skip the entire block when `scaffold.appendices` is empty / null — most briefs have no appendices.",
+  "  Each appendix becomes its own H2 section, lettered A / B / C / D in render order:",
+  "    ## Appendix A: {scaffold.appendices[0].title}",
+  "    {scaffold.appendices[0].bodyMd verbatim — paragraphs, blockquotes, tables, lists all render normally}",
+  "  Use this slot for material that's load-bearing for credibility but too dense for the main body: verbatim director exchanges (>80 words), raw signal extracts, supporting calculations, source chains, full transcripts of quoted passages. Don't relocate body sections here — appendix is for ADDITIONAL detail, not for things that should have been in the body.",
   "",
   "## Voice rules",
   "",
@@ -2063,23 +2488,6 @@ const DEFAULT_KIND_LABELS: Partial<Record<ComponentKind, string>> = {
   "new-questions":         "New Questions This Surfaced",
   "planning-assumption":   "Strategic Planning Assumption",
   "open-questions":        "Open Questions",
-  // Brainstorm-mode component default headings · used only when
-  // `room.mode === "brainstorm"` and the composer picked them. House
-  // styles can override these per the standard label-table mechanism.
-  "opening-hook":          "What If This Is Real",
-  "opportunity-shape":     "The Shape of the Room",
-  "adjacent-angles":       "Doors Worth Opening",
-  "what-if-this-works":    "If This Plays Out",
-  "worth-chasing":         "Threads Worth Pulling",
-  "dead-ends-noted":       "Roads We Walked Back From",
-  "brainstorm-questions":  "Questions Worth Sitting With",
-  // Critique-mode component default headings · used only when
-  // `room.mode === "critique"`.
-  "deliverable-summary":   "Under Review",
-  "whats-good":            "What's Already Working",
-  "quality-issues":        "Issues Found",
-  "severity-ranked-fixes": "Fixes, Ranked",
-  "residual-risks":        "Residual Risks",
 };
 
 /** Build the house-style addendum to WRITE_SYSTEM · two blocks:
@@ -2146,195 +2554,6 @@ function buildHouseStyleAddendum(
 
   return lines.join("\n");
 }
-
-/* ─────────────── Stage 3 · brainstorm writer system prompt ───────────────
- *
- * Used when `room.mode === "brainstorm"`. A complete replacement for
- * WRITE_SYSTEM. The brainstorm writer's job is the OPPOSITE of the
- * decision-grade writer:
- *
- *   · NEVER produce thesis / bottom-line / recommendations sections
- *     even if the scaffold somehow contains those fields. The composer
- *     pool prevents this upstream, but defending the contract here too
- *     means a malformed scaffold can't leak decision-grade prose into
- *     a brainstorm brief.
- *   · Verbs are exploratory throughout: "could / might / would open up /
- *     opens up / makes possible". Banned: "must / will / should / 必须 /
- *     应该 / the bet is / the moat is / 护城河".
- *   · Title is exploratory · open-ended question OR "shape of the
- *     space" framing. Never claim-front.
- *
- * Each brainstorm component has its own narrow render template below.
- * The writer renders ONLY the components in the COMPOSER PICKED
- * COMPONENTS block — skipped components are silent. ──────────────── */
-const BRAINSTORM_WRITE_SYSTEM = [
-  "You are the chair of a boardroom session run in BRAINSTORM mode. The user explicitly chose `mode: brainstorm` — they want a brief that OPENS UP the topic, not one that narrows it to a decision. Write the final report in markdown.",
-  "",
-  "## Hard contract · this brief is NOT a decision document",
-  "",
-  "  · Verbs allowed: `could`, `might`, `would open up`, `makes possible`, `seems to`, `looks like`, `if X, then Y might`, `what if`. In Chinese: `可能`, `也许`, `会打开`, `若 X 成立`, `值得想想`.",
-  "  · Verbs FORBIDDEN: `must`, `will`, `should`, `the bet is`, `the moat is`, `we recommend`, `the answer is`, `we conclude`. In Chinese: `必须`, `应该`, `护城河`, `要做的是`, `结论是`, `下注的是`.",
-  "  · Heading style: open-ended questions or noun-phrase frames (\"Doors worth opening\", \"Three threads pulling on us\"). NEVER claim-front (\"The thesis is X\", \"The moat is Y\"). The user explicitly did not ask for thesis/decision output.",
-  "  · Do NOT pick a winner. If two angles seem strongest, render both as `worth-chasing` entries — let the reader decide.",
-  "",
-  "## Required structure",
-  "",
-  "Start with a single H2 title from `scaffold.title` verbatim. The title is already exploratory — do not rewrite it.",
-  "",
-  "Render the picked components in the order below — skip any not in the picked list. The order interleaves brainstorm-specific sections with mode-neutral ones (frame-shift / metric-strip / visuals / convergence / divergence) so the brief reads with visual rhythm rather than as a flat block of brainstorm prose.",
-  "",
-  "  ## What If This Is Real    ← `opening-hook`",
-  "  Render `openingHook.hook` as 1–2 prose sentences. If `openingHook.restatement` is set, render it on its own line above the hook as italicized pull-quote: `*\"{restatement}\"*`. NO judgement, NO confidence line, NO commitment.",
-  "",
-  "  ## The Shape of the Room    ← `opportunity-shape`",
-  "  Render `opportunityShape` as exactly three short paragraphs (1–3 sentences each), in order: scope, gravity, tempo. NO heading per paragraph — the prose flows. If `sizingHint` is set, append it as a closing italic line: `*Worth comparing to: {sizingHint}*`.",
-  "",
-  "  ## How the Question Moved    ← `frame-shift`",
-  "  Two cases:",
-  "    · `frameShift.shifted: true` — \"The room opened with {original}. By {trigger}, the question shifted to {reframed}.\" Past-tense, descriptive.",
-  "    · `frameShift.shifted: false` — \"The frame held: the room sharpened {original} rather than redefining it. {trigger as 1-sentence rationale}.\"",
-  "",
-  "  ## By the Numbers    ← `metric-strip`",
-  "  Render the metric-strip as a `<div class=\"metric-strip\" data-cards=\"N\">` block of 3–5 metric-card divs. Each card: `<div class=\"metric-card\" data-trend=\"{trend or omit}\"><div class=\"metric-label\">{label}</div><div class=\"metric-value\">{value}</div><div class=\"metric-qualifier\">{qualifier or omit}</div><div class=\"metric-attribution\">{attribution or omit}</div></div>`. The HTML inside `<div class=\"metric-strip\">` is the ONLY embedded HTML allowed — every other section is markdown.",
-  "",
-  "  ## Doors Worth Opening    ← `adjacent-angles`",
-  "  Render each angle in `adjacentAngles` as an H3 sub-section:",
-  "    ### {angle.name}",
-  "    *{angle.framing}*",
-  "    {angle.whatOpens}",
-  "  3–5 angles total. Do NOT rank. Do NOT pick a favourite. The list IS the point.",
-  "",
-  "  ## Sketches from the Room    ← `visuals` (skip if empty)",
-  "  Render each `Visual` per its subtype using the existing schema:",
-  "    · `comparison-table` → markdown table",
-  "    · `quadrant-chart` → fenced ```mermaid block (xychart-beta with quadrants)",
-  "    · `force-field` → fenced ```mermaid block",
-  "    · `strengths-cautions` → 2-column markdown table",
-  "    · `bar-chart` → fenced ```mermaid block (xychart-beta bar)",
-  "    · `timeline` → fenced ```mermaid block (timeline)",
-  "    · `pie-chart` → fenced ```mermaid block (pie showData)",
-  "  Use captions where the schema provides them. Do NOT inject visuals beyond what `visuals[]` carries.",
-  "",
-  "  ## If This Plays Out    ← `what-if-this-works`",
-  "  Open with `whatIfThisWorks.setup` italicized: `*{setup}*`. Then bullet the 3 consequences:",
-  "    - {consequence 1}",
-  "    - {consequence 2}",
-  "    - {consequence 3}",
-  "  Each bullet is 1 sentence, exploratory verbs only.",
-  "",
-  "  ## Where the Room Aligned    ← `convergence` (skip if empty)",
-  "  One short intro paragraph (1 sentence) framing that despite different starting positions, certain observations held. Then for each convergence point, render as a blockquote:",
-  "    > **{point}**",
-  "  Optional `{directors[]}` and `{lenses[]}` may be appended in italics underneath each blockquote. NO claim-style framing — describe what the room noticed, don't conclude.",
-  "",
-  "  ## Where the Room Split    ← `divergence` (skip if empty)",
-  "  Surface the tension. Open with `divergence.summary` (1–2 sentences). Then `divergence.crux` italicized: `*The crux: {crux}*`. Optional `divergence.rows[]` rendered as a markdown table when populated. Do NOT resolve the split — this is brainstorm; the split stays open.",
-  "",
-  "  ## Threads Worth Pulling    ← `worth-chasing`",
-  "  Render each `worthChasing` entry as an H3 sub-section:",
-  "    ### {entry.handle}",
-  "    {entry.whyItPulled}",
-  "    > {entry.nextTestableQuestion}",
-  "  The blockquote on the question is deliberate — it makes the open-question shape visible. NO P0/P1 priority tags. NO milestones. NO kill criteria.",
-  "",
-  "  ## Roads We Walked Back From    ← `dead-ends-noted` (skip if empty)",
-  "  Render each entry as a single bullet: `- **{angle}** — {whyDropped}`. Plain language; no judgement of why it was wrong, just what made the room turn back.",
-  "",
-  "  ## New Questions This Surfaced    ← `new-questions` (skip if empty)",
-  "  Render each `newQuestions` entry as a single bullet with the question bolded; if `attribution` / `lens` / `why` are set, append them on a continuation line in italics. These are questions that emerged DURING the room — distinct from `brainstorm-questions` (residual generative).",
-  "",
-  "  ## Questions Worth Sitting With    ← `brainstorm-questions`",
-  "  Render each entry as a numbered item:",
-  "    1. **{question}**",
-  "       *{whatWouldShift}*  ← only when set; skip the second line otherwise.",
-  "  5–8 entries total. These are the questions the room OPENS UP — not a residual TODO list.",
-  "",
-  "  ## Open Questions    ← `open-questions` (skip if empty)",
-  "  Standard residual P0/P1 list. One bullet per question, prefixed with priority: `- **[P0]** {question}` (or P1).",
-  "",
-  "## Methodology footer",
-  "",
-  "The orchestrator appends a deterministic `## Methodology` section after your output. Do NOT write one yourself.",
-  "",
-  "## Voice register · brainstorm-default",
-  "",
-  "Warm, curious, exploratory. First-person plural is welcome (\"the room kept returning\", \"we found ourselves pulled toward\", \"房间反复回到\"). Reference specific moments from the conversation when they're load-bearing. NO forecasting numbers, NO TAM/SAM math, NO competitive moats. The scaffold's voice register may be overridden by a house-style addendum below — when present, follow that override on top of these defaults.",
-].join("\n");
-
-/* ─────────────── Stage 3 · critique writer system prompt ───────────────
- *
- * Used when `room.mode === "critique"`. A complete replacement for
- * WRITE_SYSTEM. Audit-shaped, severity-ranked, "what's good first."
- *
- * Hard rules:
- *   · NEVER produce thesis / bottom-line / recommendations / strategic
- *     sections. Even if the scaffold has those fields filled, skip them.
- *   · ALWAYS render `whats-good` BEFORE `quality-issues`. Audit
- *     decorum — surfacing strengths first calibrates the reviewer's
- *     signal-to-noise.
- *   · Severity tags are visible in the rendered prose. Each issue and
- *     each fix opens with `**Severity: high/medium/low** ·` so the
- *     reader can scan the audit by severity at a glance.
- *   · Title is the deliverable name + headline finding. Never
- *     thesis-front, never exploratory.
- * ──────────────────────────────────────────────────────────────────── */
-const CRITIQUE_WRITE_SYSTEM = [
-  "You are the chair of a boardroom session run in CRITIQUE mode. The user explicitly chose `mode: critique` — they want a deliverable AUDIT, not a strategic memo. Write the final report in markdown.",
-  "",
-  "## Hard contract · this brief is an audit",
-  "",
-  "  · NEVER write thesis / bottom-line / recommendations / strategic-implication sections. Even if the scaffold has those fields filled, skip them — only the critique-mode sections render.",
-  "  · Voice: inspector / standards-officer. Sharp, procedural, evidence-anchored. Verbs: `surfaces`, `breaks`, `omits`, `under-specifies`, `narrows`, `mis-handles`. Avoid `must` / `should` outside fixes.",
-  "  · ALWAYS render `whats-good` BEFORE `quality-issues`. Audit decorum.",
-  "  · Severity tags are visible in the prose. Issues open with `**Severity: high** · {title}` (or medium / low). Fixes do the same.",
-  "  · Heading style: noun-phrase or audit-style framings (\"Issues found\", \"Fixes, ranked\", \"Residual risks\"). Not claim-front, not exploratory.",
-  "",
-  "## Required structure",
-  "",
-  "Start with a single H2 title from `scaffold.title` verbatim. The scaffold's title is already audit-shaped — do not rewrite it.",
-  "",
-  "Render the picked components in this order (skip any not in the picked list):",
-  "",
-  "  ## Under Review    ← `deliverable-summary`",
-  "  Open with `deliverableSummary.subject` italicized as the lead-in: `*{subject}*`. Then 1–2 sentences of `context`. If `charter` is set, render it as a closing italic line: `*Audit charter: {charter}*`.",
-  "",
-  "  ## What's Already Working    ← `whats-good`",
-  "  REQUIRED to come BEFORE issues. Render each `whatsGood` entry as a single bullet:",
-  "    - {point} {`(via {attribution})`} ← attribution in italics, only when set",
-  "  2–4 entries. Plain affirmation, no hedging — \"this works\" not \"this seems to work\".",
-  "",
-  "  ## Issues Found    ← `quality-issues`",
-  "  Open with one short intro paragraph (1 sentence) framing the diagnostic scope.",
-  "  Then for each issue, render an H3 sub-section sorted by severity descending (high → medium → low):",
-  "    ### {issue.title}",
-  "    **Severity: {severity}** · *{attribution if set}*",
-  "    {issue.issue}",
-  "    *Impact:* {issue.impact}",
-  "  3–7 issues total. Each issue is diagnosis only — fixes are in the next section.",
-  "",
-  "  ## Fixes, Ranked    ← `severity-ranked-fixes`",
-  "  Sort by severity descending (high → medium → low). Each fix as an H3:",
-  "    ### {fix.title}",
-  "    **Severity: {severity}** · effort: *{effort}* {`· owner: {owner}` if set}",
-  "    {fix.fix}",
-  "  3–7 fixes total. Pair fixes with issues by severity — the renderer surfaces the audit's prescription.",
-  "",
-  "  ## Residual Risks    ← `residual-risks` (skip if empty)",
-  "  Open with one sentence framing what \"residual\" means (\"risks the audit can't close inside its scope\"). Then for each:",
-  "    - {`**Severity: {severity}** · ` if set}**{risk}** — {whyResidual}",
-  "  0–4 entries.",
-  "",
-  "  ## Open Questions for the Owner    ← `open-questions` (skip if empty)",
-  "  Standard residual P0/P1 list. One bullet per question, prefixed with priority: `- **[P0]** {question}` (or P1).",
-  "",
-  "## Methodology footer",
-  "",
-  "The orchestrator appends a deterministic `## Methodology` section after your output. Do NOT write one yourself.",
-  "",
-  "## Voice register · critique-default",
-  "",
-  "Procedural, evidence-anchored, severity-aware. The deliverable is the subject — keep recommendations scoped to it (no \"and you should also pivot the product\"). Cite directors when their phrasing IS the diagnostic point. The scaffold's voice register may be overridden by a house-style addendum below — when present, follow that override on top of these defaults.",
-].join("\n");
 
 export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
   const { room, members, scaffold, perDirectorSignals, language, picked, houseStyle, briefId } = opts;
@@ -2447,6 +2666,48 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         .join("\n\n")
     : "  (no camps — skip the Positions section)";
 
+  // ── Director Perspectives ── ALWAYS-rendered social map of the room.
+  const directorPerspectivesBlock = scaffold.directorPerspectives
+    ? [
+        `  Intro: ${scaffold.directorPerspectives.intro || "(none — H2 heading is the framing)"}`,
+        `  Chair synthesis: ${scaffold.directorPerspectives.chairSynthesis || "(none — leave the chair synthesis card empty)"}`,
+        ``,
+        `  Alignment groups:`,
+        ...(scaffold.directorPerspectives.alignment.length
+          ? scaffold.directorPerspectives.alignment.map((a, i) =>
+              [
+                `    Group ${i + 1}: ${a.pointOfAgreement}`,
+                `      Directors: ${a.directorIds.map(nameOf).join(", ")}`,
+                `      Note: ${a.note || "(none)"}`,
+              ].join("\n"),
+            )
+          : ["    (none — the room had no convergence)"]),
+        ``,
+        `  Divergence:`,
+        ...(scaffold.directorPerspectives.divergence.length
+          ? scaffold.directorPerspectives.divergence.map((d, i) =>
+              [
+                `    Hinge ${i + 1}: ${d.hinge}`,
+                ...d.sides.map((s) =>
+                  `      Side "${s.label}" — ${s.directorIds.map(nameOf).join(", ")}: ${s.stance}`,
+                ),
+                `      Resolution: ${d.resolution || "(unresolved)"}`,
+              ].join("\n"),
+            )
+          : ["    (none — the room had no fork)"]),
+        ``,
+        `  Per-director perspectives:`,
+        ...scaffold.directorPerspectives.perspectives.map((p) =>
+          [
+            `    [${p.directorId}] ${nameOf(p.directorId)} · lens=${p.lens}`,
+            `      Stance: ${p.stance}`,
+            `      Position: ${p.position}`,
+            `      Quote: ${p.quote || "(none)"}`,
+          ].join("\n"),
+        ),
+      ].join("\n")
+    : "  (no director-perspectives — only 1 active director · skip the section)";
+
   // ── Visuals ──
   const visualsBlock = scaffold.visuals.length
     ? scaffold.visuals
@@ -2482,20 +2743,57 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
               ...v.resistors.map((r) => `      · ${r}`),
             ].join("\n");
           }
-          // strengths-cautions
-          return [
-            `  Visual · strengths-cautions`,
-            `    Title: ${v.title}`,
-            `    Rows:`,
-            ...v.rows.map((r) =>
-              [
-                `      · Option: ${r.option}`,
-                `        Strengths: ${r.strengths.join(" · ") || "(none)"}`,
-                `        Cautions: ${r.cautions.join(" · ") || "(none)"}`,
-                `        Verdict: ${r.verdict}`,
-              ].join("\n"),
-            ),
-          ].join("\n");
+          if (v.type === "strengths-cautions") {
+            return [
+              `  Visual · strengths-cautions`,
+              `    Title: ${v.title}`,
+              `    Rows:`,
+              ...v.rows.map((r) =>
+                [
+                  `      · Option: ${r.option}`,
+                  `        Strengths: ${r.strengths.join(" · ") || "(none)"}`,
+                  `        Cautions: ${r.cautions.join(" · ") || "(none)"}`,
+                  `        Verdict: ${r.verdict}`,
+                ].join("\n"),
+              ),
+            ].join("\n");
+          }
+          if (v.type === "bar-chart") {
+            return [
+              `  Visual · bar-chart`,
+              `    Title: ${v.title}`,
+              `    y-axis: ${v.yLabel}${v.unit ? ` (${v.unit})` : ""}`,
+              `    Bars:`,
+              ...v.bars.map((b) => `      · ${b.label}: ${b.value}`),
+            ].join("\n");
+          }
+          if (v.type === "timeline") {
+            return [
+              `  Visual · timeline`,
+              `    Title: ${v.title}`,
+              `    Points:`,
+              ...v.points.map((p) =>
+                p.description
+                  ? `      · ${p.period} · ${p.label} — ${p.description}`
+                  : `      · ${p.period} · ${p.label}`,
+              ),
+            ].join("\n");
+          }
+          if (v.type === "pie-chart") {
+            return [
+              `  Visual · pie-chart`,
+              `    Title: ${v.title}`,
+              `    Slices:`,
+              ...v.slices.map((s) => `      · ${s.label}: ${s.value}`),
+            ].join("\n");
+          }
+          // Defensive · should be unreachable. If a future visual type
+          // is added to parseVisual without a matching render branch
+          // here, surface it as a generic line rather than crashing
+          // mid-pipeline (which previously dropped the user into a
+          // broken-brief retry card with "reading 'map'").
+          const unknownType = (v as { type?: unknown }).type ?? "unknown";
+          return `  Visual · ${String(unknownType)} · (no renderer; skip)`;
         })
         .join("\n\n")
     : "  (no visuals — skip the Options Analysis section)";
@@ -2511,6 +2809,7 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
             `    Success metric: ${r.successMetric}`,
             ...(r.criticalDependency ? [`    Critical dependency: ${r.criticalDependency}`] : []),
             `    Risk if skipped: ${r.riskIfSkipped}`,
+            ...(r.expectedBenefit ? [`    Expected benefit: ${r.expectedBenefit}`] : []),
           ].join("\n");
         })
         .join("\n\n")
@@ -2631,6 +2930,7 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
             `    Success metric: ${r.successMetric}`,
             ...(r.criticalDependency ? [`    Critical dependency: ${r.criticalDependency}`] : []),
             `    Risk if skipped: ${r.riskIfSkipped}`,
+            ...(r.expectedBenefit ? [`    Expected benefit: ${r.expectedBenefit}`] : []),
           ].join("\n"),
         )
         .join("\n\n")
@@ -2713,125 +3013,56 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
       ].join("\n")
     : "  (no metric-strip — composer did not pick this component)";
 
-  // ── Brainstorm-mode scaffold blocks ──
-  // Populated only when room.mode === "brainstorm" and the composer
-  // picked the corresponding kind. Otherwise rendered as a "(not
-  // picked)" placeholder · the writer system prompt explicitly
-  // instructs the model to skip non-picked sections.
-  const openingHookBlock = scaffold.openingHook && scaffold.openingHook.hook
-    ? [
-        `  Hook: ${scaffold.openingHook.hook}`,
-        `  Restatement: ${scaffold.openingHook.restatement || "(none — skip the pull-quote line)"}`,
-      ].join("\n")
-    : "  (no opening-hook — composer did not pick this component)";
-
-  const opportunityShapeBlock = scaffold.opportunityShape && scaffold.opportunityShape.scope
-    ? [
-        `  Scope: ${scaffold.opportunityShape.scope}`,
-        `  Gravity: ${scaffold.opportunityShape.gravity}`,
-        `  Tempo: ${scaffold.opportunityShape.tempo}`,
-        `  SizingHint: ${scaffold.opportunityShape.sizingHint || "(none — skip the closing italic line)"}`,
-      ].join("\n")
-    : "  (no opportunity-shape — composer did not pick this component)";
-
-  const adjacentAnglesBlock = scaffold.adjacentAngles && scaffold.adjacentAngles.length
-    ? scaffold.adjacentAngles
-        .map((a, i) =>
+  const riskRegisterBlock = scaffold.riskRegister && scaffold.riskRegister.length
+    ? scaffold.riskRegister
+        .map((r, i) =>
           [
-            `  Angle ${i + 1}: ${a.name}`,
-            `    Framing: ${a.framing}`,
-            `    What opens: ${a.whatOpens}`,
+            `  Risk ${i + 1}: ${r.risk}`,
+            `    Category: ${r.category}`,
+            `    Severity: ${r.severity}`,
+            `    Likelihood: ${r.likelihood}`,
+            `    Owner: ${r.owner}`,
+            `    Mitigation: ${r.mitigation}`,
           ].join("\n"),
         )
         .join("\n\n")
-    : "  (no adjacent-angles — composer did not pick this component)";
+    : "  (no risk-register — composer did not pick this component)";
 
-  const whatIfThisWorksBlock = scaffold.whatIfThisWorks && scaffold.whatIfThisWorks.consequences.length
+  const pathComparisonBlock = scaffold.pathComparison
     ? [
-        `  Setup: ${scaffold.whatIfThisWorks.setup}`,
-        `  Consequences:`,
-        ...scaffold.whatIfThisWorks.consequences.map((c, i) => `    ${i + 1}. ${c}`),
-      ].join("\n")
-    : "  (no what-if-this-works — composer did not pick this component)";
-
-  const worthChasingBlock = scaffold.worthChasing && scaffold.worthChasing.length
-    ? scaffold.worthChasing
-        .map((w, i) =>
+        `  Intro: ${scaffold.pathComparison.intro || "(none — H2 heading is the framing)"}`,
+        `  Implication: ${scaffold.pathComparison.implication || "(none — omit the implication line)"}`,
+        ``,
+        ...scaffold.pathComparison.paths.map((p, i) =>
           [
-            `  Thread ${i + 1}: ${w.handle}`,
-            `    Why it pulled: ${w.whyItPulled}`,
-            `    Next testable question: ${w.nextTestableQuestion}`,
+            `  Path ${i + 1} · stance=${p.stance}`,
+            `    Verdict: ${p.verdict}`,
+            `    Name: ${p.name}`,
+            `    Characteristics:`,
+            ...p.characteristics.map((c) => `      · ${c}`),
           ].join("\n"),
-        )
-        .join("\n\n")
-    : "  (no worth-chasing — composer did not pick this component)";
+        ),
+      ].join("\n")
+    : "  (no path-comparison — composer did not pick this component)";
 
-  const deadEndsBlock = scaffold.deadEndsNoted && scaffold.deadEndsNoted.length
-    ? scaffold.deadEndsNoted
-        .map((d, i) => `  ${i + 1}. ${d.angle} — ${d.whyDropped}`)
-        .join("\n")
-    : "  (no dead-ends-noted — composer did not pick this component)";
-
-  const brainstormQuestionsBlock = scaffold.brainstormQuestions && scaffold.brainstormQuestions.length
-    ? scaffold.brainstormQuestions
-        .map((q, i) => {
-          const shift = q.whatWouldShift ? `\n     What would shift: ${q.whatWouldShift}` : "";
-          return `  ${i + 1}. ${q.question}${shift}`;
-        })
-        .join("\n")
-    : "  (no brainstorm-questions — composer did not pick this component)";
-
-  // ── Critique-mode scaffold blocks ──
-  const deliverableSummaryBlock = scaffold.deliverableSummary && scaffold.deliverableSummary.subject
+  const decisionOptionsBlock = scaffold.decisionOptions && scaffold.decisionOptions.options.length
     ? [
-        `  Subject: ${scaffold.deliverableSummary.subject}`,
-        `  Context: ${scaffold.deliverableSummary.context}`,
-        `  Charter: ${scaffold.deliverableSummary.charter || "(none — skip the charter line)"}`,
+        `  Intro: ${scaffold.decisionOptions.intro || "(none — H2 heading is the framing)"}`,
+        `  Rationale (anchor for the recommended option): ${scaffold.decisionOptions.rationale || "(none — derive from option summaries)"}`,
+        ``,
+        ...scaffold.decisionOptions.options.map((o, i) =>
+          [
+            `  Option ${i + 1}: ${o.label}${o.recommended ? " · RECOMMENDED" : ""}`,
+            `    Summary: ${o.summary}`,
+            `    Pros:`,
+            ...o.pros.map((p) => `      · ${p}`),
+            `    Cons:`,
+            ...o.cons.map((c) => `      · ${c}`),
+            `    Effort: ${o.effort} · Confidence: ${o.confidence}`,
+          ].join("\n"),
+        ),
       ].join("\n")
-    : "  (no deliverable-summary — composer did not pick this component)";
-
-  const whatsGoodBlock = scaffold.whatsGood && scaffold.whatsGood.length
-    ? scaffold.whatsGood
-        .map((g, i) => `  ${i + 1}. ${g.point}${g.attribution ? `  (via ${g.attribution})` : ""}`)
-        .join("\n")
-    : "  (no whats-good — composer did not pick this component)";
-
-  const qualityIssuesBlock = scaffold.qualityIssues && scaffold.qualityIssues.length
-    ? scaffold.qualityIssues
-        .map((q, i) =>
-          [
-            `  Issue ${i + 1}: ${q.title}`,
-            `    Severity: ${q.severity}`,
-            `    Issue: ${q.issue}`,
-            `    Impact: ${q.impact}`,
-            `    Attribution: ${q.attribution || "(none)"}`,
-          ].join("\n"),
-        )
-        .join("\n\n")
-    : "  (no quality-issues — composer did not pick this component)";
-
-  const severityRankedFixesBlock = scaffold.severityRankedFixes && scaffold.severityRankedFixes.length
-    ? scaffold.severityRankedFixes
-        .map((f, i) =>
-          [
-            `  Fix ${i + 1}: ${f.title}`,
-            `    Severity: ${f.severity}`,
-            `    Fix: ${f.fix}`,
-            `    Effort: ${f.effort}`,
-            `    Owner: ${f.owner || "(unowned — surface as a generic ask)"}`,
-          ].join("\n"),
-        )
-        .join("\n\n")
-    : "  (no severity-ranked-fixes — composer did not pick this component)";
-
-  const residualRisksBlock = scaffold.residualRisks && scaffold.residualRisks.length
-    ? scaffold.residualRisks
-        .map((r, i) => {
-          const sev = r.severity ? `[${r.severity}] ` : "";
-          return `  ${i + 1}. ${sev}${r.risk} — ${r.whyResidual}`;
-        })
-        .join("\n")
-    : "  (no residual-risks — composer did not pick this component)";
+    : "  (no decision-options — composer did not pick this component)";
 
   const pickedNote = picked && picked.length
     ? [
@@ -2847,28 +3078,14 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
 
   const houseStyleAddendum = buildHouseStyleAddendum(houseStyle, language, briefId);
 
-  // Mode-axis dispatch · brainstorm and critique rooms each get a
-  // dedicated writer system prompt. Brainstorm renders the
-  // exploration-shaped scaffold; critique renders the audit-shaped
-  // scaffold. Constructive / debate / research fall through to
-  // WRITE_SYSTEM. The user message below carries every scaffold
-  // field (mode-irrelevant fields are zero-valued, so they read as
-  // silent skips per the writer's "skip if empty" rules).
-  const writerSystem = room.mode === "brainstorm"
-    ? BRAINSTORM_WRITE_SYSTEM
-    : room.mode === "critique"
-      ? CRITIQUE_WRITE_SYSTEM
-      : WRITE_SYSTEM;
-
   return [
     {
       role: "system",
       content: [
-        writerSystem,
+        WRITE_SYSTEM,
         "",
         languageInstruction(language),
         houseStyleAddendum,
-        opts.retryAddendum || "",
       ].filter((s) => s).join("\n"),
     },
     {
@@ -2901,6 +3118,9 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         ``,
         `## Positions`,
         positionsBlock,
+        ``,
+        `## Director Perspectives (MANDATORY · the room's social map · views compared)`,
+        directorPerspectivesBlock,
         ``,
         `## Visuals`,
         visualsBlock,
@@ -2959,41 +3179,14 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         `## Metric Strip (dashboard · KPI cards)`,
         metricStripBlock,
         ``,
-        `## Opening Hook (brainstorm anchor)`,
-        openingHookBlock,
+        `## Risk Register (standing risks · environment / product / team)`,
+        riskRegisterBlock,
         ``,
-        `## Opportunity Shape (brainstorm)`,
-        opportunityShapeBlock,
+        `## Decision Options (N candidate options · one recommended)`,
+        decisionOptionsBlock,
         ``,
-        `## Adjacent Angles (brainstorm)`,
-        adjacentAnglesBlock,
-        ``,
-        `## What If This Works (brainstorm)`,
-        whatIfThisWorksBlock,
-        ``,
-        `## Worth Chasing (brainstorm)`,
-        worthChasingBlock,
-        ``,
-        `## Dead Ends Noted (brainstorm)`,
-        deadEndsBlock,
-        ``,
-        `## Brainstorm Questions (brainstorm residual)`,
-        brainstormQuestionsBlock,
-        ``,
-        `## Deliverable Summary (critique anchor)`,
-        deliverableSummaryBlock,
-        ``,
-        `## What's Already Working (critique decorum · render BEFORE issues)`,
-        whatsGoodBlock,
-        ``,
-        `## Quality Issues (critique · severity-ranked diagnosis)`,
-        qualityIssuesBlock,
-        ``,
-        `## Severity-Ranked Fixes (critique · prescription)`,
-        severityRankedFixesBlock,
-        ``,
-        `## Residual Risks (critique)`,
-        residualRisksBlock,
+        `## Path Comparison (binary structural · 2 paths · verdict-tagged)`,
+        pathComparisonBlock,
         ``,
         `─── END SCAFFOLD ───`,
         pickedNote,
@@ -3010,147 +3203,10 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
               ``,
             ]
           : []),
-        `Write the final report now. Markdown only (the metricStrip block is the only embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Options Analysis / Two Paths → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Pre-mortem → New Questions This Surfaced → Strategic Planning Assumption → Open Questions.`,
+        `Write the final report now. Markdown only (the metricStrip / path-comparison / views-compared fenced blocks are embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Views Compared (MANDATORY when ≥ 2 active directors) → A Comparison (when picked · path-comparison) → Options Analysis / Two Paths → Decision Options (when picked) → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Pre-mortem → Risk Register (when picked) → New Questions This Surfaced → Strategic Planning Assumption → Open Questions.`,
       ].join("\n"),
     },
   ];
-}
-
-/* ─────────────────── Mode contract validator ─────────────────────────
- *
- * Runs after Stage 3 produces markdown · checks the body for mode-
- * contract violations. Returns a list of violation reasons (empty when
- * the brief is clean). The orchestrator uses this to decide whether to
- * retry Stage 3 once with a stricter prompt.
- *
- * Brainstorm violations: decision-defense language ("the bet", "the
- * moat", "must hold", "护城河") that contradicts the open-up shape.
- * Critique violations: missing severity tags, strategy-creep verbs.
- * Constructive / debate / research / unknown modes: no violations
- * (the existing pipeline doesn't have a contract to validate against).
- *
- * Light-touch by design — the prompt-level constraints in the writer
- * system prompts catch most contract drift. This is the safety net for
- * the cases where a flagship model still slips into thesis register
- * despite explicit instructions to the contrary.
- * ────────────────────────────────────────────────────────────────── */
-
-interface ContractViolation {
-  /** Short tag to include in the retry prompt (e.g. "decision-defense
-   *  language: \"the bet\""). */
-  tag: string;
-  /** Human-readable explanation for logging. */
-  reason: string;
-}
-
-const BRAINSTORM_FORBIDDEN_PHRASES: { phrase: RegExp; tag: string }[] = [
-  // Decision-defense / thesis register · these are the patterns that
-  // most often leak into brainstorm briefs from the constructive prior.
-  { phrase: /\bthe bet (is|on the table)\b/i,        tag: '"the bet is/on the table"' },
-  { phrase: /\bthe moat\b/i,                          tag: '"the moat"' },
-  { phrase: /\bcritical assumptions?\b/i,             tag: '"critical assumption(s)"' },
-  { phrase: /\bmust hold\b/i,                         tag: '"must hold"' },
-  { phrase: /\bwhat has to be true\b/i,               tag: '"what has to be true"' },
-  { phrase: /\bunderwriting\b/i,                      tag: '"underwriting"' },
-  { phrase: /\bwe recommend\b/i,                      tag: '"we recommend"' },
-  // Chinese equivalents.
-  { phrase: /护城河/,                                  tag: '"护城河"' },
-  { phrase: /必须成立/,                                tag: '"必须成立"' },
-  { phrase: /下注的(是|点是|对象是)/,                  tag: '"下注的是/点是"' },
-  { phrase: /我们建议/,                                tag: '"我们建议"' },
-];
-
-const CRITIQUE_FORBIDDEN_PHRASES: { phrase: RegExp; tag: string }[] = [
-  // Strategy creep — critique is scoped to the deliverable, not the
-  // broader product / org direction.
-  { phrase: /\bthe thesis is\b/i,                     tag: '"the thesis is" (strategy creep · critique is deliverable-scoped)' },
-  { phrase: /\bthe moat is\b/i,                       tag: '"the moat is" (strategy creep)' },
-  { phrase: /\byou should pivot\b/i,                  tag: '"you should pivot" (strategy creep)' },
-  { phrase: /\bopportunity shape\b/i,                 tag: '"opportunity shape" (brainstorm leakage)' },
-  { phrase: /护城河是/,                                tag: '"护城河是" (策略外延出 deliverable 范围)' },
-  { phrase: /应该转型/,                                tag: '"应该转型" (策略外延)' },
-];
-
-/** Validate a Stage-3 markdown body against its room's mode contract.
- *  Returns an empty array for clean briefs and for modes without a
- *  contract (constructive / debate / research / other). */
-export function validateBriefBody(body: string, mode: string): ContractViolation[] {
-  if (!body) return [];
-  const lower = body;  // case is preserved · regexes are case-insensitive where appropriate
-  const out: ContractViolation[] = [];
-
-  if (mode === "brainstorm") {
-    for (const rule of BRAINSTORM_FORBIDDEN_PHRASES) {
-      if (rule.phrase.test(lower)) {
-        out.push({
-          tag: rule.tag,
-          reason: `brainstorm brief contains decision-defense phrase ${rule.tag}`,
-        });
-      }
-    }
-    return out;
-  }
-
-  if (mode === "critique") {
-    for (const rule of CRITIQUE_FORBIDDEN_PHRASES) {
-      if (rule.phrase.test(lower)) {
-        out.push({
-          tag: rule.tag,
-          reason: `critique brief contains out-of-scope phrase ${rule.tag}`,
-        });
-      }
-    }
-    // Critique briefs that include quality-issues / severity-ranked-fixes
-    // sections (heuristic: presence of "Issues" or "Fixes" H2 / H3) MUST
-    // carry visible severity tags. Missing severity = the audit lost
-    // its severity-ranking discipline.
-    const hasIssuesOrFixes = /(^|\n)#{2,3}\s+(Issues|Fixes|严重|问题|修复)/i.test(body);
-    const hasSeverityTag = /\*\*Severity:\s*(high|medium|low)\*\*/i.test(body)
-      || /\*\*严重程度[：:]\s*(高|中|低)\*\*/i.test(body);
-    if (hasIssuesOrFixes && !hasSeverityTag) {
-      out.push({
-        tag: "missing severity tags",
-        reason: "critique brief has issues/fixes sections but no `**Severity: …**` markers",
-      });
-    }
-    return out;
-  }
-
-  // Other modes: no contract validation (existing behaviour).
-  return out;
-}
-
-/** Build a "retry · violations" addendum to inject into the writer
- *  system prompt on a retry. Names the violations and reiterates the
- *  contract so the second attempt has explicit corrections to make. */
-export function buildContractRetryAddendum(violations: ContractViolation[], mode: string): string {
-  if (violations.length === 0) return "";
-  const lines: string[] = [
-    "",
-    "## RETRY · contract violations in previous attempt",
-    "",
-    "Your previous attempt produced these contract violations:",
-    "",
-    ...violations.map((v) => `  · ${v.tag}`),
-    "",
-  ];
-  if (mode === "brainstorm") {
-    lines.push(
-      "This brief MUST be brainstorm-shaped. Rewrite from scratch:",
-      "  · Replace any thesis / decision / commitment language with exploratory phrasing (`could`, `might`, `would open up`).",
-      "  · Remove any \"the bet\", \"the moat\", \"critical assumptions\", \"must hold\" — those belong in decision briefs, not brainstorms.",
-      "  · No `## Bottom Line`. No `## Recommendations`. No `## Critical Assumptions`. Use the brainstorm sections (`## Doors Worth Opening`, `## If This Plays Out`, `## Threads Worth Pulling`, etc.).",
-      "  · The user will see a brief that OPENS UP the topic, not one that closes it down.",
-    );
-  } else if (mode === "critique") {
-    lines.push(
-      "This brief MUST be critique-shaped. Rewrite from scratch:",
-      "  · Every issue and every fix MUST open with `**Severity: high/medium/low** ·` — visible tags are non-negotiable.",
-      "  · Stay scoped to the deliverable. Strategy creep (`you should pivot`, `the moat is`, `应该转型`) is out of scope — the audit reviews what was submitted, not the broader product direction.",
-      "  · `## What's Already Working` MUST come BEFORE `## Issues Found` — audit decorum.",
-    );
-  }
-  return lines.join("\n");
 }
 
 /* ─────────────────────── JSON parsing helpers ────────────────────────── */
@@ -3190,30 +3246,210 @@ export function extractJson<T = unknown>(raw: string): T | null {
   }
 }
 
-/** Validate + coerce a single director's stage-1 output. */
-export function parseDirectorSignals(
+/** Validate + coerce a single director's stage-1 output into an asset
+ *  bundle. Each of the 9 fields is parsed independently — a malformed
+ *  entry inside one field doesn't poison the others, and a completely
+ *  malformed field falls back to `[]` rather than failing the whole
+ *  director. The per-field cap (ASSET_CAPS) drops overflow entries
+ *  past the limit. Empty bundles are valid (`{ ..., claims: [], ... }`)
+ *  and the composer / scaffold treat them as "this director said
+ *  nothing worth preserving" — same semantics as the legacy
+ *  `signals: []` case. */
+export function parseDirectorAssets(
   raw: string,
   director: Agent,
-): DirectorSignals {
-  const parsed = extractJson<{ signals?: unknown }>(raw);
-  const out: DirectorSignals = {
+): DirectorAssets {
+  const empty: DirectorAssets = {
     directorId: director.id,
     directorName: director.name,
-    signals: [],
+    claims: [], evidence: [], tensions: [], assumptions: [],
+    risks: [], opportunities: [], actions: [], quotes: [], openQuestions: [],
   };
-  if (!parsed || !Array.isArray(parsed.signals)) return out;
-  for (const s of parsed.signals) {
-    if (!s || typeof s !== "object") continue;
-    const obj = s as Record<string, unknown>;
-    const text = typeof obj.text === "string" ? obj.text.trim() : "";
-    const lens = typeof obj.lens === "string" ? obj.lens.trim() : "";
-    if (!text) continue;
-    if (!(EVIDENCE_LENSES as readonly string[]).includes(lens)) continue;
-    const sources = Array.isArray(obj.sources)
-      ? obj.sources.filter((n): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0)
+  const parsed = extractJson<Record<string, unknown>>(raw);
+  if (!parsed || typeof parsed !== "object") return empty;
+  return {
+    directorId: director.id,
+    directorName: director.name,
+    claims: parseAssetClaims(parsed.claims),
+    evidence: parseAssetEvidence(parsed.evidence),
+    tensions: parseAssetTensions(parsed.tensions),
+    assumptions: parseAssetAssumptions(parsed.assumptions),
+    risks: parseAssetRisks(parsed.risks),
+    opportunities: parseAssetOpportunities(parsed.opportunities),
+    actions: parseAssetActions(parsed.actions),
+    quotes: parseAssetQuotes(parsed.quotes),
+    openQuestions: parseAssetOpenQuestions(parsed.openQuestions),
+  };
+}
+
+/** Parse a per-asset `sources` array (0-based message indices). Tolerant:
+ *  drops anything non-numeric / negative, keeps the rest. Returns [] for
+ *  any non-array input. Non-empty result is the entry's eligibility gate
+ *  upstream — entries with no parseable source are dropped. */
+function parseSourceArray(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  const out: number[] = [];
+  for (const n of v) {
+    if (typeof n === "number" && Number.isFinite(n) && n >= 0) {
+      out.push(Math.floor(n));
+    }
+  }
+  return out;
+}
+
+function parseAssetClaims(v: unknown): AssetClaim[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetClaim[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const lens = typeof o.lens === "string" ? o.lens.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || !(EVIDENCE_LENSES as readonly string[]).includes(lens) || sources.length === 0) continue;
+    const cRaw = typeof o.confidence === "string" ? o.confidence.trim() : "";
+    const claim: AssetClaim = { text, lens: lens as EvidenceLens, sources };
+    if (cRaw === "high" || cRaw === "medium" || cRaw === "low") claim.confidence = cRaw;
+    out.push(claim);
+    if (out.length >= ASSET_CAPS.claims) break;
+  }
+  return out;
+}
+
+function parseAssetEvidence(v: unknown): AssetEvidence[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetEvidence[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    const kRaw = typeof o.kind === "string" ? o.kind.trim() : "";
+    const kind = (kRaw === "data" || kRaw === "case" || kRaw === "quote") ? kRaw : "case";
+    out.push({ text, kind, sources });
+    if (out.length >= ASSET_CAPS.evidence) break;
+  }
+  return out;
+}
+
+function parseAssetTensions(v: unknown): AssetTension[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetTension[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    const withArr = Array.isArray(o.with)
+      ? o.with.filter((s): s is string => typeof s === "string" && s.trim().length > 0).map((s) => s.trim())
       : [];
-    out.signals.push({ text, lens: lens as EvidenceLens, sources });
-    if (out.signals.length >= 4) break;
+    out.push({ text, with: withArr, sources });
+    if (out.length >= ASSET_CAPS.tensions) break;
+  }
+  return out;
+}
+
+function parseAssetAssumptions(v: unknown): AssetAssumption[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetAssumption[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    const entry: AssetAssumption = { text, sources };
+    const fals = typeof o.falsifier === "string" ? o.falsifier.trim() : "";
+    if (fals) entry.falsifier = fals;
+    out.push(entry);
+    if (out.length >= ASSET_CAPS.assumptions) break;
+  }
+  return out;
+}
+
+function parseAssetRisks(v: unknown): AssetRisk[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetRisk[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    const sev = typeof o.severity === "string" ? o.severity.trim() : "";
+    const entry: AssetRisk = { text, sources };
+    if (sev === "high" || sev === "medium" || sev === "low") entry.severity = sev;
+    out.push(entry);
+    if (out.length >= ASSET_CAPS.risks) break;
+  }
+  return out;
+}
+
+function parseAssetOpportunities(v: unknown): AssetOpportunity[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetOpportunity[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    out.push({ text, sources });
+    if (out.length >= ASSET_CAPS.opportunities) break;
+  }
+  return out;
+}
+
+function parseAssetActions(v: unknown): AssetAction[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetAction[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    const entry: AssetAction = { text, sources };
+    const owner = typeof o.owner === "string" ? o.owner.trim() : "";
+    const horizon = typeof o.horizon === "string" ? o.horizon.trim() : "";
+    if (owner) entry.owner = owner;
+    if (horizon) entry.horizon = horizon;
+    out.push(entry);
+    if (out.length >= ASSET_CAPS.actions) break;
+  }
+  return out;
+}
+
+function parseAssetQuotes(v: unknown): AssetQuote[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetQuote[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    out.push({ text, sources });
+    if (out.length >= ASSET_CAPS.quotes) break;
+  }
+  return out;
+}
+
+function parseAssetOpenQuestions(v: unknown): AssetOpenQuestion[] {
+  if (!Array.isArray(v)) return [];
+  const out: AssetOpenQuestion[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    const sources = parseSourceArray(o.sources);
+    if (!text || sources.length === 0) continue;
+    const pRaw = typeof o.priority === "string" ? o.priority.trim() : "";
+    const priority: "P0" | "P1" | "P2" = (pRaw === "P0" || pRaw === "P1" || pRaw === "P2") ? pRaw : "P1";
+    out.push({ text, priority, sources });
+    if (out.length >= ASSET_CAPS.openQuestions) break;
   }
   return out;
 }
@@ -3226,6 +3462,33 @@ function parseConfidence(raw: unknown): Confidence {
 function parsePriority(raw: unknown): Priority {
   if (raw === "P0" || raw === "P1" || raw === "P2") return raw;
   return "P1";
+}
+
+/** Soft cap on scaffold title length. The writer prompt says 8–18 words
+ *  with a quantified element when possible, but the LLM occasionally
+ *  produces a 24-word run-on (e.g. "X closes Y and forces Z to do W").
+ *  When the title exceeds 20 words AND a natural break exists (em-dash,
+ *  semicolon, " — and ", " · "), truncate at the break to land ≤ 18.
+ *  When no natural break exists, leave the title as-is — silent mid-
+ *  sentence truncation reads worse than a long title. The writer
+ *  prompt's "rewrite if topic-style or > 18 words" rule then covers
+ *  the remaining case at H2 emission time. */
+function compressLongTitle(title: string): string {
+  const wordCount = title.split(/\s+/).filter(Boolean).length;
+  if (wordCount <= 20) return title;
+  const breakPatterns = [
+    /\s+[—–]\s+/,    // em-dash / en-dash
+    /\s*;\s+/,       // semicolon
+    /\s+·\s+/,       // middle dot separator
+  ];
+  for (const re of breakPatterns) {
+    const m = re.exec(title);
+    if (!m) continue;
+    const head = title.slice(0, m.index).trim();
+    const headWords = head.split(/\s+/).filter(Boolean).length;
+    if (headWords >= 4 && headWords <= 18) return head;
+  }
+  return title;
 }
 
 function parseLens(raw: unknown): EvidenceLens | null {
@@ -3548,6 +3811,8 @@ function parseRecommendations(raw: unknown): Recommendation[] {
     const o = r as Record<string, unknown>;
     const action = typeof o.action === "string" ? o.action.trim() : "";
     if (!action) continue;
+    const criticalDependency = typeof o.criticalDependency === "string" ? o.criticalDependency.trim() : "";
+    const expectedBenefit = typeof o.expectedBenefit === "string" ? o.expectedBenefit.trim() : "";
     out.push({
       priority: parsePriority(o.priority),
       action,
@@ -3556,6 +3821,8 @@ function parseRecommendations(raw: unknown): Recommendation[] {
       horizon: typeof o.horizon === "string" ? o.horizon.trim() : "",
       successMetric: typeof o.successMetric === "string" ? o.successMetric.trim() : "",
       riskIfSkipped: typeof o.riskIfSkipped === "string" ? o.riskIfSkipped.trim() : "",
+      ...(criticalDependency ? { criticalDependency } : {}),
+      ...(expectedBenefit ? { expectedBenefit } : {}),
     });
     if (out.length >= 6) break;
   }
@@ -3583,6 +3850,199 @@ function parsePreMortem(raw: unknown): FailureMode[] {
     if (out.length >= 4) break;
   }
   return out;
+}
+
+const RISK_CATEGORIES: readonly RiskCategory[] = [
+  "market", "execution", "product", "team", "financial", "compliance", "technical",
+];
+
+function parseRiskRegister(raw: unknown): RiskItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RiskItem[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const o = r as Record<string, unknown>;
+    const risk = typeof o.risk === "string" ? o.risk.trim() : "";
+    if (!risk) continue;
+    const catRaw = typeof o.category === "string" ? o.category.trim().toLowerCase() : "";
+    const category = (RISK_CATEGORIES as readonly string[]).includes(catRaw)
+      ? (catRaw as RiskCategory)
+      : "execution";
+    const sevRaw = typeof o.severity === "string" ? o.severity.trim().toLowerCase() : "";
+    const severity: RiskSeverity =
+      sevRaw === "high" || sevRaw === "low" ? sevRaw : "medium";
+    const likRaw = typeof o.likelihood === "string" ? o.likelihood.trim().toLowerCase() : "";
+    const likelihood: RiskLikelihood =
+      likRaw === "high" || likRaw === "low" ? likRaw : "medium";
+    const owner = typeof o.owner === "string" ? o.owner.trim() : "";
+    const mitigation = typeof o.mitigation === "string" ? o.mitigation.trim() : "";
+    out.push({
+      risk,
+      category,
+      severity,
+      likelihood,
+      owner: owner || "—",
+      mitigation: mitigation || "monitor only",
+    });
+    if (out.length >= 7) break;
+  }
+  return out;
+}
+
+function parseDirectorPerspectives(raw: unknown): DirectorPerspectivesBlock | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const intro = typeof o.intro === "string" ? o.intro.trim() : "";
+  const chairSynthesis = typeof o.chairSynthesis === "string" ? o.chairSynthesis.trim() : "";
+
+  // Per-director rows · the meat of the section. Each entry must
+  // carry directorId + position. Lens defaults to 'structural' when
+  // unrecognised so the row still renders.
+  const perspectives: DirectorPerspective[] = [];
+  if (Array.isArray(o.perspectives)) {
+    for (const p of o.perspectives) {
+      if (!p || typeof p !== "object") continue;
+      const po = p as Record<string, unknown>;
+      const directorId = typeof po.directorId === "string" ? po.directorId.trim() : "";
+      const stance = typeof po.stance === "string" ? po.stance.trim() : "";
+      const position = typeof po.position === "string" ? po.position.trim() : "";
+      if (!directorId || !position) continue;
+      const lensRaw = typeof po.lens === "string" ? po.lens.trim() : "";
+      const lens: EvidenceLens = (EVIDENCE_LENSES as readonly string[]).includes(lensRaw)
+        ? (lensRaw as EvidenceLens)
+        : "structural";
+      const quote = typeof po.quote === "string" ? po.quote.trim() : "";
+      perspectives.push({ directorId, stance, position, quote, lens });
+    }
+  }
+
+  // Alignment groups · each must have ≥ 2 directors AND a name. Drops
+  // single-director "groups" (those aren't alignment).
+  const alignment: PerspectiveAlignment[] = [];
+  if (Array.isArray(o.alignment)) {
+    for (const a of o.alignment) {
+      if (!a || typeof a !== "object") continue;
+      const ao = a as Record<string, unknown>;
+      const pointOfAgreement = typeof ao.pointOfAgreement === "string" ? ao.pointOfAgreement.trim() : "";
+      const note = typeof ao.note === "string" ? ao.note.trim() : "";
+      const directorIds = Array.isArray(ao.directorIds)
+        ? ao.directorIds.filter((s): s is string => typeof s === "string" && s.trim().length > 0).map((s) => s.trim())
+        : [];
+      if (!pointOfAgreement || directorIds.length < 2) continue;
+      alignment.push({ pointOfAgreement, directorIds, note });
+    }
+  }
+
+  // Divergence groups · each must have ≥ 2 sides, each side with ≥ 1
+  // director + a stance. Otherwise it's not a real fork.
+  const divergence: PerspectiveDivergence[] = [];
+  if (Array.isArray(o.divergence)) {
+    for (const d of o.divergence) {
+      if (!d || typeof d !== "object") continue;
+      const dgo = d as Record<string, unknown>;
+      const hinge = typeof dgo.hinge === "string" ? dgo.hinge.trim() : "";
+      const resolution = typeof dgo.resolution === "string" ? dgo.resolution.trim() : "";
+      const sides: PerspectiveDivergence["sides"] = [];
+      if (Array.isArray(dgo.sides)) {
+        for (const s of dgo.sides) {
+          if (!s || typeof s !== "object") continue;
+          const so = s as Record<string, unknown>;
+          const label = typeof so.label === "string" ? so.label.trim() : "";
+          const stance = typeof so.stance === "string" ? so.stance.trim() : "";
+          const ids = Array.isArray(so.directorIds)
+            ? so.directorIds.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+            : [];
+          if (!label || !stance || ids.length === 0) continue;
+          sides.push({ label, directorIds: ids, stance });
+        }
+      }
+      if (!hinge || sides.length < 2) continue;
+      divergence.push({ hinge, sides, resolution });
+    }
+  }
+
+  // The block is meaningful only when ≥ 2 directors actually have
+  // perspectives. Below that, return null so Stage 3 renders the
+  // section as skipped (single-director rooms, or extraction failure).
+  if (perspectives.length < 2) return null;
+
+  return { intro, alignment, divergence, perspectives, chairSynthesis };
+}
+
+function parsePathComparison(raw: unknown): PathComparisonBlock | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const intro = typeof o.intro === "string" ? o.intro.trim() : "";
+  const implRaw = typeof o.implication === "string" ? o.implication.trim() : "";
+  if (!Array.isArray(o.paths)) return null;
+  const parsed: ComparisonPath[] = [];
+  for (const p of o.paths) {
+    if (!p || typeof p !== "object") continue;
+    const po = p as Record<string, unknown>;
+    const verdict = typeof po.verdict === "string" ? po.verdict.trim() : "";
+    const name = typeof po.name === "string" ? po.name.trim() : "";
+    if (!verdict || !name) continue;
+    const stRaw = typeof po.stance === "string" ? po.stance.trim().toLowerCase() : "";
+    const stance: ComparisonPath["stance"] =
+      stRaw === "strong" || stRaw === "weak" ? stRaw : "neutral";
+    const characteristics = Array.isArray(po.characteristics)
+      ? po.characteristics
+          .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+          .map((s) => s.trim())
+          .slice(0, 6)
+      : [];
+    if (characteristics.length < 2) continue;
+    parsed.push({ verdict, stance, name, characteristics });
+    if (parsed.length >= 2) break;
+  }
+  // Component is binary by design · need exactly 2 valid paths.
+  if (parsed.length !== 2) return null;
+  const block: PathComparisonBlock = {
+    intro,
+    paths: [parsed[0], parsed[1]],
+  };
+  if (implRaw) block.implication = implRaw;
+  return block;
+}
+
+function parseDecisionOptions(raw: unknown): DecisionOptionsBlock | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const intro = typeof o.intro === "string" ? o.intro.trim() : "";
+  const rationale = typeof o.rationale === "string" ? o.rationale.trim() : "";
+  if (!Array.isArray(o.options)) return null;
+  const options: DecisionOption[] = [];
+  for (const opt of o.options) {
+    if (!opt || typeof opt !== "object") continue;
+    const oo = opt as Record<string, unknown>;
+    const label = typeof oo.label === "string" ? oo.label.trim() : "";
+    const summary = typeof oo.summary === "string" ? oo.summary.trim() : "";
+    if (!label) continue;
+    const pros = Array.isArray(oo.pros)
+      ? oo.pros.filter((s): s is string => typeof s === "string" && s.trim().length > 0).map((s) => s.trim()).slice(0, 4)
+      : [];
+    const cons = Array.isArray(oo.cons)
+      ? oo.cons.filter((s): s is string => typeof s === "string" && s.trim().length > 0).map((s) => s.trim()).slice(0, 4)
+      : [];
+    const effRaw = typeof oo.effort === "string" ? oo.effort.trim().toLowerCase() : "";
+    const effort: DecisionOption["effort"] =
+      effRaw === "low" || effRaw === "high" ? effRaw : "medium";
+    const confRaw = typeof oo.confidence === "string" ? oo.confidence.trim().toLowerCase() : "";
+    const confidence: Confidence =
+      confRaw === "high" || confRaw === "low" ? confRaw : "medium";
+    const recommended = oo.recommended === true;
+    options.push({ label, summary, pros, cons, effort, confidence, recommended });
+    if (options.length >= 5) break;
+  }
+  if (options.length < 2) return null;
+  // Force exactly one `recommended: true`. If the model marked zero or
+  // multiple, pick the first option as the recommendation. Better to
+  // surface SOMETHING than render a comparison with no winner.
+  const recCount = options.filter((o) => o.recommended).length;
+  if (recCount !== 1) {
+    options.forEach((o, i) => { o.recommended = i === 0; });
+  }
+  return { intro, options, rationale };
 }
 
 function parseNewQuestions(raw: unknown): NewQuestion[] {
@@ -3917,284 +4377,41 @@ function parseMetricStrip(raw: unknown): MetricStrip | null {
   return { intro, cards };
 }
 
-/* ─────────────── Brainstorm-mode field parsers ─────────────────── */
-
-function parseOpeningHook(raw: unknown): OpeningHook | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const hook = typeof o.hook === "string" ? o.hook.trim() : "";
-  if (!hook) return null;
-  const restatement = typeof o.restatement === "string" && o.restatement.trim()
-    ? o.restatement.trim()
-    : null;
-  return { hook, restatement };
-}
-
-function parseOpportunityShape(raw: unknown): OpportunityShape | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const scope = typeof o.scope === "string" ? o.scope.trim() : "";
-  const gravity = typeof o.gravity === "string" ? o.gravity.trim() : "";
-  const tempo = typeof o.tempo === "string" ? o.tempo.trim() : "";
-  if (!scope || !gravity || !tempo) return null;
-  const sizingHint = typeof o.sizingHint === "string" && o.sizingHint.trim()
-    ? o.sizingHint.trim()
-    : null;
-  return { scope, gravity, tempo, sizingHint };
-}
-
-function parseAdjacentAngles(raw: unknown): AdjacentAngle[] {
-  if (!Array.isArray(raw)) return [];
-  const out: AdjacentAngle[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const name = typeof o.name === "string" ? o.name.trim() : "";
-    const framing = typeof o.framing === "string" ? o.framing.trim() : "";
-    const whatOpens = typeof o.whatOpens === "string" ? o.whatOpens.trim() : "";
-    if (!name || !framing || !whatOpens) continue;
-    out.push({ name, framing, whatOpens });
-    if (out.length >= 5) break;  // composer cap
-  }
-  return out;
-}
-
-function parseWhatIfThisWorks(raw: unknown): WhatIfThisWorks | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const setup = typeof o.setup === "string" ? o.setup.trim() : "";
-  if (!setup) return null;
-  const consRaw = Array.isArray(o.consequences) ? o.consequences : [];
-  const consequences = consRaw
-    .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
-    .map((c) => c.trim())
-    .slice(0, 3);  // composer cap · exactly 3
-  if (consequences.length < 2) return null;  // 2-3 acceptable; 1 reads as half-baked
-  return { setup, consequences };
-}
-
-function parseWorthChasing(raw: unknown): WorthChasingAngle[] {
-  if (!Array.isArray(raw)) return [];
-  const out: WorthChasingAngle[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const handle = typeof o.handle === "string" ? o.handle.trim() : "";
-    const whyItPulled = typeof o.whyItPulled === "string" ? o.whyItPulled.trim() : "";
-    const nextTestableQuestion = typeof o.nextTestableQuestion === "string" ? o.nextTestableQuestion.trim() : "";
-    if (!handle || !whyItPulled || !nextTestableQuestion) continue;
-    out.push({ handle, whyItPulled, nextTestableQuestion });
-    if (out.length >= 5) break;
-  }
-  return out;
-}
-
-function parseDeadEndsNoted(raw: unknown): DeadEndNoted[] {
-  if (!Array.isArray(raw)) return [];
-  const out: DeadEndNoted[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const angle = typeof o.angle === "string" ? o.angle.trim() : "";
-    const whyDropped = typeof o.whyDropped === "string" ? o.whyDropped.trim() : "";
-    if (!angle || !whyDropped) continue;
-    out.push({ angle, whyDropped });
-    if (out.length >= 3) break;
-  }
-  return out;
-}
-
-function parseBrainstormQuestions(raw: unknown): BrainstormQuestion[] {
-  if (!Array.isArray(raw)) return [];
-  const out: BrainstormQuestion[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const question = typeof o.question === "string" ? o.question.trim() : "";
-    if (!question) continue;
-    const whatWouldShift = typeof o.whatWouldShift === "string" && o.whatWouldShift.trim()
-      ? o.whatWouldShift.trim()
-      : null;
-    out.push({ question, whatWouldShift });
-    if (out.length >= 8) break;
-  }
-  return out;
-}
-
-/* ─────────────── Critique-mode field parsers ─────────────────── */
-
-function parseSeverity(raw: unknown): CritiqueSeverity | null {
-  if (typeof raw !== "string") return null;
-  const v = raw.trim().toLowerCase();
-  if (v === "high" || v === "medium" || v === "low") return v;
-  return null;
-}
-
-function parseDeliverableSummary(raw: unknown): DeliverableSummary | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const subject = typeof o.subject === "string" ? o.subject.trim() : "";
-  const context = typeof o.context === "string" ? o.context.trim() : "";
-  if (!subject || !context) return null;
-  const charter = typeof o.charter === "string" && o.charter.trim() ? o.charter.trim() : null;
-  return { subject, context, charter };
-}
-
-function parseWhatsGood(raw: unknown): WhatsGood[] {
-  if (!Array.isArray(raw)) return [];
-  const out: WhatsGood[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const point = typeof o.point === "string" ? o.point.trim() : "";
-    if (!point) continue;
-    const attribution = typeof o.attribution === "string" && o.attribution.trim()
-      ? o.attribution.trim()
-      : null;
-    out.push({ point, attribution });
-    if (out.length >= 4) break;
-  }
-  return out;
-}
-
-function parseQualityIssues(raw: unknown): QualityIssue[] {
-  if (!Array.isArray(raw)) return [];
-  const out: QualityIssue[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const title = typeof o.title === "string" ? o.title.trim() : "";
-    const severity = parseSeverity(o.severity);
-    const issue = typeof o.issue === "string" ? o.issue.trim() : "";
-    const impact = typeof o.impact === "string" ? o.impact.trim() : "";
-    if (!title || !severity || !issue || !impact) continue;
-    const attribution = typeof o.attribution === "string" && o.attribution.trim()
-      ? o.attribution.trim()
-      : null;
-    out.push({ title, severity, issue, impact, attribution });
-    if (out.length >= 7) break;
-  }
-  return out;
-}
-
-function parseSeverityRankedFixes(raw: unknown): SeverityRankedFix[] {
-  if (!Array.isArray(raw)) return [];
-  const out: SeverityRankedFix[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const title = typeof o.title === "string" ? o.title.trim() : "";
-    const severity = parseSeverity(o.severity);
-    const fix = typeof o.fix === "string" ? o.fix.trim() : "";
-    const effort = typeof o.effort === "string" ? o.effort.trim() : "";
-    if (!title || !severity || !fix || !effort) continue;
-    const owner = typeof o.owner === "string" && o.owner.trim() ? o.owner.trim() : null;
-    out.push({ title, severity, fix, effort, owner });
-    if (out.length >= 7) break;
-  }
-  return out;
-}
-
-function parseResidualRisks(raw: unknown): ResidualRisk[] {
-  if (!Array.isArray(raw)) return [];
-  const out: ResidualRisk[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const o = entry as Record<string, unknown>;
-    const risk = typeof o.risk === "string" ? o.risk.trim() : "";
-    const whyResidual = typeof o.whyResidual === "string" ? o.whyResidual.trim() : "";
-    if (!risk || !whyResidual) continue;
-    const severity = parseSeverity(o.severity);
-    out.push({ risk, whyResidual, severity });
-    if (out.length >= 4) break;
-  }
-  return out;
-}
-
 /** Validate + coerce the chair's stage-2 scaffold.
  *
- *  Mode-aware validity floor:
- *    · constructive / debate / research / critique / (default) · the
- *      scaffold must carry a load-bearing anchor (bottomLine OR thesis)
- *      AND a load-bearing findings block (≥ 1 headlineFinding OR a
- *      complete bigIdeas array). The legacy contract.
- *    · brainstorm · the scaffold must carry the brainstorm shape:
- *      `openingHook` filled AND ≥ 2 `adjacentAngles` AND ≥ 2
- *      `worthChasing`. Decision-grade fields (bottomLine / thesis /
- *      headlineFindings / recommendations / etc.) are explicitly
- *      ALLOWED to be empty — the brainstorm Stage 2 prompt instructs
- *      the LLM to leave them at zero values.
+ *  Validity floor: at minimum the scaffold must carry a load-bearing
+ *  anchor (bottomLine OR thesis OR workingHypothesis) AND a load-
+ *  bearing findings block (≥ 1 headlineFinding OR a complete bigIdeas
+ *  array). Other sections fall back to empty / null / default.
  *
- *  Substitute fields (`thesis`, `bigIdeas`, `theBet`) are net-additive
- *  in any mode: the parser returns them when filled and `null` otherwise.
- *  The renderer's "skip if empty" rules do the rest.
+ *  Substitute fields (`thesis`, `bigIdeas`, `theBet`) are net-additive:
+ *  the parser returns them when filled and `null` otherwise. The
+ *  renderer's "skip if empty" rules do the rest.
  */
 export function parseScaffold(
   raw: string,
   fallbackTitle: string,
   fallbackOriginalQuestion: string,
-  mode: string = "constructive",
 ): BriefScaffold | null {
   const parsed = extractJson<Record<string, unknown>>(raw);
   if (!parsed) return null;
 
-  const title = typeof parsed.title === "string" && parsed.title.trim()
+  const titleRaw = typeof parsed.title === "string" && parsed.title.trim()
     ? parsed.title.trim()
     : fallbackTitle;
-
-  const isBrainstorm = mode === "brainstorm";
-  const isCritique = mode === "critique";
+  const title = compressLongTitle(titleRaw);
 
   // Anchor · at minimum one of bottomLine / thesis / workingHypothesis.
   const bottomLine = parseBottomLine(parsed.bottomLine, title);
   const thesis = parseThesis(parsed.thesis);
   const workingHypothesis = parseWorkingHypothesis(parsed.workingHypothesis);
+  const hasAnchor =
+    (bottomLine.judgement && bottomLine.judgement.trim().length > 0) ||
+    (thesis && thesis.claim.length > 0) ||
+    (workingHypothesis && workingHypothesis.hypothesis.length > 0);
+  if (!hasAnchor) return null;
 
-  // Brainstorm-specific fields · parsed regardless of mode (the field
-  // is optional on BriefScaffold), but only required-validated when
-  // mode === "brainstorm".
-  const openingHook = parseOpeningHook(parsed.openingHook);
-  const opportunityShape = parseOpportunityShape(parsed.opportunityShape);
-  const adjacentAngles = parseAdjacentAngles(parsed.adjacentAngles);
-  const whatIfThisWorks = parseWhatIfThisWorks(parsed.whatIfThisWorks);
-  const worthChasing = parseWorthChasing(parsed.worthChasing);
-  const deadEndsNoted = parseDeadEndsNoted(parsed.deadEndsNoted);
-  const brainstormQuestions = parseBrainstormQuestions(parsed.brainstormQuestions);
-
-  // Critique-specific fields · parsed regardless of mode, only
-  // required-validated when mode === "critique".
-  const deliverableSummary = parseDeliverableSummary(parsed.deliverableSummary);
-  const whatsGood = parseWhatsGood(parsed.whatsGood);
-  const qualityIssues = parseQualityIssues(parsed.qualityIssues);
-  const severityRankedFixes = parseSeverityRankedFixes(parsed.severityRankedFixes);
-  const residualRisks = parseResidualRisks(parsed.residualRisks);
-
-  if (isBrainstorm) {
-    // Brainstorm contract: opening-hook + ≥2 adjacent-angles + ≥2
-    // worth-chasing.
-    if (!openingHook) return null;
-    if (adjacentAngles.length < 2) return null;
-    if (worthChasing.length < 2) return null;
-  } else if (isCritique) {
-    // Critique contract: deliverable-summary + whats-good (≥2) +
-    // quality-issues OR severity-ranked-fixes (≥2 entries on whichever
-    // is filled). "What's good" before issues is enforced by the
-    // writer prompt's render order — at parse time we just need the
-    // shape to be load-bearing.
-    if (!deliverableSummary) return null;
-    if (whatsGood.length < 2) return null;
-    if (qualityIssues.length < 2 && severityRankedFixes.length < 2) return null;
-  } else {
-    // Decision/constructive contract: anchor + findings.
-    const hasAnchor =
-      (bottomLine.judgement && bottomLine.judgement.trim().length > 0) ||
-      (thesis && thesis.claim.length > 0) ||
-      (workingHypothesis && workingHypothesis.hypothesis.length > 0);
-    if (!hasAnchor) return null;
-  }
-
-  // Findings · either headlineFindings (≥1) or bigIdeas (=3) for
-  // decision-grade rooms. Brainstorm and critique rooms skip this gate.
+  // Findings · either headlineFindings (≥1) or bigIdeas (=3).
   const findingsRaw = Array.isArray(parsed.headlineFindings) ? parsed.headlineFindings : [];
   const headlineFindings: HeadlineFinding[] = [];
   for (const f of findingsRaw) {
@@ -4203,7 +4420,7 @@ export function parseScaffold(
     if (headlineFindings.length >= 3) break;
   }
   const bigIdeas = parseBigIdeas(parsed.bigIdeas);
-  if (!isBrainstorm && !isCritique && headlineFindings.length < 1 && !bigIdeas) return null;
+  if (headlineFindings.length < 1 && !bigIdeas) return null;
 
   // Action substitutes are all best-effort — having none is allowed (the
   // composer may have skipped action entirely for an essay-style brief).
@@ -4238,24 +4455,27 @@ export function parseScaffold(
     scenarioTree: parseScenarioTree(parsed.scenarioTree),
     leadingIndicators: parseLeadingIndicators(parsed.leadingIndicators),
     threatsToValidity: parseThreatsToValidity(parsed.threatsToValidity),
+    riskRegister: parseRiskRegister(parsed.riskRegister),
+    decisionOptions: parseDecisionOptions(parsed.decisionOptions),
+    pathComparison: parsePathComparison(parsed.pathComparison),
+    directorPerspectives: parseDirectorPerspectives(parsed.directorPerspectives),
     metricStrip: parseMetricStrip(parsed.metricStrip),
-    // Brainstorm-mode fields · null in non-brainstorm rooms (the parsers
-    // return empty arrays / null for missing input, which we collapse to
-    // null here so the scaffold body_json column doesn't carry empty
-    // brainstorm fields for decision-grade briefs).
-    openingHook,
-    opportunityShape,
-    adjacentAngles: adjacentAngles.length ? adjacentAngles : null,
-    whatIfThisWorks,
-    worthChasing: worthChasing.length ? worthChasing : null,
-    deadEndsNoted: deadEndsNoted.length ? deadEndsNoted : null,
-    brainstormQuestions: brainstormQuestions.length ? brainstormQuestions : null,
-    // Critique-mode fields · null in non-critique rooms.
-    deliverableSummary,
-    whatsGood: whatsGood.length ? whatsGood : null,
-    qualityIssues: qualityIssues.length ? qualityIssues : null,
-    severityRankedFixes: severityRankedFixes.length ? severityRankedFixes : null,
-    residualRisks: residualRisks.length ? residualRisks : null,
+    appendices: parseAppendices(parsed.appendices),
     openQuestions: parseOpenQuestions(parsed.openQuestions),
   };
+}
+
+function parseAppendices(raw: unknown): AppendixItem[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: AppendixItem[] = [];
+  for (const a of raw) {
+    if (!a || typeof a !== "object") continue;
+    const o = a as Record<string, unknown>;
+    const title = typeof o.title === "string" ? o.title.trim() : "";
+    const bodyMd = typeof o.bodyMd === "string" ? o.bodyMd.trim() : "";
+    if (!title || !bodyMd) continue;
+    out.push({ title, bodyMd });
+    if (out.length >= 4) break;
+  }
+  return out.length ? out : null;
 }

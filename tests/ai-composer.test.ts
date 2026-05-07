@@ -193,7 +193,7 @@ describe("parseComposerOutput", () => {
 
   it("infers spine from the picked house style when the spine field is missing", () => {
     const raw = fence({
-      house_style: "stanford-research",
+      house_style: "anthropic",
       rationale: "no spine in payload",
       components: [
         { kind: "working-hypothesis", order: 1 },
@@ -205,8 +205,8 @@ describe("parseComposerOutput", () => {
     });
     const parsed = parseComposerOutput(raw);
     expect(parsed).not.toBeNull();
-    expect(parsed!.spine).toBe("openai-paper");
-    expect(parsed!.houseStyle).toBe("stanford-research");
+    expect(parsed!.spine).toBe("anthropic-essay");
+    expect(parsed!.houseStyle).toBe("anthropic");
   });
 });
 
@@ -322,5 +322,176 @@ describe("v2 component picks", () => {
       expect(parsed).not.toBeNull();
       expect(parsed!.spine).toBe(spine);
     }
+  });
+});
+
+describe("coverage matrix · validatePicks asset-driven rules", () => {
+  function fence(json: object): string {
+    return ["```json", JSON.stringify(json), "```"].join("\n");
+  }
+
+  // Baseline pick that satisfies anchor + findings + action + ≥5
+  // components, plus has both `divergence` and `pre-mortem` and
+  // `open-questions` and `metric-strip` so it can ROUTE through any
+  // coverage trigger; tests below tweak it to omit specific
+  // components and check the matrix rejects them.
+  const fullCoverageComponents = [
+    { kind: "bottom-line", order: 1 },
+    { kind: "frame-shift", order: 2 },
+    { kind: "headline-findings", order: 3 },
+    { kind: "divergence", order: 4 },
+    { kind: "pre-mortem", order: 5 },
+    { kind: "metric-strip", order: 6 },
+    { kind: "recommendations", order: 7 },
+    { kind: "open-questions", order: 8 },
+  ];
+
+  it("accepts the full-coverage pick when all triggers fire", () => {
+    const raw = fence({ spine: "boardroom-dark", rationale: "ok", components: fullCoverageComponents });
+    const parsed = parseComposerOutput(raw, {
+      tensions: 2, risks: 3, openQuestions: 1, actions: 2, dataAvailable: 4,
+    });
+    expect(parsed).not.toBeNull();
+  });
+
+  it("rejects when tensions ≥ 1 but neither divergence nor positions is picked", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "missing divergence",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "pre-mortem", order: 4 },
+        { kind: "recommendations", order: 5 },
+        { kind: "open-questions", order: 6 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { tensions: 2 })).toBeNull();
+  });
+
+  it("rejects when risks ≥ 1 but neither pre-mortem nor threats-to-validity is picked", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "missing pre-mortem",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "divergence", order: 4 },
+        { kind: "recommendations", order: 5 },
+        { kind: "open-questions", order: 6 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { risks: 3 })).toBeNull();
+  });
+
+  it("rejects when openQuestions ≥ 1 but neither open-questions nor new-questions is picked", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "missing open-questions",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "divergence", order: 4 },
+        { kind: "pre-mortem", order: 5 },
+        { kind: "recommendations", order: 6 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { openQuestions: 2 })).toBeNull();
+  });
+
+  it("rejects when actions ≥ 2 but action component is considerations (softens imperatives)", () => {
+    const raw = fence({
+      spine: "anthropic-essay",
+      rationale: "considerations softens",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "considerations", order: 4 },
+        { kind: "open-questions", order: 5 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { actions: 4 })).toBeNull();
+  });
+
+  it("accepts considerations when actions < 2 (room produced ≤1 imperative — hedge is fine)", () => {
+    const raw = fence({
+      spine: "anthropic-essay",
+      rationale: "considerations ok",
+      components: [
+        { kind: "working-hypothesis", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "considerations", order: 4 },
+        { kind: "open-questions", order: 5 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { actions: 1 })).not.toBeNull();
+  });
+
+  it("rejects when dataAvailable ≥ 3 but neither metric-strip nor visuals is picked", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "missing metric-strip",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "divergence", order: 4 },
+        { kind: "recommendations", order: 5 },
+        { kind: "open-questions", order: 6 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { dataAvailable: 5 })).toBeNull();
+  });
+
+  it("accepts when no asset context is supplied (legacy callers / tests bypass the matrix)", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "no coverage hints",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "considerations", order: 4 },
+        { kind: "open-questions", order: 5 },
+      ],
+    });
+    expect(parseComposerOutput(raw)).not.toBeNull();
+  });
+
+  it("positions satisfies the tensions trigger as an alternative to divergence", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "positions covers tensions",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "positions", order: 4 },
+        { kind: "recommendations", order: 5 },
+        { kind: "open-questions", order: 6 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { tensions: 1 })).not.toBeNull();
+  });
+
+  it("threats-to-validity satisfies the risks trigger", () => {
+    const raw = fence({
+      spine: "boardroom-dark",
+      rationale: "threats covers risks",
+      components: [
+        { kind: "bottom-line", order: 1 },
+        { kind: "frame-shift", order: 2 },
+        { kind: "headline-findings", order: 3 },
+        { kind: "threats-to-validity", order: 4 },
+        { kind: "recommendations", order: 5 },
+        { kind: "open-questions", order: 6 },
+      ],
+    });
+    expect(parseComposerOutput(raw, { risks: 2 })).not.toBeNull();
   });
 });

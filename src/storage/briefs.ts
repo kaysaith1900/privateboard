@@ -36,24 +36,35 @@ export interface Brief {
    *  register at write time. Defaults to `boardroom-default` (no
    *  overrides) for legacy briefs and for the safety-net composition. */
   houseStyle: string;
-  /** Persisted Stage-1 per-director signals · the LLM-extracted set
-   *  of 2–4 named-by-lens observations each director surfaced for
-   *  this brief. Re-used by follow-up rooms as part of the prior-
-   *  context block in director system prompts. NULL on legacy briefs
-   *  written before the column existed (follow-up reader falls back
-   *  to brief markdown alone). */
-  signals: BriefSignals[] | null;
+  /** Persisted Stage-1 per-director asset bundles · the LLM-extracted
+   *  9-field structured material each director surfaced for this brief
+   *  (claims / evidence / tensions / assumptions / risks /
+   *  opportunities / actions / quotes / openQuestions). Re-used by
+   *  follow-up rooms as part of the prior-context block in director
+   *  system prompts. NULL when the extract stage hasn't filled it
+   *  yet (placeholder rows mid-pipeline) or when extract failed. */
+  assets: BriefAssets[] | null;
   createdAt: number;
 }
 
-/** Per-director signal bundle persisted alongside a brief · mirrors
- *  the `DirectorSignals` shape Stage 2 receives. Storing it lets a
- *  follow-up room read the prior session's named load-bearing
- *  observations without re-running the haiku extract pass. */
-export interface BriefSignals {
+/** Per-director asset bundle persisted alongside a brief · mirrors
+ *  the `DirectorAssets` shape Stage 1 produces. Storing it lets a
+ *  follow-up room read the prior session's structured material
+ *  without re-running the extract pass. The storage layer keeps a
+ *  parallel local definition (rather than importing from
+ *  ai/prompts/brief-stages) to avoid the storage → AI cycle. */
+export interface BriefAssets {
   directorId: string;
   directorName: string;
-  signals: { text: string; lens: string; sources: number[] }[];
+  claims: { text: string; lens: string; sources: number[]; confidence?: string }[];
+  evidence: { text: string; kind: string; sources: number[] }[];
+  tensions: { text: string; with: string[]; sources: number[] }[];
+  assumptions: { text: string; falsifier?: string; sources: number[] }[];
+  risks: { text: string; severity?: string; sources: number[] }[];
+  opportunities: { text: string; sources: number[] }[];
+  actions: { text: string; owner?: string; horizon?: string; sources: number[] }[];
+  quotes: { text: string; sources: number[] }[];
+  openQuestions: { text: string; priority: string; sources: number[] }[];
 }
 
 interface Row {
@@ -69,46 +80,175 @@ interface Row {
   composer_rationale: string | null;
   subject_type: string | null;
   house_style: string;
-  signals_json: string | null;
+  assets_json: string | null;
   created_at: number;
 }
 
 const COLS =
   "id, room_id, style, title, body_md, body_json, supplement, " +
   "spine, components_json, composer_rationale, subject_type, " +
-  "house_style, signals_json, created_at";
+  "house_style, assets_json, created_at";
 
-function parseSignals(json: string | null | undefined): BriefSignals[] | null {
+/** Parse the persisted assets JSON into typed bundles. Tolerant: any
+ *  malformed entry / field is dropped silently and falls through to
+ *  empty array (rather than failing the whole brief read). Returns
+ *  null only when the column itself is null / unparseable JSON. */
+function parseAssets(json: string | null | undefined): BriefAssets[] | null {
   if (!json) return null;
   try {
     const parsed = JSON.parse(json) as unknown;
     if (!Array.isArray(parsed)) return null;
-    const out: BriefSignals[] = [];
+    const out: BriefAssets[] = [];
     for (const entry of parsed) {
       if (!entry || typeof entry !== "object") continue;
       const e = entry as Record<string, unknown>;
       const directorId = typeof e.directorId === "string" ? e.directorId : "";
       const directorName = typeof e.directorName === "string" ? e.directorName : "";
       if (!directorId || !directorName) continue;
-      const sigArr = Array.isArray(e.signals) ? e.signals : [];
-      const signals: BriefSignals["signals"] = [];
-      for (const s of sigArr) {
-        if (!s || typeof s !== "object") continue;
-        const so = s as Record<string, unknown>;
-        const text = typeof so.text === "string" ? so.text : "";
-        const lens = typeof so.lens === "string" ? so.lens : "";
-        const sources = Array.isArray(so.sources)
-          ? so.sources.filter((n): n is number => typeof n === "number" && Number.isFinite(n))
-          : [];
-        if (!text || !lens) continue;
-        signals.push({ text, lens, sources });
-      }
-      out.push({ directorId, directorName, signals });
+      out.push({
+        directorId,
+        directorName,
+        claims: parseClaimList(e.claims),
+        evidence: parseEvidenceList(e.evidence),
+        tensions: parseTensionList(e.tensions),
+        assumptions: parseAssumptionList(e.assumptions),
+        risks: parseRiskList(e.risks),
+        opportunities: parseSimpleList(e.opportunities),
+        actions: parseActionList(e.actions),
+        quotes: parseSimpleList(e.quotes),
+        openQuestions: parseOpenQuestionList(e.openQuestions),
+      });
     }
     return out;
   } catch {
     return null;
   }
+}
+
+function parseSourceArr(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+}
+
+function parseStringArr(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((s): s is string => typeof s === "string" && s.trim().length > 0);
+}
+
+function parseClaimList(v: unknown): BriefAssets["claims"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["claims"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    const lens = typeof o.lens === "string" ? o.lens : "";
+    if (!text || !lens) continue;
+    const entry: BriefAssets["claims"][number] = { text, lens, sources: parseSourceArr(o.sources) };
+    if (typeof o.confidence === "string") entry.confidence = o.confidence;
+    out.push(entry);
+  }
+  return out;
+}
+
+function parseEvidenceList(v: unknown): BriefAssets["evidence"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["evidence"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    const kind = typeof o.kind === "string" ? o.kind : "";
+    if (!text || !kind) continue;
+    out.push({ text, kind, sources: parseSourceArr(o.sources) });
+  }
+  return out;
+}
+
+function parseTensionList(v: unknown): BriefAssets["tensions"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["tensions"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    if (!text) continue;
+    out.push({ text, with: parseStringArr(o.with), sources: parseSourceArr(o.sources) });
+  }
+  return out;
+}
+
+function parseAssumptionList(v: unknown): BriefAssets["assumptions"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["assumptions"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    if (!text) continue;
+    const entry: BriefAssets["assumptions"][number] = { text, sources: parseSourceArr(o.sources) };
+    if (typeof o.falsifier === "string") entry.falsifier = o.falsifier;
+    out.push(entry);
+  }
+  return out;
+}
+
+function parseRiskList(v: unknown): BriefAssets["risks"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["risks"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    if (!text) continue;
+    const entry: BriefAssets["risks"][number] = { text, sources: parseSourceArr(o.sources) };
+    if (typeof o.severity === "string") entry.severity = o.severity;
+    out.push(entry);
+  }
+  return out;
+}
+
+function parseSimpleList(v: unknown): { text: string; sources: number[] }[] {
+  if (!Array.isArray(v)) return [];
+  const out: { text: string; sources: number[] }[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    if (!text) continue;
+    out.push({ text, sources: parseSourceArr(o.sources) });
+  }
+  return out;
+}
+
+function parseActionList(v: unknown): BriefAssets["actions"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["actions"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    if (!text) continue;
+    const entry: BriefAssets["actions"][number] = { text, sources: parseSourceArr(o.sources) };
+    if (typeof o.owner === "string") entry.owner = o.owner;
+    if (typeof o.horizon === "string") entry.horizon = o.horizon;
+    out.push(entry);
+  }
+  return out;
+}
+
+function parseOpenQuestionList(v: unknown): BriefAssets["openQuestions"] {
+  if (!Array.isArray(v)) return [];
+  const out: BriefAssets["openQuestions"] = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text : "";
+    const priority = typeof o.priority === "string" ? o.priority : "";
+    if (!text || !priority) continue;
+    out.push({ text, priority, sources: parseSourceArr(o.sources) });
+  }
+  return out;
 }
 
 function parseComponents(json: string | null | undefined): BriefComponent[] {
@@ -146,7 +286,7 @@ function mapRow(row: Row): Brief {
     composerRationale: row.composer_rationale,
     subjectType: row.subject_type,
     houseStyle: row.house_style || "boardroom-default",
-    signals: parseSignals(row.signals_json),
+    assets: parseAssets(row.assets_json),
     createdAt: row.created_at,
   };
 }
@@ -210,7 +350,7 @@ export function listAllBriefs(): BriefWithRoom[] {
     .prepare(
       `SELECT b.id, b.room_id, b.style, b.title, b.body_md, b.body_json,
               b.supplement, b.spine, b.components_json,
-              b.composer_rationale, b.subject_type, b.house_style, b.signals_json, b.created_at,
+              b.composer_rationale, b.subject_type, b.house_style, b.assets_json, b.created_at,
               r.name AS room_name, r.subject AS room_subject,
               r.number AS room_number, r.status AS room_status
          FROM briefs b
@@ -284,19 +424,19 @@ export function insertBrief(b: BriefInsert): Brief {
     composerRationale,
     subjectType,
     houseStyle,
-    null,            // signals_json · filled later by updateBriefSignals
+    null,            // assets_json · filled later by updateBriefAssets
     now,
   );
   return getBrief(id)!;
 }
 
-/** Persist Stage-1 per-director signals on the brief row · called by
- *  the brief orchestrator after Stage 1 succeeds. Stored as JSON so
- *  follow-up rooms can re-use them as named-by-lens prior context
- *  without re-running the haiku extract pass. */
-export function updateBriefSignals(id: string, signals: BriefSignals[]): void {
-  const json = JSON.stringify(signals);
-  getDb().prepare("UPDATE briefs SET signals_json = ? WHERE id = ?").run(json, id);
+/** Persist Stage-1 per-director asset bundles on the brief row · called
+ *  by the brief orchestrator after Stage 1 succeeds. Stored as JSON so
+ *  follow-up rooms can re-use the structured material as prior context
+ *  without re-running the extract pass. */
+export function updateBriefAssets(id: string, assets: BriefAssets[]): void {
+  const json = JSON.stringify(assets);
+  getDb().prepare("UPDATE briefs SET assets_json = ? WHERE id = ?").run(json, id);
 }
 
 /**
@@ -351,6 +491,17 @@ export function updateBriefBody(id: string, bodyMd: string, title?: string): voi
   } else {
     getDb().prepare("UPDATE briefs SET body_md = ? WHERE id = ?").run(bodyMd, id);
   }
+}
+
+/**
+ * Update only the brief's title. Used by the orchestrator to set an
+ * interim claim-style title from `scaffold.bottomLine.judgement` as
+ * soon as Stage 2 returns — so a reader who opens `report.html` while
+ * Stage 3 is streaming sees the proper title instead of the room's
+ * initial question (the placeholder set at insert time).
+ */
+export function setBriefTitle(id: string, title: string): void {
+  getDb().prepare("UPDATE briefs SET title = ? WHERE id = ?").run(title, id);
 }
 
 /**

@@ -31,7 +31,7 @@ import { parseSkillMd } from "../skills/parse.js";
 import { analyzeSkillAbility } from "../skills/analyze.js";
 import { getSystemSkillsForAgent, isSystemSkillSlug } from "../skills/system-skills.js";
 import { callLLM } from "../ai/adapter.js";
-import { utilityModelFor } from "../ai/availability.js";
+import { effectiveDefaultModel, reachableModels, utilityModelFor } from "../ai/availability.js";
 import {
   buildAgentProfileMessages,
   buildAgentSpecMessages,
@@ -42,6 +42,41 @@ import {
 import { runBraveSearch } from "../ai/skills/web-search.js";
 import { getKey, hasBraveKey } from "../storage/keys.js";
 import { newId } from "../utils/id.js";
+
+/** Pick the model list to try for agent-spec generation. The previous
+ *  hardcoded ["opus-4-7", "sonnet-4-6"] failed for users who only had
+ *  Gemini / OpenAI / xAI keys configured (no Anthropic) — every call
+ *  fell through with no provider, eventually returning the generic
+ *  "couldn't generate" 502.
+ *
+ *  Strategy: lead with the user's effective default model, then add
+ *  any other reachable flagship-grade model as a fallback. Prefer
+ *  larger / nuanced models for spec generation; deprioritize the
+ *  cheap utility tier (only used as last resort). */
+function agentSpecModelCandidates(): readonly string[] {
+  const out: string[] = [];
+  const flagship = effectiveDefaultModel();
+  if (flagship) out.push(flagship);
+  // Reachable flagship-tier models the user has keys for · order
+  // doesn't matter much beyond "user's pick first".
+  const reachable = reachableModels();
+  const FLAGSHIP_TIER = new Set([
+    "opus-4-7", "sonnet-4-6",
+    "gpt-5-5", "gpt-5-4",
+    "gemini-3-1", "gemini-3-flash",
+    "grok-4-3",
+  ]);
+  for (const m of reachable) {
+    if (FLAGSHIP_TIER.has(m.modelV) && !out.includes(m.modelV)) {
+      out.push(m.modelV);
+    }
+  }
+  // Last-resort cheap fallback so we always have SOMETHING to try
+  // even on a minimal-keys setup.
+  const cheap = utilityModelFor();
+  if (cheap && !out.includes(cheap)) out.push(cheap);
+  return out;
+}
 
 /** Caps from PRD-skills §4. Server-enforced; UI mirrors. */
 const SKILL_CAP_CHAIR = 12;
@@ -162,7 +197,7 @@ function uniqueHandle(base: string): string {
  *  (Brave matches keywords; long prose dilutes the signal). Falls back
  *  to the raw description when the utility call fails or returns junk —
  *  worst case we search with a weaker query, never zero results. */
-async function refineSearchQuery(description: string): Promise<string> {
+async function refineSearchQuery(description: string, signal?: AbortSignal): Promise<string> {
   const utility = utilityModelFor();
   if (!utility) return description.slice(0, 180);
   const prompt = [
@@ -183,6 +218,7 @@ async function refineSearchQuery(description: string): Promise<string> {
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
       maxTokens: 80,
+      signal,
     });
     const cleaned = raw
       .replace(/^["'`]+|["'`]+$/g, "")
@@ -244,11 +280,11 @@ export function agentsRouter(): Hono {
   //      compact context block.
   //   3. Stage A · build profile      · structured intellectual profile
   //      JSON (lineage, concepts, referent set, failure modes, takes).
-  //      Tries opus-4-7 → sonnet-4-6.
+  //      Tries the user's reachable flagship models in order.
   //   4. Stage B · build spec         · the actual director spec, with
   //      the profile + web context fed in as source material so the
   //      eight-section instruction has real anchors instead of LLM
-  //      generic-isms. Tries opus-4-7 → sonnet-4-6.
+  //      generic-isms. Same model fallback as Stage A.
   //
   // Each optional step degrades gracefully: web search failure → no
   // web context. Profile failure → spec generator runs with just the
@@ -266,12 +302,17 @@ export function agentsRouter(): Hono {
       return c.json({ error: "description too long (max 1200 chars)" }, 400);
     }
     const wantsWebSearch = b.webSearch === true;
+    // Hono surfaces the underlying Request's AbortSignal · piping it
+    // into every downstream LLM / Brave call lets the frontend's 5-min
+    // timeout actually kill server-side work too (was: server kept
+    // burning tokens after the user clicked retry / discarded).
+    const signal = c.req.raw.signal;
 
     // ── Step 1+2 · optional web context ─────────────────────────────
     let webContext: string | null = null;
     if (wantsWebSearch && hasBraveKey()) {
       try {
-        const refinedQuery = await refineSearchQuery(description);
+        const refinedQuery = await refineSearchQuery(description, signal);
         const apiKey = getKey("brave") || "";
         if (apiKey && refinedQuery) {
           const results = await runBraveSearch({
@@ -288,20 +329,26 @@ export function agentsRouter(): Hono {
         process.stderr.write(`[agent-spec] web context failed: ${e instanceof Error ? e.message : String(e)}\n`);
       }
     }
+    if (signal.aborted) return c.json({ error: "aborted" }, 408);
 
     // ── Step 3 · Stage A · profile ──────────────────────────────────
+    // Adapt the model list to whatever the user has keys for · the
+    // earlier hardcoded Anthropic-only list 502'd for Gemini / OpenAI /
+    // xAI-only setups.
+    const candidates = agentSpecModelCandidates();
     let profile: AgentProfile | null = null;
     {
       const profileMessages = buildAgentProfileMessages({ description, webContext });
-      const profileCandidates = ["opus-4-7", "sonnet-4-6"] as const;
-      for (const modelV of profileCandidates) {
+      for (const modelV of candidates) {
         if (!isModelV(modelV)) continue;
+        if (signal.aborted) return c.json({ error: "aborted" }, 408);
         try {
           const raw = await callLLM({
             modelV,
             messages: profileMessages,
             temperature: 0.6,
             maxTokens: 1600,
+            signal,
           });
           const parsed = parseAgentProfile(raw);
           if (parsed) {
@@ -313,15 +360,16 @@ export function agentsRouter(): Hono {
         }
       }
     }
+    if (signal.aborted) return c.json({ error: "aborted" }, 408);
 
     // ── Step 4 · Stage B · spec ─────────────────────────────────────
     // Profile is best-effort: if Stage A failed entirely we fall through
     // to a single-stage generation (same shape as the old route) so the
     // user still gets a usable preview.
     const specMessages = buildAgentSpecMessages({ description, profile, webContext });
-    const specCandidates = ["opus-4-7", "sonnet-4-6"] as const;
-    for (const modelV of specCandidates) {
+    for (const modelV of candidates) {
       if (!isModelV(modelV)) continue;
+      if (signal.aborted) return c.json({ error: "aborted" }, 408);
       try {
         const raw = await callLLM({
           modelV,
@@ -330,6 +378,7 @@ export function agentsRouter(): Hono {
           // Bumped from 1800 → 3000 for the eight-section instruction
           // template (~1500-2800 chars typical).
           maxTokens: 3000,
+          signal,
         });
         const spec = parseAgentSpec(raw);
         if (spec) {

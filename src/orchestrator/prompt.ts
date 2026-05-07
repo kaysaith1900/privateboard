@@ -209,6 +209,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "Each turn MUST open with a one-sentence steelman of the user's strongest claim (\"The strongest read of your position is…\"), and only then attack THAT strongest version. Skipping the steelman is a protocol violation.",
     "Attack moves: name a SPECIFIC risk the user hasn't named, demand evidence or boundary conditions, expose the trade-off being hidden. Sharp but professional.",
     "Attack the argument, not the person. Forbidden: emotional put-downs, nitpicking word choice while ignoring the substantive claim, soft-pedalling (\"maybe this could be a problem\" — pick a side).",
+    "PERSONA OVERRIDE · your director instruction's voice / boundaries section may default to softening, qualifying, building consensus, or hedging — common patterns for collaborative or empathic personas. For THIS room those defaults are PAUSED. Debate beats consensus-seeking. Pick a side and defend it; \"on the one hand / on the other\" is a protocol violation here even if your persona naturally reaches for it. Lean INTO the disagreement, not away from it.",
   ].join("\n"),
   research: [
     "RESEARCH DISCUSSION · collaborative inquiry. The room's job is to mine the materials in front of it (the user's brief, web-search results, prior turns) for what's actually there — not to take sides.",
@@ -222,6 +223,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "Each turn MUST: (1) name the dimension you're auditing this turn (logic, evidence, scope, risk, communication, implementability — pick what your lens is sharpest on); (2) surface 2–3 specific flaws, EACH labelled BLOCKER · MAJOR · MINOR; (3) for each flaw, point at the specific load-bearing piece (\"the X claim in §2\", \"the assumption that Y\"), state the mechanism for why it fails (not taste — mechanism), and indicate the direction a fix would lie.",
     "At least one BLOCKER or MAJOR per turn is mandatory. Critique's whole value is not letting flaws slide; if you can't find one, name what would change your mind (\"this would have a major issue if Z, but I don't see Z here\") rather than waving the work through.",
     "Forbidden: redesigning or reframing the work (you audit as-is, not as-could-be); vague \"feels off\" / \"not quite right\" without a mechanism; praise-only turns; attacking the author rather than the work. Severity labels are required, not optional.",
+    "PERSONA OVERRIDE · your director instruction's voice / boundaries section may default to softening criticism, finding the constructive frame, validating effort before fault-finding, or refusing to hold the work to a high bar — typical patterns for empathic / mentor / co-creator personas. For THIS room those defaults are PAUSED. Critique beats kindness. The user explicitly opted into a fault-audit; softening flaws or skipping severity labels is what fails them, not what helps them. Lean INTO the audit discipline — name flaws plainly, label severity, mechanism over taste — even if your persona naturally reaches for the gentler version.",
   ].join("\n"),
 };
 
@@ -263,6 +265,17 @@ const TONE_OVERRIDE_DEFAULT = TONE_OVERRIDE_BY_TONE.debate;
 // — no DB migration needed.
 function normalizeTone(raw: string): string {
   if (raw === "no-mercy") return "debate";
+  return raw;
+}
+
+// Backwards compat for the retired `brutal` intensity value · existing
+// rooms / API clients carrying intensity="brutal" map to `terse` (the
+// rename that disambiguated cadence from harshness — see migration
+// 022). The DB migration rewrites stored rows forward, but we still
+// normalize at read time as a safety net for in-flight imports / cached
+// API payloads.
+function normalizeIntensity(raw: string): string {
+  if (raw === "brutal") return "terse";
   return raw;
 }
 
@@ -334,10 +347,16 @@ const REACTIVE_BLOCK = [
 ].join("\n");
 
 // Intensity is the STYLISTIC axis — purely about cadence, length, and
-// hedge quantity. Composes orthogonally with tone: brainstorm+brutal
+// hedge quantity. Composes orthogonally with tone: brainstorm+terse
 // is a tight one-line riff; critique+calm is a thorough multi-issue
-// review; research+brutal is the single sharpest finding. Every
+// review; research+terse is the single sharpest finding. Every
 // tone × intensity cell is well-defined.
+//
+// The third value used to be `brutal`, which read as an adversarial
+// dial — users picked it hoping for sharper disagreements rather than
+// shorter responses. Renamed to `terse` to keep this axis cleanly
+// orthogonal to the tone (mode) axis. Legacy `brutal` is mapped to
+// `terse` by `normalizeIntensity()` for any in-flight reads.
 const INTENSITY_GUIDANCE: Record<string, string> = {
   calm: [
     "CALM · measured cadence. 3–4 short paragraphs is fine. Hedging where you're genuinely uncertain is allowed and encouraged (\"I'm not sure, but…\"). Leave space for the user to think — don't pile every point on at once. You can be wrong out loud.",
@@ -345,8 +364,8 @@ const INTENSITY_GUIDANCE: Record<string, string> = {
   sharp: [
     "SHARP · decisive cadence. 1–2 short paragraphs. Open with the load-bearing claim in the first sentence. Hedge ONLY when new evidence would genuinely change your mind — otherwise commit. Concision over comprehensiveness.",
   ].join("\n"),
-  brutal: [
-    "BRUTAL · minimal cadence. One paragraph, sometimes one sentence. Cut every warm-up, every diplomatic packaging, every \"I think\". State the conclusion first; if you must justify, do it in one clause. No hedging at all.",
+  terse: [
+    "TERSE · minimal cadence. One paragraph, sometimes one sentence. Cut every warm-up, every diplomatic packaging, every \"I think\". State the conclusion first; if you must justify, do it in one clause. No hedging at all. NOTE · this is the LENGTH dial, not the harshness dial — your tone (mode) decides how confrontational you are; this only decides how long you take saying it.",
   ].join("\n"),
 };
 
@@ -388,7 +407,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
 
   const tone = normalizeTone((room.mode || "constructive").toLowerCase());
   const toneLine = TONE_GUIDANCE[tone] ?? TONE_GUIDANCE.constructive;
-  const intensity = (room.intensity || "sharp").toLowerCase();
+  const intensity = normalizeIntensity((room.intensity || "sharp").toLowerCase());
   const intensityLine = INTENSITY_GUIDANCE[intensity] ?? INTENSITY_GUIDANCE.sharp;
 
   // (A) Tone-aware verbs for the HOUSE_RULES "engage" line + the
@@ -883,33 +902,40 @@ export function buildChairConveningMessages(opts: ConveningOpts): LLMMessage[] {
   ];
 }
 
-/** Chair · round-end summary + 3 key points. The frontend parses the
- *  POINTS: block to render vote chips. */
+/** Chair · round-end summary + 3 key points + (optional) tone-shift
+ *  proposal. The frontend parses POINTS: to render vote chips and
+ *  MODE-SHIFT: to render an optional "switch tone" affordance. */
 export function buildChairRoundEndMessages(opts: ChairBuildOpts): LLMMessage[] {
+  const currentMode = (opts.room.mode || "constructive").toLowerCase();
   const task = [
     `─── YOUR TASK · CLOSE THIS ROUND ───`,
-    `The directors have just completed one full round on this subject. Your job has two parts:`,
+    `The directors just completed one full round. Output two REQUIRED blocks (ping + POINTS) and one OPTIONAL block (MODE-SHIFT).`,
     ``,
-    `1) Write a single 1-sentence acknowledgment ping (under 25 words). State what just happened in the room. Plain prose, no italics, no opinions.`,
+    `Output format · follow EXACTLY. The POINTS block is non-negotiable: the user's vote UI is locked until it parses.`,
     ``,
-    `2) Then a blank line, then output exactly three key points the user might want to dig into next or drop. Each point is a SPECIFIC assertion or open question that surfaced this round — not a generic theme. Use the directors' own language.`,
-    ``,
-    `Format strictly:`,
-    `<your 1-sentence ping>`,
+    `<one-sentence ping under 25 words · plain prose · no italics · no opinions>`,
     ``,
     `POINTS:`,
-    `- <point 1, ≤ 18 words>`,
-    `- <point 2, ≤ 18 words>`,
-    `- <point 3, ≤ 18 words>`,
+    `- <specific assertion or open question from this round, ≤ 18 words>`,
+    `- <specific assertion or open question from this round, ≤ 18 words>`,
+    `- <specific assertion or open question from this round, ≤ 18 words>`,
     ``,
-    `Do not write a fourth point. Do not add commentary after the list.`,
+    `That's the WHOLE output unless the OPTIONAL block below applies. No fourth point. No commentary after the list. No headings.`,
+    ``,
+    `─── OPTIONAL · tone-shift proposal ───`,
+    `Current tone: \`${currentMode}\`. If — and only if — this round shows a clear signal that a different tone fits the work better (e.g. brainstorm exhausted → critique; debate circling on opinion → research; critique done → constructive), append exactly two more lines AFTER the POINTS block:`,
+    ``,
+    `MODE-SHIFT: <brainstorm | constructive | debate | research | critique>`,
+    `BECAUSE: <one short sentence, ≤ 24 words, naming the signal from THIS round>`,
+    ``,
+    `Default · OMIT this block. Most rounds don't warrant a shift; proposing one without a clear signal is a chair failure.`,
   ].join("\n");
   return [
     buildChairSystem(opts, task),
     ...renderHistoryForChair(opts.history, opts.cast, opts.prefs),
     {
       role: "user",
-      content: `Close the round — your one-sentence ping, then the POINTS block.`,
+      content: `Close the round. Output the one-sentence ping, blank line, POINTS: with three bullets, and (only if warranted) the two-line MODE-SHIFT block.`,
     },
   ];
 }
@@ -956,18 +982,86 @@ export function buildChairDirectMessages(opts: ChairBuildOpts): LLMMessage[] {
   ];
 }
 
-/** Parse the chair's round-end output into a ping + 3 key-point bodies.
- *  Returns the points in order; the ping is whatever came before POINTS:. */
-export function parseRoundEndOutput(text: string): { ping: string; points: string[] } {
-  const idx = text.search(/POINTS\s*:/i);
-  if (idx < 0) return { ping: text.trim(), points: [] };
-  const ping = text.slice(0, idx).trim();
-  const block = text.slice(idx).replace(/^POINTS\s*:\s*/i, "");
+/** Allowed tones for a chair-proposed mode shift. Mirrors the
+ *  ALLOWED_MODES set in routes/rooms.ts; defined here too so the parser
+ *  rejects garbage proposals at extract time without a route hop. */
+const VALID_PROPOSAL_TONES = new Set([
+  "brainstorm",
+  "constructive",
+  "research",
+  "debate",
+  "critique",
+]);
+
+/** Parse the chair's round-end output into a ping + 3 key-point bodies
+ *  + an optional mode-shift proposal. Order-agnostic: the chair MIGHT
+ *  emit MODE-SHIFT before, after, or between sections — we extract
+ *  each block independently rather than assuming a strict layout.
+ *
+ *  · POINTS · scan starts at the first `POINTS:` token, takes up to 3
+ *    leading bullet lines, stops when it hits a non-bullet block marker
+ *    (MODE-SHIFT / BECAUSE) so a misplaced shift block can't leak in.
+ *  · MODE-SHIFT · `MODE-SHIFT: <tone>\nBECAUSE: <one-line reason>` —
+ *    BECAUSE is constrained to a single line so a lazy regex can't
+ *    swallow whatever follows (the original regex anchored to end-of-
+ *    string ate the whole POINTS list when chair emitted MODE-SHIFT
+ *    first, and the card stayed on the loading skeleton forever). */
+export function parseRoundEndOutput(text: string): {
+  ping: string;
+  points: string[];
+  modeShift: { to: string; because: string } | null;
+} {
+  // MODE-SHIFT block · single-line BECAUSE keeps the match local;
+  // matches anywhere in the text, not just the tail.
+  let modeShift: { to: string; because: string } | null = null;
+  const shiftMatch = /MODE-SHIFT\s*:\s*([^\n]+)\s*\n\s*BECAUSE\s*:\s*([^\n]+)/i.exec(text);
+  if (shiftMatch) {
+    const toRaw = shiftMatch[1].trim().toLowerCase().replace(/[`*_]/g, "");
+    const becauseRaw = shiftMatch[2].trim();
+    if (VALID_PROPOSAL_TONES.has(toRaw) && becauseRaw.length > 0) {
+      modeShift = { to: toRaw, because: becauseRaw.slice(0, 240) };
+    }
+  }
+
+  // POINTS block · find the first `POINTS:` token (ASCII or fullwidth
+  // colon) in the original text and scan bullets after it. The chair
+  // could emit MODE-SHIFT ahead of POINTS without affecting this — we
+  // never strip the source text, just walk it once.
+  const headerRe = /POINTS\s*[:：]/i;
+  const headerMatch = headerRe.exec(text);
+  let scanFrom: string;
+  let ping: string;
+  if (headerMatch) {
+    ping = text.slice(0, headerMatch.index).trim();
+    scanFrom = text.slice(headerMatch.index).replace(headerRe, "");
+  } else {
+    // Fallback · the chair forgot the `POINTS:` header (small models
+    // sometimes drop the structure marker when the prompt is busy).
+    // Scan the whole body for the first cluster of bullet lines.
+    // Without this fallback, an unparseable header leaves the user
+    // stuck on the round-end skeleton.
+    ping = "";
+    scanFrom = text;
+  }
   const points: string[] = [];
-  for (const line of block.split("\n")) {
-    const m = /^\s*[-*•]\s+(.+?)\s*$/.exec(line);
+  for (const line of scanFrom.split("\n")) {
+    // Stop scanning when we cross into the MODE-SHIFT block — defensive
+    // against chair emitting something like a stray bullet inside the
+    // BECAUSE prose.
+    if (/^\s*(?:MODE-SHIFT|BECAUSE)\s*[:：]/i.test(line)) break;
+    // Bullets · accept ASCII dash/asterisk/middot AND numbered lists
+    // (`1.`, `2)` — chair sometimes drifts to numbered when the round
+    // happens to feel sequential).
+    const m = /^\s*(?:[-*•]|\d+[.)])\s+(.+?)\s*$/.exec(line);
     if (m && m[1]) points.push(m[1]);
     if (points.length >= 3) break;
   }
-  return { ping, points };
+  // If we used the fallback path AND got points, derive the ping from
+  // text BEFORE the first bullet line so the displayed message body
+  // stays sensible.
+  if (!headerMatch && points.length > 0) {
+    const firstBulletIdx = text.search(/^\s*(?:[-*•]|\d+[.)])\s+/m);
+    if (firstBulletIdx >= 0) ping = text.slice(0, firstBulletIdx).trim();
+  }
+  return { ping, points, modeShift };
 }

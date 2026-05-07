@@ -46,6 +46,7 @@ import {
   announceIntervention,
   announceRoundOpen,
   announceRoundPrompt,
+  emitChairPending,
   runChairDirectResponse,
 } from "./chair.js";
 import { buildDirectorContext } from "./context.js";
@@ -620,6 +621,15 @@ async function pumpQueue(roomId: string): Promise<void> {
             .filter((a): a is Agent => a !== null);
           if (candidates.length >= 2) {
             try {
+              // Surface pre-TTFT loading · the picker's haiku call is
+              // the silent gap before either a chair-note intervention
+              // or the next director's bubble lands. Without this
+              // placeholder the user stares at a static chat for 1-3s
+              // with no signal that the room is moving. Cleared the
+              // moment the next agent message-appended fires (chair
+              // intervention OR director turn — frontend handler
+              // hides on any agent author).
+              emitChairPending(roomId, "next-speaker");
               const pick = await pickNextSpeaker({ candidates, history: recent });
               // Guard · fresh tickRoom may have replaced state.queue
               // while haiku was thinking. Only reorder if the snapshot
@@ -1059,10 +1069,30 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
           parentBrief: parentBrief
             ? { title: parentBrief.title, bodyMd: parentBrief.bodyMd }
             : null,
-          parentSignals: parentBrief && parentBrief.signals
-            ? parentBrief.signals.map((d) => ({
+          // Flatten the structured `assets` bundle into the flat
+          // `{text, lens}` shape the prior-context block expects. Claims
+          // carry the lens natively; tensions / risks / open questions
+          // get a synthesized lens so they still surface in the
+          // "PRIOR DIRECTOR SIGNALS" list. Other fields (evidence /
+          // quotes / opportunities / actions / assumptions) are
+          // already carried through the brief markdown body which
+          // sits above this block, so we don't double-render them
+          // here — keeps the follow-up prompt punchy.
+          parentSignals: parentBrief && parentBrief.assets
+            ? parentBrief.assets.map((d) => ({
                 directorName: d.directorName,
-                signals: d.signals.map((s) => ({ text: s.text, lens: s.lens })),
+                signals: [
+                  ...d.claims.map((c) => ({ text: c.text, lens: c.lens })),
+                  ...d.tensions.map((t) => ({ text: `[tension] ${t.text}`, lens: "dissent" })),
+                  ...d.risks.map((r) => ({
+                    text: r.severity ? `[risk·${r.severity}] ${r.text}` : `[risk] ${r.text}`,
+                    lens: "structural",
+                  })),
+                  ...d.openQuestions.map((q) => ({
+                    text: `[open-q·${q.priority}] ${q.text}`,
+                    lens: "first-principle",
+                  })),
+                ],
               }))
             : null,
           language: langGuess,
@@ -1289,6 +1319,14 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
       messageId: placeholder.id,
       reason: finishReason || "empty",
     });
+    // Round-open retraction · if the user hard-paused this director
+    // before any content streamed AND nobody else has spoken in this
+    // round, the "Round N · directors speak in parallel" chip the
+    // chair posted has nothing to mark. Pull it out so the chat
+    // doesn't show an empty round header above the pause bar.
+    if (signal.aborted || finishReason === "aborted") {
+      retractEmptyRoundOpen(roomId, roundNum, placeholder.id);
+    }
     return;
   }
 
@@ -1305,6 +1343,55 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
       finishReason,
     });
   }
+}
+
+/** Retract the chair's `round-open` marker for `roundNum` when nobody
+ *  actually spoke in that round — typical after a hard pause that
+ *  cuts the first director before any token streamed. The marker is
+ *  a structural chip ("Round 4 · directors speak in parallel"); when
+ *  no director speech follows it, the chip is misleading chat noise.
+ *
+ *  `excludeMessageId` is the just-deleted streaming placeholder — its
+ *  DB row is already gone, but `listRecentMessages` may still return
+ *  a stale snapshot in tests. Skip it when scanning for "real" turns.
+ *
+ *  Defensive · runs after `deleteMessage(placeholder.id)` AND only
+ *  when the abort signal fired, so a normal "speaker produced no
+ *  text" provider quirk doesn't accidentally retract the marker mid-
+ *  round when later directors will still speak.  */
+function retractEmptyRoundOpen(
+  roomId: string,
+  roundNum: number,
+  excludeMessageId: string,
+): void {
+  // Pull a window large enough to cover a multi-round room without
+  // missing the marker · the marker sits N speakers up at most.
+  const recent = listRecentMessages(roomId, 32);
+  const marker = recent.find(
+    (m) =>
+      m.authorKind === "agent" &&
+      m.roundNum === roundNum &&
+      (m.meta as { kind?: unknown } | null | undefined)?.kind === "round-open",
+  );
+  if (!marker) return;
+  // Any director speech in this round (with body, not a structural
+  // chair chip) keeps the marker — it's still load-bearing.
+  const hasRealTurn = recent.some((m) => {
+    if (m.id === excludeMessageId) return false;
+    if (m.id === marker.id) return false;
+    if (m.authorKind !== "agent") return false;
+    if (m.roundNum !== roundNum) return false;
+    const kind = (m.meta as { kind?: unknown } | null | undefined)?.kind;
+    if (kind) return false; // round-open / round-prompt / settings / billing-notice etc.
+    return !!(m.body && m.body.trim().length > 0);
+  });
+  if (hasRealTurn) return;
+  deleteMessage(marker.id);
+  roomBus.emit(roomId, {
+    type: "message-removed",
+    messageId: marker.id,
+    reason: "empty-round",
+  });
 }
 
 /** System-side note (e.g. "agent has unknown model"). */

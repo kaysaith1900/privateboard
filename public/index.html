@@ -37,9 +37,18 @@
 
     /* Chat page chrome (sidebar, queue, room head, etc.) runs on Human
        Sans. Agent message bubbles override to --font-agent;
-       the logo is pinned back to Inter further down the stylesheet. */
-    --mono: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
-    --sans: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+       the logo is pinned back to Inter further down the stylesheet.
+       PingFang SC is named explicitly in the CJK fallback chain so
+       Chinese glyphs render as PingFang on macOS instead of whatever
+       `system-ui` resolves to. */
+    --mono: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+            "PingFang SC", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei",
+            "Source Han Sans CN", "Noto Sans CJK SC",
+            system-ui, sans-serif;
+    --sans: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+            "PingFang SC", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei",
+            "Source Han Sans CN", "Noto Sans CJK SC",
+            system-ui, sans-serif;
 
     --sidebar-w: 280px;
   }
@@ -555,26 +564,48 @@
     flex-shrink: 0;
   }
   .agent-row .agent-row-content { min-width: 0; }
+  /* Top-line · matches `.row-top-line` in the rooms list so the
+     agent's name + time read with the same baseline/gap rhythm. The
+     trailing pin button sits AFTER the time and is hover-revealed,
+     so we don't need `space-between` to push it right — `flex: 1` on
+     the title handles that. */
   .agent-row .agent-row-top-line {
     display: flex;
-    justify-content: space-between;
-    gap: 6px;
-    font-family: var(--mono);
-    margin-bottom: 2px;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: 1px;
   }
   .agent-row .agent-row-title {
     color: var(--text);
     font-family: var(--font-human);
     font-weight: 600;
-    font-size: 12.5px;
+    font-size: 14px;
     letter-spacing: -0.005em;
-  }
-  .agent-row .agent-row-time {
-    color: var(--text-faint);
-    font-size: 9px;
-    letter-spacing: 0.06em;
+    /* Truncate long agent names with ellipsis instead of wrapping
+       to a second line. Without `min-width: 0` here, flex children
+       default to min-width: auto = content-size and refuse to
+       shrink below their text — which produced the wrapping the
+       user saw. `flex: 1 1 0` + `min-width: 0` lets the title
+       shrink as needed; the trailing time tag is locked via
+       flex-shrink: 0 below so it never gets eaten. */
+    flex: 1 1 0;
+    min-width: 0;
     white-space: nowrap;
-    text-transform: uppercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Time tag · same register as `.row-time` in the rooms list
+     (10.5px mono, text-dim) so both lists read as one consistent
+     "title · time" rhythm. Earlier this was 9px uppercase faint —
+     visually a different "kind of metadata" from the rooms time. */
+  .agent-row .agent-row-time {
+    color: var(--text-dim);
+    font-size: 10.5px;
+    font-family: var(--mono);
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .agent-row .agent-row-subtitle {
     font-family: var(--mono);
@@ -616,7 +647,17 @@
          accent · outlined (hairline border + cyan text on transparent
          bg) instead of a solid cyan fill that screamed at the user.
        · Section header reverts to the standard text-faint kicker. */
-  .agent-row.is-chair { background: transparent; }
+  /* Chair row · NOT wrapped in `.agent-row-shell` (the shell provides
+     the 1px×6px inset + 4px border-radius for director rows). To make
+     the chair's hover/active background match — same inset, same
+     rounded corners — fold those rules onto the chair anchor itself.
+     Without this, director hover felt "cushioned" while chair hover
+     painted edge-to-edge with sharp corners. */
+  .agent-row.is-chair {
+    background: transparent;
+    margin: 1px 6px;
+    border-radius: 4px;
+  }
   .agent-row.is-chair:hover { background: var(--panel-2); }
   .agent-row.is-chair.active { background: var(--panel-3); }
   .agent-row.is-chair .agent-row-av.chair-av {
@@ -696,7 +737,7 @@
     color: var(--text);
     border: none;
     font-family: var(--sans);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     text-decoration: none;
@@ -722,8 +763,8 @@
      adjacent label without per-icon overrides. */
   .new-btn::before {
     content: "";
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
     background-color: currentColor;
     /* Inherit `color` from .new-btn so the icon picks up the same
@@ -735,8 +776,8 @@
             mask-repeat: no-repeat;
     -webkit-mask-position: center;
             mask-position: center;
-    -webkit-mask-size: 14px 14px;
-            mask-size: 14px 14px;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
     transition: color 0.12s;
   }
   /* "New room" · SquarePen (Lucide) — square frame with a pen
@@ -892,9 +933,20 @@
   }
   .agents-section-header.pinned { color: var(--text-soft); }
 
-  /* ─── Pin toggle (per-row · hover-revealed for non-pinned) ─── */
+  /* ─── Pin toggle (per-row · hover-revealed for non-pinned) ───
+     Positioned absolutely so the in-flow time tag (.agent-row-time /
+     .row-time) sits flush against the right edge — same as the rooms
+     list. Earlier the pin took 22px (18 + 4 margin) of in-flow width
+     even when invisible (opacity:0 still occupies space), which shoved
+     the agent's "7h" tag inward compared to the rooms list and made
+     the two columns of timestamps look mis-aligned. The row-shell
+     ancestor needs `position: relative` for this to anchor correctly. */
+  .agent-row-shell, .session-row-shell { position: relative; }
   .row-top-line .pin-toggle,
   .agent-row-top-line .pin-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
     width: 18px;
     height: 18px;
     border: none;
@@ -905,10 +957,8 @@
     align-items: center;
     justify-content: center;
     padding: 0;
-    margin-left: 4px;
     opacity: 0;
     transition: opacity 0.12s, color 0.12s;
-    flex-shrink: 0;
   }
   .row-top-line .pin-toggle svg,
   .agent-row-top-line .pin-toggle svg {
@@ -918,6 +968,10 @@
   }
   .session-row:hover .pin-toggle,
   .agent-row:hover .pin-toggle { opacity: 0.55; }
+  /* Hover · hide the in-flow time so the absolutely-positioned pin
+     button has the right edge to itself. Same pattern as the rooms
+     list (`.session-row-shell:hover .row-time { visibility: hidden }`). */
+  .agent-row-shell:hover .agent-row-time { visibility: hidden; }
   .pin-toggle:hover { opacity: 1 !important; color: var(--lime); }
   .session-row.pinned .pin-toggle,
   .agent-row.pinned .pin-toggle {
@@ -1058,7 +1112,7 @@
     margin-bottom: 1px;
   }
   .row-title {
-    font-size: 12.5px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text);
     overflow: hidden;
@@ -1394,6 +1448,42 @@
 
   /* ─── Reading list ─────────────────────────────────────────────── */
   .reports-list-wrap { margin-top: 18px; }
+
+  /* Load-more sentinel · sits at the bottom of the list when more
+     items are available beyond the current page (default 20). The
+     IntersectionObserver fires when this enters the viewport (200px
+     pre-roll) and bumps the visible count by 20. The button is also
+     a click target for users who'd rather page explicitly. */
+  .reports-load-sentinel {
+    margin-top: 24px;
+    padding: 16px 0 32px;
+    display: flex;
+    justify-content: center;
+  }
+  .reports-load-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--text-soft);
+    border: 1px solid var(--line-bright);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .reports-load-more:hover {
+    color: var(--lime);
+    border-color: var(--lime);
+    background: var(--panel-2);
+  }
+  .reports-load-more-arrow {
+    font-size: 13px;
+    line-height: 1;
+  }
 
   /* Date-bucket label · sits flush left, hairline rule fills the
      remaining width. Reads as a quiet section break. */
@@ -2434,20 +2524,30 @@
     letter-spacing: 0.1em;
   }
   .view-report-btn:hover { background: var(--bg); color: var(--lime); }
-  /* No-report variant · shown in the head when an adjourned room has no
-     brief filed (user opted out via skip-brief). Visually muted so it
-     reads as "status indicator", not an actionable button. */
-  .view-report-btn.no-report {
-    background: transparent;
-    color: var(--text-faint);
-    border-color: var(--line-bright);
-    cursor: default;
-    user-select: none;
+  /* Generate-report variant · shown in the head when an adjourned
+     room has no brief yet. Active CTA (lime filled, same register as
+     the "View Report" button next door) — clicking POSTs to
+     /api/rooms/:id/brief and kicks off the post-hoc 3-stage pipeline.
+     Replaces the earlier muted `[ ⊘ No Report ]` static span which
+     gave users no path back to a brief once they'd skipped at adjourn. */
+  .view-report-btn.generate-report {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
-  .view-report-btn.no-report:hover {
-    background: transparent;
-    color: var(--text-faint);
-    border-color: var(--line-bright);
+  .view-report-btn.generate-report .vr-mark {
+    font-size: 10px;
+    line-height: 1;
+  }
+  /* Pending state · applied to either the header anchor or the
+     no-brief-card button while the brief pipeline is mid-flight.
+     Reads as "action accepted, working on it" without disabling the
+     surrounding region. */
+  .view-report-btn[data-pending="1"],
+  [data-generate-brief][data-pending="1"] {
+    cursor: progress;
+    opacity: 0.7;
+    pointer-events: none;
   }
 
   .adjourned-bar {
@@ -2628,6 +2728,21 @@
     text-transform: uppercase;
     margin: 0;
   }
+  /* Subtle middot separator between meta items (authors · word count).
+     Faint enough that the eye walks the items, not the divider. */
+  .brief-meta-sep {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 9px;
+    line-height: 1;
+    opacity: 0.6;
+  }
+  /* Word / character count · same register as `.brief-meta-line` but
+     keep numerals tabular so the figure doesn't jitter while the
+     parent flex-row gets re-rendered (e.g. on tab switch). */
+  .brief-meta-words {
+    font-variant-numeric: tabular-nums;
+  }
 
   /* Signatures · folded into the meta line, no top border */
   .brief-signed {
@@ -2688,44 +2803,54 @@
     40% { opacity: 1; transform: translateY(-1px); }
   }
 
-  .brief-stages {
+  /* ── Loading layout · active card + horizontal pip rail ────────
+     Replaces the older 3-row stacked checklist. The active stage
+     gets full visual weight (label + rotating italic sub-line +
+     timing + bottom progress line); the pip rail underneath is the
+     "where am I in the sequence" reference. Container scales from
+     3 to N pips without breaking. */
+  .brief-progress {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 14px;
+    padding: 4px 0;
   }
-  .brief-stage-row {
-    display: grid;
-    grid-template-columns: 16px 1fr;
-    gap: 8px;
-    align-items: start;
-    padding: 6px 0;
-    transition: opacity 0.2s, color 0.2s;
+
+  /* Active card · the protagonist row. Hairline frame on top + bottom
+     edges only (no left/right border, per project rule against left
+     callout treatments). The bottom edge is overdrawn by the lime
+     progress line as the stage advances. */
+  .brief-active-card {
+    position: relative;
+    padding: 10px 0 14px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    min-height: 76px;
   }
-  .brief-stage-content {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .brief-stage-line {
+  .brief-active-head {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 12px;
     flex-wrap: wrap;
   }
-  .brief-stage-substage {
-    font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-    line-height: 1.5;
-    margin-top: 1px;
-    transition: opacity 0.2s ease;
+  .brief-active-label {
+    font-family: var(--font-human);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text);
+    letter-spacing: 0.005em;
   }
-  .brief-stage-row.brief-stage-active .brief-stage-substage {
+  .brief-active-card.brief-active-pending .brief-active-label,
+  .brief-active-card.brief-active-done .brief-active-label {
     color: var(--text-soft);
+    font-weight: 500;
   }
-  .brief-stage-timing {
+  .brief-active-meta {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
     font-family: var(--mono);
     font-size: 9.5px;
     letter-spacing: 0.06em;
@@ -2734,72 +2859,200 @@
     white-space: nowrap;
     margin-left: auto;
   }
-  .brief-stage-row.brief-stage-active .brief-stage-timing {
-    color: var(--lime);
-  }
-  .brief-stage-row.brief-stage-pending {
+  .brief-active-meta .meta-detail { color: var(--text-soft); }
+  .brief-active-meta .meta-timing { color: var(--lime); }
+  .brief-active-card.brief-active-pending .brief-active-meta .meta-timing,
+  .brief-active-card.brief-active-done .brief-active-meta .meta-timing {
     color: var(--text-faint);
-    opacity: 0.55;
   }
-  .brief-stage-row.brief-stage-active {
-    color: var(--text);
-  }
-  .brief-stage-row.brief-stage-done {
+  /* Italic-serif rotator under the head · changes every 3s while
+     active. Empty placeholder &nbsp; reserves the line so the layout
+     doesn't jump on the first render before substage populates. */
+  .brief-active-substage {
+    font-family: var(--font-headline, "Charter", "Songti SC", Georgia, serif);
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.55;
     color: var(--text-soft);
+    margin-top: 6px;
+    min-height: 20px;
   }
-  .brief-stage-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 12px; height: 12px;
-    font-size: 11px;
-    line-height: 1;
-    margin-top: 4px;
-  }
-  .brief-stage-mark.done {
-    color: var(--lime);
-    font-weight: 700;
-  }
-  .brief-stage-mark.pending {
-    color: var(--text-faint);
-  }
-  .brief-stage-mark.active {
-    position: relative;
-  }
-  .brief-stage-pulse {
-    width: 8px; height: 8px;
-    border-radius: 50%;
+  /* Bottom progress line · overdraws the card's bottom border in
+     lime as elapsed advances. JS sets width via inline style; the
+     CSS transition smooths each tick. */
+  .brief-active-progressline {
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    height: 1.5px;
     background: var(--lime);
-    box-shadow: 0 0 0 0 var(--lime);
-    animation: brief-stage-pulse 1.4s ease-out infinite;
+    width: 0%;
+    transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
   }
-  @keyframes brief-stage-pulse {
-    0%   { box-shadow: 0 0 0 0 var(--lime); opacity: 1; }
-    70%  { box-shadow: 0 0 0 6px transparent; opacity: 0.85; }
-    100% { box-shadow: 0 0 0 0 transparent;   opacity: 1; }
+  .brief-active-card.brief-active-pending .brief-active-progressline {
+    background: var(--text-faint);
   }
-  .brief-stage-label {
-    font-weight: 500;
-    letter-spacing: 0;
-    text-transform: none;
-    font-family: var(--font-human);
-    font-size: 12.5px;
-    line-height: 1.35;
+
+  /* Pip rail · horizontal sequence indicator. Each pip = dot + tiny
+     mono caption underneath. Connectors are 1px lines between dots,
+     coloured by the LEFT pip's status so a done→active transition
+     reads as "completed crossing into the present." */
+  .brief-pip-rail {
+    display: flex;
+    align-items: flex-start;
+    padding: 0 2px;
   }
-  .brief-stage-row.brief-stage-active .brief-stage-label {
-    font-weight: 700;
+  .brief-pip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: 0;
   }
-  .brief-stage-detail {
+  .brief-pip-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid var(--line-bright);
+    background: var(--bg);
+    position: relative;
+    transition: background 0.4s ease, border-color 0.4s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .brief-pip.is-done .brief-pip-dot {
+    background: var(--lime);
+    border-color: var(--lime);
+  }
+  .brief-pip.is-done .brief-pip-dot::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    background: var(--bg);
+  }
+  .brief-pip.is-active .brief-pip-dot {
+    background: var(--lime);
+    border-color: var(--lime);
+    animation: brief-pip-pulse 1.4s ease-out infinite;
+  }
+  @keyframes brief-pip-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(124, 184, 88, 0.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(124, 184, 88, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(124, 184, 88, 0); }
+  }
+  .brief-pip-label {
     font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.06em;
+    font-size: 9px;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-faint);
     white-space: nowrap;
+    line-height: 1;
+    transition: color 0.3s ease;
   }
-  .brief-stage-row.brief-stage-active .brief-stage-detail {
-    color: var(--lime);
+  .brief-pip.is-active .brief-pip-label { color: var(--lime); font-weight: 700; }
+  .brief-pip.is-done .brief-pip-label { color: var(--text-soft); }
+
+  /* Connector · stretches to fill remaining horizontal space between
+     two pip columns, sits at the dot's vertical center (5px from top
+     of the column). Done connectors are lime; pending stay neutral. */
+  .brief-pip-line {
+    flex: 1 1 0;
+    height: 1px;
+    background: var(--line-bright);
+    margin: 5px 6px 0;
+    align-self: flex-start;
+    transition: background 0.4s ease;
   }
+  .brief-pip-line.is-done { background: var(--lime); }
+
+  /* One-shot "settle" spring when a pip first transitions to done.
+     The is-fresh-done class is applied by renderBriefStages ONLY on
+     the first render where the pip is done (subsequent re-renders
+     check the per-brief seenDone Set and skip the class). The brief
+     moment of motion reads as a chip falling into place — not a
+     particle, not a flash, just a small spring on the dot. */
+  .brief-pip.is-fresh-done .brief-pip-dot {
+    animation: brief-pip-settle 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes brief-pip-settle {
+    0%   { transform: scale(0.6); }
+    55%  { transform: scale(1.18); }
+    100% { transform: scale(1.0); }
+  }
+
+  /* Stats row · accumulates harvested numbers + director chips below
+     the pip rail. Empty by default — the renderer hides the wrapper
+     entirely when no fragments are present so the layout doesn't show
+     a phantom border on first render. */
+  .brief-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
+  .brief-stat-roster {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
+  .brief-stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    border-radius: 9px;
+    line-height: 1.45;
+    white-space: nowrap;
+  }
+  /* Top-kind tag · italic afterthought next to the count. The
+     renderer only emits this when the dominant kind has ≥ 2 entries,
+     keeping the chip uncluttered on the long tail. */
+  .brief-stat-chip-tag {
+    font-style: italic;
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+  }
+  /* Entrance animation runs ONLY on the render where the chip first
+     appears · the renderer applies `.is-fresh` only when the
+     director's id isn't yet in `_briefSeenHarvestKeys[briefId]`, then
+     drops it on subsequent ticks. Without this gate, every 1-second
+     re-render would re-trigger the keyframe and the chips would fade
+     in over and over (the "flickering" bug). Stagger gives the row a
+     roll-call feel rather than a single dump. */
+  .brief-stat-chip.is-fresh {
+    animation: brief-stat-chip-in 280ms ease-out both;
+  }
+  .brief-stat-chip.is-fresh:nth-child(1) { animation-delay: 0ms; }
+  .brief-stat-chip.is-fresh:nth-child(2) { animation-delay: 60ms; }
+  .brief-stat-chip.is-fresh:nth-child(3) { animation-delay: 120ms; }
+  .brief-stat-chip.is-fresh:nth-child(4) { animation-delay: 180ms; }
+  .brief-stat-chip.is-fresh:nth-child(5) { animation-delay: 240ms; }
+  .brief-stat-chip.is-fresh:nth-child(6) { animation-delay: 300ms; }
+  @keyframes brief-stat-chip-in {
+    0%   { opacity: 0; transform: translateY(2px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .brief-stat-fact {
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .brief-stat-fact.brief-stat-live { color: var(--lime); }
 
   /* Brief error / interrupted state · retry button matches the
      supplement-row treatment but uses red accent for "something went
@@ -2836,6 +3089,72 @@
     font-size: 13px;
     line-height: 1;
   }
+
+  /* Salvage-path retry banner · shown when a regeneration fails but a
+     prior successful brief is still available. The banner sits AT the
+     top of the brief area (in flow, not overlay) so the existing
+     report below stays fully visible. Keeps the retry affordance
+     within reach without burying the user's last good output. */
+  .brief-retry-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin: 0 0 14px;
+    background: color-mix(in srgb, var(--red) 6%, var(--panel-2));
+    border: 0.5px solid color-mix(in srgb, var(--red) 40%, var(--line-bright));
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+  }
+  .brief-retry-banner .brb-mark {
+    color: var(--red);
+    font-size: 12px;
+    line-height: 1;
+  }
+  .brief-retry-banner .brb-text {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-soft);
+    letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .brief-retry-banner .brb-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 0.5px solid var(--lime);
+    color: var(--lime);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    transition: background 0.12s, color 0.12s;
+  }
+  .brief-retry-banner .brb-retry:hover {
+    background: var(--lime);
+    color: var(--bg);
+  }
+  .brief-retry-banner .brb-retry-mark {
+    font-size: 11px;
+    line-height: 1;
+  }
+  .brief-retry-banner .brb-dismiss {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  .brief-retry-banner .brb-dismiss:hover { color: var(--red); }
 
   /* Brief version tabs · scrollable horizontal strip at the top of
      the brief card when ≥ 2 briefs have been filed for this room.
@@ -2923,6 +3242,25 @@
   }
   .brief-version-tab.active .brief-version-label {
     color: var(--text);
+  }
+  /* Failure marker · small "!" glyph next to the version number when
+     a brief is errored / interrupted / timed-out. Lets the user spot
+     which tab needs retrying without entering it. The full error UI
+     surfaces once the tab is clicked (bypassSalvage path). */
+  .brief-version-state {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    margin-left: 4px;
+    border-radius: 50%;
+    background: var(--red);
+    color: var(--bg);
+    font-family: var(--mono);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 1;
   }
 
   /* Add-perspective + delete row · sits at the bottom of the brief
@@ -3345,48 +3683,56 @@
      hero token-count headline, model-usage stacked bar tinted by
      provider, "what you valued" highlights at the bottom. Width
      matches the brief / follow-ups column (760px max, centred). */
+  /* Compact post-adjourn analytics tile · earlier iteration was 22px
+     padding + 22px section gaps + 32px hero numerals, which read as
+     "celebratory dashboard" rather than "summary stripe". Tightened
+     across the board so the tile reads as a dense info row sitting
+     above the brief, not as its own visual event. Hero numerals
+     dropped to 21px, section gaps to 10px, banner padding to 5px,
+     sub-tile padding cut by ~30%. */
   .session-analytics {
     max-width: 760px;
-    margin: 28px auto 12px;
+    margin: 18px auto 10px;
     background: var(--panel-2);
     border: 0.5px solid var(--line-bright);
   }
   .sa-banner {
-    padding: 8px 16px;
+    padding: 5px 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     font-family: var(--mono);
     border-bottom: 0.5px solid var(--line);
     background: var(--panel-3);
   }
   .sa-banner-tag {
-    font-size: 10px;
+    font-size: 9.5px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--lime);
   }
   .sa-banner-stamp {
-    font-size: 9.5px;
+    font-size: 9px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-faint);
   }
   .sa-body {
-    padding: 20px 22px 22px;
+    padding: 12px 14px 14px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: 12px;
   }
 
-  /* Headline metric grid · 4 cells. Hero (tokens) gets a heavier
-     value, the others read as siblings beside it. */
+  /* Headline metric grid · 4 cells. Hero (tokens) is the only one
+     in accent colour; the others read as siblings at the same size.
+     Compact register · all values 17px, hero 21px, label 9px. */
   .sa-headline {
     display: grid;
     grid-template-columns: 1.4fr 1fr 1fr 1fr;
-    gap: 14px;
+    gap: 10px;
     align-items: end;
   }
   @media (max-width: 600px) {
@@ -3395,12 +3741,12 @@
   .sa-metric {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
   }
   .sa-metric-value {
     font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
-    font-size: 22px;
+    font-size: 17px;
     font-weight: 700;
     color: var(--text);
     letter-spacing: -0.01em;
@@ -3408,23 +3754,26 @@
     line-height: 1;
   }
   .sa-metric-hero .sa-metric-value {
-    font-size: 32px;
+    font-size: 21px;
     color: var(--lime);
   }
   .sa-metric-label {
     font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.16em;
+    font-size: 9px;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-faint);
     font-weight: 700;
   }
 
-  /* Model breakdown · stacked horizontal bar + legend rows. */
-  .sa-section { display: flex; flex-direction: column; gap: 10px; }
+  /* Model breakdown · stacked bar + legend. Section head sits
+     inline · 9px mono kicker, 6px gap to the bar, 6px height bar
+     (down from 8). Legend rows lose their padding so they read as
+     a dense column not a list. */
+  .sa-section { display: flex; flex-direction: column; gap: 6px; }
   .sa-section-head {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 9px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     font-weight: 700;
@@ -3432,7 +3781,7 @@
   }
   .sa-bar {
     display: flex;
-    height: 8px;
+    height: 6px;
     overflow: hidden;
     background: var(--bg);
     border: 0.5px solid var(--line);
@@ -3444,24 +3793,24 @@
   .sa-bar-seg:hover { opacity: 0.85; }
   .sa-legend {
     list-style: none;
-    margin: 0;
+    margin: 2px 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 1px;
   }
   .sa-legend-row {
     display: grid;
-    grid-template-columns: 12px 1fr auto auto;
+    grid-template-columns: 10px 1fr auto auto;
     align-items: baseline;
-    gap: 10px;
+    gap: 8px;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--text-soft);
   }
   .sa-legend-swatch {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     align-self: center;
     border-radius: 0;
   }
@@ -3478,24 +3827,26 @@
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
     text-align: right;
-    min-width: 48px;
+    min-width: 44px;
   }
 
-  /* What you valued · chips for counts + list of ▲-voted points. */
+  /* What you valued · chips for counts + list of ▲-voted points.
+     Smaller chip padding + tighter point rows so the section reads
+     as a tight strip rather than a separate panel. */
   .sa-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 4px;
   }
   .sa-chip {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 3px 9px;
+    gap: 4px;
+    padding: 2px 7px;
     background: var(--bg);
     border: 0.5px solid var(--line-bright);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 9.5px;
     letter-spacing: 0.06em;
     color: var(--text-soft);
   }
@@ -3505,37 +3856,37 @@
   }
   .sa-points {
     list-style: none;
-    margin: 4px 0 0;
+    margin: 2px 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 3px;
   }
   .sa-point {
     display: grid;
-    grid-template-columns: 14px 1fr;
-    gap: 8px;
+    grid-template-columns: 12px 1fr;
+    gap: 6px;
     align-items: baseline;
-    padding: 8px 10px;
+    padding: 5px 8px;
     background: var(--bg);
     border: 0.5px solid var(--line);
   }
   .sa-point-mark {
     color: var(--lime);
-    font-size: 10px;
+    font-size: 9.5px;
     font-weight: 700;
     line-height: 1.4;
   }
   .sa-point-body {
     font-family: var(--font-human);
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 12px;
+    line-height: 1.42;
     color: var(--text);
     letter-spacing: -0.003em;
   }
   .sa-empty {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-faint);
     letter-spacing: 0.04em;
   }
@@ -4532,6 +4883,53 @@
   .chair-intervention .ci-body strong { color: var(--text); font-weight: 600; }
   .chair-intervention .ci-body em { color: var(--lime); font-style: normal; font-weight: 500; }
 
+  /* Chair-pending placeholder · transient "preparing…" card injected
+     directly into [data-chat-messages] while the chair does silent
+     server-side work (haiku discipline gate, pre-fetch tools, LLM
+     startup). Mirrors the .chair-intervention skeleton — same lime
+     accent, mono kicker, centered layout — but adds the bouncing
+     thinking-dots so the user sees motion. Removed when the real chair
+     bubble lands or the pipeline aborts. */
+  .chair-pending {
+    margin: 14px auto 18px;
+    max-width: 640px;
+    padding: 14px 22px 14px;
+    background: transparent;
+  }
+  .chair-pending .cp-rule {
+    width: 28px;
+    height: 1px;
+    background: var(--lime);
+    margin: 0 auto 10px;
+    opacity: 0.85;
+  }
+  .chair-pending .cp-kicker {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--lime);
+    margin-bottom: 10px;
+    opacity: 0.95;
+  }
+  .chair-pending .cp-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: var(--font-agent);
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text-soft);
+    letter-spacing: -0.005em;
+  }
+  .chair-pending .cp-text {
+    font-style: italic;
+    color: var(--text-faint);
+  }
+
   /* Chair billing notice · same skeleton as chair-intervention but with
      amber accent so it reads as a warning rather than a moderator
      re-frame. Posted by the orchestrator when an upstream API rejects
@@ -4649,6 +5047,9 @@
     justify-content: center;
   }
   .no-brief-card .nb-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     font-family: var(--mono);
     font-size: 10px;
     font-weight: 700;
@@ -4661,15 +5062,19 @@
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s, background 0.12s;
   }
+  .no-brief-card .nb-cta-mark { color: var(--lime); font-size: 11px; line-height: 1; }
+  .no-brief-card .nb-cta-text { line-height: 1; }
   .no-brief-card .nb-cta:hover {
     color: var(--lime);
     border-color: var(--lime);
     background: var(--panel-2);
   }
+  .no-brief-card .nb-cta:hover .nb-cta-mark { color: var(--lime); }
   .no-brief-card .nb-cta[disabled] {
     opacity: 0.6;
     cursor: not-allowed;
   }
+  .no-brief-card .nb-cta[disabled] .nb-cta-mark { color: var(--text-faint); }
 
   .msg {
     display: grid;
@@ -5377,6 +5782,80 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     text-align: center;
+  }
+
+  /* Chair's tone-shift proposal callout · sits between the key-points
+     list and the CTAs when the chair appended a MODE-SHIFT block to the
+     round-end output. Mono kicker matches the existing kp-eyebrow
+     register; serif body mirrors a pull-quote so the reasoning reads
+     differently from the procedural ping. */
+  .kp-mode-shift {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-top: 0.5px solid var(--line-bright);
+    border-bottom: 0.5px solid var(--line-bright);
+    background: color-mix(in srgb, var(--amber) 6%, var(--panel));
+  }
+  .kp-shift-eyebrow {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--amber);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .kp-shift-eyebrow strong {
+    color: var(--amber);
+    font-weight: 700;
+  }
+  .kp-shift-because {
+    font-size: 12.5px;
+    color: var(--text);
+    line-height: 1.45;
+  }
+  /* Suppress the kp-ctas top rule when the mode-shift callout sits
+     directly above it · two adjacent 0.5px borders read as a doubled
+     frame. The mode-shift's own border-bottom is the divider here. */
+  .kp-mode-shift + .kp-ctas {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 12px;
+  }
+
+  /* 3-button layout · only used when the chair proposed a tone shift
+     (kp-ctas-shift). The primary "switch to <tone>" action takes ~50%
+     of the row and each ghost button takes ~25%. Without this, three
+     `flex: 1` buttons compress each to ~33% width and longer tone
+     names ("constructive", "brainstorm") wrap inside the button.
+     The wrap fallback (`flex-wrap: wrap` + flex-basis on each item)
+     handles narrow chat viewports: when the row can't fit all three
+     side-by-side, the primary spans the row and the two ghosts share
+     the line below. Letter-spacing and uppercase are also relaxed for
+     this row so the labels stay narrow. */
+  .kp-ctas-shift { flex-wrap: wrap; }
+  .kp-ctas-shift .kp-cta.primary { flex: 2 1 240px; }
+  .kp-ctas-shift .kp-cta.ghost   { flex: 1 1 110px; }
+  .kp-ctas-shift .kp-cta {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    padding: 8px 10px;
+  }
+
+  /* Degraded round-end card · shown when the chair finished streaming
+     but the parser couldn't extract any key points from the body.
+     Quieter eyebrow than the regular kp-eyebrow so the user reads it
+     as "this round didn't produce a vote ballot" rather than an error.
+     The continue / adjourn buttons below stay primary so the room can
+     still move forward. Earlier failure mode here was an indefinite
+     "drafting key points…" lock-up because the skeleton kept rendering
+     after streaming ended. */
+  .kp-eyebrow-degraded {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
   }
 
   /* Inline @mention / /handle pill. Two flavours so the addressee is
@@ -6970,6 +7449,118 @@
     position: relative;
     overflow: hidden;
   }
+  /* Recovery card · shown when /generate-spec hits the 5-min hard
+     timeout or returns an error. Same outer shell as ag-gen-card so
+     the layout doesn't jump between generating → error. */
+  .ag-gen-error-card {
+    margin-top: 22px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--amber, #B59560);
+    padding: 22px 24px 20px;
+  }
+  .ag-gen-error-kicker {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--amber, #B59560);
+    margin-bottom: 10px;
+  }
+  .ag-gen-error-title {
+    font-family: var(--font-human);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.35;
+    margin: 0 0 10px;
+  }
+  .ag-gen-error-hint {
+    font-family: var(--font-human);
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    margin: 0 0 12px;
+  }
+  .ag-gen-error-detail {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--text-faint);
+    background: var(--bg);
+    border: 0.5px solid var(--line);
+    padding: 8px 12px;
+    margin: 0 0 14px;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .ag-gen-error-desc {
+    margin: 0 0 16px;
+    padding-top: 12px;
+    border-top: 0.5px solid var(--line);
+  }
+  .ag-gen-error-desc-label {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+  .ag-gen-error-desc-body {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+  }
+  .ag-gen-error-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .ag-gen-error-retry {
+    appearance: none;
+    background: var(--lime);
+    color: var(--bg);
+    border: 0.5px solid var(--lime);
+    padding: 9px 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.12s, color 0.12s;
+  }
+  .ag-gen-error-retry:hover {
+    background: transparent;
+    color: var(--lime);
+  }
+  .ag-gen-error-retry-mark {
+    font-size: 13px;
+    line-height: 1;
+  }
+  .ag-gen-error-discard {
+    appearance: none;
+    background: transparent;
+    color: var(--text-soft);
+    border: 0.5px solid var(--line-bright);
+    padding: 9px 16px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .ag-gen-error-discard:hover {
+    color: var(--text);
+    border-color: var(--text-soft);
+  }
   /* Subtle scanline texture across the card · adds an "active system"
      atmosphere without being distracting. Slow upward drift. */
   .ag-gen-card::before {
@@ -7747,6 +8338,119 @@
     color: var(--lime);
   }
 
+  /* ─── Brief picker popover · the [View Report] click target on
+     multi-brief rooms. Anchored under the room-head's button via
+     position: fixed and right-aligned so it visually drops out of
+     the trigger. Each row is a plain anchor to /report.html so
+     middle-click / cmd-click work for opening multiple reports
+     in tabs. ─── */
+  .brief-picker-pop {
+    position: fixed;
+    z-index: 9001;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    overflow-y: auto;
+    background: var(--panel);
+    border: 0.5px solid var(--line-strong);
+  }
+  .brief-picker-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 8px 12px;
+    border-bottom: 0.5px solid var(--line);
+  }
+  .brief-picker-title-head {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text);
+  }
+  .brief-picker-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+    padding: 2px 8px;
+  }
+  .brief-picker-list {
+    padding: 2px 0;
+  }
+  .brief-picker-row {
+    display: grid;
+    grid-template-columns: 32px 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    text-decoration: none;
+    color: inherit;
+    border-bottom: 0.5px solid var(--line);
+    transition: background 0.1s;
+  }
+  .brief-picker-row:last-child { border-bottom: none; }
+  .brief-picker-row:hover { background: var(--panel-2); }
+  .brief-picker-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+  }
+  .brief-picker-row:hover .brief-picker-num { color: var(--lime); }
+  .brief-picker-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .brief-picker-title {
+    font-family: var(--font-human, system-ui, sans-serif);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .brief-picker-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .brief-picker-time {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .brief-picker-arrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-faint);
+    transition: color 0.12s, transform 0.12s;
+  }
+  .brief-picker-row:hover .brief-picker-arrow {
+    color: var(--lime);
+    transform: translate(2px, -2px);
+  }
+  /* The "· N" count chip rendered inline with the View Report button
+     when multiple briefs exist · subtle, blends with the bracket
+     monospace label, mirrors how `.session-num` reads. */
+  .view-report-btn .vr-count {
+    color: var(--text-faint);
+    font-weight: 500;
+  }
+
   /* Convene opener · the room's seed question, distinct from chat bubbles. */
   .convene-opener {
     margin: 0 auto 24px;
@@ -7785,13 +8489,14 @@
   }
   .convene-body p { margin: 0; }
 
-  /* Long-opener clamp · when the user wrote a few hundred chars of
+  /* Long-opener clamp · when the user wrote more than a sentence of
      context, the card would otherwise dominate the viewport. We
-     clamp the body to ~6–8 lines with a fade-out overlay; a
+     clamp the body to ~2.5 lines with a fade-out overlay; a
      `<button data-convene-toggle>` below toggles `.expanded` on the
-     opener parent to reveal the rest. */
+     opener parent to reveal the rest. 2.5 × line-height (1.32 ×
+     19px ≈ 25px) = 63px. */
   .convene-opener-clamped:not(.expanded) .convene-body {
-    max-height: 130px;
+    max-height: 63px;
     overflow: hidden;
     position: relative;
   }
@@ -7801,7 +8506,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    height: 48px;
+    height: 32px;
     background: linear-gradient(to bottom, transparent, var(--panel-2));
     pointer-events: none;
   }
@@ -8646,10 +9351,27 @@
     const TAB_KEY = "boardroom.sidebar.tab";
     const ROOMS_KEY = "boardroom.sidebar.rooms";
     const AGENTS_KEY = "boardroom.sidebar.agents";
+    /* Mirror of the last actually-opened roomId. Diverges from ROOMS_KEY
+       when the user lands on +New Room / All Reports / All Notes — those
+       overwrite ROOMS_KEY with "new" / "reports" / "notes" but should not
+       erase the memory of which ROOM the user had open. Used as a tab-
+       switch fallback so re-entering the Rooms tab restores a meaningful
+       selection rather than blanking it. */
+    const ROOMS_LAST_KEY = "boardroom.sidebar.rooms.last";
     const VALID_TABS = new Set(["rooms", "agents"]);
 
     const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+
+    /* Fall back to the first session row in the sidebar when we have
+       no explicit user choice. Ordering matches DOM order (live first,
+       then paused, then adjourned), which is the same ordering the user
+       sees — picking [0] always means "the one at the top." Returns null
+       when the sidebar has no rooms at all. */
+    function firstRoomId() {
+      const row = document.querySelector(".session-row-shell[data-room-id]");
+      return row ? row.dataset.roomId : null;
+    }
 
     function applyRoomsSubState(sub) {
       // Make sure the room main view is visible (in case the agent
@@ -8680,20 +9402,40 @@
         return;
       }
       // Navigate to the saved room — but only if it still exists in
-      // the sidebar list. Stale ids fall back to the composer.
-      const exists = !!document.querySelector(`.session-row-shell[data-room-id="${sub}"]`);
+      // the sidebar list. A stale id (deleted room, never-existed)
+      // falls back to the most-recently-viewed room, then the first
+      // row, before resorting to the composer. Without the fallback,
+      // a deleted-room id would land the user on a blank composer
+      // every tab-switch even when other rooms are available.
+      let exists = !!document.querySelector(`.session-row-shell[data-room-id="${sub}"]`);
       if (!exists) {
-        lsSet(ROOMS_KEY, "new");
-        if (window.app && typeof window.app.setComposerMode === "function") {
-          window.app.setComposerMode("room");
+        const last = lsGet(ROOMS_LAST_KEY);
+        const candidate = (last && document.querySelector(`.session-row-shell[data-room-id="${last}"]`))
+          ? last
+          : firstRoomId();
+        if (candidate) {
+          sub = candidate;
+          lsSet(ROOMS_KEY, candidate);
+          exists = true;
+        } else {
+          lsSet(ROOMS_KEY, "new");
+          if (window.app && typeof window.app.setComposerMode === "function") {
+            window.app.setComposerMode("room");
+          }
+          return;
         }
-        return;
       }
       const want = "#/r/" + sub;
       if (location.hash !== want) {
         location.hash = want;
       } else if (window.app && window.app.currentRoomId !== sub && typeof window.app.openRoom === "function") {
         window.app.openRoom(sub);
+      } else if (window.app && typeof window.app.markActiveRoom === "function") {
+        // Both hash and currentRoomId already match — but the sidebar
+        // session-row .active highlight may have been cleared by an
+        // intervening agent-profile open (markActiveAgent wipes it).
+        // Re-apply so the row reads as selected on tab return.
+        window.app.markActiveRoom(sub);
       }
     }
 
@@ -8718,6 +9460,7 @@
     function activate(which, opts) {
       if (!VALID_TABS.has(which)) return;
       const persist = !opts || opts.persist !== false;
+      const fromTabClick = !!(opts && opts.fromTabClick);
       document.querySelectorAll(".sidebar-tab[data-sidebar-tab]").forEach((t) => {
         const on = t.dataset.sidebarTab === which;
         t.classList.toggle("active", on);
@@ -8729,7 +9472,41 @@
         else    p.setAttribute("hidden", "");
       });
 
-      if (which === "rooms") applyRoomsSubState(lsGet(ROOMS_KEY) || "new");
+      if (which === "rooms") {
+        // Resolve which sub-state to apply. The room id ROOMS_KEY
+        // points to is the user's explicit choice when set; on
+        // user-driven tab switches we additionally prefer the last
+        // actually-opened room over a blank "new"-composer landing,
+        // so re-entering the Rooms tab feels continuous (selection
+        // restored) instead of resetting. Initial-load (refresh /
+        // boot) keeps the legacy "lands on composer" intent so a
+        // fresh user without prior history sees the new-room invite.
+        const saved = lsGet(ROOMS_KEY);
+        let target;
+        if (saved && saved !== "new" && saved !== "reports" && saved !== "notes") {
+          target = saved; // explicit room id
+        } else if (saved === "reports" || saved === "notes") {
+          target = saved; // cross-room destinations preserve on any nav
+        } else if (fromTabClick) {
+          // User-driven tab switch · prefer the last actually-opened
+          // room (or first row) over the +New Room composer, so
+          // re-entering the Rooms tab feels continuous instead of
+          // resetting to the composer. The "new" intent only persists
+          // within the rooms tab — once the user leaves and returns,
+          // we surface their last room.
+          const last = lsGet(ROOMS_LAST_KEY);
+          if (last && document.querySelector(`.session-row-shell[data-room-id="${last}"]`)) {
+            target = last;
+          } else {
+            target = firstRoomId() || "new";
+          }
+        } else if (saved === "new") {
+          target = "new"; // initial load · preserve composer intent
+        } else {
+          target = "new"; // initial load with no history → composer
+        }
+        applyRoomsSubState(target);
+      }
       else if (which === "agents") applyAgentsSubState(lsGet(AGENTS_KEY) || "new");
 
       if (persist) lsSet(TAB_KEY, which);
@@ -8761,7 +9538,7 @@
       const tab = e.target.closest(".sidebar-tab[data-sidebar-tab]");
       if (tab) {
         e.preventDefault();
-        activate(tab.dataset.sidebarTab);
+        activate(tab.dataset.sidebarTab, { fromTabClick: true });
         return;
       }
       // Track sub-state · "+ New room" → rooms = "new"
@@ -8792,10 +9569,35 @@
         }
         return;
       }
-      // Track sub-state · clicked a session row → rooms = roomId
+      // Track sub-state · clicked a session row → rooms = roomId.
+      // Also stamp ROOMS_LAST_KEY so a later +New Room / All Reports
+      // / All Notes click that overwrites ROOMS_KEY doesn't erase the
+      // memory of which actual room was last open.
       const sessRow = e.target.closest(".session-row-shell[data-room-id]");
       if (sessRow && sessRow.dataset.roomId) {
-        lsSet(ROOMS_KEY, sessRow.dataset.roomId);
+        const id = sessRow.dataset.roomId;
+        lsSet(ROOMS_KEY, id);
+        lsSet(ROOMS_LAST_KEY, id);
+        // Anchor `href="#/r/<id>"` clicks rely on `hashchange` →
+        // handleRoute → openRoom. When the hash already equals the
+        // target (e.g. user just left an agent profile that didn't
+        // change the hash, then clicks the same room), the browser
+        // suppresses hashchange and openRoom never runs — the row
+        // stays unselected. Re-trigger the room load + highlight
+        // manually for the same-hash case.
+        const want = "#/r/" + id;
+        if (location.hash === want && window.app) {
+          if (window.app.currentRoomId !== id && typeof window.app.openRoom === "function") {
+            window.app.openRoom(id);
+          } else {
+            if (typeof window.closeAgentProfile === "function") {
+              try { window.closeAgentProfile(); } catch (_) {}
+            }
+            if (typeof window.app.markActiveRoom === "function") {
+              window.app.markActiveRoom(id);
+            }
+          }
+        }
         return;
       }
       // Track sub-state · "+ New agent" → agents = "new"
@@ -8806,10 +9608,15 @@
     });
 
     /* ─── hashchange · keep rooms sub-state synced when navigation
-           happens via URL bar / browser history. */
+           happens via URL bar / browser history. ROOMS_LAST_KEY mirrors
+           the same id so it survives later +New Room / All Reports
+           overwrites of ROOMS_KEY. */
     window.addEventListener("hashchange", () => {
       const m = (location.hash || "").match(/^#\/r\/([a-z0-9]+)/i);
-      if (m && m[1]) lsSet(ROOMS_KEY, m[1]);
+      if (m && m[1]) {
+        lsSet(ROOMS_KEY, m[1]);
+        lsSet(ROOMS_LAST_KEY, m[1]);
+      }
     });
 
     /* Wrap window.openAgentProfile so EVERY open call (sidebar click,
@@ -8845,6 +9652,7 @@
       const m = (location.hash || "").match(/^#\/r\/([a-z0-9]+)/i);
       if (m && m[1]) {
         lsSet(ROOMS_KEY, m[1]);
+        lsSet(ROOMS_LAST_KEY, m[1]);
         activate("rooms", { persist: false });
         return;
       }

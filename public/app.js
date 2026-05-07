@@ -110,6 +110,18 @@
     agentSpec: null,
     agentSpecAvatarSeed: null,
     agentSpecGenerating: false,
+    /** Error state for the agent composer · { kind: "timeout"|"failed", message }
+     *  Rendered as a recovery card with a Retry CTA when set. The
+     *  earlier `alert()` UX vanished as soon as it was dismissed; the
+     *  card stays so the user can read the error AND retry without
+     *  re-typing their description. Cleared by retry / discard / start
+     *  of a fresh submission. */
+    agentSpecError: null,
+    /** AbortController for the in-flight /generate-spec fetch. Used so
+     *  the 5-minute hard timeout can cancel both the network request
+     *  and the server-side LLM work (the route honours
+     *  c.req.raw.signal → propagates to callLLM). */
+    _agentGenAbort: null,
     /** User's last-picked model for new agents · persisted via the
      *  agent composer state and applied as the default `modelV` on
      *  every newly generated spec. */
@@ -515,6 +527,11 @@
       if (this.conveneState && this.conveneState.roomId !== roomId) {
         this.conveneState = null;
       }
+      // Same protection for the chair-pending placeholder · it's
+      // injected directly into [data-chat-messages] which gets rebuilt
+      // by renderChat below, but the safety timer would fire later
+      // and scan the new room's chat. Cancel timer + drop the node now.
+      this.hideChairPending();
       // Also drop conveneState when opening a room that ALREADY has a
       // chair message (we're re-loading an in-progress or established
       // room — convening is past).
@@ -584,13 +601,22 @@
             this.currentBrief = this.currentBriefs[0] || null;
           }
         } catch (e) { /* ignore */ }
-        // Zombie detection · if the active brief looks like an
-        // un-streamed placeholder (empty body) AND the server is no
-        // longer generating it, the previous browser session was
-        // killed mid-generation. Surface a clear failure with a
-        // retry CTA instead of leaving the user stuck on "loading".
-        if (this.currentBrief && this.isBriefPlaceholder(this.currentBrief, data.room)) {
-          await this.checkBriefHealth(this.currentBrief);
+        // Walk every brief whose state needs verifying — two cases:
+        //   · placeholders (no body / seed title) → could be a zombie
+        //     left behind by a server crash mid-stream. checkBriefHealth
+        //     flips it into the Retry error UI.
+        //   · in-flight (server-stamped `isGenerating: true`) → pipeline
+        //     is still running. checkBriefHealth fetches the live stage
+        //     snapshot so the loading UI (current stage, ETA, elapsed)
+        //     resumes exactly where the previous browser session was.
+        // Without the in-flight branch, a mid-stream refresh would land
+        // on a partial body + interim title and the card would flip to
+        // FILED while tokens were still streaming under it.
+        const needsHealth = this.currentBriefs.filter(
+          (b) => b && (this.isBriefPlaceholder(b, data.room) || b.isGenerating === true),
+        );
+        if (needsHealth.length > 0) {
+          await Promise.all(needsHealth.map((b) => this.checkBriefHealth(b)));
         }
       }
 
@@ -680,6 +706,19 @@
             roundNum: data.roundNum || 1,
             createdAt: data.createdAt,
           });
+          // Chair-pending placeholder · clear the moment ANY agent
+          // message lands (chair OR director). The placeholder is a
+          // stand-in while the chair did silent server-side work
+          // (haiku gates, picker, tools, LLM startup); whichever
+          // bubble shows up next is the right replacement. We used to
+          // gate on `authorId === currentChair.id`, but the next-
+          // speaker picker case ends with EITHER a chair intervention
+          // OR a director turn — only the chair-restricted clear left
+          // the placeholder lingering when the picker decided no
+          // intervention was needed.
+          if (data.authorKind === "agent") {
+            this.hideChairPending();
+          }
           // Convening card · clear the moment any chair message lands
           // (convening speech, clarify, anything). The card has done
           // its job; the chair is taking over from here. We re-render
@@ -820,6 +859,10 @@
           this.renderHeader();
           this.renderPausedBar();
           syncSidebar({ status: "paused", pausedAt: ts });
+          // Drop any in-flight chair-pending placeholder · the chair's
+          // pipeline failed (typically chair-llm-failed) so no bubble
+          // is coming to replace it.
+          this.hideChairPending();
         } else if (kind === "room-resumed") {
           if (this.currentRoom) {
             this.currentRoom.status = "live";
@@ -867,29 +910,53 @@
           }
         } else if (kind === "brief-started") {
           this.markBriefEvent();
-          this.currentBrief = {
+          const newBrief = {
             id: payload.briefId,
             title: "Generating…",
             bodyMd: "",
             style: payload.style || "mckinsey",
+            // Carry the supplement so the tab strip can render the
+            // in-progress brief with its supplement label ("xxx 视角")
+            // immediately, instead of waiting for brief-final to
+            // refetch and label it.
+            supplement: typeof payload.supplement === "string" && payload.supplement.trim()
+              ? payload.supplement.trim()
+              : "",
             // Chair name + language carried for the generating-state kicker
             // ("{Chair} is preparing the minutes…") and stage labels. The
             // language is inferred server-side from the room subject.
             chairName: payload.chairName || (this.currentChair?.name) || "Chair",
             language: payload.language === "zh" ? "zh" : "en",
             pipelineStartedAt: Date.now(),
-            // Stage checklist · seeded with all three stages in pending
-            // state. brief-stage events flip them active → done as the
-            // pipeline progresses. startedAt is captured when each
-            // stage first becomes active so the UI can display elapsed
-            // time alongside the ETA range.
+            createdAt: Date.now(),
+            // Stage checklist · seeded with all seven stages in pending
+            // state (extract / compose / 4 scaffold sub-stages / write).
+            // brief-stage events flip them active → done as the pipeline
+            // progresses. startedAt is captured when each stage first
+            // becomes active so the UI can display elapsed time
+            // alongside the ETA range.
             stages: {
-              extract:  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              compose:  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              scaffold: { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              write:    { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              extract:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              compose:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
             },
           };
+          this.currentBrief = newBrief;
+          // Insert the in-progress brief into currentBriefs so the tab
+          // strip renders it alongside any prior reports. Without this,
+          // a user regenerating from a 2-brief room would see only the
+          // two old tabs (none active, since the new in-progress brief
+          // had no tab entry of its own) — reading as "the existing
+          // reports disappeared". Replacing-by-id keeps idempotency
+          // when SSE events redeliver.
+          if (!Array.isArray(this.currentBriefs)) this.currentBriefs = [];
+          const dupIdx = this.currentBriefs.findIndex((b) => b && b.id === newBrief.id);
+          if (dupIdx >= 0) this.currentBriefs[dupIdx] = newBrief;
+          else this.currentBriefs.push(newBrief);
           this.renderBrief();
           // Start the per-second tick driving elapsed/substage animation.
           this.ensureBriefStageTick();
@@ -903,12 +970,21 @@
           this.scrollToBriefCard();
         } else if (kind === "brief-stage") {
           this.markBriefEvent();
-          if (this.currentBrief) {
-            const st = this.currentBrief.stages || (this.currentBrief.stages = {
-              extract:  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              compose:  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              scaffold: { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              write:    { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+          // Target the brief by id, NOT by `currentBrief`. The user
+          // may have switched tabs to a finished brief while a
+          // different one is still streaming — without id-targeting,
+          // every brief-* event gets misapplied to whichever brief
+          // happens to be currently viewed.
+          const target = this._briefById(payload.briefId);
+          if (target) {
+            const st = target.stages || (target.stages = {
+              extract:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              compose:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
             });
             const key = payload.stage;
             if (key && st[key]) {
@@ -935,32 +1011,89 @@
                 st[key].etaSec = payload.etaSec;
               }
             }
-            this.renderBrief();
-            // Start a 1s tick that re-renders the stages while at least one
-            // is active. Drives the elapsed counter + rotating substage
-            // descriptors so the UI never feels frozen during long stages.
+            // Re-render only when the user is actually viewing this
+            // brief's tab; otherwise the stage update lands silently on
+            // the off-tab brief and shows up if the user switches back.
+            if (this.currentBrief && this.currentBrief.id === target.id) {
+              this.renderBrief();
+            }
+            // Stage tick keeps running regardless of which tab is
+            // visible — it's a global animation driver.
             this.ensureBriefStageTick();
+          }
+        } else if (kind === "brief-extract-harvest") {
+          // One per director · the orchestrator fires this when the
+          // extract stage completes for a single director, carrying
+          // the parsed signal counts. The stat row uses the harvest
+          // to render real chips ("Marie Curie · 7 · top: risk")
+          // instead of placeholder name-only chips. Stored on the
+          // brief object so renderBriefStages can pull it on each
+          // tick without re-fetching.
+          this.markBriefEvent();
+          const target = this._briefById(payload.briefId);
+          if (target) {
+            const list = target.extractHarvest || (target.extractHarvest = []);
+            // Replace any existing entry for this director (idempotent
+            // under retries) rather than duplicate.
+            const idx = list.findIndex((h) => h.directorId === payload.directorId);
+            const entry = {
+              directorId: payload.directorId,
+              directorName: payload.directorName,
+              total: payload.total | 0,
+              byKind: payload.byKind || {},
+              topKind: payload.topKind || null,
+            };
+            if (idx >= 0) list[idx] = entry;
+            else list.push(entry);
+            if (this.currentBrief && this.currentBrief.id === target.id) {
+              this.renderBrief();
+            }
           }
         } else if (kind === "brief-token") {
           this.markBriefEvent();
-          // Accumulate the body. Throttle the re-render to once per ~250ms
-          // so the writing-stage word count animates without thrashing on
-          // every chunk.
-          if (!this.currentBrief) this.currentBrief = { id: payload.briefId, title: "", bodyMd: "" };
-          this.currentBrief.bodyMd += (payload.delta || "");
-          const now = Date.now();
-          if (!this._briefTokenLastRender || (now - this._briefTokenLastRender) > 250) {
-            this._briefTokenLastRender = now;
-            this.renderBrief();
+          // Append tokens to the brief identified by payload.briefId,
+          // NEVER blindly to currentBrief. The bug this prevents:
+          // user has brief A (completed) + brief B (in-flight),
+          // switches tab to A while B is still streaming, and B's
+          // tokens get appended to A's bodyMd — making A look like
+          // it's generating too. The id-targeted path keeps each
+          // brief's body isolated regardless of which tab is open.
+          const target = this._briefById(payload.briefId);
+          if (target) {
+            target.bodyMd = (target.bodyMd || "") + (payload.delta || "");
+            // Throttle re-renders to once per ~250ms so the writing-
+            // stage word count animates without thrashing on every
+            // chunk. Skip render entirely when the streaming brief
+            // isn't the active tab — its body still updates in
+            // memory; the visible card just doesn't repaint.
+            if (this.currentBrief && this.currentBrief.id === target.id) {
+              const now = Date.now();
+              if (!this._briefTokenLastRender || (now - this._briefTokenLastRender) > 250) {
+                this._briefTokenLastRender = now;
+                this.renderBrief();
+              }
+            }
           }
         } else if (kind === "brief-final") {
           this.markBriefEvent();
-          if (this.currentBrief) {
-            this.currentBrief.title = payload.title || this.currentBrief.title;
+          const target = this._briefById(payload.briefId);
+          if (target) {
+            target.title = payload.title || target.title;
+            // Pipeline is done · clear the in-flight flag so the card
+            // flips to FILED immediately. The follow-up /briefs refetch
+            // would also bring this back as false (server-stamped), but
+            // setting it now avoids a one-frame "still generating" flash
+            // between this re-render and the refetch landing.
+            target.isGenerating = false;
           }
           this.stopBriefStageTick();
           this.stopBriefStallWatch();
-          this.renderBrief();
+          // Re-render only the active tab; the off-tab brief just
+          // updates state. The /api/rooms/:id/briefs refetch below
+          // is the source of truth either way.
+          if (this.currentBrief && target && this.currentBrief.id === target.id) {
+            this.renderBrief();
+          }
           this.renderHeader();
           // A new brief just landed → bump the All Reports badge.
           this.refreshReportsCount();
@@ -972,7 +1105,41 @@
               .then((r) => (r.ok ? r.json() : null))
               .then((j) => {
                 if (j && Array.isArray(j.briefs)) {
-                  this.currentBriefs = j.briefs;
+                  // MERGE — don't clobber. Server briefs carry persisted
+                  // fields (title, bodyMd, supplement, components, …) but
+                  // not the UI-only `stages` field (which is streamed via
+                  // `brief-stage` SSE events and lives only in memory).
+                  // A naive `currentBriefs = j.briefs` wipes the loading
+                  // state of any brief still mid-pipeline — the user
+                  // bug "switch tabs and the stage display resets to
+                  // stage 1" happens when a refetch lands while brief
+                  // #2 is in scaffold + brief #1 just finalised. We
+                  // merge by id, preferring the server's persisted
+                  // fields and the in-memory UI-only fields.
+                  const existing = new Map((this.currentBriefs || []).map((b) => [b.id, b]));
+                  this.currentBriefs = j.briefs.map((sb) => {
+                    const prev = existing.get(sb.id);
+                    if (!prev) return sb;
+                    // bodyMd: prefer in-memory when it's longer (the
+                    // server may not have flushed the latest token batch
+                    // yet, and we don't want to truncate the streaming
+                    // body just because the refetch landed mid-stream).
+                    const memBody = prev.bodyMd || "";
+                    const srvBody = sb.bodyMd || "";
+                    const bodyMd = memBody.length > srvBody.length ? memBody : srvBody;
+                    return {
+                      ...sb,
+                      bodyMd,
+                      // UI-only state — preserve in-memory.
+                      stages: prev.stages,
+                      error: prev.error,
+                      interrupted: prev.interrupted,
+                      timedOut: prev.timedOut,
+                      language: sb.language || prev.language,
+                      chairName: sb.chairName || prev.chairName,
+                      pipelineStartedAt: prev.pipelineStartedAt,
+                    };
+                  });
                   // Match by id so the tab the user is viewing stays the
                   // same brief — defaulting to the just-finalised one.
                   const justFiledId = payload.briefId;
@@ -986,10 +1153,19 @@
           }
         } else if (kind === "brief-error") {
           this.markBriefEvent();
-          if (this.currentBrief) this.currentBrief.error = payload.message;
+          // Same id-targeting rule · the failure attaches to the brief
+          // it actually belongs to, not to whichever brief the user
+          // happens to be looking at.
+          const target = this._briefById(payload.briefId);
+          if (target) {
+            target.error = payload.message;
+            target.isGenerating = false;
+          }
           this.stopBriefStageTick();
           this.stopBriefStallWatch();
-          this.renderBrief();
+          if (this.currentBrief && target && this.currentBrief.id === target.id) {
+            this.renderBrief();
+          }
         } else if (kind === "settings-changed") {
           const ch = payload.changes || {};
           if (this.currentRoom) {
@@ -1039,6 +1215,13 @@
               m.meta = m.meta || {};
               m.meta.streaming = false;
               m.meta.speakerStatus = "final";
+              // Mirror the chair's tone-shift proposal onto the message
+              // meta so roundEndCardHtml can render the callout. Without
+              // this the data only lives in the SSE payload and the
+              // callout never appears until a page reload.
+              if (payload.modeShiftProposal) {
+                m.meta.modeShiftProposal = payload.modeShiftProposal;
+              }
             }
           }
           const points = Array.isArray(payload.keyPoints) ? payload.keyPoints : [];
@@ -1082,6 +1265,15 @@
           this.renderQueue();
           this.refreshRoundEndButton();
           this.refreshContinueButton();
+          // Skip-clarify path: chair decided no question needed and
+          // released directors. No chair bubble is coming, so clear any
+          // pending placeholder ourselves.
+          this.hideChairPending();
+        } else if (kind === "chair-pending") {
+          // Chair is preparing (silent phase: haiku gate, pre-tools,
+          // LLM startup). Show a transient placeholder so the user has
+          // visible feedback until the real chair bubble arrives.
+          this.showChairPending(payload?.phase || "");
         } else if (kind === "room-opened") {
           // no-op: we already have full state
         } else if (kind === "auto-pick-started") {
@@ -2319,6 +2511,14 @@
         if (input) input.focus();
         return;
       }
+      // Frontend in-flight guard · without this, a slow server roundtrip
+      // gives the user time to click confirm twice (or to close+reopen
+      // the overlay and click again). Each click was firing its own POST,
+      // and the server was happily creating multiple parallel briefs —
+      // the symptom was a tab strip with two-or-three "Generating…" tiles
+      // for what should have been a single regeneration.
+      if (this._supplementInFlight) return;
+      this._supplementInFlight = true;
       const btn = overlay.querySelector("[data-supplement-confirm]");
       const orig = btn ? btn.textContent : "";
       const busy = btn ? btn.getAttribute("data-busy-label") : "";
@@ -2336,19 +2536,20 @@
           const e = await r.json().catch(() => ({}));
           throw new Error(e.error || ("HTTP " + r.status));
         }
-        // Reset currentBrief to a fresh "generating" placeholder so the
-        // brief-started SSE event lands cleanly. The SSE flow will fill
-        // it back in.
-        if (this.currentBrief) {
-          this.currentBrief.bodyMd = "";
-          this.currentBrief.title = "Generating…";
-          this.currentBrief.error = null;
-        }
-        this.renderBrief();
+        // DO NOT mutate the existing currentBrief — the route ALWAYS
+        // inserts a new brief row, so wiping the prior brief's bodyMd
+        // and title in-place corrupts a perfectly good finished brief
+        // into a "Generating…" zombie (its tab stays stuck on loading
+        // forever because no SSE will ever update that id). The
+        // brief-started SSE for the NEW brief id arrives shortly and
+        // appends it via the dedup path; the previous brief stays
+        // visible as a finished tab next to the new generating one.
         this.closeSupplementOverlay();
       } catch (e) {
         if (btn) { btn.disabled = false; btn.textContent = orig; }
         alert("Regenerate failed: " + (e && e.message ? e.message : e));
+      } finally {
+        this._supplementInFlight = false;
       }
     },
 
@@ -2366,6 +2567,23 @@
       const seed = (room.subject || "").trim();
       const t = (brief.title || "").trim();
       return !t || t === seed || t === "Generating…";
+    },
+
+    /** Find a brief object by id across both `currentBrief` and
+     *  `currentBriefs[]`. Used by the SSE handlers (brief-stage /
+     *  brief-token / brief-final / brief-error) so streamed updates
+     *  land on the correct brief regardless of which tab the user
+     *  is currently viewing — without this targeting, switching to
+     *  a finished tab while another brief is mid-generation would
+     *  pipe the in-flight tokens into the finished brief's body
+     *  and make it look like it's generating too. */
+    _briefById(briefId) {
+      if (!briefId) return null;
+      if (this.currentBrief && this.currentBrief.id === briefId) return this.currentBrief;
+      if (Array.isArray(this.currentBriefs)) {
+        return this.currentBriefs.find((b) => b && b.id === briefId) || null;
+      }
+      return null;
     },
 
     /** Ask the server whether the placeholder brief is still being
@@ -2421,15 +2639,19 @@
       if (state.language === "zh" || state.language === "en") brief.language = state.language;
       if (typeof state.style === "string" && state.style) brief.style = state.style;
       if (typeof state.pipelineStartedAt === "number") brief.pipelineStartedAt = state.pipelineStartedAt;
-      // Seed all four stages in pending state (extract / compose /
-      // scaffold / write — the order rendered by renderBriefStages),
-      // then overlay whichever ones the server already advanced.
+      // Seed all seven stages in pending state (extract / compose /
+      // 4 scaffold sub-stages / write — the order rendered by
+      // renderBriefStages), then overlay whichever ones the server
+      // already advanced.
       const seed = () => ({ status: "pending", detail: "", progress: null, startedAt: null, etaSec: null, finishedAt: null });
       const stages = brief.stages || (brief.stages = {
-        extract:  seed(),
-        compose:  seed(),
-        scaffold: seed(),
-        write:    seed(),
+        extract:             seed(),
+        compose:             seed(),
+        "scaffold-anchor":   seed(),
+        "scaffold-findings": seed(),
+        "scaffold-cluster":  seed(),
+        "scaffold-actions":  seed(),
+        write:               seed(),
       });
       for (const key of Object.keys(state.stages || {})) {
         if (!stages[key]) stages[key] = seed();
@@ -2490,13 +2712,41 @@
       this.refreshReportsCount();
     },
 
-    /** Retry handler for the orphaned-brief recovery UI. Posts to the
-     *  brief endpoint with no supplement, kicking off a fresh
-     *  generation. The new brief replaces the orphan as currentBrief
-     *  via the brief-started SSE event. */
-    async retryBriefGeneration() {
+    /** Retry handler for the orphaned-brief recovery UI. Drops the
+     *  failed brief row, then posts to the brief endpoint to kick off a
+     *  fresh generation. The new brief takes the failed one's slot in
+     *  the version tab strip — without the upfront delete, the brief
+     *  index is positioned by createdAt and the regenerated brief
+     *  always lands one slot AFTER the failed row (e.g. "Report 2
+     *  failed → Report 3 appears" instead of "Report 2 regenerates"). */
+    async retryBriefGeneration(overrideTargetId) {
       if (!this.currentRoomId) return;
+      // overrideTargetId · the salvage-path banner passes the failed
+      // brief's id explicitly because currentBrief was swapped to the
+      // prior good one for rendering. Without this override, the retry
+      // would try to delete the GOOD brief instead of the failed one.
+      let failed = null;
+      if (overrideTargetId) {
+        failed = (this.currentBriefs || []).find((b) => b && b.id === overrideTargetId) || null;
+      } else {
+        failed = this.currentBrief;
+      }
+      const failedId = failed && (failed.error || failed.interrupted || failed.timedOut)
+        ? failed.id
+        : null;
       try {
+        if (failedId) {
+          // Best-effort delete · if it fails (already gone, network blip)
+          // we still proceed with the regenerate. Worst case: an extra
+          // failed-brief tab survives and the user can dismiss it via
+          // the per-tab × button.
+          try {
+            await fetch("/api/briefs/" + encodeURIComponent(failedId), { method: "DELETE" });
+            if (Array.isArray(this.currentBriefs)) {
+              this.currentBriefs = this.currentBriefs.filter((b) => b && b.id !== failedId);
+            }
+          } catch { /* swallow */ }
+        }
         const r = await fetch(
           "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
           {
@@ -2509,11 +2759,10 @@
           const e = await r.json().catch(() => ({}));
           throw new Error(e.error || ("HTTP " + r.status));
         }
-        // Optimistically clear the error so the card flips back to a
-        // fresh "generating" state until brief-started arrives. The
-        // server's brief-started event will replace currentBrief with
-        // the real new placeholder.
-        if (this.currentBrief) {
+        // Flip the on-screen card from error → generating immediately so
+        // the click has visible feedback before brief-started SSE lands
+        // and replaces currentBrief with the real new placeholder.
+        if (this.currentBrief && this.currentBrief.id === failedId) {
           this.currentBrief.error = null;
           this.currentBrief.interrupted = false;
           this.currentBrief.timedOut = false;
@@ -2607,6 +2856,18 @@
       if (!r.ok) {
         document.documentElement.classList.remove("pause-pending");
         const e = await r.json().catch(() => ({}));
+        // 409 "room is not live" · benign race · the user clicked
+        // Pause at a moment when the room had already auto-transitioned
+        // out of `live` (e.g. the auto-continue countdown fired and
+        // started a director turn just before the click landed, or the
+        // room was already paused by another tab). The user's INTENT —
+        // "don't run another round automatically" — is already
+        // satisfied, so no alert / no throw. Leave the UI as-is and
+        // return silently; the next SSE will reconcile the visible
+        // state.
+        if (r.status === 409 && /not live|already.*paused/i.test(e.error || "")) {
+          return;
+        }
         throw new Error(e.error || "pause failed");
       }
       const data = await r.json();
@@ -2825,10 +3086,31 @@
     },
 
     /** Repaint the Continue button in the queue strip. Disabled when
-     *  the room isn't idle; shows the countdown when active. */
+     *  the room isn't idle; shows the countdown when active.
+     *
+     *  Each chair vote creates a fresh `.round-prompt-card` with its
+     *  own `[data-continue-auto]` button — and the old cards stay in
+     *  the chat (messages are append-only). On the SECOND vote, the
+     *  DOM has 2+ matching buttons; `document.querySelector` returns
+     *  the FIRST (oldest) one. Without scoping, the countdown
+     *  animation paints the stale button while the new button — the
+     *  one the user is looking at — stays blank, even though the
+     *  timer interval is firing. Pick the LAST match (= most recent
+     *  card) and clear stale styles off any prior buttons. */
     refreshContinueButton() {
-      const btn = document.querySelector("[data-continue-auto]");
-      if (!btn) return;
+      const btns = document.querySelectorAll("[data-continue-auto]");
+      if (!btns.length) return;
+      const btn = btns[btns.length - 1];
+      // Clear stale state on every prior button — they're attached to
+      // already-resolved round-prompt cards and shouldn't carry the
+      // `counting` class or a non-zero progress var from a past run.
+      for (let i = 0; i < btns.length - 1; i++) {
+        const old = btns[i];
+        old.classList.remove("counting");
+        old.style.setProperty("--qc-progress", "0%");
+        const oldTimer = old.querySelector("[data-continue-timer]");
+        if (oldTimer) oldTimer.textContent = "";
+      }
       const idle = this.canAutoContinue();
       btn.disabled = !idle;
       const timer = btn.querySelector("[data-continue-timer]");
@@ -2881,6 +3163,23 @@
       }
     },
 
+    /** Accept the chair's tone-shift proposal: PATCH the room mode,
+     *  then resume directors. The mode change fires the existing
+     *  settings-marker → tone-shift detector path on the backend, so
+     *  the next director sweep reads the new tone with an explicit
+     *  "tone just changed" cue in their system prompt (anti-RLHF-drift).
+     */
+    async acceptModeShiftAndContinue(toMode) {
+      if (!this.currentRoomId) return;
+      if (!(await this.requireModelKey())) return;
+      // PATCH first so the new mode is persisted before continue fires.
+      // updateRoomSettings emits its own SSE settings-changed; the
+      // tone-shift detector picks up the marker on the next director
+      // turn whether or not the user paused between PATCH and continue.
+      await this.updateRoomSettings({ mode: toMode });
+      await this.continueRoom();
+    },
+
     /** Resume a chair-paused room — releases the next round of directors. */
     async continueRoom() {
       if (!this.currentRoomId) return;
@@ -2893,7 +3192,20 @@
       );
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        alert("Continue failed: " + (e.error || r.statusText));
+        // 409 "room is not live" / "already paused" / "already adjourned"
+        // is a benign race — the user (or another tab) transitioned the
+        // room off `live` between when the Continue button surfaced and
+        // when the request landed. Auto-fire from the countdown timer
+        // is the most visible offender: timer ticks to zero after the
+        // user has already paused / adjourned, the API returns 409, and
+        // the alert pops up unprompted ("莫名其妙的提出来一个 alert").
+        // Same swallow pattern as `pauseRoom` for the pause-vs-continue
+        // race (see the 409 handling around line 2740). All other 4xx /
+        // 5xx still alert.
+        const benignRace = r.status === 409 && /not\s*live|already\s*(paused|adjourned)/i.test(e.error || "");
+        if (!benignRace) {
+          alert("Continue failed: " + (e.error || r.statusText));
+        }
         return;
       }
       const data = await r.json();
@@ -3256,16 +3568,18 @@
               ? this.relTime(r.adjournedAt || r.createdAt)
               : this.relTime(r.createdAt);
         const fullTitle = r.name || r.subject || "";
-        const tip = r.subject && r.subject !== fullTitle
-          ? `${fullTitle}\n${r.subject}`
-          : fullTitle;
         // Layout: a wrapper holds the anchor + the delete button as
         // siblings. Putting the <button> inside the <a> is invalid HTML
         // and some browsers route the click to the link, swallowing the
         // delete action — moving it out fixes that.
+        // No `title` attr · the native browser tooltip popping the full
+        // subject on hover competes with the row's own subtitle line
+        // and felt redundant. The subtitle already shows the subject;
+        // truncated names are rare and the user can click in to see
+        // the full thing if needed.
         return `
           <div class="session-row-shell" data-room-id="${this.escape(r.id)}" data-status="${this.escape(r.status)}">
-            <a href="#/r/${this.escape(r.id)}" class="session-row" title="${this.escape(tip)}">
+            <a href="#/r/${this.escape(r.id)}" class="session-row">
               <div class="row-content">
                 <div class="row-top-line">
                   <span class="row-title">${this.escape(fullTitle)}</span>
@@ -3772,30 +4086,62 @@
         deepseek:  "--red",
         unknown:   "--text-soft",
       };
+      // Per-provider shade ordering · flagship first (deepest tint),
+      // then progressively lighter variants. The first entry takes the
+      // raw provider colour; subsequent entries blend in increasing
+      // amounts of white via `color-mix()` so two Anthropic models
+      // (Opus + Sonnet) read as different shades of lime instead of
+      // an identical lime block. Models not listed fall back to the
+      // base provider colour. Append-only — adding a new variant just
+      // requires its modelV at the appropriate position.
+      const MODEL_SHADE_ORDER = {
+        anthropic: ["opus-4-7", "sonnet-4-6", "haiku-4-5"],
+        openai:    ["gpt-5-5", "gpt-5-4-mini", "codex-5-4"],
+        google:    ["gemini-3-1", "gemini-3-flash", "gemini-3-1-flash"],
+        xai:       ["grok-4", "grok-4-3", "grok-4-mini"],
+        deepseek:  ["deepseek-v4-pro", "deepseek-v4"],
+      };
       const providerOf = (modelV) => {
         const hit = reachable.find((m) => m.modelV === modelV);
         return hit && hit.provider ? hit.provider : "unknown";
       };
+      /** Produce a CSS colour value for a given modelV · base provider
+       *  colour for the flagship, mixed with an increasing amount of
+       *  white for cheaper / faster variants. Idempotent for unknown
+       *  models — they get the base provider colour (or `--text-soft`
+       *  when the provider itself is unknown). */
+      const colorForModel = (modelV) => {
+        const provider = providerOf(modelV);
+        const baseVar = PROVIDER_COLOR_VAR[provider] || PROVIDER_COLOR_VAR.unknown;
+        const order = MODEL_SHADE_ORDER[provider] || [];
+        const idx = order.indexOf(modelV);
+        if (idx <= 0) return `var(${baseVar})`;
+        // Each step blends 20% more white into the base · cap at 55%
+        // so the lightest variant still carries enough chroma to read
+        // as the family colour, not as washed-out white.
+        const pct = Math.min(idx * 20, 55);
+        return `color-mix(in oklab, var(${baseVar}), white ${pct}%)`;
+      };
       const modelLabel = (modelV) => MODEL_LABELS[modelV] || modelV;
 
       // Stacked bar · one segment per model, width = pct. Each segment
-      // tinted with its provider's theme variable so the strip carries
-      // the same visual vocabulary as user-settings' usage screen.
+      // tinted with its model-specific shade so two variants from the
+      // same provider read as different shades of the same family.
       const barSegments = stats.modelBreakdown.map((row) => {
-        const colorVar = PROVIDER_COLOR_VAR[providerOf(row.modelV)] || PROVIDER_COLOR_VAR.unknown;
+        const color = colorForModel(row.modelV);
         const widthPct = (row.pct * 100).toFixed(2);
-        return `<span class="sa-bar-seg" style="width: ${widthPct}%; background: var(${colorVar});" title="${this.escape(modelLabel(row.modelV) + " · " + fmtTokens(row.tokens) + " tokens")}"></span>`;
+        return `<span class="sa-bar-seg" style="width: ${widthPct}%; background: ${color};" title="${this.escape(modelLabel(row.modelV) + " · " + fmtTokens(row.tokens) + " tokens")}"></span>`;
       }).join("");
       const barHtml = stats.modelBreakdown.length > 0
         ? `<div class="sa-bar" role="img" aria-label="${this.escape(t.modelHead)}">${barSegments}</div>`
         : "";
 
       const modelLegend = stats.modelBreakdown.map((row) => {
-        const colorVar = PROVIDER_COLOR_VAR[providerOf(row.modelV)] || PROVIDER_COLOR_VAR.unknown;
+        const color = colorForModel(row.modelV);
         const pctTxt = (row.pct * 100).toFixed(row.pct < 0.1 ? 1 : 0) + "%";
         return `
           <li class="sa-legend-row">
-            <span class="sa-legend-swatch" style="background: var(${colorVar});"></span>
+            <span class="sa-legend-swatch" style="background: ${color};"></span>
             <span class="sa-legend-name">${this.escape(modelLabel(row.modelV))}</span>
             <span class="sa-legend-pct">${this.escape(pctTxt)}</span>
             <span class="sa-legend-tokens">${this.escape(fmtTokens(row.tokens))}</span>
@@ -4056,6 +4402,15 @@
      *  shows the dedicated reports view, fetches /api/briefs once and
      *  paints. Sidebar highlight matches the trigger button. */
     async openAllReports() {
+      // Each fresh open of the All Reports view starts at page 1 (20
+      // items). Without this reset, navigating away and back inherits
+      // a stale paginated state — e.g. user scrolled to "120 visible",
+      // navigated to a room, came back, would see 120 rows again.
+      this._reportsVisibleCount = 20;
+      if (this._reportsLoadObserver) {
+        try { this._reportsLoadObserver.disconnect(); } catch { /* noop */ }
+        this._reportsLoadObserver = null;
+      }
       // If we're inside a room or on the agent profile, leave them.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -4239,6 +4594,18 @@
         return true;
       });
 
+      // Pagination · default 20 visible, IntersectionObserver appends
+      // 20 more when the user scrolls past the bottom sentinel. Avoids
+      // rendering hundreds of report rows up-front (slow first paint
+      // + heavy DOM) on long-lived archives. Reset to 20 on filter
+      // change so each window starts at the top.
+      if (typeof this._reportsVisibleCount !== "number") {
+        this._reportsVisibleCount = 20;
+      }
+      const visibleCount = Math.min(this._reportsVisibleCount, filtered.length);
+      const visibleFiltered = filtered.slice(0, visibleCount);
+      const hasMore = visibleCount < filtered.length;
+
       const filterChip = (key, label, count) => {
         const on = key === activeFilter ? " on" : "";
         return `
@@ -4252,6 +4619,8 @@
       // Group filtered items by date label (Today / Yesterday / This
       // week / Earlier) so the list still has rhythm without splitting
       // into multiple sections each with its own header chrome.
+      // Iterates the *visible* slice; the load-more sentinel below
+      // tops the list up by 20 each time it crosses the viewport.
       const groups = [];
       const yesterdayStart = todayStart - 86400_000;
       let currentGroup = null;
@@ -4261,7 +4630,7 @@
         if (ts >= weekStart)       return "This week";
         return "Earlier";
       };
-      for (const b of filtered) {
+      for (const b of visibleFiltered) {
         const label = groupLabelFor(b.createdAt);
         if (!currentGroup || currentGroup.label !== label) {
           currentGroup = { label, items: [] };
@@ -4306,13 +4675,28 @@
             </div>
           `).join("");
 
+      // Bottom sentinel · IntersectionObserver target. Renders only
+      // when there's more to load. The "+ N more" hint doubles as a
+      // click target if the user prefers explicit paging over scroll.
+      const remaining = filtered.length - visibleCount;
+      const sentinelHtml = hasMore
+        ? `
+          <div class="reports-load-sentinel" data-reports-load-sentinel>
+            <button type="button" class="reports-load-more" data-reports-load-more>
+              <span class="reports-load-more-arrow">▾</span>
+              <span class="reports-load-more-text">Load ${Math.min(20, remaining)} more · ${remaining} remaining</span>
+            </button>
+          </div>
+        `
+        : "";
+
       page.innerHTML = `
         <div class="reports-page-head">
           <div>
             <div class="reports-page-kicker">// archive</div>
             <h1 class="reports-page-title">All Reports</h1>
           </div>
-          <div class="reports-page-meta">${total} ${total === 1 ? "report" : "reports"} · ${distinctRooms} ${distinctRooms === 1 ? "room" : "rooms"}</div>
+          <div class="reports-page-meta">${total} ${total === 1 ? "report" : "reports"} · ${distinctRooms} ${distinctRooms === 1 ? "room" : "rooms"}${hasMore ? ` · showing ${visibleCount}` : ""}</div>
         </div>
 
         <div class="reports-filters" role="tablist" aria-label="Filter reports by recency">
@@ -4322,14 +4706,81 @@
           ${filterChip("earlier", "Earlier", earlierCount)}
         </div>
 
-        <div class="reports-list-wrap">${groupsHtml}</div>
+        <div class="reports-list-wrap">${groupsHtml}${sentinelHtml}</div>
       `;
+
+      // Wire the load-more sentinel after the DOM is in place. Observer
+      // is scoped to this view; we tear it down on the next render to
+      // avoid leaks. Click handler covers explicit-tap users; the
+      // observer covers scroll users — both bump the visible count
+      // and re-render in place.
+      this._wireReportsLoadMore(filtered);
+    },
+
+    /** Wire pagination on the All Reports view · IntersectionObserver
+     *  on the bottom sentinel + click on the explicit "Load more"
+     *  button. Both bump `_reportsVisibleCount` by 20 and re-render. */
+    _wireReportsLoadMore(filteredList) {
+      // Tear down a stale observer from a prior render before mounting
+      // a fresh one — without this, scrolling fires N old observers
+      // and re-renders churn the list.
+      if (this._reportsLoadObserver) {
+        try { this._reportsLoadObserver.disconnect(); } catch { /* noop */ }
+        this._reportsLoadObserver = null;
+      }
+      const sentinel = document.querySelector("[data-reports-load-sentinel]");
+      if (!sentinel) return;
+
+      const bumpVisible = () => {
+        const next = (this._reportsVisibleCount || 20) + 20;
+        if (next >= filteredList.length) {
+          this._reportsVisibleCount = filteredList.length;
+        } else {
+          this._reportsVisibleCount = next;
+        }
+        // Re-render with the cached dataset · cheap (no fetch).
+        if (Array.isArray(this._reportsCache)) {
+          this.renderReportsPage(this._reportsCache);
+        }
+      };
+
+      // Click path · explicit tap on the button.
+      const btn = sentinel.querySelector("[data-reports-load-more]");
+      if (btn) {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          bumpVisible();
+        });
+      }
+
+      // Scroll path · IntersectionObserver fires when the sentinel
+      // crosses the viewport. `rootMargin: 200px` triggers slightly
+      // before the actual edge so the next batch is rendered before
+      // the user reaches the bottom — feels seamless rather than
+      // chunked.
+      try {
+        this._reportsLoadObserver = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                bumpVisible();
+                break;
+              }
+            }
+          },
+          { rootMargin: "200px 0px 200px 0px", threshold: 0.01 },
+        );
+        this._reportsLoadObserver.observe(sentinel);
+      } catch { /* IntersectionObserver unavailable · click path remains */ }
     },
 
     /** Switch the active recency filter without a re-fetch — uses the
-     *  cached dataset captured by renderReportsPage. */
+     *  cached dataset captured by renderReportsPage. Resets the
+     *  visible page size to 20 so each filtered window starts at the
+     *  top instead of inheriting the prior filter's scroll position. */
     setReportsFilter(key) {
       this._reportsFilter = key;
+      this._reportsVisibleCount = 20;
       if (Array.isArray(this._reportsCache)) {
         this.renderReportsPage(this._reportsCache);
       }
@@ -5651,6 +6102,12 @@
       if (this.agentSpec) {
         return this.renderAgentSpecPreviewHtml(this.agentSpec, lang);
       }
+      // If the last attempt failed (timeout or other), render the
+      // recovery card with [Retry] / [Discard] · keeps the description
+      // around so retry doesn't need a re-type.
+      if (this.agentSpecError) {
+        return this.renderAgentSpecErrorHtml(this.agentSpecError, lang);
+      }
       const generating = this.agentSpecGenerating;
       const currentModel = this.loadAgentComposerModel();
       const modelDisplay = MODEL_LABELS[currentModel] || currentModel;
@@ -5864,6 +6321,65 @@
       `;
     },
 
+    /** Recovery card · shown when /generate-spec aborted (5-min
+     *  timeout) or returned an error. Carries [Retry] (re-runs with
+     *  the same stashed description) and [Discard] (clears the
+     *  composer back to its input state). The description text is
+     *  surfaced read-only so the user can copy it before discard. */
+    renderAgentSpecErrorHtml(err, lang) {
+      const t = lang === "zh"
+        ? {
+            kicker: err.kind === "timeout" ? "// 生成超时" : "// 生成失败",
+            title: err.kind === "timeout" ? "生成超过 5 分钟仍未完成" : "生成失败",
+            hintTimeout: "可能是模型回应过慢、网络波动，或后端 LLM 流水线卡住了。点击重试再来一次。",
+            hintFailed: "请确认 API key 配置正确、模型可达。重试通常能解决临时性失败。",
+            descLabel: "你的描述（重试时会复用）",
+            retry: "重试",
+            discard: "放弃",
+          }
+        : {
+            kicker: err.kind === "timeout" ? "// generation timed out" : "// generation failed",
+            title: err.kind === "timeout" ? "Generation didn't complete after 5 minutes" : "Generation failed",
+            hintTimeout: "The model may be slow, the network flaky, or the backend pipeline stalled. Click retry to start a fresh run.",
+            hintFailed: "Check your API key configuration and model reachability. Retry often clears transient failures.",
+            descLabel: "Your description (re-used on retry)",
+            retry: "Retry",
+            discard: "Discard",
+          };
+      const desc = this._agentComposerLastDesc || "";
+      const hint = err.kind === "timeout" ? t.hintTimeout : t.hintFailed;
+      const detail = err.message ? `<div class="ag-gen-error-detail">${this.escape(err.message)}</div>` : "";
+      return `
+        <section class="cmp ag-cmp">
+          <header class="cmp-hero">
+            <div class="cmp-greet">${this.escape(this.composerGreeting(lang, (this.prefs?.name || "you").trim() || "you"))}</div>
+            <h1 class="cmp-prompt">${this.escape(lang === "zh" ? "想招一位什么样的董事？" : "What kind of director do you want?")}</h1>
+          </header>
+          <div class="ag-gen-error-card">
+            <div class="ag-gen-error-kicker">${this.escape(t.kicker)}</div>
+            <h2 class="ag-gen-error-title">${this.escape(t.title)}</h2>
+            <p class="ag-gen-error-hint">${this.escape(hint)}</p>
+            ${detail}
+            ${desc ? `
+              <div class="ag-gen-error-desc">
+                <div class="ag-gen-error-desc-label">${this.escape(t.descLabel)}</div>
+                <div class="ag-gen-error-desc-body">${this.escape(desc)}</div>
+              </div>
+            ` : ""}
+            <div class="ag-gen-error-actions">
+              <button type="button" class="ag-gen-error-retry" data-agent-spec-retry>
+                <span class="ag-gen-error-retry-mark">↻</span>
+                <span>${this.escape(t.retry)}</span>
+              </button>
+              <button type="button" class="ag-gen-error-discard" data-agent-spec-error-discard>
+                ${this.escape(t.discard)}
+              </button>
+            </div>
+          </div>
+        </section>
+      `;
+    },
+
     /** Inline 6-axis radar for the spec preview · the same axes that
      *  drive the full agent profile radar, scaled down to ~140px so it
      *  fits beside the avatar/identity column. Visualizes the ability
@@ -5929,6 +6445,13 @@
       ta.style.height = h + "px";
     },
 
+    /** Hard timeout for /generate-spec · 5 min covers normal multi-stage
+     *  generation (Brave search + Stage A profile + Stage B spec) with
+     *  generous headroom on slow providers. Past this we abort the
+     *  fetch (and server-side LLM work via the propagated signal) and
+     *  surface a retry card. */
+    AGENT_GEN_TIMEOUT_MS: 5 * 60_000,
+
     async submitAgentComposer() {
       const ta = document.querySelector("[data-agent-composer-desc]");
       const description = ta ? ta.value.trim() : "";
@@ -5936,9 +6459,20 @@
         if (ta) ta.focus();
         return;
       }
-      // Stash the description so "regenerate" / discard can re-use it.
+      // Stash the description so "regenerate" / discard / retry can
+      // re-use it.
       this._agentComposerLastDesc = description;
+      await this._runAgentSpecGeneration(description);
+    },
+
+    /** Shared generator · used by submit, redo, and the error-card
+     *  retry button. Runs the /generate-spec POST with a 5-minute
+     *  AbortController; surfaces success → preview, timeout / failure
+     *  → error card (the previous alert() UX cleared on dismiss; this
+     *  one stays put so retry doesn't need a re-type). */
+    async _runAgentSpecGeneration(description) {
       this.agentSpec = null;
+      this.agentSpecError = null;
       this.agentSpecGenerating = true;
       // Snapshot websearch state for THIS run · drives the stage list
       // (whether the "searching the web" prefix shows) and the POST
@@ -5947,11 +6481,23 @@
       this._agentGenUsingWebSearch = this.loadAgentComposerWebSearch();
       this.renderEmptyState();
       this.startAgentGenTick();
+
+      // AbortController · used to enforce the 5-min hard timeout AND
+      // to clean up cleanly if the user discards mid-flight.
+      const ctrl = new AbortController();
+      this._agentGenAbort = ctrl;
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { ctrl.abort(); } catch { /* ignore */ }
+      }, this.AGENT_GEN_TIMEOUT_MS);
+
       try {
         const r = await fetch("/api/agents/generate-spec", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ description, webSearch: this._agentGenUsingWebSearch }),
+          signal: ctrl.signal,
         });
         if (!r.ok) {
           const e = await r.json().catch(() => ({}));
@@ -5969,15 +6515,41 @@
         this.agentSpecAvatarSeed = (window.AvatarSkill && window.AvatarSkill.randomSeed)
           ? window.AvatarSkill.randomSeed()
           : null;
-        this.stopAgentGenTick();
-        this.agentSpecGenerating = false;
-        this.renderEmptyState();
+        this.agentSpecError = null;
       } catch (e) {
+        const isAbort = (e && (e.name === "AbortError" || /aborted/i.test(String(e.message))));
+        const lang = this.composerLanguage();
+        if (timedOut || isAbort) {
+          this.agentSpecError = {
+            kind: "timeout",
+            message: lang === "zh"
+              ? "生成超过 5 分钟仍未完成 · 模型回应慢、网络波动，或后端流水线卡住了。"
+              : "Generation took longer than 5 minutes · the model may be slow, the network flaky, or the backend stuck.",
+          };
+        } else {
+          this.agentSpecError = {
+            kind: "failed",
+            message: (e && e.message ? e.message : String(e)),
+          };
+        }
+      } finally {
+        clearTimeout(timer);
+        this._agentGenAbort = null;
         this.stopAgentGenTick();
         this.agentSpecGenerating = false;
         this.renderEmptyState();
-        alert("Generate failed: " + (e && e.message ? e.message : e));
       }
+    },
+
+    /** Retry the last attempt · same description, fresh fetch. Wired
+     *  to the [Retry] button on the agent-spec error card. */
+    retryAgentSpec() {
+      const desc = this._agentComposerLastDesc;
+      if (!desc) {
+        this.discardAgentSpec();
+        return;
+      }
+      this._runAgentSpecGeneration(desc);
     },
 
     rerollAgentSpecAvatar() {
@@ -5992,9 +6564,18 @@
     },
 
     discardAgentSpec() {
+      // Cancel any in-flight generation when the user backs out · stops
+      // the fetch (and the server-side LLM work via the propagated
+      // signal) so we don't keep burning tokens for output the user
+      // already discarded.
+      if (this._agentGenAbort) {
+        try { this._agentGenAbort.abort(); } catch { /* ignore */ }
+        this._agentGenAbort = null;
+      }
       this.agentSpec = null;
       this.agentSpecAvatarSeed = null;
       this.agentSpecGenerating = false;
+      this.agentSpecError = null;
       this.renderEmptyState();
     },
 
@@ -6005,42 +6586,7 @@
         this.discardAgentSpec();
         return;
       }
-      this.agentSpec = null;
-      this.agentSpecGenerating = true;
-      this._agentGenUsingWebSearch = this.loadAgentComposerWebSearch();
-      this.renderEmptyState();
-      this.startAgentGenTick();
-      // Submit again with the same description.
-      (async () => {
-        try {
-          const r = await fetch("/api/agents/generate-spec", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ description: desc, webSearch: this._agentGenUsingWebSearch }),
-          });
-          if (!r.ok) {
-            const e = await r.json().catch(() => ({}));
-            throw new Error(e.error || ("HTTP " + r.status));
-          }
-          const j = await r.json();
-          this.agentSpec = j.spec || null;
-          if (this.agentSpec) {
-            const userModel = this.loadAgentComposerModel();
-            if (userModel && MODEL_LABELS[userModel]) this.agentSpec.modelV = userModel;
-          }
-          this.agentSpecAvatarSeed = (window.AvatarSkill && window.AvatarSkill.randomSeed)
-            ? window.AvatarSkill.randomSeed()
-            : null;
-          this.stopAgentGenTick();
-          this.agentSpecGenerating = false;
-          this.renderEmptyState();
-        } catch (e) {
-          this.stopAgentGenTick();
-          this.agentSpecGenerating = false;
-          this.renderEmptyState();
-          alert("Regenerate failed: " + (e && e.message ? e.message : e));
-        }
-      })();
+      this._runAgentSpecGeneration(desc);
     },
 
     /** Read inline-edited values from the preview card and POST to
@@ -6119,6 +6665,128 @@
       } catch (e) {
         if (btn) { btn.disabled = false; btn.classList.remove("busy"); }
         alert("Save failed: " + (e && e.message ? e.message : e));
+      }
+    },
+
+    /** Brief picker · popover anchored under the [View Report] button
+     *  on rooms with multiple briefs. Each row is a plain anchor to
+     *  /report.html?r=<roomId>&b=<briefId> so middle-click and
+     *  cmd-click work as expected; left-click closes the picker after
+     *  letting the navigation happen. Closes on outside click / Esc. */
+    toggleBriefPicker(anchorBtn) {
+      if (document.getElementById("brief-picker-pop")) {
+        this.closeBriefPicker();
+        return;
+      }
+      this.openBriefPicker(anchorBtn);
+    },
+    openBriefPicker(anchorBtn) {
+      this.closeBriefPicker();
+      const roomId = this.currentRoomId;
+      const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs.slice() : [];
+      if (!roomId || briefs.length === 0) return;
+      // Sort newest-first · the most recently filed brief is the one a
+      // returning user most likely wants to re-open.
+      briefs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      const lang = (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject)) ? "zh" : "en";
+      const t = lang === "zh"
+        ? { title: "选择一份报告打开", supplementPrefix: "补充视角：", initial: "初版", filed: "已归档" }
+        : { title: "Open a report", supplementPrefix: "Supplement: ", initial: "Initial", filed: "filed" };
+      const initialIdx = briefs.length - 1; // oldest is "Initial"
+      const rows = briefs.map((b, i) => {
+        // The numbering is stable across renders: oldest = 01, newest
+        // = N. We have to compute the position from the original
+        // (createdAt-ascending) order, not the sorted-newest-first
+        // index `i`.
+        const posFromOldest = briefs.length - i;
+        const isInitial = posFromOldest === 1;
+        const num = String(posFromOldest).padStart(2, "0");
+        const supplementSnippet = b.supplement && b.supplement.trim()
+          ? b.supplement.trim().slice(0, 64) + (b.supplement.trim().length > 64 ? "…" : "")
+          : "";
+        const subtitle = isInitial ? t.initial : (supplementSnippet ? `${t.supplementPrefix}${supplementSnippet}` : "");
+        const filedLabel = b.createdAt
+          ? new Date(b.createdAt).toLocaleString(lang === "zh" ? "zh-CN" : undefined, {
+              year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+            })
+          : "";
+        const href = `/report.html?r=${encodeURIComponent(roomId)}&b=${encodeURIComponent(b.id)}`;
+        return `
+          <a class="brief-picker-row" href="${this.escape(href)}" target="_blank" rel="noopener" data-brief-picker-row data-brief-id="${this.escape(b.id)}">
+            <span class="brief-picker-num">${this.escape(num)}</span>
+            <span class="brief-picker-main">
+              <span class="brief-picker-title">${this.escape(b.title || "(untitled)")}</span>
+              ${subtitle ? `<span class="brief-picker-sub">${this.escape(subtitle)}</span>` : ""}
+            </span>
+            ${filedLabel ? `<span class="brief-picker-time">${this.escape(filedLabel)}</span>` : ""}
+            <span class="brief-picker-arrow">↗</span>
+          </a>
+        `;
+      }).join("");
+      const pop = document.createElement("div");
+      pop.id = "brief-picker-pop";
+      pop.className = "brief-picker-pop";
+      pop.innerHTML = `
+        <div class="brief-picker-head">
+          <span class="brief-picker-title-head">${this.escape(t.title)}</span>
+          <span class="brief-picker-count">${briefs.length}</span>
+        </div>
+        <div class="brief-picker-list">${rows}</div>
+      `;
+      document.body.appendChild(pop);
+      // Position with viewport collision detection · same pattern as
+      // the composer director picker. Anchor under the button by
+      // default; flip above when below would clip.
+      const r = anchorBtn.getBoundingClientRect();
+      const buffer = 16;
+      const gap = 6;
+      const viewH = window.innerHeight;
+      const viewW = window.innerWidth;
+      pop.style.position = "fixed";
+      const popRect = pop.getBoundingClientRect();
+      // Horizontal · right-align to the button (the View Report sits
+      // on the right edge of the room header) so the popover anchors
+      // visually beneath it.
+      const desiredRight = Math.max(buffer, viewW - r.right);
+      pop.style.right = desiredRight + "px";
+      pop.style.left = "auto";
+      // Vertical · prefer below; flip up if it doesn't fit.
+      const spaceBelow = viewH - r.bottom - buffer;
+      const spaceAbove = r.top - buffer;
+      if (spaceBelow >= popRect.height + gap || spaceBelow >= spaceAbove) {
+        pop.style.top = (r.bottom + gap) + "px";
+        pop.style.bottom = "";
+        pop.style.maxHeight = Math.max(160, spaceBelow - gap) + "px";
+      } else {
+        pop.style.top = "";
+        pop.style.bottom = (viewH - r.top + gap) + "px";
+        pop.style.maxHeight = Math.max(160, spaceAbove - gap) + "px";
+      }
+      // Close handlers
+      this._briefPickerEsc = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopImmediatePropagation();
+          this.closeBriefPicker();
+        }
+      };
+      this._briefPickerOutside = (ev) => {
+        if (!pop.contains(ev.target) && !ev.target.closest("[data-view-report-trigger]")) {
+          this.closeBriefPicker();
+        }
+      };
+      document.addEventListener("keydown", this._briefPickerEsc, true);
+      setTimeout(() => document.addEventListener("click", this._briefPickerOutside, true), 0);
+    },
+    closeBriefPicker() {
+      const el = document.getElementById("brief-picker-pop");
+      if (el) el.remove();
+      if (this._briefPickerEsc) {
+        document.removeEventListener("keydown", this._briefPickerEsc, true);
+        this._briefPickerEsc = null;
+      }
+      if (this._briefPickerOutside) {
+        document.removeEventListener("click", this._briefPickerOutside, true);
+        this._briefPickerOutside = null;
       }
     },
 
@@ -6362,16 +7030,20 @@
           current = state.mode;
         }
       } else if (kind === "intensity") {
+        // Hints describe the LENGTH outcome, not adversarial intent —
+        // the third value (terse) is a cadence dial, not a harshness
+        // dial. The earlier "no prisoners" / "直击痛点" copy pulled
+        // users into thinking it controlled tone.
         opts = lang === "zh"
           ? [
-              { v: "calm",   label: "Calm",   hint: "想清楚" },
-              { v: "sharp",  label: "Sharp",  hint: "不绕弯" },
-              { v: "brutal", label: "Brutal", hint: "直击痛点" },
+              { v: "calm",  label: "Calm",  hint: "慢慢说" },
+              { v: "sharp", label: "Sharp", hint: "不绕弯" },
+              { v: "terse", label: "Terse", hint: "一句话" },
             ]
           : [
-              { v: "calm",   label: "Calm",   hint: "let them think" },
-              { v: "sharp",  label: "Sharp",  hint: "no hedging" },
-              { v: "brutal", label: "Brutal", hint: "no prisoners" },
+              { v: "calm",  label: "Calm",  hint: "let them think" },
+              { v: "sharp", label: "Sharp", hint: "no hedging" },
+              { v: "terse", label: "Terse", hint: "telegraphic" },
             ];
         if (followUpScope) {
           const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
@@ -6713,9 +7385,23 @@
           <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> Pause ]</a>
           <a href="#" class="resume-btn" data-resume>[ ▶ Resume ]</a>
           ${this.currentBrief
-            ? `<a href="/report.html?r=${this.escape(r.id)}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>[ View Report ]</a>`
+            ? (() => {
+                // Multiple briefs · render the View Report button as a
+                // popover trigger (the current brief still wins as the
+                // default if the user middle-clicks / opens in new tab,
+                // since the href is preserved). The click handler at
+                // [data-view-report-trigger] cancels navigation and
+                // opens the picker.
+                const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
+                const multi = briefs.length > 1;
+                const directHref = `/report.html?r=${this.escape(r.id)}${this.currentBrief.id ? `&b=${this.escape(this.currentBrief.id)}` : ""}`;
+                if (!multi) {
+                  return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>[ View Report ]</a>`;
+                }
+                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this.composerLanguage() === "zh" ? `${briefs.length} 份报告 · 点击选择` : `${briefs.length} reports · click to choose`)}">[ View Report <span class="vr-count">· ${briefs.length}</span> ▾ ]</a>`;
+              })()
             : (r.status === "adjourned"
-              ? `<span class="view-report-btn no-report" data-no-report title="No report was filed for this room">[ ⊘ No Report ]</span>`
+              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this.composerLanguage() === "zh" ? "为这次会议补出一份报告" : "File a brief from this session")}"><span class="vr-mark">▸</span> ${this.escape(this.composerLanguage() === "zh" ? "生成报告" : "Generate Report")}</a>`
               : "")}
         </div>
       `;
@@ -6884,6 +7570,62 @@
     /** "Thinking…" bouncing-dots placeholder shown before the first token. */
     thinkingHtml() {
       return '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    },
+
+    /** Show a transient "Chair is preparing…" placeholder card at the
+     *  bottom of the chat. Bridges silent server-side phases (haiku
+     *  discipline gate, pre-fetch tools, LLM startup) where the user
+     *  would otherwise see nothing happening between submitting their
+     *  question and the chair's streaming bubble appearing. Cleared on
+     *  any chair message-appended, on clarify-ready, on room-paused,
+     *  or after a 60s safety timeout. Idempotent — repeated calls
+     *  refresh the existing card rather than stacking duplicates. */
+    showChairPending(phase) {
+      const chat = document.querySelector("[data-chat-messages]");
+      if (!chat) return;
+      const existing = chat.querySelector("[data-chair-pending]");
+      const isCjk = /[一-鿿]/.test(this.currentRoom?.subject || "");
+      const chairName = (this.currentChair?.name) || (isCjk ? "主席" : "Chair");
+      const labelMap = isCjk
+        ? { clarify: "正在整理你的问题", "chair-direct": "正在准备回应", "round-end": "正在收束这一轮", convening: "正在召集会议", "next-speaker": "正在判断接下来的发言", chair: "正在准备" }
+        : { clarify: "is reading your question", "chair-direct": "is preparing a response", "round-end": "is wrapping up the round", convening: "is convening the room", "next-speaker": "is reading the room", chair: "is preparing" };
+      const phraseRaw = labelMap[phase] || labelMap.chair;
+      const phrase = `${chairName} ${phraseRaw}…`;
+      if (existing) {
+        const span = existing.querySelector(".cp-text");
+        if (span) span.textContent = phrase;
+        return;
+      }
+      const node = document.createElement("div");
+      node.className = "chair-pending";
+      node.setAttribute("data-chair-pending", "");
+      node.innerHTML = `
+        <div class="cp-rule" aria-hidden="true"></div>
+        <div class="cp-kicker">▸ ${this.escape(isCjk ? "主席" : "chair")}</div>
+        <div class="cp-body">
+          <span class="cp-text">${this.escape(phrase)}</span>
+          <span class="thinking-dots"><span></span><span></span><span></span></span>
+        </div>
+      `;
+      chat.appendChild(node);
+      this.scrollChatToBottom(false);
+      // Safety timeout · if no chair message and no clear event arrives
+      // within 60s the placeholder lingers forever otherwise.
+      if (this._chairPendingTimer) clearTimeout(this._chairPendingTimer);
+      this._chairPendingTimer = setTimeout(() => this.hideChairPending(), 60_000);
+    },
+
+    /** Remove the chair-pending placeholder if present. Safe to call
+     *  when no placeholder exists. */
+    hideChairPending() {
+      if (this._chairPendingTimer) {
+        clearTimeout(this._chairPendingTimer);
+        this._chairPendingTimer = null;
+      }
+      const chat = document.querySelector("[data-chat-messages]");
+      if (!chat) return;
+      const existing = chat.querySelector("[data-chair-pending]");
+      if (existing) existing.remove();
     },
 
     updateMessageBodyDom(messageId, body, streaming) {
@@ -7127,30 +7869,52 @@
         // costs nothing).
         const isRoundEnd = msg && msg.meta && msg.meta.kind === "round-end";
         if (!isRoundEnd) return "";
-        // Skeleton · 3 placeholder rows with shimmering bars + a quiet
-        // status line. Re-uses .round-end-card so the swap to the real
-        // card on round-ended is a clean replace, not a layout shift.
+        // Skeleton ONLY while actively streaming. If streaming has
+        // finished but points are still empty (parser couldn't extract
+        // any from the chair's body — rare, but happens when the model
+        // drops the format), render a DEGRADED card with continue /
+        // adjourn but no vote chips. The earlier failure mode here
+        // was an indefinite "drafting key points…" lock-up because the
+        // skeleton kept rendering after streaming ended.
+        if (isStreaming) {
+          return `
+            <div class="round-end-card pending" data-round-end-card="${this.escape(messageId)}">
+              <div class="kp-eyebrow kp-eyebrow-pending">▸ key points · drafting</div>
+              <div class="kp-list">
+                <div class="kp-row kp-skeleton" aria-hidden="true">
+                  <div class="kp-skeleton-bar"></div>
+                  <div class="kp-skeleton-actions"></div>
+                </div>
+                <div class="kp-row kp-skeleton" aria-hidden="true">
+                  <div class="kp-skeleton-bar short"></div>
+                  <div class="kp-skeleton-actions"></div>
+                </div>
+                <div class="kp-row kp-skeleton" aria-hidden="true">
+                  <div class="kp-skeleton-bar"></div>
+                  <div class="kp-skeleton-actions"></div>
+                </div>
+              </div>
+              <div class="kp-ctas-pending">
+                <span class="kp-pending-dot"></span>
+                <span class="kp-pending-text">Chair is drafting key points…</span>
+              </div>
+            </div>
+          `;
+        }
+        // Degraded card · streaming finished, points empty. Show
+        // continue/adjourn so the user can still progress the room.
+        const ctasDegraded = awaiting
+          ? `
+            <div class="kp-ctas">
+              <button type="button" class="kp-cta primary" data-continue>[ ▶ Continue · next round ]</button>
+              <button type="button" class="kp-cta ghost" data-adjourn-from-chair>[ ⊘ Adjourn &amp; file brief ]</button>
+            </div>
+          `
+          : `<div class="kp-ctas-spent">// continued</div>`;
         return `
-          <div class="round-end-card pending" data-round-end-card="${this.escape(messageId)}">
-            <div class="kp-eyebrow kp-eyebrow-pending">▸ key points · drafting</div>
-            <div class="kp-list">
-              <div class="kp-row kp-skeleton" aria-hidden="true">
-                <div class="kp-skeleton-bar"></div>
-                <div class="kp-skeleton-actions"></div>
-              </div>
-              <div class="kp-row kp-skeleton" aria-hidden="true">
-                <div class="kp-skeleton-bar short"></div>
-                <div class="kp-skeleton-actions"></div>
-              </div>
-              <div class="kp-row kp-skeleton" aria-hidden="true">
-                <div class="kp-skeleton-bar"></div>
-                <div class="kp-skeleton-actions"></div>
-              </div>
-            </div>
-            <div class="kp-ctas-pending">
-              <span class="kp-pending-dot"></span>
-              <span class="kp-pending-text">${isStreaming ? "Chair is drafting key points…" : "Loading vote card…"}</span>
-            </div>
+          <div class="round-end-card" data-round-end-card="${this.escape(messageId)}">
+            <div class="kp-eyebrow kp-eyebrow-degraded">▸ key points · couldn't be parsed from this round</div>
+            ${ctasDegraded}
           </div>
         `;
       }
@@ -7167,18 +7931,51 @@
           </div>
         </div>
       `).join("");
-      const ctas = awaiting
+      // Tone-shift proposal · the chair's optional MODE-SHIFT/BECAUSE
+      // pair, parsed server-side and surfaced on this card. When
+      // present, the standard [Continue] button is replaced with two
+      // explicit branches so the user sees the alternatives clearly.
+      // Disappears once the round is resumed (kp-ctas-spent path).
+      const shift = msg && msg.meta && msg.meta.modeShiftProposal;
+      const shiftCallout = (shift && awaiting)
         ? `
+          <div class="kp-mode-shift">
+            <div class="kp-shift-eyebrow">▸ chair suggests · switch tone to <strong>${this.escape(shift.to)}</strong></div>
+            <div class="kp-shift-because">${this.escape(shift.because)}</div>
+          </div>
+        `
+        : "";
+      let ctas;
+      if (!awaiting) {
+        ctas = `<div class="kp-ctas-spent">// continued</div>`;
+      } else if (shift) {
+        // 3-button layout · primary takes ~50% of the row, the two
+        // secondaries split the rest. Without `kp-ctas-shift`, three
+        // `flex: 1` buttons squeeze each label to ~33% width and the
+        // longer "switch to constructive" label wraps to two lines.
+        // Labels stripped of "& continue" — the action is implicit
+        // in this round-end context.
+        const currentMode = (this.currentRoom?.mode || "").toLowerCase();
+        ctas = `
+          <div class="kp-ctas kp-ctas-shift">
+            <button type="button" class="kp-cta primary" data-shift-accept data-shift-to="${this.escape(shift.to)}">[ ↻ switch to ${this.escape(shift.to)} ]</button>
+            <button type="button" class="kp-cta ghost" data-continue>[ keep ${this.escape(currentMode || "current")} ]</button>
+            <button type="button" class="kp-cta ghost" data-adjourn-from-chair>[ ⊘ adjourn ]</button>
+          </div>
+        `;
+      } else {
+        ctas = `
           <div class="kp-ctas">
             <button type="button" class="kp-cta primary" data-continue>[ ▶ Continue · next round ]</button>
             <button type="button" class="kp-cta ghost" data-adjourn-from-chair>[ ⊘ Adjourn &amp; file brief ]</button>
           </div>
-        `
-        : `<div class="kp-ctas-spent">// continued</div>`;
+        `;
+      }
       return `
         <div class="round-end-card" data-round-end-card="${this.escape(messageId)}">
           <div class="kp-eyebrow">▸ key points · vote what you want pursued</div>
           <div class="kp-list">${items}</div>
+          ${shiftCallout}
           ${ctas}
         </div>
       `;
@@ -7197,7 +7994,7 @@
         // tight (~4 lines of body text) so even mid-length openers
         // collapse — the user can always one-click to read the full
         // text. Toggle handler lives at doc level (see init).
-        const isLongOpener = (m.body || "").length > 160;
+        const isLongOpener = (m.body || "").length > 100;
         // Follow-up rooms get an "origin" row above the question that
         // names the parent room (number + subject) and links back to
         // it via the hash route. Without this, a follow-up looks
@@ -7454,12 +8251,26 @@
       // flanking lines) instead of a chat bubble so the transcript
       // ends on a clear "no report filed" beat that doesn't read as
       // just another chair turn.
+      //
+      // CTA · "Generate report now" button surfaces when the room is
+      // adjourned + no brief exists yet. The user can change their
+      // mind without opening a follow-up room. Hidden once a brief
+      // has been filed (currentBrief !== null) — the card then reads
+      // as a historical marker only.
       if (isChair && metaKind === "no-brief") {
         const ts = this.timeFmt(m.createdAt);
-        // CTA only shown when no brief currently exists. Once the user
-        // generates one, currentBrief is populated and we hide the
-        // button so the card reads as a stable historical marker.
-        const briefExists = !!this.currentBrief;
+        const isZh = this.composerLanguage() === "zh";
+        const hasBrief = !!this.currentBrief;
+        const cta = hasBrief
+          ? ""
+          : `
+            <div class="nb-actions">
+              <button type="button" class="nb-cta" data-generate-brief>
+                <span class="nb-cta-mark">▸</span>
+                <span class="nb-cta-text">${isZh ? "生成报告" : "Generate report now"}</span>
+              </button>
+            </div>
+          `;
         return `
           <div class="no-brief-card" data-message-id="${this.escape(m.id)}">
             <span class="nb-chip">
@@ -7467,14 +8278,10 @@
               <span class="nb-eyebrow">adjourned · no brief filed</span>
             </span>
             <div class="nb-body">
-              <strong>${this.escape(this.prefs?.name || "The chair")}</strong> declared no report is needed for this session.
+              <strong>${this.escape(this.prefs?.name || "The chair")}</strong> ${isZh ? "在结束时跳过了报告。" : "declared no report is needed for this session."}
             </div>
+            ${cta}
             <div class="nb-meta">${this.escape(ts)}</div>
-            ${briefExists ? "" : `
-              <div class="nb-actions">
-                <button type="button" class="nb-cta" data-generate-brief>[ ✎ Generate report now ]</button>
-              </div>
-            `}
           </div>
         `;
       }
@@ -7843,7 +8650,105 @@
         .join("");
     },
 
-    renderBrief() {
+    /** Word / character count for a finished brief body. Returns a
+     *  formatted label (e.g. "3,247 words" or "约 4,500 字") or null
+     *  when the body is empty / mid-stream. Stripping markdown
+     *  decoration before counting keeps the figure honest — without
+     *  it, every `**` and `## ` would inflate an EN count and every
+     *  Chinese fenced kicker would distort the ZH char total. */
+    _briefWordCount(brief) {
+      const md = (brief && brief.bodyMd) || "";
+      if (!md.trim()) return null;
+      const stripped = md
+        .replace(/```[\s\S]*?```/g, "")            // fenced code blocks
+        .replace(/`[^`\n]*`/g, "")                  // inline code
+        .replace(/!\[[^\]]*\]\([^)]+\)/g, "")       // images
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")    // links → label only
+        .replace(/^\s{0,3}#{1,6}\s+/gm, "")         // ATX headings
+        .replace(/^\s*>\s?/gm, "")                  // blockquote markers
+        .replace(/^\s*[-*+]\s+/gm, "")              // unordered list markers
+        .replace(/^\s*\d+[.)]\s+/gm, "")            // ordered list markers
+        .replace(/\*\*|__|\*|_|~~/g, "")            // emphasis decoration
+        .replace(/\|/g, " ")                        // table column dividers
+        .replace(/<[^>]+>/g, " ")                   // raw HTML tags
+        .replace(/&[a-z]+;/gi, " ");                // HTML entities
+      const cjk = stripped.match(/[一-鿿㐀-䶿豈-﫿぀-ゟ゠-ヿ]/g);
+      const cjkCount = cjk ? cjk.length : 0;
+      // CJK-dominant docs: count chars (the "字数" the user reads off
+      // a manuscript). The 30% threshold catches mixed zh-en docs
+      // where the body is mostly Chinese with English brand names —
+      // the natural unit there is still characters, not words.
+      if (cjkCount >= stripped.length * 0.3 && cjkCount > 80) {
+        const fmt = cjkCount.toLocaleString("en-US");
+        return `~${fmt} 字`;
+      }
+      // English / Latin: whitespace-split, ignore empty tokens.
+      const words = stripped.trim().split(/\s+/).filter((w) => w.length > 0);
+      const n = words.length;
+      if (n === 0) return null;
+      const fmt = n.toLocaleString("en-US");
+      return n === 1 ? "1 word" : `${fmt} words`;
+    },
+
+    /** Render the brief version tab strip · shared by both the error
+     *  and success paths in renderBrief. Earlier the error path
+     *  rendered no tabs at all — selecting a failed-brief tab left
+     *  the user with only the retry card and no path back to the good
+     *  briefs. Returns "" when there are <2 briefs (no tab strip). */
+    _renderBriefTabsHtml(activeBrief) {
+      const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
+      if (briefs.length < 2) return "";
+      const sortedBriefs = briefs.slice().sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+      const lang = (activeBrief && activeBrief.language === "zh")
+        || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))
+        ? "zh" : "en";
+      return `
+        <div class="brief-versions">
+          ${sortedBriefs.map((bf, i) => {
+            const isActive = activeBrief && bf.id === activeBrief.id;
+            const num = String(i + 1).padStart(2, "0");
+            const isInitial = i === 0;
+            const supp = bf.supplement && bf.supplement.trim()
+              ? bf.supplement.trim()
+              : (isInitial ? (lang === "zh" ? "初版" : "Initial") : "");
+            const tooltip = isInitial
+              ? (lang === "zh" ? `初版报告 · 由会议本身生成` : `Initial brief · generated from the session`)
+              : `${lang === "zh" ? "补充视角：" : "Supplement: "}${supp || "—"}`;
+            const closeTitle = lang === "zh" ? "删除这份报告" : "Delete this report";
+            // Errored / interrupted / timed-out tabs get a small
+            // visual marker so the user can spot which one needs
+            // attention without entering it. The full retry UI is
+            // still gated on selecting the tab (bypassSalvage path).
+            const stateMark = (bf.error || bf.interrupted || bf.timedOut)
+              ? `<span class="brief-version-state" aria-hidden="true">!</span>`
+              : "";
+            return `
+              <span class="brief-version-tab-wrap${isActive ? " active" : ""}">
+                <button type="button" class="brief-version-tab${isActive ? " active" : ""}" data-brief-tab data-brief-id="${this.escape(bf.id)}" title="${this.escape(tooltip)}">
+                  <span class="brief-version-num">${num}</span>
+                  ${stateMark}
+                  ${isInitial
+                    ? `<span class="brief-version-label">${lang === "zh" ? "初版" : "Initial"}</span>`
+                    : `<span class="brief-version-label">${this.escape((supp || "").slice(0, 20))}${(supp || "").length > 20 ? "…" : ""}</span>`}
+                </button>
+                <button type="button" class="brief-version-close" data-brief-delete data-brief-id="${this.escape(bf.id)}" title="${this.escape(closeTitle)}" aria-label="${this.escape(closeTitle)}">×</button>
+              </span>
+            `;
+          }).join("")}
+        </div>
+      `;
+    },
+
+    renderBrief(opts) {
+      // bypassSalvage · when true, render the failed brief's full
+      // error UI instead of falling back to the prior good brief.
+      // Used by the tab-click handler so the user can explicitly
+      // navigate INTO a failed brief to read its error details +
+      // retry from the standard error card. Without this bypass, the
+      // salvage path captured every error render, including the
+      // user's own click — clicking the failed tab simply re-rendered
+      // the good brief, making the failed tab feel un-clickable.
+      const bypassSalvage = !!(opts && opts.bypassSalvage);
       const card = document.querySelector("[data-brief-card]");
       if (!card) return;
       if (!this.currentBrief) {
@@ -7859,6 +8764,13 @@
       card.classList.add("ending-block");
       const b = this.currentBrief;
 
+      // Tab strip · computed up-front so BOTH the error path and the
+      // success path can mount it. Earlier the error path wiped the
+      // tabs entirely (only the retry card rendered) — selecting a
+      // failed-brief tab would leave no way back to the good briefs.
+      // The helper sees `currentBrief` to mark the active tab.
+      const tabsStripHtml = this._renderBriefTabsHtml(b);
+
       // Error path: a compact error card with a retry button. Three
       // sub-cases:
       //   · timedOut (no completion after 5 min wall-clock) → "took
@@ -7866,21 +8778,64 @@
       //   · interrupted (zombie placeholder from a refresh / restart) →
       //     specific copy + Regenerate CTA
       //   · generic LLM failure → original "needs an API key" hint
+      //
+      // Salvage path · if a PRIOR brief was filed successfully, don't
+      // bury it behind the failed brief's error card. Render the good
+      // brief in full and overlay a compact retry banner above it so
+      // the user keeps reading the previous report while seeing that
+      // the regeneration didn't take. Only the standalone failure
+      // (no prior good brief) gets the full-card error treatment.
       if (b.error) {
+        // Skip salvage when the caller explicitly asked for the full
+        // error UI (typically a user-initiated tab click). Otherwise
+        // a failed-brief tab becomes unreachable — clicking it just
+        // re-renders whichever good brief the salvage path picks.
+        const goodBrief = bypassSalvage ? null : (this.currentBriefs || []).find(
+          (x) => x && x.id !== b.id && !x.error && x.bodyMd && x.bodyMd.trim().length > 0,
+        );
+        if (goodBrief) {
+          const failed = b;
+          const prevCurrent = this.currentBrief;
+          this.currentBrief = goodBrief;
+          try { this.renderBrief(); }
+          finally { this.currentBrief = prevCurrent; }
+          // Prepend the compact retry banner to the rendered card so
+          // the existing report stays fully visible below it.
+          const lang = (failed.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
+          const detail = failed.timedOut
+            ? (lang === "zh" ? "重新生成超时" : "regeneration timed out")
+            : failed.interrupted
+              ? (lang === "zh" ? "重新生成被中断" : "regeneration interrupted")
+              : (failed.error || (lang === "zh" ? "重新生成失败" : "regeneration failed"));
+          const cta = lang === "zh" ? "重试" : "Retry";
+          const dismiss = lang === "zh" ? "关闭" : "Dismiss";
+          card.insertAdjacentHTML("afterbegin", `
+            <div class="brief-retry-banner" data-brief-retry-banner data-failed-brief-id="${this.escape(failed.id)}">
+              <span class="brb-mark">⚠</span>
+              <span class="brb-text">${this.escape(detail)}</span>
+              <button type="button" class="brb-retry" data-brief-retry data-target-brief-id="${this.escape(failed.id)}">
+                <span class="brb-retry-mark">↻</span>
+                <span>${this.escape(cta)}</span>
+              </button>
+              <button type="button" class="brb-dismiss" data-brief-banner-dismiss aria-label="${this.escape(dismiss)}" title="${this.escape(dismiss)}">✕</button>
+            </div>
+          `);
+          return;
+        }
         const lang = (b.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
         const copy = b.timedOut
           ? (lang === "zh"
             ? {
                 stamp: "timed out",
                 kicker: "// 报告生成超时",
-                detail: "已超过 5 分钟仍未收到完成信号 · 可能是模型回应过慢、网络中断，或后端流水线卡住了。点击下方按钮重试，或检查 LLM key 与网络后再试。",
+                detail: "已超过 8 分钟仍未收到完成信号 · 可能是模型回应过慢、网络中断，或后端流水线卡住了。点击下方按钮重试，或检查 LLM key 与网络后再试。",
                 hint: "",
                 cta: "重试",
               }
             : {
                 stamp: "timed out",
                 kicker: "// generation timed out",
-                detail: "No completion signal after 5 minutes — the model may be slow, the connection dropped, or the pipeline stalled. Click below to start a fresh run.",
+                detail: "No completion signal after 8 minutes — the model may be slow, the connection dropped, or the pipeline stalled. Click below to start a fresh run.",
                 hint: "",
                 cta: "Retry",
               })
@@ -7917,6 +8872,7 @@
               });
         card.innerHTML = `
           <div class="brief-card">
+            ${tabsStripHtml}
             <div class="brief-banner">
               <span class="brief-banner-tag" style="color: var(--red);">// report</span>
               <span class="brief-banner-stamp" style="color: var(--red);">${this.escape(copy.stamp)}</span>
@@ -7941,7 +8897,7 @@
         return;
       }
 
-      const generating = !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
       const signed = this.currentMembers
         .map((a) => `<img src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`)
         .join("");
@@ -7957,41 +8913,9 @@
         ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}&b=${encodeURIComponent(b.id)}`
         : (this.currentRoomId ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}` : null);
 
-      // Tab strip · only rendered when ≥ 2 briefs filed for this room.
-      // Tabs are ordered oldest → newest so "01" reads as the original
-      // and the latest sits on the right edge. Active tab = currently
-      // shown brief. Each tab has a tooltip showing the supplement (if
-      // any) so the user can recall what each regen was about.
-      const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
-      const sortedBriefs = briefs.slice().sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
-      const showTabs = sortedBriefs.length > 1;
-      const tabsHtml = showTabs ? `
-        <div class="brief-versions">
-          ${sortedBriefs.map((bf, i) => {
-            const isActive = bf.id === b.id;
-            const num = String(i + 1).padStart(2, "0");
-            const isInitial = i === 0;
-            const supp = bf.supplement && bf.supplement.trim()
-              ? bf.supplement.trim()
-              : (isInitial ? (b.language === "zh" ? "初版" : "Initial") : "");
-            const tooltip = isInitial
-              ? (b.language === "zh" ? `初版报告 · 由会议本身生成` : `Initial brief · generated from the session`)
-              : `${b.language === "zh" ? "补充视角：" : "Supplement: "}${supp || "—"}`;
-            const closeTitle = b.language === "zh" ? "删除这份报告" : "Delete this report";
-            return `
-              <span class="brief-version-tab-wrap${isActive ? " active" : ""}">
-                <button type="button" class="brief-version-tab${isActive ? " active" : ""}" data-brief-tab data-brief-id="${this.escape(bf.id)}" title="${this.escape(tooltip)}">
-                  <span class="brief-version-num">${num}</span>
-                  ${isInitial
-                    ? `<span class="brief-version-label">${b.language === "zh" ? "初版" : "Initial"}</span>`
-                    : `<span class="brief-version-label">${this.escape((supp || "").slice(0, 20))}${(supp || "").length > 20 ? "…" : ""}</span>`}
-                </button>
-                <button type="button" class="brief-version-close" data-brief-delete data-brief-id="${this.escape(bf.id)}" title="${this.escape(closeTitle)}" aria-label="${this.escape(closeTitle)}">×</button>
-              </span>
-            `;
-          }).join("")}
-        </div>
-      ` : "";
+      // Tab strip — already computed at the top of renderBrief as
+      // `tabsStripHtml` so both error and success paths can mount it.
+      const tabsHtml = tabsStripHtml;
 
       // Ceremonial wrapper · the deliverable hits the table inside an
       // ending-block frame.
@@ -8012,16 +8936,20 @@
           <div class="brief-body">
             ${generating
               ? `<div class="brief-info brief-info-generating">${this.renderBriefStages(b)}</div>`
-              : `<div class="brief-info">
-                  <div class="brief-kicker">// filed by ${this.escape(this.currentChair?.name || "the chair")}</div>
-                  <h2 class="brief-title" data-brief-title>${this.escape(b.title || "(untitled)")}</h2>
-                  <div class="brief-meta-row">
-                    <span class="brief-meta-line">${this.currentMembers.length} authors</span>
-                    <div class="brief-signed">
-                      <div class="brief-signed-avatars">${signed}</div>
+              : (() => {
+                  const wc = this._briefWordCount(b);
+                  return `<div class="brief-info">
+                    <div class="brief-kicker">// filed by ${this.escape(this.currentChair?.name || "the chair")}</div>
+                    <h2 class="brief-title" data-brief-title>${this.escape(b.title || "(untitled)")}</h2>
+                    <div class="brief-meta-row">
+                      <span class="brief-meta-line">${this.currentMembers.length} authors</span>
+                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}
+                      <div class="brief-signed">
+                        <div class="brief-signed-avatars">${signed}</div>
+                      </div>
                     </div>
-                  </div>
-                </div>`
+                  </div>`;
+                })()
             }
 
             ${reportHref && !generating ? `
@@ -8073,9 +9001,13 @@
      *  what's actually happening — they describe sub-actions that the
      *  pipeline genuinely performs. */
     BRIEF_STAGE_META: {
-      extract:  { eta: [5, 15] },
-      scaffold: { eta: [10, 30] },
-      write:    { eta: [30, 90] },
+      extract:             { eta: [5, 15] },
+      compose:             { eta: [1, 4] },
+      "scaffold-anchor":   { eta: [3, 8] },
+      "scaffold-findings": { eta: [4, 12] },
+      "scaffold-cluster":  { eta: [3, 8] },
+      "scaffold-actions":  { eta: [4, 12] },
+      write:               { eta: [30, 90] },
     },
     BRIEF_SUBSTAGES: {
       en: {
@@ -8084,14 +9016,30 @@
           "Tagging signals by lens (data / dissent / narrative / structural / first-principle)",
           "Tightening to 2–4 signals per director",
         ],
-        scaffold: [
-          "Clustering signals into theme camps",
-          "Identifying the central tension (the crux)",
-          "Looking for convergent independent reasoning",
-          "Spotting questions that didn't exist when the room opened",
-          "Drafting recommendations + pre-mortem",
-          "Picking visuals if the structure warrants them",
-          "Tightening into a research-note scaffold",
+        compose: [
+          "Picking the spine for this brief",
+          "Choosing which component blocks fit",
+          "Sizing density and rhythm",
+        ],
+        "scaffold-anchor": [
+          "Reading the takeaway",
+          "Sizing the confidence call",
+          "Setting the working hypothesis",
+        ],
+        "scaffold-findings": [
+          "Pulling out the headline findings",
+          "Cross-checking each finding to the anchor",
+          "Tightening 3 → 2 if a finding wobbles",
+        ],
+        "scaffold-cluster": [
+          "Mapping where the directors converged",
+          "Surfacing the central tension",
+          "Spotting positions that didn't quite resolve",
+        ],
+        "scaffold-actions": [
+          "Drafting recommendations",
+          "Mapping the pre-mortem",
+          "Surfacing the new questions the room opened",
         ],
         write: [
           "Writing the Bottom Line",
@@ -8111,14 +9059,30 @@
           "按视角标签（data / dissent / narrative / structural / first-principle）整理信号",
           "压缩到每位董事 2-4 条关键信号",
         ],
-        scaffold: [
-          "把信号聚类成主题阵营",
-          "识别核心张力（the crux）",
-          "寻找独立路径下的趋同点",
-          "找出会议过程中『长出来』的新问题",
-          "起草 Recommendations 和 Pre-mortem",
-          "如果结构允许，选择合适的图表",
-          "收敛成研究纪要骨架",
+        compose: [
+          "选定本份报告的 spine 风格",
+          "决定要纳入哪些组件块",
+          "估算密度与节奏",
+        ],
+        "scaffold-anchor": [
+          "读出 takeaway",
+          "校准 confidence",
+          "落定 working hypothesis",
+        ],
+        "scaffold-findings": [
+          "提炼 3 条 headline findings",
+          "复核每条是否撑住 anchor",
+          "如有勉强，3 → 2 收敛",
+        ],
+        "scaffold-cluster": [
+          "定位董事们达成共识的地方",
+          "标记核心张力",
+          "辨认未消化的立场",
+        ],
+        "scaffold-actions": [
+          "起草 recommendations",
+          "推演 pre-mortem",
+          "梳理会议长出的新问题",
         ],
         write: [
           "撰写 Bottom Line",
@@ -8147,7 +9111,7 @@
         }
         const stages = b.stages || {};
         const anyActive = Object.values(stages).some((s) => s && s.status === "active");
-        const generating = !b.bodyMd || b.title === "Generating…";
+        const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
         if (!anyActive && !generating) {
           this.stopBriefStageTick();
           return;
@@ -8181,7 +9145,13 @@
          locally so Retry appears regardless of server-side state
          (covers SSE drops + LLM black-holes alike). */
     BRIEF_STALL_POLL_MS: 60_000,
-    BRIEF_HARD_TIMEOUT_MS: 5 * 60_000,
+    // Bumped 5 → 8 min · large rooms with many directors + dense
+    // material legitimately take 5+ min through stage 1 (parallel
+    // extracts) + stage 2 (scaffold, sometimes retried) + stage 3
+    // (long streaming). The earlier 5-min ceiling was triggering
+    // even on healthy generation. Server-side stage-2 retries are
+    // also reduced from 3 → 2 to keep total comfortably under this.
+    BRIEF_HARD_TIMEOUT_MS: 8 * 60_000,
     BRIEF_WATCH_INTERVAL_MS: 10_000,
 
     markBriefEvent() {
@@ -8192,7 +9162,7 @@
       if (this._briefStallWatchTimer) return;
       const b = this.currentBrief;
       if (!b || !b.id || b.error) return;
-      const generating = !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
       if (!generating) return;
       if (!this._lastBriefEventAt) this._lastBriefEventAt = Date.now();
       this._lastBriefHealthPollAt = 0;
@@ -8212,7 +9182,7 @@
     async tickBriefStallWatch() {
       const b = this.currentBrief;
       if (!b || b.error) { this.stopBriefStallWatch(); return; }
-      const generating = !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
       if (!generating) { this.stopBriefStallWatch(); return; }
 
       const now = Date.now();
@@ -8222,8 +9192,8 @@
       // a timed-out error so the user always has a way out.
       if (now - startedAt > this.BRIEF_HARD_TIMEOUT_MS) {
         b.error = b.language === "zh"
-          ? "报告生成超时（超过 5 分钟仍未完成）。"
-          : "Brief generation timed out (no completion after 5 minutes).";
+          ? "报告生成超时（超过 8 分钟仍未完成）。"
+          : "Brief generation timed out (no completion after 8 minutes).";
         b.timedOut = true;
         this.stopBriefStageTick();
         this.stopBriefStallWatch();
@@ -8243,17 +9213,29 @@
       }
     },
 
-    /** Render the 3-stage checklist shown while the brief is generating.
-     *  Each row pulses while active, gets a check when done. The active
-     *  row also shows:
-     *    · ETA range (e.g. "~10–30 s") OR elapsed once over the upper bound
-     *    · A rotating sub-action descriptor underneath the label
-     *  These mean the user never sees a frozen frame. */
+    /** Render the multi-stage progress shown while the brief is generating.
+     *
+     *  Layout · single tall "active card" carrying the full visual weight
+     *  of the current stage, with a horizontal pip rail underneath that
+     *  shows where we are in the overall sequence. Past stages collapse
+     *  into ticked pips; future stages are ghost outlines. The card has
+     *  a thin lime progress line along its bottom that fills with elapsed
+     *  / ETA (capped at 95% past upper-bound, so it never lies about
+     *  being done). The kicker line on top carries the cumulative ETA so
+     *  the user can answer "how much longer" in one glance.
+     *
+     *  Container is N-stage-ready · adding a stage = append to STAGE_DEFS
+     *  (and emit the matching brief-stage events server-side). The pip
+     *  rail and total-ETA scale automatically. */
     renderBriefStages(b) {
       const stages = b.stages || {
-        extract: { status: "active", detail: "", progress: null, startedAt: null },
-        scaffold: { status: "pending", detail: "", progress: null, startedAt: null },
-        write: { status: "pending", detail: "", progress: null, startedAt: null },
+        extract:             { status: "active",  detail: "", progress: null, startedAt: null },
+        compose:             { status: "pending", detail: "", progress: null, startedAt: null },
+        "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null },
+        "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null },
+        "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null },
+        "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null },
+        write:               { status: "pending", detail: "", progress: null, startedAt: null },
       };
       const lang = b.language === "zh" ? "zh" : "en";
       const chairName = b.chairName || this.currentChair?.name || (lang === "zh" ? "主席" : "Chair");
@@ -8262,116 +9244,261 @@
         ? (b.bodyMd.trim().match(/\S+/g) || []).length
         : 0;
 
-      const labels = lang === "zh"
-        ? {
-            extract:  "提取每位董事的关键信号",
-            scaffold: "归并信号、构建报告骨架",
-            write:    "撰写最终报告",
-            wordUnit: (n) => `${n} 字`,
-            directorUnit: (cur, total) => `${cur}/${total} 位董事`,
-            etaPrefix: "预计",
-            secUnit: "s",
-            elapsedFormat: (s) => `已耗时 ${s} s`,
-          }
-        : {
-            extract:  "Extracting signals from each director",
-            scaffold: "Clustering signals into findings",
-            write:    "Writing the report",
-            wordUnit: (n) => `${n} word${n === 1 ? "" : "s"}`,
-            directorUnit: (cur, total) => `${cur}/${total} director${total === 1 ? "" : "s"}`,
-            etaPrefix: "ETA",
-            secUnit: "s",
-            elapsedFormat: (s) => `${s} s elapsed`,
-          };
+      // Stage definitions · 7 ordered cells. Must align with the wire
+      // format emitted by emitStage() in src/orchestrator/brief.ts:
+      //
+      //   extract → compose → scaffold-{anchor,findings,cluster,actions} → write
+      //
+      // The 4 scaffold sub-stages are driven by JSON-key arrival in the
+      // Stage 2 streaming buffer (see runStage2 / SCAFFOLD_TRIGGERS in
+      // brief.ts), so each pip transition reflects a real moment in the
+      // model's output — not a synthetic timer.
+      const STAGE_DEFS = lang === "zh"
+        ? [
+            { key: "extract",            label: "读完房间里每个人的发言", pipShort: "听" },
+            { key: "compose",            label: "选定报告骨架与组件",    pipShort: "选" },
+            { key: "scaffold-anchor",    label: "敲定核心判断 (anchor)",  pipShort: "锚" },
+            { key: "scaffold-findings",  label: "勾勒主张与发现",       pipShort: "见" },
+            { key: "scaffold-cluster",   label: "梳理共识与分歧",       pipShort: "辨" },
+            { key: "scaffold-actions",   label: "拟动作 · 推演风险",     pipShort: "拟" },
+            { key: "write",              label: "撰写最终报告",         pipShort: "写" },
+          ]
+        : [
+            { key: "extract",            label: "Reading what each director said", pipShort: "read" },
+            { key: "compose",            label: "Picking the report shape",        pipShort: "pick" },
+            { key: "scaffold-anchor",    label: "Setting the anchor",              pipShort: "anchor" },
+            { key: "scaffold-findings",  label: "Sketching findings",              pipShort: "find" },
+            { key: "scaffold-cluster",   label: "Mapping consensus + dissent",     pipShort: "split" },
+            { key: "scaffold-actions",   label: "Drafting actions + risks",        pipShort: "act" },
+            { key: "write",              label: "Writing the report",              pipShort: "write" },
+          ];
 
-      const kickerText = lang === "zh"
-        ? `// ${chairName} 正在帮你整理会议纪要并生成报告`
-        : `// ${chairName} is preparing the minutes and writing the report`;
-
-      const substages = (this.BRIEF_SUBSTAGES[lang] || this.BRIEF_SUBSTAGES.en);
       const meta = this.BRIEF_STAGE_META;
-
-      const buildRow = (key) => {
-        const st = stages[key] || { status: "pending" };
-        const status = st.status || "pending";
-        // Prefer server-computed ETA (token-based) over the static
-        // fallback. The server estimates from system-prompt size +
-        // signal/scaffold tokens × per-model tps, so it adapts to the
-        // actual conversation rather than a one-size guess.
-        const serverEta = st.etaSec && typeof st.etaSec.lo === "number"
-          ? [st.etaSec.lo, st.etaSec.hi]
-          : null;
-        const eta = serverEta || meta[key]?.eta;
-        const startedAt = st.startedAt;
-        // Done stages freeze at finishedAt so the displayed duration
-        // is the actual time the stage took, not "current time minus
-        // when it started" (which would keep ticking after completion).
-        // Active stages still use Date.now() so the counter animates.
-        const endRef = (status === "done" && st.finishedAt) ? st.finishedAt : Date.now();
-        const elapsedSec = startedAt ? Math.max(0, Math.floor((endRef - startedAt) / 1000)) : 0;
-
-        // Detail line · numeric progress (extract counter, write word
-        // count) takes priority. ETA / elapsed shown in a separate slot.
-        const detailParts = [];
-        if (key === "extract" && st.progress && st.progress.total) {
-          detailParts.push(labels.directorUnit(st.progress.current, st.progress.total));
-        } else if (st.detail) {
-          detailParts.push(st.detail);
-        }
-        if (key === "write" && status === "active" && wordCount > 0) {
-          detailParts.push(labels.wordUnit(wordCount));
-        }
-        const detail = detailParts.join(" · ");
-
-        // Timing slot · ETA range while in-band, elapsed once over upper.
-        let timing = "";
-        if (status === "active" && eta) {
-          if (elapsedSec <= eta[1]) {
-            timing = `~${eta[0]}–${eta[1]} ${labels.secUnit}`;
-            if (elapsedSec > 0) timing = `${elapsedSec} ${labels.secUnit} · ${timing}`;
-          } else {
-            timing = labels.elapsedFormat(elapsedSec);
-          }
-        } else if (status === "done" && eta && startedAt) {
-          // Final elapsed for done stages — quiet, but useful.
-          timing = `${elapsedSec} ${labels.secUnit}`;
-        }
-
-        // Substage descriptor · rotates every 3s while active.
-        let substage = "";
-        if (status === "active" && substages[key]?.length) {
-          const list = substages[key];
-          const idx = Math.floor(elapsedSec / 3) % list.length;
-          substage = list[idx];
-        }
-
-        const mark = status === "done"
-          ? `<span class="brief-stage-mark done">✓</span>`
-          : status === "active"
-          ? `<span class="brief-stage-mark active"><span class="brief-stage-pulse"></span></span>`
-          : `<span class="brief-stage-mark pending">·</span>`;
-
-        return `
-          <div class="brief-stage-row brief-stage-${status}">
-            ${mark}
-            <div class="brief-stage-content">
-              <div class="brief-stage-line">
-                <span class="brief-stage-label">${this.escape(labels[key])}</span>
-                ${detail ? `<span class="brief-stage-detail">${this.escape(detail)}</span>` : ""}
-                ${timing ? `<span class="brief-stage-timing">${this.escape(timing)}</span>` : ""}
-              </div>
-              ${substage ? `<div class="brief-stage-substage">${this.escape(substage)}</div>` : ""}
-            </div>
-          </div>
-        `;
+      const substages = (this.BRIEF_SUBSTAGES[lang] || this.BRIEF_SUBSTAGES.en);
+      const stageEta = (key) => {
+        const st = stages[key];
+        if (st?.etaSec && typeof st.etaSec.lo === "number") return [st.etaSec.lo, st.etaSec.hi];
+        return meta[key]?.eta || [5, 15];
+      };
+      const elapsedFor = (key) => {
+        const st = stages[key];
+        if (!st || !st.startedAt) return 0;
+        const endRef = (st.status === "done" && st.finishedAt) ? st.finishedAt : Date.now();
+        return Math.max(0, Math.floor((endRef - st.startedAt) / 1000));
       };
 
+      // Find the active stage. Fallback chain: first pending, then last
+      // stage. When everything is done the wider brief renderer switches
+      // to the finished card, so this fallback only handles the brief
+      // moment between SSE events.
+      let activeIdx = STAGE_DEFS.findIndex((d) => stages[d.key]?.status === "active");
+      if (activeIdx < 0) activeIdx = STAGE_DEFS.findIndex((d) => stages[d.key]?.status === "pending");
+      if (activeIdx < 0) activeIdx = STAGE_DEFS.length - 1;
+
+      const activeDef = STAGE_DEFS[activeIdx];
+      const activeStage = stages[activeDef.key] || { status: "active" };
+      const activeStatus = activeStage.status || "active";
+      const activeEta = stageEta(activeDef.key);
+      const activeElapsed = elapsedFor(activeDef.key);
+
+      // Total elapsed + remaining-ETA range across all stages. Done
+      // stages contribute their actual elapsed; the active stage
+      // contributes elapsed-so-far AND its remaining lo/hi; pending
+      // stages contribute their full lo/hi.
+      let totalLo = 0, totalHi = 0, totalElapsed = 0;
+      for (const def of STAGE_DEFS) {
+        const st = stages[def.key];
+        const status = st?.status || "pending";
+        const [lo, hi] = stageEta(def.key);
+        if (status === "done") {
+          totalElapsed += elapsedFor(def.key);
+        } else if (status === "active") {
+          totalElapsed += activeElapsed;
+          totalLo += Math.max(0, lo - activeElapsed);
+          totalHi += Math.max(0, hi - activeElapsed);
+        } else {
+          totalLo += lo;
+          totalHi += hi;
+        }
+      }
+
+      // Rotating sub-line · advances every 3s within the active stage.
+      let substageText = "";
+      if (activeStatus === "active" && substages[activeDef.key]?.length) {
+        const list = substages[activeDef.key];
+        substageText = list[Math.floor(activeElapsed / 3) % list.length];
+      }
+
+      // Detail · cur/total directors during extract, word count during
+      // write, otherwise the server-supplied detail string.
+      const detailParts = [];
+      if (activeDef.key === "extract" && activeStage.progress?.total) {
+        const cur = activeStage.progress.current;
+        const tot = activeStage.progress.total;
+        detailParts.push(lang === "zh" ? `${cur}/${tot} 位董事` : `${cur}/${tot} director${tot === 1 ? "" : "s"}`);
+      } else if (activeStage.detail) {
+        detailParts.push(activeStage.detail);
+      }
+      if (activeDef.key === "write" && activeStatus === "active" && wordCount > 0) {
+        detailParts.push(lang === "zh" ? `${wordCount} 字` : `${wordCount} word${wordCount === 1 ? "" : "s"}`);
+      }
+      const detailLine = detailParts.join(" · ");
+
+      // Timing for active stage · ETA range while in-band, elapsed once over.
+      let timing = "";
+      if (activeStatus === "active") {
+        if (activeElapsed <= activeEta[1]) {
+          timing = activeElapsed > 0
+            ? `${activeElapsed}s · ~${activeEta[0]}–${activeEta[1]}s`
+            : `~${activeEta[0]}–${activeEta[1]}s`;
+        } else {
+          timing = lang === "zh" ? `已耗时 ${activeElapsed}s` : `${activeElapsed}s elapsed`;
+        }
+      }
+
+      // Active-card progress line · in-band 0→95% linear, then a Zeno
+      // asymptote past upper bound that creeps from 95 toward 99 over
+      // many minutes. Never reaches 100 until status flips done. This
+      // is honest signaling — when we've gone past the estimate, we
+      // tell the eye "we're past the estimate" without lying about how
+      // close we are to finishing.
+      let pct = 0;
+      if (activeStatus === "active") {
+        const etaMid = (activeEta[0] + activeEta[1]) / 2;
+        if (activeElapsed <= activeEta[1]) {
+          pct = Math.min(95, Math.round((activeElapsed / Math.max(0.5, etaMid)) * 100));
+        } else {
+          // Zeno crawl · 95% + (1 - e^(-over/90)) * 4. At 30s past:
+          // 95 + 1.2% ≈ 96.2%. At 5min past: 95 + 3.8% ≈ 98.8%. Never 100.
+          const over = activeElapsed - activeEta[1];
+          pct = Math.min(99, 95 + (1 - Math.exp(-over / 90)) * 4);
+        }
+      } else if (activeStatus === "done") {
+        pct = 100;
+      }
+
+      // Pip rail · one pip per stage + 1px connector between. Track
+      // first-time-done transitions across renders via a per-brief Set
+      // so the "settle" spring animation runs ONCE on flip, not on
+      // every 1-second re-render. Without this gate, recreating the
+      // DOM each tick would re-trigger the keyframe and the dot would
+      // jitter every second.
+      this._briefSeenDoneKeys = this._briefSeenDoneKeys || {};
+      const seenDone = this._briefSeenDoneKeys[b.id] = this._briefSeenDoneKeys[b.id] || new Set();
+      const pipHtml = STAGE_DEFS.map((def, i) => {
+        const st = stages[def.key];
+        const status = st?.status || "pending";
+        const isFreshDone = status === "done" && !seenDone.has(def.key);
+        if (status === "done") seenDone.add(def.key);
+        const dot = `<span class="brief-pip-dot"></span>`;
+        const label = `<span class="brief-pip-label">${this.escape(def.pipShort)}</span>`;
+        const cls = `is-${status}` + (isFreshDone ? " is-fresh-done" : "");
+        const pip = `<div class="brief-pip ${cls}">${dot}${label}</div>`;
+        const connector = (i < STAGE_DEFS.length - 1)
+          ? `<div class="brief-pip-line is-${status === "done" ? "done" : "pending"}"></div>`
+          : "";
+        return pip + connector;
+      }).join("");
+
+      // Total ETA formatting · "1m 12s · ~3-5m left" / "已 1m 12s · 还需约 3–5 分钟"
+      const fmtSec = (s) => {
+        if (s < 60) return `${s}s`;
+        const m = Math.floor(s / 60);
+        const r = s % 60;
+        return r === 0 ? `${m}m` : `${m}m ${r}s`;
+      };
+      const fmtRange = (lo, hi) => {
+        if (hi < 60) return lang === "zh" ? `约 ${lo}–${hi}s` : `~${lo}–${hi}s`;
+        const loM = Math.max(1, Math.round(lo / 60));
+        const hiM = Math.max(loM, Math.round(hi / 60));
+        return lang === "zh" ? `约 ${loM}–${hiM} 分钟` : `~${loM}-${hiM}m`;
+      };
+
+      const totalText = lang === "zh"
+        ? `已 ${fmtSec(totalElapsed)} · 还需${fmtRange(totalLo, totalHi)}`
+        : `${fmtSec(totalElapsed)} elapsed · ${fmtRange(totalLo, totalHi)} left`;
+
+      const kickerCore = lang === "zh"
+        ? `// ${chairName} 正在整理纪要 · ${totalText}`
+        : `// ${chairName} is preparing the minutes · ${totalText}`;
+
+      const metaHtml = (detailLine || timing)
+        ? `<span class="brief-active-meta">` +
+            (detailLine ? `<span class="meta-detail">${this.escape(detailLine)}</span>` : "") +
+            (timing ? `<span class="meta-timing">${this.escape(timing)}</span>` : "") +
+          `</span>`
+        : "";
+
+      // Stat row · accumulates as stages complete. Each completed stage
+      // can deposit one or more chips/strings here. The row exists only
+      // when there's at least one fragment to show, so it doesn't
+      // occupy vertical space on the very first render.
+      const stats = [];
+      const composeDone = stages.compose?.status === "done";
+      const writeActive = stages.write?.status === "active";
+
+      // Director chips · per-director harvest carried by the
+      // brief-extract-harvest SSE event. Each chip shows the
+      // director's name + total signal count. The kind taxonomy
+      // ("top: risk" etc) lives in the title attribute so a hover
+      // surfaces it without bloating the chip text.
+      //
+      // Flicker fix · `_briefSeenHarvestKeys[briefId]` tracks which
+      // chips have already been rendered for this brief. Without it,
+      // every 1-second renderBrief tick recreates the DOM and the CSS
+      // animation re-runs, making the chips visibly fade in over and
+      // over. With it, the entrance animation only runs once per
+      // chip's first appearance.
+      this._briefSeenHarvestKeys = this._briefSeenHarvestKeys || {};
+      const seenH = this._briefSeenHarvestKeys[b.id] = this._briefSeenHarvestKeys[b.id] || new Set();
+      const harvest = Array.isArray(b.extractHarvest) ? b.extractHarvest : [];
+      const kindLabels = lang === "zh"
+        ? { claims: "判断", evidence: "证据", tensions: "分歧", assumptions: "假设", risks: "风险", opportunities: "机会", actions: "动作", quotes: "原话", openQuestions: "悬而未决" }
+        : { claims: "claims", evidence: "evidence", tensions: "tensions", assumptions: "assumptions", risks: "risks", opportunities: "opportunities", actions: "actions", quotes: "quotes", openQuestions: "open-q" };
+      if (harvest.length) {
+        const chips = harvest.map((h) => {
+          const isFresh = !seenH.has(h.directorId);
+          if (isFresh) seenH.add(h.directorId);
+          const name = this.escape(h.directorName || h.directorId || "");
+          const breakdown = Object.entries(h.byKind || {})
+            .filter(([, n]) => n > 0)
+            .map(([k, n]) => `${kindLabels[k] || k}:${n}`)
+            .join(" · ");
+          const topLabel = h.topKind ? (kindLabels[h.topKind] || h.topKind) : "";
+          const tagSuffix = h.topKind && h.byKind?.[h.topKind] >= 2
+            ? ` <span class="brief-stat-chip-tag">${this.escape(topLabel)}</span>`
+            : "";
+          return `<span class="brief-stat-chip${isFresh ? " is-fresh" : ""}" title="${this.escape(breakdown)}">${name} · ${h.total | 0}${tagSuffix}</span>`;
+        }).join("");
+        stats.push(`<div class="brief-stat-roster">${chips}</div>`);
+      }
+      // Compose's detail string · usually "{spine} · {N} components".
+      if (composeDone && stages.compose?.detail) {
+        stats.push(`<span class="brief-stat-fact">${this.escape(stages.compose.detail)}</span>`);
+      }
+      // Live word count during write — large and visible since it's the
+      // most engaging signal during the long write stage.
+      if (writeActive && wordCount > 0) {
+        const w = lang === "zh" ? `${wordCount} 字 · 还在落笔` : `${wordCount} word${wordCount === 1 ? "" : "s"} · still writing`;
+        stats.push(`<span class="brief-stat-fact brief-stat-live">${this.escape(w)}</span>`);
+      }
+      const statsHtml = stats.length
+        ? `<div class="brief-stats-row">${stats.join("")}</div>`
+        : "";
+
       return `
-        <div class="brief-kicker brief-kicker-pulse">${this.escape(kickerText)}<span class="brief-typing-dots"><i></i><i></i><i></i></span></div>
-        <div class="brief-stages">
-          ${buildRow("extract")}
-          ${buildRow("scaffold")}
-          ${buildRow("write")}
+        <div class="brief-kicker brief-kicker-pulse">${this.escape(kickerCore)}<span class="brief-typing-dots"><i></i><i></i><i></i></span></div>
+        <div class="brief-progress">
+          <div class="brief-active-card brief-active-${activeStatus}">
+            <div class="brief-active-head">
+              <span class="brief-active-label">${this.escape(activeDef.label)}</span>
+              ${metaHtml}
+            </div>
+            <div class="brief-active-substage">${substageText ? this.escape(substageText) : "&nbsp;"}</div>
+            <div class="brief-active-progressline" style="width: ${pct}%"></div>
+          </div>
+          <div class="brief-pip-rail">${pipHtml}</div>
+          ${statsHtml}
         </div>
       `;
     },
@@ -8524,6 +9651,26 @@
       }
       return;
     }
+    // View Report trigger · multi-brief room. Anchor a popover under
+    // the button listing every brief so the user can pick which one
+    // to open. Plain link clicks (single-brief case, middle-click,
+    // ctrl/cmd-click) bypass this and follow the href as normal —
+    // the trigger attribute is only present when there are 2+
+    // briefs, AND we don't intercept modified clicks.
+    const reportTrigger = e.target.closest("[data-view-report-trigger]");
+    if (reportTrigger && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+      e.preventDefault();
+      app.toggleBriefPicker(reportTrigger);
+      return;
+    }
+    // Brief picker · clicking a row opens that brief's report in a
+    // new tab. Plain links so middle-click / cmd-click work too;
+    // we just close the picker on a normal click.
+    if (e.target.closest("[data-brief-picker-row]")) {
+      app.closeBriefPicker();
+      // Don't preventDefault · let the anchor's target=_blank handle navigation.
+      return;
+    }
     // Pause (live → paused). If a director is mid-stream, ask the user how
     // to pause: stop now / wait / cancel.
     if (e.target.closest("[data-pause]")) {
@@ -8639,6 +9786,50 @@
       app.openAdjournOverlay();
       return;
     }
+    // Generate report now · escape hatch for users who adjourned with
+    // skipBrief and later want a brief filed. Two surfaces share this
+    // hook: (a) the chat's no-brief milestone card, (b) the header
+    // [ ▸ Generate Report ] link that replaces the old [ ⊘ No Report ]
+    // static text. Both carry data-generate-brief; click → POST
+    // /api/rooms/:id/brief → existing brief-* SSE handlers render the
+    // in-progress + final brief bubbles in the brief slot. After
+    // success, currentBrief flips non-null → next renderHeader/Chat
+    // swaps the button to [ View Report ] automatically.
+    const genBriefBtn = e.target.closest("[data-generate-brief]");
+    if (genBriefBtn) {
+      e.preventDefault();
+      if (genBriefBtn.getAttribute("data-pending") === "1") return;
+      genBriefBtn.setAttribute("data-pending", "1");
+      if ("disabled" in genBriefBtn) genBriefBtn.disabled = true;
+
+      const isZh = app.composerLanguage() === "zh";
+      const generatingText = isZh ? "正在生成…" : "generating…";
+      const originalHtml = genBriefBtn.innerHTML;
+
+      // Swap to a "generating…" state. The two button shapes both
+      // contain a small ▸ mark + text label; flip the mark to · and
+      // replace the label with the generating phrase. We save the
+      // original innerHTML so a failure can roll back cleanly.
+      const textEl = genBriefBtn.querySelector(".nb-cta-text");
+      const markEl = genBriefBtn.querySelector(".nb-cta-mark, .vr-mark");
+      if (textEl) {
+        textEl.textContent = generatingText;
+        if (markEl) markEl.textContent = "·";
+      } else {
+        // Header anchor · text lives as a sibling text node next to
+        // the mark span. Easiest to re-emit the whole inner content.
+        const markCls = markEl ? markEl.className : "vr-mark";
+        genBriefBtn.innerHTML = `<span class="${app.escape(markCls)}">·</span> ${app.escape(generatingText)}`;
+      }
+
+      app.generateBriefForAdjournedRoom().catch((err) => {
+        genBriefBtn.removeAttribute("data-pending");
+        if ("disabled" in genBriefBtn) genBriefBtn.disabled = false;
+        genBriefBtn.innerHTML = originalHtml;
+        alert((isZh ? "生成失败：" : "Brief generation failed: ") + (err && err.message ? err.message : err));
+      });
+      return;
+    }
     // Adjourn overlay · "skip report" footer button — clicking commits
     // immediately (mark picked + dispatch + close).
     if (e.target.closest("[data-adjourn-skip]")) {
@@ -8669,9 +9860,26 @@
       return;
     }
     // Brief card · retry button (zombie / failed brief recovery).
-    if (e.target.closest("[data-brief-retry]")) {
+    // The salvage-path banner attaches `data-target-brief-id` so the
+    // retry targets the FAILED brief id, not whichever brief the user
+    // is currently looking at (which is the prior good one in the
+    // salvage path). Falls back to currentBrief when the attribute is
+    // absent (the original full-error card path).
+    const retryBtn = e.target.closest("[data-brief-retry]");
+    if (retryBtn) {
       e.preventDefault();
-      app.retryBriefGeneration();
+      const targetId = retryBtn.getAttribute("data-target-brief-id") || null;
+      app.retryBriefGeneration(targetId);
+      return;
+    }
+    // Salvage banner · dismiss button. Just removes the banner DOM —
+    // the failed brief stays in currentBriefs so the user can still
+    // retry from a brief tab if they change their mind.
+    const dismissBtn = e.target.closest("[data-brief-banner-dismiss]");
+    if (dismissBtn) {
+      e.preventDefault();
+      const banner = dismissBtn.closest("[data-brief-retry-banner]");
+      if (banner) banner.remove();
       return;
     }
     // Brief card · delete (× on tab, or "Delete report" button).
@@ -8684,6 +9892,13 @@
       return;
     }
     // Brief card · version tab · switch which brief is shown.
+    // Passes `bypassSalvage` so renderBrief renders the picked brief
+    // as-is — including its full error UI when it's a failed brief.
+    // The salvage path only auto-fires for renders that didn't come
+    // from a deliberate user navigation (SSE-driven re-renders, etc.),
+    // so the user can always navigate INTO a failing tab to inspect
+    // it. Earlier the failed tab felt un-clickable because every
+    // render was being salvaged back to a good brief.
     const briefTab = e.target.closest("[data-brief-tab]");
     if (briefTab) {
       e.preventDefault();
@@ -8691,7 +9906,7 @@
       const next = (app.currentBriefs || []).find((b) => b.id === id);
       if (next) {
         app.currentBrief = next;
-        app.renderBrief();
+        app.renderBrief({ bypassSalvage: true });
       }
       return;
     }
@@ -8730,6 +9945,18 @@
       e.preventDefault();
       app.cancelContinueCountdown();
       app.continueRoom().catch((err) => alert("Continue failed: " + err.message));
+      return;
+    }
+    // Switch & continue · accept the chair's MODE-SHIFT proposal,
+    // PATCH the room mode, then resume directors. Same exit path as
+    // [data-continue] but with the tone change wired in front of it.
+    const shiftBtn = e.target.closest("[data-shift-accept]");
+    if (shiftBtn) {
+      e.preventDefault();
+      const to = shiftBtn.getAttribute("data-shift-to");
+      if (!to) return;
+      app.cancelContinueCountdown();
+      app.acceptModeShiftAndContinue(to).catch((err) => alert("Switch failed: " + err.message));
       return;
     }
     // Manual round-end · ask the chair to wrap and open a vote.
@@ -8849,7 +10076,15 @@
     const wsToggle = e.target.closest("[data-agent-composer-ws-toggle]");
     if (wsToggle) {
       e.preventDefault();
-      const configured = wsToggle.getAttribute("data-configured") === "1";
+      // Always re-read the live key state on click — the toggle's
+      // `data-configured` attribute is set at render time and goes
+      // stale the moment the user opens user-settings, pastes a Brave
+      // key, and comes back. Without this re-read the toggle still
+      // shows "configure key" forever even though the cache already
+      // has it. boardroomKeys() reads through the shared _keysMeta
+      // map, which user-settings.js patches in place after every
+      // setProviderKey, so we get fresh truth here.
+      const configured = !!(app.agentComposerBraveConfigured && app.agentComposerBraveConfigured());
       const isZh = (app.composerLanguage && app.composerLanguage()) === "zh";
       if (!configured) {
         const ok = confirm(isZh
@@ -8859,6 +10094,13 @@
           window.openUserSettings({ section: "keys", focusProvider: "brave" });
         }
         return;
+      }
+      // Live state says configured. Sync the toggle's stale attributes
+      // + class set so the next click acts as a flip rather than as
+      // another "configure" prompt. Idempotent when already in sync.
+      if (wsToggle.getAttribute("data-configured") !== "1") {
+        wsToggle.setAttribute("data-configured", "1");
+        wsToggle.classList.remove("needs-key");
       }
       const wasOn = wsToggle.getAttribute("data-on") === "1";
       const next = !wasOn;
@@ -8898,6 +10140,16 @@
     if (e.target.closest("[data-agent-spec-redo]")) {
       e.preventDefault();
       app.redoAgentSpec();
+      return;
+    }
+    if (e.target.closest("[data-agent-spec-retry]")) {
+      e.preventDefault();
+      app.retryAgentSpec();
+      return;
+    }
+    if (e.target.closest("[data-agent-spec-error-discard]")) {
+      e.preventDefault();
+      app.discardAgentSpec();
       return;
     }
     if (e.target.closest("[data-agent-spec-save]")) {

@@ -2362,7 +2362,8 @@
     return {
       room: document.querySelector('[data-main-view="room"]'),
       agent: document.querySelector('[data-main-view="agent"]'),
-      reports: document.querySelector('[data-main-view="reports"]')
+      reports: document.querySelector('[data-main-view="reports"]'),
+      notes: document.querySelector('[data-main-view="notes"]'),
     };
   }
 
@@ -2373,11 +2374,16 @@
       v.agent.setAttribute("hidden", "");
       v.agent.innerHTML = "";
     }
-    // The All Reports view is the third main pane; hide it when
-    // returning to a room so its placeholder card / list never bleeds
-    // through under the room view.
+    // Hide every other top-level pane so its content / placeholder
+    // doesn't bleed through under the room view. Each view is just
+    // the same `.main-view` CSS box — without explicitly hiding the
+    // siblings, two of them stack and the user sees a leaked
+    // "All Notes" / "All Reports" empty state.
     if (v.reports) v.reports.setAttribute("hidden", "");
+    if (v.notes)   v.notes.setAttribute("hidden", "");
     document.querySelectorAll(".agent-row.active").forEach((r) => r.classList.remove("active"));
+    document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
     currentlyOpenSlug = null;
   }
 
@@ -2458,10 +2464,14 @@
     if (!v.agent) return;
     v.agent.innerHTML = pageHTML(p, slug);
     if (v.room) v.room.setAttribute("hidden", "");
-    // If the user came from All Reports, hide that pane too — without
-    // this, both views render simultaneously and the reports placeholder
-    // card overlays the agent profile.
+    // Hide the other top-level panes (All Reports / All Notes) so
+    // their placeholder / list doesn't render under the agent profile.
+    // Without these, opening agent profile from "All Notes" leaks the
+    // notes empty-state through the agent view.
     if (v.reports) v.reports.setAttribute("hidden", "");
+    if (v.notes)   v.notes.setAttribute("hidden", "");
+    document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
     v.agent.removeAttribute("hidden");
     // Centralized sidebar-focus handler · also clears New room /
      // New agent highlights and any stale session-row highlight, since

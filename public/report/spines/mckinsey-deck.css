@@ -22,6 +22,14 @@
   --blue-mid: #6285FF;
   --green: #1F7A4D;
   --green-pale: #E2F0E9;
+  --red: #B82F1A;
+  --paper: var(--bg);
+  --paper-soft: var(--soft);
+  --ink-mid: var(--ink-soft);
+  /* Cross-spine token aliases · used by the unified design system in
+     report.html. */
+  --accent: var(--blue);
+  --warn: var(--red);
   --sans: "Inter", "Helvetica Neue", "Arial", -apple-system, BlinkMacSystemFont,
           "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans CN",
           "Noto Sans CJK SC", sans-serif;
@@ -34,7 +42,7 @@ html, body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
@@ -121,7 +129,7 @@ html, body {
   font-weight: 700;
   margin-bottom: 6px;
 }
-.byline-block .value { font-size: 13.5px; color: var(--ink); font-weight: 600; }
+.byline-block .value { font-size: 14px; color: var(--ink); font-weight: 600; }
 .byline-block .signed-avatars { display: flex; margin-top: 4px; }
 .byline-block .signed-avatars img {
   width: 24px; height: 24px;
@@ -185,16 +193,18 @@ html, body {
   border: 1px solid var(--rule);
   padding: 1px 7px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--blue);
   border-radius: 2px;
 }
 .body code.badge-confidence-high { color: var(--green); border-color: rgba(31, 122, 77, 0.3); background: var(--green-pale); }
 .body code.badge-confidence-medium { color: #B8721A; border-color: rgba(184, 114, 26, 0.3); background: rgba(184, 114, 26, 0.06); }
 .body code.badge-confidence-low { color: #C62828; border-color: rgba(198, 40, 40, 0.3); background: rgba(198, 40, 40, 0.06); }
-.body code.badge-priority-p0 { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 700; }
-.body code.badge-priority-p1 { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 700; }
-.body code.badge-priority-p2 { background: var(--soft); color: var(--ink-faint); }
+/* Priority badges · typographic only · mckinsey palette: deck blue
+   for P0, navy for P1, ink-faint for P2. */
+.body code.badge-priority-p0 { color: var(--blue); }
+.body code.badge-priority-p1 { color: var(--navy); }
+.body code.badge-priority-p2 { color: var(--ink-faint); }
 .body blockquote {
   padding: 14px 18px;
   margin: 22px 0;
@@ -225,7 +235,7 @@ html, body {
   padding: 0;
 }
 .body section.section-bottom-line p { font-size: 22px; line-height: 1.4; color: #fff; font-weight: 500; max-width: 800px; }
-.body section.section-bottom-line p:not(:first-child) { font-size: 14.5px; line-height: 1.55; color: rgba(255, 255, 255, 0.78); margin-top: 18px; font-weight: 400; }
+.body section.section-bottom-line p:not(:first-child) { font-size: 15px; line-height: 1.55; color: rgba(255, 255, 255, 0.78); margin-top: 18px; font-weight: 400; }
 .body section.section-bottom-line p strong { color: #fff; }
 .body section.section-bottom-line p em { color: var(--blue-mid); font-style: italic; }
 
@@ -286,7 +296,7 @@ html, body {
   padding: 22px 26px;
   margin: 22px 0 28px;
 }
-.body section.section-why-now p { font-size: 14.5px; line-height: 1.6; }
+.body section.section-why-now p { font-size: 15px; line-height: 1.6; }
 
 /* Recommendations · numbered cards with priority dot. */
 .body section.section-recommendations ol,
@@ -357,7 +367,7 @@ html, body {
   position: relative;
   padding: 14px 0 14px 56px;
   border-top: 1px dashed var(--rule);
-  font-size: 14.5px;
+  font-size: 15px;
 }
 .body section.section-new-questions ol > li:last-child { border-bottom: 1px dashed var(--rule); }
 .body section.section-new-questions ol > li::before {
@@ -373,7 +383,7 @@ html, body {
   width: 100%;
   border-collapse: collapse;
   margin: 22px 0 24px;
-  font-size: 13.5px;
+  font-size: 14px;
   border-top: 2px solid var(--navy);
 }
 .body table.md-table th, .body table.md-table td {
@@ -387,11 +397,11 @@ html, body {
   color: var(--navy);
   font-family: var(--sans);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.body table.md-table td:first-child { font-weight: 600; color: var(--navy); }
+.body table.md-table td:first-child { font-weight: 600; color: var(--navy); font-size: 14px; }
 .body table.md-table tr:hover td { background: var(--hover); }
 
 .body h2.section-methodology {
@@ -408,7 +418,7 @@ html, body {
 .body section.section-methodology { color: var(--ink-faint); font-size: 13px; line-height: 1.6; }
 .body section.section-methodology strong { color: var(--ink-soft); font-family: var(--mono); font-size: 12px; }
 
-.body pre.codeblock { background: var(--soft); border: 1px solid var(--rule); padding: 14px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+.body pre.codeblock { background: var(--soft); border: 1px solid var(--rule); padding: 14px; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); }
 .body pre.mermaid { background: var(--bg); border-top: 2px solid var(--navy); border-bottom: 1px solid var(--rule); padding: 28px 24px 24px; margin: 22px 0 28px; min-height: 380px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
 .body pre.mermaid svg text { font-family: var(--sans) !important; }
 
@@ -474,7 +484,7 @@ html, body {
 .rec-meta-sep { color: var(--ink-faint); }
 .rec-risk {
   display: flex; align-items: flex-start; gap: 8px;
-  font-size: 13.5px; line-height: 1.6; color: var(--ink-soft);
+  font-size: 14px; line-height: 1.6; color: var(--ink-soft);
   margin: 0; font-style: italic;
 }
 .rec-risk-icon { flex: 0 0 auto; color: #C62828; font-style: normal; }
@@ -527,34 +537,74 @@ html, body {
    <style>; this block tweaks surface, accent + typography to match
    the spine's voice. No `border-left`, no parallel borders against
    adjacent .chapter-num / section h2. */
-/* Clean white card with a thin top accent rule (navy) — boardroom
-   deck feel. Top accent only (project rule: never `border-left` as
-   callout treatment). */
+/* Inherits the Swiss-editorial baseline (big thin numerals top, mute
+   mono label bottom, hairline grid). McKinsey palette: navy ink for
+   the value, green/red trends. The per-card border-top accent rail
+   from earlier iterations was retired — under the new layout it
+   collided with the baseline's `border-top` on the grid wrapper and
+   produced doubled hairlines. */
 .body .metric-strip-intro {
   color: var(--ink-soft);
-  font-family: var(--mono);
-}
-.body .metric-card {
-  background: #FFFFFF;
-  border: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.08));
-  border-top: 2px solid var(--blue);
-  padding: 16px 18px 14px;
 }
 .body .metric-label {
   color: var(--ink-soft);
-  font-family: var(--mono);
 }
 .body .metric-value {
   color: var(--navy-deep, var(--blue-deep));
-  font-family: "SF Mono", "JetBrains Mono", "Helvetica Neue", "Songti SC", monospace;
-  font-size: 28px;
-  font-weight: 700;
 }
-.body .metric-card[data-trend="up"]   { border-top-color: var(--green, #1E8E3E); }
 .body .metric-card[data-trend="up"]   .metric-value { color: var(--green, #1E8E3E); }
-.body .metric-card[data-trend="down"] { border-top-color: var(--red, #C5221F); }
 .body .metric-card[data-trend="down"] .metric-value { color: var(--red, #C5221F); }
 .body .metric-trend[data-trend="up"]   { color: var(--green, #1E8E3E); }
 .body .metric-trend[data-trend="down"] { color: var(--red, #C5221F); }
-.body .metric-qualifier { color: var(--ink-mid); font-size: 12px; }
+.body .metric-qualifier { color: var(--ink-mid); }
 .body .metric-attribution { color: var(--ink-faint); }
+
+/* ─── Path comparison · per-spine treatment ──────────────────────
+   mckinsey uses red (weak) / green (strong) — clean deck palette
+   where the verdict reads at a glance. White card surface keeps
+   the boardroom register. */
+.body .path-comparison .path {
+  background: #FFFFFF;
+  border: 1px solid var(--rule-soft, rgba(0, 0, 0, 0.08));
+  border-top-width: 3px;
+}
+.body .path-comparison .path-weak   { border-top-color: var(--red, #C5221F); }
+.body .path-comparison .path-strong { border-top-color: var(--green, #1E8E3E); }
+.body .path-comparison .path-weak   .path-tag { color: var(--red, #C5221F); }
+.body .path-comparison .path-strong .path-tag { color: var(--green, #1E8E3E); }
+.body .path-comparison .path-name { color: var(--navy-deep, var(--blue-deep)); font-weight: 600; }
+.body .path-comparison .path li { color: var(--ink-soft); }
+.body .path-comparison .path-weak   li::before { background: var(--red, #C5221F); }
+.body .path-comparison .path-strong li::before { background: var(--green, #1E8E3E); }
+.body .path-comparison-implication { color: var(--ink-mid); }
+
+/* ─── Views-compared · per-spine · mckinsey-deck ───────────────
+   Hairline frame · accent stripe on TOP (per project rule).
+   Alignment uses blue, divergence uses red. */
+.body .vc-section-label { color: var(--blue); border-color: var(--rule-soft, rgba(0, 0, 0, 0.08)); }
+.body .views-compared-alignment .vc-card {
+  border-color: var(--rule-soft, rgba(0, 0, 0, 0.08));
+  border-top-color: var(--blue);
+}
+.body .vc-card-headline { color: var(--navy-deep, var(--blue-deep)); font-weight: 600; }
+.body .vc-chip { color: var(--ink-soft); border-color: var(--rule-soft); }
+.body .vc-card-note { color: var(--ink-mid); }
+.body .vc-fork {
+  border-color: var(--rule-soft, rgba(0, 0, 0, 0.08));
+  border-top-color: var(--red, #B7322C);
+}
+.body .vc-fork-hinge { color: var(--navy-deep, var(--blue-deep)); }
+.body .vc-side { border-color: var(--rule-soft); }
+.body .vc-side-label { color: var(--red, #B7322C); }
+.body .vc-side-stance { color: var(--ink-mid); }
+.body .vc-fork-resolution { color: var(--ink-mid); border-top-color: var(--rule-soft); }
+.body .vc-resolution-label { color: var(--ink-faint); }
+.body .vc-row-name { color: var(--navy-deep, var(--blue-deep)); font-weight: 600; }
+.body .vc-row-stance { color: var(--blue); }
+.body .vc-row-position { color: var(--ink-mid); }
+.body .vc-row-quote { color: var(--navy-deep, var(--blue-deep)); }
+.body .views-compared-synthesis {
+  border-color: var(--rule-soft);
+  border-top-color: var(--ink-faint);
+}
+.body .vc-synthesis-body { color: var(--ink); }

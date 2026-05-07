@@ -1,0 +1,15 @@
+-- Rename intensity value `brutal` → `terse`.
+--
+-- The original `brutal` label was misleading: it suggested an adversarial
+-- dial (read by many users as "harshness"), but the prompt-construction
+-- layer treats intensity as a pure cadence axis (length / hedge quantity /
+-- packaging) — orthogonal to the adversarial axis (mode / tone). Users
+-- reaching for "brutal" hoping for sharper disagreements were instead
+-- getting shorter responses without the additional pushback they wanted.
+--
+-- The replacement `terse` accurately describes the cadence outcome
+-- ("telegraphic, one sentence per turn") without leaking onto the
+-- adversarial axis. This migration rewrites existing rows; the prompt
+-- builder also normalizes any stale `brutal` at read time as a belt-
+-- and-suspenders safety net for in-flight imports / API clients.
+UPDATE rooms SET intensity = 'terse' WHERE intensity = 'brutal';

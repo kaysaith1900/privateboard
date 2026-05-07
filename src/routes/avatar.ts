@@ -13,6 +13,7 @@
 import { Hono } from "hono";
 
 import { callLLM } from "../ai/adapter.js";
+import { utilityModelFor } from "../ai/availability.js";
 
 const NAME_MAX = 80;
 const BIO_MAX = 400;
@@ -41,12 +42,15 @@ export function avatarRouter() {
     let vibe = "";
     let usedLLM = false;
 
+    // Cheap-tier model picker · adapts to user's keys (haiku /
+    // gpt-4-mini / gemini-flash / grok-fast). The previous hardcoded
+    // "haiku-4-5" silently fell through to the deterministic seed for
+    // anyone without an Anthropic / OpenRouter key.
+    const utilityModel = utilityModelFor();
     try {
+      if (!utilityModel) throw new Error("no utility-tier model reachable");
       const out = await callLLM({
-        // Haiku is the cheapest tier and gives plenty of variety for a
-        // 12-word descriptor. If the user removed Haiku from their key
-        // set, the call throws and we fall back below.
-        modelV: "haiku-4-5",
+        modelV: utilityModel,
         temperature: 0.95,
         maxTokens: 60,
         messages: [

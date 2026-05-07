@@ -11,11 +11,9 @@
  * error, network); the skill installs with no deltas in that case.
  */
 import { callLLM, NoKeyError, type LLMMessage } from "../ai/adapter.js";
-import type { ModelV } from "../ai/registry.js";
+import { utilityModelFor } from "../ai/availability.js";
 
 import { ABILITY_AXES, type AbilityAxis } from "./axes.js";
-
-const ANALYZER_MODEL: ModelV = "haiku-4-5" as ModelV;
 
 /** Boardroom-specific descriptions of each axis. The model needs the
  *  semantic anchor to map a skill to the right axes (otherwise it'll
@@ -96,10 +94,15 @@ export async function analyzeSkillAbility(
     ].join("\n"),
   };
 
+  // Pick the user's cheap-tier model · falls back across providers
+  // (haiku → gpt-4-mini → gemini-flash → grok-fast) so a Gemini-only
+  // user still gets analysis instead of silently failing.
+  const analyzerModel = utilityModelFor();
+  if (!analyzerModel) return {} as Record<AbilityAxis, number>;
   let raw = "";
   try {
     raw = await callLLM({
-      modelV: ANALYZER_MODEL,
+      modelV: analyzerModel,
       messages: [sys, user],
       temperature: 0,
       maxTokens: 200,

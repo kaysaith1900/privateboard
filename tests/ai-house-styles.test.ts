@@ -10,7 +10,15 @@ import { parseScaffold } from "../src/ai/prompts/brief-stages.js";
 describe("resolveHouseStyle", () => {
   it("returns the matching house style for a known id", () => {
     expect(resolveHouseStyle("sequoia-memo").id).toBe("sequoia-memo");
-    expect(resolveHouseStyle("stanford-research").id).toBe("stanford-research");
+    expect(resolveHouseStyle("anthropic").id).toBe("anthropic");
+  });
+
+  it("does not silently resurrect retired house style ids", () => {
+    // `stanford-research` was retired in favour of `anthropic` (same
+    // tone slot, more on-brand editorial register). Anything still
+    // referencing the old id should fall through to boardroom-default
+    // rather than match silently.
+    expect(resolveHouseStyle("stanford-research").id).toBe("boardroom-default");
   });
 
   it("falls back to boardroom-default for unknown / null / undefined ids", () => {
@@ -358,5 +366,456 @@ describe("parseScaffold · threats-to-validity + dense blocks", () => {
     expect(v.type).toBe("pie-chart");
     expect(v.slices).toHaveLength(3);
     expect(v.slices.every((s) => s.value >= 0)).toBe(true);
+  });
+});
+
+describe("parseScaffold · Phase 2B components", () => {
+  function fence(json: object): string {
+    return ["```json", JSON.stringify(json), "```"].join("\n");
+  }
+
+  function baseScaffold(extra: Record<string, unknown> = {}): object {
+    return {
+      title: "A complete-sentence thesis title goes here",
+      bottomLine: { judgement: "Judgement.", confidence: "medium", rationale: "Why." },
+      frameShift: { shifted: false, original: "x", reframed: "", trigger: "y" },
+      headlineFindings: [
+        {
+          title: "Finding sentence",
+          claim: "Load-bearing claim",
+          confidence: "medium",
+          supporters: ["dirA"],
+          challengers: [],
+          supporting: [{ text: "evidence", evidenceRefs: [] }],
+          lensesPresent: ["data", "structural"],
+        },
+      ],
+      convergence: [], divergence: null, positions: [], visuals: [],
+      recommendations: [], preMortem: [], newQuestions: [],
+      planningAssumption: null, openQuestions: [],
+      ...extra,
+    };
+  }
+
+  describe("riskRegister", () => {
+    it("extracts 3 risks with all fields populated", () => {
+      const raw = fence(baseScaffold({
+        riskRegister: [
+          { risk: "Channel concentration on 2 platforms.", category: "market", severity: "high", likelihood: "medium", owner: "ops", mitigation: "Diversify channels in Q3." },
+          { risk: "Hiring bench is thin.", category: "team", severity: "medium", likelihood: "high", owner: "founders", mitigation: "monitor only" },
+          { risk: "API contract pending review.", category: "compliance", severity: "low", likelihood: "low", owner: "legal", mitigation: "Track every 30 days." },
+        ],
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.riskRegister).toHaveLength(3);
+      expect(s!.riskRegister![0].category).toBe("market");
+      expect(s!.riskRegister![0].severity).toBe("high");
+      expect(s!.riskRegister![1].mitigation).toBe("monitor only");
+    });
+
+    it("normalises unknown category to 'execution' and unknown severity/likelihood to 'medium'", () => {
+      const raw = fence(baseScaffold({
+        riskRegister: [
+          { risk: "Vague risk.", category: "wibble", severity: "catastrophic", likelihood: "extreme", owner: "team" },
+        ],
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.riskRegister![0].category).toBe("execution");
+      expect(s!.riskRegister![0].severity).toBe("medium");
+      expect(s!.riskRegister![0].likelihood).toBe("medium");
+    });
+
+    it("defaults missing owner / mitigation rather than dropping the row", () => {
+      const raw = fence(baseScaffold({
+        riskRegister: [{ risk: "Bare risk.", category: "technical", severity: "high", likelihood: "low" }],
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.riskRegister).toHaveLength(1);
+      expect(s!.riskRegister![0].owner).toBe("—");
+      expect(s!.riskRegister![0].mitigation).toBe("monitor only");
+    });
+
+    it("returns empty array when riskRegister is missing", () => {
+      const s = parseScaffold(fence(baseScaffold()), "x", "x");
+      expect(s!.riskRegister).toEqual([]);
+    });
+
+    it("caps at 7 entries even when more are supplied", () => {
+      const many = Array.from({ length: 12 }, (_, i) => ({
+        risk: `r${i}`, category: "market", severity: "high", likelihood: "medium", owner: "ops", mitigation: "x",
+      }));
+      const s = parseScaffold(fence(baseScaffold({ riskRegister: many })), "x", "x");
+      expect(s!.riskRegister).toHaveLength(7);
+    });
+  });
+
+  describe("decisionOptions", () => {
+    it("extracts a 3-option block with one recommended", () => {
+      const raw = fence(baseScaffold({
+        decisionOptions: {
+          intro: "We weighed three paths.",
+          options: [
+            { label: "Build", summary: "x", pros: ["a", "b"], cons: ["c"], effort: "high", confidence: "medium", recommended: false },
+            { label: "Acquire", summary: "y", pros: ["d"], cons: ["e", "f"], effort: "medium", confidence: "high", recommended: true },
+            { label: "Wait", summary: "z", pros: ["g"], cons: ["h"], effort: "low", confidence: "low", recommended: false },
+          ],
+          rationale: "Acquire wins because of speed.",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.decisionOptions).not.toBeNull();
+      expect(s!.decisionOptions!.options).toHaveLength(3);
+      expect(s!.decisionOptions!.options.filter((o) => o.recommended)).toHaveLength(1);
+      expect(s!.decisionOptions!.options.find((o) => o.recommended)!.label).toBe("Acquire");
+    });
+
+    it("forces exactly one recommended option (zero-recommended falls back to first)", () => {
+      const raw = fence(baseScaffold({
+        decisionOptions: {
+          intro: "", options: [
+            { label: "A", summary: "x", pros: ["p"], cons: ["c"], effort: "low", confidence: "low", recommended: false },
+            { label: "B", summary: "y", pros: ["p"], cons: ["c"], effort: "high", confidence: "high", recommended: false },
+          ], rationale: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      const recs = s!.decisionOptions!.options.filter((o) => o.recommended);
+      expect(recs).toHaveLength(1);
+      expect(recs[0].label).toBe("A");
+    });
+
+    it("forces exactly one recommended option (multi-recommended collapses to first)", () => {
+      const raw = fence(baseScaffold({
+        decisionOptions: {
+          intro: "", options: [
+            { label: "A", summary: "x", pros: ["p"], cons: ["c"], effort: "low", confidence: "low", recommended: true },
+            { label: "B", summary: "y", pros: ["p"], cons: ["c"], effort: "high", confidence: "high", recommended: true },
+          ], rationale: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      const recs = s!.decisionOptions!.options.filter((o) => o.recommended);
+      expect(recs).toHaveLength(1);
+      expect(recs[0].label).toBe("A");
+    });
+
+    it("returns null when fewer than 2 valid options survive", () => {
+      const raw = fence(baseScaffold({
+        decisionOptions: {
+          intro: "",
+          options: [
+            { label: "A", summary: "x", pros: [], cons: [], effort: "low", confidence: "low", recommended: true },
+            "not an object",
+          ],
+          rationale: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.decisionOptions).toBeNull();
+    });
+
+    it("normalises unknown effort/confidence to 'medium'", () => {
+      const raw = fence(baseScaffold({
+        decisionOptions: {
+          intro: "",
+          options: [
+            { label: "A", summary: "x", pros: ["p"], cons: ["c"], effort: "huge", confidence: "shaky", recommended: true },
+            { label: "B", summary: "y", pros: ["p"], cons: ["c"], effort: "medium", confidence: "medium", recommended: false },
+          ],
+          rationale: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      const a = s!.decisionOptions!.options.find((o) => o.label === "A")!;
+      expect(a.effort).toBe("medium");
+      expect(a.confidence).toBe("medium");
+    });
+
+    it("returns null when decisionOptions is missing", () => {
+      const s = parseScaffold(fence(baseScaffold()), "x", "x");
+      expect(s!.decisionOptions).toBeNull();
+    });
+  });
+
+  describe("pathComparison", () => {
+    it("extracts a 2-path block with stance + verdict + characteristics", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "The choice between replacement vs augmentation is structural, not cosmetic.",
+          paths: [
+            {
+              verdict: "structurally fragile",
+              stance: "weak",
+              name: "Replace HR with AI",
+              characteristics: [
+                "HR procurement resists tools positioned as threat",
+                "Capability replicable from open weights within days",
+                "No proprietary data accumulates; advantage plateaus",
+                "Pattern across two decades: replacement plays consistently fail",
+              ],
+            },
+            {
+              verdict: "plausibly defensible",
+              stance: "strong",
+              name: "Augment HR with AI",
+              characteristics: [
+                "HR is buyer and user; becomes internal advocate",
+                "Workflow lock-in defensibility",
+                "Product-led embedding compresses sales cycles",
+                "Proprietary data flywheel; switching costs compound",
+              ],
+            },
+          ],
+          implication: "It propagates through every subsequent decision.",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison).not.toBeNull();
+      expect(s!.pathComparison!.paths).toHaveLength(2);
+      expect(s!.pathComparison!.paths[0].stance).toBe("weak");
+      expect(s!.pathComparison!.paths[1].stance).toBe("strong");
+      expect(s!.pathComparison!.paths[0].characteristics).toHaveLength(4);
+      expect(s!.pathComparison!.implication).toContain("propagates");
+    });
+
+    it("normalises unknown stance to 'neutral'", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "",
+          paths: [
+            { verdict: "v1", stance: "garbage", name: "A", characteristics: ["x", "y"] },
+            { verdict: "v2", stance: "wibble", name: "B", characteristics: ["x", "y"] },
+          ],
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison!.paths[0].stance).toBe("neutral");
+      expect(s!.pathComparison!.paths[1].stance).toBe("neutral");
+    });
+
+    it("returns null when fewer than 2 valid paths survive parsing", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "",
+          paths: [
+            { verdict: "v1", stance: "weak", name: "A", characteristics: ["x", "y"] },
+            { verdict: "", stance: "strong", name: "B", characteristics: ["x", "y"] },     // bad · empty verdict
+            "not an object",                                                                  // bad
+          ],
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison).toBeNull();
+    });
+
+    it("returns null when a path has fewer than 2 characteristics", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "",
+          paths: [
+            { verdict: "v1", stance: "weak", name: "A", characteristics: ["only one"] },     // bad · 1 bullet
+            { verdict: "v2", stance: "strong", name: "B", characteristics: ["x", "y"] },
+          ],
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison).toBeNull();
+    });
+
+    it("caps characteristics at 6 per path", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "",
+          paths: [
+            { verdict: "v1", stance: "weak", name: "A", characteristics: ["a","b","c","d","e","f","g","h"] },
+            { verdict: "v2", stance: "strong", name: "B", characteristics: ["a","b"] },
+          ],
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison!.paths[0].characteristics).toHaveLength(6);
+    });
+
+    it("treats more than 2 supplied paths by taking the first 2 valid ones", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "",
+          paths: [
+            { verdict: "v1", stance: "weak", name: "A", characteristics: ["a","b"] },
+            { verdict: "v2", stance: "strong", name: "B", characteristics: ["a","b"] },
+            { verdict: "v3", stance: "neutral", name: "C", characteristics: ["a","b"] },
+          ],
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison!.paths).toHaveLength(2);
+      expect(s!.pathComparison!.paths.map((p) => p.name)).toEqual(["A", "B"]);
+    });
+
+    it("omits implication field when not supplied", () => {
+      const raw = fence(baseScaffold({
+        pathComparison: {
+          intro: "",
+          paths: [
+            { verdict: "v1", stance: "weak", name: "A", characteristics: ["a","b"] },
+            { verdict: "v2", stance: "strong", name: "B", characteristics: ["a","b"] },
+          ],
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.pathComparison!.implication).toBeUndefined();
+    });
+
+    it("returns null when pathComparison is missing", () => {
+      const s = parseScaffold(fence(baseScaffold()), "x", "x");
+      expect(s!.pathComparison).toBeNull();
+    });
+  });
+
+  describe("directorPerspectives · the always-on social map", () => {
+    it("extracts a full 3-director comparison with alignment + divergence + chair synthesis", () => {
+      const raw = fence(baseScaffold({
+        directorPerspectives: {
+          intro: "How the three directors read this differently.",
+          alignment: [
+            { pointOfAgreement: "The bottleneck is responsibility transfer", directorIds: ["dirA", "dirB"], note: "Independent paths · structural and dissent lenses converged." },
+          ],
+          divergence: [
+            {
+              hinge: "Whether reliability or accountability comes first",
+              sides: [
+                { label: "Architecture-first", directorIds: ["dirC"], stance: "Bound the blast radius before legal layers" },
+                { label: "Accountability-first", directorIds: ["dirA", "dirB"], stance: "Indemnity is the moat, reliability follows" },
+              ],
+              resolution: "Pilot data on managers' actual delegation behaviour",
+            },
+          ],
+          perspectives: [
+            { directorId: "dirA", stance: "Indemnity is the moat", position: "Without service-level liability, agents stay tools forever.", quote: "Buyers pay for someone to blame, not someone to consult.", lens: "structural" },
+            { directorId: "dirB", stance: "Same conclusion via dissent", position: "The room kept defaulting to capability framing; that's the trap.", quote: "", lens: "dissent" },
+            { directorId: "dirC", stance: "Architecture before contract", position: "Bound the inference engine first; the legal layer is a wrapper.", quote: "Decouple the policy engine from the inference engine.", lens: "first-principle" },
+          ],
+          chairSynthesis: "Two directors arrived at indemnity from different lenses; the third reads the problem as architectural. The hinge is sequencing, not conclusion.",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.directorPerspectives).not.toBeNull();
+      expect(s!.directorPerspectives!.alignment).toHaveLength(1);
+      expect(s!.directorPerspectives!.alignment[0].directorIds).toHaveLength(2);
+      expect(s!.directorPerspectives!.divergence).toHaveLength(1);
+      expect(s!.directorPerspectives!.divergence[0].sides).toHaveLength(2);
+      expect(s!.directorPerspectives!.perspectives).toHaveLength(3);
+      expect(s!.directorPerspectives!.perspectives.map((p) => p.directorId)).toEqual(["dirA", "dirB", "dirC"]);
+      expect(s!.directorPerspectives!.chairSynthesis).toContain("indemnity");
+    });
+
+    it("returns null when only 1 valid director perspective exists", () => {
+      const raw = fence(baseScaffold({
+        directorPerspectives: {
+          intro: "",
+          alignment: [],
+          divergence: [],
+          perspectives: [
+            { directorId: "dirA", stance: "Solo", position: "Only one director spoke.", quote: "", lens: "structural" },
+          ],
+          chairSynthesis: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.directorPerspectives).toBeNull();
+    });
+
+    it("normalises an unknown lens to 'structural'", () => {
+      const raw = fence(baseScaffold({
+        directorPerspectives: {
+          intro: "",
+          alignment: [],
+          divergence: [],
+          perspectives: [
+            { directorId: "dirA", stance: "x", position: "Bare position.", quote: "", lens: "garbage" },
+            { directorId: "dirB", stance: "y", position: "Another position.", quote: "", lens: "data" },
+          ],
+          chairSynthesis: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.directorPerspectives!.perspectives[0].lens).toBe("structural");
+      expect(s!.directorPerspectives!.perspectives[1].lens).toBe("data");
+    });
+
+    it("drops alignment groups with only 1 director (not actually alignment)", () => {
+      const raw = fence(baseScaffold({
+        directorPerspectives: {
+          intro: "",
+          alignment: [
+            { pointOfAgreement: "Solo group", directorIds: ["dirA"], note: "" },                         // dropped · only 1
+            { pointOfAgreement: "Real alignment", directorIds: ["dirA", "dirB"], note: "good" },          // kept
+          ],
+          divergence: [],
+          perspectives: [
+            { directorId: "dirA", stance: "x", position: "p1", quote: "", lens: "structural" },
+            { directorId: "dirB", stance: "y", position: "p2", quote: "", lens: "data" },
+          ],
+          chairSynthesis: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.directorPerspectives!.alignment).toHaveLength(1);
+      expect(s!.directorPerspectives!.alignment[0].pointOfAgreement).toBe("Real alignment");
+    });
+
+    it("drops divergence entries with fewer than 2 sides", () => {
+      const raw = fence(baseScaffold({
+        directorPerspectives: {
+          intro: "",
+          alignment: [],
+          divergence: [
+            {
+              hinge: "Sole-side fork",
+              sides: [{ label: "Only", directorIds: ["dirA"], stance: "alone" }],   // dropped · only 1 side
+              resolution: "",
+            },
+            {
+              hinge: "Real fork",
+              sides: [
+                { label: "A", directorIds: ["dirA"], stance: "yes" },
+                { label: "B", directorIds: ["dirB"], stance: "no" },
+              ],
+              resolution: "tbd",
+            },
+          ],
+          perspectives: [
+            { directorId: "dirA", stance: "x", position: "p1", quote: "", lens: "structural" },
+            { directorId: "dirB", stance: "y", position: "p2", quote: "", lens: "data" },
+          ],
+          chairSynthesis: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.directorPerspectives!.divergence).toHaveLength(1);
+      expect(s!.directorPerspectives!.divergence[0].hinge).toBe("Real fork");
+    });
+
+    it("preserves an empty chairSynthesis as empty string (not null)", () => {
+      const raw = fence(baseScaffold({
+        directorPerspectives: {
+          intro: "",
+          alignment: [],
+          divergence: [],
+          perspectives: [
+            { directorId: "dirA", stance: "x", position: "p1", quote: "", lens: "structural" },
+            { directorId: "dirB", stance: "y", position: "p2", quote: "", lens: "data" },
+          ],
+          chairSynthesis: "",
+        },
+      }));
+      const s = parseScaffold(raw, "x", "x");
+      expect(s!.directorPerspectives!.chairSynthesis).toBe("");
+    });
+
+    it("returns null when directorPerspectives is missing entirely", () => {
+      const s = parseScaffold(fence(baseScaffold()), "x", "x");
+      expect(s!.directorPerspectives).toBeNull();
+    });
   });
 });

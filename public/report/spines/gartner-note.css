@@ -22,6 +22,12 @@
   --orange: #E65100;
   --orange-pale: #FFF3E0;
   --red: #C62828;
+  --paper: var(--bg);
+  --paper-soft: var(--bg-soft);
+  --ink-mid: var(--ink-soft);
+  /* Cross-spine token aliases · used by the unified design system. */
+  --accent: var(--brand);
+  --warn: var(--red);
   --sans: "Inter", "Helvetica Neue", "Arial", -apple-system, BlinkMacSystemFont,
           "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans CN",
           "Noto Sans CJK SC", sans-serif;
@@ -53,7 +59,7 @@ html, body {
   justify-content: space-between;
   align-items: center;
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 500;
@@ -122,7 +128,7 @@ html, body {
   font-weight: 700;
   margin-bottom: 6px;
 }
-.byline-block .value { font-size: 13.5px; color: var(--ink); font-weight: 600; line-height: 1.45; }
+.byline-block .value { font-size: 14px; color: var(--ink); font-weight: 600; line-height: 1.45; }
 .byline-block .signed-avatars { display: flex; margin-top: 4px; }
 .byline-block .signed-avatars img {
   width: 22px; height: 22px;
@@ -182,7 +188,7 @@ html, body {
 .body h4 { font-size: 13px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); }
 .body p { margin: 12px 0; line-height: 1.62; color: var(--ink-soft); font-size: 15px; }
 .body ul, .body ol { margin: 12px 0 14px 22px; }
-.body li { margin: 6px 0; line-height: 1.55; color: var(--ink-soft); font-size: 14.5px; }
+.body li { margin: 6px 0; line-height: 1.55; color: var(--ink-soft); font-size: 15px; }
 .body strong { color: var(--ink); font-weight: 700; }
 .body em { color: var(--ink); font-style: italic; }
 .body code {
@@ -190,16 +196,18 @@ html, body {
   border: 1px solid var(--rule);
   padding: 1px 7px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--brand);
   border-radius: 2px;
 }
 .body code.badge-confidence-high { color: var(--green); border-color: rgba(46, 125, 50, 0.3); background: var(--green-pale); }
 .body code.badge-confidence-medium { color: var(--orange); border-color: rgba(230, 81, 0, 0.3); background: var(--orange-pale); }
 .body code.badge-confidence-low { color: var(--red); border-color: rgba(198, 40, 40, 0.3); background: rgba(198, 40, 40, 0.06); }
-.body code.badge-priority-p0 { background: var(--red); color: #fff; border-color: var(--red); font-weight: 700; }
-.body code.badge-priority-p1 { background: var(--orange); color: #fff; border-color: var(--orange); font-weight: 700; }
-.body code.badge-priority-p2 { background: var(--bg-soft); color: var(--ink-faint); }
+/* Priority badges · typographic only · gartner severity palette:
+   red for P0 (highest), brand-deep for P1 (mid), ink-faint for P2. */
+.body code.badge-priority-p0 { color: var(--red); }
+.body code.badge-priority-p1 { color: var(--brand-deep); }
+.body code.badge-priority-p2 { color: var(--ink-faint); }
 .body blockquote {
   padding: 14px 18px;
   margin: 22px 0;
@@ -237,7 +245,7 @@ html, body {
 .body h2.section-thesis { font-size: 12px; color: var(--brand); text-transform: uppercase; letter-spacing: 0.16em; }
 .body section.section-thesis p:first-child { font-size: 24px; color: var(--ink); font-weight: 600; line-height: 1.3; }
 
-.body section.section-frame-shift p:first-child { font-size: 16.5px; color: var(--ink); }
+.body section.section-frame-shift p:first-child { font-size: 17px; color: var(--ink); }
 
 /* Headline Findings · key-findings flat list (Gartner default presentation). */
 .body section.section-headline-findings .pillars-grid { display: block; margin: 20px 0; }
@@ -251,7 +259,7 @@ html, body {
   position: absolute;
   top: 18px; left: 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--brand);
   font-weight: 700;
   letter-spacing: 0;
@@ -278,7 +286,7 @@ html, body {
   color: var(--brand);
   font-weight: 700;
 }
-.body section.section-big-ideas ol > li p:first-child strong { font-size: 16.5px; color: var(--ink); }
+.body section.section-big-ideas ol > li p:first-child strong { font-size: 17px; color: var(--ink); }
 
 /* Why Now · Strategic Planning Assumption-style box. */
 .body section.section-why-now {
@@ -323,7 +331,7 @@ html, body {
 .body section.section-recommendations ol > li:has(code.badge-priority-p0)::before { background: var(--red); }
 .body section.section-recommendations ol > li p,
 .body section.section-the-bet ol > li p,
-.body section.section-considerations ol > li p { font-size: 14.5px; }
+.body section.section-considerations ol > li p { font-size: 15px; }
 .body section.section-recommendations ol > li p:first-child strong,
 .body section.section-the-bet ol > li p:first-child strong,
 .body section.section-considerations ol > li p:first-child strong { font-size: 16px; color: var(--ink); }
@@ -371,7 +379,7 @@ html, body {
   position: relative;
   padding: 14px 0 14px 56px;
   border-top: 1px dashed var(--rule);
-  font-size: 14.5px;
+  font-size: 15px;
 }
 .body section.section-new-questions ol > li:last-child { border-bottom: 1px dashed var(--rule); }
 .body section.section-new-questions ol > li::before {
@@ -387,7 +395,7 @@ html, body {
   width: 100%;
   border-collapse: collapse;
   margin: 18px 0 24px;
-  font-size: 13.5px;
+  font-size: 14px;
   border-top: 2px solid var(--brand);
 }
 .body table.md-table th, .body table.md-table td {
@@ -401,28 +409,28 @@ html, body {
   color: var(--brand);
   font-family: var(--sans);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   border-bottom: 2px solid var(--rule-strong);
 }
-.body table.md-table td:first-child { font-weight: 600; color: var(--ink); }
+.body table.md-table td:first-child { font-weight: 600; color: var(--ink); font-size: 14px; }
 .body table.md-table tr:hover td { background: var(--bg-emphasis); }
 
 .body h2.section-methodology {
   margin-top: 80px;
   padding-top: 20px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-faint);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-weight: 700;
   border-top: 1px solid var(--rule);
 }
-.body section.section-methodology { color: var(--ink-faint); font-size: 12.5px; line-height: 1.55; background: var(--bg-soft); padding: 14px 16px; margin-top: 8px; border: 1px solid var(--rule); }
+.body section.section-methodology { color: var(--ink-faint); font-size: 13px; line-height: 1.55; background: var(--bg-soft); padding: 14px 16px; margin-top: 8px; border: 1px solid var(--rule); }
 .body section.section-methodology strong { color: var(--ink-soft); font-family: var(--mono); font-size: 12px; }
 
-.body pre.codeblock { background: var(--bg-soft); border: 1px solid var(--rule); padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+.body pre.codeblock { background: var(--bg-soft); border: 1px solid var(--rule); padding: 12px 14px; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); }
 .body pre.mermaid { background: var(--bg); border-top: 2px solid var(--brand); border-bottom: 1px solid var(--rule); padding: 28px 24px 24px; margin: 22px 0 28px; min-height: 380px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
 .body pre.mermaid svg text { font-family: var(--sans) !important; }
 
@@ -446,7 +454,7 @@ html, body {
   font-family: var(--sans);
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 .placeholder.error { color: var(--red); }
@@ -468,8 +476,8 @@ html, body {
 }
 .rec-rule code { flex: 0 0 auto; }
 .rec-rule-line { flex: 1 1 auto; height: 1px; background: var(--rule); display: block; }
-.rec-priority-p0 .rec-rule-line { background: var(--red); height: 1.5px; }
-.rec-priority-p1 .rec-rule-line { background: var(--brand); height: 1.5px; }
+.rec-priority-p0 .rec-rule-line { background: var(--red); height: 2px; }
+.rec-priority-p1 .rec-rule-line { background: var(--brand); height: 2px; }
 .rec-action {
   font-family: var(--sans); font-size: 22px; line-height: 1.28;
   color: var(--ink); font-weight: 700; letter-spacing: -0.018em;
@@ -489,7 +497,7 @@ html, body {
 .rec-meta-sep { color: var(--ink-faint); }
 .rec-risk {
   display: flex; align-items: flex-start; gap: 8px;
-  font-size: 13.5px; line-height: 1.6; color: var(--ink-soft);
+  font-size: 14px; line-height: 1.6; color: var(--ink-soft);
   margin: 0; font-style: italic;
 }
 .rec-risk-icon { flex: 0 0 auto; color: var(--red); font-style: normal; }
@@ -535,53 +543,78 @@ html, body {
   font-style: normal; margin-left: 4px; vertical-align: -8px;
   line-height: 1; font-family: Georgia, serif;
 }
-.nq-why { font-size: 14.5px; line-height: 1.65; color: var(--ink-soft); margin: 0; max-width: 60ch; }
+.nq-why { font-size: 15px; line-height: 1.65; color: var(--ink-soft); margin: 0; max-width: 60ch; }
 
 /* ─── Metric strip · per-spine treatment ─────────────────────────
    Inherits the spine-agnostic baseline in public/report.html's inline
    <style>; this block tweaks surface, accent + typography to match
    the spine's voice. No `border-left`, no parallel borders against
    adjacent .chapter-num / section h2. */
-/* Dense table-like treatment · monospace everywhere, value is
-   primary but disciplined (not display-sized). The grid keeps its
-   1px-rule "table cells" look but inherits the baseline's
-   data-cards templates so the orphan-card problem (5 cards
-   wrapping as 4+1 with the lone card stretched) is solved. */
-.body .metric-strip-grid {
-  gap: 1px;
-  background: var(--rule, rgba(0, 0, 0, 0.08));
-  border: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.12));
-}
+/* Inherits the Swiss-editorial baseline (big thin numerals top, mute
+   mono label bottom, hairline grid). Gartner signature: monospace
+   value (research-note ledger feel) + brand-deep label colour. The
+   earlier "1px-rule table cells" treatment used `gap: 1px` over a
+   coloured grid background — retired because it doubled hairlines
+   against the baseline's outer top/bottom rules. */
 .body .metric-strip-intro {
   color: var(--ink-soft);
-  font-family: var(--mono);
-  border-bottom: 0.5px solid var(--rule-soft, rgba(0, 0, 0, 0.12));
-  padding-bottom: 6px;
-  margin-bottom: 0;
-}
-.body .metric-card {
-  background: var(--bg);
-  border: none;
-  padding: 12px 14px;
-  min-height: 84px;
-  gap: 4px;
 }
 .body .metric-label {
   color: var(--brand-deep);
-  font-family: var(--mono);
-  font-size: 9.5px;
   font-weight: 700;
 }
+/* Mono numerals at the editorial size · keeps the gartner table-feel
+   but lets the baseline's 56px / weight 300 hold for visual rhythm. */
 .body .metric-value {
   color: var(--ink);
   font-family: var(--mono);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 .body .metric-card[data-trend="up"]   .metric-value { color: var(--green); }
 .body .metric-card[data-trend="down"] .metric-value { color: var(--brand-deep); }
 .body .metric-trend[data-trend="up"]   { color: var(--green); }
 .body .metric-trend[data-trend="down"] { color: var(--brand-deep); }
-.body .metric-qualifier { color: var(--ink-soft); font-family: var(--mono); font-size: 11px; }
+.body .metric-qualifier { color: var(--ink-soft); font-family: var(--mono); }
 .body .metric-attribution { color: var(--ink-faint); }
+
+/* ─── Path comparison · per-spine treatment ──────────────────────
+   gartner uses brand-deep (weak) / green (strong) — its decision-
+   under-uncertainty palette. */
+.body .path-comparison .path { background: var(--bg-soft); border-color: var(--rule-soft); }
+.body .path-comparison .path-weak   { border-top-color: var(--brand-deep); }
+.body .path-comparison .path-strong { border-top-color: var(--green); }
+.body .path-comparison .path-weak   .path-tag { color: var(--brand-deep); }
+.body .path-comparison .path-strong .path-tag { color: var(--green); }
+.body .path-comparison .path-name { color: var(--ink); font-weight: 600; }
+.body .path-comparison .path li { color: var(--ink-soft); }
+.body .path-comparison .path-weak   li::before { background: var(--brand-deep); }
+.body .path-comparison .path-strong li::before { background: var(--green); }
+.body .path-comparison-implication { color: var(--ink-soft); }
+
+/* ─── Views-compared · per-spine · gartner-note ────────────────
+   Hairline frame · accent stripe on TOP (per project rule).
+   Alignment uses brand-deep, divergence uses red. */
+.body .vc-section-label { color: var(--brand-deep); border-color: var(--rule-soft); }
+.body .views-compared-alignment .vc-card {
+  border-color: var(--rule-soft);
+  border-top-color: var(--brand-deep);
+}
+.body .vc-card-headline { color: var(--ink); font-weight: 600; }
+.body .vc-chip { color: var(--ink-soft); border-color: var(--rule-soft); }
+.body .vc-card-note { color: var(--ink-soft); }
+.body .vc-fork { border-color: var(--rule-soft); border-top-color: var(--red, #B43E2C); }
+.body .vc-fork-hinge { color: var(--ink); }
+.body .vc-side { border-color: var(--rule-soft); }
+.body .vc-side-label { color: var(--red, #B43E2C); }
+.body .vc-side-stance { color: var(--ink-soft); }
+.body .vc-fork-resolution { color: var(--ink-soft); border-top-color: var(--rule-soft); }
+.body .vc-resolution-label { color: var(--ink-faint); }
+.body .vc-row-name { color: var(--ink); font-weight: 600; }
+.body .vc-row-stance { color: var(--brand-deep); }
+.body .vc-row-position { color: var(--ink-soft); }
+.body .vc-row-quote { color: var(--ink); }
+.body .views-compared-synthesis {
+  border-color: var(--rule-soft);
+  border-top-color: var(--ink-faint);
+}
+.body .vc-synthesis-body { color: var(--ink); }

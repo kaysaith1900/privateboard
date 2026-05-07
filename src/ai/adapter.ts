@@ -540,6 +540,23 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
       // upstream, those promises may hang or resolve with stale values.
       return;
     }
+    // Abort short-circuit · when the for-await broke because the
+    // user-supplied AbortSignal fired (hard pause / "stop immediately"
+    // / chair interrupt), bail out without awaiting the SDK's
+    // response / usage / finishReason promises. Some providers never
+    // resolve OR reject these once the underlying fetch is severed
+    // mid-stream — the generator hangs forever, the orchestrator's
+    // `for await (const chunk of callLLMStream)` never gets a final
+    // chunk, and streamSpeakerTurn's cleanup at the bottom never
+    // runs. The visible symptom: pause → "stop immediately" →
+    // director's loading bubble stays on screen with no signal to
+    // clear it. Yielding a `done` chunk lets the orchestrator's
+    // streamSpeakerTurn fall through to its finalize-or-delete
+    // cleanup with `streaming: false`.
+    if (req.signal?.aborted) {
+      yield { type: "done", finishReason: "aborted" };
+      return;
+    }
     // Capture the *actually-served* model id from the upstream
     // response. OpenRouter echoes this in the OpenAI-compatible
     // response body — if it differs from req.modelV's resolved id,

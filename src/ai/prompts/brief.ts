@@ -108,16 +108,57 @@ export function buildBriefMessages(opts: BuildOpts): LLMMessage[] {
 }
 
 /**
- * Pull the H2 title out of the brief markdown. Falls back to the room subject
- * if no H2 found in the first 8 lines.
+ * Detect H2 strings that look like topic labels rather than claim
+ * sentences. The brief writer is instructed to emit a claim-style H2,
+ * but it occasionally regresses to short noun-phrases ("反共识判断" /
+ * "Market analysis" / "Investment Thesis"). Those leak into the brief
+ * record and become unreadable in the sidebar / dashboard.
+ *
+ * Thresholds:
+ *   · CJK text (no spaces, contains Han/Hiragana/Hangul): < 8 chars
+ *   · Latin text (whitespace-tokenised): < 5 words
  */
-export function extractBriefTitle(bodyMd: string, fallback: string): string {
+function isLikelyTopicLabel(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  const isCjk = !/\s/.test(trimmed) && /[一-鿿぀-ヿ가-힯]/.test(trimmed);
+  if (isCjk) return trimmed.length < 8;
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  return wordCount < 5;
+}
+
+/**
+ * Pull the title out of the brief markdown. Tries (1) the first H2 if
+ * it's claim-style, then (2) the bottom-line judgement (which is
+ * claim-style by schema), then (3) the supplied fallback.
+ *
+ * Skips the H2 when it's a topic-label noun-phrase ("反共识判断" /
+ * "Market analysis"). Those titles render fine inside the brief body
+ * but read as cryptic in the sidebar / link previews where context
+ * isn't visible.
+ */
+export function extractBriefTitle(
+  bodyMd: string,
+  fallback: string,
+  bottomLineJudgement?: string,
+): string {
   const lines = bodyMd.split("\n").slice(0, 12);
+  let firstH2: string | null = null;
   for (const line of lines) {
     const m = /^##\s+(.+)$/.exec(line.trim());
     if (m && m[1] && !/^(situation|findings|implication)$/i.test(m[1])) {
-      return m[1].trim();
+      firstH2 = m[1].trim();
+      break;
     }
   }
-  return fallback;
+  // Claim-style H2 wins · use it verbatim.
+  if (firstH2 && !isLikelyTopicLabel(firstH2)) return firstH2;
+  // H2 was missing or topic-style · prefer the bottom-line judgement
+  // when it's substantive (≥ 12 chars). The judgement IS the brief's
+  // claim sentence by schema.
+  const judgement = (bottomLineJudgement || "").trim();
+  if (judgement.length >= 12) return judgement;
+  // Last resort · accept the short H2 if we have one, else the room
+  // subject (which is the user's question).
+  return firstH2 || fallback;
 }

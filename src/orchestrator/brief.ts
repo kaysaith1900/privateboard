@@ -18,17 +18,18 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { callLLMStream, callLLMWithUsage } from "../ai/adapter.js";
+import { callLLMStream, callLLMWithUsage, type LLMMessage } from "../ai/adapter.js";
 import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
+  assetsToSignals,
   buildExtractMessages,
   buildScaffoldMessages,
-  buildContractRetryAddendum,
   buildWriteMessages,
-  parseDirectorSignals,
+  countAssets,
+  parseDirectorAssets,
   parseScaffold,
-  validateBriefBody,
   type BriefScaffold,
+  type DirectorAssets,
   type DirectorSignals,
 } from "../ai/prompts/brief-stages.js";
 import {
@@ -45,7 +46,7 @@ import { isModelV, type ModelV } from "../ai/registry.js";
 import { getAgent, getChairAgent, incrementAgentTokens, type Agent } from "../storage/agents.js";
 import { listMessages } from "../storage/messages.js";
 import { getRoom, listRoomMembers } from "../storage/rooms.js";
-import { insertBrief, updateBriefBody, updateBriefCompose, updateBriefSignals } from "../storage/briefs.js";
+import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateBriefCompose } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 import { estimateTokens } from "../utils/tokens.js";
 
@@ -105,10 +106,15 @@ function stageFlagshipList(): ModelV[] {
   return out;
 }
 
-/** Stage 2 retry budget. Each retry bumps temperature so the LLM is
- *  more likely to break out of a malformed-JSON local minimum. */
-const STAGE_2_RETRIES = 3;
-const STAGE_2_TEMPERATURES = [0.2, 0.4, 0.6];
+/** Stage 2 retry budget. Reduced from 3 → 2 with the relaxed
+ *  `parseScaffold` contract — most "malformed" outputs now parse
+ *  successfully (the parser accepts any non-empty content field), so
+ *  burning 3+ retries × 2 models × 60-180s/attempt was the dominant
+ *  cause of stage 2 hitting the front-end's 5-minute hard timeout.
+ *  2 retries × 2 models = 4 attempts max, which fits comfortably
+ *  under 5 minutes for normal-sized rooms. */
+const STAGE_2_RETRIES = 2;
+const STAGE_2_TEMPERATURES = [0.2, 0.5];
 
 interface GenerateOpts {
   roomId: string;
@@ -163,6 +169,21 @@ const inFlightBriefs = new Map<string, BriefGenerationState>();
 
 export function isBriefGenerating(briefId: string): boolean {
   return inFlightBriefs.has(briefId);
+}
+
+/** Look up the in-flight brief id for a given room, if any. Used by
+ *  the POST /api/rooms/:id/brief route as an idempotency check — if a
+ *  generation is already running, the route returns the existing
+ *  brief id instead of spawning a parallel pipeline. Without this,
+ *  double-clicks across surfaces (header CTA + chat CTA + adjourn
+ *  overlay) produce duplicate brief rows and the user sees two
+ *  "generating…" tabs. The map is small (one entry per active
+ *  pipeline), so a linear scan is cheap. */
+export function inFlightBriefForRoom(roomId: string): string | null {
+  for (const state of inFlightBriefs.values()) {
+    if (state.roomId === roomId) return state.briefId;
+  }
+  return null;
 }
 
 /** Return the full pipeline snapshot for a brief currently being
@@ -264,9 +285,30 @@ interface PipelineArgs {
 }
 
 /** Stage labels that ship to the UI checklist. Frontend matches on
- *  `stage` and renders the canonical label. `compose` is the new
- *  Stage 1.5 — older clients that don't recognize it just skip the row. */
-type StageKey = "extract" | "compose" | "scaffold" | "write";
+ *  `stage` and renders the canonical label.
+ *
+ *  Sub-stage taxonomy:
+ *  · `extract`  · per-director signal extract (parallel haiku)
+ *  · `compose`  · spine + component selection (cheap call)
+ *  · `scaffold-anchor`   · bottomLine + thesis · "what's the takeaway"
+ *  · `scaffold-findings` · headlineFindings   · "what supports it"
+ *  · `scaffold-cluster`  · convergence/divergence/positions · "consensus + dissent"
+ *  · `scaffold-actions`  · recommendations + preMortem + newQuestions
+ *  · `write`    · final report streaming (opus)
+ *
+ *  The 4 scaffold sub-stages replace the older single `scaffold` event.
+ *  They're driven by JSON-key arrival in the streaming buffer (see
+ *  runStage2), so each transition reflects a real moment in the model's
+ *  output, not a faked timer. Older clients that don't recognize the
+ *  new keys silently skip those rows. */
+type StageKey =
+  | "extract"
+  | "compose"
+  | "scaffold-anchor"
+  | "scaffold-findings"
+  | "scaffold-cluster"
+  | "scaffold-actions"
+  | "write";
 type StageStatus = "active" | "done";
 
 interface StageProgress {
@@ -354,7 +396,17 @@ function emitStage(
  * observed calibration factor measured from stage 1's actual time vs
  * predicted. See `runPipeline` for the in-flight calibration. */
 const TPS_BY_MODEL: Record<string, number> = {
-  haiku:  130,  // haiku-4-5 — was 180, brought down for realism
+  // All three numbers are tuned for STRUCTURED OUTPUT (JSON / markdown
+  // with tables / fenced blocks), which is what every brief stage
+  // actually produces. Constrained decoding runs ~30% slower than
+  // free-prose generation in practice; numbers below already account
+  // for that, so callers don't need to discount.
+  haiku:   90,  // haiku-4-5 emitting 9-field asset bundle JSON. Was
+                // 130, lowered after observing Stage 1 wall-clock ≈ 2×
+                // the prediction on dense rooms (5+ directors with
+                // long contributions). The 130 figure assumed the old
+                // 2-4 flat-signal output; the asset bundle is 4-5× the
+                // tokens.
   sonnet:  45,  // sonnet-4-6 — structured JSON output, not free prose
   opus:    28,  // opus-4-7 — rich markdown with tables / mermaid
 };
@@ -389,9 +441,15 @@ function ensureSysTokens(): void {
   // Defer the import to avoid an import cycle and keep startup cheap.
   // We approximate from typical sizes seen in measurement (chars × 0.27
   // for a mostly-English prompt with some structure punctuation).
-  // EXTRACT_SYSTEM is per-director (~1.5k chars), SCAFFOLD_SYSTEM ~9k
-  // chars, WRITE_SYSTEM ~7.7k chars.
-  SYS_TOKENS.extract  = 450;
+  //
+  // EXTRACT_SYSTEM grew significantly when it was rewritten to emit a
+  // 9-field asset bundle (claims / evidence / tensions / assumptions /
+  // risks / opportunities / actions / quotes / openQuestions) with
+  // per-field examples + lens taxonomy + JSON example + constraints.
+  // Was 450, bumped to 800 after observing Stage 1 wall-clock ≈ 2× the
+  // prediction. Sources: brief-stages.ts EXTRACT_SYSTEM, ~3000 chars.
+  // SCAFFOLD_SYSTEM ~9k chars, WRITE_SYSTEM ~7.7k chars (unchanged).
+  SYS_TOKENS.extract  = 800;
   SYS_TOKENS.scaffold = 2300;
   SYS_TOKENS.write    = 1950;
 }
@@ -412,16 +470,26 @@ function estimateStage1Eta(args: Stage1EtaArgs): StageEta {
     if (!own.length) continue;
     const ownText = own.map((m) => m.body || "").join("\n\n");
     const inputTokens = SYS_TOKENS.extract + estimateTokens(ownText) + 80;
-    const outputTokens = 400; // 3-4 signals × ~120 tokens each
+    // Output budget: the asset bundle has up to 30+ entries across 9
+    // fields, capped server-side at maxTokens 1600. Average output
+    // lands around 900-1100 tokens for a director with material to
+    // surface; we use 1000 as the central estimate. Was 400 — that
+    // assumed the legacy 2-4 flat-signal shape, which was retired.
+    const outputTokens = 1000;
     const t = llmTimeSec(inputTokens, outputTokens, "haiku");
     if (t > slowest) slowest = t;
   }
   if (slowest === 0) return { lo: 2, hi: 5 }; // no speakers
-  // Mild concurrency overhead when many directors run in parallel.
+  // Concurrency overhead grows with the parallel-call count. The 4+
+  // bump was 1.15× — observed wall-clock on rooms with 5-7 directors
+  // suggests provider rate limits + queueing add closer to 1.3-1.4×,
+  // so the floor is now wider. Solo or 2-3 director rooms keep the
+  // unscaled estimate.
   const speakers = args.directors.filter((d) =>
     args.transcript.some((m) => m.authorKind === "agent" && m.authorId === d.id),
   ).length;
-  if (speakers >= 4) slowest *= 1.15;
+  if (speakers >= 6) slowest *= 1.4;
+  else if (speakers >= 4) slowest *= 1.2;
   return asEta(slowest);
 }
 
@@ -531,6 +599,12 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
   let buf = "";
   let stage3Model: ModelV | null = null;
   let pipelineError: string | null = null;
+  let scaffold: BriefScaffold | null = null;
+  const provenance: PipelineProvenance = {
+    composerModel: null,
+    scaffoldModel: null,
+    scaffoldRetries: 0,
+  };
 
   try {
     // ── Stage 1 · per-director extract (parallel) ────────────────────────
@@ -549,13 +623,13 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       { current: 0, total: totalDirectors },
       stage1Eta,
     );
-    const perDirectorSignals = await runStage1(
+    const perDirectorAssets = await runStage1(
       directors,
       transcript,
       room,
       language,
       chairId,
-      (current) => {
+      (current, harvest) => {
         emitStage(
           roomId,
           briefId,
@@ -565,6 +639,47 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
           { current, total: totalDirectors },
           stage1Eta,
         );
+        // Per-director harvest event · the loading UI uses these to
+        // turn the placeholder "name only" chips into real "name · 7
+        // signals · top: risk" chips with a hover breakdown. Skipped
+        // when the director failed every model (harvest === null) —
+        // the director just doesn't get a chip.
+        if (harvest) {
+          const byKind = {
+            claims: harvest.claims.length,
+            evidence: harvest.evidence.length,
+            tensions: harvest.tensions.length,
+            assumptions: harvest.assumptions.length,
+            risks: harvest.risks.length,
+            opportunities: harvest.opportunities.length,
+            actions: harvest.actions.length,
+            quotes: harvest.quotes.length,
+            openQuestions: harvest.openQuestions.length,
+          };
+          let total = 0;
+          let topKind: keyof typeof byKind | null = null;
+          let topCount = 0;
+          for (const [k, n] of Object.entries(byKind) as [keyof typeof byKind, number][]) {
+            total += n;
+            if (n > topCount) {
+              topCount = n;
+              topKind = k;
+            }
+          }
+          roomBus.emit(roomId, {
+            type: "config-event",
+            kind: "brief-extract-harvest",
+            payload: {
+              briefId,
+              directorId: harvest.directorId,
+              directorName: harvest.directorName,
+              total,
+              byKind,
+              topKind,
+            },
+            createdAt: Date.now(),
+          });
+        }
       },
       args.signal,
     );
@@ -576,30 +691,21 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
     if (args.signal?.aborted) return;
     emitStage(roomId, briefId, "extract", "done");
 
-    // Persist Stage-1 signals on the brief row so future follow-up
-    // rooms can re-use them as named-by-lens prior context. Strip
-    // each signal down to {text, lens, sources} for storage; the
-    // full DirectorSignals shape carries director metadata that's
-    // already implicit in the directorId / directorName fields.
+    // Boundary adapter · Stage 2 / Stage 3 still consume the legacy
+    // flat `DirectorSignals` shape (asset-kind tags encoded in text
+    // prefixes). Composer below sees the rich asset bundle directly.
+    const perDirectorSignals: DirectorSignals[] = perDirectorAssets.map(assetsToSignals);
+
+    // Persist Stage-1 assets on the brief row so future follow-up
+    // rooms can re-use them as named-by-lens prior context.
     try {
-      updateBriefSignals(
-        briefId,
-        perDirectorSignals.map((d) => ({
-          directorId: d.directorId,
-          directorName: d.directorName,
-          signals: d.signals.map((s) => ({
-            text: s.text,
-            lens: s.lens,
-            sources: Array.isArray(s.sources) ? s.sources : [],
-          })),
-        })),
-      );
+      updateBriefAssets(briefId, perDirectorAssets);
     } catch (e) {
-      // Non-fatal · the brief is still valid without persisted signals.
+      // Non-fatal · the brief is still valid without persisted assets.
       // Follow-ups that hit this brief later will fall back to brief
       // markdown alone.
       process.stderr.write(
-        `[brief.stage1] persist signals failed: ${e instanceof Error ? e.message : String(e)}\n`,
+        `[brief.stage1] persist assets failed: ${e instanceof Error ? e.message : String(e)}\n`,
       );
     }
 
@@ -615,15 +721,20 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
     calibration = Math.max(0.5, Math.min(3, calibration));
 
     // ── Stage 1.5 · composer (cheap pick of spine + components) ──────────
+    // Composer reads the rich `DirectorAssets` bundle directly (claims /
+    // evidence / tensions / risks / etc.) so it can pick components based
+    // on what KIND of material the room produced, not on a flattened
+    // signal count.
     emitStage(roomId, briefId, "compose", "active", undefined, undefined, { lo: 1, hi: 4 });
     const composition = await runComposer({
       chairId,
       room,
       members,
-      perDirectorSignals,
+      perDirectorAssets,
       language,
       supplement,
       signal: args.signal,
+      provenance,
     });
     if (args.signal?.aborted) return;
     updateBriefCompose(briefId, {
@@ -659,8 +770,12 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       lo: Math.max(2, Math.round(stage2EtaRaw.lo * calibration)),
       hi: Math.max(4, Math.round(stage2EtaRaw.hi * calibration)),
     };
-    emitStage(roomId, briefId, "scaffold", "active", undefined, undefined, stage2Eta);
-    const scaffold = await runStage2({
+    // Stage 2 is now self-emitting · runStage2 fires its own
+    // `scaffold-anchor` → `scaffold-findings` → `scaffold-cluster` →
+    // `scaffold-actions` events as JSON keys arrive in the stream
+    // buffer. The total ETA budget gets carved across the 4 sub-stages
+    // proportionally (see SCAFFOLD_FRACTIONS).
+    scaffold = await runStage2({
       chair,
       chairId,
       room,
@@ -669,15 +784,37 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       language,
       supplement,
       picked: pickedKinds,
+      roomId,
+      briefId,
+      totalEta: stage2Eta,
       signal: args.signal,
+      provenance,
     });
     if (args.signal?.aborted) return;
-    emitStage(roomId, briefId, "scaffold", "done");
 
     if (!scaffold) {
       pipelineError =
         "Report writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.";
     } else {
+      // ── Interim title update · use scaffold.bottomLine.judgement
+      //    (or thesis.claim / workingHypothesis.hypothesis) as the
+      //    brief's title BEFORE Stage 3 streams. Without this, a
+      //    reader who opens report.html during streaming sees the
+      //    placeholder (room.subject / the initial question) until
+      //    Stage 3 completes and `brief-final` fires. Setting the
+      //    title from the scaffold's claim sentence closes that gap;
+      //    the final extractBriefTitle pass after Stage 3 may still
+      //    refine it if the writer's rendered H2 turns out better. */
+      const interimTitle = (
+        scaffold.bottomLine?.judgement ||
+        scaffold.thesis?.claim ||
+        scaffold.workingHypothesis?.hypothesis ||
+        ""
+      ).trim();
+      if (interimTitle.length >= 12) {
+        setBriefTitle(briefId, interimTitle);
+      }
+
       // ── Stage 3 · chair final write (streaming) ────────────────────────
       // Use the same calibration factor measured from stage 1 — the
       // scaling reflects the user's network / provider latency, which
@@ -716,6 +853,7 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
           stage3Model,
           language,
           startedAt: Date.now(),  // approximate · acceptable for a footer
+          provenance,
         });
         const sep = buf.endsWith("\n") ? "\n" : "\n\n";
         buf += sep + methodology;
@@ -743,7 +881,11 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
     return;
   }
 
-  const title = extractBriefTitle(buf, room.subject);
+  const title = extractBriefTitle(
+    buf,
+    room.subject,
+    scaffold?.bottomLine?.judgement || scaffold?.thesis?.claim || scaffold?.workingHypothesis?.hypothesis,
+  );
   updateBriefBody(briefId, buf, title);
 
   try {
@@ -770,16 +912,26 @@ async function runStage1(
   room: NonNullable<ReturnType<typeof getRoom>>,
   language: "zh" | "en",
   chairId: string | null,
-  onDirectorComplete?: (current: number) => void,
+  onDirectorComplete?: (current: number, harvest: DirectorAssets | null) => void,
   signal?: AbortSignal,
-): Promise<DirectorSignals[]> {
+): Promise<DirectorAssets[]> {
   if (!directors.length) return [];
 
+  const emptyAssets = (d: Agent): DirectorAssets => ({
+    directorId: d.id, directorName: d.name,
+    claims: [], evidence: [], tensions: [], assumptions: [],
+    risks: [], opportunities: [], actions: [], quotes: [], openQuestions: [],
+  });
+
   let completed = 0;
-  const reportComplete = () => {
+  /** Report completion of one director, optionally surfacing the
+   *  parsed harvest. The harvest powers the per-director chip with
+   *  real signal counts in the loading UI; null = director failed
+   *  every model attempt (extracted nothing). */
+  const reportComplete = (harvest: DirectorAssets | null) => {
     if (onDirectorComplete) {
       completed += 1;
-      onDirectorComplete(completed);
+      onDirectorComplete(completed, harvest);
     }
   };
 
@@ -790,23 +942,26 @@ async function runStage1(
     if (!ownMessages.length) {
       // Director didn't speak — don't count toward progress (the total
       // already excludes silent directors).
-      return { directorId: director.id, directorName: director.name, signals: [] };
+      return emptyAssets(director);
     }
     const messages = buildExtractMessages({ director, ownMessages, room, language });
 
     for (const modelV of stageCheapList()) {
       if (!isModelV(modelV)) continue;
       try {
+        // Asset extraction is structurally richer than the legacy 2-4
+        // signal output — bumped maxTokens 800 → 1600 to give the model
+        // room for the 9 fields without truncating mid-JSON.
         const { text: raw, usage } = await callLLMWithUsage({
           modelV,
           messages,
           temperature: 0.2,
-          maxTokens: 800,
+          maxTokens: 1600,
           signal,
         });
         billChair(chairId, usage);
-        const result = parseDirectorSignals(raw, director);
-        reportComplete();
+        const result = parseDirectorAssets(raw, director);
+        reportComplete(result);
         return result;
       } catch (e) {
         process.stderr.write(
@@ -815,15 +970,15 @@ async function runStage1(
       }
     }
     // All models failed for this director — count it complete so the
-    // bar still reaches its total, but emit empty signals.
-    reportComplete();
-    return { directorId: director.id, directorName: director.name, signals: [] };
+    // bar still reaches its total, but emit empty assets.
+    reportComplete(null);
+    return emptyAssets(director);
   });
 
   const settled = await Promise.allSettled(tasks);
   return settled
     .map((r) => (r.status === "fulfilled" ? r.value : null))
-    .filter((x): x is DirectorSignals => x !== null);
+    .filter((x): x is DirectorAssets => x !== null);
 }
 
 /* ─────────────────────────── Stage 1.5 · composer ───────────────────────
@@ -833,52 +988,88 @@ async function runStage1(
  * 12-section preset on any failure (no key, parse error, validation fail) —
  * so the rest of the pipeline always has a valid composition to work with.
  */
+/** Stage-level provenance · mutable record threaded through stages
+ *  so the Methodology footer can name which model handled each step.
+ *  Each stage writes its successful model into the matching field
+ *  when its LLM call returns. Null fields = stage didn't run or no
+ *  model succeeded. Surfaced at render time as a small Provenance
+ *  block under Methodology — turns the footer from a single line
+ *  into a lab-report-grade reproducibility log. */
+export interface PipelineProvenance {
+  composerModel: ModelV | null;
+  scaffoldModel: ModelV | null;
+  scaffoldRetries: number;
+}
+
 interface ComposerArgs {
   chairId: string | null;
   room: NonNullable<ReturnType<typeof getRoom>>;
   members: Agent[];
-  perDirectorSignals: DirectorSignals[];
+  perDirectorAssets: DirectorAssets[];
   language: "zh" | "en";
   supplement?: string;
   signal?: AbortSignal;
+  /** Mutable provenance · runComposer writes `composerModel` here on
+   *  success. Optional so callers that don't care about provenance
+   *  (tests, future paths) can omit it. */
+  provenance?: PipelineProvenance;
 }
 
 async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
-  // Mode is the primary axis · the composer's parser/validator + the
-  // safety-net default both branch on it. Reading once at entry and
-  // threading the value through means a malformed mode string can't
-  // smuggle decision-grade kinds into a brainstorm brief.
-  const mode = args.room.mode || "constructive";
-
-  // No signals → no compose. Fall back to the mode-appropriate preset
-  // so Stage 2/3 still try to produce something (legacy behaviour).
-  const totalSignals = args.perDirectorSignals.reduce(
-    (acc, d) => acc + d.signals.length,
+  // No assets → no compose. Fall back to the default preset so
+  // Stage 2/3 still try to produce something (legacy behaviour).
+  const totalAssets = args.perDirectorAssets.reduce(
+    (acc, d) => acc + countAssets(d),
     0,
   );
-  if (totalSignals === 0) return defaultComposition("no signals — fallback preset", mode);
+  if (totalAssets === 0) return defaultComposition("no assets — fallback preset");
 
   const messages = buildComposerMessages({
     room: args.room,
     members: args.members,
-    perDirectorSignals: args.perDirectorSignals,
+    perDirectorAssets: args.perDirectorAssets,
     language: args.language,
     supplement: args.supplement,
   });
 
+  // Coverage inputs · feed the validatePicks coverage matrix the
+  // per-field totals so it can reject picks that ignored available
+  // material (tensions surfaced but no divergence, risks surfaced but
+  // no pre-mortem, etc.).
+  const coverage = {
+    tensions: args.perDirectorAssets.reduce((n, d) => n + d.tensions.length, 0),
+    risks: args.perDirectorAssets.reduce((n, d) => n + d.risks.length, 0),
+    openQuestions: args.perDirectorAssets.reduce((n, d) => n + d.openQuestions.length, 0),
+    actions: args.perDirectorAssets.reduce((n, d) => n + d.actions.length, 0),
+    dataAvailable: args.perDirectorAssets.reduce(
+      (n, d) =>
+        n +
+        d.claims.filter((c) => c.lens === "data").length +
+        d.evidence.filter((e) => e.kind === "data").length,
+      0,
+    ),
+  };
+
   for (const modelV of stageCheapList()) {
     if (!isModelV(modelV)) continue;
     try {
+      // 600 tokens was tuned for the legacy compact JSON output. The
+      // new tone+budget+coverage block can grow rationale + components
+      // beyond that envelope occasionally; bump to 800 to keep
+      // truncation off the table.
       const { text: raw, usage } = await callLLMWithUsage({
         modelV,
         messages,
         temperature: 0.2,
-        maxTokens: 600,
+        maxTokens: 800,
         signal: args.signal,
       });
       billChair(args.chairId, usage);
-      const parsed = parseComposerOutput(raw, mode);
-      if (parsed) return parsed;
+      const parsed = parseComposerOutput(raw, coverage);
+      if (parsed) {
+        if (args.provenance) args.provenance.composerModel = modelV;
+        return parsed;
+      }
       process.stderr.write(`[brief.compose] ${modelV} produced unusable composition; trying next model\n`);
     } catch (e) {
       process.stderr.write(
@@ -886,7 +1077,7 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
       );
     }
   }
-  return defaultComposition("composer call failed — fallback preset", mode);
+  return defaultComposition("composer call failed — fallback preset");
 }
 
 /* ─────────────────────────── Stage 2 ──────────────────────────────────── */
@@ -902,8 +1093,54 @@ interface Stage2Args {
   /** Composer's component picks (Stage 1.5). When empty, Stage 2 falls
    *  back to filling all 12 sections — preserves legacy behaviour. */
   picked?: readonly string[];
+  /** Identifiers for the sub-stage emitStage calls runStage2 makes
+   *  internally · `scaffold-anchor` → `scaffold-findings` →
+   *  `scaffold-cluster` → `scaffold-actions` as JSON keys arrive in
+   *  the stream buffer. */
+  roomId: string;
+  briefId: string;
+  /** Per-sub-stage ETA window. Shared by all 4 sub-stages — runStage2
+   *  apportions across them in fractions that sum to 1.0. */
+  totalEta: StageEta;
   signal?: AbortSignal;
+  /** Mutable provenance · runStage2 writes `scaffoldModel` and the
+   *  retry count here when the scaffold parses successfully. */
+  provenance?: PipelineProvenance;
 }
+
+/** Sub-stage progression for Stage 2 streaming. The frontend renders
+ *  these 4 keys as separate pips in the loading rail, lighting up as
+ *  the streamed JSON crosses each boundary. Order is the visual
+ *  progression — anchor → findings → cluster → actions. */
+const SCAFFOLD_SUB_STAGES = [
+  "scaffold-anchor",
+  "scaffold-findings",
+  "scaffold-cluster",
+  "scaffold-actions",
+] as const;
+
+/** First-occurrence triggers · regex matched against the streaming
+ *  buffer. When a regex first matches, the previous sub-stage is
+ *  flipped done and this one becomes active. The model's JSON-emit
+ *  order matches the prompt's example template (title → bottomLine →
+ *  frameShift → headlineFindings → convergence → divergence → ...
+ *  → recommendations → preMortem → newQuestions), so these triggers
+ *  reflect the real arrival sequence — not a synthetic timer. */
+const SCAFFOLD_TRIGGERS: Partial<Record<StageKey, RegExp>> = {
+  "scaffold-findings": /"headlineFindings"\s*:/,
+  "scaffold-cluster":  /"convergence"\s*:|"divergence"\s*:|"positions"\s*:/,
+  "scaffold-actions":  /"recommendations"\s*:|"theBet"\s*:|"considerations"\s*:|"preMortem"\s*:/,
+};
+
+/** Fractional ETA budgets across the 4 sub-stages. Sum to 1.0. The
+ *  longest blocks are findings (the heart of the report) and actions
+ *  (recommendations + pre-mortem + new questions all live there). */
+const SCAFFOLD_FRACTIONS: Record<typeof SCAFFOLD_SUB_STAGES[number], number> = {
+  "scaffold-anchor":   0.20,
+  "scaffold-findings": 0.30,
+  "scaffold-cluster":  0.20,
+  "scaffold-actions":  0.30,
+};
 
 async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
   const totalSignals = args.perDirectorSignals.reduce(
@@ -922,24 +1159,107 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
     picked: args.picked,
   });
 
+  // Carve the total Stage 2 ETA budget across the 4 sub-stages. Each
+  // gets its own visible ETA window in the UI.
+  const subEta = (frac: number): StageEta => ({
+    lo: Math.max(2, Math.round(args.totalEta.lo * frac)),
+    hi: Math.max(3, Math.round(args.totalEta.hi * frac)),
+  });
+
+  // Track which sub-stages have been triggered across attempts. Once
+  // a sub-stage has been seen as active in any attempt's buffer, we
+  // never go backward — even if a retry restarts from scratch, the UI
+  // doesn't whiplash. The retry's stream will hit the same triggers
+  // again; we just don't re-emit them.
+  const triggered = new Set<StageKey>();
+
+  // Anchor is active from the moment Stage 2 begins. (No regex trigger
+  // for it — it's the implicit start state.)
+  emitStage(
+    args.roomId,
+    args.briefId,
+    "scaffold-anchor",
+    "active",
+    undefined,
+    undefined,
+    subEta(SCAFFOLD_FRACTIONS["scaffold-anchor"]),
+  );
+  triggered.add("scaffold-anchor");
+
+  /** Inspect the buffer · for each not-yet-triggered sub-stage with a
+   *  regex match, flip the previous done and this one active. */
+  const advanceOnBuffer = (buf: string): void => {
+    for (let i = 1; i < SCAFFOLD_SUB_STAGES.length; i++) {
+      const subKey = SCAFFOLD_SUB_STAGES[i];
+      if (triggered.has(subKey)) continue;
+      const re = SCAFFOLD_TRIGGERS[subKey];
+      if (!re || !re.test(buf)) continue;
+      const prev = SCAFFOLD_SUB_STAGES[i - 1];
+      if (triggered.has(prev)) {
+        emitStage(args.roomId, args.briefId, prev, "done");
+      }
+      emitStage(
+        args.roomId,
+        args.briefId,
+        subKey,
+        "active",
+        undefined,
+        undefined,
+        subEta(SCAFFOLD_FRACTIONS[subKey]),
+      );
+      triggered.add(subKey);
+    }
+  };
+
+  /** Close out any sub-stages still pending or active. Called on a
+   *  successful parse so the loading rail ends in an all-done state
+   *  even when the model omitted a section the composer didn't pick. */
+  const finishAllSubStages = (): void => {
+    for (const subKey of SCAFFOLD_SUB_STAGES) {
+      if (!triggered.has(subKey)) {
+        emitStage(
+          args.roomId,
+          args.briefId,
+          subKey,
+          "active",
+          undefined,
+          undefined,
+          subEta(SCAFFOLD_FRACTIONS[subKey]),
+        );
+        triggered.add(subKey);
+      }
+      emitStage(args.roomId, args.briefId, subKey, "done");
+    }
+  };
+
   // Try each model up to STAGE_2_RETRIES times with rising temperature.
   for (const modelV of stageFlagshipList()) {
     if (!isModelV(modelV)) continue;
     for (let attempt = 0; attempt < STAGE_2_RETRIES; attempt++) {
       try {
-        const { text: raw, usage } = await callLLMWithUsage({
+        let buf = "";
+        let totalTokens = 0;
+        for await (const chunk of callLLMStream({
           modelV,
           messages,
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
           maxTokens: 8000,
           signal: args.signal,
-        });
-        billChair(args.chairId, usage);
+        })) {
+          if (chunk.type === "text") {
+            buf += chunk.delta;
+            advanceOnBuffer(buf);
+          } else if (chunk.type === "usage") {
+            totalTokens = chunk.totalTokens;
+          } else if (chunk.type === "error") {
+            throw new Error(chunk.message);
+          }
+        }
+        if (totalTokens > 0) billChair(args.chairId, { totalTokens });
         const scaffold = parseScaffold(
-          raw,
+          buf,
           args.room.subject,
           args.room.subject,
-          args.room.mode,
         );
         if (scaffold) {
           if (attempt > 0) {
@@ -947,6 +1267,11 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
               `[brief.stage2] ${modelV} succeeded on retry ${attempt + 1}\n`,
             );
           }
+          if (args.provenance) {
+            args.provenance.scaffoldModel = modelV;
+            args.provenance.scaffoldRetries = attempt;
+          }
+          finishAllSubStages();
           return scaffold;
         }
         process.stderr.write(
@@ -989,94 +1314,162 @@ interface Stage3Result {
   error?: string;
 }
 
+/** Heuristic + provider-explicit detection that the writer's stream
+ *  was truncated mid-output (model hit its own max-tokens cap before
+ *  finishing the report). When this returns true, we issue a
+ *  continuation request to pick up where the buffer cut off.
+ *
+ *  Provider-explicit signals (preferred when available):
+ *    · OpenAI / OpenRouter · `length`
+ *    · Anthropic           · `max_tokens`
+ *    · Google              · `MAX_TOKENS`
+ *    · xAI                 · `length`
+ *
+ *  Heuristic fallback (when finishReason isn't surfaced — some
+ *  providers' stream endings don't carry it reliably): the buffer's
+ *  last non-whitespace line doesn't look like a "complete" terminator.
+ *  Complete = ends with a section heading line, a closing punctuation
+ *  mark (CJK or Latin), a closing fenced-block triple-backtick, or a
+ *  closing bracket. Anything else (mid-word / mid-sentence / orphan
+ *  bullet marker) is assumed to be a cut. False-positives just trigger
+ *  a single redundant continuation call — cost is small. */
+function isStage3Truncated(finishReason: string | undefined, buf: string): boolean {
+  if (finishReason) {
+    const fr = finishReason.toLowerCase();
+    if (fr === "length" || fr === "max_tokens" || fr === "max-tokens") return true;
+  }
+  const tail = buf.trimEnd();
+  if (!tail) return false;
+  const lastLine = (tail.split("\n").pop() || "").trim();
+  // Last line is a markdown heading → ok if heading is followed by content
+  // (we'd be cut off WAITING for content). Treat "heading-only ending" as
+  // truncated since the next section's body is what got cut.
+  if (/^#{1,4}\s+\S+/.test(lastLine)) return true;
+  // Closing punctuation (Latin or CJK) at end of buffer = ok.
+  if (/[.。！？!?…)）」』】]\s*$/.test(tail)) return false;
+  // Code-fence / blockquote / closing bracket = ok.
+  if (/```\s*$/.test(tail)) return false;
+  if (/[)\]}]\s*$/.test(tail)) return false;
+  // Otherwise the writer was probably mid-thought when the stream
+  // ended — treat as truncated.
+  return true;
+}
+
 async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
   const { roomId, briefId, chairId, room, members, scaffold, perDirectorSignals, language, supplement, picked, houseStyle } = args;
 
-  // One internal pass · streams to the client and returns the body.
-  // Called twice at most — once with no retryAddendum (first attempt),
-  // once with the addendum (after contract validation flags violations).
-  const runOnePass = async (retryAddendum?: string): Promise<Stage3Result> => {
-    const messages = buildWriteMessages({
-      room, members, scaffold, perDirectorSignals, language,
-      supplement, picked, houseStyle, briefId, retryAddendum,
-    });
+  const messages = buildWriteMessages({
+    room, members, scaffold, perDirectorSignals, language,
+    supplement, picked, houseStyle, briefId,
+  });
 
-    let lastError = "no model attempted";
-    for (const modelV of stageFlagshipList()) {
-      if (!isModelV(modelV)) continue;
-      let buf = "";
-      let errored = false;
-      try {
-        for await (const chunk of callLLMStream({
-          modelV,
-          messages,
-          temperature: 0.4,
-          maxTokens: 12000,
-          signal: args.signal,
-        })) {
-          if (chunk.type === "text") {
-            buf += chunk.delta;
-            updateBriefBody(briefId, buf);
-            roomBus.emit(roomId, {
-              type: "config-event",
-              kind: "brief-token",
-              payload: { briefId, delta: chunk.delta },
-              createdAt: Date.now(),
-            });
-          } else if (chunk.type === "usage") {
-            billChair(chairId, {
-              totalTokens: chunk.totalTokens,
-            });
-          } else if (chunk.type === "error") {
-            errored = true;
-            lastError = chunk.message;
-            break;
-          }
+  /** Stream a single LLM call (initial OR continuation) into the
+   *  brief's buffer · returns the new buf + the finishReason +
+   *  whether the call errored. Caller decides whether to continue
+   *  generation based on truncation detection. */
+  async function streamOnce(
+    modelV: ModelV,
+    msgs: LLMMessage[],
+    initialBuf: string,
+  ): Promise<{ buf: string; finishReason: string | undefined; errored: boolean; error?: string }> {
+    let buf = initialBuf;
+    let finishReason: string | undefined;
+    let errored = false;
+    let error: string | undefined;
+    try {
+      for await (const chunk of callLLMStream({
+        modelV,
+        messages: msgs,
+        temperature: 0.4,
+        maxTokens: 20000,
+        signal: args.signal,
+      })) {
+        if (chunk.type === "text") {
+          buf += chunk.delta;
+          updateBriefBody(briefId, buf);
+          roomBus.emit(roomId, {
+            type: "config-event",
+            kind: "brief-token",
+            payload: { briefId, delta: chunk.delta },
+            createdAt: Date.now(),
+          });
+        } else if (chunk.type === "usage") {
+          billChair(chairId, { totalTokens: chunk.totalTokens });
+        } else if (chunk.type === "done") {
+          finishReason = chunk.finishReason;
+        } else if (chunk.type === "error") {
+          errored = true;
+          error = chunk.message;
+          break;
         }
-      } catch (e) {
-        errored = true;
-        lastError = e instanceof Error ? e.message : String(e);
       }
-      if (!errored && buf.length > 0) return { body: buf, model: modelV };
+    } catch (e) {
+      errored = true;
+      error = e instanceof Error ? e.message : String(e);
     }
-    return { body: "", model: null, error: lastError };
-  };
-
-  // First pass.
-  const first = await runOnePass();
-  if (!first.body) return first;
-
-  // Mode-contract validator · brainstorm rooms can't carry decision-
-  // defense language ("the bet", "the moat", "must hold"); critique
-  // rooms must carry visible severity tags. Other modes have no
-  // contract — validateBriefBody returns [] for them. On violation,
-  // retry ONCE with a stricter system addendum naming the violations.
-  const violations = validateBriefBody(first.body, room.mode);
-  if (violations.length === 0) return first;
-
-  const tags = violations.map((v) => v.tag).join(", ");
-  process.stderr.write(
-    `[brief.stage3] mode-contract violations in ${room.mode} brief: ${tags} · retrying once with corrective addendum\n`,
-  );
-
-  const addendum = buildContractRetryAddendum(violations, room.mode);
-  const second = await runOnePass(addendum);
-  // If the retry STILL violates the contract, log it and return the
-  // retry's body anyway — a single retry is the cap so we don't loop
-  // burning tokens. The brief lands; downstream analytics can flag
-  // repeat violators.
-  if (second.body) {
-    const stillBad = validateBriefBody(second.body, room.mode);
-    if (stillBad.length > 0) {
-      process.stderr.write(
-        `[brief.stage3] retry still has violations: ${stillBad.map((v) => v.tag).join(", ")} · accepting anyway (retry cap)\n`,
-      );
-    }
-    return second;
+    return { buf, finishReason, errored, error };
   }
-  // Retry failed to produce output · fall back to the first pass body.
-  // It violates the contract, but it's better than no brief at all.
-  return first;
+
+  /** Hard cap on continuation rounds · in the wild we've seen ≥ 2
+   *  rounds get the report to a clean ending. Beyond that, the model
+   *  is probably stuck in a loop — bail and accept whatever we have
+   *  rather than burning tokens forever. */
+  const MAX_CONTINUATIONS = 3;
+
+  let lastError = "no model attempted";
+  for (const modelV of stageFlagshipList()) {
+    if (!isModelV(modelV)) continue;
+
+    // First pass · stream the writer prompt.
+    let pass = await streamOnce(modelV, messages, "");
+    if (pass.errored) {
+      lastError = pass.error || lastError;
+      continue; // try next flagship model
+    }
+    if (pass.buf.length === 0) {
+      lastError = "writer produced empty output";
+      continue;
+    }
+
+    // Continuation loop · keep streaming with `assistant: <buf>` +
+    // `user: continue` turns until the model produces a clean ending
+    // or we hit MAX_CONTINUATIONS / the abort signal fires.
+    for (let i = 0; i < MAX_CONTINUATIONS; i++) {
+      if (args.signal?.aborted) break;
+      if (!isStage3Truncated(pass.finishReason, pass.buf)) break;
+      process.stderr.write(
+        `[brief.stage3] ${modelV} appears truncated (finishReason=${pass.finishReason || "n/a"}, ` +
+          `buf=${pass.buf.length} chars) · continuation ${i + 1}/${MAX_CONTINUATIONS}\n`,
+      );
+      const continuationMessages: LLMMessage[] = [
+        ...messages,
+        { role: "assistant", content: pass.buf },
+        {
+          role: "user",
+          content:
+            "Continue writing from EXACTLY where you left off above. Do NOT repeat any prior content. Do NOT restart sections you've already opened. If you cut mid-word, finish the word; if mid-sentence, finish the sentence; if mid-section, finish the section. Then continue with whatever sections remain in the required structure. Markdown only — same format as before. Pick up from the last character.",
+        },
+      ];
+      const next = await streamOnce(modelV, continuationMessages, pass.buf);
+      if (next.errored) {
+        // Continuation errored · accept the partial buffer rather
+        // than discarding all of pass 1's work. The user gets a
+        // somewhat-truncated brief, which is strictly better than
+        // none (and the warning is logged for diagnosis).
+        process.stderr.write(
+          `[brief.stage3] continuation ${i + 1} failed: ${next.error || "unknown"} · accepting partial output\n`,
+        );
+        break;
+      }
+      // The continuation pass started its `buf` from the previous
+      // pass's end (initialBuf), so `next.buf` already includes
+      // everything up to + including the new chunks.
+      pass = next;
+    }
+
+    return { body: pass.buf, model: modelV };
+  }
+  return { body: "", model: null, error: lastError };
 }
 
 /* ─────────────────────────── Methodology footer ───────────────────────── */
@@ -1086,6 +1479,12 @@ interface MethodologyArgs {
   stage3Model: ModelV | null;
   language: "zh" | "en";
   startedAt: number;
+  /** Stage-by-stage model + retry record. When present, the footer
+   *  appends a small lab-report-style Provenance block listing the
+   *  composer / scaffold / writer models and the scaffold retry
+   *  count — turns the footer from a single line into a real
+   *  reproducibility log. */
+  provenance?: PipelineProvenance;
 }
 
 /**
@@ -1095,7 +1494,7 @@ interface MethodologyArgs {
  * is deterministic data — we don't burn LLM tokens on it.
  */
 function buildMethodologyFooter(args: MethodologyArgs): string {
-  const { perDirectorSignals, stage3Model, language } = args;
+  const { perDirectorSignals, stage3Model, language, provenance } = args;
 
   const totalSignals = perDirectorSignals.reduce((acc, d) => acc + d.signals.length, 0);
   const directorsActive = perDirectorSignals.filter((d) => d.signals.length > 0).length;
@@ -1112,6 +1511,23 @@ function buildMethodologyFooter(args: MethodologyArgs): string {
     .map((l) => `${l} ${lensCounts[l] || 0}`)
     .join(" · ");
 
+  // Provenance · model name per stage + scaffold retry count. Listed
+  // as a compact mono caption beneath the main pipeline line, so a
+  // reader auditing the brief can name what produced what.
+  const provenanceLine = (() => {
+    if (!provenance) return null;
+    const composer = provenance.composerModel || "—";
+    const scaffold = provenance.scaffoldModel || "—";
+    const writer = stage3Model || "—";
+    const retries = provenance.scaffoldRetries;
+    if (language === "zh") {
+      const retryNote = retries > 0 ? ` · 骨架重试 ${retries} 次` : "";
+      return `**模型链：** composer ${composer} · scaffold ${scaffold} · writer ${writer}${retryNote}`;
+    }
+    const retryNote = retries > 0 ? ` · scaffold retried ${retries}×` : "";
+    return `**Model chain:** composer ${composer} · scaffold ${scaffold} · writer ${writer}${retryNote}`;
+  })();
+
   if (language === "zh") {
     const writerLine = stage3Model ? `主写模型：${stage3Model}` : "主写模型：—";
     return [
@@ -1120,6 +1536,7 @@ function buildMethodologyFooter(args: MethodologyArgs): string {
       `本报告基于 ${directorsActive}/${directorsTotal} 位董事的发言抽取出 **${totalSignals} 条 signal**，按五种证据视角分布：${lensRow}。`,
       "",
       `Pipeline：每位董事独立抽取 → chair 聚类成骨架 → chair 撰写最终报告。${writerLine}。`,
+      ...(provenanceLine ? ["", provenanceLine] : []),
       "",
       "_本报告不擅长评估的领域：定量预测、近期市场数据、合规与法律边界。涉及这些维度时建议另启专业渠道复核。_",
     ].join("\n");
@@ -1131,6 +1548,7 @@ function buildMethodologyFooter(args: MethodologyArgs): string {
     `Compiled from **${totalSignals} signals** extracted across ${directorsActive}/${directorsTotal} active directors. Lens distribution: ${lensRow}.`,
     "",
     `Pipeline: per-director independent extraction → chair clustering into a scaffold → chair final write. ${writerLine}.`,
+    ...(provenanceLine ? ["", provenanceLine] : []),
     "",
     "_Domains this writer is not equipped to assess: quantitative forecasting, near-real-time market data, legal/compliance boundaries. Verify those through specialist channels._",
   ].join("\n");

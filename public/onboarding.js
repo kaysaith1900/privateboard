@@ -112,9 +112,7 @@
   // ── Provider catalogue ─────────────────────────────────
   // Model providers shown on step 2. OpenRouter leads — it's the
   // universal router that unlocks every model from a single key, so
-  // it's the lowest-friction first stop for new users. Anthropic
-  // (Claude) is temporarily withheld; bring it back when the
-  // direct-Anthropic flow is ready.
+  // it's the lowest-friction first stop for new users.
   // `slug` matches /api/keys/{slug} on the backend.
   const KEY_PROVIDERS = [
     {
@@ -124,6 +122,14 @@
       placeholder: "sk-or-v1-…",
       help: "openrouter.ai/keys",
       helpUrl: "https://openrouter.ai/keys",
+    },
+    {
+      slug: "anthropic",
+      label: "Claude",
+      sub: "Anthropic",
+      placeholder: "sk-ant-…",
+      help: "console.anthropic.com",
+      helpUrl: "https://console.anthropic.com/settings/keys",
     },
     {
       slug: "openai",
@@ -151,6 +157,7 @@
    *  and the Next-button enable state. */
   let providerConfigured = {
     openrouter: false,
+    anthropic: false,
     openai: false,
     google: false,
   };
@@ -403,7 +410,7 @@
         <div class="onb-field">
           <div class="onb-field-label" data-onb-field-label>${escape(active.label)} API key</div>
           <div class="onb-input-wrap">
-            <input class="onb-input" data-onb-key type="password" placeholder="${escape(active.placeholder)}" autocomplete="off" spellcheck="false" value="${escape(inputValue)}">
+            <input class="onb-input" data-onb-key type="password" placeholder="${escape(active.placeholder)}" autocomplete="one-time-code" data-lpignore="true" data-1p-ignore="true" data-form-type="other" spellcheck="false" value="${escape(inputValue)}">
             <button type="button" class="onb-input-reveal" data-onb-reveal aria-label="Show key" aria-pressed="false">show</button>
           </div>
           ${status}
@@ -598,7 +605,23 @@
     if (typeof window.boardroomModelsRefresh === "function") {
       refreshes.push(Promise.resolve(window.boardroomModelsRefresh()).catch(() => {}));
     }
-    Promise.all(refreshes).finally(() => { if (continuation) continuation(); });
+    Promise.all(refreshes).finally(() => {
+      if (continuation) {
+        continuation();
+      } else {
+        // Default skip path · the user dismissed onboarding without
+        // picking a starter or convene-your-own. Explicitly land
+        // them on the new-room composer. Without this, whatever
+        // composer mode the dashboard happened to settle into during
+        // boot stays put — and on first-run flows that's
+        // occasionally "agent" instead of "room", since the order
+        // of restore() / app.init() / refreshAgents isn't strictly
+        // guaranteed and the agents-tab restorer can win the race.
+        if (window.app && typeof window.app.setComposerMode === "function") {
+          window.app.setComposerMode("room");
+        }
+      }
+    });
   }
 
   async function createDemoRoom(spec) {
@@ -630,11 +653,15 @@
   function openConveneAfter() {
     setTimeout(() => {
       // Convene-overlay was retired in favour of the inline composer.
-      // Fall back to closing the active room so the composer shows; if
-      // app.closeRoom isn't ready yet, no-op (the user is on the
-      // dashboard already and will see it on next interaction).
+      // Use setComposerMode("room") (not closeRoom) so we explicitly
+      // pin the new-room composer · closeRoom inherits whatever
+      // composerMode is set, and during a boot race that flag can be
+      // "agent", which would land the user on the new-agent composer
+      // instead of the new-room one.
       try {
-        if (window.app && typeof window.app.closeRoom === "function") {
+        if (window.app && typeof window.app.setComposerMode === "function") {
+          window.app.setComposerMode("room");
+        } else if (window.app && typeof window.app.closeRoom === "function") {
           window.app.closeRoom();
         } else if (typeof window.openConveneOverlay === "function") {
           window.openConveneOverlay();

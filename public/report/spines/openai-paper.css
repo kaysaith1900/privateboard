@@ -16,6 +16,11 @@
   --teal-pale: #E6F6F0;
   --orange: #C25D1F;
   --red: #B92C2C;
+  --paper-soft: var(--soft);
+  --ink-mid: var(--ink-soft);
+  /* Cross-spine token aliases · used by the unified design system. */
+  --accent: var(--teal);
+  --warn: var(--red);
   --sans: "Söhne", "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui,
           "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans CN",
           "Noto Sans CJK SC", sans-serif;
@@ -75,7 +80,7 @@ html, body {
 .cover-tag {
   display: flex; align-items: center; gap: 14px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: none;
   color: var(--teal);
@@ -113,7 +118,7 @@ html, body {
 @media (max-width: 720px) { .cover-byline { grid-template-columns: repeat(2, 1fr); } }
 .byline-block .label {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: none;
   color: var(--ink-faint);
@@ -143,7 +148,7 @@ html, body {
   text-decoration: none;
   color: var(--ink-soft);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0;
   text-transform: none;
   border-radius: 3px;
@@ -166,7 +171,7 @@ html, body {
 }
 .body h2 { font-size: 25px; line-height: 1.22; margin: 0 0 16px; }
 .body h3 { font-size: 18px; margin: 28px 0 10px; font-weight: 600; }
-.body h4 { font-size: 13.5px; margin: 18px 0 6px; text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 600; }
+.body h4 { font-size: 14px; margin: 18px 0 6px; text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 600; }
 .body p { margin: 12px 0; line-height: 1.7; color: var(--ink-soft); font-size: 16px; }
 .body ul, .body ol { margin: 12px 0 16px 22px; }
 .body li { margin: 6px 0; line-height: 1.65; color: var(--ink-soft); }
@@ -184,13 +189,15 @@ html, body {
 .body code.badge-confidence-high { color: var(--teal); border-color: rgba(16, 163, 127, 0.3); background: var(--teal-pale); }
 .body code.badge-confidence-medium { color: var(--orange); border-color: rgba(194, 93, 31, 0.3); background: rgba(194, 93, 31, 0.06); }
 .body code.badge-confidence-low { color: var(--red); border-color: rgba(185, 44, 44, 0.3); background: rgba(185, 44, 44, 0.06); }
-.body code.badge-priority-p0 { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
-.body code.badge-priority-p1 { background: var(--soft); color: var(--ink); font-weight: 600; }
-.body code.badge-priority-p2 { background: var(--soft); color: var(--ink-faint); }
+/* Priority badges · typographic only · openai-paper uses teal-deep
+   for P0 (its accent), ink for P1, ink-faint for P2. */
+.body code.badge-priority-p0 { color: var(--teal-deep); }
+.body code.badge-priority-p1 { color: var(--ink); }
+.body code.badge-priority-p2 { color: var(--ink-faint); }
 .body blockquote {
   padding: 14px 18px;
   margin: 22px 0;
-  border-top: 1.5px solid var(--ink);
+  border-top: 2px solid var(--ink);
   background: var(--paper);
   border-radius: 4px;
   color: var(--ink-soft);
@@ -219,7 +226,7 @@ html, body {
   font-weight: 500;
 }
 .body section.section-bottom-line p { font-size: 17px; line-height: 1.55; color: var(--ink); max-width: 720px; }
-.body section.section-bottom-line p:not(:first-child) { font-size: 14.5px; color: var(--ink-soft); margin-top: 12px; }
+.body section.section-bottom-line p:not(:first-child) { font-size: 15px; color: var(--ink-soft); margin-top: 12px; }
 
 /* Thesis */
 .body section.section-thesis { margin: 0 0 48px; padding: 24px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
@@ -370,6 +377,7 @@ html, body {
   width: 100%;
   border-collapse: collapse;
   margin: 22px 0 24px;
+  /* 14px → 14px · normalized to the cross-spine default. */
   font-size: 14px;
   border-top: 1px solid var(--ink);
 }
@@ -382,12 +390,12 @@ html, body {
 .body table.md-table th {
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0;
   text-transform: none;
   color: var(--ink-faint);
 }
-.body table.md-table td:first-child { font-weight: 500; color: var(--ink); }
+.body table.md-table td:first-child { font-weight: 500; color: var(--ink); font-size: 14px; }
 
 .body h2.section-methodology {
   margin-top: 80px;
@@ -400,11 +408,11 @@ html, body {
   font-family: var(--mono);
   border-top: 1px solid var(--rule);
 }
-.body section.section-methodology { color: var(--ink-faint); font-size: 13.5px; line-height: 1.65; }
+.body section.section-methodology { color: var(--ink-faint); font-size: 14px; line-height: 1.65; }
 .body section.section-methodology strong { color: var(--ink-soft); font-family: var(--mono); }
 
 .body pre.codeblock { background: var(--paper); border: 1px solid var(--rule); padding: 14px 16px; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); border-radius: 4px; }
-.body pre.mermaid { background: var(--paper); border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--rule); border-radius: 4px; padding: 28px 24px 24px; margin: 22px 0 28px; min-height: 380px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+.body pre.mermaid { background: var(--paper); border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); border-radius: 4px; padding: 28px 24px 24px; margin: 22px 0 28px; min-height: 380px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
 .body pre.mermaid svg text { font-family: var(--sans) !important; }
 
 .foot-rule {
@@ -447,20 +455,20 @@ html, body {
 }
 .rec-rule code { flex: 0 0 auto; }
 .rec-rule-line { flex: 1 1 auto; height: 1px; background: var(--rule); display: block; }
-.rec-priority-p0 .rec-rule-line { background: var(--ink); height: 1.5px; }
+.rec-priority-p0 .rec-rule-line { background: var(--ink); height: 2px; }
 .rec-action {
   font-family: var(--sans); font-size: 22px; line-height: 1.3;
   color: var(--ink); font-weight: 600; letter-spacing: -0.014em;
   margin: 0 0 18px; max-width: 68ch;
 }
-.rec-rationale { font-size: 15.5px; line-height: 1.72; color: var(--ink-soft); margin: 0 0 22px; max-width: 68ch; }
+.rec-rationale { font-size: 16px; line-height: 1.72; color: var(--ink-soft); margin: 0 0 22px; max-width: 68ch; }
 .rec-meta {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
-  margin: 0 0 14px; font-size: 13.5px; line-height: 1.6; color: var(--ink);
+  margin: 0 0 14px; font-size: 14px; line-height: 1.6; color: var(--ink);
 }
 .rec-meta-pair { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .rec-meta-label {
-  font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint);
+  font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
   letter-spacing: 0; text-transform: none; font-weight: 500;
 }
 .rec-meta-value { color: var(--ink); font-weight: 500; }
@@ -473,7 +481,7 @@ html, body {
 .rec-risk-icon { flex: 0 0 auto; color: var(--red); font-style: normal; }
 .rec-risk-text { flex: 1 1 auto; }
 .rec-risk-prefix {
-  font-family: var(--mono); font-style: normal; font-size: 11.5px;
+  font-family: var(--mono); font-style: normal; font-size: 12px;
   color: var(--red); letter-spacing: 0; text-transform: none;
   font-weight: 500; margin-right: 2px;
 }
@@ -513,40 +521,93 @@ html, body {
   font-style: normal; margin-left: 4px; vertical-align: -8px;
   line-height: 1; font-family: Georgia, serif;
 }
-.nq-why { font-size: 15.5px; line-height: 1.72; color: var(--ink-soft); margin: 0; max-width: 58ch; }
+.nq-why { font-size: 16px; line-height: 1.72; color: var(--ink-soft); margin: 0; max-width: 58ch; }
 
 /* ─── Metric strip · per-spine treatment ─────────────────────────
    Inherits the spine-agnostic baseline in public/report.html's inline
    <style>; this block tweaks surface, accent + typography to match
    the spine's voice. No `border-left`, no parallel borders against
    adjacent .chapter-num / section h2. */
-/* Papery research-note feel · sans label, slab-serif value, square
-   corners, no card borders — uses surface tint to delineate. */
+/* Inherits the Swiss-editorial baseline (big numeral top, mute label
+   bottom, hairline grid, no card surface). OpenAI-paper signatures:
+   Charter serif numerals (research-note feel) + teal-deep label. The
+   earlier per-card surface tint + accent border-top was retired — it
+   fought the baseline's outer top/bottom rules and produced doubled
+   hairlines. */
 .body .metric-strip-intro {
   color: var(--ink-soft);
-  font-family: var(--sans);
-}
-.body .metric-card {
-  background: var(--soft, rgba(0, 0, 0, 0.025));
-  border: none;
-  border-top: 1px solid var(--rule, rgba(0, 0, 0, 0.12));
-  padding: 14px 16px 12px;
 }
 .body .metric-label {
   color: var(--teal-deep);
-  font-family: var(--sans);
-  font-weight: 600;
 }
 .body .metric-value {
   color: var(--ink);
-  font-family: "Charter", "Times New Roman", "Songti SC", serif;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  font-family: "Charter", "Times New Roman",
+               "PingFang SC", "PingFang TC", "Songti SC", serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
 }
 .body .metric-card[data-trend="up"]   .metric-value { color: var(--teal-deep); }
 .body .metric-card[data-trend="down"] .metric-value { color: var(--orange); }
 .body .metric-trend[data-trend="up"]   { color: var(--teal-deep); }
 .body .metric-trend[data-trend="down"] { color: var(--orange); }
-.body .metric-qualifier { color: var(--ink-mid); font-family: var(--sans); }
+.body .metric-qualifier { color: var(--ink-mid); }
 .body .metric-attribution { color: var(--ink-faint); }
+
+/* ─── Path comparison · per-spine treatment ──────────────────────
+   openai-paper uses orange (weak) / teal-deep (strong) — research-
+   note palette. Charter serif on the path name keeps the paper feel. */
+.body .path-comparison .path {
+  background: var(--soft, rgba(0, 0, 0, 0.025));
+  border: none;
+  border-top: 1px solid var(--rule, rgba(0, 0, 0, 0.12));
+}
+.body .path-comparison .path-weak   { border-top: 3px solid var(--orange); }
+.body .path-comparison .path-strong { border-top: 3px solid var(--teal-deep); }
+.body .path-comparison .path-weak   .path-tag { color: var(--orange); }
+.body .path-comparison .path-strong .path-tag { color: var(--teal-deep); }
+.body .path-comparison .path-name {
+  font-family: "Charter", "Times New Roman", "Songti SC", serif;
+  color: var(--ink);
+  font-weight: 700;
+}
+.body .path-comparison .path li { color: var(--ink-soft); }
+.body .path-comparison .path-weak   li::before { background: var(--orange); }
+.body .path-comparison .path-strong li::before { background: var(--teal-deep); }
+.body .path-comparison-implication { color: var(--ink-mid); font-family: var(--sans); }
+
+/* ─── Views-compared · per-spine · openai-paper ────────────────
+   Hairline frame · accent stripe on TOP (per project rule).
+   Alignment uses teal-deep, divergence uses orange. */
+.body .vc-section-label { color: var(--teal-deep); border-color: var(--rule); }
+.body .views-compared-alignment .vc-card {
+  border-color: var(--rule);
+  border-top-color: var(--teal-deep);
+}
+.body .vc-card-headline {
+  font-family: "Charter", "Times New Roman", "Songti SC", serif;
+  color: var(--ink);
+  font-weight: 700;
+}
+.body .vc-chip { color: var(--ink-soft); border-color: var(--rule); }
+.body .vc-card-note { color: var(--ink-mid); }
+.body .vc-fork { border-color: var(--rule); border-top-color: var(--orange, var(--teal-deep)); }
+.body .vc-fork-hinge { font-family: "Charter", "Times New Roman", serif; color: var(--ink); }
+.body .vc-side { border-color: var(--rule-soft, var(--rule)); }
+.body .vc-side-label { color: var(--orange, var(--teal-deep)); }
+.body .vc-side-stance { color: var(--ink-mid); }
+.body .vc-fork-resolution { color: var(--ink-mid); border-top-color: var(--rule-soft, var(--rule)); }
+.body .vc-resolution-label { color: var(--ink-faint); }
+.body .vc-row-name {
+  font-family: "Charter", "Times New Roman", serif;
+  color: var(--ink);
+  font-weight: 700;
+}
+.body .vc-row-stance { color: var(--teal-deep); }
+.body .vc-row-position { color: var(--ink-mid); }
+.body .vc-row-quote { font-family: "Charter", "Times New Roman", serif; color: var(--ink); }
+.body .views-compared-synthesis {
+  border-color: var(--rule);
+  border-top-color: var(--ink-faint);
+}
+.body .vc-synthesis-body { font-family: "Charter", "Times New Roman", serif; color: var(--ink); }

@@ -181,10 +181,22 @@ export function reconcileAgentModels(opts: ReconcileOptions = {}): ReconcileResu
     }
   }
 
-  // Keep prefs.defaultModelV in sync so the next "create agent" flow
-  // and the user-settings UI both reflect what's actually running.
+  // Keep prefs.defaultModelV in sync — but ONLY when the user's
+  // explicit choice is unset, unreachable, or the caller asked to
+  // force the primary (e.g. onboarding picked a new provider as
+  // primary, so the user expects their default to swing).
+  //
+  // The previous unconditional `prefs.defaultModelV !== primary →
+  // overwrite` was a footgun: it ran on every server boot via
+  // `cli.ts`'s self-heal reconcile, which meant a user who had
+  // OpenRouter (primary = opus-4-7) and explicitly picked haiku-4-5
+  // saw their preference revert to opus on every restart. The
+  // "self-heal" job is to make stale unreachable defaults reachable
+  // again — not to second-guess a still-reachable explicit choice.
   const prefs = getPrefs();
-  if (primary && prefs.defaultModelV !== primary) {
+  const currentReachable = !!prefs.defaultModelV && reachable.has(prefs.defaultModelV as ModelV);
+  const shouldBump = forcePrimary || !prefs.defaultModelV || !currentReachable;
+  if (primary && shouldBump && prefs.defaultModelV !== primary) {
     updatePrefs({ defaultModelV: primary });
   } else if (!primary && prefs.defaultModelV !== null) {
     updatePrefs({ defaultModelV: null });

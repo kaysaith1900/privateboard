@@ -47,9 +47,12 @@ export interface ModelMeta {
 }
 
 export const MODELS: Record<ModelV, ModelMeta> = {
-  // ── Anthropic (latest mainstream tier · pinned to OR) ──
-  // These IDs may not be on Anthropic's direct SDK yet, so route
-  // through OpenRouter to avoid silent direct-API mismatches.
+  // ── Anthropic · all three current-gen models direct-routable ──
+  // Per https://platform.claude.com/docs the current line-up is
+  // Opus 4.7, Sonnet 4.6, Haiku 4.5 — all available on the direct
+  // Anthropic SDK with the IDs below. Dropped the previous
+  // `openrouterOnly` flag on Opus + Haiku; users with an Anthropic
+  // direct key now reach all three without needing OpenRouter.
   "sonnet-4-6": {
     v: "sonnet-4-6",
     provider: "anthropic",
@@ -58,10 +61,6 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Sonnet 4.6",
     contextBudget: 200_000,
     deck: "balanced · default",
-    // Direct-routable · Anthropic's primary chair model when the user
-    // configures Anthropic key directly (no OpenRouter). The other
-    // Claude variants stay openrouterOnly until verified on the
-    // direct SDK.
   },
   "opus-4-7": {
     v: "opus-4-7",
@@ -71,17 +70,17 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Opus 4.7",
     contextBudget: 200_000,
     deck: "deep reasoning",
-    openrouterOnly: true,
   },
   "haiku-4-5": {
     v: "haiku-4-5",
     provider: "anthropic",
-    directApiId: "claude-haiku-4-5",
+    // Dated alias — Anthropic's Haiku 4.5 ships under the dated id;
+    // the unsuffixed `claude-haiku-4-5` 404s on the direct API.
+    directApiId: "claude-haiku-4-5-20251001",
     openrouterId: "anthropic/claude-haiku-4.5",
     displayName: "Haiku 4.5",
     contextBudget: 200_000,
     deck: "fast · low-cost",
-    openrouterOnly: true,
   },
   // ── OpenAI · current frontier (5.5 / 5.4 / 5.4-mini direct) ──
   // Replaced the legacy gpt-5 / gpt-5-mini / gpt-4o entries — all three

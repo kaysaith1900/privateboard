@@ -13,17 +13,20 @@
  *
  *   · `labels`  ─ section-heading overrides per component kind. The
  *                 same `headline-findings` component renders as
- *                 "## The Pillars" under `sequoia-memo`, "## Findings"
- *                 under `stanford-research`, "## Three Strategic
- *                 Insights" under `bcg-strategy`, etc. Bilingual so
- *                 zh-rooms see Chinese headings instead of the LLM
- *                 mis-translating the literal English.
+ *                 "## The Pillars" under `sequoia-memo`, "## Three
+ *                 forces that *seem* to invalidate the obvious bet"
+ *                 under `anthropic`, "## Three Strategic Insights"
+ *                 under `bcg-strategy`, etc. Bilingual so zh-rooms see
+ *                 Chinese headings instead of the LLM mis-translating
+ *                 the literal English.
  *
  *   · `voice`   ─ a paragraph of register guidance threaded into
  *                 Stage 3's system prompt. Sequoia memos read as
- *                 declarative present-tense; Stanford research notes
- *                 hedge; First Round essays use first-person plural
- *                 narrative voice. Same scaffold, different tone.
+ *                 declarative present-tense; Anthropic essays frame
+ *                 every claim as a working hypothesis the room is
+ *                 willing to be wrong about; First Round essays use
+ *                 first-person plural narrative voice. Same scaffold,
+ *                 different tone.
  *
  *   · `spine`   ─ a default visual CSS to suggest. The composer can
  *                 override (spine and house-style are independent in
@@ -91,6 +94,17 @@ export interface HouseStyle {
   /** Subject types this preset reads naturally for. Soft hint to the
    *  composer. Subject types match `composer.ts`'s ALLOWED_SUBJECT_TYPES. */
   fits: string[];
+  /** Room tones (modes) this preset reads naturally for. The composer
+   *  is instructed to weight TONE highest — a critique room should not
+   *  output an operator-essay register, a brainstorm room should not
+   *  output a hedged scholarly note. Empty array means "neutral fit
+   *  across all tones" (the boardroom-default fallback). */
+  tones: string[];
+  /** Tones to AVOID — picking this house style for a room in any of
+   *  these modes produces a register clash. Soft enforcement: the
+   *  composer's prompt names these explicitly so it has to override
+   *  with a justification rather than slipping through. */
+  avoidTones?: string[];
   /** One-line catalog pitch · shown to the composer alongside the
    *  preset's id so it can pick deliberately. */
   pitch: string;
@@ -104,8 +118,12 @@ export interface HouseStyle {
  *                          Pull-quote anchor, present-tense, declarative.
  *    · a16z-thesis       ─ Big-idea thesis + Why Now + The Bet.
  *                          Contrarian, claim-forward.
- *    · stanford-research ─ Hypothesis-driven, hedged, threats-to-validity
- *                          register. Best for philosophical / open rooms.
+ *    · anthropic         ─ Tentative, methodical, attribution-aware.
+ *                          Frames every claim as a working hypothesis
+ *                          the room is willing to be wrong about. Best
+ *                          for research / philosophical / open rooms.
+ *                          Replaced the earlier `stanford-research` slot
+ *                          with a more on-brand editorial register.
  *    · bcg-strategy      ─ MECE strategic memo with imperatives.
  *                          For "what should we do" rooms.
  *    · first-round-essay ─ Operator-wisdom narrative essay. First-person
@@ -124,6 +142,7 @@ export const HOUSE_STYLES: HouseStyle[] = [
     },
     labels: {},
     fits: ["other", "retro", "philosophical", "operational"],
+    tones: [],  // neutral fallback — fits any tone when nothing else does
     pitch: "Default · neutral analyst voice with the legacy section vocabulary.",
   },
 
@@ -198,6 +217,8 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "positions":            { en: "Camps Around the Table",    zh: "桌上的几派立场" },
     },
     fits: ["investment-judgement", "market-forecast"],
+    tones: ["constructive", "debate"],  // declarative + partner voice rewards a sharpened, decisive room
+    avoidTones: ["brainstorm", "research"],  // memo register stomps on co-creation / inquiry
     pitch: "Investment memo · declarative, present-tense, partner voice. For \"should we back this\" rooms.",
   },
 
@@ -274,84 +295,94 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "planning-assumption":  { en: "The Forecast",              zh: "预判" },
     },
     fits: ["investment-judgement", "market-forecast", "strategic-decision"],
+    tones: ["debate", "constructive"],  // counter-consensus claim style needs an adversarial-leaning room
+    avoidTones: ["brainstorm", "research", "critique"],  // thesis-essay register clashes with ideation / inquiry / fault-audit
     pitch: "a16z-style thesis · contrarian, claim-forward, optimistic-but-rigorous. For market opportunity / big-idea rooms.",
   },
 
   {
-    id: "stanford-research",
-    label: "Stanford research note",
-    spine: "openai-paper",
+    id: "anthropic",
+    label: "Anthropic essay",
+    spine: "anthropic-essay",
     voice: {
-      en: "Hedged scholarly register. Frame conclusions as working hypotheses, name uncertainty explicitly, surface threats to validity before stating recommendations. Third-person where natural; \"the analysis suggests\" beats \"we conclude\". Each finding cites which director / lens generated it. Counter-evidence and limitations get equal footprint to findings — they're not afterthoughts. No imperatives in the action section; substitute with \"considerations\" framing.",
-      zh: "克制的学术口吻。把结论框定为工作假设，明确点名不确定性，先讲对结论有效性的威胁，再给建议。能用第三人称就用 —— \"分析显示\" 优于 \"我们认为\"。每条发现注明由哪位董事 / 视角产生。对立证据和局限与发现等量呈现，不当作附录。行动段不用祈使句，改为 \"值得考虑\" 式表达。",
+      en: "Tentative, methodical, attribution-aware register. Frame the brief as a working hypothesis the room is willing to be wrong about — \"a working hypothesis, and the reasons it may be wrong.\" Sentences are plain prose with italic emphasis on the operative word inside (\"where, exactly, does *defensibility* live?\" / \"after attempting to take the proposition seriously, we are left less confident than we began\"). Attribution is structural: when a director's phrasing IS the diagnostic point, name them in mono caption (\"— Socrates, on observed patterns\"). Section headings are full sentences ending in unresolved questions or claims, never noun-phrase labels (✗ \"Findings\" · ✓ \"Three forces that *seem* to invalidate the obvious bet\"). The closing acknowledgments invite the reader to challenge or replace the analysis. NEVER claim certainty the material doesn't earn.",
+      zh: "克制、方法论自觉、归属意识强的语气。把整份 brief 框为一个**可被推翻的工作假设** —— \"一个工作假设，以及它可能错在哪里\"。句子用平实的散文，关键词加斜体强调（\"防御性 *究竟* 住在哪里？\" / \"我们认真对待这个命题之后，反而比一开始更不确信\"）。归属是结构性的：当某位董事的原话本身就是诊断时，用 mono 引文格式署名（\"— Socrates，对观察到的模式的判断\"）。各节标题是完整句子或带未解之问的判断，绝不是名词短语（✗ \"研究发现\" · ✓ \"三股似乎否定显而易见下注的力量\"）。结尾致谢邀请读者挑战或替换这套分析。不要声明材料不支持的确定性。",
     },
     labels: {
       "working-hypothesis": [
-        { en: "Working Hypothesis",                zh: "工作假设" },
-        { en: "Tentative Position",                zh: "初步立场" },
+        { en: "A working hypothesis, and the reasons it may be wrong",  zh: "一个工作假设，以及它可能错在哪里" },
+        { en: "Where we currently land — tentatively",                  zh: "我们目前停留的判断 —— 暂且" },
+        { en: "The premise worth sitting with",                          zh: "值得停留的前提" },
       ],
       "bottom-line": [
-        { en: "Abstract",                          zh: "摘要" },
-        { en: "Summary of Findings",               zh: "研究综述" },
+        { en: "Where the argument currently rests",                      zh: "论证目前停在哪里" },
+        { en: "What we are *less* sure of, now",                          zh: "我们如今更不确定的部分" },
       ],
-      "thesis":               { en: "Central Claim",             zh: "核心主张" },
+      "thesis": [
+        { en: "The claim, stated as plainly as possible",                 zh: "把主张说到不能再朴素" },
+        { en: "What this argues, in one sentence",                        zh: "一句话讲，这是在主张什么" },
+      ],
       "frame-shift": [
-        { en: "How the Question Was Reframed",     zh: "问题如何被重新定义" },
-        { en: "Reframing the Research Question",   zh: "对研究问题的重新框定" },
+        { en: "Where, exactly, did the question move",                    zh: "问题究竟动到了哪里" },
+        { en: "How the frame quietly sharpened",                          zh: "框架是如何悄悄变锐的" },
       ],
       "headline-findings": [
-        { en: "Findings",                          zh: "研究发现" },
-        { en: "Principal Findings",                zh: "主要发现" },
-        { en: "What the Analysis Suggests",        zh: "分析所揭示的内容" },
+        { en: "Three forces that *seem* to invalidate the obvious bet",   zh: "三股似乎否定显而易见下注的力量" },
+        { en: "What we observed, on reflection",                          zh: "回过头看，我们观察到的事" },
+        { en: "Three patterns we cannot discard",                         zh: "三个无法被排除的模式" },
       ],
       "big-ideas": [
-        { en: "Three Observations",                zh: "三点观察" },
-        { en: "Three Patterns Worth Naming",       zh: "三个值得命名的模式" },
+        { en: "Three things the room kept returning to",                  zh: "房间反复回到的三件事" },
+        { en: "Three patterns worth naming",                              zh: "三个值得命名的模式" },
       ],
-      "convergence":          { en: "Independent Convergence",   zh: "独立路径上的趋同" },
-      "divergence":           { en: "Where Reasonable Lenses Disagree", zh: "理性视角下的分歧" },
-      "positions":            { en: "Schools of Thought",        zh: "几种思想流派" },
-      // critical-assumptions remains "Threats to Validity" — it shipped
-      // before the dedicated `threats-to-validity` component existed; we
-      // keep the legacy mapping intact so old briefs render unchanged,
-      // and the new component below gets the canonical labelling.
-      "critical-assumptions": { en: "Critical Assumptions",      zh: "关键假设" },
+      "convergence":          { en: "Where independent paths met",       zh: "独立路径相遇之处" },
+      "divergence":           { en: "Where we could not reconcile",      zh: "我们无法调和的地方" },
+      "positions":            { en: "Two readings of the same material", zh: "对同一份材料的两种读法" },
+      "critical-assumptions": [
+        { en: "What this argument quietly depends on",                    zh: "这套论证悄悄依赖的前提" },
+        { en: "The foundations we're trusting",                           zh: "我们暂时信任的地基" },
+      ],
       "threats-to-validity": [
-        { en: "Threats to Validity",               zh: "对结论有效性的威胁" },
-        { en: "Where the Analysis Could Mislead",  zh: "分析可能误导之处" },
-        { en: "Internal & External Validity Concerns", zh: "内外部效度的担忧" },
+        { en: "Where we could be wrong, categorically",                   zh: "我们在分类层面可能错在哪" },
+        { en: "Limits of what this analysis can settle",                  zh: "这套分析能裁决的极限" },
       ],
       "metric-strip": [
-        { en: "Quantitative Reads",                zh: "定量结果" },
-        { en: "Key Metrics",                       zh: "关键指标" },
-        { en: "Empirical Anchors",                 zh: "实证锚点" },
+        { en: "Numbers worth sitting with",                                zh: "值得停留的几个数字" },
+        { en: "Empirical anchors",                                         zh: "实证锚点" },
       ],
       "pre-mortem": [
-        { en: "Failure Modes Considered",          zh: "已考虑的失败模式" },
-        { en: "How the Argument Could Fail",       zh: "论点可能如何失败" },
+        { en: "How this could unravel",                                    zh: "这套判断会怎样松开" },
+        { en: "Failure modes we take seriously",                           zh: "我们认真对待的失败方式" },
       ],
       "considerations": [
-        { en: "Things Worth Considering",          zh: "值得考虑的事项" },
-        { en: "Practical Implications",            zh: "实践层面的含义" },
+        { en: "Considerations, in no particular order",                    zh: "若干考量（不分先后）" },
+        { en: "Things we'd stress-test before acting",                     zh: "动手前我们会压力测试的几件事" },
       ],
       "recommendations": [
-        { en: "Implications",                      zh: "由此引出的影响" },
-        { en: "Practical Implications",            zh: "实践层面的影响" },
+        { en: "What this would imply, if taken seriously",                 zh: "如果把这份判断当真，会意味着什么" },
+        { en: "What we'd do, if we had to act",                            zh: "如果不得不行动，我们会做什么" },
       ],
-      "the-bet":              { en: "Conditions for the Claim",  zh: "支撑该主张的条件" },
-      "scenario-tree":        { en: "Plausible Futures",         zh: "可能的未来情景" },
-      "leading-indicators":   { en: "Empirical Signals to Track", zh: "可追踪的经验信号" },
+      "the-bet":              { en: "Conditions to hold this claim",     zh: "支撑该主张的条件" },
+      "scenario-tree":        { en: "Branches worth tracking",           zh: "值得追踪的几条分支" },
+      "leading-indicators":   { en: "Signals we'd watch",                zh: "我们会留意的信号" },
       "new-questions": [
-        { en: "Future Work",                       zh: "后续工作" },
-        { en: "Open Lines of Inquiry",             zh: "尚开放的研究方向" },
+        { en: "Questions we did not have at the open",                     zh: "开会时还没有的问题" },
+        { en: "What this opened up",                                       zh: "由此打开的问题" },
       ],
-      "open-questions":       { en: "Limitations",               zh: "研究局限" },
-      "why-now":              { en: "Temporal Window",           zh: "时间窗口" },
-      "planning-assumption":  { en: "Forecasting Assumption",    zh: "预测假设" },
-      "two-paths":            { en: "Two Lines of Inquiry",      zh: "两条研究路径" },
+      "open-questions": [
+        { en: "What we have *not* resolved, and would want to",            zh: "我们尚未解决、但希望解决的问题" },
+      ],
+      "why-now":              { en: "Why this question, now",             zh: "为什么是这个问题，为什么是现在" },
+      "planning-assumption":  { en: "What we currently believe will hold", zh: "我们当前相信会成立的判断" },
+      "two-paths":            { en: "Two trajectories from the same premise", zh: "同一前提下的两条轨迹" },
+      "decision-options":     { en: "Options we weighed",                 zh: "我们权衡过的选项" },
+      "path-comparison":      { en: "A comparison",                       zh: "对比" },
+      "risk-register":        { en: "Risks we're carrying",               zh: "我们正在背的风险" },
     },
-    fits: ["philosophical", "market-forecast", "other"],
-    pitch: "Stanford research note · hedged, hypothesis-driven, threats-to-validity surfaced. For open-ended / philosophical rooms.",
+    fits: ["philosophical", "market-forecast", "retro", "other"],
+    tones: ["research", "brainstorm"],  // tentative + working-hypothesis voice fits inquiry / co-creation; same slot stanford-research used to fill, with a different (and on-brand) editorial register
+    avoidTones: ["debate", "critique"],  // hedged "we are less confident" voice can't carry an adversarial counter-claim or a fault-audit
+    pitch: "Anthropic-style essay · tentative, methodical, attribution-aware. Treats every claim as a working hypothesis the room is willing to be wrong about. For research / philosophical rooms.",
   },
 
   {
@@ -421,6 +452,8 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "planning-assumption":  { en: "Strategic Planning Assumption", zh: "战略规划假设" },
     },
     fits: ["strategic-decision", "operational", "option-comparison"],
+    tones: ["constructive", "critique", "debate"],  // imperative voice + MECE rewards rooms that produced sharpened, audited material
+    avoidTones: ["brainstorm"],  // imperatives feel wrong on co-created ideation
     pitch: "BCG / strategy-consulting memo · MECE, pyramid principle, imperative actions. For \"what should we do\" rooms.",
   },
 
@@ -488,6 +521,8 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "planning-assumption":  { en: "What We Think Will Hold",    zh: "我们认为会成立的判断" },
     },
     fits: ["philosophical", "retro", "operational"],
+    tones: ["brainstorm", "research"],  // warm narrative + "we found" voice fits co-creation and grounded inquiry
+    avoidTones: ["critique", "debate"],  // operator-essay tone reads as "things worth thinking about" — wrong for fault-audit / adversarial rooms
     pitch: "First Round-style operator essay · first-person plural, narrative, references specific moments. For retro / philosophical rooms.",
   },
 
@@ -553,99 +588,11 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "two-paths":            { en: "Option A vs Option B",       zh: "选项 A 对照 选项 B" },
     },
     fits: ["strategic-decision", "market-forecast", "option-comparison"],
+    tones: ["research", "critique", "constructive"],  // probability-aware + watch-list voice rewards inquiry / audit / careful sharpening
+    avoidTones: ["brainstorm"],  // "60% probability by 2027" voice kills ideation
     pitch: "Gartner research note · probabilistic, watch-list-oriented, every claim carries a confidence + falsifier. For uncertainty-heavy decisions.",
   },
 
-  {
-    id: "field-notes",
-    label: "Field notes",
-    spine: "anthropic-essay",
-    voice: {
-      en: "Observer's-notebook register. Warm, curious, tentative. The room is the protagonist — refer back to specific moments (\"when Long Horizon pressed on tempo, the room kept returning to…\"). Verbs allowed: `could`, `might`, `would open up`, `seems to`, `looks like`, `if X, then Y might`. Verbs FORBIDDEN: `must`, `will`, `should`, `the bet is`, `the moat is`, `we recommend`. NEVER claim a winner. NEVER quantify (\"60% probability\", \"$2B TAM\"). The brief should leave the reader with MORE angles to chase, not one to act on.",
-      zh: "观察笔记式语气。温暖、好奇、留有余地。会议本身是主角 —— 引用具体片段（\"当 Long Horizon 追问 tempo 时，房间反复回到……\"）。允许的动词：`可能`、`也许`、`会打开`、`看起来`、`若 X 成立`。**禁止**的动词：`必须`、`应该`、`护城河`、`要做的是`、`下注的是`、`结论是`。永不挑出赢家。永不量化（不写 \"60% 概率\"、\"$2B TAM\"）。这份 brief 应该让读者带走更多值得追的角度，而不是一个要执行的动作。",
-    },
-    labels: {
-      "opening-hook": [
-        { en: "What If This Is Real",            zh: "如果这事成立呢" },
-        { en: "What Changes If This Holds",      zh: "若这件事真的发生" },
-        { en: "The Premise Worth Sitting With",  zh: "值得呆一会儿的前提" },
-      ],
-      "opportunity-shape": [
-        { en: "The Shape of the Room",           zh: "房间的形状" },
-        { en: "How Big the Question Is",         zh: "这个问题有多大" },
-        { en: "Where This Lives",                zh: "这事生活在哪里" },
-      ],
-      "adjacent-angles": [
-        { en: "Doors Worth Opening",             zh: "值得打开的几扇门" },
-        { en: "Different Ways In",               zh: "几种不同的进入方式" },
-        { en: "Angles the Room Tried On",        zh: "房间试戴过的几个角度" },
-      ],
-      "what-if-this-works": [
-        { en: "If This Plays Out",               zh: "如果这条线走通了" },
-        { en: "What This Could Open Up",         zh: "这会打开什么" },
-      ],
-      "worth-chasing": [
-        { en: "Threads Worth Pulling",           zh: "值得拉的几条线" },
-        { en: "Where the Heat Is",               zh: "热度在哪里" },
-        { en: "Things the Room Kept Returning To", zh: "房间反复回到的事" },
-      ],
-      "dead-ends-noted": [
-        { en: "Roads We Walked Back From",       zh: "我们折返的几条路" },
-        { en: "Paths the Room Set Down",         zh: "房间放下的几条路径" },
-      ],
-      "brainstorm-questions": [
-        { en: "Questions Worth Sitting With",    zh: "值得多坐一会儿的问题" },
-        { en: "What This Opens Up",              zh: "由此打开的问题" },
-        { en: "The Field's Next Horizon",        zh: "这个领域的下一道地平线" },
-      ],
-      "visuals":              { en: "Sketches from the Room", zh: "房间里的草图" },
-      "open-questions":       { en: "Still Open",             zh: "仍然开放" },
-    },
-    fits: ["exploration"],
-    pitch: "Field-notes register · warm, curious, observer's voice. Default for brainstorm rooms — refuses to pick a winner.",
-  },
-
-  {
-    id: "audit-memo",
-    label: "Audit memo",
-    spine: "boardroom-dark",
-    voice: {
-      en: "Inspector / standards-officer register. Sharp, procedural, evidence-anchored. Severity-tagged: every issue and every fix opens with `**Severity: high/medium/low** ·`. Verbs allowed: `surfaces`, `breaks`, `omits`, `under-specifies`, `narrows`, `mis-handles`, `lacks`, `assumes without check`. Verbs FORBIDDEN outside the fixes section: `must`, `should`, `we recommend` (those belong in fixes, where prescription is welcome). NEVER prescriptive about strategy beyond the deliverable — \"the deliverable doesn't address X\" is fair; \"and you should pivot the product\" is out of scope. Audit decorum: name what works BEFORE what's broken. Cite directors when their phrasing IS the diagnostic point.",
-      zh: "标准审查官的语气。锋利、程序化、证据驱动。带 severity 标签：每个 issue 和每个 fix 都用 `**严重程度：高/中/低** ·` 起头。允许的动词：`揭示`、`打破`、`遗漏`、`欠规约`、`收窄了`、`处理失当`、`缺少`、`未经核实地假设`。**禁止**在 fixes 之外用：`必须`、`应该`、`我们建议`（这些只属于 fixes，那里 prescription 是合适的）。不要超出 deliverable 范围给战略建议 —— \"这份交付物没回答 X\" 可以；\"另外你应该转型产品\" 超出范围。审查礼貌：先说什么是 working 的，再说什么坏了。当某位董事的原话**就是**诊断本身时，引用他/她的名字。",
-    },
-    labels: {
-      "deliverable-summary": [
-        { en: "Under Review",                    zh: "审查对象" },
-        { en: "What This Audit Covers",          zh: "本次审查的范围" },
-      ],
-      "whats-good": [
-        { en: "What's Already Working",          zh: "已经在起作用的部分" },
-        { en: "Strengths Worth Preserving",      zh: "值得保留的优点" },
-        { en: "What the Deliverable Gets Right", zh: "交付物已经做对的事" },
-      ],
-      "quality-issues": [
-        { en: "Issues Found",                    zh: "发现的问题" },
-        { en: "Where the Deliverable Breaks Down", zh: "交付物的失效点" },
-        { en: "Quality Defects, Severity-Ranked", zh: "质量缺陷（按严重程度）" },
-      ],
-      "severity-ranked-fixes": [
-        { en: "Fixes, Ranked",                   zh: "修复方案（按严重程度排序）" },
-        { en: "What to Change",                  zh: "需要修改的地方" },
-        { en: "Prescriptions",                   zh: "处方" },
-      ],
-      "residual-risks": [
-        { en: "Residual Risks",                  zh: "残余风险" },
-        { en: "Risks the Audit Couldn't Close",  zh: "本次审查无法关闭的风险" },
-      ],
-      "open-questions": [
-        { en: "Open Questions for the Owner",    zh: "留给负责人的问题" },
-        { en: "What We'd Need from the Author",  zh: "我们需要作者补充的信息" },
-      ],
-      "visuals":              { en: "Severity Matrix",          zh: "严重程度矩阵" },
-    },
-    fits: ["audit"],
-    pitch: "Audit-memo register · standards-officer voice, severity-tagged, \"what's good first\". Default for critique rooms.",
-  },
 ];
 
 const HOUSE_STYLE_BY_ID = new Map<string, HouseStyle>(HOUSE_STYLES.map((s) => [s.id, s]));
@@ -703,15 +650,34 @@ export function houseStyleLabel(
 }
 
 /** Format the house-style catalog as plain text for the composer's
- *  system prompt. Keeps the prompt size modest (id + pitch + fits)
- *  rather than dumping every label override. */
+ *  system prompt. Keeps the prompt size modest (id + pitch + fits +
+ *  tone affinity) rather than dumping every label override. */
 export function formatHouseStyleCatalog(): string {
   return HOUSE_STYLES.map((s) => {
-    const fitsLine = s.fits.length ? `  fits: ${s.fits.join(", ")}` : "";
+    const fitsLine = s.fits.length ? `    subject fits: ${s.fits.join(", ")}` : "";
+    const tonesLine = s.tones.length
+      ? `    tone fits: ${s.tones.join(", ")}${s.avoidTones?.length ? ` · AVOID: ${s.avoidTones.join(", ")}` : ""}`
+      : `    tone fits: any (neutral fallback)`;
     return [
       `  · \`${s.id}\` · ${s.label}`,
       `    ${s.pitch}`,
+      tonesLine,
       fitsLine,
     ].filter((l) => l.trim()).join("\n");
   }).join("\n");
+}
+
+/** For a given room tone, return the house-style ids that fit naturally
+ *  + the ones to avoid. Used by `buildComposerMessages` to print a hard
+ *  per-room steer at the top of the user message. Empty arrays are
+ *  acceptable (e.g. for an unknown tone, no styles are flagged). */
+export function houseStylesForTone(tone: string): { prefer: string[]; avoid: string[] } {
+  const t = tone.toLowerCase();
+  const prefer: string[] = [];
+  const avoid: string[] = [];
+  for (const s of HOUSE_STYLES) {
+    if (s.tones.includes(t)) prefer.push(s.id);
+    if (s.avoidTones?.includes(t)) avoid.push(s.id);
+  }
+  return { prefer, avoid };
 }

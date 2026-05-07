@@ -20,6 +20,7 @@ import { insertKeyPoint } from "../storage/key_points.js";
 import { getKey, hasBraveKey } from "../storage/keys.js";
 import {
   deleteMessage,
+  getMessage,
   insertMessage,
   listRecentMessages,
   updateMessageBody,
@@ -59,6 +60,17 @@ const MAX_CLARIFY_TURNS = 3;
  *     direct API doesn't ship that id (e.g. openrouterOnly model
  *     against the direct OpenAI SDK)
  *   · network / timeout → transient, suggest retry */
+/** Thrown by `streamChairMessage` when the chair's LLM call errors and
+ *  no body was produced. Callers (the convene flow, clarify flow,
+ *  etc.) catch this to short-circuit the rest of the pipeline rather
+ *  than dispatching directors that will fail with the same key. */
+export class ChairStreamError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChairStreamError";
+  }
+}
+
 function friendlyChairError(chair: Agent, raw: string): string {
   const msg = (raw || "").trim();
   const lower = msg.toLowerCase();
@@ -78,6 +90,22 @@ function friendlyChairError(chair: Agent, raw: string): string {
   // Generic fallback · include the upstream message so the user can
   // diagnose without checking server logs.
   return `${modelLabel} call failed: ${msg.slice(0, 240)}`;
+}
+
+/** Emit a "chair is preparing" hint over SSE so the UI can render a
+ *  transient placeholder during silent server-side phases (haiku
+ *  discipline gate, tool pre-fetch, LLM startup before first token).
+ *  Phase comes from the chair message kind so the placeholder can
+ *  label correctly. The frontend clears it on any subsequent chair
+ *  message-appended, on clarify-ready, or after a short timeout. */
+export function emitChairPending(roomId: string, phase: unknown): void {
+  const phaseStr = typeof phase === "string" && phase ? phase : "chair";
+  roomBus.emit(roomId, {
+    type: "config-event",
+    kind: "chair-pending",
+    payload: { phase: phaseStr },
+    createdAt: Date.now(),
+  });
 }
 
 /** Trim a URL to a host + 32-char tail for display in the tool-use
@@ -573,6 +601,14 @@ async function streamChairMessage(args: DispatchArgs & {
   const prefs = getPrefs();
   const history = listRecentMessages(roomId, 30);
 
+  // Loading hint to the UI · the chair has work to do (tools + LLM)
+  // before any visible bubble lands. Frontend shows a "preparing…"
+  // placeholder until a chair message-appended replaces it. Phase comes
+  // from meta.kind so the UI can label correctly (clarify / chair-direct
+  // / round-end / convening). Idempotent — multiple emits just refresh
+  // the placeholder.
+  emitChairPending(roomId, (meta as { kind?: unknown })?.kind);
+
   // Chair's two pre-stream tools, run in parallel:
   //
   //  · fetch-url  · pulls every http(s) URL the user shared in recent
@@ -714,7 +750,13 @@ async function streamChairMessage(args: DispatchArgs & {
         },
       });
       roomBus.emit(roomId, { type: "message-final", messageId: placeholder.id });
-      return;
+      // Re-throw so the caller (room creation flow / clarify / etc.)
+      // knows the chair didn't speak. Without this throw, the convene
+      // flow proceeds to dispatch directors anyway — every director
+      // hits the same broken key and the user sees a wall of empty
+      // bubbles flashing past after the chair error. Pausing the
+      // room is the caller's responsibility.
+      throw new ChairStreamError(errorMessage || "chair stream failed");
     }
     deleteMessage(placeholder.id);
     roomBus.emit(roomId, { type: "message-removed", messageId: placeholder.id, reason: "empty" });
@@ -794,6 +836,13 @@ export async function runChairClarify(roomId: string): Promise<ClarifyResult> {
     });
     return { asked: false, ready: true, exhausted: true };
   }
+
+  // Loading hint to the UI · streamChairMessage emits the same event
+  // later, but the haiku discipline-gate (pickChairClarifyDecision)
+  // and the pre-gate URL/search tools run BEFORE that and can take a
+  // few seconds with no chat-visible feedback. Emitting here bridges
+  // the silent window with a "preparing…" placeholder.
+  emitChairPending(roomId, "clarify");
 
   // Pre-gate tools · run URL fetch + web search BEFORE the discipline
   // gate decides whether to clarify. Two reasons:
@@ -994,24 +1043,80 @@ export async function runChairRoundEnd(roomId: string, roundNum: number): Promis
     meta: { kind: "round-end", roundNum },
     buildMessages: buildChairRoundEndMessages,
     onComplete: (body, messageId) => {
-      const { points } = parseRoundEndOutput(body);
-      const persisted = points.slice(0, 3).map((text, i) =>
-        insertKeyPoint({
-          roomId,
-          messageId,
-          roundNum,
-          body: text,
-          position: i,
-        }),
-      );
-      setAwaitingContinue(roomId, true);
+      // CRITICAL · the round-ended SSE event MUST fire no matter what
+      // happens during parsing or persistence. Without it, the frontend
+      // never re-renders the chair's round-end card and the skeleton
+      // (with its "Chair is drafting key points…" text painted during
+      // streaming) sits on screen forever. Wrap every step in
+      // try/catches so a single throw can't block the emit.
+      let points: string[] = [];
+      let modeShift: { to: string; because: string } | null = null;
+      try {
+        const parsed = parseRoundEndOutput(body);
+        points = parsed.points;
+        modeShift = parsed.modeShift;
+      } catch (e) {
+        process.stderr.write(`[chair] round-end parse: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+
+      let persisted: Array<{ id: string; body: string; position: number; vote: string | null }> = [];
+      try {
+        persisted = points.slice(0, 3).map((text, i) => {
+          const kp = insertKeyPoint({
+            roomId,
+            messageId,
+            roundNum,
+            body: text,
+            position: i,
+          });
+          return { id: kp.id, body: kp.body, position: kp.position, vote: kp.vote };
+        });
+      } catch (e) {
+        process.stderr.write(`[chair] round-end persist: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+
+      // Tone-shift proposal · advisory only. Persisted on the chair
+      // message's meta so a page reload can re-render the affordance.
+      // Wrapped in try/catch — a DB hiccup on this step must not stop
+      // the round-ended SSE from firing, otherwise the user is stuck
+      // on the loading skeleton.
+      let advisory: { to: string; because: string } | null = null;
+      try {
+        if (modeShift) {
+          const room = getRoom(roomId);
+          if (room && modeShift.to !== (room.mode || "").toLowerCase()) {
+            advisory = modeShift;
+            const existing = getMessage(messageId);
+            if (existing) {
+              updateMessageBody(messageId, existing.body, {
+                ...existing.meta,
+                modeShiftProposal: modeShift,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        process.stderr.write(`[chair] round-end modeShift: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+
+      try { setAwaitingContinue(roomId, true); }
+      catch (e) {
+        process.stderr.write(`[chair] round-end awaitingContinue: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+
+      // The emit itself is the load-bearing exit — runs regardless of
+      // upstream failures so the frontend always advances out of the
+      // streaming skeleton. With empty keyPoints the frontend renders
+      // a degraded card (no vote chips, just continue/adjourn) rather
+      // than staying stuck on "drafting key points…".
       roomBus.emit(roomId, {
         type: "config-event",
         kind: "round-ended",
         payload: {
           messageId,
           roundNum,
-          keyPoints: persisted.map((p) => ({ id: p.id, body: p.body, position: p.position, vote: p.vote })),
+          keyPoints: persisted,
+          modeShiftProposal: advisory,
         },
         createdAt: Date.now(),
       });

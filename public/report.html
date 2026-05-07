@@ -107,6 +107,7 @@
     .top-rule,
     .foot-rule,
     .cover-versions,
+    .reading-nav,
     [data-back],
     [data-download],
     .top-actions,
@@ -179,22 +180,23 @@
     }
 
     /* ─── CJK font fallback for print ────────────────────────────
-       In headless Chrome's PDF render path, "PingFang SC" and
-       "Hiragino Sans GB" are often unreachable — they live outside
-       the standard font directories. "Songti SC" (at /System/Library
-       /Fonts/Supplemental/Songti.ttc) IS reachable, so it anchors
-       every cascade as the dependable CJK fallback. Latin text still
-       renders in the spine's preferred face; only CJK falls through. */
+       PingFang SC anchors every cascade so Chinese glyphs render as
+       PingFang globally (user preference). Songti SC sits deep as
+       a last-resort fallback for the rare headless Chrome PDF
+       contexts where PingFang's font directory isn't reachable —
+       the browser falls through to it automatically when PingFang
+       can't be loaded. Latin text still renders in the spine's
+       preferred face; only CJK falls through to PingFang. */
 
-    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK in Songti SC */
+    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK in PingFang SC. */
     body, .body, .body p, .body li,
     .body td, .body th,
     .rec-rationale, .rec-risk, .rec-risk-text, .rec-meta-value, .rec-action,
     .nq-why, .cover-deck {
       font-family: "Helvetica Neue", "Inter", "Arial",
-                   "Songti SC", "STSong",
-                   "Hiragino Sans GB", "PingFang SC",
+                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
                    "Source Han Sans CN", "Noto Sans CJK SC",
+                   "Songti SC", "STSong",
                    sans-serif !important;
     }
     /* Serif-anchored display copy · headlines, italic claims, big-idea
@@ -208,11 +210,13 @@
     .nq-question, .cover-title {
       font-family: "Charter", "Source Serif Pro", "Iowan Old Style",
                    "Georgia",
+                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
+                   "Source Han Sans CN", "Noto Sans CJK SC",
                    "Songti SC", "STSong",
                    "Source Han Serif CN", "Noto Serif CJK SC",
-                   "PingFang SC", "Hiragino Sans GB", serif !important;
+                   serif !important;
     }
-    /* Mono kickers / labels stay mono with Songti SC as CJK fallback. */
+    /* Mono kickers / labels stay mono with PingFang SC as CJK fallback. */
     .top-rule .crumb,
     .body .chapter-num,
     .cover-tag, .cover-tag .secondary,
@@ -229,7 +233,8 @@
     .body table.md-table th {
       font-family: "SF Mono", "JetBrains Mono", "Menlo",
                    "Helvetica Neue", "Arial",
-                   "Songti SC", "STSong", "Hiragino Sans GB", "PingFang SC",
+                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
+                   "Source Han Sans CN", "Songti SC", "STSong",
                    monospace !important;
     }
 
@@ -387,6 +392,11 @@
       max-width: 100% !important;
       margin-bottom: 0 !important;
     }
+    /* Drop the cell's vertical hairline in print · with flex-wrap +
+       10px gap, the inter-cell rule is replaced by whitespace. Leaving
+       the border-right in produces stray vertical strokes on the
+       trailing edge of each row when cards wrap to a new row. */
+    .body .metric-strip-grid > .metric-card { border-right: 0 !important; }
 
     /* Glue chapter-num to its h2 · the "Section 0X" kicker is a
        sibling element inserted before the heading (not nested), so
@@ -419,6 +429,27 @@
        is small. */
     .body pre.mermaid { min-height: auto !important; padding: 14px !important; }
     .body pre.mermaid svg { max-width: 100% !important; height: auto !important; }
+  }
+
+  /* ─── Author byline · name list (spine-agnostic) ───────────────
+     The cover used to render circular avatar imgs alongside an
+     "{N} directors" count. Both got dropped in favour of the names
+     themselves rendered in the spine's main typography — reads as a
+     proper editorial byline ("by Socrates · Marc Andreessen · Peter
+     Thiel") rather than an app-style avatar row.
+
+     The middot separator is a subtler weight than the names so the
+     eye walks the list of contributors directly. Line-height stays
+     tight so 5+ names wrap without bloating the cover. */
+  .byline-block.byline-authors .value.author-list {
+    line-height: 1.45;
+    letter-spacing: 0.005em;
+  }
+  .byline-block.byline-authors .author-sep {
+    color: var(--rule, currentColor);
+    opacity: 0.45;
+    margin: 0 1px;
+    font-weight: 400;
   }
 
   /* ─── Suppress duplicate borders at section boundaries ──────────
@@ -456,7 +487,7 @@
      Pattern hit hard by Risks-to-Manage / Pre-Mortem (and any other
      table-first section): the chapter-num kicker above the H2
      already carries an underline (its border-bottom hairline), and
-     the table immediately below the H2 carries its own 1.5px
+     the table immediately below the H2 carries its own 2px
      border-top. With only the H2 title between them, those two
      parallel rules read as a doubled frame around the heading. The
      table's row separators keep its internal structure clear without
@@ -466,50 +497,85 @@
     border-top: none;
   }
 
+  /* ─── Mermaid + adjacent table = doubled hairline ───────────────
+     Every spine's `pre.mermaid` carries a 1px `border-bottom` (the
+     mermaid frame's closing rule). A pipe-table directly underneath
+     carries its own 1.5–2px `border-top`. With only a paragraph
+     break between, the two parallel rules read as a doubled frame.
+     Drop the table's top border in that exact arrangement — the
+     mermaid's bottom rule already separates the diagram from the
+     table cleanly. Same reasoning works for the reverse order: a
+     mermaid right after a table inherits the table's last-row
+     border-bottom, so suppress the mermaid's top rule there too. */
+  .body pre.mermaid + table.md-table {
+    border-top: none;
+  }
+  .body table.md-table + pre.mermaid {
+    border-top-width: 0;
+  }
+
   /* ─── Metric-strip · spine-agnostic baseline ─────────────────────
-     A row of KPI cards generated by the ```metric-strip fenced block.
-     Per-spine CSS (public/report/spines/*.css) overrides surfaces +
-     typography for visual personality; this baseline is what every
-     spine inherits before its overrides land — keeps the strip
-     readable even for spines that haven't shipped a treatment yet.
+     Editorial / Swiss register: oversized thin numerals top-left, mute
+     mono label bottom-left, hairline grid (no card backgrounds, no
+     surrounding box). Whitespace + typography do the work. Per-spine
+     CSS (public/report/spines/*.css) only swaps font tokens + accent
+     colours; the layout and rhythm are constant across spines so a
+     "key metrics" block reads the same shape no matter which voice
+     the report is in.
 
      Discipline:
-       · No `border-left` as a callout (project rule · feedback memo).
-       · Card boundaries are surface + spacing, not double parallel
-         borders. The grid sits on the section background; cards lift
-         via a tiny background tint.
-       · Metric value is the eye-catch · big tabular numerals.
-       · Trend glyph is small and doesn't compete with the value. */
+       · No `border-left` callout treatment. The grid uses border-right
+         on cells purely as a divider — not as an accent rail.
+       · Single hairline weight (1px var(--rule)) wraps the grid top +
+         bottom and slices between cells. No double parallel borders
+         against adjacent .chapter-num / section h2 (those only carry
+         underlines on the heading itself, not on this block).
+       · The big value is the eye-catch · thin sans, large size.
+       · Trend glyph rides as a small superscript so it never competes
+         with the value. */
   .body .metric-strip {
-    margin: 26px 0 30px;
+    margin: 30px 0 36px;
   }
+  /* Intro kicker · small mono caption with the Dribbble-style solid
+     square bullet to anchor the line. Optional · only renders when
+     the metric-strip JSON carries `intro`. */
   .body .metric-strip-intro {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-soft, #8E8B83);
-    margin: 0 0 14px;
+    margin: 0 0 22px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
   }
-  /* Grid · explicit columns per card count keeps cards uniform and
-     kills the "lonely 5th card" problem you get from auto-fit when
-     a row doesn't fully fill. The renderer stamps `data-cards` on
-     the grid wrapper (see renderMetricStrip in this file). */
+  .body .metric-strip-intro::before {
+    content: "";
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  /* Grid · explicit columns per card count. Top + bottom hairlines
+     bracket the block, vertical hairlines slice between cells. */
   .body .metric-strip-grid {
     display: grid;
-    gap: 12px;
-    align-items: stretch;
     grid-template-columns: repeat(3, 1fr);
+    align-items: stretch;
+    border-top: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    border-bottom: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
   }
   .body .metric-strip-grid[data-cards="2"] { grid-template-columns: repeat(2, 1fr); }
   .body .metric-strip-grid[data-cards="3"] { grid-template-columns: repeat(3, 1fr); }
   .body .metric-strip-grid[data-cards="4"] { grid-template-columns: repeat(4, 1fr); }
   .body .metric-strip-grid[data-cards="5"] { grid-template-columns: repeat(5, 1fr); }
-  /* Narrow viewports · collapse to two columns max so labels don't
-     truncate down to two letters. Print uses `display: block` from
-     the page-break rules above, so this only affects on-screen at
-     tablet / phone widths. */
+  /* Narrow viewports · collapse to a 2×N grid so cells stay readable.
+     Cards on row 2+ pick up a top border so the horizontal rules slot
+     in correctly. Print uses `display: block` from the page-break
+     rules above, so this only affects on-screen at tablet / phone. */
   @media (max-width: 720px) {
     .body .metric-strip-grid,
     .body .metric-strip-grid[data-cards="3"],
@@ -517,80 +583,129 @@
     .body .metric-strip-grid[data-cards="5"] {
       grid-template-columns: repeat(2, 1fr);
     }
+    .body .metric-strip-grid > .metric-card { border-right: 1px solid var(--rule); }
+    .body .metric-strip-grid > .metric-card:nth-child(2n) { border-right: 0; }
   }
+  /* Cell · pure padded box, no surrounding border, no fill. Vertical
+     hairline lives on the right edge; the LAST column drops it. */
   .body .metric-card {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 16px 18px;
-    background: var(--panel-2, rgba(255, 255, 255, 0.025));
-    border: 0.5px solid var(--line-bright, rgba(255, 255, 255, 0.08));
-    min-height: 116px;
+    padding: 22px 20px 18px;
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    min-height: 144px;
     overflow: hidden;
+    position: relative;
   }
-  .body .metric-label {
-    font-family: var(--mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--text-soft, #8E8B83);
-    line-height: 1.3;
-    /* Long labels truncate to one line so the value lands on the
-       same baseline across all cards — predictable rhythm beats
-       fitting every word on cards with shorter labels. */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .body .metric-strip-grid > .metric-card:last-child { border-right: 0; }
+  /* Last column drop · works for any data-cards value. */
+  .body .metric-strip-grid[data-cards="2"] > .metric-card:nth-child(2n),
+  .body .metric-strip-grid[data-cards="3"] > .metric-card:nth-child(3n),
+  .body .metric-strip-grid[data-cards="4"] > .metric-card:nth-child(4n),
+  .body .metric-strip-grid[data-cards="5"] > .metric-card:nth-child(5n) {
+    border-right: 0;
   }
+  /* Visual order · value at top, label at bottom, qualifier +
+     attribution stack just above the label. Done with flex `order`
+     so the renderer's HTML stays in author order (label, value-row,
+     qualifier, attribution) and screen readers read label-first. */
+  .body .metric-card > .metric-value-row { order: 1; margin-bottom: auto; }
+  .body .metric-card > .metric-qualifier { order: 2; margin-top: 16px; }
+  .body .metric-card > .metric-attribution { order: 3; margin-top: 6px; }
+  .body .metric-card > .metric-label { order: 4; margin-top: 12px; }
+  /* Big number · sans light, oversized. Tabular nums so digits land
+     on the same column inside one card (e.g. 1,243.5 stays aligned
+     when the card is multi-line). */
   .body .metric-value-row {
     display: flex;
     align-items: baseline;
-    gap: 6px;
+    gap: 8px;
     line-height: 1;
-    margin: 2px 0 0;
+    margin: 0;
   }
   .body .metric-value {
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Helvetica Neue",
-                 "Songti SC", monospace;
-    font-size: 28px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums lining-nums;
-    color: var(--text, #C8C5BE);
-    letter-spacing: -0.018em;
-    line-height: 1.05;
+    font-family: var(--sans, "Söhne", "Inter", "Helvetica Neue", "Helvetica",
+                  "Arial", "PingFang SC", sans-serif);
+    font-size: 40px;
+    font-weight: 300;
+    font-variant-numeric: lining-nums tabular-nums;
+    color: var(--ink, var(--text, #C8C5BE));
+    letter-spacing: -0.022em;
+    line-height: 0.95;
+    /* Long values shouldn't break across lines or shrink the card —
+       overflow with ellipsis instead, which is rare in practice (most
+       metrics are 4-7 chars). Letter-spacing already pulls them tight. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
+  /* Per-card-count value sizing · denser layouts get smaller numerals
+     so 5-card rows on a 940px content width don't squash. The baseline
+     40px is the 3-card default; 4 / 5 cards step down, 2 cards step
+     up since each cell has more horizontal room. */
+  .body .metric-strip-grid[data-cards="2"] .metric-value { font-size: 52px; }
+  .body .metric-strip-grid[data-cards="3"] .metric-value { font-size: 44px; }
+  .body .metric-strip-grid[data-cards="4"] .metric-value { font-size: 36px; }
+  .body .metric-strip-grid[data-cards="5"] .metric-value { font-size: 30px; }
+  @media (max-width: 720px) {
+    /* Narrow viewport collapses to 2-column grid (see below) — value
+       size returns to the 2-card baseline so cells with more room
+       use it instead of staying in 4/5-card density. */
+    .body .metric-strip-grid[data-cards="3"] .metric-value,
+    .body .metric-strip-grid[data-cards="4"] .metric-value,
+    .body .metric-strip-grid[data-cards="5"] .metric-value { font-size: 44px; }
+  }
+  /* Trend glyph · rides like a small annotation next to the number.
+     Mono so it reads as a chip, not as part of the value. The negative
+     `top` lifts it to align with the number's cap height. */
   .body .metric-trend {
-    font-family: "SF Mono", "JetBrains Mono", monospace;
-    font-size: 13px;
+    font-family: var(--mono);
+    font-size: 11px;
     line-height: 1;
     color: var(--text-dim, #5C5A52);
-    /* The big value's baseline sits a hair lower than the trend
-       glyph's at this size · 1px nudge brings them into visual
-       alignment without breaking baseline flow. */
+    letter-spacing: 0.04em;
     position: relative;
-    top: -2px;
+    top: -14px;
+    flex-shrink: 0;
   }
   .body .metric-trend[data-trend="up"]   { color: var(--em, var(--lime, #6FB572)); }
   .body .metric-trend[data-trend="down"] { color: var(--red, #B5706A); }
   .body .metric-trend[data-trend="flat"] { color: var(--text-dim, #5C5A52); }
-  /* Qualifier · pinned to the BOTTOM of the card via `margin-top:
-     auto` so cards with vs without a qualifier still align their
-     value baselines. Capped to 2 lines · longer text truncates
-     rather than pushing the card height up. */
-  .body .metric-qualifier {
-    font-family: var(--sans);
-    font-size: 11.5px;
-    line-height: 1.45;
+  /* Label · mono caps caption pinned to the bottom of the card.
+     Allowed to wrap to 2 lines · long-form labels (e.g. "Time to first
+     production deploy") shouldn't truncate to two letters when there's
+     room on a second line. */
+  .body .metric-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
     color: var(--text-soft, #8E8B83);
-    letter-spacing: -0.003em;
-    margin: auto 0 0;
+    line-height: 1.4;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  /* Attribution · single line, ellipsis, mono uppercase footnote. */
+  /* Qualifier · sans, small, sits just above the attribution / label.
+     Capped to 2 lines so a chatty qualifier can't push the value
+     off-screen. */
+  .body .metric-qualifier {
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-soft, #8E8B83);
+    letter-spacing: -0.003em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Attribution · faint mono caption between qualifier and label. */
   .body .metric-attribution {
     font-family: var(--mono);
     font-size: 9px;
@@ -602,20 +717,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* When a card carries BOTH qualifier and attribution, the
-     qualifier is no longer pinned to the bottom — the attribution
-     is. Use `:last-child` on attribution to pull it to the bottom
-     instead. */
-  .body .metric-card > .metric-attribution:last-child {
-    margin: auto 0 0;
-  }
-  .body .metric-card > .metric-qualifier:not(:last-child) {
-    margin: auto 0 0;
-  }
-  .body .metric-card > .metric-qualifier:not(:last-child) + .metric-attribution {
-    margin-top: 4px;
-  }
-  /* Print · keep cards intact across page breaks. */
+  /* Print · keep cells intact across page breaks. */
   @media print {
     .body .metric-card { break-inside: avoid; page-break-inside: avoid; }
   }
@@ -630,6 +732,594 @@
   }
   .body .metric-strip-error::before {
     content: "// metric-strip · malformed";
+    display: block;
+    margin-bottom: 6px;
+    color: var(--red, #B5706A);
+  }
+
+  /* ─── Path-comparison · spine-agnostic baseline ──────────────────
+     Side-by-side binary comparison · 2 columns, verdict-tagged.
+     Reference: mvp/screen-7-report-anthropic.html "03 — A Comparison"
+     block. Per-spine CSS overrides accent colours; this baseline
+     gives every spine a working render before its overrides ship.
+
+     Discipline:
+       · NO border-left as accent (project rule). Top accent rule
+         encodes stance instead.
+       · 2px stance accent on top edge — matches the report's
+         heaviest-rule reservation tier.
+       · 1px outer rule on each card — single ring, no doubled frames. */
+  .body .path-comparison { margin: 28px 0 32px; }
+  .body .path-comparison-intro {
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text-soft, var(--ink-soft, #5C5A52));
+    margin: 0 0 20px;
+    max-width: 740px;
+  }
+  .body .path-comparison .paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: stretch;
+  }
+  @media (max-width: 720px) {
+    .body .path-comparison .paths { grid-template-columns: 1fr; }
+  }
+  .body .path-comparison .path {
+    padding: 28px;
+    background: var(--paper-soft, var(--panel-2, rgba(255, 255, 255, 0.025)));
+    border: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    border-top-width: 2px;
+    border-top-color: var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    display: flex;
+    flex-direction: column;
+  }
+  /* Stance accents · weak / strong / neutral. Each spine remaps
+     these to its palette in its own CSS file. */
+  .body .path-comparison .path-weak   { border-top-color: var(--red,  #B5706A); }
+  .body .path-comparison .path-strong { border-top-color: var(--em,   #6FB572); }
+  /* path-neutral keeps the default rule colour. */
+
+  .body .path-comparison .path-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-soft, var(--ink-soft, #8E8B83));
+    margin-bottom: 14px;
+  }
+  .body .path-comparison .path-weak   .path-tag { color: var(--red, #B5706A); }
+  .body .path-comparison .path-strong .path-tag { color: var(--em,  #6FB572); }
+
+  .body .path-comparison .path-name {
+    font-family: var(--font-headline, var(--serif, "Tiempos Headline", "Charter", Georgia, serif));
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--ink, var(--text, #C8C5BE));
+    margin-bottom: 18px;
+    letter-spacing: -0.005em;
+  }
+  .body .path-comparison .path-name-line + .path-name-sub {
+    margin-top: 4px;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--text-soft, var(--ink-soft, #8E8B83));
+    line-height: 1.45;
+    letter-spacing: 0;
+  }
+  .body .path-comparison .path ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 auto;
+  }
+  .body .path-comparison .path li {
+    position: relative;
+    padding: 10px 0 10px 22px;
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-soft, var(--ink-soft, #5C5A52));
+    border-bottom: 1px solid var(--rule-soft, var(--rule, rgba(0, 0, 0, 0.08)));
+  }
+  .body .path-comparison .path li:last-child { border-bottom: 0; }
+  .body .path-comparison .path li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 16px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-faint, var(--ink-muted, #5C5A4D));
+  }
+  .body .path-comparison .path-weak   li::before { background: var(--red, #B5706A); }
+  .body .path-comparison .path-strong li::before { background: var(--em,  #6FB572); }
+  .body .path-comparison-implication {
+    margin: 24px 0 0;
+    font-family: var(--font-headline, var(--serif, "Tiempos", "Charter", Georgia, serif));
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--ink-soft, var(--text-soft, #4A4338));
+    font-style: italic;
+    max-width: 740px;
+  }
+  /* Print · keep both columns on the same page when possible. */
+  @media print {
+    .body .path-comparison { break-inside: avoid; page-break-inside: avoid; }
+    .body .path-comparison .path { break-inside: avoid; page-break-inside: avoid; }
+  }
+  /* Defensive · malformed path-comparison renders as a quiet placeholder. */
+  .body .path-comparison-error {
+    padding: 12px 14px;
+    background: var(--panel-3, rgba(255, 255, 255, 0.04));
+    color: var(--text-dim, #5C5A52);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .body .path-comparison-error::before {
+    content: "// path-comparison · malformed";
+    display: block;
+    margin-bottom: 6px;
+    color: var(--red, #B5706A);
+  }
+
+  /* ─── Views-compared · spine-agnostic baseline ──────────────────
+     The room's social map · always rendered when ≥ 2 directors.
+     Layout: intro → 2-column compare grid (alignment | divergence)
+     → per-director rows (full width) → chair synthesis (full width).
+     Per-spine CSS swaps accent + surface tokens; layout is constant. */
+  .body .views-compared { margin: 28px 0 32px; }
+  .body .views-compared-intro {
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text-soft, var(--ink-soft, #5C5A52));
+    margin: 0 0 24px;
+    max-width: 740px;
+  }
+  .body .vc-section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-soft, var(--ink-faint, #978C7E));
+    margin: 0 0 12px;
+    padding: 0 0 8px;
+    border-bottom: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+  }
+
+  /* ── 2-column compare grid · agreement (left) | disagreement (right) ──
+     Side-by-side reading is the whole point — the contrast lands in
+     one glance instead of after scrolling. Below 760px the columns
+     stack so the per-card content doesn't crush. */
+  .body .vc-compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    margin: 0 0 32px;
+    align-items: start;
+  }
+  @media (max-width: 760px) {
+    .body .vc-compare-grid { grid-template-columns: 1fr; gap: 24px; }
+  }
+  .body .vc-compare-col { min-width: 0; }
+  .body .vc-compare-empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint, var(--ink-faint, #978C7E));
+    font-style: italic;
+    padding: 18px 0;
+    line-height: 1.55;
+  }
+
+  /* ── Alignment cards · refined editorial register ──
+     Hairline frame with the accent stripe on TOP (per project rule
+     — left-borders are forbidden as callout treatments). 12px gap
+     between cards keeps each card's accent-rule clearly its own. No
+     surface fill — the spine's paper bg shows through. */
+  .body .views-compared-alignment .vc-card {
+    background: transparent;
+    border: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    border-top: 2px solid var(--em, var(--lime, #6FB572));
+    padding: 14px 16px;
+    margin: 0 0 12px;
+  }
+  .body .views-compared-alignment .vc-card:last-child { margin-bottom: 0; }
+  .body .vc-card-headline {
+    font-family: var(--font-headline, var(--serif, "Tiempos Headline", "Charter", Georgia, serif));
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--ink, var(--text, #C8C5BE));
+    margin: 0 0 8px;
+    letter-spacing: -0.005em;
+  }
+  .body .vc-card-directors,
+  .body .vc-side-directors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 0 0 8px;
+  }
+  .body .vc-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    color: var(--text-soft, var(--ink-mid, #6B6359));
+    background: transparent;
+    border: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    border-radius: 10px;
+    line-height: 1.45;
+  }
+  .body .vc-card-note {
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft, var(--ink-soft, #5C5A52));
+    margin: 0;
+  }
+
+  /* ── Divergence forks · same hairline-frame register, but the
+     top-accent stripe is in WARN/red instead of agreement-green.
+     Compact side-by-side panels stack on narrow viewports. ── */
+  .body .vc-fork {
+    border: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    border-top: 2px solid var(--warn, var(--clay-deep, var(--red, #B5706A)));
+    padding: 14px 16px;
+    margin: 0 0 12px;
+  }
+  .body .vc-fork:last-child { margin-bottom: 0; }
+  .body .vc-fork-hinge {
+    font-family: var(--font-headline, var(--serif, Georgia, serif));
+    font-style: italic;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--ink, var(--text, #C8C5BE));
+    margin: 0 0 14px;
+  }
+  .body .vc-fork-sides {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 0 0 10px;
+  }
+  .body .vc-fork-sides[data-sides="3"] { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 920px) {
+    /* In the 2-col compare-grid container, fork-sides is already
+       cramped — collapse to single column so each side breathes. */
+    .body .vc-fork-sides,
+    .body .vc-fork-sides[data-sides="3"] { grid-template-columns: 1fr; }
+  }
+  .body .vc-side {
+    padding: 10px 12px;
+    background: transparent;
+    border-top: 1px solid var(--rule-soft, var(--rule, rgba(0, 0, 0, 0.06)));
+  }
+  .body .vc-side-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--warn, var(--clay-deep, var(--red, #B5706A)));
+    margin: 0 0 8px;
+  }
+  .body .vc-side-stance {
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft, var(--ink-soft, #5C5A52));
+    margin: 0;
+  }
+  .body .vc-fork-resolution {
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft, var(--ink-mid, #6B6359));
+    margin: 6px 0 0;
+    padding: 8px 0 0;
+    border-top: 1px dashed var(--rule-soft, var(--rule, rgba(0, 0, 0, 0.06)));
+  }
+  .body .vc-resolution-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-soft, var(--ink-faint, #978C7E));
+    margin-right: 4px;
+  }
+
+  /* ── Per-director rows · tighter editorial rhythm ── */
+  .body .views-compared-perspectives { margin: 0 0 24px; max-width: 820px; }
+  .body .vc-row {
+    border-top: 1px solid var(--rule, var(--line-bright, rgba(255, 255, 255, 0.08)));
+    padding: 14px 0 13px;
+  }
+  /* Suppress the first row's top border when it sits directly under
+     the section label · the label already carries a 1px border-bottom
+     and a matching adjacent rule reads as a doubled frame around the
+     heading (per CLAUDE.md no-double-parallel-borders rule). The
+     label's underline opens the row series; the first row inherits
+     its boundary from above. */
+  .body .views-compared-perspectives > .vc-section-label + .vc-row {
+    border-top: none;
+  }
+  .body .vc-row:last-child { border-bottom: 1px solid var(--rule, rgba(0, 0, 0, 0.08)); }
+  .body .vc-row-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 5px;
+  }
+  .body .vc-row-name {
+    font-family: var(--font-headline, var(--serif, Georgia, serif));
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--ink, var(--text, #C8C5BE));
+    letter-spacing: -0.005em;
+  }
+  .body .vc-row-lens {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint, var(--ink-faint, #978C7E));
+  }
+  .body .vc-row-stance {
+    font-family: var(--sans);
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--em, var(--clay-deep, var(--lime, #6FB572)));
+    margin: 0 0 6px;
+  }
+  .body .vc-row-position {
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-soft, var(--ink-soft, #5C5A52));
+    margin: 0;
+    max-width: 720px;
+  }
+  /* Director quote · italic serif at slightly smaller size. The
+     italic + serif + colour-shift carries the "this is the spoken
+     fragment" register; no left-border ornament (project rule). */
+  .body .vc-row-quote {
+    font-family: var(--font-headline, var(--serif, Georgia, serif));
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text, var(--ink-mid, #6B6359));
+    margin: 7px 0 0;
+    max-width: 700px;
+  }
+  .body .vc-row-quote::before { content: "“"; }
+  .body .vc-row-quote::after { content: "”"; }
+
+  /* ── Chair synthesis · closing block · italic serif framed by a
+     thin top accent (mute ink, not a spine accent), so it reads as
+     a closing remark rather than another argument. ── */
+  .body .views-compared-synthesis {
+    margin: 4px 0 0;
+    padding: 14px 18px 16px;
+    background: transparent;
+    border: 1px solid var(--rule, rgba(0, 0, 0, 0.08));
+    border-top: 2px solid var(--ink-faint, var(--text-faint, #978C7E));
+  }
+  .body .views-compared-synthesis .vc-section-label { margin-bottom: 8px; padding-bottom: 6px; }
+  .body .vc-synthesis-body {
+    font-family: var(--font-headline, var(--serif, Georgia, serif));
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink, var(--text, #C8C5BE));
+    margin: 0;
+    max-width: 720px;
+  }
+
+  /* Print · the Views-Compared module needs three distinct fixes:
+       (a) page-break protection so the layout doesn't fragment across
+           pages,
+       (b) the NESTED divergence-fork grid (.vc-fork-sides, 2 or 3
+           cols) must collapse to a single column — at PDF width the
+           parent compare-grid already chops each side to ~314px, and
+           a nested 2-col inside that crushes text to ~150px columns
+           which read as "broken layout",
+       (c) explicit ink-on-paper colors for everything whose default
+           tokens resolve to translucent-white on dark spines (e.g.
+           `--line-bright: rgba(255, 255, 255, 0.08)`, the various
+           `--text-*` tokens in dark themes). On screen those work
+           against the dark panel; in PDF the page background is
+           paper, and translucent-white on white is invisible — which
+           is why "section labels disappeared", "chip borders
+           vanished", and "fork accent stripes were missing".
+     Side-by-side comparison (alignment | divergence) at the OUTER
+     compare-grid level IS preserved in PDF — that contrast is the
+     whole point of the module. Only the nested fork-sides stack. */
+  @media print {
+    .body .views-compared {
+      break-inside: avoid-page;
+    }
+    .body .views-compared-intro,
+    .body .vc-compare-grid,
+    .body .vc-compare-col,
+    .body .vc-card,
+    .body .vc-fork,
+    .body .vc-side,
+    .body .vc-row,
+    .body .views-compared-synthesis {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    /* ── Layout fix · keep alignment | divergence side-by-side in PDF ──
+       The screen-only `@media (max-width: 760px)` rule fires in Chrome's
+       print pipeline at A4 portrait (printable area is ~688px) and
+       stacks the columns, killing the contrast that's the whole point
+       of the module. Force 2-col here with explicit `!important` so the
+       responsive breakpoint can't override us in print. */
+    .body .vc-compare-grid {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 18px !important;
+      align-items: start !important;
+    }
+
+    /* Stack the NESTED fork sides · at PDF width each outer column is
+       ~314px and a nested 2-col would crush each side to ~150px. */
+    .body .vc-fork-sides,
+    .body .vc-fork-sides[data-sides="3"] {
+      grid-template-columns: 1fr !important;
+      gap: 8px !important;
+    }
+    /* Side dividers as horizontal hairlines once stacked · matches
+       the on-screen narrow-width breakpoint behaviour. */
+    .body .vc-side {
+      border-top: 1px solid #DCD3BD !important;
+      padding: 8px 12px !important;
+    }
+    .body .vc-side:first-child { border-top: none !important; padding-top: 0 !important; }
+
+    /* Cap content widths · stop overflow regardless of spine padding. */
+    .body .vc-card,
+    .body .vc-fork,
+    .body .vc-side,
+    .body .vc-row,
+    .body .views-compared-synthesis,
+    .body .vc-card-headline,
+    .body .vc-card-note,
+    .body .vc-row-position,
+    .body .vc-row-quote,
+    .body .vc-synthesis-body,
+    .body .vc-fork-hinge,
+    .body .vc-side-stance,
+    .body .vc-fork-resolution {
+      max-width: 100% !important;
+    }
+
+    /* ── Visibility · force ink-on-paper colors ──
+       Elements with translucent / dark-spine tokens get explicit
+       dark values that print legibly. */
+    .body .vc-section-label {
+      color: #38332B !important;
+      border-bottom-color: #DCD3BD !important;
+    }
+    /* Director chips · the on-screen `display: inline-flex` +
+       `align-items: center` + `font-family: var(--mono)` combo
+       ships text that prints blank in Chrome's PDF pipeline when
+       the var-resolved font isn't in the headless Chrome font path
+       (PingFang / SF Mono fall through to Songti, etc., which the
+       print engine sometimes drops at 10px line-height: 1.45 with
+       inline-flex containing). Reset to a print-safe shape:
+       inline-block, explicit monospace stack with system fallbacks
+       Chrome's PDF engine always has, slightly larger font for
+       legibility, padding tuned so the small text doesn't get
+       clipped by border-radius. */
+    .body .vc-chip {
+      display: inline-block !important;
+      padding: 3px 10px !important;
+      margin: 0 !important;
+      font-family: "Helvetica", "Arial", "Songti SC", "STSong", sans-serif !important;
+      font-size: 11px !important;
+      font-weight: 500 !important;
+      letter-spacing: 0.02em !important;
+      line-height: 1.4 !important;
+      color: #38332B !important;
+      background: transparent !important;
+      border: 1px solid #BCB39A !important;
+      border-radius: 10px !important;
+      vertical-align: baseline !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    /* Alignment card · clay-deep top accent, hairline frame. */
+    .body .views-compared-alignment .vc-card {
+      border: 1px solid #DCD3BD !important;
+      border-top: 2px solid #A85A41 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    /* Divergence fork · same chrome but the accent reads as the
+       "split" marker. Same clay-deep so the module reads consistent
+       in print; the contrast comes from the section labels above
+       each column, not from competing accent colours. */
+    .body .vc-fork {
+      border: 1px solid #DCD3BD !important;
+      border-top: 2px solid #A85A41 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .body .vc-fork-hinge {
+      color: #14110C !important;
+    }
+    .body .vc-side-label {
+      color: #A85A41 !important;
+    }
+    .body .vc-card-headline,
+    .body .vc-row-name {
+      color: #14110C !important;
+    }
+    .body .vc-card-note,
+    .body .vc-row-position,
+    .body .vc-side-stance,
+    .body .vc-fork-resolution,
+    .body .vc-synthesis-body {
+      color: #38332B !important;
+    }
+    .body .vc-resolution-label {
+      color: #847B65 !important;
+    }
+    .body .vc-row-lens {
+      color: #847B65 !important;
+    }
+    .body .vc-row-quote {
+      color: #57503F !important;
+    }
+    .body .vc-row {
+      border-top-color: #DCD3BD !important;
+    }
+    .body .vc-row:last-child {
+      border-bottom-color: #DCD3BD !important;
+    }
+    .body .views-compared-synthesis {
+      border: 1px solid #DCD3BD !important;
+      border-top: 2px solid #847B65 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Heading sticks to the intro that follows · no orphaned title. */
+    .body section.section-views-compared > h2,
+    .body h2.section-views-compared {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+  }
+
+  /* Defensive · malformed views-compared renders as a quiet placeholder */
+  .body .views-compared-error {
+    padding: 12px 14px;
+    background: var(--panel-3, rgba(255, 255, 255, 0.04));
+    color: var(--text-dim, #5C5A52);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .body .views-compared-error::before {
+    content: "// views-compared · malformed";
     display: block;
     margin-bottom: 6px;
     color: var(--red, #B5706A);
@@ -663,7 +1353,7 @@
     gap: 16px;
     padding: 18px 20px;
     background: var(--panel-2, rgba(255, 255, 255, 0.025));
-    border: 0.5px solid var(--line-bright, rgba(0, 0, 0, 0.08));
+    border: 1px solid var(--line-bright, rgba(0, 0, 0, 0.08));
     flex-wrap: wrap;
   }
   .colophon-share-btn {
@@ -673,7 +1363,7 @@
     padding: 10px 16px;
     background: var(--lime, #6FB572);
     color: var(--bg, #FFFFFF);
-    border: 0.5px solid var(--lime, #6FB572);
+    border: 1px solid var(--lime, #6FB572);
     font-family: var(--mono);
     font-size: 11px;
     font-weight: 700;
@@ -721,7 +1411,7 @@
   }
   .colophon-rule {
     width: 64px;
-    height: 0.5px;
+    height: 1px;
     background: var(--text-faint, #978C7E);
     opacity: 0.6;
   }
@@ -729,7 +1419,7 @@
     color: var(--text-faint, var(--text-dim, #8A8780));
     text-transform: uppercase;
     letter-spacing: 0.34em;
-    font-size: 8.5px;
+    font-size: 9px;
     font-weight: 600;
     font-family: var(--mono);
     /* Optical centering · letter-spacing pushes content right; nudge
@@ -759,13 +1449,16 @@
     letter-spacing: -0.005em;
   }
   .colophon-cta-url {
-    color: var(--text-soft, #6B6B6B);
+    display: inline-block;
+    color: var(--text, #1A1A1A);
     font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+    margin-top: 2px;
   }
+  .colophon-cta-url:hover { text-decoration: underline; }
   /* Backwards-compat · the "·" separator from the prior horizontal
      layout no longer renders meaningfully in a vertical stack. Keep
      the selector defined so old markup doesn't error if rendered. */
@@ -793,6 +1486,1096 @@
       page-break-before: avoid;
     }
   }
+
+  /* ════════════════════════════════════════════════════════════════
+     UNIFIED DESIGN SYSTEM · cross-spine baseline
+     ════════════════════════════════════════════════════════════════
+     One typography scale, one spacing scale, one component vocabulary
+     applied to every spine. Spines (a16z / anthropic / boardroom-dark
+     / gartner / mckinsey / openai) provide:
+       · color palette (--ink, --paper, --rule, --accent, --warn, …)
+       · font choices (--serif, --sans, --mono)
+       · genuinely distinctive flourishes (a16z gold P0, mckinsey
+         navy thesis, gartner brand red, etc. — opt in via
+         `body[data-spine="X"]` selectors)
+     Everything else — sizes, spacing, component structure, treatment
+     patterns — comes from this block. Loaded AFTER the spine CSS so
+     it wins on specificity ties. Spines that want to override use
+     `body[data-spine="…"]` for higher specificity. */
+
+  :root {
+    /* Type scale · 1 source of truth across all spines.
+       All sizes in px; line-heights unitless; tracking in em. */
+    --rep-display:        44px;    /* cover title */
+    --rep-h2:             24px;    /* section headings */
+    --rep-h3:             18px;    /* sub-section + recommendation action */
+    --rep-h4:             15px;  /* small headings */
+    --rep-body:           16px;    /* primary prose */
+    --rep-rationale:      16px;  /* secondary prose (rationale, item body) */
+    --rep-meta:           13px;    /* meta strips, metadata rows */
+    --rep-label:          10px;   /* mono uppercase labels */
+    --rep-caption:        11px;    /* footer captions */
+    --rep-pullquote:      19px;    /* italic pull-quotes inside cards */
+
+    --rep-leading-display: 1.18;
+    --rep-leading-heading: 1.4;
+    --rep-leading-body:    1.7;
+    --rep-leading-tight:   1.55;
+
+    --rep-tracking-display: -0.012em;
+    --rep-tracking-body:    -0.005em;
+    --rep-tracking-mono:     0.04em;
+    --rep-tracking-label:    0.2em;
+
+    /* Spacing scale */
+    --rep-section-gap: 56px;       /* before each H2 */
+    --rep-item-gap:    44px;       /* between rich list items */
+    --rep-para-gap:    14px;       /* between paragraphs */
+    --rep-row-gap:     10px;       /* tight rows inside a card */
+
+    /* Reading column */
+    --rep-prose-width: 64ch;
+  }
+
+  /* ── Section break + heading rhythm · cross-spine ────────────────
+     Each numbered section is preceded by `<div class="chapter-num">
+     Section NN</div>` (injected client-side). Together they form the
+     section break — designed as a single intentional unit:
+       1. Chapter-num gets the big top margin (64px) so it acts as
+          the section divider; previous content's bottom margin
+          collapses naturally with this gap.
+       2. Chapter-num is a flex row · `Section NN` mono uppercase on
+          the left, a hairline filling the rest. Reads as a labelled
+          divider rather than a stranded eyebrow.
+       3. H2 IMMEDIATELY follows the chapter-num · 0 top margin so
+          the title sits snugly under the divider; small bottom
+          margin (10px) so the title is visually attached to its
+          first paragraph.
+       4. Standalone H2s (no chapter-num · bottom-line / thesis /
+          methodology slots) keep the 56px top margin so they still
+          read as section breaks.
+     Net effect: section break feels like a designed unit with a
+     real divider line, and title sits close to its content.
+     Spines override colour via --accent / --ink / --rule and font
+     via --mono / --serif. */
+  .body .chapter-num {
+    display: block;
+    font-family: var(--mono);
+    font-size: var(--rep-label);
+    font-weight: 500;
+    color: var(--ink-faint, var(--text-faint));
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    margin: 64px 0 14px;
+    padding: 0;
+    border: none;
+  }
+  /* Spine-specific accent colour for the chapter label · uses
+     --accent which each spine maps to its brand colour. */
+  body[data-spine="a16z-thesis"] .body .chapter-num,
+  body[data-spine="anthropic-essay"] .body .chapter-num,
+  body[data-spine="boardroom-dark"] .body .chapter-num,
+  body[data-spine="gartner-note"] .body .chapter-num,
+  body[data-spine="mckinsey-deck"] .body .chapter-num,
+  body[data-spine="openai-paper"] .body .chapter-num {
+    color: var(--accent);
+  }
+  /* First chapter-num after the cover or a still-anchored section
+     (bottom-line / thesis) needs a touch more space because there's
+     no preceding content to collapse with. */
+  .cover + .chapter-num { margin-top: 24px; }
+
+  .body h2 {
+    font-size: var(--rep-h2);
+    line-height: var(--rep-leading-heading);
+    letter-spacing: var(--rep-tracking-display);
+    margin: var(--rep-section-gap) 0 12px;
+    color: var(--ink, var(--text));
+    font-weight: 600;
+  }
+  /* H2 directly under a chapter-num · drop the top margin so the
+     title sits snugly under the divider. The chapter-num's 64px
+     top margin already provides the section break. */
+  .body .chapter-num + h2 {
+    margin-top: 0;
+  }
+  .body h2:first-child { margin-top: 0; }
+  .body h3 {
+    font-size: var(--rep-h3);
+    line-height: var(--rep-leading-heading);
+    letter-spacing: var(--rep-tracking-display);
+    margin: 28px 0 8px;
+    color: var(--ink, var(--text));
+    font-weight: 600;
+  }
+  .body h4 {
+    font-size: var(--rep-h4);
+    line-height: var(--rep-leading-heading);
+    margin: 18px 0 6px;
+    color: var(--ink, var(--text));
+    font-weight: 600;
+  }
+
+  /* ── Body prose ──────────────────────────────────────────────── */
+  .body p {
+    font-size: var(--rep-body);
+    line-height: var(--rep-leading-body);
+    letter-spacing: var(--rep-tracking-body);
+    color: var(--ink-soft, var(--text-soft));
+    margin: var(--rep-para-gap) 0;
+  }
+  .body p strong {
+    color: var(--ink, var(--text));
+    font-weight: 600;
+  }
+
+  /* ── Lists · default register, gets richer treatment via the
+        :has(p ~ p) baseline below for multi-paragraph items. ───── */
+  .body ul, .body ol {
+    margin: 14px 0 18px 22px;
+  }
+  .body li {
+    font-size: var(--rep-body);
+    line-height: var(--rep-leading-body);
+    color: var(--ink-soft, var(--text-soft));
+    margin: 6px 0;
+  }
+
+  /* ── Tables · compact, all spines ─────────────────────────────── */
+  .body table.md-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 22px 0 26px;
+    font-size: 14px;
+    border-top: 2px solid var(--ink, var(--text));
+  }
+  .body table.md-table th,
+  .body table.md-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule, var(--line));
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.55;
+  }
+  .body table.md-table th {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-faint, var(--text-faint));
+    background: transparent;
+  }
+  .body table.md-table td:first-child {
+    font-weight: 600;
+    color: var(--ink, var(--text));
+    font-size: 14px;
+  }
+
+  /* ── Blockquotes · pull-quote register ────────────────────────── */
+  .body blockquote {
+    font-style: italic;
+    font-size: var(--rep-pullquote);
+    line-height: var(--rep-leading-tight);
+    color: var(--ink, var(--text));
+    margin: 24px 0 28px;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: var(--serif, var(--font-human));
+    letter-spacing: var(--rep-tracking-body);
+    max-width: var(--rep-prose-width);
+  }
+  .body blockquote em { font-style: italic; }
+  .body blockquote strong {
+    color: var(--ink, var(--text));
+    font-weight: 600;
+    font-style: normal;
+  }
+
+  /* ── Code (inline) · uniform register ─────────────────────────── */
+  .body code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    color: var(--ink, var(--text));
+    background: var(--paper-soft, var(--panel-2, rgba(0, 0, 0, 0.04)));
+    padding: 1px 6px;
+    border-radius: 2px;
+    letter-spacing: var(--rep-tracking-mono);
+  }
+
+  /* ── Recommendation cards · cross-spine consolidated.
+        Each spine still tints via --accent / --warn / --gold etc.,
+        but sizes, weights, and spacing are uniform. ─────────────── */
+  .body section.section-recommendations li.rec-item,
+  .body section.section-considerations li.rec-item {
+    padding: 0;
+    margin: var(--rep-item-gap) 0 0;
+    list-style: none;
+    border: none;
+  }
+  .body section.section-recommendations li.rec-item:first-child,
+  .body section.section-considerations li.rec-item:first-child {
+    margin-top: 22px;
+  }
+  .body section.section-recommendations li.rec-item::before,
+  .body section.section-considerations li.rec-item::before {
+    display: none;
+  }
+  .rec-rule {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .rec-num {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--ink-faint, var(--text-faint));
+    letter-spacing: 0.2em;
+    flex: 0 0 auto;
+    font-variant: tabular-nums;
+  }
+  /* Priority badge baseline · pure typography · NO fill, NO border,
+     NO padding. Spine-specific colour is the only differentiator
+     between P0 / P1 / P2. The earlier filled-pill treatment read as
+     "shouty status tag"; this register reads as a refined editorial
+     marker (matches the mono kicker pattern used elsewhere in the
+     report). */
+  .rec-rule code {
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    background: transparent !important;
+    border: 0 !important;
+    padding: 0 !important;
+    line-height: 1;
+  }
+  .rec-rule-line {
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--rule, var(--line));
+    display: block;
+    opacity: 0.45;
+  }
+  .rec-action {
+    font-family: var(--serif, var(--font-human));
+    font-size: var(--rep-h3);
+    line-height: 1.35;
+    color: var(--ink, var(--text));
+    font-weight: 600;
+    letter-spacing: var(--rep-tracking-display);
+    margin: 0 0 14px;
+    max-width: var(--rep-prose-width);
+  }
+  .rec-rationale {
+    font-size: var(--rep-rationale);
+    line-height: var(--rep-leading-body);
+    color: var(--ink-soft, var(--text-soft));
+    margin: 0 0 22px;
+    max-width: var(--rep-prose-width);
+  }
+  .rec-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 18px;
+    margin: 0 0 18px;
+    font-size: var(--rep-meta);
+    line-height: 1.75;
+    color: var(--ink, var(--text));
+  }
+  .rec-meta-pair {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  /* Meta-row labels · softened from heavy mono-uppercase shouty caps
+     (letter-spacing 0.22em + weight 500 + text-transform uppercase)
+     to a lighter editorial register: lowercase, lighter tracking,
+     regular weight. Keeps the mono register so the label still reads
+     as metadata, but loses the "shouty status tag" pressure that
+     stacking 3-5 of these on a single rec card creates. */
+  .rec-meta-label {
+    font-family: var(--mono);
+    font-size: var(--rep-label);
+    color: var(--ink-faint, var(--text-faint));
+    letter-spacing: 0.04em;
+    text-transform: none;
+    font-weight: 400;
+    font-variant: small-caps;
+  }
+  .rec-meta-value {
+    color: var(--ink, var(--text));
+    font-weight: 500;
+  }
+  .rec-meta-sep {
+    color: var(--ink-muted, var(--text-faint));
+    opacity: 0.5;
+  }
+  /* Dependency + Risk rows · prefix + em-dash + body. Uniform shape.
+     Same softening as meta labels: lowercase + small-caps, lighter
+     tracking, regular weight. The risk row stays italic warn-coloured
+     so it still reads as a flag, just less aggressively. */
+  .rec-dependency, .rec-risk {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: var(--rep-meta);
+    line-height: 1.75;
+    margin: 0 0 10px;
+    padding: 0;
+    background: transparent;
+  }
+  .rec-risk {
+    margin: 0;
+    font-style: italic;
+    color: var(--warn, var(--oxblood-deep, var(--red, #B5706A)));
+  }
+  .rec-dependency {
+    color: var(--ink-mid, var(--text-soft));
+  }
+  .rec-dependency-prefix, .rec-risk-prefix {
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: var(--rep-label);
+    letter-spacing: 0.05em;
+    text-transform: none;
+    font-variant: small-caps;
+    font-weight: 400;
+    flex: 0 0 auto;
+  }
+  .rec-dependency-prefix { color: var(--ink-faint, var(--text-faint)); }
+  .rec-risk-prefix { color: var(--warn, var(--oxblood, var(--red))); }
+  .rec-dependency-sep, .rec-risk-sep {
+    margin: 0 2px;
+    flex: 0 0 auto;
+  }
+  .rec-dependency-sep { color: var(--ink-faint, var(--text-faint)); }
+  .rec-risk-sep { color: var(--warn, var(--oxblood, var(--red))); }
+  .rec-dependency-text, .rec-risk-text { flex: 1 1 auto; }
+
+  /* ── Methodology footer · subdued mono caption strip ────────── */
+  .body h2.section-methodology {
+    margin-top: 80px;
+    padding-top: 22px;
+    font-size: var(--rep-label);
+    color: var(--ink-faint, var(--text-faint));
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    border-top: 1px solid var(--rule, var(--line));
+    font-family: var(--mono);
+    font-weight: 500;
+  }
+  .body section.section-methodology p {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--ink-faint, var(--text-faint));
+    font-family: var(--mono);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Appendix · supplementary detail (rare) ───────────────────
+     Renders AFTER all body sections, BEFORE Methodology. Each
+     appendix gets its own H2 (`Appendix A: ...`). Treatment is
+     quieter than a chapter — a reader who skipped here is opting in
+     to depth. In print, appendices push to a fresh page. */
+  .body h2.section-appendix {
+    margin-top: 64px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule, var(--line));
+    font-family: var(--serif, var(--font-human));
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--ink, var(--text));
+    letter-spacing: -0.005em;
+  }
+  .body section.section-appendix {
+    color: var(--ink-mid, var(--text-soft));
+  }
+  .body section.section-appendix p,
+  .body section.section-appendix li {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .body section.section-appendix blockquote {
+    font-size: 15px;
+    margin: 18px 0;
+    padding: 0 16px;
+    color: var(--ink-mid, var(--text-soft));
+    font-style: italic;
+  }
+  @media print {
+    .body h2.section-appendix {
+      page-break-before: always;
+      break-before: page;
+    }
+  }
+
+  /* ── Foot rule · "// end of brief" sign-off ──────────────────── */
+  .foot-rule {
+    text-align: center;
+    color: var(--ink-faint, var(--text-faint));
+    font-family: var(--mono);
+    font-size: var(--rep-label);
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    margin: 72px 0 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule, var(--line));
+    opacity: 0.7;
+  }
+
+  /* ── Cover · type scale (colours via spine palette) ────────── */
+  .cover-title {
+    font-size: var(--rep-display);
+    line-height: var(--rep-leading-display);
+    letter-spacing: var(--rep-tracking-display);
+    color: var(--ink, var(--text));
+    font-weight: 600;
+    font-family: var(--serif, var(--font-human));
+    margin: 0 0 16px;
+  }
+  .cover-deck {
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ink-soft, var(--text-soft));
+    font-family: var(--serif, var(--font-human));
+    margin: 0 0 32px;
+    max-width: 56ch;
+  }
+  .cover-tag {
+    font-family: var(--mono);
+    font-size: var(--rep-label);
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink-faint, var(--text-faint));
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .cover-tag .secondary { color: var(--ink-muted, var(--text-faint)); }
+  .cover-tag .pipe {
+    width: 2px;
+    height: 2px;
+    background: var(--ink-muted, var(--text-faint));
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Divider unification · cross-spine ──────────────────────────
+     Spines historically diverged on rule widths (1px / 2px / 2px /
+     3px / 4px) and colours (var(--rule) / accent brand / heavy ink).
+     Mckinsey and gartner especially over-decorated section openers
+     with 2-4px brand-color underlines, which broke visual unity once
+     the design system normalised everything else. This block caps
+     every divider to one of three weights and colours so the report
+     reads as a coherent typographic system across all 6 spines:
+       · soft       · 1px     var(--rule-soft)   — subtle in-content rows (uses lighter tone, not lighter weight)
+       · rule       · 1px     var(--rule)        — section dividers, card edges (default)
+       · strong     · 2px     var(--ink)         — anchor / table top / brand cover-bottom
+     NO sub-pixel widths anywhere — 0.5px hairlines render fuzzy and
+     mix-and-match with 1px borders fights the visual system. Anything
+     heavier than 2px gets capped here. Spine-specific
+     accent colours on heavy borders (4px navy / 4px brand) get
+     swapped to the unified --rule with --accent reserved for badges
+     and chapter-num labels (carried colour, not weight). */
+
+  /* Cover bottom rule · single neutral rule (was spine accent like
+     gold / navy / brand-blue, which read as "different colour than
+     the rest of the report's dividers"). Now uses --rule so it
+     matches every other framing divider in the report.
+
+     Implementation note · the rule is rendered as a `.cover::after`
+     block pseudo so it sits INSIDE the cover's horizontal padding,
+     making its visual width match the `.cover-byline` border-top
+     above it (both span the cover's content-box, not the full
+     box-edge). The user reported "cover bottom 太宽了" because a
+     plain `border-bottom` on `.cover` paints at the box-edge, which
+     extends past the byline top divider on each side by the cover's
+     padding (32-56px per spine). Pseudo + display:block matches it. */
+  .cover {
+    border-bottom: none !important;
+  }
+  .cover::after {
+    content: "";
+    display: block;
+    height: 1px;
+    background: var(--rule, var(--line));
+    margin-top: 20px;
+  }
+  /* Section opener heavy borders · cap and unify colour. Was a mix of
+     var(--accent) / var(--rule) / var(--rule-strong) / brand colours
+     across spines; now all section bottom rules use the neutral
+     --rule for one consistent divider colour across the report. */
+  .body section.section-thesis,
+  .body section.section-bottom-line,
+  .body section.section-working-hypothesis {
+    border-bottom: 1px solid var(--rule, var(--line)) !important;
+  }
+  /* Why Now · top + bottom rules unified to --rule. Was --gold (a16z)
+     / --brand (gartner) / --orange (gartner option-board) on the top
+     rule, breaking the "one colour" rule. Now both rules are the
+     neutral --rule. */
+  .body section.section-why-now {
+    border-top: 1px solid var(--rule, var(--line)) !important;
+    border-bottom: 1px solid var(--rule, var(--line)) !important;
+  }
+  /* Cover byline top rule · the divider above Authors / Filed /
+     Subject / Doc-ID grid. Some spines had this at 1px, boardroom
+     at 1px; standardise to 1px var(--rule) to match the cover
+     bottom and other section-level dividers. Also cap any spine
+     that uses a different colour (gold / accent) to --rule. */
+  .cover-byline {
+    border-top: 1px solid var(--rule, var(--line)) !important;
+  }
+  /* Chapter-num right rule · removed entirely. The kicker stands on
+     its own typographic weight (mono uppercase 11px in spine accent
+     colour); the trailing horizontal hairline read as fussy. The
+     pseudo is force-suppressed here in case any spine still declares
+     a `.chapter-num::after { content: "" }` rule (gartner-note has
+     a `content: "."` override; this `display: none` wins). */
+  .body .chapter-num::after {
+    content: none !important;
+    display: none !important;
+  }
+  /* Drop H2 border-bottom · some spines (mckinsey 2px navy under
+     every H2, gartner thin line) layered an underline on every
+     H2. Now redundant — the chapter-num divider above the H2
+     already provides the section break visual. Two parallel lines
+     read as a frame around the title. */
+  .body h2 {
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+  }
+  /* Table top rule · uniformly 2px ink across all spines (was
+     2px ink on most, 2px brand on gartner/mckinsey). The single
+     heavy rule sets the table apart; row dividers below stay at
+     1px hairlines. */
+  .body table.md-table {
+    border-top: 2px solid var(--ink, var(--text)) !important;
+  }
+  .body table.md-table th,
+  .body table.md-table td {
+    border-bottom: 1px solid var(--rule-soft, var(--rule, var(--line))) !important;
+  }
+  /* Pillars / metric strips / leading-indicators / scenario tree
+     section openers · cap their decorative top borders. */
+  .body section.section-leading-indicators,
+  .body section.section-scenario-tree,
+  .body section.section-strategic-outlook,
+  .body section.section-headline-findings,
+  .body section.section-recommendations,
+  .body section.section-considerations,
+  .body section.section-the-bet,
+  .body section.section-pre-mortem,
+  .body section.section-critical-assumptions,
+  .body section.section-threats-to-validity,
+  .body section.section-risk-register,
+  .body section.section-decision-options,
+  .body section.section-path-comparison,
+  .body section.section-views-compared {
+    border-top-width: 0 !important;
+    padding-top: 0 !important;
+  }
+  /* Methodology footer · single 1px hairline above the deterministic
+     credits block (already in the unified .body h2.section-methodology
+     rule above; restate here for the unification audit). */
+  .body h2.section-methodology {
+    border-top-width: 1px !important;
+  }
+  /* Foot rule · "// end of brief" sign-off · explicit 1px so it
+     matches the methodology footer. */
+  .foot-rule {
+    border-top-width: 1px !important;
+  }
+
+  /* ── CJK normalisation · spine-agnostic ────────────────────────────
+     When the brief is in Chinese / Japanese / Korean, suppress any
+     font-style: italic that the spine declares on headings, pull
+     quotes, and emphasis. CJK font families (Songti SC, PingFang SC,
+     Noto Serif/Sans CJK, Source Han) carry no italic glyph set, so
+     the browser falls back to a synthetic 12° skew that visibly
+     warps every character — reading as a layout bug, not as
+     emphasis. Latin reports are unaffected (the `body.is-cjk` gate
+     is JS-set only when CJK is detected). */
+  body.is-cjk .body h1,
+  body.is-cjk .body h2,
+  body.is-cjk .body h3,
+  body.is-cjk .body h4,
+  body.is-cjk .body section.section-bottom-line p,
+  body.is-cjk .body section.section-thesis p:first-child,
+  body.is-cjk .body section.section-frame-shift p:first-child,
+  body.is-cjk .body section.section-working-hypothesis p,
+  body.is-cjk .body blockquote,
+  body.is-cjk .body blockquote em,
+  body.is-cjk .body em,
+  body.is-cjk .cover-deck,
+  body.is-cjk .cover-deck strong {
+    font-style: normal !important;
+  }
+  /* Body density · CJK reports need different treatment per spine.
+     The earlier blanket `body.is-cjk .body p { font-size: 17px }`
+     was a regression in disguise — it brought down anthropic's 18px
+     to 16.5 (good), but BUMPED UP a16z's 14.5 to 16.5 (bad), and
+     similarly inflated mckinsey 15→16.5, gartner 15→16.5, etc.
+     Spines whose Latin body p is already 15px or smaller already
+     read fine in CJK; only the heavy book-paper spines (anthropic
+     18px, openai 16, boardroom-dark 16) need a downward nudge.
+     Pinning by `body[data-spine]` selector so only the heavy spines
+     compact. */
+  body.is-cjk[data-spine="anthropic-essay"] .body p {
+    font-size: 15px;
+  }
+  body.is-cjk[data-spine="openai-paper"] .body p,
+  body.is-cjk[data-spine="boardroom-dark"] .body p {
+    font-size: 15px;
+  }
+  body.is-cjk[data-spine="gartner-note"] .body p,
+  body.is-cjk[data-spine="mckinsey-deck"] .body p {
+    font-size: 14px;
+  }
+
+  /* Rich list items · decompression for "consensus overlooks" / "the
+     three things" / similar sections where each numbered item is a
+     full mini-essay (claim line + italic pull-quote + 2-3 elaboration
+     paragraphs). Triggers via :has(p ~ p) so SIMPLE lists stay
+     compact.
+     Pure typographic hierarchy. Earlier iterations had a dotted
+     hairline between items, paper-tint callout box on the
+     pull-quote, and 「」 leading marks · all of it read as fussy
+     decoration. Stripped to whitespace + weight + colour shift:
+       · Big inter-item margin — each item is its own block.
+       · Claim line · semibold + slight size bump · reads as a heading.
+       · Italic pull-quote · italic + muted colour + small left
+         indent · NO box, NO border, NO brackets.
+       · Elaboration paragraphs · normal body register, slightly
+         tighter so the item feels like one connected argument. */
+  .body ol > li:has(> p ~ p) {
+    margin: 0 0 40px;
+  }
+  .body ol > li:has(> p ~ p):last-child {
+    margin-bottom: 8px;
+  }
+  /* Claim row · semibold heading */
+  .body ol > li:has(> p ~ p) > p:first-of-type {
+    font-size: 1.04em;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--ink, var(--text));
+    margin: 0 0 12px;
+  }
+  /* Italic pull-quote · `<p><em>…</em></p>`. Picked by :has(em:only-child).
+     Treated as a confident pull-quote in the magazine sense — sits
+     between the claim and the elaboration as the item's thesis-line
+     that the body argues. Earlier this lived as muted small italic
+     with a left indent and decorative brackets / a tinted box; user
+     called that ugly + cramped. New version: full body width, larger
+     than body prose (1.12em), spine serif, ink-tone (not muted),
+     generous vertical room. The italic style alone — combined with
+     the size + spacing differential — does the visual differentiation
+     work. NO border, NO box, NO leading marks. */
+  .body ol > li:has(> p ~ p) > p:has(> em:only-child) {
+    font-style: italic;
+    font-size: 1.12em;
+    line-height: 1.55;
+    color: var(--ink, var(--text));
+    margin: 18px 0 24px;
+    padding: 0;
+    background: none;
+    /* Use serif for pull-quote when spine has one (a16z / anthropic /
+       openai). Falls back to spine's body face — the italic
+       treatment carries it visually either way. */
+    font-family: var(--serif, var(--font-human));
+    letter-spacing: -0.005em;
+  }
+  .body ol > li:has(> p ~ p) > p:has(> em:only-child) em {
+    font-style: italic;
+  }
+  /* Elaboration paragraphs · same register as top-level body prose.
+     Earlier they were tightened (10px / 1.62) to make the item feel
+     coherent; user asked NOT to constrain. Just normal body. */
+  .body ol > li:has(> p ~ p) > p:not(:first-of-type):not(:has(> em:only-child)) {
+    margin: 14px 0;
+    line-height: 1.72;
+  }
+  /* Body Chinese font · explicit PingFang SC anchor for CJK body
+     prose. Without this, the spine's --sans stack falls through Latin
+     fonts and lands on `system-ui`, which maps to PingFang on macOS
+     but to Microsoft YaHei / Source Han / something else on other
+     platforms. Anchoring on PingFang SC by name makes the default
+     reliable. Latin fonts stay FIRST in the stack so mixed Chinese +
+     English prose still renders Latin in Söhne / Inter / Helvetica
+     per the spine's voice — only Chinese glyphs land on PingFang via
+     per-glyph fallback. Applies to body p/li/td/th + the rich-list
+     pull-quote + recommendation cards (anything that holds prose). */
+  body.is-cjk .body p,
+  body.is-cjk .body li,
+  body.is-cjk .body td,
+  body.is-cjk .body th,
+  body.is-cjk .body blockquote,
+  body.is-cjk .rec-rationale,
+  body.is-cjk .rec-action,
+  body.is-cjk .rec-risk-text,
+  body.is-cjk .nq-question,
+  body.is-cjk .nq-why,
+  body.is-cjk .cover-deck,
+  body.is-cjk .cover-title {
+    font-family: "Söhne", "Inter", "Helvetica Neue", "Arial",
+                 "PingFang SC", "PingFang TC", "Hiragino Sans GB",
+                 "Source Han Sans CN", "Noto Sans CJK SC",
+                 sans-serif !important;
+  }
+
+  /* CJK table compaction · spine table cells default to 13.5–15px
+     which is fine for English but reads as oversized + squeezed in
+     dense Chinese tables (each cell often holds a noun phrase or a
+     short clause that fights cell width). Tighten cells + labels +
+     padding for CJK content. Spine values still drive English.
+     Applied to ALL spines via `body.is-cjk` scope. */
+  body.is-cjk .body table.md-table th,
+  body.is-cjk .body table.md-table td {
+    font-size: 14px !important;
+    padding: 8px 10px !important;
+    line-height: 1.5 !important;
+  }
+  body.is-cjk .body table.md-table th {
+    font-size: 12px !important;
+    letter-spacing: 0.12em !important;
+  }
+
+  /* ── Reading-position strip ────────────────────────────────────
+     Sticky chapter nav below the top-rule, modeled on editorial
+     reports that show "Introduction · Shift 01 · Shift 02 · Shift 03
+     · Endnotes" across the spread top so the reader knows where they
+     are. We auto-generate it from the H2s in the body — each H2 with
+     a `chapter-num` (or anchor sections like Thesis / Methodology)
+     becomes a clickable item. The current section is marked
+     `is-current` via IntersectionObserver. Spine accent colours are
+     inherited; layout + behaviour are spine-agnostic. */
+  .reading-nav {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--paper, var(--bg, #FFFFFF));
+    border-bottom: 1px solid var(--rule, var(--line));
+    padding: 10px 56px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .reading-nav::-webkit-scrollbar { display: none; }
+  .reading-nav-list {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    white-space: nowrap;
+  }
+  .reading-nav-list li {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+  }
+  .reading-nav-list li:not(:last-child)::after {
+    content: "·";
+    color: var(--ink-muted, var(--text-faint));
+    margin: 0 14px;
+    opacity: 0.6;
+  }
+  .reading-nav-item {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint, var(--text-faint));
+    text-decoration: none;
+    padding: 4px 0;
+    transition: color 120ms ease, border-color 120ms ease;
+    border-bottom: 1px solid transparent;
+  }
+  .reading-nav-item:hover {
+    color: var(--ink, var(--text));
+  }
+  .reading-nav-item.is-current {
+    color: var(--accent, var(--ink, var(--text)));
+    border-bottom-color: var(--accent, var(--ink, var(--text)));
+  }
+  /* Hide the strip until JS populates it — no flash of empty nav. */
+  .reading-nav:empty,
+  .reading-nav:not(.is-ready) { display: none; }
+
+  /* ── Sidebar callouts ──────────────────────────────────────────
+     A boxed-interlude card pattern, written in markdown as a fenced
+     block:
+       ```callout-case-study
+       Sudan Case Study
+       In April 2022, war erupted...
+       ```
+     The first non-empty line becomes the title; the rest renders as
+     paragraph(s). Variants: case-study, quote, counterpoint, note.
+     Each variant gets its own kicker label via ::before content.
+     Visual: paper-soft surface card with a mono kicker prefix and
+     serif title — same family as the methodology / acknowledgments
+     card, but inline within body flow (not at the end). */
+  .body .callout {
+    background: var(--paper-soft, var(--surface, var(--panel-2)));
+    border: 1px solid var(--rule, var(--line));
+    padding: 24px 28px;
+    margin: 32px 0;
+    border-radius: 0;
+  }
+  .body .callout::before {
+    content: "— NOTE";
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent, var(--clay-deep, var(--text-faint)));
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    font-weight: 500;
+  }
+  .body .callout.callout-case-study::before { content: "— CASE STUDY"; }
+  .body .callout.callout-quote::before      { content: "— DIRECTOR VOICE"; }
+  .body .callout.callout-counterpoint::before { content: "— COUNTERPOINT"; }
+  .body .callout.callout-note::before       { content: "— NOTE"; }
+  .body .callout.callout-case-study:lang(zh)::before { content: "— 案例研究"; }
+  .body .callout.callout-quote:lang(zh)::before      { content: "— 董事原话"; }
+  .body .callout.callout-counterpoint:lang(zh)::before { content: "— 反方意见"; }
+  .body .callout.callout-note:lang(zh)::before       { content: "— 备注"; }
+  body.is-cjk .body .callout.callout-case-study::before { content: "— 案例研究"; }
+  body.is-cjk .body .callout.callout-quote::before      { content: "— 董事原话"; }
+  body.is-cjk .body .callout.callout-counterpoint::before { content: "— 反方意见"; }
+  body.is-cjk .body .callout.callout-note::before       { content: "— 备注"; }
+  .body .callout-title {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--ink, var(--text));
+    margin: 0 0 12px;
+    letter-spacing: -0.005em;
+  }
+  .body .callout-title em { font-style: italic; color: var(--em, var(--clay-deep, var(--accent))); }
+  .body .callout-body p {
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-mid, var(--text-soft));
+    margin: 0 0 12px;
+    max-width: 60ch;
+  }
+  .body .callout-body p:last-child { margin-bottom: 0; }
+  .body .callout-body p em { font-style: italic; color: var(--em, var(--clay-deep, var(--accent))); }
+  .body .callout-body p strong { color: var(--ink, var(--text)); font-weight: 600; }
+  /* Quote variant · italic serif body for the in-quote register. */
+  .body .callout.callout-quote .callout-body p {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 17px;
+    color: var(--ink, var(--text));
+  }
+
+  /* ── Table of contents · print-only ─────────────────────────────
+     Auto-emitted between cover and body on long briefs (≥ 6 H2s).
+     Hidden on screen — the sticky reading-nav covers wayfinding
+     there. In print, occupies its own page (page-break-before
+     forces a clean start, page-break-after pushes the body to a
+     fresh page so the TOC stands alone). Anchor links inside the
+     PDF stay clickable in most viewers. */
+  .toc-print { display: none; }
+  @media print {
+    .toc-print.is-ready {
+      display: block;
+      padding: 64px 56px 48px;
+      page-break-before: always;
+      page-break-after: always;
+      break-before: page;
+      break-after: page;
+    }
+    .toc-print-title {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent, var(--clay-deep, var(--ink-faint)));
+      font-weight: 500;
+      margin: 0 0 32px;
+      padding: 0;
+      border: none;
+    }
+    .toc-print-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      counter-reset: toc;
+    }
+    .toc-print-item {
+      counter-increment: toc;
+      padding: 14px 0;
+      border-top: 1px solid var(--rule, var(--line));
+      margin: 0;
+    }
+    .toc-print-item:last-child { border-bottom: 1px solid var(--rule, var(--line)); }
+    .toc-print-link {
+      display: flex;
+      align-items: baseline;
+      gap: 18px;
+      text-decoration: none;
+      color: var(--ink, var(--text));
+    }
+    .toc-print-ordinal {
+      flex: 0 0 auto;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: var(--ink-faint, var(--text-faint));
+      font-weight: 500;
+      min-width: 24px;
+      font-variant-numeric: tabular-nums;
+    }
+    .toc-print-kicker {
+      flex: 0 0 auto;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent, var(--clay-deep, var(--ink-faint)));
+      font-weight: 500;
+      min-width: 110px;
+    }
+    .toc-print-label {
+      flex: 1 1 auto;
+      font-family: var(--serif, var(--font-human));
+      font-size: 17px;
+      line-height: 1.4;
+      color: var(--ink, var(--text));
+      letter-spacing: -0.005em;
+    }
+    .toc-print-label em {
+      font-style: italic;
+      color: var(--em, var(--clay-deep, var(--accent)));
+    }
+  }
+
+  /* ── Display pull-quote · `\`\`\`callout-display-quote` ──────────
+     The room's signature-line treatment, modeled on editorial
+     pull-quotes that anchor a magazine spread. A giant decorative `"`
+     mark in the spine accent sits top-left; the quote body is large
+     italic serif (24px), anchored to the right of the mark; optional
+     attribution sits below in a mono caption. No kicker label
+     (overrides the generic `.callout::before`); no boxed border —
+     just paper-soft surface + interior padding. */
+  .body .callout.callout-display-quote {
+    background: var(--paper-soft, var(--surface, var(--panel-2)));
+    border: 1px solid var(--rule, var(--line));
+    padding: 56px 44px 36px;
+    margin: 40px 0;
+    position: relative;
+    border-radius: 0;
+  }
+  .body .callout.callout-display-quote::before {
+    content: none;
+    display: none;
+  }
+  .body .callout-mark {
+    position: absolute;
+    top: 8px;
+    left: 32px;
+    font-family: var(--serif);
+    font-size: 88px;
+    line-height: 1;
+    color: var(--accent, var(--clay-deep, var(--text-faint)));
+    font-style: normal;
+    font-weight: 400;
+    user-select: none;
+    pointer-events: none;
+  }
+  .body .callout-display-body p {
+    font-family: var(--serif);
+    font-size: 24px;
+    line-height: 1.4;
+    font-style: italic;
+    font-weight: 400;
+    color: var(--ink, var(--text));
+    letter-spacing: -0.005em;
+    margin: 0 0 18px;
+    max-width: 56ch;
+  }
+  .body .callout-display-body p:last-child { margin-bottom: 0; }
+  .body .callout-display-body p em {
+    font-style: italic;
+    color: var(--em, var(--clay-deep, var(--accent)));
+  }
+  .body .callout-display-body p strong {
+    color: var(--ink, var(--text));
+    font-weight: 600;
+  }
+  .body .callout-display-quote .callout-attribution {
+    margin-top: 22px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint, var(--text-faint));
+  }
+
+  /* ── Part-cover divider · `\`\`\`part-cover` ─────────────────────
+     Full-width banner used to break a long brief into named parts
+     (Part One / Part Two / Coda etc.). Mono kicker label + serif
+     title, paper-soft surface, top + bottom 1px rules. In print the
+     banner forces a page break before so each part opens cleanly on
+     a fresh page. */
+  .body .part-cover {
+    margin: 56px -32px;
+    padding: 64px 32px 60px;
+    background: var(--paper-soft, var(--surface, var(--panel-2)));
+    border-top: 1px solid var(--rule, var(--line));
+    border-bottom: 1px solid var(--rule, var(--line));
+    text-align: center;
+  }
+  .body .part-cover-label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent, var(--clay-deep, var(--ink-faint)));
+    margin-bottom: 16px;
+    font-weight: 500;
+  }
+  .body .part-cover-title {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 400;
+    line-height: 1.18;
+    letter-spacing: -0.018em;
+    color: var(--ink, var(--text));
+    margin: 0 auto;
+    max-width: 28ch;
+    font-style: normal;
+  }
+  .body .part-cover-title em {
+    font-style: italic;
+    color: var(--em, var(--clay-deep, var(--accent)));
+  }
+  @media print {
+    .body .part-cover {
+      page-break-before: always;
+      break-before: page;
+    }
+  }
 </style>
 </head>
 <body>
@@ -804,6 +2587,8 @@
     <a href="#" class="back" data-back>↩ back to room</a>
   </div>
 </div>
+
+<nav class="reading-nav" data-reading-nav aria-label="Chapter navigation"></nav>
 
 <main class="doc">
   <div data-report-content>
@@ -863,13 +2648,25 @@
     "openai-paper":     "#FFFFFF",
   };
 
-  function swapSpine(spine) {
+  function swapSpine(spine, brief) {
     const link = document.getElementById("spine-css");
     if (!link) return;
     const safe = SPINES.has(spine) ? spine : "boardroom-dark";
     const href = `report/spines/${safe}.css`;
     if (link.getAttribute("href") !== href) link.setAttribute("href", href);
     document.body.setAttribute("data-spine", safe);
+    // Mark the document as CJK when the brief is in Chinese (or any
+    // CJK script). Several spines — anthropic-essay, a16z-thesis,
+    // boardroom-dark in the bottom-line callout — use `font-style:
+    // italic` heavily on H2 / H3 / pull quotes. CJK fonts (Songti SC,
+    // PingFang, etc.) carry NO italic glyph set, so the browser fakes
+    // italic by shearing glyphs ~12° — which on Chinese text reads as
+    // a layout bug, not as emphasis. The `is-cjk` class below scopes
+    // a small override block (further down in this file's <style>)
+    // that resets these to upright.
+    const sample = ((brief && brief.title) || "") + " " + ((brief && brief.bodyMd) || "");
+    const isCjk = /[㐀-鿿぀-ヿ가-힯]/.test(sample);
+    document.body.classList.toggle("is-cjk", isCjk);
     // Inject (or replace) the per-spine @page background rule so the
     // PDF page bleed matches the paper colour. Replaces any prior
     // injected rule for this same id, so swapping spines repaints
@@ -974,6 +2771,84 @@
    *  so the structured HTML survives the renderer's escape pass.
    *  Defensive: bad JSON / missing fields render as a quiet fallback
    *  block so a malformed strip doesn't break the rest of the report. */
+  /** Sidebar callout · `\`\`\`callout-{variant}` fenced block with the
+   *  first non-empty line as the title and the rest as paragraph body
+   *  (split by blank lines). Variants set the kicker label via CSS
+   *  ::before content (case-study / quote / counterpoint / note);
+   *  unknown variants fall back to the bare `callout` styling.
+   *  Special variants:
+   *    · display-quote / pullquote · large editorial pull-quote with
+   *      a decorative " mark, optional `— Attribution` line at end. */
+  function renderCallout(lang, body) {
+    const variant = lang === "callout" ? "" : lang.slice("callout-".length).trim();
+    if (variant === "display-quote" || variant === "pullquote") {
+      return renderDisplayQuote(body);
+    }
+    const lines = body.split("\n");
+    let titleIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim().length > 0) { titleIdx = i; break; }
+    }
+    if (titleIdx === -1) return "";
+    const titleRaw = lines[titleIdx].trim();
+    const bodyLines = lines.slice(titleIdx + 1).join("\n").trim();
+    const paragraphs = bodyLines
+      .split(/\n\s*\n/)
+      .map((p) => p.replace(/\n/g, " ").trim())
+      .filter(Boolean);
+    const titleHtml = inline(escape(titleRaw));
+    const bodyHtml = paragraphs.map((p) => `<p>${inline(escape(p))}</p>`).join("");
+    const cls = variant ? `callout callout-${escape(variant)}` : "callout";
+    return `<aside class="${cls}"><h4 class="callout-title">${titleHtml}</h4><div class="callout-body">${bodyHtml}</div></aside>`;
+  }
+
+  /** Display pull-quote · the room's signature line treatment. Quote
+   *  body is serif italic, anchored to a giant " mark in the spine
+   *  accent. If the last paragraph starts with em-dash / hyphen, it's
+   *  treated as attribution and rendered in mono caption below. */
+  function renderDisplayQuote(body) {
+    const paragraphs = body
+      .split(/\n\s*\n/)
+      .map((p) => p.replace(/\n/g, " ").trim())
+      .filter(Boolean);
+    if (paragraphs.length === 0) return "";
+    let attrib = "";
+    let quoteParas = paragraphs;
+    const last = paragraphs[paragraphs.length - 1];
+    if (paragraphs.length > 1 && /^[—–-]\s*\S/.test(last)) {
+      attrib = last.replace(/^[—–-]\s*/, "").trim();
+      quoteParas = paragraphs.slice(0, -1);
+    }
+    const quoteHtml = quoteParas.map((p) => `<p>${inline(escape(p))}</p>`).join("");
+    const attribHtml = attrib
+      ? `<div class="callout-attribution">— ${inline(escape(attrib))}</div>`
+      : "";
+    return (
+      `<aside class="callout callout-display-quote">` +
+      `<span class="callout-mark" aria-hidden="true">&ldquo;</span>` +
+      `<div class="callout-display-body">${quoteHtml}</div>` +
+      attribHtml +
+      `</aside>`
+    );
+  }
+
+  /** Part-cover divider · ```part-cover fenced block. First non-empty
+   *  line is the kicker label (e.g. "Part Two"), second is the part
+   *  title (serif headline). Renders as a full-width banner with a
+   *  page-break-before in print so each part starts on a fresh page. */
+  function renderPartCover(body) {
+    const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return "";
+    const label = lines[0];
+    const title = lines.slice(1).join(" ").trim();
+    return (
+      `<section class="part-cover">` +
+      `<span class="part-cover-label">${inline(escape(label))}</span>` +
+      (title ? `<h2 class="part-cover-title">${inline(escape(title))}</h2>` : "") +
+      `</section>`
+    );
+  }
+
   function renderMetricStrip(body) {
     let parsed;
     try { parsed = JSON.parse(body); } catch (e) {
@@ -1028,6 +2903,257 @@
       `</div>`;
   }
 
+  /** Parse a fenced ```path-comparison block (strict JSON) and emit
+   *  the side-by-side binary comparison: 2 columns, each with a mono
+   *  verdict tag, serif path name, and bullet characteristics. Stance
+   *  drives an accent classname (path-weak / path-strong / path-neutral)
+   *  that the per-spine CSS uses for colour. Mirrors how renderMetricStrip
+   *  handles its own fenced JSON block · pulled out at the placeholder
+   *  layer before block parsing so the structured HTML survives the
+   *  renderer's escape pass. Defensive: bad JSON / wrong shape / fewer
+   *  than 2 valid paths render as a quiet error placeholder. */
+  function renderPathComparison(body) {
+    let parsed;
+    try { parsed = JSON.parse(body); } catch (e) {
+      return `<div class="path-comparison path-comparison-error" data-err="parse">${escape(body)}</div>`;
+    }
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.paths)) {
+      return `<div class="path-comparison path-comparison-error" data-err="shape"></div>`;
+    }
+    const intro = typeof parsed.intro === "string" ? parsed.intro.trim() : "";
+    const implication = typeof parsed.implication === "string" ? parsed.implication.trim() : "";
+    const out = [];
+    for (const p of parsed.paths) {
+      if (!p || typeof p !== "object") continue;
+      const verdict = typeof p.verdict === "string" ? p.verdict.trim() : "";
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      if (!verdict || !name) continue;
+      const stRaw = typeof p.stance === "string" ? p.stance.trim().toLowerCase() : "";
+      const stance = (stRaw === "strong" || stRaw === "weak") ? stRaw : "neutral";
+      const characteristics = Array.isArray(p.characteristics)
+        ? p.characteristics
+            .filter((s) => typeof s === "string" && s.trim().length > 0)
+            .map((s) => s.trim())
+            .slice(0, 6)
+        : [];
+      if (characteristics.length < 2) continue;
+      out.push({ verdict, stance, name, characteristics });
+      if (out.length >= 2) break;
+    }
+    if (out.length !== 2) {
+      return `<div class="path-comparison path-comparison-error" data-err="empty"></div>`;
+    }
+
+    // Path name supports a `\n` separator → headline + sublabel · render
+    // as two lines (sublabel in a smaller faint colour via CSS).
+    const renderName = (raw) => {
+      const parts = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+      if (parts.length === 1) return `<div class="path-name-line">${escape(parts[0])}</div>`;
+      return parts
+        .map((p, i) => i === 0
+          ? `<div class="path-name-line">${escape(p)}</div>`
+          : `<div class="path-name-sub">${escape(p)}</div>`)
+        .join("");
+    };
+
+    const introHtml = intro
+      ? `<p class="path-comparison-intro">${inline(escape(intro))}</p>`
+      : "";
+    const implicationHtml = implication
+      ? `<p class="path-comparison-implication">${inline(escape(implication))}</p>`
+      : "";
+    const pathsHtml = out.map((p) => {
+      const bullets = p.characteristics.map((c) => `<li>${escape(c)}</li>`).join("");
+      return `<div class="path path-${escape(p.stance)}">` +
+        `<div class="path-tag">${escape(p.verdict)}</div>` +
+        `<div class="path-name">${renderName(p.name)}</div>` +
+        `<ul>${bullets}</ul>` +
+        `</div>`;
+    }).join("");
+    return `<div class="path-comparison">` +
+      introHtml +
+      `<div class="paths">${pathsHtml}</div>` +
+      implicationHtml +
+      `</div>`;
+  }
+
+  /** Parse a fenced ```views-compared block (strict JSON) and emit
+   *  the room's social-map: alignment cards (where directors agreed),
+   *  divergence panels (where they split), per-director rows (every
+   *  active director's stance / position / lens / optional quote),
+   *  closing chair-synthesis card. Mirrors path-comparison's fenced
+   *  JSON dispatch · pulled out at the placeholder layer so structured
+   *  HTML survives the renderer's escape pass. Defensive: bad JSON /
+   *  fewer than 2 director perspectives renders as a quiet error. */
+  function renderViewsCompared(body) {
+    let parsed;
+    try { parsed = JSON.parse(body); } catch (e) {
+      return `<div class="views-compared views-compared-error" data-err="parse">${escape(body)}</div>`;
+    }
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.perspectives)) {
+      return `<div class="views-compared views-compared-error" data-err="shape"></div>`;
+    }
+
+    const intro = typeof parsed.intro === "string" ? parsed.intro.trim() : "";
+    const chairSynthesis = typeof parsed.chairSynthesis === "string" ? parsed.chairSynthesis.trim() : "";
+
+    // Resolve director id → display name from the rendered member
+    // list above (the brief renderer attaches `data-director-id` to
+    // each cover-byline author chip; fall back to the id when no
+    // mapping is found).
+    const directorNameById = (() => {
+      const out = {};
+      try {
+        const chips = document.querySelectorAll("[data-director-id]");
+        chips.forEach((el) => {
+          const id = el.getAttribute("data-director-id");
+          if (id && el.textContent) out[id] = el.textContent.trim();
+        });
+      } catch (_) { /* during pre-paint, no chips yet — fall through */ }
+      return out;
+    })();
+    const dn = (id) => directorNameById[id] || id || "—";
+
+    // Per-director rows · the meat. Drop entries missing directorId
+    // or position; empty array short-circuits the whole component.
+    const rows = [];
+    const VALID_LENSES = new Set(["data", "dissent", "narrative", "structural", "first-principle"]);
+    for (const p of parsed.perspectives) {
+      if (!p || typeof p !== "object") continue;
+      const directorId = typeof p.directorId === "string" ? p.directorId.trim() : "";
+      const position = typeof p.position === "string" ? p.position.trim() : "";
+      if (!directorId || !position) continue;
+      const stance = typeof p.stance === "string" ? p.stance.trim() : "";
+      const quote = typeof p.quote === "string" ? p.quote.trim() : "";
+      const lensRaw = typeof p.lens === "string" ? p.lens.trim() : "";
+      const lens = VALID_LENSES.has(lensRaw) ? lensRaw : "structural";
+      rows.push({ directorId, stance, position, quote, lens });
+    }
+    if (rows.length < 2) {
+      return `<div class="views-compared views-compared-error" data-err="empty"></div>`;
+    }
+
+    // Alignment cards · groups need ≥ 2 directors AND a name.
+    const alignment = [];
+    if (Array.isArray(parsed.alignment)) {
+      for (const a of parsed.alignment) {
+        if (!a || typeof a !== "object") continue;
+        const pointOfAgreement = typeof a.pointOfAgreement === "string" ? a.pointOfAgreement.trim() : "";
+        const note = typeof a.note === "string" ? a.note.trim() : "";
+        const directorIds = Array.isArray(a.directorIds)
+          ? a.directorIds.filter((s) => typeof s === "string" && s.trim().length > 0).map((s) => s.trim())
+          : [];
+        if (!pointOfAgreement || directorIds.length < 2) continue;
+        alignment.push({ pointOfAgreement, directorIds, note });
+      }
+    }
+
+    // Divergence panels · each entry needs ≥ 2 sides + a hinge.
+    const divergence = [];
+    if (Array.isArray(parsed.divergence)) {
+      for (const d of parsed.divergence) {
+        if (!d || typeof d !== "object") continue;
+        const hinge = typeof d.hinge === "string" ? d.hinge.trim() : "";
+        const resolution = typeof d.resolution === "string" ? d.resolution.trim() : "";
+        const sides = [];
+        if (Array.isArray(d.sides)) {
+          for (const s of d.sides) {
+            if (!s || typeof s !== "object") continue;
+            const label = typeof s.label === "string" ? s.label.trim() : "";
+            const stance = typeof s.stance === "string" ? s.stance.trim() : "";
+            const ids = Array.isArray(s.directorIds)
+              ? s.directorIds.filter((x) => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+              : [];
+            if (!label || !stance || ids.length === 0) continue;
+            sides.push({ label, directorIds: ids, stance });
+          }
+        }
+        if (!hinge || sides.length < 2) continue;
+        divergence.push({ hinge, sides, resolution });
+      }
+    }
+
+    const introHtml = intro
+      ? `<p class="views-compared-intro">${inline(escape(intro))}</p>`
+      : "";
+
+    // Alignment + Divergence render side-by-side in a 2-column grid so
+    // the contrast is immediate · agreement on the left, disagreement
+    // on the right. Per CSS, the grid stacks below 760px viewport.
+    // When one side is empty (e.g. no real alignment) we still emit
+    // a placeholder so the columns stay balanced and the reader sees
+    // explicitly that the room had no convergence (or no fork).
+    const alignmentColHtml = `<div class="views-compared-alignment vc-compare-col">` +
+      `<div class="vc-section-label">Where they aligned</div>` +
+      (alignment.length
+        ? alignment.map((a) =>
+            `<div class="vc-card vc-card-align">` +
+              `<div class="vc-card-headline">${escape(a.pointOfAgreement)}</div>` +
+              `<div class="vc-card-directors">${a.directorIds.map((id) => `<span class="vc-chip">${escape(dn(id))}</span>`).join("")}</div>` +
+              (a.note ? `<div class="vc-card-note">${inline(escape(a.note))}</div>` : "") +
+            `</div>`
+          ).join("")
+        : `<div class="vc-compare-empty">No clear convergence — the room argued from different bases throughout.</div>`) +
+      `</div>`;
+
+    const divergenceColHtml = `<div class="views-compared-divergence vc-compare-col">` +
+      `<div class="vc-section-label">Where they split</div>` +
+      (divergence.length
+        ? divergence.map((d) =>
+            `<div class="vc-fork">` +
+              `<div class="vc-fork-hinge">${inline(escape(d.hinge))}</div>` +
+              `<div class="vc-fork-sides" data-sides="${d.sides.length}">` +
+                d.sides.map((s) =>
+                  `<div class="vc-side">` +
+                    `<div class="vc-side-label">${escape(s.label)}</div>` +
+                    `<div class="vc-side-directors">${s.directorIds.map((id) => `<span class="vc-chip">${escape(dn(id))}</span>`).join("")}</div>` +
+                    `<div class="vc-side-stance">${inline(escape(s.stance))}</div>` +
+                  `</div>`
+                ).join("") +
+              `</div>` +
+              (d.resolution
+                ? `<div class="vc-fork-resolution"><span class="vc-resolution-label">What would resolve it</span> · ${inline(escape(d.resolution))}</div>`
+                : "") +
+            `</div>`
+          ).join("")
+        : `<div class="vc-compare-empty">No central fork — the room held a coherent line of thought.</div>`) +
+      `</div>`;
+
+    // Both empty? Skip the whole compare grid (rare).
+    const compareGridHtml = (alignment.length || divergence.length)
+      ? `<div class="vc-compare-grid">${alignmentColHtml}${divergenceColHtml}</div>`
+      : "";
+
+    const perspectivesHtml = `<div class="views-compared-perspectives">` +
+      `<div class="vc-section-label">Every director on the table</div>` +
+      rows.map((r) =>
+        `<div class="vc-row" data-lens="${escape(r.lens)}">` +
+          `<div class="vc-row-head">` +
+            `<span class="vc-row-name">${escape(dn(r.directorId))}</span>` +
+            `<span class="vc-row-lens">${escape(r.lens)}</span>` +
+          `</div>` +
+          (r.stance ? `<div class="vc-row-stance">${inline(escape(r.stance))}</div>` : "") +
+          `<div class="vc-row-position">${inline(escape(r.position))}</div>` +
+          (r.quote ? `<div class="vc-row-quote">${inline(escape(r.quote))}</div>` : "") +
+        `</div>`
+      ).join("") +
+      `</div>`;
+
+    const synthesisHtml = chairSynthesis
+      ? `<div class="views-compared-synthesis">` +
+        `<div class="vc-section-label">Chair's read on the comparison</div>` +
+        `<p class="vc-synthesis-body">${inline(escape(chairSynthesis))}</p>` +
+        `</div>`
+      : "";
+
+    return `<div class="views-compared">` +
+      introHtml +
+      compareGridHtml +
+      perspectivesHtml +
+      synthesisHtml +
+      `</div>`;
+  }
+
   // Slightly richer markdown than the in-room renderer — supports h1–h4,
   // bullets, ordered lists, paragraphs, blockquotes, fenced code blocks
   // (incl. ```mermaid for diagrams), and pipe tables.
@@ -1058,6 +3184,14 @@
             placeholders.push(`<pre class="mermaid">${escape(sanitizeMermaid(body))}</pre>`);
           } else if (lang === "metric-strip") {
             placeholders.push(renderMetricStrip(body));
+          } else if (lang === "path-comparison") {
+            placeholders.push(renderPathComparison(body));
+          } else if (lang === "views-compared") {
+            placeholders.push(renderViewsCompared(body));
+          } else if (lang.startsWith("callout-") || lang === "callout") {
+            placeholders.push(renderCallout(lang, body));
+          } else if (lang === "part-cover") {
+            placeholders.push(renderPartCover(body));
           } else {
             placeholders.push(
               `<pre class="codeblock${lang ? ` lang-${escape(lang)}` : ""}"><code>${escape(body)}</code></pre>`,
@@ -1090,42 +3224,77 @@
       // Heading · also handles the "## Title\nbody" case (no blank line
       // between heading and content). Some prompts produce that pattern
       // — without the multi-line branch the H2 leaks as literal `## …`
-      // text into a paragraph fallback. The trailing lines are processed
-      // as a separate paragraph block so we don't lose them.
+      // text into a paragraph fallback. We render the heading first,
+      // then SHIFT it off `lines` and fall through to the rest of the
+      // block-detection branches so tables / lists / blockquotes
+      // glued directly under the heading still parse structurally.
+      // Without the fall-through (earlier code joined the trailing
+      // lines into a single paragraph), an LLM-emitted "## How This
+      // Goes Wrong\n| Failure | Indicator | Mitigation |\n|---|---|---|"
+      // pattern leaked the pipe-table syntax as raw text — line breaks
+      // collapsed to spaces, table parser never saw the separator row.
       {
         const m = /^(#{1,4})\s+(.+)$/.exec(lines[0]);
         if (m) {
           const level = Math.min(m[1].length, 4);
           out.push(`<h${level}>${inline(escape(m[2]))}</h${level}>`);
           if (lines.length > 1) {
-            const rest = lines.slice(1).join(" ").trim();
-            if (rest) out.push(`<p>${inline(escape(rest))}</p>`);
+            lines.shift();
+            // Fall through · subsequent branches (table / blockquote /
+            // list / paragraph) run on the trailing content.
+          } else {
+            continue;
           }
-          continue;
         }
       }
 
       // Pipe table · header row · separator · data rows.
-      // Detect: ≥ 2 lines, first looks like `| h1 | h2 |`, second is `|---|---|`.
-      if (
-        lines.length >= 2 &&
-        /\|/.test(lines[0]) &&
-        /^\s*\|?[\s:|\-]+\|?\s*$/.test(lines[1]) &&
-        /-/.test(lines[1])
-      ) {
+      // Detect: ≥ 2 consecutive lines where lineN looks like `| h1 | h2 |`
+      // and lineN+1 is the separator `|---|---|`. Scans the WHOLE block
+      // (not just lines[0,1]) so a table embedded after a prose intro
+      // — common when the LLM forgets to leave a blank line before
+      // the table — still gets parsed as a table instead of falling
+      // through to `<p>` and leaking pipe syntax into the rendered
+      // text. Anything before the table boundary renders as prose;
+      // anything after the data rows continues block parsing.
+      const isSeparatorLine = (l) => /^\s*\|?[\s:|\-]+\|?\s*$/.test(l) && /-/.test(l);
+      let tableHeadIdx = -1;
+      for (let i = 0; i < lines.length - 1; i++) {
+        if (/\|/.test(lines[i]) && isSeparatorLine(lines[i + 1])) {
+          tableHeadIdx = i;
+          break;
+        }
+      }
+      if (tableHeadIdx !== -1) {
         const splitRow = (l) =>
           l
             .replace(/^\s*\|/, "")
             .replace(/\|\s*$/, "")
             .split("|")
             .map((c) => c.trim());
-        const headers = splitRow(lines[0]);
-        const rows = lines.slice(2).map(splitRow);
+        // Prose before the table — emit as a paragraph (joined to a
+        // single line · markdown wraps lines within a paragraph).
+        if (tableHeadIdx > 0) {
+          const preProse = lines.slice(0, tableHeadIdx).join(" ").trim();
+          if (preProse) out.push(`<p>${inline(escape(preProse))}</p>`);
+        }
+        const headers = splitRow(lines[tableHeadIdx]);
+        // Data rows continue as long as they contain a `|`. Anything
+        // after that (e.g. trailing prose with no pipes) goes to a
+        // separate paragraph.
+        const dataStart = tableHeadIdx + 2;
+        let dataEnd = dataStart;
+        while (dataEnd < lines.length && /\|/.test(lines[dataEnd])) dataEnd++;
+        const rows = lines.slice(dataStart, dataEnd).map(splitRow);
         const thead = `<thead><tr>${headers.map((h) => `<th>${inline(escape(h))}</th>`).join("")}</tr></thead>`;
         const tbody = `<tbody>${rows
           .map((r) => `<tr>${r.map((c) => `<td>${inline(escape(c))}</td>`).join("")}</tr>`)
           .join("")}</tbody>`;
         out.push(`<table class="md-table">${thead}${tbody}</table>`);
+        if (dataEnd < lines.length) {
+          const tailProse = lines.slice(dataEnd).join(" ").trim();
+          if (tailProse) out.push(`<p>${inline(escape(tailProse))}</p>`);
+        }
         continue;
       }
 
@@ -1190,73 +3359,97 @@
    *  comparison so the report writer can produce minor variations (e.g.
    *  "Where We Diverged · The Crux") and the wrapper still applies. */
   const SECTION_MATCHERS = [
-    { re: /^bottom\s*line/i,                     cls: "section-bottom-line" },
-    { re: /^the\s*thesis|^thesis$/i,             cls: "section-thesis" },
-    { re: /^a\s+working\s+hypothesis|^working\s*hypothesis/i, cls: "section-working-hypothesis" },
+    { re: /^bottom\s*line|^我们的判断|^备忘要点|^战略要务|^战略判断|^对董事会的判断|^我们会持的立场|^立住了的那个想法|^我们最后落到哪里|^我们带走的东西|^我们逐渐相信的事|^我们目前对它的理解/i, cls: "section-bottom-line" },
+    { re: /^the\s*thesis|^thesis$|^反共识判断|^核心论点|^核心主张|^判断要点|^分析师判断|^分析师立场|^中央主张|^the\s*counter[-\s]?consensus/i, cls: "section-thesis" },
+    { re: /^a\s+working\s+hypothesis|^working\s*hypothesis|^工作假设|^当前判断|^当前工作判断|^初步立场|^摘要|^研究综述/i, cls: "section-working-hypothesis" },
     { re: /^strategic\s*outlook|^战略前景|^战略展望/i, cls: "section-strategic-outlook" },
-    { re: /^frame\s*shift/i,                     cls: "section-frame-shift" },
-    { re: /^headline\s*findings?/i,              cls: "section-headline-findings" },
-    { re: /^three\s*big\s*ideas|^big\s*ideas/i,  cls: "section-big-ideas" },
-    { re: /^(where\s*we\s*)?converge[d]?/i,      cls: "section-convergence" },
-    { re: /^(where\s*we\s*)?diverge[d]?|crux/i,  cls: "section-divergence" },
-    { re: /^positions?/i,                        cls: "section-positions" },
-    { re: /^options?\s*analysis/i,               cls: "section-options-analysis" },
-    { re: /^two\s*paths|^two\s*futures|^two\s*scenarios/i, cls: "section-two-paths" },
-    { re: /^why\s*now/i,                         cls: "section-why-now" },
+    { re: /^frame\s*shift|^问题如何转移|^问题如何被磨锋利|^问题如何被重新定义|^对研究问题的重新框定|^对问题的重新定义|^对决策框架的重置|^问题如何反过来改造了我们|^how\s+the\s+question\s+(moved|sharpened|was\s+reframed|changed\s+us)|^reframing\s+the/i, cls: "section-frame-shift" },
+    { re: /^headline\s*findings?|^关键发现|^主要发现|^研究发现|^驱动判断的发现|^分析所揭示的内容|^findings?\s+that\s+drive|^principal\s*findings?/i, cls: "section-headline-findings" },
+    { re: /^three\s*big\s*ideas|^big\s*ideas|^三个大想法|^共识忽视的三件事|^三大战略洞察|^支撑判断的三项发现|^三个战略主题|^反复出现的三个主题|^三点观察|^三个值得命名的模式|^我们入局的三个理由|^最显眼的三件事|^我们看到的三件事|^反复回到桌上的三件事|^我们注意到的三件事|^值得说出来的三个模式|^三个支撑|^三个主题|^数据支持的三个模式|^the\s*pillars$/i, cls: "section-big-ideas" },
+    { re: /^(where\s*we\s*)?converge[d]?|^合伙人共识所在|^我们达成的共识|^全场逐渐明确的事|^我们彼此同意的地方|^独立路径上的趋同|^分析的共识所在|^我们彼此同意/i, cls: "section-convergence" },
+    { re: /^(where\s*we\s*)?diverge[d]?|crux|^我们当前的分歧|^我们之间的分歧|^我们彼此无法说服的地方|^理性视角下的分歧|^战略层面的张力|^the\s+open\s+disagreement|^the\s+open\s+question\s+inside/i, cls: "section-divergence" },
+    { re: /^positions?|^桌上的几派立场|^几派的位置|^战略阵营|^房间分成了哪几派|^几种思想流派/i, cls: "section-positions" },
+    { re: /^options?\s*analysis|^房间里的草图|^sketches\s+from\s+the\s+room/i, cls: "section-options-analysis" },
+    { re: /^two\s*paths|^two\s*futures|^two\s*scenarios|^two\s*roads|^two\s*lines\s+of\s+inquiry|^两条路线|^两条路|^两条研究路径|^平台路\s*vs|^战略选项对照/i, cls: "section-two-paths" },
+    { re: /^why\s*now|^why\s+the\s+window\s+is\s+open|^why\s+this\s+mattered\s+today|^temporal\s*window|^为什么是现在|^刚刚打开的窗口|^为什么这扇窗户现在开着|^为何窗口现在打开|^为什么这事此刻要紧|^时间窗口/i, cls: "section-why-now" },
     // Gartner-density blocks · placed in classifier order so a brief
     // with all four reads top-to-bottom: outlook → assumptions → tree
     // → indicators. The matchers tolerate light wording variation
     // (e.g. "Critical Assumptions Log").
     { re: /^critical\s*assumptions?|^load[-\s]bearing\s*assumptions?|^承重假设|^关键假设/i, cls: "section-critical-assumptions" },
-    { re: /^scenario\s*tree|^scenarios?$|^情景树|^情景分析|^命名情景/i, cls: "section-scenario-tree" },
+    { re: /^scenario\s*tree|^scenarios?$|^情景树|^情景分析|^命名情景|^世界可能落|^可能的演化路径|^战略情景|^可能的未来情景|^这事可能怎么演|^how\s+this\s+(?:could|might)\s+(?:play\s+out|unfold)|^plausible\s+futures|^where\s+the\s+world\s+could\s+land|^strategic\s*scenarios/i, cls: "section-scenario-tree" },
     { re: /^leading\s*indicators?|^watch[-\s]list|^先行指标|^监测指标|^监控信号/i, cls: "section-leading-indicators" },
     // Dashboard-style KPI strip · catches the house-style label
     // variants (By the Numbers / The Underwrite / Three Numbers Worth
     // Pricing In / Strategic Indicators / Quantitative Reads / 用数字说话 /
     // 关键指标 / 指标看板 / 实证锚点 / 战略指标 / etc.) plus the literal default.
     { re: /^by\s*the\s*numbers|^the\s*underwrite|^(three|key|strategic|quantitative)\s*(numbers?|metrics?|indicators?|reads?|anchors?)|^numbers?\s*(that|worth)|^the\s*numbers$|^a\s+few\s+numbers|^what\s+the\s+(numbers|data|math)|^why\s+the\s+math|^the\s*diagnostic\s*at\s*a\s*glance|^indicator\s*dashboard|^empirical\s*anchors|^metric\s*strip|^用数字说话|^支撑数据|^值得定价的|^数字$|^数字告诉我们|^几个浮上来的数字|^数据怎么说|^为什么数算得过来|^战略指标|^关键指标|^诊断速览|^驱动判断的数字|^定量结果|^实证锚点|^指标看板|^定量判读/i, cls: "section-metric-strip" },
-    { re: /^recommendations?/i,                  cls: "section-recommendations" },
-    { re: /^the\s*bet$|^the\s*bet[\s·:]/i,       cls: "section-the-bet" },
-    { re: /^considerations?/i,                   cls: "section-considerations" },
-    { re: /^pre[-\s]?mortem|risks?/i,            cls: "section-pre-mortem" },
-    { re: /^new\s*questions?/i,                  cls: "section-new-questions" },
-    { re: /^strategic\s*planning\s*assumption|^planning\s*assumption/i, cls: "section-planning-assumption" },
-    { re: /^open\s*questions?/i,                 cls: "section-open-questions" },
+    { re: /^recommendations?|^how\s+we[''']?d\s+move|^我们会怎么做|^让它成立需要做的事|^应当采取的行动|^动作|^战略要务|^我们会怎么用这个|^我们会怎么把这事落下来|^如何执行/i, cls: "section-recommendations" },
+    { re: /^the\s*bet$|^the\s*bet[\s·:]|^the\s*bet\s+(on\s+the\s+table|we[''']?d\s+take)|^conditions?\s+for\s+(the\s+claim|commitment)|^我们会下的注|^我们愿意下的注|^桌上的这笔下注|^怎么打这局|^在哪发力|^做出承诺的前提条件|^支撑该主张的条件|^要行动需要相信什么|^what\s+we[''']?d\s+bet|^how\s+to\s+play\s+it|^where\s+to\s+push/i, cls: "section-the-bet" },
+    { re: /^considerations?|^things?\s+to\s+watch|^things?\s+we[''']?d\s+(stress[-\s]?test|sit\s+with)|^trade[-\s]?offs?\s+to\s+weigh|^things?\s+worth\s+(considering|thinking\s+about)|^practical\s+implications?|^implications?$|^需要压力测试的点|^需要权衡的取舍|^值得留意的点|^值得考虑的事项|^实践层面的(?:含义|影响)|^由此引出的影响|^值得想想的事|^我们会陪着的问题/i, cls: "section-considerations" },
+    { re: /^pre[-\s]?mortem|risks?|^how\s+this\s+goes\s+wrong|^where\s+(?:it|things|execution)\s+(?:could\s+(?:break|fail)|tend\s+to\s+fall\s+apart)|^the\s+failure\s+modes|^how\s+the\s+argument\s+could\s+fail|^我们在替谁兜底的失败模式|^这事会怎么搞砸|^可能崩盘之处|^执行可能崩盘之处|^我们大概会卡在哪|^通常会崩在哪|^已考虑的失败模式|^论点可能如何失败|^需管理的风险/i, cls: "section-pre-mortem" },
+    { re: /^new\s*questions?|^the\s*next\s*set\s*of\s*questions|^questions?\s+(?:for\s+the\s+next\s+phase|we[''']?d\s+sit\s+with|we\s+walked\s+out\s+with|worth\s+(?:sitting\s+with|chasing))|^what[''']?s\s+still\s+unclear|^what\s+we[''']?d\s+want\s+to\s+know\s+next|^what\s+this\s+opens\s+up|^what\s+the\s+next\s+diagnostic\s+should\s+probe|^下一组问题|^由此打开的问题|^下一步想搞清楚的事|^仍未明确的问题|^走出会议室时带着的新问题|^我们打包带回家的问题|^下一阶段需要回答的问题|^下一次诊断该深入的问题|^future\s+work|^open\s+lines\s+of\s+inquiry|^尚开放的研究方向|^后续工作|^we[''']?re\s+going\s+home\s+with/i, cls: "section-new-questions" },
+    { re: /^strategic\s*planning\s*assumption|^planning\s*assumption|^the\s+bet\s+behind\s+the\s+bet|^the\s+forecast|^forecasting\s+assumption|^战略规划假设|^背后的下注假设|^预判|^预测假设|^我们认为会成立的判断|^what\s+we\s+think\s+will\s+hold/i, cls: "section-planning-assumption" },
+    { re: /^open\s*questions?|^outstanding\s+items|^still\s+(?:on\s+the\s+table|unresolved)|^open\s+items|^limitations|^待办事项|^尚在桌上|^待解决事项|^仍未解决|^研究局限/i, cls: "section-open-questions" },
     { re: /^methodology|^方法论|^methods?$/i,    cls: "section-methodology" },
-
-    // ── Brainstorm-mode sections (room.mode === "brainstorm") ──
-    // Match the field-notes house-style label variants + writer prompt
-    // headings. Patterns are permissive — the writer occasionally adds
-    // suffixes / decorations.
-    { re: /^what\s+if\s+this\s+is\s+real|^what\s+changes\s+if|^the\s+premise\s+worth|^如果这事成立|^若这件事真的发生|^值得呆一会儿的前提/i, cls: "section-opening-hook" },
-    { re: /^the\s+shape\s+of\s+the\s+room|^how\s+big\s+the\s+question|^where\s+this\s+lives|^房间的形状|^这个问题有多大|^这事生活在哪里/i, cls: "section-opportunity-shape" },
-    { re: /^doors\s+worth\s+opening|^different\s+ways\s+in|^angles\s+the\s+room|^值得打开的几扇门|^几种不同的进入方式|^房间试戴过的几个角度/i, cls: "section-adjacent-angles" },
-    { re: /^if\s+this\s+plays\s+out|^what\s+this\s+could\s+open\s+up|^如果这条线走通了|^这会打开什么/i, cls: "section-what-if-this-works" },
-    { re: /^threads\s+worth\s+pulling|^where\s+the\s+heat\s+is|^things\s+the\s+room\s+kept\s+returning|^值得拉的几条线|^热度在哪里|^房间反复回到的事/i, cls: "section-worth-chasing" },
-    { re: /^roads\s+we\s+walked\s+back|^paths\s+the\s+room\s+set\s+down|^我们折返的几条路|^房间放下的几条路径/i, cls: "section-dead-ends-noted" },
-    { re: /^questions\s+worth\s+sitting\s+with|^what\s+this\s+opens\s+up|^the\s+field's\s+next\s+horizon|^值得多坐一会儿的问题|^由此打开的问题|^这个领域的下一道地平线/i, cls: "section-brainstorm-questions" },
-    // Mode-neutral writer-prompt headings the brainstorm writer uses
-    // for frame-shift / convergence / divergence (the brainstorm
-    // writer prompt phrases them differently from the constructive
-    // ones, so add narrow matchers for those exact phrasings).
-    { re: /^how\s+the\s+question\s+moved/i,     cls: "section-frame-shift" },
-    { re: /^where\s+the\s+room\s+aligned/i,     cls: "section-convergence" },
-    { re: /^where\s+the\s+room\s+split/i,       cls: "section-divergence" },
-    { re: /^sketches\s+from\s+the\s+room|^房间里的草图/i, cls: "section-options-analysis" },
-
-    // ── Critique-mode sections (room.mode === "critique") ──
-    // The audit-memo house style + the critique writer prompt.
-    { re: /^under\s+review|^what\s+this\s+audit\s+covers|^审查对象|^本次审查的范围/i, cls: "section-deliverable-summary" },
-    { re: /^what's\s+already\s+working|^strengths\s+worth\s+preserving|^what\s+the\s+deliverable\s+gets\s+right|^已经在起作用的部分|^值得保留的优点|^交付物已经做对的事/i, cls: "section-whats-good" },
-    { re: /^issues\s+found|^where\s+the\s+deliverable\s+breaks\s+down|^quality\s+defects|^发现的问题|^交付物的失效点|^质量缺陷/i, cls: "section-quality-issues" },
-    { re: /^fixes,\s*ranked|^what\s+to\s+change|^prescriptions?|^修复方案|^需要修改的地方|^处方/i, cls: "section-severity-ranked-fixes" },
-    { re: /^residual\s+risks?|^risks?\s+the\s+audit\s+couldn't\s+close|^残余风险|^本次审查无法关闭的风险/i, cls: "section-residual-risks" },
+    { re: /^appendix\b|^appendices$|^附录|^附件/i, cls: "section-appendix" },
+    // Phase 2B · structural components
+    { re: /^risk\s*register|^standing\s+risks?|^risks?\s+we[''']?re\s+carrying|^风险登记|^风险清单|^我们正在背的风险|^标准风险簿|^运行风险/i, cls: "section-risk-register" },
+    { re: /^decision\s+options?|^options?\s+we\s+weighed|^the\s+path\s+we[''']?re\s+recommending|^candidate\s+options?|^选项对比|^我们权衡过的选项|^建议采取的路径|^候选方案/i, cls: "section-decision-options" },
+    { re: /^a\s+comparison$|^two\s+trajectories|^side\s+by\s+side|^两条路径|^对比$|^A\s*Comparison/i, cls: "section-path-comparison" },
+    { re: /^views?\s+compared|^where\s+each\s+director\s+stood|^how\s+the\s+room\s+read\s+this|^each\s+director.{0,4}view|^director\s+perspectives?|^观点对比|^每位.{0,3}观点|^房间是怎样读这件事的/i, cls: "section-views-compared" },
   ];
 
   function classifyHeading(text) {
     const t = (text || "").trim().toLowerCase();
     for (const m of SECTION_MATCHERS) if (m.re.test(t)) return m.cls;
     return null;
+  }
+
+  /** Strip H2s that have no real content between them and the next H2.
+   *
+   *  This is the permanent fix for the recurring "Section 01 has only a
+   *  title with no body" bug. Stage 3's system prompt requires the
+   *  writer to "Start with a single H2 title" while the cover page
+   *  ALSO renders the brief title as <h1 class="cover-title">, so the
+   *  body's first H2 (the title) is always followed immediately by the
+   *  next real H2 (`## Bottom Line` or similar). injectChapterNumbers
+   *  would then label the empty title H2 as "Section 01" and the user
+   *  sees a numbered chapter with no content.
+   *
+   *  Beyond the title case, this also catches any other Stage 3 emission
+   *  where the model writes two H2s in a row (or an H2 followed only by
+   *  whitespace / empty <p></p>). Empty headings should never render —
+   *  they confuse the chapter-num pass, the section-class wrapper, and
+   *  the reading-nav.
+   *
+   *  "Real content" = an element with non-whitespace text, OR an
+   *  element-of-substance (img / table / pre / hr / blockquote / figure
+   *  / fenced-block container). Whitespace text nodes and empty <p>s
+   *  do not count.
+   */
+  function dropEmptyHeadings(body) {
+    const headings = Array.from(body.querySelectorAll("h2"));
+    for (const h of headings) {
+      let n = h.nextSibling;
+      let hasContent = false;
+      while (n && !(n.nodeType === 1 && n.tagName === "H2")) {
+        if (n.nodeType === 1) {
+          const txt = (n.textContent || "").trim();
+          if (txt) { hasContent = true; break; }
+          // Empty element with no text — but might be a structural
+          // element (img, hr, table with no caption). Check tag.
+          if (/^(IMG|HR|TABLE|FIGURE|PRE|BLOCKQUOTE|DIV)$/.test(n.tagName)) {
+            hasContent = true;
+            break;
+          }
+        } else if (n.nodeType === 3) {
+          if ((n.nodeValue || "").trim()) { hasContent = true; break; }
+        }
+        n = n.nextSibling;
+      }
+      if (!hasContent) h.remove();
+    }
   }
 
   /** Walk the body, tag each H2 + wrap its following content (until the
@@ -1312,11 +3505,7 @@
       if (h2.classList.contains("section-thesis")) continue;
       if (h2.classList.contains("section-working-hypothesis")) continue;
       if (h2.classList.contains("section-methodology")) continue;
-      // Brainstorm anchor (opening-hook) + critique anchor
-      // (deliverable-summary) play the same "executive-summary slot"
-      // role as bottom-line/thesis — exempt from chapter numbering.
-      if (h2.classList.contains("section-opening-hook")) continue;
-      if (h2.classList.contains("section-deliverable-summary")) continue;
+      if (h2.classList.contains("section-appendix")) continue;
       n += 1;
       const num = String(n).padStart(2, "0");
       const label = document.createElement("div");
@@ -1405,11 +3594,17 @@
   // colons stripped). Considerations uses different label words for the
   // same fields — both map here.
   const REC_LABEL_MAP = [
-    { key: "rationale", patterns: ["rationale", "worth thinking about because"] },
-    { key: "owner",     patterns: ["owner", "who'd own it", "who would own it"] },
-    { key: "horizon",   patterns: ["horizon", "on what horizon"] },
-    { key: "metric",    patterns: ["success metric", "what you'd watch", "what you would watch"] },
-    { key: "risk",      patterns: ["risk if skipped", "what you'd give up by not doing this", "what you'd give up"] },
+    { key: "rationale",  patterns: ["rationale", "worth thinking about because"] },
+    { key: "owner",      patterns: ["owner", "who'd own it", "who would own it"] },
+    { key: "horizon",    patterns: ["horizon", "on what horizon"] },
+    { key: "metric",     patterns: ["success metric", "what you'd watch", "what you would watch"] },
+    // Critical dependency · the writer prompt produces this as a
+    // first-class field but it was previously silently dropped (no
+    // entry in this map → recLabelKey returns null → field skipped),
+    // so users who put real dependency content saw it vanish. Now
+    // routed to the rendered card as its own row.
+    { key: "dependency", patterns: ["critical dependency", "depends on", "dependency"] },
+    { key: "risk",       patterns: ["risk if skipped", "what you'd give up by not doing this", "what you'd give up"] },
   ];
   function recLabelKey(rawLabel) {
     const t = String(rawLabel || "").toLowerCase().replace(/[:：]\s*$/, "").trim();
@@ -1564,6 +3759,29 @@
       newLi.appendChild(meta);
     }
 
+    // Critical dependency · separate row before risk. Same prefix +
+     // body shape as the risk row (mono uppercase prefix → em-dash →
+     // body) but in a neutral colour, so the card still has a clear
+     // sequence: claim → rationale → meta → depends-on → risk.
+    if (fields.dependency) {
+      const dep = document.createElement("p");
+      dep.className = "rec-dependency";
+      const prefix = document.createElement("span");
+      prefix.className = "rec-dependency-prefix";
+      prefix.textContent = "Depends on";
+      const sep = document.createElement("span");
+      sep.className = "rec-dependency-sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = "—";
+      const text = document.createElement("span");
+      text.className = "rec-dependency-text";
+      text.innerHTML = fields.dependency;
+      dep.appendChild(prefix);
+      dep.appendChild(sep);
+      dep.appendChild(text);
+      newLi.appendChild(dep);
+    }
+
     if (fields.risk) {
       const risk = document.createElement("p");
       risk.className = "rec-risk";
@@ -1635,14 +3853,20 @@
     return null;
   }
   function parseNqMetaParagraph(p) {
-    const ems = Array.from(p.querySelectorAll(":scope > em, :scope > strong > em"));
+    /* Match labels wrapped in `<em>`, `<strong>`, or `<strong><em>`.
+     * The brief LLM is inconsistent about whether to bold ("**Why it
+     * matters:**") or italic ("*Why it matters:*") the label, so we
+     * accept both — otherwise the prefix leaks into the body prose
+     * and the rendered card looks like "Why it matters: ..." with
+     * the label visible alongside the why-text. */
+    const labels = Array.from(p.querySelectorAll(":scope > em, :scope > strong, :scope > strong > em"));
     const out = [];
-    if (ems.length === 0) return out;
-    for (let i = 0; i < ems.length; i++) {
-      const em = ems[i];
+    if (labels.length === 0) return out;
+    for (let i = 0; i < labels.length; i++) {
+      const em = labels[i];
       const key = nqLabelKey(em.textContent);
       if (!key) continue;
-      const stop = ems[i + 1] || null;
+      const stop = labels[i + 1] || null;
       let value = "";
       let n = em.nextSibling;
       while (n && n !== stop) {
@@ -1760,22 +3984,62 @@
     mergeAdjacentOlSiblings(body);
   }
 
-  /** Merge each run of consecutive sibling `<ol>` elements directly
-   *  under `parent` into a single `<ol>`. Any non-OL sibling (H2, P,
-   *  HR, ...) breaks the run. Idempotent: a run of one is a no-op. */
+  /** Merge each run of consecutive sibling `<ol>` elements (with
+   *  optional `<p>` paragraphs in between) into a single `<ol>`.
+   *
+   *  The harder case it handles: "rich" list items where each item's
+   *  body is multiple prose paragraphs. The brief writer emits
+   *
+   *    1. **claim**
+   *       *"quote"*
+   *
+   *       elaboration paragraph A
+   *
+   *       elaboration paragraph B
+   *
+   *    2. **claim 2**
+   *       …
+   *
+   *  → blank-line-separated blocks → markdown parser produces
+   *
+   *    <ol> (item 1) <p>elab A</p> <p>elab B</p> <ol> (item 2) <p>…</p> <ol>(item 3)
+   *
+   *  The earlier "consecutive only" merger broke at the first <p>,
+   *  leaving three separate `<ol>` blocks each numbered "1." — which
+   *  is exactly the "1. 1. 1." bug the user kept hitting. Now: <p>s
+   *  between two `<ol>`s get appended INTO the last `<li>` of the
+   *  merged ol so they read as continuation of the prior item.
+   *
+   *  H2 / H3 / table / blockquote / hr break the run (they're either
+   *  section boundaries or genuinely standalone content). */
   function mergeAdjacentOlSiblings(parent) {
     const children = Array.from(parent.children);
-    let head = null;
+    let mergedOl = null;
+    let lastLi = null;
     for (const child of children) {
       if (child.tagName === "OL") {
-        if (head === null) {
-          head = child;
+        const newLis = Array.from(child.children).filter((c) => c.tagName === "LI");
+        if (mergedOl === null) {
+          // First ol of a new run · become the merged head.
+          mergedOl = child;
+          lastLi = newLis[newLis.length - 1] || null;
         } else {
-          while (child.firstChild) head.appendChild(child.firstChild);
+          // Subsequent ol · move its li children into the merged ol
+          // and drop the now-empty wrapper.
+          for (const li of newLis) mergedOl.appendChild(li);
           child.remove();
+          if (newLis.length > 0) lastLi = newLis[newLis.length - 1];
         }
+      } else if (child.tagName === "P" && mergedOl !== null && lastLi !== null) {
+        // Paragraph BETWEEN two ols (or after the last ol of a run)
+        // · attach it to the prior item's <li>. The interleaving
+        // paragraphs in the source markdown belong to the item that
+        // precedes them, not to a new top-level paragraph block.
+        lastLi.appendChild(child);
       } else {
-        head = null;
+        // Anything else (H2/H3/table/blockquote/hr) breaks the run.
+        mergedOl = null;
+        lastLi = null;
       }
     }
   }
@@ -1783,6 +4047,11 @@
   function decorateReport(body) {
     if (!body) return;
     try {
+      // Strip empty H2s BEFORE any structural pass — the title H2
+      // emitted by Stage 3 is empty (cover page carries the title),
+      // and any other model misemission of an empty heading would
+      // confuse wrapSections + injectChapterNumbers downstream.
+      dropEmptyHeadings(body);
       wrapSections(body);
       mergeAllOlsInSections(body);
       tagBadges(body);
@@ -1791,11 +4060,238 @@
       injectExhibitLabels(body);
       restructureRecommendations(body);
       restructureNewQuestions(body);
+      buildReadingNav(body);
+      buildPrintToc(body);
     } catch (e) {
       // Decoration is purely visual — log and leave the raw markdown
       // standing if anything goes sideways.
       console.warn("[report] decorate failed:", e);
     }
+  }
+
+  /** Reading-position strip · scan H2 sections in body, generate a
+   *  sticky chapter nav at the top, and wire IntersectionObserver so
+   *  the active section's nav item gets `is-current`. */
+  function buildReadingNav(body) {
+    const nav = document.querySelector("[data-reading-nav]");
+    if (!nav || !body) return;
+    nav.innerHTML = "";
+    // Skip nav for very short reports (<= 2 sections) — adds noise
+    // without value when there's barely anything to navigate.
+    const h2s = Array.from(body.querySelectorAll("h2"));
+    if (h2s.length < 3) {
+      nav.classList.remove("is-ready");
+      return;
+    }
+
+    // Anchor sections (Thesis / Working Hypothesis / Bottom Line) get
+    // a short label like "Thesis"; methodology gets "Methodology";
+    // numbered chapters use the kicker text from the preceding
+    // .chapter-num + a short H2 fragment.
+    const ANCHOR_LABELS = {
+      "section-bottom-line":         { en: "Bottom Line",   zh: "判断" },
+      "section-thesis":              { en: "Thesis",        zh: "判断" },
+      "section-working-hypothesis":  { en: "Hypothesis",    zh: "假设" },
+      "section-methodology":         { en: "Methodology",   zh: "方法论" },
+    };
+    const isCjk = document.body.classList.contains("is-cjk");
+
+    const items = [];
+    for (let i = 0; i < h2s.length; i++) {
+      const h2 = h2s[i];
+      const id = h2.id || `sec-${i + 1}`;
+      h2.id = id;
+
+      // Anchor sections use a short fixed label.
+      let label = "";
+      for (const cls of Object.keys(ANCHOR_LABELS)) {
+        if (h2.classList.contains(cls)) {
+          label = isCjk ? ANCHOR_LABELS[cls].zh : ANCHOR_LABELS[cls].en;
+          break;
+        }
+      }
+
+      // Numbered chapter · use the kicker text ("Section 0X") if
+      // present. This sits in a <div class="chapter-num"> that
+      // injectChapterNumbers placed BEFORE the H2.
+      if (!label) {
+        const prev = h2.previousElementSibling;
+        if (prev && prev.classList.contains("chapter-num")) {
+          const kicker = prev.textContent.trim();
+          // Append a 2–3 word excerpt of the H2 to disambiguate.
+          const h2Text = (h2.textContent || "").trim();
+          const excerpt = h2Text.length > 26 ? h2Text.slice(0, 26).replace(/\s+\S*$/, "") + "…" : h2Text;
+          label = `${kicker} — ${excerpt}`;
+        } else {
+          // Bare H2 (no chapter-num, no anchor class) · use H2 text.
+          const h2Text = (h2.textContent || "").trim();
+          label = h2Text.length > 32 ? h2Text.slice(0, 32).replace(/\s+\S*$/, "") + "…" : h2Text;
+        }
+      }
+      items.push({ id, label });
+    }
+
+    if (items.length === 0) {
+      nav.classList.remove("is-ready");
+      return;
+    }
+
+    const list = document.createElement("ol");
+    list.className = "reading-nav-list";
+    for (const it of items) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.className = "reading-nav-item";
+      a.href = `#${it.id}`;
+      a.textContent = it.label;
+      a.setAttribute("data-target", it.id);
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const target = document.getElementById(it.id);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        try { history.replaceState(null, "", `#${it.id}`); } catch (_) {}
+      });
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+    nav.appendChild(list);
+    nav.classList.add("is-ready");
+
+    // IntersectionObserver — mark the section nearest the viewport
+    // top as `is-current`. We use a top-anchored rootMargin so a
+    // section becomes current when its top crosses ~25% from top.
+    if (typeof IntersectionObserver === "undefined") return;
+    const navItems = Array.from(nav.querySelectorAll(".reading-nav-item"));
+    const idMap = new Map();
+    for (const item of navItems) idMap.set(item.dataset.target, item);
+    const visible = new Map();
+    const setCurrent = (id) => {
+      for (const item of navItems) item.classList.toggle("is-current", item.dataset.target === id);
+      // Scroll the active item into view inside the horizontal strip
+      // so it's never clipped off-screen on small widths.
+      const item = idMap.get(id);
+      if (item && nav.scrollWidth > nav.clientWidth) {
+        const offsetLeft = item.offsetLeft;
+        const itemWidth = item.offsetWidth;
+        const navWidth = nav.clientWidth;
+        const desired = offsetLeft - (navWidth - itemWidth) / 2;
+        nav.scrollTo({ left: Math.max(0, desired), behavior: "smooth" });
+      }
+    };
+    const observer = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) visible.set(e.target.id, e.boundingClientRect.top);
+        else visible.delete(e.target.id);
+      }
+      // Pick the visible H2 with the smallest non-negative top (the
+      // one closest to viewport top from below); if none, pick the
+      // most-recently-passed (largest negative top).
+      let bestId = null; let bestTop = -Infinity;
+      for (const [id, top] of visible.entries()) {
+        if (top <= 80 && top > bestTop) { bestTop = top; bestId = id; }
+      }
+      if (!bestId && visible.size > 0) {
+        // Fallback: first visible
+        bestId = visible.keys().next().value;
+      }
+      if (bestId) setCurrent(bestId);
+    }, {
+      rootMargin: "-60px 0px -70% 0px",
+      threshold: [0, 1],
+    });
+    for (const h2 of h2s) observer.observe(h2);
+    // Initial state · whatever H2 is closest to top on load.
+    if (h2s[0]) setCurrent(h2s[0].id);
+  }
+
+  /** Table of contents · print-only. The reading-nav handles screen
+   *  wayfinding; PDF readers have no equivalent affordance, so for
+   *  long briefs we emit a TOC page between the cover and the body
+   *  that lists every H2 + its label. Skipped on short briefs (< 6
+   *  H2s) where it would just add a near-empty page. Anchor ids on
+   *  the H2s are set by `buildReadingNav` (which runs first); we
+   *  reuse them here so the TOC items are clickable in the on-screen
+   *  preview too — though `display: none` hides the whole element
+   *  outside print. */
+  function buildPrintToc(body) {
+    const toc = document.querySelector("[data-print-toc]");
+    if (!toc || !body) return;
+    toc.innerHTML = "";
+    const h2s = Array.from(body.querySelectorAll("h2"));
+    if (h2s.length < 6) return;
+
+    const ANCHOR_LABELS = {
+      "section-bottom-line":         { en: "Bottom Line",         zh: "判断" },
+      "section-thesis":              { en: "Thesis",              zh: "论点" },
+      "section-working-hypothesis":  { en: "Working Hypothesis",  zh: "工作假设" },
+      "section-methodology":         { en: "Methodology",         zh: "方法论" },
+      "section-opening-hook":        { en: "Opening",             zh: "开篇" },
+      "section-deliverable-summary": { en: "Under Review",        zh: "审查范围" },
+    };
+    const isCjk = document.body.classList.contains("is-cjk");
+    const headerText = isCjk ? "目录" : "In this brief";
+
+    const items = [];
+    for (let i = 0; i < h2s.length; i++) {
+      const h2 = h2s[i];
+      const id = h2.id || `sec-${i + 1}`;
+      h2.id = id;
+      let kicker = "";
+      let label = (h2.textContent || "").trim();
+      for (const cls of Object.keys(ANCHOR_LABELS)) {
+        if (h2.classList.contains(cls)) {
+          kicker = isCjk ? ANCHOR_LABELS[cls].zh : ANCHOR_LABELS[cls].en;
+          label = "";
+          break;
+        }
+      }
+      if (!kicker) {
+        const prev = h2.previousElementSibling;
+        if (prev && prev.classList.contains("chapter-num")) {
+          kicker = prev.textContent.trim();
+        }
+      }
+      items.push({ id, kicker, label });
+    }
+
+    const heading = document.createElement("h2");
+    heading.className = "toc-print-title";
+    heading.textContent = headerText;
+    toc.appendChild(heading);
+
+    const list = document.createElement("ol");
+    list.className = "toc-print-list";
+    items.forEach((it, idx) => {
+      const li = document.createElement("li");
+      li.className = "toc-print-item";
+      const a = document.createElement("a");
+      a.className = "toc-print-link";
+      a.href = `#${it.id}`;
+      // Sequential ordinal · 1, 2, 3 … so the TOC reads as a numbered
+      // index even when individual sections (Bottom Line / Methodology)
+      // don't carry a chapter number of their own. Two-digit zero-pad
+      // for visual alignment in the PDF layout. Headless Chrome's
+      // print engine is inconsistent about CSS counter() in
+      // ::before content, so we inject the digits explicitly.
+      const ordinalSpan = document.createElement("span");
+      ordinalSpan.className = "toc-print-ordinal";
+      ordinalSpan.textContent = String(idx + 1).padStart(2, "0");
+      a.appendChild(ordinalSpan);
+      const kickerSpan = document.createElement("span");
+      kickerSpan.className = "toc-print-kicker";
+      kickerSpan.textContent = it.kicker || "—";
+      a.appendChild(kickerSpan);
+      if (it.label) {
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "toc-print-label";
+        labelSpan.textContent = it.label;
+        a.appendChild(labelSpan);
+      }
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+    toc.appendChild(list);
+    toc.classList.add("is-ready");
   }
 
   function showError(msg) {
@@ -1835,11 +4331,18 @@
     }
 
     document.title = "BOARDROOM // " + (brief.title || "brief");
-    swapSpine(brief.spine || "boardroom-dark");
+    swapSpine(brief.spine || "boardroom-dark", brief);
 
-    const signed = members
-      .map((a) => `<img src="${escape(a.avatarPath)}" alt="${escape(a.name)}" title="${escape(a.name)}">`)
-      .join("");
+    // Author byline · name list with a thin middot separator. Earlier
+    // we rendered avatar imgs here, but the cover already speaks in
+    // typography (serif H1 + label/value pairs) — a row of circular
+    // portrait avatars read as a casual social-app affordance against
+    // an editorial document. Names alone match the register and let
+    // the eye scan the contributors as a list of authorities, the
+    // way a byline on a research note normally reads.
+    const signedNames = members
+      .map((a) => escape(a.name))
+      .join(" <span class=\"author-sep\" aria-hidden=\"true\">·</span> ");
 
     const filedDate = brief.createdAt
       ? new Date(brief.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
@@ -1915,11 +4418,10 @@
             <div class="label">Filed</div>
             <div class="value">${escape(filedDate)}</div>
           </div>
-          <div class="byline-block">
+          <div class="byline-block byline-authors">
             <div class="label">Authors</div>
-            <div class="value">
-              ${members.length} director${members.length === 1 ? "" : "s"}
-              ${members.length ? `<div class="signed-avatars">${signed}</div>` : ""}
+            <div class="value author-list">
+              ${members.length ? signedNames : "—"}
             </div>
           </div>
           <div class="byline-block">
@@ -1932,6 +4434,8 @@
           </div>
         </div>
       </header>
+
+      <section class="toc-print" data-print-toc aria-label="Table of contents"></section>
 
       <article class="body" data-report-body>${renderMarkdown(brief.bodyMd || "_(empty brief)_")}</article>
 
@@ -1968,7 +4472,7 @@
             </svg>
             <span class="colophon-name">PrivateBoard</span>
           </span>
-          <span class="colophon-cta-url">privateboard.ai</span>
+          <a class="colophon-cta-url" href="https://privateboard.ai">privateboard.ai →</a>
         </div>
       </aside>
     `;
@@ -1999,6 +4503,14 @@
           // all four quadrants share one fill for a clean Gartner / BCG
           // matrix look) and the spine's accent for plotted points.
           const spineKey = (brief.spine && SPINES.has(brief.spine)) ? brief.spine : "boardroom-dark";
+          // Per-spine palette · `vars` carries every colour the
+          // mermaid theme block touches. Extended with `accent` /
+          // `accentSoft` (single accent for monochrome mindmap +
+          // gantt bars + sequence notes), `accentText` (legible text
+          // on accent fills), and `linkText` (faint text on link
+          // backgrounds) so flowchart / mindmap / gantt / sequence /
+          // state diagrams pick up spine-coherent colours instead of
+          // mermaid's rainbow defaults.
           const themes = {
             "boardroom-dark": {
               base: "dark",
@@ -2012,6 +4524,9 @@
                 axisText: "#8E8B83",
                 border: "#3A3A35",
                 inner: "#2A2A26",
+                accent: "#C9A46B",
+                accentSoft: "#3A3025",
+                accentText: "#131312",
               },
               fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
             },
@@ -2019,14 +4534,17 @@
               base: "default",
               vars: {
                 background: "#F7F3E8",
-                quadrantFill: "#F7F3E8",
+                quadrantFill: "#F2EAD8",
                 quadrantText: "#57503F",
-                pointFill: "#14110C",
+                pointFill: "#876C2A",
                 pointText: "#14110C",
                 titleFill: "#14110C",
                 axisText: "#847B65",
                 border: "#BCB39A",
                 inner: "#DCD3BD",
+                accent: "#876C2A",
+                accentSoft: "#E8D9B5",
+                accentText: "#FFFFFF",
               },
               fontFamily: '"Inter", "Helvetica Neue", -apple-system, system-ui, sans-serif',
             },
@@ -2036,12 +4554,15 @@
                 background: "#FAF7F0",
                 quadrantFill: "#F4F0E8",
                 quadrantText: "#6B6359",
-                pointFill: "#1A1814",
+                pointFill: "#A85A41",
                 pointText: "#4A4338",
                 titleFill: "#1A1814",
                 axisText: "#978C7E",
                 border: "#DDD5C8",
                 inner: "#E8E1D2",
+                accent: "#A85A41",
+                accentSoft: "#F2E0D5",
+                accentText: "#FFFFFF",
               },
               fontFamily: '"Charter", "Source Serif Pro", "Iowan Old Style", Georgia, serif',
             },
@@ -2057,6 +4578,9 @@
                 axisText: "#6B7785",
                 border: "#BFC8D3",
                 inner: "#DDE2E8",
+                accent: "#0A4DA1",
+                accentSoft: "#E8EFF8",
+                accentText: "#FFFFFF",
               },
               fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
             },
@@ -2072,6 +4596,9 @@
                 axisText: "#758296",
                 border: "#B8C2D0",
                 inner: "#D5DCE4",
+                accent: "#2251FF",
+                accentSoft: "#E6ECFB",
+                accentText: "#FFFFFF",
               },
               fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
             },
@@ -2087,6 +4614,9 @@
                 axisText: "#6E6E80",
                 border: "#E5E5E5",
                 inner: "#EFEFEF",
+                accent: "#10A37F",
+                accentSoft: "#E6F6F0",
+                accentText: "#FFFFFF",
               },
               fontFamily: '"Söhne", "Inter", -apple-system, system-ui, sans-serif',
             },
@@ -2101,24 +4631,246 @@
           // showing it twice is mermaid's single ugliest default. Apply
           // across quadrant / xychart / pie / timeline.
           const themeCSS = `
+            /* ── Quadrant chart ── */
             g.quadrant-chart text { font-family: ${t.fontFamily}; }
             g.quadrant-point > circle, .quadrant-point circle {
               stroke: ${t.vars.background};
-              stroke-width: 1.5px;
+              stroke-width: 2px;
             }
             text.quadrant-title,
             .pieTitleText,
             .xy-chart .title-text,
             .timeline .title-text,
             .timeline-title { display: none !important; }
-            /* xychart bars: thin stroke against the background so adjacent
-               bars don't merge visually on dense datasets. */
+
+            /* ── xychart-beta · bars ── */
             .xy-chart .bar { stroke: ${t.vars.background}; stroke-width: 1px; }
-            /* Pie slice text: legibility on the dark / light spines. */
-            .pieCircle { stroke: ${t.vars.background}; stroke-width: 1.5px; }
+
+            /* ── Pie ── */
+            .pieCircle { stroke: ${t.vars.background}; stroke-width: 2px; }
             text.slice, .pieLegendText { font-family: ${t.fontFamily}; }
-            /* Timeline · period/label fonts inherit the spine. */
+
+            /* ── Timeline ── */
             .timeline text { font-family: ${t.fontFamily}; }
+
+            /* ── Flowchart · compact nodes + 1px hairline edges ──
+               Default flowchart text is 16px, padding generous, edges
+               heavy. Push to 12.5px / 1px / tighter so the diagram
+               reads as a precise schematic, not a presentation slide.
+               IMPORTANT: do NOT force a line-height larger than 1.2
+               on .nodeLabel — mermaid's foreignObject is sized at
+               measurement time using the inherited font-size at that
+               moment. If we then forcibly stretch line-height, the
+               actually-rendered text exceeds the foreignObject height
+               and the bottom of multi-line node labels gets clipped.
+               Also zero out the wrapper div / paragraph margins so
+               the inline-block measurement doesn't include browser
+               default <p> margins that mermaid won't account for. */
+            .flowchart foreignObject > div,
+            .label > foreignObject > div {
+              line-height: 1.2 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            .flowchart .nodeLabel,
+            .flowchart-label foreignObject div,
+            .label foreignObject div,
+            .label foreignObject p,
+            .label foreignObject span,
+            .nodeLabel,
+            .nodeLabel p,
+            .nodeLabel span {
+              font-family: ${t.fontFamily} !important;
+              font-size: 12.5px !important;
+              line-height: 1.2 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              color: ${t.vars.titleFill} !important;
+            }
+            .flowchart .edgeLabel,
+            .flowchart .edgeLabel p,
+            .edgeLabel foreignObject div,
+            .edgeLabel p,
+            .edgeLabel,
+            .edgeLabel span {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11px !important;
+              line-height: 1.2 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              color: ${t.vars.axisText} !important;
+              background: ${t.vars.background} !important;
+            }
+            .flowchart .node rect,
+            .flowchart .node circle,
+            .flowchart .node ellipse,
+            .flowchart .node polygon,
+            .node rect,
+            .node circle,
+            .node polygon,
+            .node ellipse {
+              stroke-width: 1px !important;
+              stroke: ${t.vars.border} !important;
+              fill: ${t.vars.quadrantFill} !important;
+            }
+            .flowchart .edgePath path,
+            .flowchart-link,
+            .edgePath .path,
+            .flowchart-link path {
+              stroke: ${t.vars.border} !important;
+              stroke-width: 1px !important;
+              fill: none !important;
+            }
+            .flowchart .marker,
+            .flowchart .arrowheadPath,
+            #arrowhead, marker#arrowhead path {
+              fill: ${t.vars.border} !important;
+              stroke: ${t.vars.border} !important;
+            }
+            .cluster rect {
+              stroke-width: 1px !important;
+              stroke: ${t.vars.border} !important;
+              fill: ${t.vars.background} !important;
+            }
+            .cluster text { font-size: 11px !important; font-family: ${t.fontFamily} !important; fill: ${t.vars.axisText} !important; }
+
+            /* ── Mindmap · monochrome accent (override rainbow) ── */
+            .mindmap g.node text,
+            .mindmap g.section text,
+            .mindmap g.section foreignObject div,
+            .mindmap-node text,
+            .mindmap-node .nodeLabel {
+              font-family: ${t.fontFamily} !important;
+              font-size: 12px !important;
+              fill: ${t.vars.titleFill} !important;
+              color: ${t.vars.titleFill} !important;
+            }
+            .mindmap-node circle,
+            .mindmap-node rect,
+            .mindmap-node polygon {
+              stroke-width: 1px !important;
+              stroke: ${t.vars.accent} !important;
+            }
+            .mindmap-edge,
+            .mindmap-edges path {
+              stroke: ${t.vars.border} !important;
+              stroke-width: 1px !important;
+              fill: none !important;
+            }
+
+            /* ── Sequence diagram · compact actor boxes + thin arrows ── */
+            text.actor,
+            text.actor > tspan,
+            .actor-box-text {
+              font-family: ${t.fontFamily} !important;
+              font-size: 12px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
+            .actor {
+              stroke-width: 1px !important;
+              stroke: ${t.vars.border} !important;
+              fill: ${t.vars.quadrantFill} !important;
+            }
+            .actor-line,
+            line.actor-line {
+              stroke: ${t.vars.border} !important;
+              stroke-width: 1px !important;
+            }
+            .messageText {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
+            .messageLine0, .messageLine1 {
+              stroke-width: 1px !important;
+              stroke: ${t.vars.titleFill} !important;
+            }
+            .note,
+            rect.note {
+              stroke: ${t.vars.border} !important;
+              fill: ${t.vars.accentSoft} !important;
+              stroke-width: 1px !important;
+            }
+            .noteText,
+            text.noteText,
+            .note text {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
+            .activation0, .activation1, .activation2 {
+              stroke: ${t.vars.border} !important;
+              fill: ${t.vars.inner} !important;
+            }
+
+            /* ── State diagram (v2) ── */
+            .stateGroup rect,
+            .stateGroup circle,
+            .stateGroup line {
+              stroke-width: 1px !important;
+            }
+            .stateLabel,
+            .state-description,
+            .stateGroup text {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11.5px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
+            .transition {
+              stroke: ${t.vars.border} !important;
+              stroke-width: 1px !important;
+              fill: none !important;
+            }
+            .compositeBackground,
+            .composit {
+              fill: ${t.vars.background} !important;
+              stroke: ${t.vars.border} !important;
+            }
+            .stateGroup .innerCircle {
+              fill: ${t.vars.titleFill} !important;
+            }
+
+            /* ── Gantt · tight bars + small grid ── */
+            .taskText,
+            .taskTextOutsideRight,
+            .taskTextOutsideLeft,
+            text.taskText {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11px !important;
+            }
+            .tick text,
+            g.tick text {
+              font-family: ${t.fontFamily} !important;
+              font-size: 10px !important;
+              fill: ${t.vars.axisText} !important;
+            }
+            .grid .tick line,
+            g.grid line {
+              stroke: ${t.vars.inner} !important;
+              stroke-width: 0.5px !important;
+            }
+            .grid path { stroke-width: 0 !important; }
+            .titleText { display: none !important; }
+            .section0 text, .section1 text, .section2 text, .section3 text,
+            .sectionTitle0, .sectionTitle1, .sectionTitle2, .sectionTitle3 {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11px !important;
+              fill: ${t.vars.axisText} !important;
+            }
+            rect.task,
+            rect.task0, rect.task1, rect.task2, rect.task3,
+            rect.activeTask0, rect.activeTask1, rect.activeTask2, rect.activeTask3 {
+              stroke-width: 0 !important;
+            }
+
+            /* ── Journey · compact ── */
+            .journey-section text,
+            .journey-section foreignObject div {
+              font-family: ${t.fontFamily} !important;
+              font-size: 11px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
+            .face-rect { stroke-width: 1px !important; }
           `;
           mermaid.initialize({
             startOnLoad: false,
@@ -2150,6 +4902,14 @@
               yAxisPosition: "left",
             },
             themeVariables: {
+              // Global default · drives mermaid's INTERNAL label
+              // measurement before SVG/foreignObject sizing. Setting
+              // it here keeps the box dimensions in sync with the
+              // CSS-rendered font-size, so multi-line flowchart node
+              // labels don't get vertically clipped (which they did
+              // when the CSS forced 12px after mermaid measured at
+              // its 16px default).
+              fontSize: "12.5px",
               background: t.vars.background,
               primaryColor: t.vars.quadrantFill,
               primaryTextColor: t.vars.titleFill,
@@ -2173,8 +4933,123 @@
               quadrantYAxisTextFill: t.vars.axisText,
               quadrantInternalBorderStrokeFill: t.vars.inner,
               quadrantExternalBorderStrokeFill: t.vars.border,
+              // ── Flowchart / generic node-graph ──
+              mainBkg: t.vars.quadrantFill,
+              nodeBorder: t.vars.border,
+              clusterBkg: t.vars.background,
+              clusterBorder: t.vars.border,
+              defaultLinkColor: t.vars.border,
+              edgeLabelBackground: t.vars.background,
+              titleColor: t.vars.titleFill,
+              // ── Mindmap · single accent everywhere (override rainbow) ──
+              cScale0: t.vars.accent,
+              cScale1: t.vars.accent,
+              cScale2: t.vars.accent,
+              cScale3: t.vars.accent,
+              cScale4: t.vars.accent,
+              cScale5: t.vars.accent,
+              cScale6: t.vars.accent,
+              cScale7: t.vars.accent,
+              cScale8: t.vars.accent,
+              cScale9: t.vars.accent,
+              cScale10: t.vars.accent,
+              cScale11: t.vars.accent,
+              // ── Sequence diagram ──
+              actorBkg: t.vars.quadrantFill,
+              actorBorder: t.vars.border,
+              actorTextColor: t.vars.titleFill,
+              actorLineColor: t.vars.border,
+              signalColor: t.vars.titleFill,
+              signalTextColor: t.vars.titleFill,
+              labelBoxBkgColor: t.vars.quadrantFill,
+              labelBoxBorderColor: t.vars.border,
+              labelTextColor: t.vars.titleFill,
+              loopTextColor: t.vars.titleFill,
+              noteBkgColor: t.vars.accentSoft,
+              noteTextColor: t.vars.titleFill,
+              noteBorderColor: t.vars.border,
+              activationBorderColor: t.vars.border,
+              activationBkgColor: t.vars.inner,
+              // ── Gantt · single-accent bars + neutral grid ──
+              taskBkgColor: t.vars.accent,
+              taskTextColor: t.vars.accentText,
+              taskTextDarkColor: t.vars.titleFill,
+              taskTextLightColor: t.vars.accentText,
+              taskTextOutsideColor: t.vars.titleFill,
+              activeTaskBkgColor: t.vars.accent,
+              activeTaskBorderColor: t.vars.accent,
+              doneTaskBkgColor: t.vars.inner,
+              doneTaskBorderColor: t.vars.border,
+              critBkgColor: t.vars.accent,
+              critBorderColor: t.vars.accent,
+              gridColor: t.vars.inner,
+              sectionBkgColor: t.vars.background,
+              altSectionBkgColor: t.vars.quadrantFill,
+              sectionBkgColor2: t.vars.background,
+              todayLineColor: t.vars.accent,
             },
-            flowchart: { useMaxWidth: true, htmlLabels: true },
+            flowchart: {
+              useMaxWidth: true,
+              htmlLabels: true,
+              // Tighter spacing · default 50/50/15 reads as a slide,
+              // these values render as a precise schematic. `padding`
+              // is the cluster (subgraph) padding, NOT node padding —
+              // mermaid sizes node boxes from text dimensions + an
+              // internal margin, so this value alone won't squeeze
+              // node labels. Keep at 12 for readable subgraph titles.
+              nodeSpacing: 36,
+              rankSpacing: 42,
+              padding: 12,
+              curve: "basis",
+            },
+            sequence: {
+              useMaxWidth: true,
+              diagramMarginX: 16,
+              diagramMarginY: 8,
+              actorMargin: 32,
+              boxMargin: 6,
+              boxTextMargin: 4,
+              noteMargin: 8,
+              messageMargin: 22,
+              mirrorActors: false,
+              bottomMarginAdj: 0,
+              actorFontSize: 12,
+              messageFontSize: 11,
+              noteFontSize: 11,
+            },
+            gantt: {
+              useMaxWidth: true,
+              fontSize: 11,
+              sectionFontSize: 11,
+              numberSectionStyles: 3,
+              leftPadding: 80,
+              topPadding: 24,
+              rightPadding: 24,
+              barGap: 4,
+              barHeight: 18,
+              gridLineStartPadding: 36,
+            },
+            mindmap: {
+              useMaxWidth: true,
+              padding: 6,
+            },
+            stateDiagram: {
+              useMaxWidth: true,
+              fontSize: 12,
+              titleTopMargin: 0,
+              padding: 6,
+              miniPadding: 4,
+            },
+            state: {
+              useMaxWidth: true,
+              fontSize: 12,
+            },
+            journey: {
+              useMaxWidth: true,
+              fontSize: 11,
+              taskFontSize: 11,
+              sectionFontSize: 12,
+            },
             // ── xychart-beta · bar charts ──────────────────────────
             // Tight margins, label hidden (caption above), and a single
             // colour palette derived from the spine's pointFill so
@@ -2216,7 +5091,58 @@
     }
   }
 
-  load();
+  /** Subscribe to room SSE so the title live-updates when the brief
+   *  finalises. Fixes the bug where opening report.html during
+   *  generation shows the placeholder title (room.subject / initial
+   *  question) until the user manually refreshes. The dashboard
+   *  already handles `brief-final` to patch its in-memory state;
+   *  this gives the standalone report page parity. */
+  function subscribeBriefUpdates() {
+    if (!roomId || !briefId) return;
+    if (typeof EventSource === "undefined") return;
+    let sse;
+    try {
+      sse = new EventSource("/api/rooms/" + encodeURIComponent(roomId) + "/stream");
+    } catch (_) {
+      return;
+    }
+    let timeout = setTimeout(() => {
+      try { sse.close(); } catch (_) {}
+    }, 10 * 60 * 1000);  // 10-min safety timeout · briefs taking longer than that have other problems
+    sse.onmessage = (e) => {
+      if (!e.data) return;
+      let evt;
+      try { evt = JSON.parse(e.data); } catch (_) { return; }
+      if (!evt || evt.type !== "config-event") return;
+      if (evt.kind === "brief-final" && evt.payload && evt.payload.briefId === briefId) {
+        const newTitle = typeof evt.payload.title === "string" ? evt.payload.title.trim() : "";
+        if (newTitle) {
+          document.title = "BOARDROOM // " + newTitle;
+          const h1 = document.querySelector(".cover-title");
+          if (h1) {
+            // Render the title with markdown inline-formatting honoured
+            // (em / strong / code) so the on-screen update matches what
+            // the initial render produced. Falls back to plain text on
+            // any parse glitch.
+            try { h1.innerHTML = inline(escape(newTitle)); }
+            catch (_) { h1.textContent = newTitle; }
+          }
+        }
+        clearTimeout(timeout);
+        try { sse.close(); } catch (_) {}
+      }
+    };
+    sse.onerror = () => {
+      // EventSource auto-reconnects on transient failures · no action
+      // needed. If the server actually closed, it'll surface as a
+      // permanent error after a few retries — at which point the
+      // safety timeout will tear down the subscription anyway.
+    };
+  }
+
+  load().then(() => {
+    subscribeBriefUpdates();
+  });
 })();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>

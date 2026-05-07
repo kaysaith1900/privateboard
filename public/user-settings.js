@@ -156,48 +156,12 @@
     } catch (e) { /* swallow · UI is optimistic */ }
   }
 
-  /** Pick a provider's "primary" model · used when the user clicks
-   *  "Set as default" on a provider row. We prefer the user's already-
-   *  picked model for that provider (if reachable), otherwise we fall
-   *  back to a curated primary, otherwise the first reachable model
-   *  from that provider in the registry. */
-  const PRIMARY_BY_PROVIDER = {
-    anthropic:  "opus-4-7",
-    openai:     "gpt-5-5",
-    google:     "gemini-3-flash",
-    xai:        "grok-4-3",
-    deepseek:   "deepseek-v4-pro",
-    openrouter: "opus-4-7",
-  };
-  function primaryModelForProvider(provider) {
-    const snap = modelsSnapshot();
-    const reachable = (snap && snap.reachable) || [];
-    // 1. Curated primary, if reachable.
-    const curated = PRIMARY_BY_PROVIDER[provider];
-    if (curated && reachable.find((m) => m.modelV === curated && m.provider === provider)) {
-      return curated;
-    }
-    // 2. First reachable model from that provider.
-    const first = reachable.find((m) => m.provider === provider);
-    return first ? first.modelV : null;
-  }
-  /** Look up which provider currently owns the saved default model. */
-  function currentDefaultProvider() {
-    const snap = modelsSnapshot();
-    if (!snap || !snap.defaultModelV) return null;
-    const m = (snap.reachable || []).find((x) => x.modelV === snap.defaultModelV);
-    return m ? m.provider : null;
-  }
-  /** Click handler for the per-row "Set as default" button. Picks the
-   *  provider's primary model + persists it as defaultModelV. The row
-   *  re-renders so the badge moves. */
-  async function setProviderAsDefault(provider) {
-    const modelV = primaryModelForProvider(provider);
-    if (!modelV) return;
-    await saveDefaultModel(modelV);
-    // Re-render the keys section so every LLM row updates its badge.
-    if (currentSection === "keys") renderSection("keys");
-  }
+  // Provider→primary-model helpers (`primaryModelForProvider`,
+  // `currentDefaultProvider`, `setProviderAsDefault`) lived here to
+  // power the per-row "set as default" button on the API Key pane.
+  // That button + its companion bottom-of-pane Default Model picker
+  // were removed in favour of the dedicated "Default Model" sidebar
+  // pane (single source of truth). Helpers deleted as dead code.
 
   // Set / clear a single provider key. The server applies the trim+empty-=delete
   // semantic; we mirror the resulting meta into our local cache.
@@ -500,35 +464,29 @@
     const placeholder = has
       ? (preview || "••••••••")
       : p.placeholder;
-    // Default-provider tag · only meaningful for LLM providers.
-    // We compute it from the saved defaultModelV's owning provider.
-    // The "Set as default" CTA only appears on LLM rows that are
-    // configured AND not the current default. Skill rows (Brave) are
-    // never default-eligible — they're search, not a model.
-    const isLlm = p.group === "llm";
-    const isDefault = isLlm && currentDefaultProvider() === p.id;
-    const canSetDefault = isLlm && has && !isDefault && !!primaryModelForProvider(p.id);
-    const labelExtras = isDefault
-      ? ' <span class="badge us-key-default-badge">default</span>'
-      : "";
+    // Default-model selection lives entirely in the dedicated
+    // "Default Model" sidebar pane. The previous in-row "default"
+    // badge + "set as default" button on each LLM provider was a
+    // duplicate UX that also competed with the bottom-of-pane
+    // "Default model" picker · all three controls did the same
+    // thing. The single source of truth is now the sidebar pane.
     return `
-      <div class="us-key-row${isDefault ? " is-default" : ""}" data-provider="${p.id}">
+      <div class="us-key-row" data-provider="${p.id}">
         <div class="us-key-head">
-          <div class="us-key-label">${escape(p.label)}${labelExtras}</div>
+          <div class="us-key-label">${escape(p.label)}</div>
           <div class="us-key-status ${has ? "on" : "off"}" data-status>${has ? "● configured" : "○ not set"}</div>
-          ${canSetDefault ? `<button type="button" class="us-key-set-default" data-set-default-provider="${p.id}" title="Use ${escape(p.label)} as the default model provider for new agents">set as default</button>` : ""}
           ${removable ? `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>` : ""}
         </div>
         <div class="us-key-hint">${escape(p.hint)}</div>
         <div class="us-input-wrap">
           <input
-            type="password"
-            class="us-input${has ? " has-preview" : ""}"
+            type="text"
+            class="us-input us-input-masked${has ? " has-preview" : ""}"
             data-key-input
             name="bk-${p.id}"
             placeholder="${escape(placeholder)}"
             value=""
-            autocomplete="new-password"
+            autocomplete="off"
             data-lpignore="true"
             data-1p-ignore="true"
             data-form-type="other"
@@ -659,43 +617,15 @@
       `;
     }).join("");
 
-    let defaultBlock = "";
-    const def = cache.defaultModelV;
-    if (reachable.length >= 2) {
-      const optgroups = providers.map((p) => {
-        const models = byProvider.get(p);
-        return `<optgroup label="${escape(providerLabel(p))}">${
-          models.map((m) => `<option value="${escape(m.modelV)}"${m.modelV === def ? " selected" : ""}>${escape(m.displayName)}</option>`).join("")
-        }</optgroup>`;
-      }).join("");
-      defaultBlock = `
-        <div class="us-models-default">
-          <div class="us-models-default-label">Default model</div>
-          <div class="us-models-default-hint">new agents inherit this. when an agent's model goes unreachable, it falls back here too.</div>
-          <div class="us-input-wrap us-models-default-wrap">
-            <select class="us-input us-models-default-select" data-default-model>${optgroups}</select>
-          </div>
-        </div>
-      `;
-    } else {
-      const m = reachable[0];
-      defaultBlock = `
-        <div class="us-models-default">
-          <div class="us-models-default-label">Default model</div>
-          <div class="us-models-default-static">
-            <span class="us-models-default-name">${escape(m.displayName)}</span>
-            <span class="us-models-default-note">only reachable model</span>
-          </div>
-        </div>
-      `;
-    }
-
+    // Default-model selection moved to the sidebar's "Default Model"
+    // pane · the previous bottom-of-pane select duplicated that flow.
+    // The Available Models block is now read-only (which models are
+    // reachable + how they route), nothing else.
     return `
       <div class="us-key-group us-key-group-models">
         <div class="us-key-group-tag">Available models</div>
         <div class="us-key-group-deck">${reachable.length} model${reachable.length === 1 ? "" : "s"} reachable across ${providers.length} provider${providers.length === 1 ? "" : "s"}. <code>direct</code> uses the provider key, <code>OR</code> routes through OpenRouter.</div>
         <div class="us-models-list">${blocks}</div>
-        ${defaultBlock}
       </div>
     `;
   }
@@ -807,61 +737,10 @@
     const slot = paneEl.querySelector("[data-models-summary]");
     if (!slot) return;
     slot.innerHTML = modelsSummaryHTML();
-    // Also refresh each LLM row's default-state UI · the "set as
-    // default" button only appears once a model from that provider
-    // becomes reachable, which happens after the user pastes a key
-    // and refreshModels() resolves. Walk the rows and patch the
-    // default-related controls in place so we don't disturb the
-    // input field the user is typing into.
-    const defaultProvider = currentDefaultProvider();
-    paneEl.querySelectorAll(".us-key-row").forEach((row) => {
-      const id = row.dataset.provider;
-      const p = PROVIDERS.find((x) => x.id === id);
-      if (!p || p.group !== "llm") return;
-      const meta = _keysMeta[id];
-      const has = !!(meta && meta.configured);
-      const isDefault = defaultProvider === id;
-      const canSet = has && !isDefault && !!primaryModelForProvider(id);
-      // Toggle .is-default on the row.
-      row.classList.toggle("is-default", isDefault);
-      // Sync the badge in the label.
-      const label = row.querySelector(".us-key-label");
-      if (label) {
-        const existing = label.querySelector(".us-key-default-badge");
-        if (isDefault && !existing) {
-          label.insertAdjacentHTML("beforeend", ' <span class="badge us-key-default-badge">default</span>');
-        } else if (!isDefault && existing) {
-          existing.remove();
-          // Cleanup adjacent whitespace text node so we don't accumulate
-          // spaces over time.
-          const next = label.lastChild;
-          if (next && next.nodeType === 3 && /\s+/.test(next.nodeValue || "")) next.remove();
-        }
-      }
-      // Sync the "set as default" button.
-      const head = row.querySelector(".us-key-head");
-      if (head) {
-        const existing = head.querySelector("[data-set-default-provider]");
-        if (canSet && !existing) {
-          // Insert just before the remove button (or at the end).
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "us-key-set-default";
-          btn.dataset.setDefaultProvider = id;
-          btn.title = `Use ${p.label} as the default model provider for new agents`;
-          btn.textContent = "set as default";
-          btn.addEventListener("click", async (e) => {
-            e.preventDefault();
-            await setProviderAsDefault(id);
-          });
-          const removeBtn = head.querySelector("[data-remove-provider]");
-          if (removeBtn) head.insertBefore(btn, removeBtn);
-          else head.appendChild(btn);
-        } else if (!canSet && existing) {
-          existing.remove();
-        }
-      }
-    });
+    // Default-model state lives in the sidebar's "Default Model"
+    // pane · this refresh used to also patch each LLM row's
+    // badge / "set as default" button, but those controls were
+    // removed to eliminate the duplicate flow.
   }
 
   /* Avatar generation · same flow as the agent profile's regenerate
@@ -1013,11 +892,18 @@
   }
 
   function wireKeysSection() {
+    // Show/hide toggle · the input is permanently `type="text"` so
+    // browsers don't trigger their "Save password?" popup when the
+    // user navigates away from a typed-in key (e.g., clicking another
+    // sidebar tab in user prefs). Masking is done via the CSS
+    // `-webkit-text-security: disc` rule on `.us-input-masked` —
+    // visually identical to a password input but invisible to
+    // password managers. Toggle = add/remove the masking class.
     paneEl.querySelectorAll("[data-key-eye]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.preventDefault();
         const input = btn.parentElement.querySelector("input");
-        if (input) input.type = input.type === "password" ? "text" : "password";
+        if (input) input.classList.toggle("us-input-masked");
       });
     });
 
@@ -1043,21 +929,10 @@
       });
     });
 
-    // Set this provider as the default · picks the provider's primary
-    // model and persists it as defaultModelV. The badge moves to the
-    // newly-default row on re-render.
-    paneEl.querySelectorAll("[data-set-default-provider]").forEach((btn) => {
-      btn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        const id = btn.dataset.setDefaultProvider;
-        await setProviderAsDefault(id);
-      });
-    });
-
-    // Default-model picker · persists to /api/prefs.
-    paneEl.querySelectorAll("[data-default-model]").forEach((sel) => {
-      sel.addEventListener("change", () => { saveDefaultModel(sel.value); });
-    });
+    // Default-model controls live in the sidebar's "Default Model"
+    // pane only · the previous in-row "set as default" button and
+    // the bottom-of-pane Default Model picker were removed because
+    // they duplicated that flow.
 
     // Auto-save: every keystroke / paste persists immediately, no Save button.
     // We debounce slightly so we don't fire a server PUT on every character —

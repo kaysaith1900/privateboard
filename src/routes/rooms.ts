@@ -11,12 +11,13 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import { generateBrief } from "../orchestrator/brief.js";
+import { generateBrief, inFlightBriefForRoom, isBriefGenerating } from "../orchestrator/brief.js";
 import {
   announceAdjournNoBrief,
   announceMemberChange,
   announceResearchHint,
   announceSettingsChange,
+  ChairStreamError,
   runChairClarify,
   runChairConvening,
   runChairRoundEnd,
@@ -152,16 +153,12 @@ async function runAutoPickAndSeat(roomId: string, subject: string): Promise<void
     .filter((x): x is { agent: typeof candidates[number]; reason: string } => x !== null);
 
   if (picksWithReasons.length > 0) {
-    try {
-      await runChairConvening(roomId, picksWithReasons, result.rationale);
-    } catch (e) {
-      // Convening speech is best-effort · if the LLM call fails the
-      // room still proceeds to clarify. The directors are seated
-      // either way so the user just doesn't get the "why" intro.
-      process.stderr.write(
-        `[auto-pick] convening speech failed: ${e instanceof Error ? e.message : String(e)}\n`,
-      );
-    }
+    // Don't swallow chair errors here — the outer convene flow needs
+    // to differentiate "chair LLM failed (probably bad key)" from
+    // generic best-effort failure. A re-thrown ChairStreamError tells
+    // the outer flow to PAUSE the room instead of dispatching
+    // directors that will fail with the same key.
+    await runChairConvening(roomId, picksWithReasons, result.rationale);
   }
 }
 
@@ -253,7 +250,11 @@ export function roomsRouter(): Hono {
     // (systematic flaw audit on a deliverable) which captures the
     // value of high-pushback without the hostile-tone framing.
     const ALLOWED_MODES = new Set(["brainstorm", "constructive", "research", "debate", "critique"]);
-    const ALLOWED_INTENSITY = new Set(["calm", "sharp", "brutal"]);
+    // `brutal` retired · renamed to `terse` (the third value is a cadence
+    // marker, not an adversarial dial). Old API clients sending `brutal`
+    // are accepted and normalized forward; new clients should send `terse`.
+    const ALLOWED_INTENSITY = new Set(["calm", "sharp", "terse", "brutal"]);
+    const normalizeIntensityValue = (v: string): string => v === "brutal" ? "terse" : v;
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
     // Map legacy short codes to canonical style names.
     const STYLE_ALIAS: Record<string, string> = { mck: "mckinsey" };
@@ -262,7 +263,7 @@ export function roomsRouter(): Hono {
     const mode = ALLOWED_MODES.has(rawMode) ? rawMode : "constructive";
 
     const rawIntensity = typeof b.intensity === "string" ? b.intensity.trim() : "";
-    const intensity = ALLOWED_INTENSITY.has(rawIntensity) ? rawIntensity : "sharp";
+    const intensity = ALLOWED_INTENSITY.has(rawIntensity) ? normalizeIntensityValue(rawIntensity) : "sharp";
 
     const rawStyle = typeof b.briefStyle === "string" ? b.briefStyle.trim() : "";
     const styleResolved = STYLE_ALIAS[rawStyle] ?? rawStyle;
@@ -354,8 +355,37 @@ export function roomsRouter(): Hono {
         const result = await runChairClarify(room.id);
         if (result.ready) tickRoom(room.id, { roundNum: 1, kind: initialTickKind });
       } catch (e) {
+        const isChairLLMError = e instanceof ChairStreamError;
         process.stderr.write(`[rooms] convene flow failed: ${e instanceof Error ? e.message : String(e)}\n`);
-        // Fallback: still kick the directors so the room isn't stranded.
+        if (isChairLLMError) {
+          // Chair LLM call failed (typically: bad / missing API key for
+          // the chair's model). DON'T fall through to tickRoom — every
+          // director would hit the same key and produce a wall of
+          // empty bubbles right after the chair error, exactly the
+          // UX the user complained about. Instead pause the room so:
+          //   · the chair's friendly error bubble stays visible
+          //   · the user sees the room is paused and can fix the key
+          //   · resuming after the fix replays the queue cleanly
+          const pausedAt = Date.now();
+          setRoomStatus(room.id, "paused", { pausedAt });
+          setAwaitingClarify(room.id, false);
+          insertConfigEvent({
+            roomId: room.id,
+            kind: "room-paused",
+            payload: { pausedAt, mode: "hard", reason: "chair-llm-failed" },
+            actorKind: "system",
+          });
+          roomBus.emit(room.id, {
+            type: "config-event",
+            kind: "room-paused",
+            payload: { pausedAt, mode: "hard", reason: "chair-llm-failed" },
+            createdAt: pausedAt,
+          });
+          return;
+        }
+        // Non-chair-LLM error · transient / unrelated · fall back to
+        // dispatching directors so the room isn't stranded (legacy
+        // behaviour).
         setAwaitingClarify(room.id, false);
         tickRoom(room.id, { roundNum: 1, kind: initialTickKind });
       }
@@ -752,7 +782,11 @@ export function roomsRouter(): Hono {
     // (systematic flaw audit on a deliverable) which captures the
     // value of high-pushback without the hostile-tone framing.
     const ALLOWED_MODES = new Set(["brainstorm", "constructive", "research", "debate", "critique"]);
-    const ALLOWED_INTENSITY = new Set(["calm", "sharp", "brutal"]);
+    // `brutal` retired · renamed to `terse` (the third value is a cadence
+    // marker, not an adversarial dial). Old API clients sending `brutal`
+    // are accepted and normalized forward; new clients should send `terse`.
+    const ALLOWED_INTENSITY = new Set(["calm", "sharp", "terse", "brutal"]);
+    const normalizeIntensityValue = (v: string): string => v === "brutal" ? "terse" : v;
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
     const STYLE_ALIAS: Record<string, string> = { mck: "mckinsey" };
 
@@ -767,7 +801,7 @@ export function roomsRouter(): Hono {
     if (typeof b.intensity === "string") {
       const i = b.intensity.trim();
       if (!ALLOWED_INTENSITY.has(i)) return c.json({ error: `invalid intensity: ${i}` }, 400);
-      patch.intensity = i;
+      patch.intensity = normalizeIntensityValue(i);
     }
     if (typeof b.briefStyle === "string") {
       const raw = b.briefStyle.trim();
@@ -1090,12 +1124,18 @@ export function roomsRouter(): Hono {
   });
 
   // ── Read the latest brief for a room (back-compat — single brief).
+  // `isGenerating` reflects the orchestrator's live in-flight map · the
+  // frontend uses it to keep the card in "generating…" state even when
+  // the DB row already carries an interim title (set up-front from the
+  // scaffold's claim sentence) and partial body (streamed during stage
+  // 3). Without this flag, a mid-stream refresh flips the card to FILED
+  // because both `title` and `bodyMd` are non-empty.
   r.get("/:id/brief", (c) => {
     const id = c.req.param("id");
     if (!getRoom(id)) return c.json({ error: "not found" }, 404);
     const brief = getBriefByRoom(id);
     if (!brief) return c.json({ error: "brief not yet generated" }, 404);
-    return c.json(brief);
+    return c.json({ ...brief, isGenerating: isBriefGenerating(brief.id) });
   });
 
   // ── List ALL briefs for a room · newest first.
@@ -1105,7 +1145,11 @@ export function roomsRouter(): Hono {
   r.get("/:id/briefs", (c) => {
     const id = c.req.param("id");
     if (!getRoom(id)) return c.json({ error: "not found" }, 404);
-    return c.json({ briefs: listBriefsForRoom(id) });
+    const briefs = listBriefsForRoom(id).map((b) => ({
+      ...b,
+      isGenerating: isBriefGenerating(b.id),
+    }));
+    return c.json({ briefs });
   });
 
   // ── Generate a new brief for an adjourned room.
@@ -1119,6 +1163,16 @@ export function roomsRouter(): Hono {
     if (!room) return c.json({ error: "not found" }, 404);
     if (room.status !== "adjourned") {
       return c.json({ error: "room is not adjourned" }, 409);
+    }
+    // Idempotency guard · if a generation is already in flight for
+    // this room, return its briefId instead of spawning a parallel
+    // pipeline. Without this, double-clicks across the three CTAs
+    // (header link, no-brief card, adjourn overlay) — or a
+    // navigation race that re-fires the click — create duplicate
+    // brief rows and the user sees two "generating…" tabs.
+    const existingInFlight = inFlightBriefForRoom(id);
+    if (existingInFlight) {
+      return c.json({ briefId: existingInFlight, status: "generating", deduped: true });
     }
     let body: unknown = {};
     try { body = await c.req.json(); } catch { /* allow empty body */ }

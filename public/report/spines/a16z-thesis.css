@@ -36,19 +36,30 @@
   --oxblood: #7A2E1A;
   --oxblood-deep: #4F1D10;
 
+  /* Cross-spine token aliases · used by the unified design system. */
+  --accent: var(--gold);
+  --warn: var(--oxblood);
+
   /* Confidence — text only, no fill */
   --conf-high: #3F5C2F;
   --conf-mid: #6E541A;
   --conf-low: #7A2E1A;
 
-  /* Type · CJK fallbacks anchored on Songti SC for headless reach */
+  /* Type · CJK chain anchors on PingFang SC so Chinese glyphs render
+     as PingFang globally (user preference). Songti SC remains as a
+     last-resort fallback for headless contexts that can't reach
+     PingFang's font directory. */
   --serif: "Charter", "Source Serif Pro", "Iowan Old Style", Georgia,
-           "Songti SC", "STSong", "Source Han Serif CN", "Noto Serif CJK SC", serif;
+           "PingFang SC", "PingFang TC", "Hiragino Sans GB",
+           "Source Han Sans CN", "Noto Sans CJK SC",
+           "Songti SC", "STSong", serif;
   --sans: "Inter", "Helvetica Neue", "Arial", -apple-system, BlinkMacSystemFont,
-          "Songti SC", "STSong", "Hiragino Sans GB", "PingFang SC",
-          "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
+          "PingFang SC", "PingFang TC", "Hiragino Sans GB",
+          "Source Han Sans CN", "Noto Sans CJK SC",
+          "Songti SC", "STSong", sans-serif;
   --mono: "SF Mono", "JetBrains Mono", "Menlo",
-          "Songti SC", "STSong", monospace;
+          "PingFang SC", "PingFang TC", "Hiragino Sans GB",
+          "Source Han Sans CN", "Songti SC", "STSong", monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -56,7 +67,7 @@ html, body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -77,7 +88,7 @@ html, body {
   display: flex; justify-content: space-between; align-items: center;
   gap: 14px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   border-bottom: 1px solid var(--rule);
@@ -106,15 +117,6 @@ html, body {
   position: relative;
   border-bottom: 1px solid var(--rule);
 }
-/* Single thin gold rule across the top — the only ornament. */
-.cover::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 56px; right: 56px;
-  height: 1px;
-  background: var(--gold);
-}
-
 .cover-tag {
   display: flex;
   align-items: center;
@@ -168,7 +170,7 @@ html, body {
 @media (max-width: 720px) { .cover-byline { grid-template-columns: repeat(2, 1fr); gap: 22px; } }
 .byline-block .label {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--gold);
@@ -177,7 +179,7 @@ html, body {
 }
 .byline-block .value {
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
   font-weight: 400;
   line-height: 1.5;
@@ -200,7 +202,7 @@ html, body {
 }
 .cover-versions-label {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -267,13 +269,15 @@ html, body {
   font-weight: 500;
 }
 .body p {
-  margin: 12px 0;
+  margin: 14px 0;
   line-height: 1.7;
   color: var(--ink-soft);
-  font-size: 14.5px;
+  /* 16px · comfortable reading register, body dominant over the
+     14px table cells. Earlier 14.5 / 13.5 swings were too tight. */
+  font-size: 16px;
 }
-.body ul, .body ol { margin: 12px 0 16px 22px; }
-.body li { margin: 6px 0; line-height: 1.65; color: var(--ink-soft); font-size: 14px; }
+.body ul, .body ol { margin: 14px 0 18px 22px; }
+.body li { margin: 8px 0; line-height: 1.7; color: var(--ink-soft); font-size: 15px; }
 .body strong { color: var(--ink); font-weight: 600; }
 .body em { color: var(--gold-deep); font-style: italic; }
 
@@ -283,7 +287,7 @@ html, body {
   border: 1px solid var(--rule-strong);
   padding: 1px 7px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink);
   letter-spacing: 0.04em;
   border-radius: 2px;
@@ -292,18 +296,12 @@ html, body {
 .body code.badge-confidence-high { color: var(--conf-high); border-color: rgba(63, 92, 47, 0.4); }
 .body code.badge-confidence-medium { color: var(--conf-mid); border-color: rgba(110, 84, 26, 0.4); }
 .body code.badge-confidence-low { color: var(--conf-low); border-color: rgba(122, 46, 26, 0.4); }
-.body code.badge-priority-p0 {
-  background: var(--ink); color: var(--paper); border-color: var(--ink);
-  font-weight: 600; letter-spacing: 0.14em;
-}
-.body code.badge-priority-p1 {
-  background: transparent; color: var(--ink); border-color: var(--ink);
-  font-weight: 600; letter-spacing: 0.12em;
-}
-.body code.badge-priority-p2 {
-  background: transparent; color: var(--ink-faint); border-color: var(--rule-strong);
-  letter-spacing: 0.1em;
-}
+/* Priority badges · typographic only · a16z uses gold-deep for the
+   strong-priority accent (matches its accent throughout) and ink /
+   ink-faint for the rest. */
+.body code.badge-priority-p0 { color: var(--gold-deep); }
+.body code.badge-priority-p1 { color: var(--ink); }
+.body code.badge-priority-p2 { color: var(--ink-faint); }
 
 .body blockquote {
   padding: 14px 0;
@@ -325,7 +323,7 @@ html, body {
   background: transparent;
   margin: 0 0 44px;
   padding: 0 0 36px;
-  border-top: 1.5px solid var(--ink);
+  border-top: 2px solid var(--ink);
   padding-top: 28px;
   border-bottom: 1px solid var(--rule);
 }
@@ -367,7 +365,7 @@ html, body {
   margin: 0 0 44px;
   padding: 28px 0 36px;
   background: transparent;
-  border-top: 1.5px solid var(--ink);
+  border-top: 2px solid var(--ink);
   border-bottom: 1px solid var(--rule);
 }
 .body section.section-thesis p:first-child {
@@ -386,7 +384,7 @@ html, body {
   font-style: italic;
 }
 .body section.section-thesis p:not(:first-child) {
-  font-size: 14.5px; color: var(--ink-soft); font-style: normal;
+  font-size: 15px; color: var(--ink-soft); font-style: normal;
 }
 
 /* ─── Working hypothesis ────────────────────────────────────── */
@@ -410,7 +408,7 @@ html, body {
    research-note's strategic frame. */
 .body h2.section-strategic-outlook {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--gold);
   text-transform: uppercase;
   letter-spacing: 0.26em;
@@ -420,7 +418,7 @@ html, body {
 .body section.section-strategic-outlook {
   margin: 0 0 44px;
   padding: 28px 0 36px;
-  border-top: 1.5px solid var(--ink);
+  border-top: 2px solid var(--ink);
   border-bottom: 1px solid var(--rule);
 }
 .body section.section-strategic-outlook p:first-child {
@@ -465,7 +463,7 @@ html, body {
   top: 24px; left: 0;
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--gold);
   line-height: 1;
   letter-spacing: 0.16em;
@@ -482,7 +480,7 @@ html, body {
   letter-spacing: -0.005em;
 }
 .body section.section-critical-assumptions ol > li p {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--ink-soft);
 }
@@ -511,7 +509,7 @@ html, body {
   border-top: 1px solid var(--gold);
 }
 .body section.section-scenario-tree h3:first-of-type {
-  border-top: 1.5px solid var(--ink);
+  border-top: 2px solid var(--ink);
   padding-top: 18px;
 }
 .body section.section-scenario-tree p {
@@ -537,7 +535,7 @@ html, body {
 .body section.section-scenario-tree ul > li {
   position: relative;
   padding-left: 14px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--ink-soft);
   margin: 4px 0;
@@ -554,22 +552,22 @@ html, body {
    Override the default md-table treatment with a tighter,
    institutional-feel grid. Mono headers, hairline rules. */
 .body section.section-leading-indicators table.md-table {
-  font-size: 13px;
-  border-top: 1.5px solid var(--ink);
+  font-size: 14px;
+  border-top: 2px solid var(--ink);
 }
 .body section.section-leading-indicators table.md-table th {
   background: transparent;
   color: var(--gold);
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 9.5px;
+  font-size: 12px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   padding: 10px 12px;
 }
 .body section.section-leading-indicators table.md-table td {
   padding: 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink-soft);
   vertical-align: top;
   line-height: 1.5;
@@ -579,7 +577,7 @@ html, body {
   font-weight: 600;
   color: var(--ink);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 14px;
   letter-spacing: 0.04em;
   width: 26%;
 }
@@ -615,7 +613,7 @@ html, body {
   font-size: 16px; line-height: 1.3; margin: 0 0 10px; font-weight: 600;
 }
 .body section.section-headline-findings .pillar p {
-  font-size: 13.5px; color: var(--ink-soft); line-height: 1.6; margin: 8px 0;
+  font-size: 14px; color: var(--ink-soft); line-height: 1.6; margin: 8px 0;
 }
 
 /* ─── Big Ideas · disciplined typographic list ───────────────── */
@@ -666,7 +664,7 @@ html, body {
   border-top: 1px solid var(--gold);
   border-bottom: 1px solid var(--rule);
 }
-.body section.section-why-now p { font-size: 14.5px; line-height: 1.65; color: var(--ink); }
+.body section.section-why-now p { font-size: 15px; line-height: 1.65; color: var(--ink); }
 .body section.section-why-now p:first-child { font-weight: 500; color: var(--ink); }
 
 /* ─── The Bet · disciplined numbered list ───────────────────── */
@@ -737,7 +735,7 @@ html, body {
   border-bottom: 1px solid var(--rule);
 }
 .body section.section-two-paths > p:first-child {
-  font-size: 14.5px; color: var(--ink-soft); margin-bottom: 16px;
+  font-size: 15px; color: var(--ink-soft); margin-bottom: 16px;
 }
 
 /* ─── Recommendations / Considerations · editorial cards ───── */
@@ -751,17 +749,34 @@ html, body {
 
 .body section.section-recommendations li.rec-item,
 .body section.section-considerations li.rec-item {
-  padding: 0; margin: 36px 0 0; list-style: none; border: none;
+  padding: 0;
+  /* Bigger inter-card gap (36 → 48) so each recommendation reads as
+     its own block; the user's complaint about the section was
+     "stacked / hard to see clearly" — most of that was the cards
+     packing too tight against each other after they each grew
+     critical-dependency + risk rows. */
+  margin: 48px 0 0;
+  list-style: none;
+  border: none;
 }
 .body section.section-recommendations li.rec-item:first-child,
 .body section.section-considerations li.rec-item:first-child { margin-top: 22px; }
 .body section.section-recommendations li.rec-item::before,
 .body section.section-considerations li.rec-item::before { display: none; }
 
-.rec-rule { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+/* Header row · "01 P0 ──────────" with a subtle hairline that
+   delimits the card without screaming. P0 still gets a gold tint to
+   carry priority, but no longer paints a 2px gold bar — the
+   priority badge itself is enough signal. */
+.rec-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
 .rec-num {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--ink-faint);
   letter-spacing: 0.2em;
@@ -773,37 +788,55 @@ html, body {
   font-size: 10px;
   padding: 2px 8px;
 }
-.rec-rule-line { flex: 1 1 auto; height: 1px; background: var(--rule); display: block; }
-.rec-priority-p0 .rec-rule-line { background: var(--gold); height: 1.5px; }
+.rec-rule-line {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--rule);
+  display: block;
+  opacity: 0.7;
+}
 .rec-priority-p0 .rec-num { color: var(--gold); }
+
+/* Action title · serif display, 19px so it reads as the card's
+   headline. Slight bump from 18 → 19 since body p is now 16px. */
 .rec-action {
   font-family: var(--serif);
-  font-size: 18px;
-  line-height: 1.32;
+  font-size: 19px;
+  line-height: 1.35;
   color: var(--ink);
   font-weight: 600;
   letter-spacing: -0.012em;
   margin: 0 0 14px;
   max-width: 64ch;
 }
+
+/* Rationale · normal body register. Bumped 14 → 15.5 so it tracks
+   the new 16px body baseline (still slightly tighter to keep the
+   meta strip below readable as secondary). */
 .rec-rationale {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.7;
   color: var(--ink-soft);
-  margin: 0 0 18px;
+  margin: 0 0 16px;
   max-width: 64ch;
 }
+
+/* Meta strip · compressed inline label/value pairs. Same as before
+   but slightly larger gap so 3-4 pairs don't collide on one row. */
 .rec-meta {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
-  margin: 0 0 14px;
-  font-size: 12.5px;
-  line-height: 1.6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.65;
   color: var(--ink);
 }
 .rec-meta-pair { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
 .rec-meta-label {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--gold);
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -811,29 +844,62 @@ html, body {
 }
 .rec-meta-value { color: var(--ink); font-weight: 500; }
 .rec-meta-sep { color: var(--ink-muted); }
+
+/* Dependency · "DEPENDS ON — body". Same shape as risk row but in a
+   neutral ink-mid colour so it doesn't compete with the warning
+   register of the risk row. */
+.rec-dependency {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-mid);
+  margin: 0 0 8px;
+  padding: 0;
+  background: transparent;
+}
+.rec-dependency-prefix {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 500;
+  flex: 0 0 auto;
+}
+.rec-dependency-sep { color: var(--ink-faint); margin: 0 2px; flex: 0 0 auto; }
+.rec-dependency-text { flex: 1 1 auto; }
+
+/* Risk · "RISK IF SKIPPED — body". Stripped the oxblood top-border
+   that gave every card a coloured rule (per the project rule about
+   not piling adjacent borders); the oxblood prefix + italic body do
+   the warning work themselves. Slightly larger body so it tracks
+   the rest of the card's new sizing. */
 .rec-risk {
-  display: flex; align-items: flex-start; gap: 8px;
-  font-size: 12.5px;
-  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.65;
   color: var(--oxblood-deep);
   margin: 0;
-  font-style: italic;
-  padding: 12px 0 4px;
+  padding: 0;
   background: transparent;
-  border-top: 1px solid var(--oxblood);
+  font-style: italic;
 }
 .rec-risk-text { flex: 1 1 auto; }
 .rec-risk-prefix {
   font-family: var(--mono);
   font-style: normal;
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--oxblood);
   letter-spacing: 0.24em;
   text-transform: uppercase;
   font-weight: 500;
-  margin-right: 4px;
+  flex: 0 0 auto;
 }
-.rec-risk-sep { color: var(--oxblood); margin-right: 4px; }
+.rec-risk-sep { color: var(--oxblood); margin: 0 2px; flex: 0 0 auto; }
 
 /* ─── New Questions · op-ed cards ──────────────────────────── */
 .body section.section-new-questions ol { padding: 0; margin: 24px 0 0; list-style: none; }
@@ -845,7 +911,7 @@ html, body {
 .nq-rule { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .nq-num {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--gold);
   letter-spacing: 0.22em;
@@ -856,7 +922,7 @@ html, body {
   flex: 0 0 auto;
   display: inline-flex; align-items: baseline; gap: 6px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -939,7 +1005,7 @@ html, body {
 }
 .body section.section-planning-assumption blockquote {
   border: none; padding: 0; margin: 0; background: none;
-  font-style: normal; font-size: 14.5px;
+  font-style: normal; font-size: 15px;
 }
 .body section.section-planning-assumption blockquote::before { display: none; }
 .body section.section-planning-assumption blockquote strong:first-child {
@@ -958,8 +1024,8 @@ html, body {
   width: 100%;
   border-collapse: collapse;
   margin: 22px 0 28px;
-  font-size: 13.5px;
-  border-top: 1.5px solid var(--ink);
+  font-size: 14px;
+  border-top: 2px solid var(--ink);
 }
 .body table.md-table th, .body table.md-table td {
   padding: 12px 14px;
@@ -973,11 +1039,11 @@ html, body {
   color: var(--ink-faint);
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
-.body table.md-table td:first-child { font-weight: 600; color: var(--ink); }
+.body table.md-table td:first-child { font-weight: 600; color: var(--ink); font-size: 14px; }
 
 /* ─── Methodology footer ──────────────────────────────────── */
 .body h2.section-methodology {
@@ -993,14 +1059,14 @@ html, body {
 }
 .body section.section-methodology {
   color: var(--ink-faint);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.65;
 }
 .body section.section-methodology strong {
   color: var(--ink-soft);
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -1011,7 +1077,7 @@ html, body {
   border-bottom: 1px solid var(--rule);
   padding: 14px 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink-soft);
   margin: 18px 0;
   overflow-x: auto;
@@ -1058,16 +1124,13 @@ html, body {
    <style>; this block tweaks surface, accent + typography to match
    the spine's voice. No `border-left`, no parallel borders against
    adjacent .chapter-num / section h2. */
+/* Inherits the Swiss-editorial baseline. a16z signatures: gold-deep
+   label colour (the spine's accent) + oxblood downside trend. The
+   earlier card-surface tint + gold-soft frame was retired — under
+   the baseline's hairline-grid layout it produced a doubled frame
+   around each cell. */
 .body .metric-strip-intro {
   color: var(--ink-soft);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-.body .metric-card {
-  background: var(--gold-pale, rgba(201, 164, 107, 0.06));
-  border: 0.5px solid var(--gold-soft, rgba(201, 164, 107, 0.18));
-  padding: 16px 18px;
-  min-height: 104px;
 }
 .body .metric-label {
   color: var(--gold-deep);
@@ -1075,9 +1138,6 @@ html, body {
 }
 .body .metric-value {
   color: var(--ink);
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -0.015em;
 }
 .body .metric-card[data-trend="up"]   .metric-value { color: var(--gold-deep); }
 .body .metric-card[data-trend="down"] .metric-value { color: var(--oxblood-deep); }
@@ -1091,3 +1151,52 @@ html, body {
    this the brand card sits flush with the .doc edge while the body
    content above sits 56px inset — visibly misaligned. */
 .colophon { margin: 32px 56px 8px; }
+
+/* ─── Path comparison · per-spine treatment ──────────────────────
+   a16z uses oxblood (weak) / gold-deep (strong) — investment-thesis
+   "the contrarian read vs the obvious bet" framing. */
+.body .path-comparison .path {
+  background: var(--gold-pale, rgba(201, 164, 107, 0.06));
+  border: 1px solid var(--gold-soft, rgba(201, 164, 107, 0.18));
+  border-top-width: 3px;
+}
+.body .path-comparison .path-weak   { border-top-color: var(--oxblood-deep); }
+.body .path-comparison .path-strong { border-top-color: var(--gold-deep); }
+.body .path-comparison .path-weak   .path-tag { color: var(--oxblood-deep); }
+.body .path-comparison .path-strong .path-tag { color: var(--gold-deep); }
+.body .path-comparison .path-name { color: var(--ink); font-weight: 600; }
+.body .path-comparison .path li { color: var(--ink-soft); }
+.body .path-comparison .path-weak   li::before { background: var(--oxblood-deep); }
+.body .path-comparison .path-strong li::before { background: var(--gold-deep); }
+.body .path-comparison-implication { color: var(--ink-soft); }
+
+/* ─── Views-compared · per-spine · a16z-thesis ─────────────────
+   Hairline frame · accent stripe on TOP (per project rule).
+   Alignment uses gold-deep, divergence uses oxblood-deep. */
+.body .vc-section-label { color: var(--gold-deep); border-color: var(--gold-soft, rgba(201, 164, 107, 0.2)); }
+.body .views-compared-alignment .vc-card {
+  border-color: var(--gold-soft, rgba(201, 164, 107, 0.2));
+  border-top-color: var(--gold-deep);
+}
+.body .vc-card-headline { color: var(--ink); font-weight: 600; }
+.body .vc-chip { color: var(--ink-soft); border-color: var(--gold-soft, rgba(201, 164, 107, 0.25)); }
+.body .vc-card-note { color: var(--ink-soft); }
+.body .vc-fork {
+  border-color: var(--gold-soft, rgba(201, 164, 107, 0.2));
+  border-top-color: var(--oxblood-deep, var(--gold-deep));
+}
+.body .vc-fork-hinge { color: var(--ink); }
+.body .vc-side { border-color: var(--gold-soft, rgba(201, 164, 107, 0.18)); }
+.body .vc-side-label { color: var(--oxblood-deep, var(--gold-deep)); }
+.body .vc-side-stance { color: var(--ink-soft); }
+.body .vc-fork-resolution { color: var(--ink-soft); border-top-color: var(--gold-soft, rgba(201, 164, 107, 0.18)); }
+.body .vc-resolution-label { color: var(--ink-faint); }
+.body .vc-row-name { color: var(--ink); font-weight: 600; }
+.body .vc-row-stance { color: var(--gold-deep); }
+.body .vc-row-position { color: var(--ink-soft); }
+.body .vc-row-quote { color: var(--ink); }
+.body .views-compared-synthesis {
+  border-color: var(--gold-soft, rgba(201, 164, 107, 0.2));
+  border-top-color: var(--ink-faint);
+}
+.body .vc-synthesis-body { color: var(--ink); }

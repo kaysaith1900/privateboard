@@ -44,6 +44,135 @@ When adding a new bordered element, scan its likely neighbours and
 write the suppression rule in the SAME change. Don't ship the border
 addition first and patch later.
 
+### No sub-pixel sizing in the report system
+
+Never use sub-pixel values (`0.5px`, `10.5px`, `13.5px`, etc.) anywhere
+in `public/report.html` or `public/report/spines/*.css` — neither for
+borders / heights nor for `font-size`. Half-pixels render fuzzy on
+non-Retina screens, look inconsistent against integer-pixel siblings,
+and break the design system's tiered weight hierarchy.
+
+The report uses two divider weights:
+
+- `1px solid var(--rule)` — default section dividers, card edges, byline
+  rules, in-content rows. The `--rule-soft` token gives a *lighter
+  tone* at the same 1px weight, used for table row dividers.
+- `2px solid var(--ink)` — anchor / table top / cover bottom. Reserved
+  for "this opens a major block."
+
+Anything heavier (3-4px brand-color underlines from older mckinsey /
+gartner tables) gets capped to one of these two in the unified design
+system block at the bottom of `report.html`'s `<style>`.
+
+For fonts, round to the nearest integer pixel. If you find yourself
+wanting 13.5px to "split the difference" between 13 and 14, pick one
+based on the surrounding type scale (15px body → 13px caption, 16px
+body → 14px caption). The half-step is almost never worth the loss
+of crispness.
+
+When pasting CSS from external references (Anthropic / a16z designs
+often use `0.5px` for hairline accents), normalise to 1px during the
+adaptation pass — don't ship sub-pixel values even temporarily.
+
+### Anthropic-essay spine — the reference design system
+
+`mvp/screen-7-report-anthropic.html` (in the prototype folder) is the
+canonical reference for the **anthropic-essay** spine. It models the
+report after a research note: warm cream paper, italic-emphasis-in-clay
+across every component, mono kickers above every section, serif
+italic numerals, no decorative borders. When in doubt about a design
+choice for any spine, check whether the same choice appears in the
+reference — the patterns below are tested.
+
+**Typography register**
+
+- Dual register · serif (Tiempos / Charter) for **headlines** and
+  **emphasis quotes**, sans (Söhne / Inter) for **body prose** and
+  **data**, mono for **kickers** and **labels**. No spine should put
+  body prose in serif when a sans face is available.
+- `<em>` is italic in the **spine accent colour** (`--clay-deep` for
+  Anthropic, `--gold-deep` for a16z, etc.) — applied across body p,
+  H2, H3, blockquote, considerations, open questions, methodology.
+  This is the single typographic gesture that ties the doc together.
+- Italic styling on a heading itself is wrong — the heading is **roman**,
+  emphasis lives in the `<em>` it contains. (Earlier iterations of the
+  Anthropic spine had `font-style: italic` on `.body h2`. Removed.)
+- For headings posed as **questions or claims**: italicise the operative
+  word inside `<em>`, not the whole sentence. ("Where, exactly, does
+  *defensibility* live?") The italic word carries the argument.
+
+**Section opener**
+
+Every section opens with a **mono kicker** — `font-family: var(--mono)`
+11px uppercase 0.18em letter-spacing, in the spine accent (`clay-deep`
+on Anthropic). Format: `01 — Section Name` or `— Introduction`. The
+kicker sits 16-24px above the H2.
+
+**Numerals (signature)**
+
+- **Considerations / recommendations** → italic **lower-roman**
+  (`i. ii. iii. iv.`) in serif italic, accent colour. Generated with
+  `content: counter(rec, lower-roman) "."`. Not arabic — roman is the
+  reference's signature.
+- **Open questions** → `decimal-leading-zero` (`01 02 03`) in serif
+  italic, accent colour, sized like a small heading (~22px).
+- **Observations / headline findings** → italic serif kicker
+  `— observation i / ii / iii` (14px clay-deep). NO big numerals on
+  the left margin — observations use the kicker pattern, not the
+  consideration pattern.
+
+**Pull quote / blockquote**
+
+Top + bottom rules (1px var(--rule)) ONLY — no `border-left`, no
+quotation marks, no decorative brackets. Visual differentiation comes
+from font (serif italic), size (28-36px), and spacing (40px margin
+above and below). The italic style alone does the work.
+
+**Frame chrome**
+
+- **Top frame** (`.top-rule`): brand crumb left (serif 17px weight 500
+  with a real circle for the · separator — 10×10 in the spine accent,
+  drawn via `font-size: 0` + `background` + `border-radius`), action
+  buttons right (mono 11px ink-mid with `↓` glyph in accent for
+  download).
+- **Doc footer** (`.foot-rule`): full-width chrome `padding: 28px 56px`
+  with `display: flex; justify-content: space-between`. Serif brand
+  on the left, mono meta on the right.
+
+**Acknowledgments / methodology**
+
+The closing card uses `paper-soft` surface, `1px var(--rule)` border,
+`40px 48px` padding. Label is mono 11px clay-deep with a `— ` prefix.
+Body is sans 15px line-height 1.75 with `<em>` italic clay-deep,
+`<strong>` ink 600.
+
+**Container widths**
+
+Essay text (intro / observations / considerations / open questions)
+uses **740px**; figures and side-by-side comparisons use **940px**.
+The default is essay width.
+
+**Drop cap**
+
+Reserved for the **first paragraph of the introduction or working
+hypothesis**. 64px serif accent-coloured first-letter, `float: left`,
+`line-height: 0.85`, `margin: 8px 12px 0 0`. Not used elsewhere — once
+per report, at the opening.
+
+**Content tone**
+
+The report frames findings as a **working hypothesis**, not as
+authoritative claims. Section titles are full sentences ("Three
+forces that *seem* to invalidate the obvious bet"; "What we have
+*not* resolved"). Observations are attributed to a director by mono
+caption (`— Socrates, on observed patterns`). Acknowledgments end
+with an invitation to challenge / replace the analysis.
+
+When generating brief content for the Anthropic spine, follow the
+reference's voice: tentative, methodical, attribution-aware. Not
+"the answer is X"; rather "after attempting to take the proposition
+seriously, we are left less confident than we began."
+
 ### Headings and section content must share width
 
 Don't put a `max-width` on `.body h2` (or any section heading) in a

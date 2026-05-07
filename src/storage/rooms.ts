@@ -13,7 +13,7 @@ export interface Room {
   subject: string;
   mode: string;       // tone: brainstorm | constructive | research | debate | critique
                       //       (legacy "no-mercy" rooms map to debate at read time)
-  intensity: string;  // calm | sharp | brutal
+  intensity: string;  // calm | sharp | terse  (legacy "brutal" maps to terse at read time)
   status: RoomStatus;
   briefStyle: string | null;  // auto | mckinsey | gartner | a16z | anthropic | 8bit
   /** Soft-pause flag set by the chair after a round-end key-points message. */

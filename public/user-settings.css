@@ -175,7 +175,7 @@
 }
 .us-pane-tag {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -321,6 +321,17 @@
   letter-spacing: -0.003em;
   width: 100%;
 }
+/* API-key masking · the input is `type="text"` so browsers don't pop
+   up "Save password?" when the user types a key and navigates away.
+   `-webkit-text-security: disc` shows dots instead of the actual
+   characters — visually equivalent to a password field, but invisible
+   to password managers. Toggle (eye button) just removes this class.
+   `text-security` is the standard property name; only Safari + Chrome
+   actually implement it under the `-webkit-` prefix today. */
+.us-input-masked {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
 .us-input::placeholder { color: var(--text-faint, #3A382F); }
 /* When a key is on file, we surface a 4+4 masked preview AS the
    placeholder. Default placeholder colour is the dim "hint" tier,
@@ -394,7 +405,7 @@
 .us-theme-info { min-width: 0; }
 .us-theme-name {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text, #C8C5BE);
   letter-spacing: -0.005em;
@@ -442,7 +453,7 @@
 }
 .us-key-label {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text, #C8C5BE);
   letter-spacing: -0.003em;
@@ -824,7 +835,7 @@
   flex: 0 0 auto;
 }
 .us-model-name {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text, #C8C5BE);
   font-weight: 600;
   letter-spacing: -0.005em;
@@ -894,7 +905,7 @@
 .us-agent-row:last-child { border-bottom: none; }
 .us-agent-name-col { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .us-agent-name {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text, #C8C5BE);
   font-weight: 600;
   white-space: nowrap;
@@ -1073,7 +1084,7 @@
 .us-models-row:last-child { border-bottom: none; }
 .us-models-name {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text, #C8C5BE);
   letter-spacing: -0.005em;
@@ -1148,7 +1159,7 @@
 }
 .us-models-default-name {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text, #C8C5BE);
   letter-spacing: -0.005em;
@@ -1233,7 +1244,7 @@
 .us-default-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .us-default-row-name {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text, #C8C5BE);
   letter-spacing: -0.005em;
