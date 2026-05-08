@@ -60,6 +60,24 @@ export function usageRouter(): Hono {
           ...modelDisplay(m.modelV),
         })),
       },
+      // Rolling 14-day window for the bar chart at the top of the
+      // Usage panel. Each entry mirrors the cumulative summary's
+      // byModel / byAgent shape so the frontend can feed the same
+      // render component either source (cumulative · day-specific).
+      daily: s.daily.map((d) => ({
+        day: d.day,
+        totalTokens: d.totalTokens,
+        byModel: d.byModel.map((m) => ({
+          modelV: m.modelV,
+          tokens: m.tokens,
+          agents: m.agents,
+          ...modelDisplay(m.modelV),
+        })),
+        byAgent: d.byAgent.map((a) => ({
+          ...a,
+          ...modelDisplay(a.modelV),
+        })),
+      })),
     });
   });
 

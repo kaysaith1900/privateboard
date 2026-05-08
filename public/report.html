@@ -54,6 +54,83 @@
          checkbox and produces a PDF that's universally readable on
          screen and on physical paper. Other spines are already light
          and pass through unchanged. */
+
+  /* ─── CJK font dispatch · GLOBAL (screen AND print) ───────────
+     Chrome does NOT do per-glyph cascade walking reliably in the
+     print pipeline: it picks the first font that "looks right for
+     the script" and stays there. With a cascade of
+     "Helvetica Neue, Inter, Arial, PingFang SC, ..." Chrome lands
+     on Arial (advertises minimal CJK coverage), renders every
+     Chinese ideograph as `.notdef` (invisible / tofu), and the
+     PingFang SC entry NEVER gets tried. Result: empty Chinese
+     text in the saved PDF, even on a Mac with PingFang installed
+     system-wide.
+
+     Fix: register three named handles — `cjk-sans`, `cjk-serif`,
+     `cjk-mono` — each scoped to the CJK Unicode ranges via
+     `unicode-range`. When a CJK code point hits the cascade,
+     Chrome is FORCED to dispatch to the CJK handle (only that
+     handle covers the range), which uses `local()` to pick
+     PingFang / Hiragino / Songti / STSong from the OS. Latin
+     code points fall through to the next font as before, so
+     Latin display still renders in Helvetica / Charter / Menlo.
+
+     OUTSIDE @media print so it applies on both screen + print.
+     Some CJK selectors live outside @media print (e.g.
+     body.is-cjk .cover-title) and need the same dispatch. */
+  /* Why STSong leads each src list:
+     - macOS regular Chrome resolves PingFang SC fine — but headless
+       Chrome (and the same user-action Save-as-PDF on some configs)
+       walks `local()` and gives up after the first miss instead of
+       trying the rest. Putting a guaranteed-available font (STSong
+       ships with macOS since 10.0) first means we always have at
+       least ONE working dispatcher; the more aesthetic faces sit
+       behind it for environments that DO resolve them.
+     - Empirically: cjk-serif (Songti SC/STSong leading) worked while
+       cjk-sans (PingFang SC leading) didn't — same chain otherwise,
+       only the lead changed. So the FIRST local() is what matters
+       most; later entries are best-effort improvements. */
+  @font-face {
+    font-family: "cjk-sans";
+    src: local("STSong"),
+         local("PingFang SC"), local("PingFangSC-Regular"),
+         local("Hiragino Sans GB"), local("HiraginoSansGB-W3"),
+         local("Source Han Sans CN"), local("Noto Sans CJK SC"),
+         local("Songti SC"), local("STHeiti");
+    unicode-range: U+1100-11FF, U+2E80-2FFF, U+3000-303F,
+                   U+3040-309F, U+30A0-30FF, U+3100-312F,
+                   U+3130-318F, U+3190-319F, U+31F0-31FF,
+                   U+3200-32FF, U+3300-33FF, U+3400-4DBF,
+                   U+4E00-9FFF, U+A000-A4CF, U+A960-A97F,
+                   U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+                   U+FF00-FFEF;
+  }
+  @font-face {
+    font-family: "cjk-serif";
+    src: local("STSong"), local("Songti SC"),
+         local("Source Han Serif CN"), local("Noto Serif CJK SC"),
+         local("PingFang SC"), local("Hiragino Sans GB");
+    unicode-range: U+1100-11FF, U+2E80-2FFF, U+3000-303F,
+                   U+3040-309F, U+30A0-30FF, U+3100-312F,
+                   U+3130-318F, U+3190-319F, U+31F0-31FF,
+                   U+3200-32FF, U+3300-33FF, U+3400-4DBF,
+                   U+4E00-9FFF, U+A000-A4CF, U+A960-A97F,
+                   U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+                   U+FF00-FFEF;
+  }
+  @font-face {
+    font-family: "cjk-mono";
+    src: local("STSong"), local("PingFang SC"),
+         local("Hiragino Sans GB"), local("Songti SC");
+    unicode-range: U+1100-11FF, U+2E80-2FFF, U+3000-303F,
+                   U+3040-309F, U+30A0-30FF, U+3100-312F,
+                   U+3130-318F, U+3190-319F, U+31F0-31FF,
+                   U+3200-32FF, U+3300-33FF, U+3400-4DBF,
+                   U+4E00-9FFF, U+A000-A4CF, U+A960-A97F,
+                   U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+                   U+FF00-FFEF;
+  }
+
   @media print {
     *, *::before, *::after {
       print-color-adjust: exact !important;
@@ -179,28 +256,26 @@
       border-color: #DDD5C8 !important;
     }
 
-    /* ─── CJK font fallback for print ────────────────────────────
-       PingFang SC anchors every cascade so Chinese glyphs render as
-       PingFang globally (user preference). Songti SC sits deep as
-       a last-resort fallback for the rare headless Chrome PDF
-       contexts where PingFang's font directory isn't reachable —
-       the browser falls through to it automatically when PingFang
-       can't be loaded. Latin text still renders in the spine's
-       preferred face; only CJK falls through to PingFang. */
+    /* CJK dispatch handles (cjk-sans / cjk-serif / cjk-mono) are
+       declared OUTSIDE this @media block — see the @font-face
+       trio at the top of <style>. Per-element font-family rules
+       below reference those handles so CJK glyphs route to
+       PingFang / Songti / etc. via `local()`. */
 
-    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK in PingFang SC. */
+    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK
+       routed through cjk-sans (which `local()`s to PingFang SC). */
     body, .body, .body p, .body li,
     .body td, .body th,
     .rec-rationale, .rec-risk, .rec-risk-text, .rec-meta-value, .rec-action,
     .nq-why, .cover-deck {
-      font-family: "Helvetica Neue", "Inter", "Arial",
-                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                   "Source Han Sans CN", "Noto Sans CJK SC",
-                   "Songti SC", "STSong",
+      font-family: "cjk-sans",
+                   "Helvetica Neue", "Inter", "Arial",
                    sans-serif !important;
     }
     /* Serif-anchored display copy · headlines, italic claims, big-idea
-       kickers — the typographic moments worth preserving in serif. */
+       kickers — the typographic moments worth preserving in serif.
+       CJK ranges route to cjk-serif (which prefers Songti for the
+       serif voice, falling back to PingFang). */
     .body h1, .body h2, .body h3, .body h4,
     .body section.section-bottom-line p,
     .body section.section-thesis p,
@@ -208,15 +283,15 @@
     .body section.section-headline-findings .pillar h3,
     .body section.section-big-ideas ol > li p:first-child strong,
     .nq-question, .cover-title {
-      font-family: "Charter", "Source Serif Pro", "Iowan Old Style",
+      font-family: "cjk-serif",
+                   "Charter", "Source Serif Pro", "Iowan Old Style",
                    "Georgia",
-                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                   "Source Han Sans CN", "Noto Sans CJK SC",
-                   "Songti SC", "STSong",
-                   "Source Han Serif CN", "Noto Serif CJK SC",
                    serif !important;
     }
-    /* Mono kickers / labels stay mono with PingFang SC as CJK fallback. */
+    /* Mono kickers / labels · CJK chars in mono context don't really
+       have a mono face, so cjk-mono falls back to PingFang SC. The
+       result is mono-styled Latin labels with PingFang Han for the
+       rare CJK character that lands in a kicker. */
     .top-rule .crumb,
     .body .chapter-num,
     .cover-tag, .cover-tag .secondary,
@@ -231,10 +306,9 @@
     .body section.section-methodology strong,
     .body code,
     .body table.md-table th {
-      font-family: "SF Mono", "JetBrains Mono", "Menlo",
+      font-family: "cjk-mono",
+                   "SF Mono", "JetBrains Mono", "Menlo",
                    "Helvetica Neue", "Arial",
-                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                   "Source Han Sans CN", "Songti SC", "STSong",
                    monospace !important;
     }
 
@@ -1450,15 +1524,16 @@
   }
   .colophon-cta-url {
     display: inline-block;
-    color: var(--text, #1A1A1A);
+    color: var(--text-soft, #6B6B6B);
     font-family: var(--mono);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
     text-decoration: none;
     margin-top: 2px;
+    opacity: 0.78;
   }
-  .colophon-cta-url:hover { text-decoration: underline; }
+  .colophon-cta-url:hover { text-decoration: underline; opacity: 1; }
   /* Backwards-compat · the "·" separator from the prior horizontal
      layout no longer renders meaningfully in a vertical stack. Keep
      the selector defined so old markup doesn't error if rendered. */
@@ -2229,9 +2304,14 @@
   body.is-cjk .nq-why,
   body.is-cjk .cover-deck,
   body.is-cjk .cover-title {
-    font-family: "Söhne", "Inter", "Helvetica Neue", "Arial",
-                 "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                 "Source Han Sans CN", "Noto Sans CJK SC",
+    /* cjk-sans handle dispatches CJK ranges to PingFang/Songti via
+       local(). Listing it FIRST guarantees Chrome consults it for
+       any CJK code point — without that, Chrome lands on Arial
+       (next in the cascade, partial CJK), renders ideographs as
+       .notdef, and the PingFang entries below NEVER get tried.
+       That's the empty-cover-title-in-PDF bug. */
+    font-family: "cjk-sans",
+                 "Söhne", "Inter", "Helvetica Neue", "Arial",
                  sans-serif !important;
   }
 
@@ -3172,7 +3252,8 @@
         // ```metric-strip / ```chart-block style fences regularly.
         const fence = /^```([\w-]*)\s*$/.exec(lines[i]);
         if (fence) {
-          const lang = (fence[1] || "").toLowerCase();
+          const langRaw = fence[1] || "";
+          const lang = langRaw.toLowerCase();
           const start = i + 1;
           let end = lines.length;
           for (let j = start; j < lines.length; j++) {
@@ -3180,8 +3261,42 @@
           }
           const body = lines.slice(start, end).join("\n");
           const idx = placeholders.length;
-          if (lang === "mermaid") {
-            placeholders.push(`<pre class="mermaid">${escape(sanitizeMermaid(body))}</pre>`);
+          // Mermaid acceptance · the canonical fence is ```mermaid,
+          // but writers regularly emit ```quadrantChart /
+          // ```xychart-beta / ```flowchart / ```sequenceDiagram /
+          // etc. directly (the chart-type IS the lang in their head).
+          // Accept those bare type tags as mermaid too — otherwise
+          // they fall through to a plain `<pre class="codeblock">`
+          // and ship to the user as raw mermaid source. Catalog
+          // matches mermaid 10's diagram registry. The fenced body's
+          // first non-empty line is the actual mermaid type, so
+          // sanitizeMermaid handles the rest as before.
+          const MERMAID_TYPES = new Set([
+            "mermaid",
+            "quadrantchart", "xychart", "xychart-beta",
+            "flowchart", "graph",
+            "sequencediagram", "sequence",
+            "classdiagram", "class",
+            "statediagram", "statediagram-v2", "state",
+            "erdiagram", "er",
+            "journey",
+            "gantt",
+            "pie",
+            "mindmap",
+            "timeline",
+            "gitgraph",
+            "requirementdiagram", "requirement",
+            "c4context", "c4container", "c4component", "c4dynamic",
+          ]);
+          if (MERMAID_TYPES.has(lang)) {
+            // For non-"mermaid" lang tags, the fence didn't include
+            // the type-as-first-line — prepend the ORIGINAL-cased
+            // lang token so mermaid's case-sensitive parser accepts
+            // it (e.g. "quadrantChart", not "quadrantchart").
+            const mermaidBody = (lang === "mermaid")
+              ? body
+              : `${langRaw}\n${body}`;
+            placeholders.push(`<pre class="mermaid">${escape(sanitizeMermaid(mermaidBody))}</pre>`);
           } else if (lang === "metric-strip") {
             placeholders.push(renderMetricStrip(body));
           } else if (lang === "path-comparison") {
@@ -4511,117 +4626,174 @@
           // backgrounds) so flowchart / mindmap / gantt / sequence /
           // state diagrams pick up spine-coherent colours instead of
           // mermaid's rainbow defaults.
+          // Per-spine mermaid theme · every value here is taken from
+          // the spine's :root tokens (boardroom-dark.css / a16z-thesis.css /
+          // etc.) so charts feel like a native exhibit of the spine
+          // rather than a foreign visualization with its own palette.
+          // Audit cadence: when a spine adds / renames a token, mirror
+          // it here in the same change. Drift between spine tokens and
+          // these `vars` is what makes charts read as "off-brand".
+          //
+          // Mapping rules (consistent across spines):
+          //   background  → spine main bg                    (so chart canvas blends with frame)
+          //   quadrantFill→ spine paper-soft / panel / bg-soft (slight contrast for inner zones)
+          //   pointFill   → primary brand/accent              (data dots = load-bearing)
+          //   titleFill   → --ink / --text                    (max-contrast text)
+          //   axisText    → --ink-faint / --text-faint        (subdued axis labels)
+          //   border      → --rule (NOT rule-strong)          (matches body hairlines)
+          //   inner       → --rule-soft                       (lightest separator)
+          //   accent      → spine accent token                (general fill)
+          //   accentSoft  → spine pale variant                (washed accent for backgrounds)
+          //   palette     → 4-step monochrome ramp from accent (cycled across pie/journey/git slices)
           const themes = {
             "boardroom-dark": {
-              base: "dark",
+              // theme: "base" + darkMode flag, NOT "dark". Mermaid 10's
+              // built-in "dark" preset injects a violet-tinged primary
+              // colour that bleeds into quadrant1Fill / quadrantPointFill
+              // and ALSO overrides our themeVariables in some code paths
+              // (the "Platform Strategy chart on boardroom-dark renders
+              // purple" bug). "base" uses minimal defaults so our
+              // explicit `vars` below are the only colour source.
+              base: "base",
+              darkMode: true,
+              // Frame bg: pre.mermaid uses --panel-2 (#1A1A18). Match it
+              // for the canvas so the SVG doesn't sit "inside" a darker
+              // tray. Quadrant inner boxes go to --bg (#0A0A0A) so the
+              // four boxes read as cut-outs against the canvas.
               vars: {
-                background: "#131312",
-                quadrantFill: "#1A1A18",
-                quadrantText: "#B6B0A2",
-                pointFill: "#C8C5BE",
-                pointText: "#8E8B83",
-                titleFill: "#C8C5BE",
-                axisText: "#8E8B83",
-                border: "#3A3A35",
-                inner: "#2A2A26",
-                accent: "#C9A46B",
-                accentSoft: "#3A3025",
-                accentText: "#131312",
+                background: "#1A1A18",   // --panel-2 (matches pre.mermaid frame)
+                quadrantFill: "#0A0A0A", // --bg (cut-out zones inside chart)
+                quadrantText: "#8E8B83", // --text-soft
+                pointFill: "#C9A46B",    // --em / --lime · load-bearing gold for data
+                pointText: "#C8C5BE",    // --text
+                titleFill: "#C8C5BE",    // --text
+                axisText: "#5C5A4D",     // --text-faint (was too bright before)
+                border: "#3A3934",       // --line-bright
+                inner: "#21211E",        // --panel-3
+                accent: "#C9A46B",       // --em (load-bearing gold)
+                accentSoft: "#5C4422",   // --lime-dim
+                accentText: "#0A0A0A",   // --bg for contrast on accent fills
               },
+              // Gold for the lead, then beige-neutrals — multi-bar
+              // charts get one bold lead + 3 supporting tones rather
+              // than 4 competing golds.
+              palette: ["#C9A46B", "#B6B0A2", "#8E8B83", "#5C5A52"],
               fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
             },
             "a16z-thesis": {
               base: "default",
               vars: {
-                background: "#F7F3E8",
-                quadrantFill: "#F2EAD8",
-                quadrantText: "#57503F",
-                pointFill: "#876C2A",
-                pointText: "#14110C",
-                titleFill: "#14110C",
-                axisText: "#847B65",
-                border: "#BCB39A",
-                inner: "#DCD3BD",
-                accent: "#876C2A",
-                accentSoft: "#E8D9B5",
+                background: "#F7F3E8",   // --bg / --paper
+                quadrantFill: "#F2EAD8", // soft panel tone (between paper and rule-soft)
+                quadrantText: "#57503F", // --ink-mid
+                pointFill: "#8B6A2E",    // --gold (precise spine value, was #876C2A)
+                pointText: "#14110C",    // --ink
+                titleFill: "#14110C",    // --ink
+                axisText: "#847B65",     // --ink-faint
+                border: "#DCD3BD",       // --rule (not --rule-strong)
+                inner: "#E5DECC",        // --rule-soft
+                accent: "#8B6A2E",       // --gold
+                accentSoft: "#C4A865",   // --gold-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#8B6A2E", "#A8843A", "#C4A865", "#E2CFA0"],
               fontFamily: '"Inter", "Helvetica Neue", -apple-system, system-ui, sans-serif',
             },
             "anthropic-essay": {
               base: "default",
               vars: {
-                background: "#FAF7F0",
-                quadrantFill: "#F4F0E8",
-                quadrantText: "#6B6359",
-                pointFill: "#A85A41",
-                pointText: "#4A4338",
-                titleFill: "#1A1814",
-                axisText: "#978C7E",
-                border: "#DDD5C8",
-                inner: "#E8E1D2",
-                accent: "#A85A41",
-                accentSoft: "#F2E0D5",
+                background: "#F4F0E8",   // --paper (was --surface, slight off)
+                quadrantFill: "#EDE6D6", // --paper-soft
+                quadrantText: "#6B6359", // --ink-mid
+                pointFill: "#A85A41",    // --clay-deep · stronger contrast for data
+                pointText: "#1A1814",    // --ink (was --ink-soft, low contrast)
+                titleFill: "#1A1814",    // --ink
+                axisText: "#978C7E",     // --ink-faint
+                border: "#DDD5C8",       // --rule
+                inner: "#E8E1D2",        // --rule-soft
+                accent: "#CC785C",       // --clay (spine's --accent resolves here, NOT clay-deep)
+                accentSoft: "#F2E0D5",   // --clay-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#CC785C", "#A85A41", "#B65A3A", "#F2E0D5"],
               fontFamily: '"Charter", "Source Serif Pro", "Iowan Old Style", Georgia, serif',
             },
             "gartner-note": {
               base: "default",
               vars: {
-                background: "#FFFFFF",
-                quadrantFill: "#FAFBFC",
-                quadrantText: "#455364",
-                pointFill: "#0A4DA1",
-                pointText: "#1A2332",
-                titleFill: "#1A2332",
-                axisText: "#6B7785",
-                border: "#BFC8D3",
-                inner: "#DDE2E8",
-                accent: "#0A4DA1",
-                accentSoft: "#E8EFF8",
+                background: "#FFFFFF",   // --bg
+                quadrantFill: "#F5F7FA", // --bg-soft (was --bg-emphasis #FAFBFC)
+                quadrantText: "#455364", // --ink-soft
+                pointFill: "#0A4DA1",    // --brand
+                pointText: "#1A2332",    // --ink
+                titleFill: "#1A2332",    // --ink
+                axisText: "#6B7785",     // --ink-faint
+                border: "#DDE2E8",       // --rule (was --rule-strong, too heavy)
+                inner: "#E8ECF1",        // --rule-soft
+                accent: "#0A4DA1",       // --brand
+                accentSoft: "#E8F1FB",   // --brand-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#0A4DA1", "#1A65BD", "#3F73B8", "#7AA0CF"],
               fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
             },
             "mckinsey-deck": {
               base: "default",
               vars: {
-                background: "#FFFFFF",
-                quadrantFill: "#FBFCFD",
-                quadrantText: "#4A5870",
-                pointFill: "#2251FF",
-                pointText: "#051C2C",
-                titleFill: "#051C2C",
-                axisText: "#758296",
-                border: "#B8C2D0",
-                inner: "#D5DCE4",
-                accent: "#2251FF",
-                accentSoft: "#E6ECFB",
+                background: "#FFFFFF",   // --bg
+                quadrantFill: "#F8FAFD", // soft panel (slightly tinted)
+                quadrantText: "#4A5870", // --ink-soft
+                pointFill: "#2251FF",    // --blue
+                pointText: "#051C2C",    // --ink / --navy
+                titleFill: "#051C2C",    // --navy
+                axisText: "#758296",     // --ink-faint
+                border: "#D5DCE4",       // --rule (was --rule-strong)
+                inner: "#E5EAF1",        // --rule-soft
+                accent: "#2251FF",       // --blue
+                accentSoft: "#E5EDFA",   // --blue-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#2251FF", "#1A3FBD", "#6285FF", "#B8C2D0"],
               fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
             },
             "openai-paper": {
               base: "default",
               vars: {
-                background: "#FFFFFF",
-                quadrantFill: "#FAFAFA",
-                quadrantText: "#404040",
-                pointFill: "#10A37F",
-                pointText: "#0D0D0D",
-                titleFill: "#0D0D0D",
-                axisText: "#6E6E80",
-                border: "#E5E5E5",
-                inner: "#EFEFEF",
-                accent: "#10A37F",
-                accentSoft: "#E6F6F0",
+                background: "#FFFFFF",   // --bg
+                quadrantFill: "#FAFAFA", // --paper
+                quadrantText: "#404040", // --ink-soft
+                pointFill: "#10A37F",    // --teal
+                pointText: "#0D0D0D",    // --ink
+                titleFill: "#0D0D0D",    // --ink
+                axisText: "#6E6E80",     // --ink-faint
+                border: "#E5E5E5",       // --rule
+                inner: "#EFEFEF",        // --rule-soft
+                accent: "#10A37F",       // --teal
+                accentSoft: "#E6F6F0",   // --teal-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#10A37F", "#0E8C6D", "#52B89A", "#8FCDB7"],
               fontFamily: '"Söhne", "Inter", -apple-system, system-ui, sans-serif',
             },
           };
           const t = themes[spineKey];
+          // Build pie / journey / state / git slice-color overrides
+          // by cycling through the spine's monochrome `palette`.
+          // Without these, mermaid 11+ paints pie1..pie12 +
+          // fillType0..7 + git0..7 with its built-in rainbow set
+          // (violet / teal / orange) — that's the source of the
+          // "white + purple" charts on the dark spine.
+          const sliceColors = {};
+          for (let i = 0; i < 12; i++) {
+            const c = t.palette[i % t.palette.length];
+            sliceColors[`pie${i + 1}`] = c;
+          }
+          for (let i = 0; i < 8; i++) {
+            const c = t.palette[i % t.palette.length];
+            sliceColors[`fillType${i}`] = c;
+            sliceColors[`git${i}`] = c;
+            sliceColors[`gitInv${i}`] = c;
+          }
           // themeCSS shapes the rendered SVG beyond what themeVariables
           // expose. The chart title is hidden because the markdown
           // already renders an H3 caption directly above each chart —
@@ -4631,6 +4803,13 @@
           // showing it twice is mermaid's single ugliest default. Apply
           // across quadrant / xychart / pie / timeline.
           const themeCSS = `
+            /* ── SVG canvas · paint the theme bg explicitly. Without
+               this, mermaid leaves the SVG transparent and the parent
+               <pre>'s background bleeds through inconsistently across
+               diagram types — most visibly on dark spines where the
+               browser default white shows through pie/journey gaps. */
+            svg { background: ${t.vars.background}; }
+            .pieOuterCircle { stroke: ${t.vars.border} !important; }
             /* ── Quadrant chart ── */
             g.quadrant-chart text { font-family: ${t.fontFamily}; }
             g.quadrant-point > circle, .quadrant-point circle {
@@ -4643,8 +4822,73 @@
             .timeline .title-text,
             .timeline-title { display: none !important; }
 
-            /* ── xychart-beta · bars ── */
-            .xy-chart .bar { stroke: ${t.vars.background}; stroke-width: 1px; }
+            /* ── xychart-beta · refined bars ──
+               Bar WIDTH is slimmed by the post-render JS mutation
+               (see "xychart bar slimming" block after mermaid.run) --
+               CSS scaleX on SVG rects is unreliable across browsers,
+               so we mutate the rect attributes directly. Here we
+               only handle the COLOUR pass: solid accent fill, no
+               stroke, with per-position cycling through the spine's
+               4-shade monochrome palette so multi-bar charts stagger
+               tones rather than reading as one flat block. */
+            .xy-chart .bar,
+            g.bar-plot .bar,
+            g.bar-plot rect,
+            g.plot > rect {
+              fill: ${t.vars.accent} !important;
+              stroke: none !important;
+            }
+            .xy-chart .bar:nth-child(2n),
+            g.bar-plot .bar:nth-child(2n),
+            g.bar-plot rect:nth-child(2n),
+            g.plot > rect:nth-child(2n)   { fill: ${t.palette[1]} !important; }
+            .xy-chart .bar:nth-child(3n),
+            g.bar-plot .bar:nth-child(3n),
+            g.bar-plot rect:nth-child(3n),
+            g.plot > rect:nth-child(3n)   { fill: ${t.palette[2]} !important; }
+            .xy-chart .bar:nth-child(4n),
+            g.bar-plot .bar:nth-child(4n),
+            g.bar-plot rect:nth-child(4n),
+            g.plot > rect:nth-child(4n)   { fill: ${t.palette[3]} !important; }
+            /* Axis / grid refinement · 0.5px-feel hairlines, label
+               typography in the mono kicker register so the chart's
+               typography aligns with the rest of the doc. */
+            .xy-chart .background { fill: transparent !important; }
+            .xy-chart .x-axis line,
+            .xy-chart .y-axis line,
+            .xy-chart line.tick {
+              stroke: ${t.vars.border} !important;
+              stroke-width: 1px !important;
+            }
+            .xy-chart .x-axis path,
+            .xy-chart .y-axis path,
+            .xy-chart path.domain {
+              stroke: ${t.vars.titleFill} !important;
+              stroke-width: 1px !important;
+              fill: none !important;
+            }
+            .xy-chart .grid line,
+            .xy-chart .gridline,
+            .xy-chart line.grid {
+              stroke: ${t.vars.inner} !important;
+              stroke-width: 1px !important;
+              stroke-dasharray: 2 3 !important;
+            }
+            .xy-chart text,
+            .xy-chart .x-axis text,
+            .xy-chart .y-axis text {
+              font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace !important;
+              font-size: 10px !important;
+              fill: ${t.vars.axisText} !important;
+              letter-spacing: 0.06em !important;
+            }
+            /* Data labels (showDataLabel) in the kicker register too. */
+            .xy-chart .data-label,
+            .xy-chart text.data-label {
+              font-family: "SF Mono", "JetBrains Mono", Menlo, monospace !important;
+              font-size: 10px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
 
             /* ── Pie ── */
             .pieCircle { stroke: ${t.vars.background}; stroke-width: 2px; }
@@ -4878,8 +5122,11 @@
             fontFamily: t.fontFamily,
             themeCSS,
             quadrantChart: {
-              chartWidth: 640,
-              chartHeight: 480,
+              // Refined-compact · was 640×480; the chart fits inside a
+              // 740–880px article column, and 480px tall reads as a
+              // presentation slide rather than an inline exhibit.
+              chartWidth: 460,
+              chartHeight: 320,
               // Hide mermaid's own title slot — the H3 above the chart
               // is the caption. Setting padding/size to 0 keeps the
               // layout from leaving an empty band at the top.
@@ -4889,15 +5136,15 @@
               quadrantPadding: 8,
               quadrantInternalBorderStrokeWidth: 0.5,
               quadrantExternalBorderStrokeWidth: 1,
-              quadrantLabelFontSize: 12,
-              quadrantTextTopPadding: 12,
-              pointRadius: 6,
-              pointLabelFontSize: 12,
-              pointTextPadding: 8,
-              xAxisLabelFontSize: 13,
-              xAxisLabelPadding: 8,
-              yAxisLabelFontSize: 13,
-              yAxisLabelPadding: 8,
+              quadrantLabelFontSize: 11,
+              quadrantTextTopPadding: 10,
+              pointRadius: 5,
+              pointLabelFontSize: 11,
+              pointTextPadding: 6,
+              xAxisLabelFontSize: 11,
+              xAxisLabelPadding: 6,
+              yAxisLabelFontSize: 11,
+              yAxisLabelPadding: 6,
               xAxisPosition: "bottom",
               yAxisPosition: "left",
             },
@@ -4910,13 +5157,25 @@
               // when the CSS forced 12px after mermaid measured at
               // its 16px default).
               fontSize: "12.5px",
+              // darkMode flag tells mermaid whether to invert
+              // computed contrast pairs — required when we feed it
+              // dark surface colors via the "base" theme. Without
+              // this, mermaid computes text colors assuming a light
+              // canvas and ends up with low-contrast labels.
+              darkMode: t.darkMode === true,
               background: t.vars.background,
-              primaryColor: t.vars.quadrantFill,
+              // primaryColor MUST NOT be the quadrantFill (which is
+              // very dark on dark spines). Mermaid uses primaryColor
+              // as the seed for many derived colours (cScale shades,
+              // pie defaults, accent variations) — when it's near-
+              // black the derivations come out muddy. Use the spine's
+              // accent so derivations land in the brand family.
+              primaryColor: t.vars.accent,
               primaryTextColor: t.vars.titleFill,
               primaryBorderColor: t.vars.border,
               lineColor: t.vars.border,
-              secondaryColor: t.vars.quadrantFill,
-              tertiaryColor: t.vars.background,
+              secondaryColor: t.vars.accentSoft,
+              tertiaryColor: t.vars.quadrantFill,
               // All 4 quadrants share the same fill — clean matrix.
               quadrant1Fill: t.vars.quadrantFill,
               quadrant2Fill: t.vars.quadrantFill,
@@ -4987,6 +5246,42 @@
               altSectionBkgColor: t.vars.quadrantFill,
               sectionBkgColor2: t.vars.background,
               todayLineColor: t.vars.accent,
+              // ── Pie / journey / state / git · monochrome palette
+              // Cycles t.palette across mermaid's per-slice color
+              // slots so these chart types stop falling back to
+              // mermaid's built-in violet/teal rainbow defaults
+              // (the white+purple leak on dark spines).
+              ...sliceColors,
+              // ── xychart-beta · single-accent bars + matched chrome.
+              // Mermaid generates xychart SVG using these tokens BEFORE
+              // our themeCSS overrides apply, so they have to be set
+              // here to get the right fill at render time (not just
+              // post-paint via CSS). Palette joined as comma-separated
+              // string per mermaid's plotColorPalette contract.
+              xyChart: {
+                backgroundColor: "transparent",
+                titleColor: t.vars.titleFill,
+                xAxisLabelColor: t.vars.axisText,
+                xAxisTitleColor: t.vars.titleFill,
+                xAxisTickColor: t.vars.border,
+                xAxisLineColor: t.vars.titleFill,
+                yAxisLabelColor: t.vars.axisText,
+                yAxisTitleColor: t.vars.titleFill,
+                yAxisTickColor: t.vars.border,
+                yAxisLineColor: t.vars.titleFill,
+                plotColorPalette: t.palette.join(","),
+              },
+              pieTitleTextSize: "0px",
+              pieTitleTextColor: t.vars.titleFill,
+              pieSectionTextColor: t.vars.titleFill,
+              pieSectionTextSize: "11px",
+              pieLegendTextColor: t.vars.titleFill,
+              pieLegendTextSize: "11px",
+              pieStrokeColor: t.vars.background,
+              pieStrokeWidth: "1px",
+              pieOuterStrokeColor: t.vars.border,
+              pieOuterStrokeWidth: "1px",
+              pieOpacity: "1",
             },
             flowchart: {
               useMaxWidth: true,
@@ -5004,30 +5299,30 @@
             },
             sequence: {
               useMaxWidth: true,
-              diagramMarginX: 16,
-              diagramMarginY: 8,
-              actorMargin: 32,
-              boxMargin: 6,
-              boxTextMargin: 4,
-              noteMargin: 8,
-              messageMargin: 22,
+              diagramMarginX: 12,
+              diagramMarginY: 6,
+              actorMargin: 24,
+              boxMargin: 5,
+              boxTextMargin: 3,
+              noteMargin: 6,
+              messageMargin: 18,
               mirrorActors: false,
               bottomMarginAdj: 0,
-              actorFontSize: 12,
-              messageFontSize: 11,
-              noteFontSize: 11,
+              actorFontSize: 11,
+              messageFontSize: 10,
+              noteFontSize: 10,
             },
             gantt: {
               useMaxWidth: true,
-              fontSize: 11,
-              sectionFontSize: 11,
+              fontSize: 10,
+              sectionFontSize: 10,
               numberSectionStyles: 3,
-              leftPadding: 80,
-              topPadding: 24,
-              rightPadding: 24,
-              barGap: 4,
-              barHeight: 18,
-              gridLineStartPadding: 36,
+              leftPadding: 64,
+              topPadding: 18,
+              rightPadding: 18,
+              barGap: 3,
+              barHeight: 14,
+              gridLineStartPadding: 28,
             },
             mindmap: {
               useMaxWidth: true,
@@ -5058,15 +5353,28 @@
             // `xychart` — keep BOTH so the config isn't fragile across
             // CDN bumps).
             xyChart: {
-              width: 720,
-              height: 360,
+              // Was 720×360 · oversized for an inline exhibit. 560×260
+              // sits comfortably inside a 740px article column without
+              // pretending to be a presentation slide. Slightly shorter
+              // than the 320px we tried first — squat-ish proportions
+              // read as "data exhibit" while taller bars look like a
+              // pitch slide.
+              width: 560,
+              height: 260,
               titlePadding: 0,
               titleFontSize: 0,
               showTitle: false,
               showDataLabel: true,
-              plotReservedSpacePercent: 50,
-              xAxis: { labelFontSize: 12, titleFontSize: 0, showTitle: false },
-              yAxis: { labelFontSize: 12, titleFontSize: 13 },
+              // Refined bars · 50 → 32 → 20. mermaid xychart's bar
+              // width is `slotWidth × reservedPercent / 100`, where
+              // slotWidth scales inversely with bar count — so a value
+              // tuned for 8 bars looks chunky on 3 bars (each slot
+              // is ~3× wider). 20 keeps 8-12-bar charts legible while
+              // 3-bar charts come out as ~36px-wide thin bars rather
+              // than 60-90px filler blocks.
+              plotReservedSpacePercent: 20,
+              xAxis: { labelFontSize: 10, titleFontSize: 0, showTitle: false },
+              yAxis: { labelFontSize: 10, titleFontSize: 10 },
             },
             // Pie · legend on the right, slice labels disabled so wide
             // labels don't push the chart off-screen. The legend
@@ -5082,6 +5390,121 @@
             },
           });
           await mermaid.run({ querySelector: ".mermaid" });
+          // ── Post-render colour forcing ───────────────────────────
+          // Mermaid 10's themeVariables don't fully replace built-in
+          // colour defaults on every chart type — quadrant fills,
+          // pie slices, journey faces and similar can leak the
+          // theme preset's primary colour (purple/violet on
+          // theme:"dark"). Walk every rendered SVG and force-set
+          // fills directly on the elements we know about. Bulletproof
+          // because it runs LAST, after mermaid's own paint.
+          try {
+            document.querySelectorAll('.mermaid svg').forEach((svg) => {
+              // ── Quadrant chart ──
+              // The four quadrant rects + internal/external borders +
+              // point dots. Mermaid 10 uses class `.quadrant-fill` on
+              // each filled rect inside the chart group.
+              svg.querySelectorAll('rect.quadrant-fill, .quadrant-fill').forEach((el) => {
+                el.setAttribute('fill', t.vars.quadrantFill);
+              });
+              // Defense for any rect inside .quadrant-chart that wasn't
+              // class-tagged (mermaid version drift). Skip the chart's
+              // outer container rect (full-svg-width).
+              const chartG = svg.querySelector('g.quadrant-chart, .quadrant-chart');
+              if (chartG) {
+                const svgWidth = parseFloat(svg.getAttribute('width') || '0');
+                chartG.querySelectorAll(':scope > g > rect, :scope > rect').forEach((el) => {
+                  const w = parseFloat(el.getAttribute('width') || '0');
+                  if (w > 0 && (svgWidth === 0 || w < svgWidth * 0.95)) {
+                    el.setAttribute('fill', t.vars.quadrantFill);
+                  }
+                });
+              }
+              // Quadrant data points · pointFill (the spine's
+              // strongest brand colour for marker-style data) with a
+              // frame-bg stroke for separation from the quadrant fill.
+              svg.querySelectorAll('circle.quadrant-point, .quadrant-point circle, g.quadrant-point > circle').forEach((el) => {
+                el.setAttribute('fill', t.vars.pointFill);
+                el.setAttribute('stroke', t.vars.background);
+              });
+              // ── Pie chart slices · cycle palette, force stroke ──
+              svg.querySelectorAll('path.pieCircle').forEach((el, i) => {
+                el.setAttribute('fill', t.palette[i % t.palette.length]);
+                el.setAttribute('stroke', t.vars.background);
+              });
+              // Pie outer ring border.
+              svg.querySelectorAll('.pieOuterCircle, circle.pieOuterCircle').forEach((el) => {
+                el.setAttribute('stroke', t.vars.border);
+                el.setAttribute('fill', 'none');
+              });
+              // ── Journey · face circles cycle palette ──
+              svg.querySelectorAll('circle.face-circle, .face-circle').forEach((el, i) => {
+                el.setAttribute('fill', t.palette[i % t.palette.length]);
+              });
+              // ── Generic SVG canvas guard · any rect that fills the
+              // entire SVG and was painted with mermaid's default
+              // primaryColor (could be off-brand on dark spines). Cap
+              // its fill to t.vars.background.
+              const root = svg.querySelector(':scope > rect, :scope > g > rect.background');
+              if (root) {
+                const w = parseFloat(root.getAttribute('width') || '0');
+                const sw = parseFloat(svg.getAttribute('width') || '0');
+                if (w > 0 && sw > 0 && w >= sw * 0.95) {
+                  root.setAttribute('fill', t.vars.background);
+                }
+              }
+            });
+          } catch (forceColorErr) {
+            console.warn('[mermaid] post-render colour force failed:', forceColorErr);
+          }
+          // ── Post-render xychart bar slimming ─────────────────────
+          // mermaid xychart-beta renders bars at near-full slot width
+          // regardless of `plotReservedSpacePercent` in some 11.x
+          // versions, and CSS transform: scaleX(...) on the bar rects
+          // is unreliable across browsers (transform-box: fill-box
+          // has Chrome/Safari gaps for SVG rect). Direct attribute
+          // mutation is bulletproof: we walk every rendered xychart
+          // SVG, identify the bar rects via class + geometric
+          // heuristic (rect inside g.plot, height > width, not full-
+          // plot wide), and shrink each rect's `width` to ~50% with
+          // a matching `x` shift so it stays centered in its slot.
+          // Result: a 3-bar chart goes from 3 chunky filler blocks
+          // to 3 thin accents on a wide whitespace canvas — refined-
+          // exhibit, not slide. */
+          try {
+            const xyHosts = document.querySelectorAll('.mermaid');
+            xyHosts.forEach((host) => {
+              const svg = host.querySelector('svg');
+              if (!svg) return;
+              // Only xychart-beta SVGs · skip quadrant / pie / etc.
+              if (!svg.matches('[id^="xychart"], [aria-roledescription="xychart"]')
+                  && !svg.querySelector('g.plot, g.bar-plot, g[class*="-plot"], rect.bar')) {
+                return;
+              }
+              // Catch rects across mermaid 11.x naming conventions.
+              const candidates = svg.querySelectorAll(
+                'rect.bar, g.bar-plot rect, g.plot rect, g[class*="plot"] > rect'
+              );
+              candidates.forEach((rect) => {
+                const x = parseFloat(rect.getAttribute('x'));
+                const w = parseFloat(rect.getAttribute('width'));
+                const h = parseFloat(rect.getAttribute('height'));
+                if (!Number.isFinite(x) || !Number.isFinite(w) || !Number.isFinite(h)) return;
+                // Skip the plot-background rect (full plot width).
+                // Don't filter on h-vs-w ratio — that catches short
+                // bars (small data values) and leaves them at full
+                // width while their taller siblings shrink, giving
+                // a mismatched chart.
+                if (w >= 200) return;
+                const scale = 0.5;
+                const newW = w * scale;
+                rect.setAttribute('width', newW.toFixed(2));
+                rect.setAttribute('x', (x + (w - newW) / 2).toFixed(2));
+              });
+            });
+          } catch (slimErr) {
+            console.warn('[mermaid] xychart bar slimming failed:', slimErr);
+          }
         } catch (e) {
           // Per-diagram failures already render as inline error overlays —
           // log and move on.

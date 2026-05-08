@@ -13,6 +13,8 @@ export type Provider = "anthropic" | "openai" | "google" | "xai" | "deepseek";
 export type ModelV =
   | "sonnet-4-6"
   | "opus-4-7"
+  | "opus-4-6"
+  | "opus-4-6-fast"
   | "haiku-4-5"
   | "gpt-5-4"
   | "gpt-5-4-mini"
@@ -70,6 +72,24 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Opus 4.7",
     contextBudget: 200_000,
     deck: "deep reasoning",
+  },
+  "opus-4-6": {
+    v: "opus-4-6",
+    provider: "anthropic",
+    directApiId: "claude-opus-4-6",
+    openrouterId: "anthropic/claude-opus-4.6",
+    displayName: "Opus 4.6",
+    contextBudget: 200_000,
+    deck: "prior-gen flagship",
+  },
+  "opus-4-6-fast": {
+    v: "opus-4-6-fast",
+    provider: "anthropic",
+    directApiId: "claude-opus-4-6-fast",
+    openrouterId: "anthropic/claude-opus-4.6-fast",
+    displayName: "Opus 4.6 Fast",
+    contextBudget: 200_000,
+    deck: "faster 4.6 · same intelligence",
   },
   "haiku-4-5": {
     v: "haiku-4-5",

@@ -21,10 +21,15 @@
   /* Cross-spine token aliases · used by the unified design system. */
   --accent: var(--teal);
   --warn: var(--red);
-  --sans: "Söhne", "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui,
+  /* CJK dispatch handles lead each cascade · see report.html
+     @font-face block. Without "cjk-*" first, Chrome's print pipeline
+     lands on Arial mid-cascade and renders Chinese as .notdef. */
+  --sans: "cjk-sans",
+          "Söhne", "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui,
           "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans CN",
           "Noto Sans CJK SC", sans-serif;
-  --mono: "Söhne Mono", "JetBrains Mono", "SF Mono", "Menlo",
+  --mono: "cjk-mono",
+          "Söhne Mono", "JetBrains Mono", "SF Mono", "Menlo",
           "PingFang SC", "Source Han Sans CN", monospace;
 }
 
@@ -412,7 +417,7 @@ html, body {
 .body section.section-methodology strong { color: var(--ink-soft); font-family: var(--mono); }
 
 .body pre.codeblock { background: var(--paper); border: 1px solid var(--rule); padding: 14px 16px; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); border-radius: 4px; }
-.body pre.mermaid { background: var(--paper); border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); border-radius: 4px; padding: 28px 24px 24px; margin: 22px 0 28px; min-height: 380px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+.body pre.mermaid { background: var(--paper); border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); border-radius: 4px; padding: 20px 18px 18px; margin: 22px 0 28px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
 .body pre.mermaid svg text { font-family: var(--sans) !important; }
 
 .foot-rule {

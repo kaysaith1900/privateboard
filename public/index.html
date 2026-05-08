@@ -2781,10 +2781,26 @@
   }
   /* Word / character count · same register as `.brief-meta-line` but
      keep numerals tabular so the figure doesn't jitter while the
-     parent flex-row gets re-rendered (e.g. on tab switch). */
+     parent flex-row gets re-rendered (e.g. on tab switch).
+     Tier colour communicates length-fit for the room's tone:
+       · thin     · text-faint  · "could be fuller"
+       · sweet    · lime        · bullseye
+       · dense    · amber       · past sweet zone, still readable
+       · long     · red soft    · approaching "filed not read"
+       · too-long · red strong  · likely skimmed, not read
+     The sweet band itself is tone-aware (brainstorm < standard <
+     research/critique) — see `_briefWordCount` in app.js. Hover
+     surfaces a tone-aware tip via `title`. */
   .brief-meta-words {
     font-variant-numeric: tabular-nums;
+    cursor: default;
+    transition: color 0.12s;
   }
+  .brief-meta-words.is-thin     { color: var(--text-faint); }
+  .brief-meta-words.is-sweet    { color: var(--lime); }
+  .brief-meta-words.is-dense    { color: var(--amber); }
+  .brief-meta-words.is-long     { color: var(--red); opacity: 0.85; }
+  .brief-meta-words.is-too-long { color: var(--red); font-weight: 700; }
 
   /* Signatures · folded into the meta line, no top border */
   .brief-signed {
@@ -3912,6 +3928,27 @@
     padding: 5px 8px;
     background: var(--bg);
     border: 0.5px solid var(--line);
+  }
+  /* Items past index 1 hide by default; the [+ show N more] toggle
+     adds .sa-points-expanded to the parent <ul> to reveal them. */
+  .sa-points .sa-point-extra { display: none; }
+  .sa-points.sa-points-expanded .sa-point-extra { display: grid; }
+  .sa-points-toggle {
+    align-self: flex-start;
+    margin: 6px 0 0;
+    padding: 2px 0;
+    background: transparent;
+    border: none;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .sa-points-toggle:hover { color: var(--text-soft); }
+  .sa-points-toggle:focus-visible {
+    outline: 1px dotted var(--text-faint);
+    outline-offset: 2px;
   }
   .sa-point-mark {
     color: var(--lime);

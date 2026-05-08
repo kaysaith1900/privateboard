@@ -19,6 +19,8 @@
   const MODEL_LABELS = {
     "sonnet-4-6":       "Sonnet 4.6",
     "opus-4-7":         "Opus 4.7",
+    "opus-4-6":         "Opus 4.6",
+    "opus-4-6-fast":    "Opus 4.6 Fast",
     "haiku-4-5":        "Haiku 4.5",
     "gpt-5-5":          "GPT-5.5",
     "gpt-5-4":          "GPT-5.4",
@@ -41,9 +43,11 @@
    *  enough context (label · provider · short deck) to choose at a
    *  glance. */
   const AGENT_COMPOSER_MODELS = [
-    { v: "opus-4-7",         label: "Claude Opus 4.7",   provider: "Anthropic", deck: "deep reasoning" },
-    { v: "sonnet-4-6",       label: "Claude Sonnet 4.6", provider: "Anthropic", deck: "balanced · default" },
-    { v: "haiku-4-5",        label: "Claude Haiku 4.5",  provider: "Anthropic", deck: "fast · low-cost" },
+    { v: "opus-4-7",         label: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning" },
+    { v: "sonnet-4-6",       label: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · default" },
+    { v: "opus-4-6",         label: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
+    { v: "opus-4-6-fast",    label: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
+    { v: "haiku-4-5",        label: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },
     { v: "gpt-5-5-pro",      label: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
     { v: "gpt-5-5",          label: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },
     { v: "gpt-5-4",          label: "GPT-5.4",           provider: "OpenAI",    deck: "general · 1M ctx" },
@@ -4155,10 +4159,25 @@
         stats.probeCount > 0   ? `<span class="sa-chip"><span class="sa-chip-mark">✎</span>${stats.probeCount} ${this.escape(t.probed)}</span>` : "",
       ].filter(Boolean).join("");
 
+      // Cap default-visible upvoted points at 2 · the rest collapse
+      // behind a [+ N more] toggle. Long lists were dominating the
+      // analytics tile; capping keeps the section as a tight strip
+      // and lets the user opt in.
+      const VALUE_PREVIEW_CAP = 2;
+      const moreLabel = (n) => isZh ? `[ + 展开剩余 ${n} 条 ]` : `[ + show ${n} more ]`;
+      const lessLabel = isZh ? "[ 收起 ]" : "[ collapse ]";
       const upvotedHtml = stats.upvotedPoints.length > 0
-        ? `<ul class="sa-points">${stats.upvotedPoints.map((p) =>
-            `<li class="sa-point"><span class="sa-point-mark">▲</span><span class="sa-point-body">${this.escape(p.body)}</span></li>`
-          ).join("")}</ul>`
+        ? (() => {
+            const items = stats.upvotedPoints.map((p, i) => {
+              const cls = i >= VALUE_PREVIEW_CAP ? "sa-point sa-point-extra" : "sa-point";
+              return `<li class="${cls}"><span class="sa-point-mark">▲</span><span class="sa-point-body">${this.escape(p.body)}</span></li>`;
+            }).join("");
+            const overflow = stats.upvotedPoints.length - VALUE_PREVIEW_CAP;
+            const toggle = overflow > 0
+              ? `<button type="button" class="sa-points-toggle" data-sa-toggle aria-expanded="false" data-more-label="${this.escape(moreLabel(overflow))}" data-less-label="${this.escape(lessLabel)}">${this.escape(moreLabel(overflow))}</button>`
+              : "";
+            return `<ul class="sa-points" data-sa-points>${items}</ul>${toggle}`;
+          })()
         : "";
       const valueBlock = (valueChips || upvotedHtml)
         ? `
@@ -4230,6 +4249,21 @@
         briefCard.insertBefore(block, briefInner);
       } else {
         briefCard.parentNode.insertBefore(block, briefCard);
+      }
+
+      // Wire the [+ show N more] toggle for the upvoted points list.
+      const toggleBtn = block.querySelector("[data-sa-toggle]");
+      if (toggleBtn) {
+        const list = block.querySelector("[data-sa-points]");
+        toggleBtn.addEventListener("click", () => {
+          const expanded = toggleBtn.getAttribute("aria-expanded") === "true";
+          const next = !expanded;
+          toggleBtn.setAttribute("aria-expanded", String(next));
+          if (list) list.classList.toggle("sa-points-expanded", next);
+          toggleBtn.textContent = next
+            ? toggleBtn.dataset.lessLabel
+            : toggleBtn.dataset.moreLabel;
+        });
       }
     },
 
@@ -8674,20 +8708,87 @@
         .replace(/&[a-z]+;/gi, " ");                // HTML entities
       const cjk = stripped.match(/[一-鿿㐀-䶿豈-﫿぀-ゟ゠-ヿ]/g);
       const cjkCount = cjk ? cjk.length : 0;
-      // CJK-dominant docs: count chars (the "字数" the user reads off
-      // a manuscript). The 30% threshold catches mixed zh-en docs
-      // where the body is mostly Chinese with English brand names —
-      // the natural unit there is still characters, not words.
-      if (cjkCount >= stripped.length * 0.3 && cjkCount > 80) {
-        const fmt = cjkCount.toLocaleString("en-US");
-        return `~${fmt} 字`;
+      const isCjk = cjkCount >= stripped.length * 0.3 && cjkCount > 80;
+      let count;
+      let label;
+      if (isCjk) {
+        count = cjkCount;
+        label = `~${count.toLocaleString("en-US")} 字`;
+      } else {
+        const words = stripped.trim().split(/\s+/).filter((w) => w.length > 0);
+        count = words.length;
+        if (count === 0) return null;
+        label = count === 1 ? "1 word" : `${count.toLocaleString("en-US")} words`;
       }
-      // English / Latin: whitespace-split, ignore empty tokens.
-      const words = stripped.trim().split(/\s+/).filter((w) => w.length > 0);
-      const n = words.length;
-      if (n === 0) return null;
-      const fmt = n.toLocaleString("en-US");
-      return n === 1 ? "1 word" : `${fmt} words`;
+      // Tone-aware sweet band · brainstorm recaps run lean (concrete
+      // ideas, not deep analysis); standard rooms (constructive /
+      // debate) land in the middle; research / critique rooms shoulder
+      // a denser shape (assumptions + scenarios + indicators + threats
+      // to validity all naturally lengthen the body).
+      const tone = (this.currentRoom?.mode || "constructive").toLowerCase();
+      const bandKind = tone === "brainstorm"
+        ? "lean"
+        : (tone === "research" || tone === "critique" ? "dense" : "standard");
+      // Brainstorm `lean` was originally 600-1500 zh / 400-1000 en —
+      // calibrated against "quick recap" briefs with 1-2 directors.
+      // That undercounted real brainstorm rooms: 3-4 directors × 2-3
+      // rounds × 2-3 ideas-per-turn easily produces 12-20 ideas, each
+      // worth 80-150 words (concept + why-it-matters + what-it-opens).
+      // 1500-2200 words / 2000-3000 字 is a healthy, idea-dense
+      // brainstorm — bumping the band so that lands in `sweet`, not
+      // `dense`. Standard / dense bands unchanged.
+      const bands = isCjk
+        ? ({
+            lean:     { sweetLo: 1000, sweetHi: 2200, denseHi: 3800, longHi: 5500 },
+            standard: { sweetLo: 1500, sweetHi: 2800, denseHi: 4500, longHi: 6500 },
+            dense:    { sweetLo: 2500, sweetHi: 4500, denseHi: 6500, longHi: 8000 },
+          })[bandKind]
+        : ({
+            lean:     { sweetLo: 800,  sweetHi: 1600, denseHi: 2800, longHi: 4000 },
+            standard: { sweetLo: 1000, sweetHi: 1800, denseHi: 3000, longHi: 4500 },
+            dense:    { sweetLo: 1800, sweetHi: 3000, denseHi: 4500, longHi: 5500 },
+          })[bandKind];
+      let tier;
+      if (count < bands.sweetLo)        tier = "thin";
+      else if (count <= bands.sweetHi)  tier = "sweet";
+      else if (count <= bands.denseHi)  tier = "dense";
+      else if (count <= bands.longHi)   tier = "long";
+      else                              tier = "too-long";
+      return { label, tier, count, isCjk, tone, bands };
+    },
+
+    /** Tooltip explaining what the brief-card word-count chip's colour
+     *  means · tone-aware so the user understands why a 2,500-word
+     *  brainstorm recap reads "dense" while the same length in a
+     *  research note reads "sweet." */
+    _briefWordCountTip(wc) {
+      if (!wc) return "";
+      const isZh = wc.isCjk;
+      const toneLabel = ({
+        brainstorm:   isZh ? "脑暴" : "brainstorm",
+        constructive: isZh ? "构建" : "constructive",
+        debate:       isZh ? "辩论" : "debate",
+        research:     isZh ? "研究" : "research",
+        critique:     isZh ? "评审" : "critique",
+      })[wc.tone] || wc.tone;
+      const range = `${wc.bands.sweetLo.toLocaleString("en-US")}-${wc.bands.sweetHi.toLocaleString("en-US")}`;
+      const unit = isZh ? "字" : "words";
+      const copy = isZh
+        ? {
+            "thin":     `偏短 · ${toneLabel} 模式甜点区约 ${range} ${unit}`,
+            "sweet":    `甜点区 · ${toneLabel} 模式正合适`,
+            "dense":    `偏密集 · 已超出 ${toneLabel} 模式甜点区，但仍可读`,
+            "long":     `偏长 · 接近"会被存档而非阅读"的临界`,
+            "too-long": `过长 · 大概率会被快速跳读`,
+          }
+        : {
+            "thin":     `Lean · ${toneLabel} sweet zone is ${range} ${unit}`,
+            "sweet":    `Sweet zone for ${toneLabel} · most read-through-able length`,
+            "dense":    `Dense · past the ${toneLabel} sweet zone, still readable`,
+            "long":     `Long · approaching "filed instead of read"`,
+            "too-long": `Too long · likely to be skimmed, not read`,
+          };
+      return copy[wc.tier] || "";
     },
 
     /** Render the brief version tab strip · shared by both the error
@@ -8938,12 +9039,13 @@
               ? `<div class="brief-info brief-info-generating">${this.renderBriefStages(b)}</div>`
               : (() => {
                   const wc = this._briefWordCount(b);
+                  const tip = this._briefWordCountTip(wc);
                   return `<div class="brief-info">
                     <div class="brief-kicker">// filed by ${this.escape(this.currentChair?.name || "the chair")}</div>
                     <h2 class="brief-title" data-brief-title>${this.escape(b.title || "(untitled)")}</h2>
                     <div class="brief-meta-row">
                       <span class="brief-meta-line">${this.currentMembers.length} authors</span>
-                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}
+                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words is-${this.escape(wc.tier)}" title="${this.escape(tip)}">${this.escape(wc.label)}</span>` : ""}
                       <div class="brief-signed">
                         <div class="brief-signed-avatars">${signed}</div>
                       </div>
@@ -9742,16 +9844,14 @@
       }
       return;
     }
-    // Follow-up picker · row click toggles the director
-    const followupPickRow = e.target.closest("[data-followup-pick-id]");
-    if (followupPickRow) {
-      // Suppress default checkbox toggle so we drive state via our
-      // single source of truth (_followupCastState).
-      e.preventDefault();
-      const id = followupPickRow.getAttribute("data-followup-pick-id");
-      if (id) app.toggleFollowUpCastDirector(id);
-      return;
-    }
+    // Follow-up picker · row click is handled via the `change` event
+    // on the inner checkbox (registered separately below), mirroring
+    // the inline composer's pattern. The earlier `preventDefault` +
+    // direct toggle approach left the checkbox's visual state stuck:
+    // preventDefault cancelled the native toggle but the programmatic
+    // `cb.checked = on` raced with the bubble in a way that didn't
+    // visually re-mark the checkbox. The change-event flow lets the
+    // browser draw the check, then syncs state from the new cb state.
     // Click on a follow-up tile in the parent room's "Follow-up rooms"
     // strip · navigate to the child. Click on the parent banner of a
     // follow-up room · navigate up.
@@ -10358,6 +10458,18 @@
     const row = cb.closest("[data-composer-pick-id]");
     const id = row && row.getAttribute("data-composer-pick-id");
     if (id) app.toggleComposerDirector(id);
+  });
+  // Follow-up overlay's director picker · same pattern as the inline
+  // composer above. Listen for `change` on the inner checkbox so the
+  // browser draws the check first, then sync `_followupCastState`
+  // from the post-toggle state. Was previously click + preventDefault,
+  // which left the checkbox visually unticked.
+  document.addEventListener("change", (e) => {
+    const cb = e.target;
+    if (!cb || !cb.matches || !cb.matches('[data-followup-pick-id] input[type="checkbox"]')) return;
+    const row = cb.closest("[data-followup-pick-id]");
+    const id = row && row.getAttribute("data-followup-pick-id");
+    if (id) app.toggleFollowUpCastDirector(id);
   });
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-send-button]");

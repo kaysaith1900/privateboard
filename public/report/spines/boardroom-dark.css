@@ -51,12 +51,17 @@
      of every cascade — they're guaranteed-present on Mac and serve
      as a last-resort glyph source if the preferred CJK families
      aren't available (some print / headless contexts). */
-  --mono: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
+  /* CJK dispatch handles lead each cascade · see report.html
+     @font-face block. Without "cjk-*" first, Chrome's print pipeline
+     lands on Arial mid-cascade and renders Chinese as .notdef. */
+  --mono: "cjk-mono",
+          "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
           "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
           "Source Han Sans CN", "Noto Sans CJK SC",
           "Songti SC", "STSong",
           "Segoe UI", system-ui, sans-serif;
-  --sans: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
+  --sans: "cjk-sans",
+          "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
           "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
           "Source Han Sans CN", "Noto Sans CJK SC",
           "Songti SC", "STSong",
@@ -69,7 +74,8 @@
      fall through to PingFang SC first (sans) — user preference is
      that Chinese reads in PingFang globally. Songti / Source Han
      Serif sit deep as last-resort fallbacks. */
-  --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
+  --serif: "cjk-serif",
+           "Charter", "Source Serif Pro", "Iowan Old Style",
            "Georgia",
            "PingFang SC", "PingFang TC", "Hiragino Sans GB",
            "Source Han Sans CN", "Noto Sans CJK SC",
@@ -1047,7 +1053,7 @@ html, body {
   background: var(--panel-2);
   border-top: 2px solid var(--text);
   border-bottom: 1px solid var(--line-bright);
-  padding: 28px 24px 24px;
+  padding: 20px 18px 18px;
   margin: 22px 0 28px;
   text-align: center;
   overflow-x: auto;
@@ -1055,7 +1061,11 @@ html, body {
   font-size: 11px;
   color: var(--text-faint);
   line-height: 1.4;
-  min-height: 360px;
+  /* No min-height · the chart's own dimensions (set in mermaid init)
+     drive the frame size. Forcing 360px left empty bands above /
+     below smaller diagrams (sequence, journey, mindmap) and pushed
+     the design toward "presentation slide" rather than "inline
+     exhibit". Refined-compact = the frame sizes to its content. */
 }
 .body pre.mermaid svg {
   max-width: 100%;

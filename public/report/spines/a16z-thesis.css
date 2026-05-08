@@ -49,15 +49,21 @@
      as PingFang globally (user preference). Songti SC remains as a
      last-resort fallback for headless contexts that can't reach
      PingFang's font directory. */
-  --serif: "Charter", "Source Serif Pro", "Iowan Old Style", Georgia,
+  /* CJK dispatch handles lead each cascade · see report.html
+     @font-face block. Without "cjk-*" first, Chrome's print pipeline
+     lands on Arial mid-cascade and renders Chinese as .notdef. */
+  --serif: "cjk-serif",
+           "Charter", "Source Serif Pro", "Iowan Old Style", Georgia,
            "PingFang SC", "PingFang TC", "Hiragino Sans GB",
            "Source Han Sans CN", "Noto Sans CJK SC",
            "Songti SC", "STSong", serif;
-  --sans: "Inter", "Helvetica Neue", "Arial", -apple-system, BlinkMacSystemFont,
+  --sans: "cjk-sans",
+          "Inter", "Helvetica Neue", "Arial", -apple-system, BlinkMacSystemFont,
           "PingFang SC", "PingFang TC", "Hiragino Sans GB",
           "Source Han Sans CN", "Noto Sans CJK SC",
           "Songti SC", "STSong", sans-serif;
-  --mono: "SF Mono", "JetBrains Mono", "Menlo",
+  --mono: "cjk-mono",
+          "SF Mono", "JetBrains Mono", "Menlo",
           "PingFang SC", "PingFang TC", "Hiragino Sans GB",
           "Source Han Sans CN", "Songti SC", "STSong", monospace;
 }
@@ -1086,9 +1092,8 @@ html, body {
   background: transparent;
   border-top: 1px solid var(--gold);
   border-bottom: 1px solid var(--rule);
-  padding: 22px 0 18px;
+  padding: 18px 0 14px;
   margin: 20px 0 26px;
-  min-height: 360px;
   text-align: center;
   font-family: var(--mono);
   font-size: 11px;

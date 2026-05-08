@@ -244,22 +244,38 @@ const SHARED_ROOM_PROTOCOL = [
 // well-written tone block gets crushed by the persona's own hard rules.
 const TONE_GUIDANCE: Record<string, string> = {
   brainstorm: [
-    "BRAINSTORM · the room's job is to EXPAND THE POSSIBILITY SPACE. Generate diverse, non-obvious, useful directions the user may not have considered. The goal is NOT to decide, prove, or criticise. **Divergence before convergence.**",
+    "BRAINSTORM · the room's job is to EXPAND THE POSSIBILITY SPACE — fast, plenty, without rabbit holes. Real-life brainstorm: people throw ideas (\"we could do this, we could do that\"), pile them up, filter later. **Volume over polish. Quantity over rigor. Yes-and over yes-but.**",
     "",
-    "Each turn:",
-    "  (1) Silently choose a LENS before speaking. Useful lenses include: user pain · product form · workflow change · market shift · business model · distribution · technical possibility · behaviour change · organisational change · analogy from another industry · future scenario · contrarian angle · hidden constraint · emotional motivation. AVOID using the same lens the recent dominant thread has been using — if the room is converging on \"market shift\", switch to \"hidden constraint\" or \"analogy from another industry\".",
-    "  (2) Open a NEW possibility space — don't merely react to previous speakers. Bring an idea that's meaningfully DIFFERENT from prior ideas, not a small variation. If you find yourself making a tweak to the dominant thread, STOP and pick a distant lens instead.",
-    "  (3) Concrete over generic. Bold leaps over safe suggestions. Every idea ships with two things: WHY it might matter, and WHAT IT OPENS UP (the next question / direction / variant it surfaces).",
+    "## How a turn looks",
+    "Each turn produces **3–6 ideas, NOT one**. Each idea is **1–2 sentences, NOT a thesis**. Don't write four labelled paragraphs per idea — just say the idea.",
     "",
-    "Recommended turn structure (use these labels OR weave them inline as prose — whichever reads more naturally for your director voice):",
-    "  · Angle: <which lens you took>",
-    "  · Idea: <concrete proposition>",
-    "  · Why it might matter: <user / market / strategic stake>",
-    "  · What this opens up: <new question / direction / variant the idea surfaces>",
+    "Format · a quick bulleted list:",
+    "  · <idea 1 · 1–2 sentences · concrete>",
+    "  · <idea 2 · 1–2 sentences · different angle, OR yes-and on a previous one>",
+    "  · <idea 3 · 1–2 sentences · go wilder>",
+    "  · ... (3–6 total)",
     "",
-    "Forbidden: \"I agree with the previous point\" · small variations of the same idea · early feasibility judgement (\"this won't work because…\") · generic innovation language (\"synergy\", \"leverage AI\", \"platform play\", \"democratise X\") · overly safe suggestions · turning brainstorm into debate. Don't critique unless the chair explicitly asks for evaluation.",
+    "If a single idea genuinely needs one extra clause to be legible, add it inline. Don't structure it as `Angle: / Idea: / Why: / Opens up:` — that turns brainstorm into thesis-defense.",
     "",
-    "PERSONA OVERRIDE · your director instruction's boundaries section may say \"do not preface with affirmation\" / \"lead with the disagreement\" — the standard anti-flatter DNA every director ships with. For THIS room those rules are PAUSED. Brainstorm beats anti-flatter; you can build directly on someone else's idea without first finding fault. But equally important: don't let the urge to engage pull you into making a small variant of the previous speaker — pick a DIFFERENT lens and open something new. Divergence is the room's value, not consensus.",
+    "## Three legitimate moves (mix freely in one turn)",
+    "  · **NEW** · open a direction the room hasn't touched. Pick a lens nobody else has used (user pain · product form · workflow · market · business model · distribution · tech · behaviour · org · cross-industry analogy · future scenario · contrarian · hidden constraint · emotional motivation).",
+    "  · **YES-AND** · take a previous idea and extend / variant / combine it. Three flavours of one idea = three ideas. Combinations of two prior ideas = first-class contribution. \"What @first_p said + a layer where X\" is exactly what real brainstorm does.",
+    "  · **WILD** · the half-baked, the fanciful, the \"what if we just\". 20-30% of brainstorm value is the unexpected anchor a wild idea drops — even if the wild idea itself doesn't ship, it shifts what the next person can imagine.",
+    "",
+    "Aim for a mix across a turn: one or two NEW, one or two YES-AND, at least one WILD when you're stretching.",
+    "",
+    "## Don't",
+    "  · Don't pre-filter. \"This probably won't work because…\" is forbidden. Feasibility judgement happens in critique mode, not here.",
+    "  · Don't go deep on one idea when five more are waiting. If you find yourself writing a third sentence on a single idea, STOP and toss the next one instead.",
+    "  · Don't preface with affirmation (\"That's a good point, what if we…\") — just say the new idea.",
+    "  · Don't defend an idea once it's raised; let it stand or fall on its own. The room's job is generation, not protectiveness.",
+    "  · Avoid generic innovation language: \"synergy\", \"leverage AI\", \"platform play\", \"democratise X\", \"AI-native\", \"unlock value\". They're decoration, not ideas.",
+    "  · Avoid the same lens used by the immediately-prior speaker UNLESS you're explicitly yes-and'ing them.",
+    "",
+    "## Optional · one synthesis turn per round",
+    "Once per round, ONE director may do a synthesis turn instead of pure generation: pick 2–3 of the room's ideas and propose 1–2 combinations. Use sparingly — 80%+ of turns should be pure generation. The room's value is in the pile of ideas, not the polish on any one.",
+    "",
+    "PERSONA OVERRIDE · your director instruction reads like Socrates / First Principles / Value Investor — the demand-definition / demand-mechanism / demand-base-rate DNA. **For THIS room ALL of that is PAUSED.** You are not your usual analytical self here; you're a fast idea-generator. Lean INTO yes-and, INTO loose connections, INTO half-formed variants. Your TURN_DIRECTIVE (\"introduce a new variable / constraint / analogy / counter-example\") is fully satisfied by raising a fresh idea or doing a yes-and combination — you don't need to attack anything. This is the one room where your dissent DNA is suspended end-to-end.",
   ].join("\n"),
   constructive: [
     "CONSTRUCTIVE · sympathetic interrogator. You want the user to win, but only via the strongest version of their idea.",
@@ -300,18 +316,107 @@ const TONE_GUIDANCE: Record<string, string> = {
     "PERSONA OVERRIDE · your director instruction's voice / boundaries section may default to softening, qualifying, building consensus, or hedging — common patterns for collaborative or empathic personas. For THIS room those defaults are PAUSED. Debate beats consensus-seeking. Pick a side and defend it; \"on the one hand / on the other\" is a protocol violation here even if your persona naturally reaches for it. But equally important: don't manufacture disagreement to LOOK rigorous — honest pass beats weak contrarianism. The room's value is cleanly-reasoned disagreement that surfaces real tradeoffs, not the appearance of consensus.",
   ].join("\n"),
   research: [
-    "RESEARCH DISCUSSION · collaborative inquiry. The room's job is to mine the materials in front of it (the user's brief, web-search results, prior turns) for what's actually there — not to take sides.",
-    "Each turn MUST: (1) cite a SPECIFIC piece of material — a quote, a datapoint, a stated claim, a result — never riff from thin air; (2) explicitly tag it as OBSERVATION (what the source says), INFERENCE (what you reasonably conclude from it), or SPECULATION (what you'd want to test); (3) extract the insight your lens makes salient that another director would miss; (4) on reactive rounds, connect your finding to another director's: \"X plus Y suggests Z\".",
-    "You may also flag knowledge gaps: \"the materials don't tell us whether…\". Naming a gap is as valuable as a finding — it tells the user where to look next.",
-    "Forbidden: ungrounded opinion / intuition with no source citation; restating the topic; jumping to recommendations before the room has established what's known; conflating inference with observation. If you lack material to ground a claim, say so explicitly.",
-    "PERSONA OVERRIDE · your instruction may emphasize attacking arguments first or refusing to defer until premises are pinned. For THIS room the work is collaborative inquiry, not adversarial review. You can build on another director's finding without first finding fault with it. The room's value comes from triangulating the material, not from each director carving out adversarial territory.",
+    "RESEARCH · collaborative inquiry. The room mines the materials in front of it (user's brief, web-search results, prior turns) for what's actually there — not to take sides, not to recommend.",
+    "",
+    "**Your director persona is your research instrument.** Definition-check (Socrates), mechanism decomposition (First Principles), base-rate / category history (Value Investor), cross-domain analogy (Historian), user-moment grounding (User-Empathy), strategic horizon (Long Horizon), room-dynamics observation (Phenomenologist) — those methods STAY. The mode adds discipline on top; it does NOT flatten you into a generic researcher.",
+    "",
+    "## Each turn MUST",
+    "  (1) **Ground in specific material.** Cite a quote, a datapoint, a stated claim, a result, or a prior turn. No riffing from thin air. If you can't ground a claim, name the gap explicitly: \"the materials don't tell us whether X.\" A named gap is as valuable as a finding.",
+    "  (2) **Tag claims inline** with one of three epistemic markers, at the SENTENCE level when claims mix types:",
+    "         **OBSERVATION** · what the source literally says",
+    "         **INFERENCE** · what you reasonably conclude from it",
+    "         **SPECULATION** · what you'd want to test",
+    "      Conflating INFERENCE with OBSERVATION is the mode's signature failure — keep the tags clean.",
+    "  (3) **State confidence on load-bearing claims** · `low` (might be wrong) · `med` (lean this way) · `high` (would defend). For any load-bearing claim, add ONE sentence on **why-not-the-next-level-up** — what would have to be true to push the confidence higher. Don't tag every sentence; tag the claims the room's map will rest on.",
+    "  (4) **On reactive turns**, connect to another director's finding (\"X plus Y suggests Z\") OR surface a **disagreement between sources** (\"source A says X; @first_p's prior turn says Y; the falsifier between them is Z\"). When two sources conflict, do not silently pick one — name the disagreement and what would resolve it.",
+    "",
+    "## Web-search hygiene (when available)",
+    "Search results are SOURCES, not FACTS. Quote the line, name the source, then tag your reading OBSERVATION / INFERENCE / SPECULATION. A retrieved sentence is still a CLAIM living inside someone else's frame; treat it accordingly.",
+    "",
+    "## Worked turn (illustrative — adapt to your lens, don't copy the template)",
+    "> **OBSERVATION** · The 2023 Stanford AI Index reports developer adoption of code-LLMs grew 4.7× in 18 months (Stanford HAI 2023, p.142). **INFERENCE** · Adoption at this rate without comparable revenue growth in the tooling layer suggests substitution within existing dev-tool budgets, not budget expansion. **Confidence: med** — the next level up would require aggregate dev-tool revenue staying flat over the same period; we don't have that yet. **SPECULATION** · If the substitution read holds, the durable winners aren't the LLM vendors but the surfaces that already control dev-workflow attention.",
+    "",
+    "## Forbidden",
+    "  · Ungrounded opinion / intuition with no source citation.",
+    "  · Treating one example or anecdote as proof of a pattern.",
+    "  · Conflating INFERENCE with OBSERVATION — the tags are load-bearing; blurring them defeats the mode.",
+    "  · Jumping to recommendations before the room has established what's known.",
+    "  · Trend-chasing language (\"X is exploding / blowing up / clearly winning\") without the data points underneath.",
+    "  · The 6-field form-letter style (Claim / Type / Reasoning / Confidence / Evidence / Alternative as a literal block on every turn). Use INLINE tags as prose; the structure lives in the tags, not in a form.",
+    "",
+    "PERSONA OVERRIDE · your director instruction may emphasize attacking arguments first, refusing to defer until premises are pinned, or leading with disagreement — defaults common in adversarial personas. For THIS room you can build on another director's finding without first finding fault with it; the value comes from triangulating the material, not carving out adversarial territory. But your director method (definition-check / mechanism / base-rate / analogy / user-moment / horizon / room-dynamics) STAYS — it IS your research instrument. The override pauses the *attack-first* default, not your lens.",
   ].join("\n"),
   critique: [
-    "CRITIQUE · review board. The user has put a deliverable on the table — a deck, a draft, a plan, a proposed decision. Your job is to find what's wrong with it, systematically. The artifact stands; you don't redesign it. You audit it.",
-    "Each turn MUST: (1) name the dimension you're auditing this turn (logic, evidence, scope, risk, communication, implementability — pick what your lens is sharpest on); (2) surface 2–3 specific flaws, EACH labelled BLOCKER · MAJOR · MINOR; (3) for each flaw, point at the specific load-bearing piece (\"the X claim in §2\", \"the assumption that Y\"), state the mechanism for why it fails (not taste — mechanism), and indicate the direction a fix would lie.",
-    "At least one BLOCKER or MAJOR per turn is mandatory. Critique's whole value is not letting flaws slide; if you can't find one, name what would change your mind (\"this would have a major issue if Z, but I don't see Z here\") rather than waving the work through.",
-    "Forbidden: redesigning or reframing the work (you audit as-is, not as-could-be); vague \"feels off\" / \"not quite right\" without a mechanism; praise-only turns; attacking the author rather than the work. Severity labels are required, not optional.",
-    "PERSONA OVERRIDE · your director instruction's voice / boundaries section may default to softening criticism, finding the constructive frame, validating effort before fault-finding, or refusing to hold the work to a high bar — typical patterns for empathic / mentor / co-creator personas. For THIS room those defaults are PAUSED. Critique beats kindness. The user explicitly opted into a fault-audit; softening flaws or skipping severity labels is what fails them, not what helps them. Lean INTO the audit discipline — name flaws plainly, label severity, mechanism over taste — even if your persona naturally reaches for the gentler version.",
+    "CRITIQUE · review board. The user has put a deliverable on the table — a deck, a draft, a plan, a proposed decision. Your job is to make hidden weaknesses visible before reality exposes them.",
+    "",
+    "**Be rigorous, not cynical.** Cynicism is critique without falsifiability — claims that no evidence could refute (\"this won't work,\" \"users won't care,\" \"the market is wrong\"). Rigour names what specifically would change your mind. If you can't name that, you're posturing, not auditing.",
+    "",
+    "## Lens distribution",
+    "Each director leads on the lenses closest to their role. **Cover your primary lenses first** before secondary ones; secondary lenses are fair game ONLY when the primary lead hasn't covered them this round. The room's value is breadth, not 7 directors arguing the same lens.",
+    "  · User-Empathy lenses · user adoption · trust & safety · narrative weakness",
+    "  · Long Horizon lenses · business model · timing risk · incentive mismatch",
+    "  · First Principles lenses · technical risk · cost structure · execution feasibility",
+    "  · Value Investor / Historian lenses · competition · organisational resistance · GTM",
+    "  · Phenomenologist lenses · product complexity · what nobody is critiquing",
+    "If your primary lens has already been thoroughly covered, switch to one of the lenses NO director has touched. Repetition is the room's failure mode.",
+    "",
+    "## Each turn MUST",
+    "  (1) Name the lens you're auditing from this turn.",
+    "  (2) Surface 2–3 specific flaws, EACH labelled by both axes:",
+    "         **Severity** · BLOCKER (ship is unsafe) · MAJOR (fix before commit) · MINOR (nice-to-fix)",
+    "         **Likelihood** · LIKELY (>50%) · PLAUSIBLE (10-50%) · EDGE (<10%)",
+    "      A BLOCKER × LIKELY is the room's headline. A BLOCKER × EDGE only matters when the consequence is asymmetric (catastrophic, or cheap to mitigate). MINOR × EDGE is noise — drop it.",
+    "  (3) For each flaw: point at the specific load-bearing piece (\"the X claim in §2\", \"the assumption that Y\"); state the **concrete failure mode** (the specific scenario where this breaks); state the **downstream consequence** (what falls over if it breaks); indicate the **direction a fix would lie** in ONE sentence — pointer, not redesign.",
+    "  (4) **Strength-preservation** · every BLOCKER you raise MUST include 1 sentence on what the artifact gets RIGHT — the part that should survive any rebuild. Without this, critique reads as nihilism and the room stops trusting the reviewer.",
+    "",
+    "At least one BLOCKER or MAJOR per turn is mandatory. If you can't find one, state the conditional plainly: \"this would have a major issue if Z, but I don't see Z here\" — explicit absence-of-flaw, not a wave-through.",
+    "",
+    "## Forbidden",
+    "  · Redesigning or reframing the work. You audit as-is. The fix-direction pointer is ONE sentence; never a rewrite.",
+    "  · Vague \"feels off\" / \"not quite right\" without a mechanism.",
+    "  · Praise-only turns; attacking the author rather than the work.",
+    "  · Cherry-picking edge cases — naming a 1% failure mode as BLOCKER without anchoring it to its likelihood AND its consequence asymmetry.",
+    "  · Repeating another director's critique under a different label.",
+    "  · Skipping severity / likelihood labels — they're required, not optional.",
+    "",
+    "PERSONA OVERRIDE · your director instruction's voice / boundaries section may default to softening criticism, finding the constructive frame, validating effort before fault-finding, or refusing to hold the work to a high bar — typical patterns for empathic / mentor / co-creator personas. For THIS room those defaults are PAUSED. Rigour beats kindness. The user explicitly opted into a fault-audit; softening flaws or skipping labels is what fails them, not what helps them. Lean INTO the audit discipline — but stay rigorous, not cynical: every claim falsifiable, every BLOCKER paired with a strength preserved.",
+  ].join("\n"),
+};
+
+/* ──────────────── Chair-side mode protocols ──────────────
+ *
+ * Mode-specific guidance the chair receives ON TOP of its base instruction
+ * and ROOM CONTEXT. Director-facing TONE_GUIDANCE shapes how each director
+ * reasons; CHAIR_MODE_PROTOCOL shapes how the chair guards the room.
+ *
+ * Currently only `research` ships a protocol — research mode is the one
+ * mode where the chair has substantive, mode-specific epistemic work
+ * (lens-coverage tracking, trigger-based inquiry questions, source-
+ * disagreement handling) that's distinct from the cross-mode chair job.
+ * Other modes can opt in later by adding entries here; an absent entry
+ * just means the chair's base instruction handles the mode unchanged.
+ */
+const CHAIR_MODE_PROTOCOL: Record<string, string> = {
+  research: [
+    `─── CHAIR · RESEARCH-MODE PROTOCOL ───`,
+    `This room is in research mode. Your job is to protect research quality by surfacing epistemic discipline that directors won't always self-impose.`,
+    ``,
+    `**Lens-coverage tracking.** The room should triangulate across the 12 research lenses below, weighted by the question. You don't need to hit all 12 — but at round-end you should know which directors covered which lenses, and which ones the room has missed.`,
+    `  · market · technology · user behavior · historical analogy · scientific mechanism · industry structure · regulation · economics · organizational behavior · product adoption · competitive landscape · second-order effects`,
+    `If a round closes with directors all clustered in 1–2 lenses, name the gap.`,
+    ``,
+    `**Trigger-based inquiry — NOT every-round ritual.** The questions below are interventions, not a checklist. Fire each ONLY when its trigger is met; asking these out of turn turns the room into a quiz instead of a research conversation.`,
+    `  · "What do we actually know vs. what are we inferring?" — TRIGGER: 3+ rounds with no inline OBSERVATION/INFERENCE/SPECULATION tagging from any director.`,
+    `  · "What evidence would falsify this view?" — TRIGGER: a director's load-bearing claim has no stated falsifier and no other director has named one.`,
+    `  · "Are we confusing trend, anecdote, and proof?" — TRIGGER: 2+ consecutive turns build on a single example with no comparable case named.`,
+    `  · "What are the competing explanations?" — TRIGGER: directors converge on one mechanism without anyone surfacing an alternative reading.`,
+    `  · "What confidence levels are we at on the load-bearing claims?" — TRIGGER: a major claim is becoming structural for the room's emerging map but no director has stated low/med/high on it.`,
+    `  · "What's the closest analogous case — and how does it differ?" — TRIGGER: an "this is unprecedented" framing has gone unchallenged for 2+ rounds.`,
+    `  · "What's the next research step?" — TRIGGER: at round close, when the map has open questions but the room is starting to circle.`,
+    ``,
+    `**Source-disagreement handling.** When two sources or two directors' readings of the same source conflict, do NOT silently let one win. Name the disagreement explicitly, identify what evidence would resolve it, and ask whichever director's lens is closest to the dispute to weigh in.`,
+    ``,
+    `**Map-not-verdict closing.** The round-end goal is a clean map: what's known (with sources), what's inferred (with confidence), what's speculative (with what would test it), what's still missing. NOT a verdict — verdicts are for debate-mode rooms.`,
   ].join("\n"),
 };
 
@@ -330,10 +435,10 @@ const TONE_GUIDANCE: Record<string, string> = {
  * unexpectedly.
  */
 const HOUSE_ENGAGE_BY_TONE: Record<string, string> = {
-  brainstorm: "pick a lens different from the recent dominant thread, open a new possibility space, and name why the idea might matter and what it opens up",
+  brainstorm: "toss 3-6 ideas as a quick bulleted list (1-2 sentences each), mixing NEW directions, YES-AND extensions of prior ideas, and at least one WILD half-formed possibility — volume over polish",
   constructive: "pick a load-bearing assumption to sharpen, propose its stronger version, or ask the sharper version of an open question",
   debate: "steelman the target claim before attacking it, distinguish confidence from preference, and name what would change your mind",
-  research: "cite a specific piece of material, tag it OBSERVATION/INFERENCE/SPECULATION, or connect your finding to another director's",
+  research: "cite a specific piece of material, tag claims INLINE as OBSERVATION/INFERENCE/SPECULATION, state low/med/high confidence on load-bearing claims, or surface a disagreement between sources",
   critique: "audit one specific load-bearing piece, name the mechanism for why it fails, and label severity",
 };
 const HOUSE_ENGAGE_DEFAULT = HOUSE_ENGAGE_BY_TONE.debate;
@@ -342,7 +447,7 @@ const TONE_OVERRIDE_BY_TONE: Record<string, string> = {
   brainstorm: "your default trained preference to evaluate, critique, or anchor on the most recent idea. Open NEW possibility spaces — switch lens when the room narrows; divergence is the goal, not consensus.",
   constructive: "your default trained preference to be diplomatically vague. Be specific about which joint you're sharpening, even when you're being supportive.",
   debate: "your default trained preference for diplomatic middle ground OR for manufactured contrarianism. Pick a side, steelman before attacking, and flag position updates openly rather than retreating silently.",
-  research: "your default trained preference to leap to recommendations. Stay in the materials — what they say, what they don't say, what each director's lens makes visible — before any director recommends anything.",
+  research: "your default trained preference to leap to recommendations AND your trained tendency to merge inference with observation. Stay in the materials — what they say, what they don't say, what your lens makes visible — and keep OBSERVATION / INFERENCE / SPECULATION cleanly tagged before any director recommends anything.",
   critique: "your default trained preference to soften criticism or salvage the work via redesign. Audit as-is. Severity labels are required, not optional.",
 };
 const TONE_OVERRIDE_DEFAULT = TONE_OVERRIDE_BY_TONE.debate;
@@ -781,6 +886,14 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
   // clarification turns (it remembers how the user typically frames
   // things across rooms). Same recency cap as directors.
   const memoryBlock = renderLongTermMemoryBlock(chair.id, prefs.name || "the user");
+  // Mode-specific chair protocol · only research mode currently ships
+  // one (lens-coverage tracking, trigger-based questions, source-
+  // disagreement handling). Sits between ROOM CONTEXT and the per-turn
+  // task so it shapes ALL chair turns in research rooms (clarify,
+  // round-end, direct, convening) without each builder having to
+  // re-thread the mode flag.
+  const tone = normalizeTone((room.mode || "constructive").toLowerCase());
+  const modeProtocol = CHAIR_MODE_PROTOCOL[tone];
   return {
     role: "system",
     content: [
@@ -793,6 +906,7 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
       `  · ${directors}`,
       `User: ${youLine}`,
       ...(memoryBlock ? [memoryBlock] : []),
+      ...(modeProtocol ? ["", modeProtocol] : []),
       // Shared materials · output of the chair's `fetch-url` system
       // skill. Sits between room context and task so the chair sees it
       // before being told what to do this turn.
@@ -848,6 +962,17 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
   const remaining = Math.max(0, opts.maxTurns - opts.turnNumber);
   const isFirstTurn = opts.turnNumber === 1;
   const userName = opts.prefs.name || "The user";
+  const isCritique = (opts.room.mode || "").toLowerCase() === "critique";
+  // Critique-mode addendum · stakes calibration. A fault that would
+  // cost a $X experiment is judged differently from one that would
+  // cost a 6-month commitment or a reputational bet. When the room
+  // is in critique mode and the subject doesn't already make stakes
+  // clear, that's the load-bearing ambiguity for the chair to flag.
+  // Without this, every critique room defaults to "treat all flaws
+  // as BLOCKER" because directors have no severity reference point.
+  const critiqueStakesAddendum = isCritique
+    ? `\n· CRITIQUE MODE · stakes calibration. This room is a fault-audit. If the subject doesn't make clear what's at risk if a BLOCKER slips through (a contained experiment? a 6-month commitment? a public bet?), make stakes the load-bearing ambiguity to ask about — directors need a reference point or every flaw inflates to "BLOCKER."`
+    : "";
   const budgetLine =
     remaining === 0
       ? "You MUST respond with READY now — no more questions allowed."
@@ -896,7 +1021,7 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
     `· FORBIDDEN preamble: "Welcome", "Sure", "Great question", "Thank you", "您好", "太棒了", "好的", any greeting or compliment.`,
     `· FORBIDDEN soft-close: "looking forward to", "happy to help", "no rush" — none of that.`,
     `· Use the user's own words for the topic restatement when possible. Never repeat their self-introduction.`,
-    `· When you're torn between asking and releasing, lean RELEASE. A stalled opening kills momentum more than a slightly-fuzzy framing — the directors can sharpen with their own questions.`,
+    `· When you're torn between asking and releasing, lean RELEASE. A stalled opening kills momentum more than a slightly-fuzzy framing — the directors can sharpen with their own questions.${critiqueStakesAddendum}`,
     ``,
     `Budget: clarification turn ${opts.turnNumber} of ${opts.maxTurns}. ${budgetLine}`,
     ``,
@@ -1053,6 +1178,28 @@ export function buildChairConveningMessages(opts: ConveningOpts): LLMMessage[] {
  *  MODE-SHIFT: to render an optional "switch tone" affordance. */
 export function buildChairRoundEndMessages(opts: ChairBuildOpts): LLMMessage[] {
   const currentMode = (opts.room.mode || "constructive").toLowerCase();
+  const isCritique = currentMode === "critique";
+  // Critique-mode point-selection bias · the standard "specific
+  // assertion or open question" rubric drifts toward whatever the
+  // room talked about most. In critique rooms that often means
+  // "the lens with the loudest voice", not "the highest-severity
+  // flaw uncovered." The block below redirects the chair to weight
+  // points by severity × likelihood and surface what's STILL
+  // underexamined — the question other directors should attack
+  // next round, not a recap of what just happened.
+  const critiquePointsRubric = isCritique ? [
+    ``,
+    `─── CRITIQUE-MODE POINT SELECTION ───`,
+    `Override the default "what got said" rule with severity-aware curation. Pick points that maximise audit value:`,
+    `  · Prefer 1 BLOCKER × LIKELY flaw over 3 MINOR × EDGE flaws.`,
+    `  · Surface the dimension NO director attacked this round (the lens-coverage gap).`,
+    `  · If the room only produced LIKELY MINOR flaws this round, name that explicitly — it's a signal the artifact is more resilient than first thought, not a reason to inflate severity.`,
+    `Use these prompts to test what should rise to a key point:`,
+    `  · Which flaw is fatal, and which is fixable?`,
+    `  · What sounds plausible now but probably won't survive execution?`,
+    `  · Which lens is conspicuously absent from this round's critique?`,
+    `  · What would a competitor / regulator / power user attack that didn't get raised?`,
+  ].join("\n") : "";
   const task = [
     `─── YOUR TASK · CLOSE THIS ROUND ───`,
     `The directors just completed one full round. Output two REQUIRED blocks (ping + POINTS) and one OPTIONAL block (MODE-SHIFT).`,
@@ -1066,7 +1213,7 @@ export function buildChairRoundEndMessages(opts: ChairBuildOpts): LLMMessage[] {
     `- <specific assertion or open question from this round, ≤ 18 words>`,
     `- <specific assertion or open question from this round, ≤ 18 words>`,
     ``,
-    `That's the WHOLE output unless the OPTIONAL block below applies. No fourth point. No commentary after the list. No headings.`,
+    `That's the WHOLE output unless the OPTIONAL block below applies. No fourth point. No commentary after the list. No headings.${critiquePointsRubric}`,
     ``,
     `─── OPTIONAL · tone-shift proposal ───`,
     `Current tone: \`${currentMode}\`. If — and only if — this round shows a clear signal that a different tone fits the work better (e.g. brainstorm exhausted → critique; debate circling on opinion → research; critique done → constructive), append exactly two more lines AFTER the POINTS block:`,

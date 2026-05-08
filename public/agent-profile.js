@@ -586,6 +586,8 @@
   const MODEL_LABELS = {
     "sonnet-4-6":     { name: "Sonnet 4.6",      deck: "balanced · default" },
     "opus-4-7":       { name: "Opus 4.7",        deck: "deep reasoning" },
+    "opus-4-6":       { name: "Opus 4.6",        deck: "prior-gen flagship" },
+    "opus-4-6-fast":  { name: "Opus 4.6 Fast",   deck: "faster 4.6 · same intelligence" },
     "haiku-4-5":      { name: "Haiku 4.5",       deck: "fast · low-cost" },
     "gpt-5-5":        { name: "GPT-5.5",         deck: "flagship · 1M ctx" },
     "gpt-5-4":        { name: "GPT-5.4",         deck: "general · 1M ctx" },
@@ -1837,9 +1839,11 @@
   // OpenRouter id, so verify + room calls hit the right model.
   const PROFILE_MODELS = [
     // Anthropic
-    { v: "opus-4-7",        name: "Claude Opus 4.7",   provider: "Anthropic", deck: "deep reasoning · default" },
-    { v: "sonnet-4-6",      name: "Claude Sonnet 4.6", provider: "Anthropic", deck: "balanced · 1M ctx" },
-    { v: "haiku-4-5",       name: "Claude Haiku 4.5",  provider: "Anthropic", deck: "fast · low-cost" },
+    { v: "opus-4-7",        name: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning · default" },
+    { v: "sonnet-4-6",      name: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · 1M ctx" },
+    { v: "opus-4-6",        name: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
+    { v: "opus-4-6-fast",   name: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
+    { v: "haiku-4-5",       name: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },
     // OpenAI
     { v: "gpt-5-5-pro",     name: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
     { v: "gpt-5-5",         name: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },

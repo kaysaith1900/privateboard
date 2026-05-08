@@ -186,12 +186,49 @@ export function getAgentStats(agentId: string): AgentStats {
 
 /** Bump an agent's cumulative token counter by `delta`. Negative or
  *  zero deltas are no-ops. Called from the orchestrator after each
- *  director / chair stream finishes with the SDK's reported usage. */
+ *  director / chair stream finishes with the SDK's reported usage.
+ *
+ *  Writes go to TWO tables atomically (single transaction):
+ *    · `agents.tokens_consumed` · canonical lifetime/cumulative total.
+ *    · `usage_daily(day, agent_id, model_v)` · per-day-per-model log
+ *      that drives the 14-day stacked bar chart in the Usage panel.
+ *
+ *  `model_v` is snapshotted from the agent row at billing time. If the
+ *  user later reassigns the agent to a different model, that day's
+ *  history stays tied to the model that actually ran — the chart
+ *  doesn't silently re-skin historical bars.
+ *
+ *  `day` is server-local-time `YYYY-MM-DD`. This is local-first software
+ *  running on the user's own machine, so wall-clock time matches their
+ *  intuition of "today" without timezone gymnastics on the client. */
 export function incrementAgentTokens(agentId: string, delta: number): void {
   if (!Number.isFinite(delta) || delta <= 0) return;
-  getDb()
-    .prepare("UPDATE agents SET tokens_consumed = tokens_consumed + ? WHERE id = ?")
-    .run(Math.round(delta), agentId);
+  const tokens = Math.round(delta);
+  const day = formatLocalDay(new Date());
+  const db = getDb();
+  const tx = db.transaction(() => {
+    // Snapshot model_v from the row we're billing so a later model
+    // reassignment doesn't retroactively rewrite the day-bucket.
+    const agentRow = db
+      .prepare("SELECT model_v FROM agents WHERE id = ?")
+      .get(agentId) as { model_v: string } | undefined;
+    if (!agentRow) return; // agent was deleted between turn-finish and bill-write
+    db.prepare("UPDATE agents SET tokens_consumed = tokens_consumed + ? WHERE id = ?")
+      .run(tokens, agentId);
+    db.prepare(
+      `INSERT INTO usage_daily (day, agent_id, model_v, tokens) VALUES (?, ?, ?, ?)
+       ON CONFLICT(day, agent_id, model_v) DO UPDATE SET tokens = tokens + excluded.tokens`,
+    ).run(day, agentId, agentRow.model_v, tokens);
+  });
+  tx();
+}
+
+/** Format a Date as `YYYY-MM-DD` in the server's local timezone. */
+function formatLocalDay(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** Cumulative usage summary used by the Usage panel in user-settings.
@@ -224,12 +261,29 @@ export interface UsageRetired {
   byModel: UsageModelRow[];
 }
 
+/** One day's usage rollup · the per-bar payload for the 14-day chart
+ *  AND the per-day drill-down in the Usage panel. The shape mirrors the
+ *  cumulative `UsageSummary.byModel` / `byAgent` so the frontend can
+ *  feed the same render component either source. `day` is the
+ *  server-local `YYYY-MM-DD` the row's tokens were billed on. */
+export interface UsageDayRow {
+  day: string;
+  totalTokens: number;
+  byModel: UsageModelRow[];
+  byAgent: UsageAgentRow[];
+}
+
 export interface UsageSummary {
   totalTokens: number;
   agentCount: number;
   byModel: UsageModelRow[];
   byAgent: UsageAgentRow[];
   retired: UsageRetired;
+  /** Rolling 14-day window, oldest → newest, server-local time.
+   *  Always 14 entries · zero-token days fill in as `totalTokens: 0`
+   *  with empty `byModel` / `byAgent` arrays so the chart renders a
+   *  stable axis instead of a sparse one. */
+  daily: UsageDayRow[];
 }
 
 export function getUsageSummary(): UsageSummary {
@@ -312,7 +366,110 @@ export function getUsageSummary(): UsageSummary {
       agents: retiredAgents,
       byModel: retiredByModel.sort((a, b) => b.tokens - a.tokens),
     },
+    daily: getDailyUsage(14),
   };
+}
+
+/** Rolling N-day window from `usage_daily`, joined back to `agents` for
+ *  per-agent display fields (name, handle, role) and pre-aggregated
+ *  into per-model + per-agent rollups per day. Always returns N entries
+ *  oldest → newest; zero-token days are zero-filled so the bar chart
+ *  has a stable axis even on installs with sparse usage. Pre-migration
+ *  history is irrecoverable (no backfill), so an install older than
+ *  the migration just shows the last few days populated and earlier
+ *  bars at zero. */
+export function getDailyUsage(days: number): UsageDayRow[] {
+  const today = new Date();
+  // Build the 14-day window keyed by `YYYY-MM-DD` and seeded with
+  // empty rollups so days with no usage still appear as bars at
+  // the baseline.
+  const out: UsageDayRow[] = [];
+  const dayIndex = new Map<string, UsageDayRow>();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = formatLocalDay(d);
+    const row: UsageDayRow = { day: key, totalTokens: 0, byModel: [], byAgent: [] };
+    out.push(row);
+    dayIndex.set(key, row);
+  }
+  if (out.length === 0) return out;
+
+  const earliest = out[0].day;
+  // Pull every (day, agent_id, model_v) row inside the window plus the
+  // per-agent display fields. LEFT JOIN survives agents that have been
+  // deleted (their rows here would be orphaned by the upcoming retired-
+  // tokens flow, but until that hard-deletes the daily rows we keep
+  // them visible under their original name).
+  const rows = getDb()
+    .prepare(
+      `SELECT u.day      AS day,
+              u.agent_id AS agentId,
+              u.model_v  AS modelV,
+              u.tokens   AS tokens,
+              a.name     AS name,
+              a.handle   AS handle,
+              a.role_kind AS roleKind
+         FROM usage_daily u
+         LEFT JOIN agents a ON a.id = u.agent_id
+        WHERE u.day >= ?
+        ORDER BY u.day ASC`,
+    )
+    .all(earliest) as Array<{
+      day: string;
+      agentId: string;
+      modelV: string;
+      tokens: number;
+      name: string | null;
+      handle: string | null;
+      roleKind: string | null;
+    }>;
+
+  // Per-day aggregation buckets · model rollups need (tokens, distinct-
+  // agent count); agent rollups need full identity + tokens summed
+  // across the day's models for that agent.
+  const modelBuckets = new Map<string, Map<string, { tokens: number; agents: Set<string> }>>();
+  const agentBuckets = new Map<string, Map<string, UsageAgentRow>>();
+
+  for (const r of rows) {
+    if (!dayIndex.has(r.day)) continue; // outside window (defensive)
+    let mb = modelBuckets.get(r.day);
+    if (!mb) { mb = new Map(); modelBuckets.set(r.day, mb); }
+    const mEntry = mb.get(r.modelV) ?? { tokens: 0, agents: new Set<string>() };
+    mEntry.tokens += r.tokens;
+    mEntry.agents.add(r.agentId);
+    mb.set(r.modelV, mEntry);
+
+    let ab = agentBuckets.get(r.day);
+    if (!ab) { ab = new Map(); agentBuckets.set(r.day, ab); }
+    const aEntry = ab.get(r.agentId) ?? {
+      id: r.agentId,
+      name: r.name ?? "(retired)",
+      handle: r.handle ?? "",
+      modelV: r.modelV, // the day-prevalent model snapshot
+      roleKind: r.roleKind === "moderator" ? "moderator" : "director",
+      tokens: 0,
+    };
+    aEntry.tokens += r.tokens;
+    ab.set(r.agentId, aEntry);
+  }
+
+  // Project the buckets back into the seeded window order.
+  for (const day of out) {
+    const mb = modelBuckets.get(day.day);
+    if (mb) {
+      day.byModel = Array.from(mb.entries())
+        .map(([modelV, v]) => ({ modelV, tokens: v.tokens, agents: v.agents.size }))
+        .sort((a, b) => b.tokens - a.tokens);
+      day.totalTokens = day.byModel.reduce((s, m) => s + m.tokens, 0);
+    }
+    const ab = agentBuckets.get(day.day);
+    if (ab) {
+      day.byAgent = Array.from(ab.values()).sort((a, b) => b.tokens - a.tokens);
+    }
+  }
+
+  return out;
 }
 
 export function getAgent(id: string): Agent | null {

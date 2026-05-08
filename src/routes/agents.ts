@@ -31,7 +31,7 @@ import { parseSkillMd } from "../skills/parse.js";
 import { analyzeSkillAbility } from "../skills/analyze.js";
 import { getSystemSkillsForAgent, isSystemSkillSlug } from "../skills/system-skills.js";
 import { callLLM } from "../ai/adapter.js";
-import { effectiveDefaultModel, reachableModels, utilityModelFor } from "../ai/availability.js";
+import { effectiveDefaultModel, FLAGSHIP_TIER, reachableModels, utilityModelFor } from "../ai/availability.js";
 import {
   buildAgentProfileMessages,
   buildAgentSpecMessages,
@@ -58,14 +58,10 @@ function agentSpecModelCandidates(): readonly string[] {
   const flagship = effectiveDefaultModel();
   if (flagship) out.push(flagship);
   // Reachable flagship-tier models the user has keys for · order
-  // doesn't matter much beyond "user's pick first".
+  // doesn't matter much beyond "user's pick first". Tier set lives
+  // in availability.ts next to PROVIDER_FLAGSHIP — single source of
+  // truth so the two flagship surfaces can't drift.
   const reachable = reachableModels();
-  const FLAGSHIP_TIER = new Set([
-    "opus-4-7", "sonnet-4-6",
-    "gpt-5-5", "gpt-5-4",
-    "gemini-3-1", "gemini-3-flash",
-    "grok-4-3",
-  ]);
   for (const m of reachable) {
     if (FLAGSHIP_TIER.has(m.modelV) && !out.includes(m.modelV)) {
       out.push(m.modelV);

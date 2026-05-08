@@ -733,6 +733,184 @@
   line-height: 1.55;
 }
 
+/* ─── Day picker · pill toggle above the 14-day chart ───
+   Two pills max: "All · cumulative" is always present; a date pill
+   appears only when the user has clicked into a specific bar. The
+   active pill carries a hairline ring + subtle accent background so
+   the current scope is unambiguous. */
+.us-day-picker {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.us-day-pill {
+  appearance: none;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft, #8E8B83);
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.us-day-pill:hover {
+  color: var(--text, #C8C5BE);
+  border-color: var(--text-faint, #3A382F);
+}
+.us-day-pill.active {
+  color: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+
+/* ─── 14-day stacked bar chart ───
+   Layout: a header strip with the window's total, then a flex row
+   of 14 bar buttons. Each button is a vertical column wrapping a
+   `.us-chart-stack` (the actual coloured stack, height ∈ [0, 100%])
+   and a `.us-chart-tick` (M·D label below). The bar's parent flexes
+   to share width — bars stay clickable down to ~16px. */
+.us-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px 8px;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--panel-2, #1A1A18);
+}
+.us-chart-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.us-chart-meta-label {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+}
+.us-chart-meta-value {
+  font-size: 13px;
+  color: var(--text, #C8C5BE);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.us-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 96px;
+  /* The stack within each bar lives at the bottom (flex-end) so
+     bar height grows upward like a real chart axis. */
+}
+.us-chart-bar {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  flex: 1 1 0;
+  min-width: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  height: 100%;
+  cursor: pointer;
+  position: relative;
+}
+.us-chart-bar:hover .us-chart-stack { filter: brightness(1.15); }
+.us-chart-bar.empty .us-chart-stack {
+  height: 1px !important;
+  background: var(--line-bright, #2A2A26);
+}
+.us-chart-bar.today::before {
+  /* Outline marker for today's bar — a hairline ring around the
+     full bar slot (including the empty space above the stack)
+     so the present is locatable even on a zero-token day. */
+  content: "";
+  position: absolute;
+  inset: 0 -1px 14px -1px;
+  border: 0.5px solid var(--text-faint, #3A382F);
+  pointer-events: none;
+}
+.us-chart-bar.active::before {
+  content: "";
+  position: absolute;
+  inset: 0 -1px 14px -1px;
+  border: 1px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.us-chart-stack {
+  display: flex;
+  flex-direction: column-reverse; /* first segment at the bottom */
+  width: 100%;
+  background: transparent;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+.us-chart-seg {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+}
+.us-chart-tick {
+  display: block;
+  margin-top: 4px;
+  height: 10px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint, #3A382F);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.us-chart-bar.today .us-chart-tick { color: var(--text-soft, #8E8B83); }
+.us-chart-bar.active .us-chart-tick { color: var(--lime, #6FB572); }
+
+/* ─── Day-empty placeholder · shown in the drill-down area when the
+   user clicks a bar with zero tokens. Mirrors `.us-usage-empty`'s
+   restraint, but tighter — the chart itself already gives plenty of
+   context. */
+.us-day-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 12px;
+  border: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.us-day-empty-tag {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-soft, #8E8B83);
+  font-weight: 700;
+}
+.us-day-empty-text {
+  font-size: 11.5px;
+  color: var(--text-faint, #3A382F);
+}
+
+/* Optional scope tag above the big total · "Cumulative since install"
+   or the long-form date for the selected day. Sits as a tiny mono
+   kicker so the user knows what scope the head numbers describe. */
+.us-usage-total-scope {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
 /* ─── Header strip · big total + meta column ─── */
 .us-usage-head {
   display: grid;

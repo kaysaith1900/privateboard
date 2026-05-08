@@ -29,15 +29,24 @@ export function runSeed(): SeedReport {
       }
     }
   } else {
-    // Existing-install backfill · seed directors that exist but
-    // predate the ability-axes addition will have ability=null in DB,
-    // which makes the director-picker's diversity guardrail silently
-    // no-op (it requires non-null ability data to compute lens
-    // coverage). Patch the canonical ability profile onto any seed
-    // director where it's missing. Other fields stay user-editable.
+    // Existing-install backfill · two passes:
+    //   1. Insert any seed director whose id is missing from the DB —
+    //      covers new directors added to SEED_DIRECTORS after the
+    //      first install (e.g. Historian shipped after Phenomenologist
+    //      in v0.1.4). Without this, only fresh installs would see
+    //      newly-added defaults.
+    //   2. Patch the canonical ability profile onto any seed director
+    //      where it's null — directors that predate the ability-axes
+    //      addition would otherwise silently no-op the picker's
+    //      diversity guardrail (which needs non-null ability data
+    //      to compute lens coverage). Other fields stay user-editable.
     for (const d of SEED_DIRECTORS) {
       const existing = getAgent(d.id);
-      if (!existing) continue;
+      if (!existing) {
+        insertAgent(d);
+        inserted++;
+        continue;
+      }
       if (!existing.ability && d.ability) {
         updateAgent(d.id, { ability: d.ability });
       }

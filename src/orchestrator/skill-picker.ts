@@ -19,39 +19,25 @@ import type { Agent } from "../storage/agents.js";
 import type { Message } from "../storage/messages.js";
 import type { AgentSkill } from "../storage/skills.js";
 import type { ModelV } from "../ai/registry.js";
-import { activeCarrier } from "../storage/reconcile-models.js";
+import { utilityModelFor } from "../ai/availability.js";
 import { WEB_SEARCH_SLUG } from "../skills/system-skills.js";
 
-/** Cheap-tier model for each carrier · the model the picker uses for
- *  routing decisions (clarify gate / web-search / next-speaker /
- *  round-wrap / skill match). Mirrors the carrier-priority table in
- *  reconcile-models.ts; kept colocated with the picker since this is
- *  the only place that distinguishes "cheap tier per carrier" from
- *  "primary tier per carrier". */
-const CHEAP_BY_CARRIER: Record<string, ModelV> = {
-  openrouter: "haiku-4-5",
-  anthropic:  "sonnet-4-6",     // only direct-routable Claude
-  openai:     "gpt-5-4-mini",
-  google:     "gemini-3-1-flash",  // 3.1 Flash Lite · cheapest direct-routable Gemini
-  xai:        "grok-4-1-fast",  // 4.1 Fast · cheapest direct-routable Grok
-};
-
-/** Pick the cheapest reachable model for routing decisions. Follows
- *  the user's *active carrier* (the carrier of `prefs.defaultModelV`
- *  when it's reachable, otherwise the first reachable in priority
- *  order) — same resolution rule used by reconcile + chair primary.
+/** Pick the cheapest reachable model for routing decisions. Thin
+ *  delegate over `utilityModelFor()` (availability.ts) — same call,
+ *  same active-carrier-first rule + UTILITY_PREFERENCE fallback +
+ *  any-reachable last resort. Kept as a named function so the call
+ *  sites read as "router model" semantically and future router-only
+ *  divergence (e.g. honouring a per-call temperature ceiling) has a
+ *  clean seam.
  *
- *  Why activeCarrier rather than a hardcoded order over `getKey()`:
- *  if the user configured BOTH OpenAI and Google but switched their
- *  default to Gemini, the picker should also use Gemini's cheap tier
- *  (`gemini-3-1-flash`) — not silently keep firing OpenAI calls just
- *  because OpenAI key is still configured. Earlier versions did the
- *  latter and it surfaced as "I switched to Gemini but every picker
- *  call still bills OpenAI". */
+ *  Earlier this file maintained its own carrier→cheap-model map and
+ *  returned null on miss. That diverged from `utilityModelFor()`
+ *  several times — the two resolvers silently disagreed on what a
+ *  given carrier's cheap tier was, and a missing carrier entry
+ *  bypassed the fallback chain entirely (skill picker fell through
+ *  to the speaker's flagship instead of any-reachable cheap model). */
 function pickRouterModel(): ModelV | null {
-  const carrier = activeCarrier();
-  if (carrier && CHEAP_BY_CARRIER[carrier]) return CHEAP_BY_CARRIER[carrier];
-  return null;
+  return utilityModelFor();
 }
 
 const MAX_PICKS = 2;
