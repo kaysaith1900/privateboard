@@ -104,7 +104,7 @@ const INTENSITIES = ["calm", "sharp", "terse"] as const;
 const TONE_SIGNATURES: Record<(typeof TONES)[number], string[]> = {
   brainstorm:    ["BRAINSTORM", "EXPAND THE POSSIBILITY SPACE", "Divergence before convergence", "Recommended turn structure"],
   constructive:  ["CONSTRUCTIVE", "stronger version", "load-bearing assumption"],
-  debate:        ["DEBATE", "steelman", "Attack the argument"],
+  debate:        ["DEBATE", "PRODUCTIVE DISAGREEMENT", "steelman", "Honest pass", "What would change my mind"],
   research:      ["RESEARCH DISCUSSION", "OBSERVATION", "INFERENCE", "SPECULATION"],
   critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "MINOR", "audit"],
 };
@@ -120,7 +120,7 @@ const INTENSITY_SIGNATURES: Record<(typeof INTENSITIES)[number], string[]> = {
 const HOUSE_ENGAGE_FRAGMENTS: Record<(typeof TONES)[number], string> = {
   brainstorm:   "pick a lens different from the recent dominant thread",
   constructive: "pick a load-bearing assumption to sharpen",
-  debate:       "push back, name a hidden risk",
+  debate:       "steelman the target claim before attacking",
   research:     "cite a specific piece of material",
   critique:     "audit one specific load-bearing piece",
 };
