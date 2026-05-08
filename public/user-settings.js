@@ -60,6 +60,10 @@
     }[c]));
   }
 
+  function tr(key, vars) {
+    return (window.I18n && window.I18n.t(key, vars)) || key;
+  }
+
   /* ── Storage helpers ───────────────────────────────────────── */
   function getTheme() { try { return localStorage.getItem(THEME_KEY) || "regent"; } catch (e) { return "regent"; } }
   function setTheme(slug) {
@@ -191,24 +195,24 @@
     const u = getUser();
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ User</div>
-        <div class="us-pane-deck">how the boardroom addresses you and what it knows about your context.</div>
+        <div class="us-pane-tag">${tr("us_user_tag")}</div>
+        <div class="us-pane-deck">${tr("us_user_deck")}</div>
       </div>
 
       <div class="us-pane-body">
         <div class="us-row">
-          <div class="us-row-label">Avatar</div>
+          <div class="us-row-label">${tr("us_avatar")}</div>
           <div class="us-row-field us-avatar-row">
             <div class="us-avatar-frame" data-us-avatar></div>
             <button type="button" class="us-mini-btn" data-us-regen-avatar>
               <span class="us-mini-btn-mark">◆</span>
-              <span>generate 8-bit avatar</span>
+              <span>${tr("us_regen_avatar")}</span>
             </button>
           </div>
         </div>
 
         <div class="us-row">
-          <div class="us-row-label">Name</div>
+          <div class="us-row-label">${tr("us_name")}</div>
           <div class="us-row-field">
             <div class="us-input-wrap">
               <input type="text" class="us-input" data-us-name placeholder="Kay" maxlength="32" value="${escape(u.name || "")}">
@@ -217,12 +221,12 @@
         </div>
 
         <div class="us-row">
-          <div class="us-row-label">About you</div>
+          <div class="us-row-label">${tr("us_about")}</div>
           <div class="us-row-field">
             <div class="us-input-wrap tall">
-              <textarea class="us-input" data-us-intro maxlength="320" placeholder="A line or two about your role, what you tend to think about, what you're working on. Directors will keep this in mind across rooms.">${escape(u.intro || "")}</textarea>
+              <textarea class="us-input" data-us-intro maxlength="320" placeholder="${escape(tr("us_intro_ph"))}">${escape(u.intro || "")}</textarea>
             </div>
-            <div class="us-row-meta"><span data-us-intro-count>0</span> / 320 chars</div>
+            <div class="us-row-meta"><span data-us-intro-count>0</span><span>${tr("us_intro_meta_rest")}</span></div>
           </div>
         </div>
       </div>
@@ -234,8 +238,8 @@
     const swatchSpans = (cs) => cs.map((c) => `<span style="background:${c}"></span>`).join("");
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Theme</div>
-        <div class="us-pane-deck">global · zsh-inspired palettes. Applied instantly across all rooms.</div>
+        <div class="us-pane-tag">${tr("us_theme_tag")}</div>
+        <div class="us-pane-deck">${tr("us_theme_deck")}</div>
       </div>
 
       <div class="us-pane-body">
@@ -278,13 +282,13 @@
   function usageSectionHTML() {
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Usage</div>
-        <div class="us-pane-deck">cumulative LLM-call accounting · billed across every director / chair turn since this boardroom was opened.</div>
+        <div class="us-pane-tag">${tr("us_usage_tag")}</div>
+        <div class="us-pane-deck">${tr("us_usage_deck")}</div>
       </div>
 
       <div class="us-pane-body">
         <div class="us-usage" data-usage-pane>
-          <div class="us-usage-loading">measuring…</div>
+          <div class="us-usage-loading">${tr("us_usage_loading")}</div>
         </div>
       </div>
     `;
@@ -297,7 +301,7 @@
       pane.innerHTML = `
         <div class="us-usage-empty">
           <div class="us-usage-empty-num">0</div>
-          <div class="us-usage-empty-text">no LLM calls billed yet · open a room and let the directors speak.</div>
+          <div class="us-usage-empty-text">${tr("us_usage_empty")}</div>
         </div>
       `;
       return;
@@ -326,7 +330,7 @@
           <div class="us-model-stats">
             <span class="us-model-tokens">${fmtTokens(m.tokens)}</span>
             <span class="us-model-pct">${pct.toFixed(1)}%</span>
-            <span class="us-model-agents">${m.agents} agent${m.agents === 1 ? "" : "s"}</span>
+            <span class="us-model-agents">${tr("us_usage_agents", { n: m.agents })}</span>
           </div>
         </div>
       `;
@@ -337,7 +341,7 @@
     const agentRows = topAgents.map((a) => {
       const pct = (a.tokens / total) * 100;
       const color = PROVIDER_COLOR_VAR[a.provider] || PROVIDER_COLOR_VAR.unknown;
-      const role = a.roleKind === "moderator" ? "chair" : "director";
+      const role = a.roleKind === "moderator" ? tr("us_usage_chair") : tr("us_usage_director");
       return `
         <div class="us-agent-row">
           <div class="us-agent-name-col">
@@ -355,7 +359,7 @@
 
     const silentCount = s.byAgent.length - topAgents.length;
     const silentNote = silentCount > 0
-      ? `<div class="us-agent-silent">+ ${silentCount} agent${silentCount === 1 ? "" : "s"} not yet billed</div>`
+      ? `<div class="us-agent-silent">${tr("us_usage_silent", { n: silentCount })}</div>`
       : "";
 
     // Retired-agents footer · custom directors that the user has
@@ -514,14 +518,14 @@
 
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ API Key</div>
-        <div class="us-pane-deck">stored locally, never uploaded. add a key for any provider — a single key is enough to get started. Skill services power optional capabilities like web search.</div>
+        <div class="us-pane-tag">${tr("us_keys_tag")}</div>
+        <div class="us-pane-deck">${tr("us_keys_deck")}</div>
       </div>
 
       <div class="us-pane-body">
 
         <div class="us-key-group">
-          <div class="us-key-group-tag">LLM Providers</div>
+          <div class="us-key-group-tag">${tr("us_keys_group_llm")}</div>
           ${activeProviders.map((id) => {
             const p = PROVIDERS.find((x) => x.id === id);
             if (!p) return "";
@@ -529,7 +533,7 @@
           }).join("")}
           ${addable.length > 0 ? `
             <div class="us-key-add">
-              <span class="us-key-add-label">+ add provider:</span>
+              <span class="us-key-add-label">${tr("us_keys_add_label")}</span>
               <div class="us-key-add-chips">
                 ${addable.map((p) => `
                   <button type="button" class="us-key-add-chip" data-add-provider="${p.id}">${escape(p.label)}</button>
@@ -541,8 +545,8 @@
 
         ${skillProviders.length > 0 ? `
           <div class="us-key-group us-key-group-skill">
-            <div class="us-key-group-tag">Skill Services</div>
-            <div class="us-key-group-deck">enables system skills that need an outside service. Each agent can opt in or out per-profile.</div>
+            <div class="us-key-group-tag">${tr("us_keys_group_skill")}</div>
+            <div class="us-key-group-deck">${tr("us_keys_skill_deck")}</div>
             ${skillProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
           </div>
         ` : ""}
@@ -697,8 +701,8 @@
 
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Default Model</div>
-        <div class="us-pane-deck">new agents inherit this. when an agent's saved model becomes unreachable (key removed / model retired), it falls back here too. brief flagship tier uses this as the deep-write model.</div>
+        <div class="us-pane-tag">${tr("us_default_tag")}</div>
+        <div class="us-pane-deck">${tr("us_default_deck_long")}</div>
       </div>
 
       <div class="us-pane-body">
@@ -759,32 +763,32 @@
         <div class="user-settings-modal" role="document">
 
           <div class="us-classification">
-            <span><span class="dot">●</span> user · settings</span>
-            <span class="right">// local</span>
+            <span><span class="dot">●</span> <span data-i18n="us_modal_kicker_left"></span></span>
+            <span class="right" data-i18n="us_modal_kicker_right"></span>
           </div>
 
           <header class="us-head">
-            <div class="us-title">Preference</div>
-            <button type="button" class="us-close" aria-label="Close">✕</button>
+            <div class="us-title" data-i18n="us_pref_title"></div>
+            <button type="button" class="us-close" data-i18n-aria="us_close" aria-label="Close">✕</button>
           </header>
 
           <div class="us-frame">
             <nav class="us-nav" role="tablist">
-              <a href="#" class="us-nav-item active" data-section="user"    role="tab" aria-selected="true">User</a>
-              <a href="#" class="us-nav-item"        data-section="theme"   role="tab" aria-selected="false">Theme</a>
-              <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false">Usage</a>
-              <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false">API Key</a>
-              <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false">Default Model</a>
+              <a href="#" class="us-nav-item active" data-section="user"    role="tab" aria-selected="true" data-i18n="us_nav_user"></a>
+              <a href="#" class="us-nav-item"        data-section="theme"   role="tab" aria-selected="false" data-i18n="us_nav_theme"></a>
+              <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false" data-i18n="us_nav_usage"></a>
+              <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false" data-i18n="us_nav_api_key"></a>
+              <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false" data-i18n="us_default_model_title"></a>
             </nav>
 
             <div class="us-pane" data-us-pane></div>
           </div>
 
           <footer class="us-foot">
-            <span class="saved">changes save automatically</span>
+            <span class="saved" data-i18n="us_foot_saved"></span>
             <div class="us-foot-right">
-              <a class="us-website" href="/home.html" target="_blank" rel="noopener">website ↗</a>
-              <button type="button" class="us-done">[ Done ]</button>
+              <a class="us-website" href="/home.html" target="_blank" rel="noopener" data-i18n="us_foot_website"></a>
+              <button type="button" class="us-done" data-i18n="us_done"></button>
             </div>
           </footer>
 
@@ -1093,8 +1097,16 @@
     overlay = document.getElementById("user-settings-overlay");
     modal   = overlay.querySelector(".user-settings-modal");
     paneEl  = modal.querySelector("[data-us-pane]");
+    if (window.I18n && typeof window.I18n.applyDom === "function") {
+      window.I18n.applyDom(overlay);
+    }
 
-    // Close interactions
+    document.addEventListener("boardroom:locale", () => {
+      if (overlay && window.I18n && typeof window.I18n.applyDom === "function") {
+        window.I18n.applyDom(overlay);
+      }
+      if (overlay && overlay.classList.contains("open")) renderSection(currentSection);
+    });
     overlay.querySelector(".us-close").addEventListener("click", close);
     modal.querySelector(".us-done").addEventListener("click", (e) => { e.preventDefault(); close(); });
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });

@@ -177,9 +177,19 @@
         if (!card) return;
         const expanded = card.classList.toggle("expanded");
         const label = expanded
-          ? (btn.getAttribute("data-less") || "Show less")
-          : (btn.getAttribute("data-more") || "Show more");
+          ? (btn.getAttribute("data-less") || this._t("convene_show_less"))
+          : (btn.getAttribute("data-more") || this._t("convene_show_more"));
         btn.textContent = label;
+      });
+      document.addEventListener("boardroom:locale", () => {
+        this.renderSidebarRooms();
+        this.renderSidebarAgents();
+        this.renderSidebarCounts();
+        this.renderUserBlock();
+        if (this.currentRoomId) this.renderRoom();
+        else this.renderEmptyState();
+        if (Array.isArray(this._reportsCache)) this.renderReportsPage(this._reportsCache);
+        if (Array.isArray(this._notesCache)) this.renderNotesPage(this._notesCache);
       });
       window.addEventListener("hashchange", () => this.handleRoute());
       this.handleRoute();
@@ -291,17 +301,12 @@
       const lang = (this.composerLanguage && this.composerLanguage()) || "en";
       const count = fresh.length;
       const names = fresh.map((m) => m.name).join(", ");
-      const copy = lang === "zh"
-        ? {
-            head: `存储结构已升级`,
-            body: `已应用 ${count} 个新迁移 · 你已有的房间、董事、报告、设置都已保留。`,
-            tooltip: names,
-          }
-        : {
-            head: `Storage upgraded`,
-            body: `${count} new migration${count > 1 ? "s" : ""} applied · your existing rooms, agents, briefs, and settings were preserved.`,
-            tooltip: names,
-          };
+      const bodyKey = count === 1 ? "migrate_body_one" : "migrate_body";
+      const copy = {
+        head: this._t("migrate_head"),
+        body: this._t(bodyKey, { count }),
+        tooltip: names,
+      };
       textEl.innerHTML =
         `<span class="sys-notice-strong">${this.escape(copy.head)}</span> · ${this.escape(copy.body)}`;
       banner.title = copy.tooltip;
@@ -1488,36 +1493,45 @@
       return MODEL_PROVIDERS.some((p) => keys[p] && keys[p].configured);
     },
 
+    /** Secondary hint under a failed brief · the legacy copy always blamed
+     *  missing keys even when stage-2 scaffolding failed after successful
+     *  LLM calls. Route hints by substring of the server's `brief-error`
+     *  message (`NoKeyError` vs scaffold failures vs everything else). */
+    _briefSecondaryHintHtml(errorText) {
+      const s = String(errorText || "").toLowerCase();
+      if (/no key configured|no openrouter fallback|add a key in preference/i.test(s)) {
+        return this._t("brief_err_hint_failed_html");
+      }
+      if (
+        /couldn't structure|report writer couldn't|json scaffold|repeat(ed)? attempts|retries failed|parse scaffold|\[brief\.stage2\]|stage 2/i.test(s)
+      ) {
+        return this._t("brief_err_hint_scaffold_html");
+      }
+      return this._t("brief_err_hint_generic_html");
+    },
+
     /** Modal that fires when an AI action is attempted but no model
      *  provider key is configured. Two CTAs · open settings (preferred)
      *  or dismiss. Same chrome family as openSendChoiceModal so the
      *  visual treatment stays consistent. */
     openNoKeyModal() {
       this.closeNoKeyModal();
-      const lang = (this.prefs && /[一-鿿]/.test(this.prefs.name || this.prefs.intro || "")) ? "zh" : "en";
-      const t = lang === "zh"
-        ? {
-            title: "需要配置模型 API key",
-            deck: "Boardroom 的董事和主席都依赖大模型。请先配置一个模型供应商的 API key（Anthropic / OpenAI / Google / xAI / DeepSeek / OpenRouter），任意一个即可。",
-            primary: "[ 打开设置 ▸ ]",
-            dismiss: "[ 取消 ]",
-            classification: "● ai · 缺少模型 key",
-            tag: "▸ 配置 API key",
-          }
-        : {
-            title: "Configure a model API key",
-            deck: "The chair and directors run on a large language model. Configure at least one provider key (Anthropic / OpenAI / Google / xAI / DeepSeek / OpenRouter) before AI features will work.",
-            primary: "[ Open settings ▸ ]",
-            dismiss: "[ Dismiss ]",
-            classification: "● ai · no model key",
-            tag: "▸ Configure API key",
-          };
+      const t = {
+        title: this._t("nk_title"),
+        deck: this._t("nk_deck"),
+        primary: this._t("nk_primary"),
+        dismiss: this._t("nk_dismiss"),
+        classification: this._t("nk_classification"),
+        tag: this._t("nk_tag"),
+        primaryDeck: this._t("nk_primary_deck"),
+        gate: this._t("nk_frontend_gate"),
+      };
       const html = `
         <div id="no-key-overlay" class="pc-overlay" data-no-key-overlay>
           <div class="pc-modal">
             <div class="pc-classification">
-              <span><span class="dot">●</span> ${this.escape(t.classification.replace(/^●\s*/, ""))}</span>
-              <span class="right">// frontend gate</span>
+              <span><span class="dot">●</span> ${this.escape(t.classification)}</span>
+              <span class="right">${this.escape(t.gate)}</span>
             </div>
             <div class="pc-head">
               <div class="pc-tag">${this.escape(t.tag)}</div>
@@ -1527,7 +1541,7 @@
             <div class="pc-body">
               <button type="button" class="pc-choice primary" data-no-key-open-settings>
                 <div class="pc-choice-mark">${this.escape(t.primary)}</div>
-                <div class="pc-choice-deck">${lang === "zh" ? "进入 Preferences → API Key 配置任意一个模型供应商。" : "Jump to Preferences → API Key. Paste any one provider's key to unlock the room."}</div>
+                <div class="pc-choice-deck">${this.escape(t.primaryDeck)}</div>
               </button>
               <button type="button" class="pc-choice ghost" data-no-key-dismiss>
                 <div class="pc-choice-mark">${this.escape(t.dismiss)}</div>
@@ -1553,31 +1567,32 @@
       const speaker = this.currentQueue[0]
         ? this.agentsById[this.currentQueue[0].agentId]
         : null;
-      const speakerLabel = speaker ? this.escape(speaker.name) : "a director";
+      const speakerName = speaker ? speaker.name : this._t("sc_speaker_fallback");
+      const speakerLabel = this.escape(speakerName);
       const html = `
         <div id="send-choice-overlay" class="pc-overlay">
           <div class="pc-modal">
             <div class="pc-classification">
-              <span><span class="dot">●</span> send · choose</span>
-              <span class="right">// ${speakerLabel} is speaking</span>
+              <span><span class="dot">●</span> ${this.escape(this._t("sc_send_class"))}</span>
+              <span class="right">${this.escape(this._t("sc_send_right", { name: speakerName }))}</span>
             </div>
             <div class="pc-head">
-              <div class="pc-tag">▸ Send while mid-turn</div>
-              <h2 class="pc-title">${speakerLabel} is in the middle of a turn.</h2>
-              <p class="pc-deck">Cut in now, or queue your message until they finish?</p>
+              <div class="pc-tag">${this.escape(this._t("sc_send_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("sc_send_title", { name: speakerName }))}</h2>
+              <p class="pc-deck">${this.escape(this._t("sc_send_deck"))}</p>
             </div>
             <div class="pc-body">
               <button type="button" class="pc-choice" data-send-choice="interrupt">
-                <div class="pc-choice-mark">▸ Interrupt and send now</div>
-                <div class="pc-choice-deck">Drops into the room immediately. ${speakerLabel} keeps going on top of your message.</div>
+                <div class="pc-choice-mark">${this.escape(this._t("sc_interrupt_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("sc_interrupt_deck", { name: speakerName }))}</div>
               </button>
               <button type="button" class="pc-choice primary" data-send-choice="queue">
-                <div class="pc-choice-mark">→ Wait until ${speakerLabel} finishes</div>
-                <div class="pc-choice-deck">Your message lines up after the current turn and posts as soon as it ends.</div>
+                <div class="pc-choice-mark">${this.escape(this._t("sc_queue_mark", { name: speakerName }))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("sc_queue_deck"))}</div>
               </button>
               <button type="button" class="pc-choice ghost" data-send-choice="cancel">
-                <div class="pc-choice-mark">✕ Cancel</div>
-                <div class="pc-choice-deck">Keep typing and decide later.</div>
+                <div class="pc-choice-mark">${this.escape(this._t("sc_cancel_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("sc_cancel_deck"))}</div>
               </button>
             </div>
           </div>
@@ -2031,8 +2046,6 @@
             autoLabel: "directors",
             autoVal: "自动挑选",
             countersDirectors: (n) => `${n} 位董事`,
-            toneLabel: "Tone",
-            intensityLabel: "Intensity",
             cancel: "[ Cancel ]",
             confirm: "[ Convene → ]",
             confirmBusy: "[ Convening… ]",
@@ -2054,8 +2067,6 @@
             autoLabel: "directors",
             autoVal: "auto-pick",
             countersDirectors: (n) => `${n} director${n === 1 ? "" : "s"}`,
-            toneLabel: "Tone",
-            intensityLabel: "Intensity",
             cancel: "[ Cancel ]",
             confirm: "[ Convene → ]",
             confirmBusy: "[ Convening… ]",
@@ -2152,13 +2163,13 @@
                     </span>
                   </button>
                   <span class="followup-cast-row-sep" aria-hidden="true"></span>
-                  <button type="button" class="cmp-dd" data-cmp-dropdown="tone" title="${this.escape(t.toneLabel)}">
-                    <span class="cmp-dd-label">tone</span>
+                  <button type="button" class="cmp-dd" data-cmp-dropdown="tone" title="${this.escape(this._t("cmp_tone_label"))}">
+                    <span class="cmp-dd-label">${this.escape(this._t("cmp_tone_label"))}</span>
                     <span class="cmp-dd-value" data-cmp-dd-value="tone">${this.escape(inheritedMode)}</span>
                     <span class="cmp-dd-chevron">▾</span>
                   </button>
-                  <button type="button" class="cmp-dd" data-cmp-dropdown="intensity" title="${this.escape(t.intensityLabel)}">
-                    <span class="cmp-dd-label">intensity</span>
+                  <button type="button" class="cmp-dd" data-cmp-dropdown="intensity" title="${this.escape(this._t("cmp_intensity_label"))}">
+                    <span class="cmp-dd-label">${this.escape(this._t("cmp_intensity_label"))}</span>
                     <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(inheritedIntensity)}</span>
                     <span class="cmp-dd-chevron">▾</span>
                   </button>
@@ -2363,7 +2374,7 @@
           <span class="composer-pick-title">${this.escape(t.title)}</span>
           <span class="composer-pick-hint">${this.escape(t.hint)}</span>
         </div>
-        <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">no directors</div>`}</div>
+        <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">${this.escape(this._t("picker_no_directors"))}</div>`}</div>
       `;
       document.body.appendChild(pop);
       const r = anchorBtn.getBoundingClientRect();
@@ -2894,31 +2905,32 @@
       const speaker = this.currentQueue[0]
         ? this.agentsById[this.currentQueue[0].agentId]
         : null;
-      const speakerLabel = speaker ? this.escape(speaker.name) : "a director";
+      const speakerName = speaker ? speaker.name : this._t("sc_speaker_fallback");
+      const speakerLabel = this.escape(speakerName);
       const html = `
         <div id="pause-choice-overlay" class="pc-overlay">
           <div class="pc-modal">
             <div class="pc-classification">
-              <span><span class="dot">●</span> pause · choose</span>
-              <span class="right">// the room is mid-turn</span>
+              <span><span class="dot">●</span> ${this.escape(this._t("pause_class"))}</span>
+              <span class="right">${this.escape(this._t("pause_right"))}</span>
             </div>
             <div class="pc-head">
-              <div class="pc-tag">▸ Pause discussion</div>
-              <h2 class="pc-title">${speakerLabel} is speaking right now.</h2>
-              <p class="pc-deck">How would you like to pause?</p>
+              <div class="pc-tag">${this.escape(this._t("pause_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("pause_title", { name: speakerName }))}</h2>
+              <p class="pc-deck">${this.escape(this._t("pause_deck"))}</p>
             </div>
             <div class="pc-body">
               <button type="button" class="pc-choice danger" data-pause-choice="hard">
-                <div class="pc-choice-mark">▍ Stop immediately</div>
-                <div class="pc-choice-deck">Cut their reply mid-sentence. The partial response is dropped.</div>
+                <div class="pc-choice-mark">${this.escape(this._t("pause_hard_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("pause_hard_deck"))}</div>
               </button>
               <button type="button" class="pc-choice primary" data-pause-choice="soft">
-                <div class="pc-choice-mark">⌛ After they finish</div>
-                <div class="pc-choice-deck">Let ${speakerLabel} complete this turn, then pause the queue.</div>
+                <div class="pc-choice-mark">${this.escape(this._t("pause_soft_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("pause_soft_deck", { name: speakerName }))}</div>
               </button>
               <button type="button" class="pc-choice ghost" data-pause-choice="cancel">
-                <div class="pc-choice-mark">↩ Cancel</div>
-                <div class="pc-choice-deck">Keep the discussion running.</div>
+                <div class="pc-choice-mark">${this.escape(this._t("pause_cancel_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("pause_cancel_deck"))}</div>
               </button>
             </div>
           </div>
@@ -3557,9 +3569,10 @@
       const adj    = this.rooms.filter((r) => r.status === "adjourned");
 
       const renderRow = (r) => {
+        const pausedLbl = this._t("sidebar_paused");
         const status =
           r.status === "paused"
-            ? '<span class="row-status paused">❚❚ paused</span>'
+            ? `<span class="row-status paused">❚❚ ${this.escape(pausedLbl)}</span>`
             : "";
         const time =
           r.status === "paused"
@@ -3588,7 +3601,7 @@
                 <div class="row-subtitle">${status}${this.escape(r.subject || "")}</div>
               </div>
             </a>
-            <button type="button" class="row-delete" data-room-delete title="Delete room">✕</button>
+            <button type="button" class="row-delete" data-room-delete title="${this.escape(this._t("sidebar_delete_room"))}">✕</button>
           </div>
         `;
       };
@@ -3596,7 +3609,7 @@
       list.innerHTML = `
         ${live.length > 0 ? `
           <div class="section-header live">
-            <span>Live</span>
+            <span>${this.escape(this._t("sidebar_section_live"))}</span>
             <span class="line"></span>
             <span class="badge">${live.length}</span>
           </div>
@@ -3605,7 +3618,7 @@
 
         ${paused.length > 0 ? `
           <div class="section-header paused">
-            <span>Paused</span>
+            <span>${this.escape(this._t("sidebar_section_paused"))}</span>
             <span class="line"></span>
             <span class="badge">${paused.length}</span>
           </div>
@@ -3613,7 +3626,7 @@
         ` : ""}
 
         <div class="section-header adjourned">
-          <span>Adjourned</span>
+          <span>${this.escape(this._t("sidebar_section_adjourned"))}</span>
           <span class="line"></span>
           <span class="badge" data-adjourned-count>${adj.length}</span>
         </div>
@@ -3622,8 +3635,8 @@
         </div>
         <div class="adjourned-empty" data-adjourned-empty ${adj.length > 0 ? "hidden" : ""}>
           <div class="adjourned-empty-mark">○</div>
-          <div class="adjourned-empty-title">no adjourned rooms</div>
-          <div class="adjourned-empty-deck">conclude a discussion to file it here.</div>
+          <div class="adjourned-empty-title">${this.escape(this._t("sidebar_no_adjourned_title"))}</div>
+          <div class="adjourned-empty-deck">${this.escape(this._t("sidebar_no_adjourned_deck"))}</div>
         </div>
       `;
 
@@ -3711,7 +3724,7 @@
         const status = "active"; // every persisted director is active in v1
         const time = this.relTime(a.createdAt) || "—";
         const pinBtn = `
-          <button type="button" class="pin-toggle" title="${a.isPinned ? "Unpin" : "Pin"}" data-pin-toggle>${PIN_GLYPH}</button>
+          <button type="button" class="pin-toggle" title="${this.escape(a.isPinned ? this._t("sidebar_unpin") : this._t("sidebar_pin"))}" data-pin-toggle>${PIN_GLYPH}</button>
         `;
         // Delete moved off the sidebar row · it now lives inside the
         // agent profile's ⋯ overflow menu where it's protected by the
@@ -3728,9 +3741,9 @@
                   ${pinBtn}
                 </div>
                 <div class="agent-row-subtitle">
-                  <span>${this.escape(a.roleTag || "director")}</span>
+                  <span>${this.escape(a.roleTag || this._t("sidebar_role_director"))}</span>
                   <span class="agent-row-sep">·</span>
-                  <span class="agent-row-status">${this.escape(status)}</span>
+                  <span class="agent-row-status">${this.escape(this._t("sidebar_status_active"))}</span>
                 </div>
               </div>
             </a>
@@ -3749,12 +3762,12 @@
           <div class="agent-row-content">
             <div class="agent-row-top-line">
               <span class="agent-row-title">${this.escape(a.name)}</span>
-              <span class="agent-row-chair-badge" title="Moderator · structural agent, not user-managed">CHAIR</span>
+              <span class="agent-row-chair-badge" title="${this.escape(this._t("sidebar_chair_badge_title"))}">${this.escape(this._t("sidebar_chair_badge"))}</span>
             </div>
             <div class="agent-row-subtitle">
-              <span class="agent-row-chair-role">${this.escape(a.roleTag || "moderator")}</span>
+              <span class="agent-row-chair-role">${this.escape((a.roleTag && String(a.roleTag).toLowerCase() === "moderator") ? this._t("agent_role_tag_moderator") : (a.roleTag || this._t("sidebar_chair_role_fallback")))}</span>
               <span class="agent-row-sep">·</span>
-              <span class="agent-row-chair-note">in every room</span>
+              <span class="agent-row-chair-note">${this.escape(this._t("sidebar_chair_note"))}</span>
             </div>
           </div>
         </a>
@@ -3783,19 +3796,19 @@
       // user immediately sees the orchestrator, and so it can't get
       // grouped with directors they pin or create.
       if (this.currentChair) {
-        parts.push(sectionHeader("Chair", 1, "chair"));
+        parts.push(sectionHeader(this._t("sidebar_sec_chair"), 1, "chair"));
         parts.push(renderChairRow(this.currentChair));
       }
       if (pinned.length) {
-        parts.push(sectionHeader("Pinned", pinned.length, "pinned"));
+        parts.push(sectionHeader(this._t("sidebar_sec_pinned"), pinned.length, "pinned"));
         parts.push(pinned.map((a) => renderRow(a)).join(""));
       }
       if (custom.length) {
-        parts.push(sectionHeader("Custom", custom.length));
+        parts.push(sectionHeader(this._t("sidebar_sec_custom"), custom.length));
         parts.push(custom.map((a) => renderRow(a)).join(""));
       }
       if (core.length) {
-        parts.push(sectionHeader("Core", core.length));
+        parts.push(sectionHeader(this._t("sidebar_sec_core"), core.length));
         parts.push(core.map((a) => renderRow(a)).join(""));
       }
       list.innerHTML = parts.join("");
@@ -3811,7 +3824,7 @@
         const firstLine = intro.split(/[\n.·]/)[0].trim();
         meta = firstLine.length > 32 ? firstLine.slice(0, 30) + "…" : firstLine;
       } else {
-        meta = "// host";
+        meta = this._t("sidebar_host");
       }
 
       // Avatar source-of-truth · prefs.avatarSeed (set by the
@@ -3847,7 +3860,7 @@
       const a = document.querySelector('[data-sidebar-tab-count="agents"]');
       if (a) a.textContent = String(agentsCount);
       const sum = document.querySelector("[data-sidebar-summary]");
-      if (sum) sum.textContent = `${liveCount} LIVE / ${agentsCount} AGENTS`;
+      if (sum) sum.textContent = this._t("sidebar_summary", { live: liveCount, agents: agentsCount });
     },
 
     // ── Rendering · main view ─────────────────────────────────
@@ -4027,36 +4040,20 @@
       const briefCard = document.querySelector("[data-brief-card]");
       if (!briefCard) return;
 
-      const isZh = this.composerLanguage() === "zh";
-      const t = isZh
-        ? {
-            head: "// 会议数据",
-            stamp: "已结束",
-            tokens: "tokens",
-            messages: "条消息",
-            rounds: "轮讨论",
-            minutes: "分钟",
-            modelHead: "模型用量",
-            valueHead: "你认为有价值的",
-            valueEmpty: "本次没有 ▲ key point 投票，也没有用 probe / second。",
-            voted: "▲ 投票",
-            seconded: "附议",
-            probed: "追问",
-          }
-        : {
-            head: "// session analytics",
-            stamp: "closed",
-            tokens: "tokens",
-            messages: "msgs",
-            rounds: "rounds",
-            minutes: "min",
-            modelHead: "Model usage",
-            valueHead: "What you valued",
-            valueEmpty: "No ▲ key-point votes, probes, or seconds in this session.",
-            voted: "▲ voted",
-            seconded: "★ seconded",
-            probed: "✎ probed",
-          };
+      const t = {
+        head: this._t("sa_head"),
+        stamp: this._t("sa_stamp"),
+        tokens: this._t("sa_tokens"),
+        messages: this._t("sa_messages"),
+        rounds: this._t("sa_rounds"),
+        minutes: this._t("sa_minutes"),
+        modelHead: this._t("sa_model_head"),
+        valueHead: this._t("sa_value_head"),
+        valueEmpty: this._t("sa_value_empty"),
+        voted: this._t("sa_voted"),
+        seconded: this._t("sa_seconded"),
+        probed: this._t("sa_probed"),
+      };
 
       const fmtTokens = (n) => {
         if (!Number.isFinite(n) || n <= 0) return "0";
@@ -4130,7 +4127,7 @@
       const barSegments = stats.modelBreakdown.map((row) => {
         const color = colorForModel(row.modelV);
         const widthPct = (row.pct * 100).toFixed(2);
-        return `<span class="sa-bar-seg" style="width: ${widthPct}%; background: ${color};" title="${this.escape(modelLabel(row.modelV) + " · " + fmtTokens(row.tokens) + " tokens")}"></span>`;
+        return `<span class="sa-bar-seg" style="width: ${widthPct}%; background: ${color};" title="${this.escape(this._t("sa_seg_title", { model: modelLabel(row.modelV), tokens: fmtTokens(row.tokens) }))}"></span>`;
       }).join("");
       const barHtml = stats.modelBreakdown.length > 0
         ? `<div class="sa-bar" role="img" aria-label="${this.escape(t.modelHead)}">${barSegments}</div>`
@@ -4247,12 +4244,11 @@
         ? this.escape(nextSpeaker.handle.replace(/^\//, ""))
         : "";
 
-      const lang = this.composerLanguage();
-      const addInputLabel = lang === "zh" ? "[ + 补充观点 ]" : "[ + Add input ]";
-      const adjournLabel  = lang === "zh" ? "[ ▸ 结束并存档 ]" : "[ ▸ Adjourn & File Brief ]";
-      const resumeLabel   = lang === "zh" ? "[ ▶ 恢复讨论 ]"   : "[ ▶ Resume Discussion ]";
-      const pausedLabel   = lang === "zh" ? "已暂停" : "paused";
-      const nextLabel     = lang === "zh" ? "下一位" : "next";
+      const addInputLabel = this._t("pause_bar_add_input");
+      const adjournLabel  = this._t("pause_bar_adjourn");
+      const resumeLabel   = this._t("pause_bar_resume");
+      const pausedLabel   = this._t("pause_bar_paused");
+      const nextLabel     = this._t("pause_bar_next");
       const nextChunk = nextHandle
         ? ` · ${nextLabel} → <span class="lime">${nextHandle}</span>`
         : "";
@@ -4504,7 +4500,12 @@
         // to All.
         this._reportsCache = briefs;
         const activeFilter = this._reportsFilter || "all";
-        const filterLabels = { all: "the archive", today: "Today", week: "This week", earlier: "Earlier" };
+        const filterLabels = {
+          all: this._t("rep_filter_archive_label"),
+          today: this._t("rep_filter_today"),
+          week: this._t("rep_filter_week"),
+          earlier: this._t("rep_filter_earlier"),
+        };
 
         const emptyChip = (key, label) => {
           const on = key === activeFilter ? " on" : "";
@@ -4517,39 +4518,39 @@
         };
 
         const isAll = activeFilter === "all";
-        const cardKicker = isAll ? "// archive empty" : "// window empty";
+        const cardKicker = isAll ? this._t("rep_empty_kicker_archive") : this._t("rep_empty_kicker_window");
         const cardTitle = isAll
-          ? "No reports filed yet"
-          : `No reports in ${filterLabels[activeFilter]}`;
+          ? this._t("rep_empty_title_none")
+          : this._t("rep_empty_title_window", { window: filterLabels[activeFilter] });
         const cardDeck = isAll
-          ? "Run a session and adjourn — once the chair files, every brief across every room lands here."
-          : "Run a session and adjourn — once the chair files, briefs in this window land here. Or jump back to the full archive.";
+          ? this._t("rep_empty_deck_all")
+          : this._t("rep_empty_deck_window");
         const cardCtaHtml = isAll
           ? `
             <button type="button" class="reports-list-empty-cta" data-convene-trigger>
               <span class="reports-list-empty-cta-arrow">→</span>
-              <span>Convene a new room</span>
+              <span>${this.escape(this._t("rep_cta_convene"))}</span>
             </button>`
           : `
             <button type="button" class="reports-list-empty-cta" data-reports-filter="all">
               <span class="reports-list-empty-cta-arrow">←</span>
-              <span>Show all reports</span>
+              <span>${this.escape(this._t("rep_cta_show_all"))}</span>
             </button>`;
 
         page.innerHTML = `
           <div class="reports-page-head">
             <div>
-              <div class="reports-page-kicker">// archive</div>
-              <h1 class="reports-page-title">All Reports</h1>
+              <div class="reports-page-kicker">${this.escape(this._t("rep_kicker"))}</div>
+              <h1 class="reports-page-title">${this.escape(this._t("rep_title"))}</h1>
             </div>
-            <div class="reports-page-meta">0 reports</div>
+            <div class="reports-page-meta">${this.escape(this._t("rep_meta", { n: 0 }))}</div>
           </div>
 
-          <div class="reports-filters" role="tablist" aria-label="Filter reports by recency">
-            ${emptyChip("all", "All")}
-            ${emptyChip("today", "Today")}
-            ${emptyChip("week", "This week")}
-            ${emptyChip("earlier", "Earlier")}
+          <div class="reports-filters" role="tablist" aria-label="${this.escape(this._t("rep_aria_filters"))}">
+            ${emptyChip("all", this._t("rep_filter_all"))}
+            ${emptyChip("today", this._t("rep_filter_today"))}
+            ${emptyChip("week", this._t("rep_filter_week"))}
+            ${emptyChip("earlier", this._t("rep_filter_earlier"))}
           </div>
 
           <div class="reports-list-wrap">
@@ -4625,10 +4626,10 @@
       const yesterdayStart = todayStart - 86400_000;
       let currentGroup = null;
       const groupLabelFor = (ts) => {
-        if (ts >= todayStart)      return "Today";
-        if (ts >= yesterdayStart)  return "Yesterday";
-        if (ts >= weekStart)       return "This week";
-        return "Earlier";
+        if (ts >= todayStart)      return this._t("rep_group_today");
+        if (ts >= yesterdayStart)  return this._t("rep_group_yesterday");
+        if (ts >= weekStart)       return this._t("rep_group_week");
+        return this._t("rep_group_earlier");
       };
       for (const b of visibleFiltered) {
         const label = groupLabelFor(b.createdAt);
@@ -4639,16 +4640,21 @@
         currentGroup.items.push(b);
       }
 
-      const filterLabels = { all: "the archive", today: "Today", week: "This week", earlier: "Earlier" };
-      const filterCopyTitle = filterLabels[activeFilter] || "this window";
+      const filterLabels = {
+        all: this._t("rep_filter_archive_label"),
+        today: this._t("rep_filter_today"),
+        week: this._t("rep_filter_week"),
+        earlier: this._t("rep_filter_earlier"),
+      };
+      const filterCopyTitle = filterLabels[activeFilter] || filterLabels.all;
       const groupsHtml = groups.length === 0
         ? `
           <div class="reports-list-empty">
             <!-- Notice text · explains the empty window. -->
             <div class="reports-list-empty-text">
-              <div class="reports-list-empty-kicker">// window empty</div>
-              <h3 class="reports-list-empty-title">No reports in ${this.escape(filterCopyTitle)}</h3>
-              <p class="reports-list-empty-deck">Pick a different filter, or jump back to the full archive.</p>
+              <div class="reports-list-empty-kicker">${this.escape(this._t("rep_empty_kicker_window"))}</div>
+              <h3 class="reports-list-empty-title">${this.escape(this._t("rep_empty_title_window", { window: filterCopyTitle }))}</h3>
+              <p class="reports-list-empty-deck">${this.escape(this._t("rep_empty_deck_filter"))}</p>
             </div>
             <!-- Static skeleton silhouette · three quiet bars
                  suggesting "title · judgement · meta," paired with
@@ -4661,7 +4667,7 @@
             ${activeFilter !== "all" ? `
               <button type="button" class="reports-list-empty-cta" data-reports-filter="all">
                 <span class="reports-list-empty-cta-arrow">←</span>
-                <span>Show all reports</span>
+                <span>${this.escape(this._t("rep_cta_show_all"))}</span>
               </button>
             ` : ""}
           </div>
@@ -4679,12 +4685,21 @@
       // when there's more to load. The "+ N more" hint doubles as a
       // click target if the user prefers explicit paging over scroll.
       const remaining = filtered.length - visibleCount;
+      const loadN = Math.min(20, remaining);
+      const reportsMetaLine =
+        (total === 1 ? this._t("rep_total_one") : this._t("rep_total_n", { n: total })) +
+        (distinctRooms > 0
+          ? (distinctRooms === 1
+            ? this._t("rep_meta_room_one")
+            : this._t("rep_meta_room_n", { n: distinctRooms }))
+          : "") +
+        (hasMore ? this._t("rep_showing", { n: visibleCount }) : "");
       const sentinelHtml = hasMore
         ? `
           <div class="reports-load-sentinel" data-reports-load-sentinel>
             <button type="button" class="reports-load-more" data-reports-load-more>
               <span class="reports-load-more-arrow">▾</span>
-              <span class="reports-load-more-text">Load ${Math.min(20, remaining)} more · ${remaining} remaining</span>
+              <span class="reports-load-more-text">${this.escape(this._t("rep_load_more", { load: loadN, remaining }))}</span>
             </button>
           </div>
         `
@@ -4693,17 +4708,17 @@
       page.innerHTML = `
         <div class="reports-page-head">
           <div>
-            <div class="reports-page-kicker">// archive</div>
-            <h1 class="reports-page-title">All Reports</h1>
+            <div class="reports-page-kicker">${this.escape(this._t("rep_kicker"))}</div>
+            <h1 class="reports-page-title">${this.escape(this._t("rep_title"))}</h1>
           </div>
-          <div class="reports-page-meta">${total} ${total === 1 ? "report" : "reports"} · ${distinctRooms} ${distinctRooms === 1 ? "room" : "rooms"}${hasMore ? ` · showing ${visibleCount}` : ""}</div>
+          <div class="reports-page-meta">${this.escape(reportsMetaLine)}</div>
         </div>
 
-        <div class="reports-filters" role="tablist" aria-label="Filter reports by recency">
-          ${filterChip("all", "All", total)}
-          ${filterChip("today", "Today", todayCount)}
-          ${filterChip("week", "This week", weekCount)}
-          ${filterChip("earlier", "Earlier", earlierCount)}
+        <div class="reports-filters" role="tablist" aria-label="${this.escape(this._t("rep_aria_filters"))}">
+          ${filterChip("all", this._t("rep_filter_all"), total)}
+          ${filterChip("today", this._t("rep_filter_today"), todayCount)}
+          ${filterChip("week", this._t("rep_filter_week"), weekCount)}
+          ${filterChip("earlier", this._t("rep_filter_earlier"), earlierCount)}
         </div>
 
         <div class="reports-list-wrap">${groupsHtml}${sentinelHtml}</div>
@@ -4931,11 +4946,11 @@
         `;
       };
       const filtersHtml = `
-        <div class="notes-filters" role="tablist" aria-label="Filter notes by recency">
-          ${filterChip("all", "All", total)}
-          ${filterChip("today", "Today", todayCount)}
-          ${filterChip("week", "This week", weekCount)}
-          ${filterChip("earlier", "Earlier", earlierCount)}
+        <div class="notes-filters" role="tablist" aria-label="${this.escape(this._t("notes_aria_filters"))}">
+          ${filterChip("all", this._t("notes_filter_all"), total)}
+          ${filterChip("today", this._t("rep_filter_today"), todayCount)}
+          ${filterChip("week", this._t("rep_filter_week"), weekCount)}
+          ${filterChip("earlier", this._t("rep_filter_earlier"), earlierCount)}
         </div>
       `;
 
@@ -4946,19 +4961,17 @@
         page.innerHTML = `
           <div class="notes-page-head">
             <div>
-              <div class="notes-page-kicker">// chairman · saved excerpts</div>
-              <h1 class="notes-page-title">All Notes</h1>
+              <div class="notes-page-kicker">${this.escape(this._t("notes_kicker"))}</div>
+              <h1 class="notes-page-title">${this.escape(this._t("notes_title"))}</h1>
             </div>
-            <div class="notes-page-meta">0 notes</div>
+            <div class="notes-page-meta">${this.escape(this._t("notes_meta", { n: 0 }))}</div>
           </div>
           ${filtersHtml}
           <div class="notes-list-empty">
             <div class="notes-empty-mark">○</div>
-            <div class="notes-empty-title">no saved notes yet</div>
+            <div class="notes-empty-title">${this.escape(this._t("notes_empty_title"))}</div>
             <div class="notes-empty-deck">
-              While reading a director's reply, select an interesting passage and hit
-              <span class="kbd">S</span> or click <span class="kbd">⌖ Save</span>
-              on the floating bar to bookmark it here.
+              ${this._t("notes_empty_deck")}
             </div>
           </div>
         `;
@@ -4977,9 +4990,9 @@
       // visual rhythm. When a recency filter narrows to a single
       // bucket, only that bucket's section renders — no empty headers.
       const groupLabelFor = (ts) => {
-        if (ts >= todayStart) return "Today";
-        if (ts >= weekStart)  return "This week";
-        return "Earlier";
+        if (ts >= todayStart) return this._t("rep_group_today");
+        if (ts >= weekStart)  return this._t("rep_group_week");
+        return this._t("rep_group_earlier");
       };
       const groups = [];
       let currentGroup = null;
@@ -4992,17 +5005,22 @@
         currentGroup.items.push(n);
       }
 
-      const filterLabels = { all: "the archive", today: "Today", week: "This week", earlier: "Earlier" };
+      const filterLabels = {
+        all: this._t("rep_filter_archive_label"),
+        today: this._t("rep_filter_today"),
+        week: this._t("rep_filter_week"),
+        earlier: this._t("rep_filter_earlier"),
+      };
       const groupsHtml = groups.length === 0
         ? `
           <div class="notes-list-empty">
             <div class="notes-empty-mark">○</div>
-            <div class="notes-empty-title">No notes in ${this.escape(filterLabels[activeFilter] || "this window")}</div>
-            <div class="notes-empty-deck">Pick a different filter, or jump back to the full archive.</div>
+            <div class="notes-empty-title">${this.escape(this._t("notes_empty_window", { window: filterLabels[activeFilter] || filterLabels.all }))}</div>
+            <div class="notes-empty-deck">${this.escape(this._t("notes_empty_filter_deck"))}</div>
             ${activeFilter !== "all" ? `
               <button type="button" class="notes-empty-cta" data-notes-filter="all">
                 <span class="notes-empty-cta-arrow">←</span>
-                <span>Show all notes</span>
+                <span>${this.escape(this._t("notes_cta_show_all"))}</span>
               </button>
             ` : ""}
           </div>
@@ -5019,18 +5037,19 @@
           </section>
         `).join("");
 
-      const totalLabel = `${total} ${total === 1 ? "note" : "notes"}`;
+      const totalLabel =
+        total === 1 ? this._t("notes_one") : this._t("notes_many", { n: total });
       const roomLabel = distinctRooms > 0
-        ? ` · ${distinctRooms} ${distinctRooms === 1 ? "room" : "rooms"}`
+        ? (distinctRooms === 1 ? this._t("rooms_one") : this._t("rooms_many", { n: distinctRooms }))
         : "";
 
       page.innerHTML = `
         <div class="notes-page-head">
           <div>
-            <div class="notes-page-kicker">// chairman · saved excerpts</div>
-            <h1 class="notes-page-title">All Notes</h1>
+            <div class="notes-page-kicker">${this.escape(this._t("notes_kicker"))}</div>
+            <h1 class="notes-page-title">${this.escape(this._t("notes_title"))}</h1>
           </div>
-          <div class="notes-page-meta">${this.escape(totalLabel)}${this.escape(roomLabel)}</div>
+          <div class="notes-page-meta">${this.escape(totalLabel)}${roomLabel ? this.escape(" · " + roomLabel) : ""}</div>
         </div>
         ${filtersHtml}
         <div class="notes-list-wrap">${groupsHtml}</div>
@@ -5054,7 +5073,7 @@
       const time = this.relTime(n.createdAt) || "";
       const roomNum = n.roomNumber != null ? `#${String(n.roomNumber).padStart(3, "0")}` : "";
       const roomSubject = (n.roomSubject || "").slice(0, 100);
-      const author = n.authorName || "Director";
+      const author = n.authorName || this._t("notes_director_fallback");
       // The jump link uses the room's hash route + the note id as a
       // fragment-style query so openRoom can scroll to + flash the
       // matching span (Step 5 wires the receiver). For now the link
@@ -5064,7 +5083,7 @@
         <li class="notes-item" data-note-id="${this.escape(n.id)}">
           <a class="notes-item-link" href="${href}" data-note-jump="${this.escape(n.id)}" data-note-room="${this.escape(n.roomId)}">
             <div class="notes-item-meta">
-              <span class="notes-item-room">ROOM ${this.escape(roomNum)}</span>
+              <span class="notes-item-room">${this.escape(this._t("notes_item_room"))} ${this.escape(roomNum)}</span>
               ${roomSubject ? `<span class="notes-item-sep">·</span><span class="notes-item-subject">${this.escape(roomSubject)}</span>` : ""}
               <span class="notes-item-sep">·</span>
               <span class="notes-item-director">${this.escape(author)}</span>
@@ -5282,7 +5301,7 @@
         // tooltip's 1–2s delay competing with the custom `.note-tip`
         // popover wired up in init(); aria-label still surfaces the
         // affordance for screen readers.
-        span.setAttribute("aria-label", "Saved to Notes");
+        span.setAttribute("aria-label", this._t("note_saved"));
         // Text-only ranges always satisfy surroundContents' "no
         // partial non-Text node" precondition · the catch is just
         // a safety belt for browsers that surprise us.
@@ -5323,7 +5342,7 @@
       const time = note ? this.relTime(note.createdAt) : "";
       tip.innerHTML = `
         <span class="note-tip-mark">✓</span>
-        <span class="note-tip-label">Saved to Notes</span>
+        <span class="note-tip-label">${this.escape(this._t("note_saved"))}</span>
         ${time ? `<span class="note-tip-sep">·</span><span class="note-tip-meta">${this.escape(time)}</span>` : ""}
       `;
       const rect = span.getBoundingClientRect();
@@ -5578,8 +5597,8 @@
       // Tune dropdowns · two trigger buttons that open option popovers
       // on click. Discoverable (label + value + chevron pattern is
       // unmistakeably a select) without taking up visual real estate.
-      const toneLbl = lang === "zh" ? "tone" : "tone";
-      const intensityLbl = lang === "zh" ? "intensity" : "intensity";
+      const toneLbl = this._t("cmp_tone_label");
+      const intensityLbl = this._t("cmp_intensity_label");
 
       // Starter grid · 2-col responsive cards.
       const starters = Array.isArray(window.BOARDROOM_STARTERS) ? window.BOARDROOM_STARTERS : [];
@@ -5647,22 +5666,40 @@
     /** Time-of-day greeting like "// good evening, Kay" / "// 晚上好，Kay". */
     composerGreeting(lang, name) {
       const h = new Date().getHours();
-      if (lang === "zh") {
-        const part = h < 5 ? "凌晨好" : h < 12 ? "早上好" : h < 14 ? "中午好" : h < 18 ? "下午好" : h < 23 ? "晚上好" : "夜深了";
-        return `// ${part}，${name}`;
-      }
-      const part = h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-      return `// ${part}, ${name}`;
+      const isZh = lang === "zh";
+      let key;
+      if (isZh) {
+        if (h < 5) key = "greet_zh_0";
+        else if (h < 12) key = "greet_zh_1";
+        else if (h < 14) key = "greet_zh_2";
+        else if (h < 18) key = "greet_zh_3";
+        else if (h < 23) key = "greet_zh_4";
+        else key = "greet_zh_5";
+      } else if (h < 5) key = "greet_en_0";
+      else if (h < 12) key = "greet_en_1";
+      else if (h < 18) key = "greet_en_2";
+      else key = "greet_en_3";
+      return this._t(key, { name });
     },
 
     composerLanguage() {
-      // Match interface language to user prefs / browser locale; CJK
-      // browsers see Chinese composer copy.
       try {
-        const lang = (this.prefs?.locale || navigator.language || "").toLowerCase();
-        if (lang.startsWith("zh") || lang.includes("cn") || lang.includes("hans") || lang.includes("hant")) return "zh";
+        if (window.I18n && typeof window.I18n.getLocale === "function") {
+          return window.I18n.getLocale() === "zh" ? "zh" : "en";
+        }
+      } catch { /* ignore */ }
+      try {
+        const lang = (navigator.language || "").toLowerCase();
+        if (lang.startsWith("zh") || lang.includes("cn") || lang.includes("hans") || lang.includes("hant")) {
+          return "zh";
+        }
       } catch { /* ignore */ }
       return "en";
+    },
+
+    /** UI copy from i18n.js · falls back to key if I18n not loaded. */
+    _t(key, vars) {
+      return (window.I18n && window.I18n.t(key, vars)) || key;
     },
 
     autosizeComposerTextarea() {
@@ -5927,8 +5964,8 @@
       const stages = lang === "zh" ? this.AGENT_GEN_STAGES_ZH : this.AGENT_GEN_STAGES_EN;
       const active = this.agentGenStageIndex;
       const elapsed = Math.max(0, (Date.now() - this.agentGenStartedAt) / 1000);
-      const elapsedLabel = lang === "zh" ? `已耗时 ${Math.round(elapsed)} s` : `${Math.round(elapsed)} s elapsed`;
-      const headerLabel = lang === "zh" ? "正在生成 director" : "Summoning director";
+      const elapsedLabel = this._t("ag_gen_elapsed", { n: Math.round(elapsed) });
+      const headerLabel = this._t("ag_gen_header");
       const sigilSvg = this.renderAgentGenSigilSvg(stages, active, elapsed);
       // The active stage's headline pulse — lifted out from the list so
       // it reads as the focal "what's happening RIGHT NOW" line.
@@ -5946,7 +5983,7 @@
         <div class="ag-gen-stage-area">
           <div class="ag-gen-sigil" aria-hidden="true">${sigilSvg}</div>
           <div class="ag-gen-active-block">
-            <div class="ag-gen-active-kicker">${this.escape(lang === "zh" ? `第 ${active + 1} / ${stages.length} 步` : `step ${active + 1} of ${stages.length}`)}</div>
+            <div class="ag-gen-active-kicker">${this.escape(this._t("ag_gen_step", { current: active + 1, total: stages.length }))}</div>
             <div class="ag-gen-active-label">${this.escape(activeStage ? activeStage.label : "")}</div>
             ${activeSubText ? `<div class="ag-gen-active-sub">${this.escape(activeSubText)}</div>` : ""}
           </div>
@@ -6075,32 +6112,20 @@
       const userName = (this.prefs?.name || "you").trim() || "you";
       const lang = this.composerLanguage();
       const greeting = this.composerGreeting(lang, userName);
-      const t = lang === "zh"
-        ? {
-            greet: greeting,
-            prompt: "想招一位什么样的董事？",
-            placeholder: "几句话描述这位董事的角色、方法、立场。比如：一位每件事都从用户视角出发的产品老兵，会反对任何不带『用户在那一刻干嘛』的论点。",
-            cta: "Generate",
-            ctaHint: "AI 会生成一份完整 spec，你可以再调",
-            manual: "手动配置",
-            generating: "生成中…",
-            modelLabel: "model",
-            starterCaption: "或者从一个 archetype 起手",
-          }
-        : {
-            greet: greeting,
-            prompt: "What kind of director do you want?",
-            placeholder: "A few sentences on their role, method, stance. e.g. A seasoned product hand who reasons from the user's moment of friction. Will reject any argument that doesn't name what the user is doing right then.",
-            cta: "Generate",
-            ctaHint: "AI drafts the full spec — you'll edit before saving",
-            manual: "Configure manually",
-            generating: "Generating…",
-            modelLabel: "model",
-            starterCaption: "or start from an archetype",
-          };
+      const t = {
+        greet: greeting,
+        prompt: this._t("ag_cmp_prompt"),
+        placeholder: this._t("ag_cmp_placeholder"),
+        cta: this._t("ag_cmp_cta"),
+        ctaHint: this._t("ag_cmp_cta_hint"),
+        manual: this._t("ag_cmp_manual"),
+        generating: this._t("ag_cmp_generating"),
+        modelLabel: this._t("ag_cmp_model_label"),
+        starterCaption: this._t("ag_cmp_starter_caption"),
+      };
       // If we already have a spec preview, render that instead of the input.
       if (this.agentSpec) {
-        return this.renderAgentSpecPreviewHtml(this.agentSpec, lang);
+        return this.renderAgentSpecPreviewHtml(this.agentSpec);
       }
       // If the last attempt failed (timeout or other), render the
       // recovery card with [Retry] / [Discard] · keeps the description
@@ -6148,22 +6173,16 @@
                 const configured = this.agentComposerBraveConfigured();
                 const on = configured && this.loadAgentComposerWebSearch();
                 const stateLabel = !configured
-                  ? (lang === "zh" ? "未配置" : "needs key")
+                  ? this._t("ag_ws_needs_key")
                   : on
-                    ? (lang === "zh" ? "已开启" : "enabled")
-                    : (lang === "zh" ? "已关闭" : "disabled");
+                    ? this._t("ag_ws_enabled")
+                    : this._t("ag_ws_disabled");
                 const titleText = !configured
-                  ? (lang === "zh"
-                    ? "联网搜索需要 Brave Search API key · 点击配置"
-                    : "Web search needs a Brave Search API key · click to configure")
+                  ? this._t("ag_ws_title_needs")
                   : on
-                    ? (lang === "zh"
-                      ? "生成时联网检索领域真实案例 · 点击关闭"
-                      : "Search the web for real domain references during generation · click to disable")
-                    : (lang === "zh"
-                      ? "生成时不联网 · 点击开启"
-                      : "Generation runs offline · click to enable web search");
-                const wsLabel = lang === "zh" ? "联网搜索" : "web search";
+                    ? this._t("ag_ws_title_on")
+                    : this._t("ag_ws_title_off");
+                const wsLabel = this._t("ag_ws_label");
                 const cls = [
                   "ap-skill-row-toggle",
                   "cmp-ws-toggle",
@@ -6209,38 +6228,7 @@
     },
 
     /** Preview card · all generated fields editable inline. */
-    renderAgentSpecPreviewHtml(spec, lang) {
-      const t = lang === "zh"
-        ? {
-            kicker: "// 生成的 director · 编辑后保存",
-            avatar: "头像",
-            reroll: "换一个",
-            name: "Name",
-            handle: "Handle",
-            role: "Role tag",
-            bio: "Bio",
-            quote: "Cover quote",
-            instruction: "Instruction",
-            model: "Model",
-            save: "Save director",
-            discard: "丢弃",
-            redo: "重新生成",
-          }
-        : {
-            kicker: "// generated director · edit and save",
-            avatar: "Avatar",
-            reroll: "Reroll",
-            name: "Name",
-            handle: "Handle",
-            role: "Role tag",
-            bio: "Bio",
-            quote: "Cover quote",
-            instruction: "Instruction",
-            model: "Model",
-            save: "Save director",
-            discard: "Discard",
-            redo: "Regenerate",
-          };
+    renderAgentSpecPreviewHtml(spec) {
       const seed = this.agentSpecAvatarSeed;
       const avatarSvg = (window.AvatarSkill && seed)
         ? window.AvatarSkill.generate(seed, { size: 96 })
@@ -6270,19 +6258,19 @@
       const abilitySvg = this.renderAgentSpecRadarSvg(spec.ability || {});
       return `
         <section class="cmp ag-cmp ag-prev-mode">
-          <div class="ag-prev-kicker">${this.escape(t.kicker)}</div>
+          <div class="ag-prev-kicker">${this.escape(this._t("ag_preview_kicker"))}</div>
 
           <div class="ag-prev-card">
             <header class="ag-prev-head">
               <div class="ag-prev-identity">
-                <button type="button" class="ag-prev-av" data-agent-spec-reroll title="${this.escape(t.reroll)}">
+                <button type="button" class="ag-prev-av" data-agent-spec-reroll title="${this.escape(this._t("ag_preview_reroll"))}">
                   <div class="ag-prev-av-frame">${avatarSvg}</div>
                   <span class="ag-prev-av-reroll-mark">↻</span>
                 </button>
                 <div class="ag-prev-id-fields">
-                  <input type="text" class="ag-prev-name" data-agent-spec-field="name" maxlength="32" value="${this.escape(spec.name)}" placeholder="${this.escape(t.name)}">
+                  <input type="text" class="ag-prev-name" data-agent-spec-field="name" maxlength="32" value="${this.escape(spec.name)}" placeholder="${this.escape(this._t("ag_preview_name"))}">
                   <div class="ag-prev-id-meta">
-                    <input type="text" class="ag-prev-roletag" data-agent-spec-field="roleTag" maxlength="32" value="${this.escape(spec.roleTag)}" placeholder="${this.escape(t.role)}">
+                    <input type="text" class="ag-prev-roletag" data-agent-spec-field="roleTag" maxlength="32" value="${this.escape(spec.roleTag)}" placeholder="${this.escape(this._t("ag_preview_role"))}">
                     <span class="ag-prev-meta-sep">·</span>
                     <select class="ag-prev-model" data-agent-spec-field="modelV">${modelOpts}</select>
                   </div>
@@ -6293,27 +6281,27 @@
 
             <div class="ag-prev-body">
               <label class="ag-prev-field">
-                <span class="ag-prev-label">${this.escape(t.bio)}</span>
+                <span class="ag-prev-label">${this.escape(this._t("ag_preview_bio"))}</span>
                 <textarea class="ag-prev-input ag-prev-textarea" data-agent-spec-field="bio" maxlength="280" rows="2">${this.escape(spec.bio)}</textarea>
               </label>
 
               <label class="ag-prev-field">
-                <span class="ag-prev-label">${this.escape(t.quote)}</span>
+                <span class="ag-prev-label">${this.escape(this._t("ag_preview_quote"))}</span>
                 <textarea class="ag-prev-input ag-prev-textarea" data-agent-spec-field="coverQuote" maxlength="200" rows="2">${this.escape(spec.coverQuote || "")}</textarea>
               </label>
 
               <label class="ag-prev-field">
-                <span class="ag-prev-label">${this.escape(t.instruction)}</span>
+                <span class="ag-prev-label">${this.escape(this._t("ag_preview_instruction"))}</span>
                 <textarea class="ag-prev-input ag-prev-textarea ag-prev-instr" data-agent-spec-field="instruction" maxlength="4000" rows="10">${this.escape(spec.instruction)}</textarea>
               </label>
             </div>
 
             <footer class="ag-prev-foot">
-              <button type="button" class="ag-prev-discard" data-agent-spec-discard>${this.escape(t.discard)}</button>
-              <button type="button" class="ag-prev-redo" data-agent-spec-redo>↻ ${this.escape(t.redo)}</button>
+              <button type="button" class="ag-prev-discard" data-agent-spec-discard>${this.escape(this._t("ag_preview_discard"))}</button>
+              <button type="button" class="ag-prev-redo" data-agent-spec-redo>↻ ${this.escape(this._t("ag_preview_redo"))}</button>
               <button type="button" class="ag-prev-save" data-agent-spec-save>
                 <span class="ag-prev-save-mark">◆</span>
-                <span>${this.escape(t.save)}</span>
+                <span>${this.escape(this._t("ag_preview_save"))}</span>
               </button>
             </footer>
           </div>
@@ -6327,52 +6315,35 @@
      *  composer back to its input state). The description text is
      *  surfaced read-only so the user can copy it before discard. */
     renderAgentSpecErrorHtml(err, lang) {
-      const t = lang === "zh"
-        ? {
-            kicker: err.kind === "timeout" ? "// 生成超时" : "// 生成失败",
-            title: err.kind === "timeout" ? "生成超过 5 分钟仍未完成" : "生成失败",
-            hintTimeout: "可能是模型回应过慢、网络波动，或后端 LLM 流水线卡住了。点击重试再来一次。",
-            hintFailed: "请确认 API key 配置正确、模型可达。重试通常能解决临时性失败。",
-            descLabel: "你的描述（重试时会复用）",
-            retry: "重试",
-            discard: "放弃",
-          }
-        : {
-            kicker: err.kind === "timeout" ? "// generation timed out" : "// generation failed",
-            title: err.kind === "timeout" ? "Generation didn't complete after 5 minutes" : "Generation failed",
-            hintTimeout: "The model may be slow, the network flaky, or the backend pipeline stalled. Click retry to start a fresh run.",
-            hintFailed: "Check your API key configuration and model reachability. Retry often clears transient failures.",
-            descLabel: "Your description (re-used on retry)",
-            retry: "Retry",
-            discard: "Discard",
-          };
+      const kicker = err.kind === "timeout" ? this._t("ag_err_kicker_timeout") : this._t("ag_err_kicker_fail");
+      const title = err.kind === "timeout" ? this._t("ag_err_title_timeout") : this._t("ag_err_title_fail");
+      const hint = err.kind === "timeout" ? this._t("ag_err_hint_timeout") : this._t("ag_err_hint_fail");
       const desc = this._agentComposerLastDesc || "";
-      const hint = err.kind === "timeout" ? t.hintTimeout : t.hintFailed;
       const detail = err.message ? `<div class="ag-gen-error-detail">${this.escape(err.message)}</div>` : "";
       return `
         <section class="cmp ag-cmp">
           <header class="cmp-hero">
             <div class="cmp-greet">${this.escape(this.composerGreeting(lang, (this.prefs?.name || "you").trim() || "you"))}</div>
-            <h1 class="cmp-prompt">${this.escape(lang === "zh" ? "想招一位什么样的董事？" : "What kind of director do you want?")}</h1>
+            <h1 class="cmp-prompt">${this.escape(this._t("ag_err_prompt"))}</h1>
           </header>
           <div class="ag-gen-error-card">
-            <div class="ag-gen-error-kicker">${this.escape(t.kicker)}</div>
-            <h2 class="ag-gen-error-title">${this.escape(t.title)}</h2>
+            <div class="ag-gen-error-kicker">${this.escape(kicker)}</div>
+            <h2 class="ag-gen-error-title">${this.escape(title)}</h2>
             <p class="ag-gen-error-hint">${this.escape(hint)}</p>
             ${detail}
             ${desc ? `
               <div class="ag-gen-error-desc">
-                <div class="ag-gen-error-desc-label">${this.escape(t.descLabel)}</div>
+                <div class="ag-gen-error-desc-label">${this.escape(this._t("ag_err_desc"))}</div>
                 <div class="ag-gen-error-desc-body">${this.escape(desc)}</div>
               </div>
             ` : ""}
             <div class="ag-gen-error-actions">
               <button type="button" class="ag-gen-error-retry" data-agent-spec-retry>
                 <span class="ag-gen-error-retry-mark">↻</span>
-                <span>${this.escape(t.retry)}</span>
+                <span>${this.escape(this._t("ag_err_retry"))}</span>
               </button>
               <button type="button" class="ag-gen-error-discard" data-agent-spec-error-discard>
-                ${this.escape(t.discard)}
+                ${this.escape(this._t("ag_err_discard"))}
               </button>
             </div>
           </div>
@@ -6415,7 +6386,7 @@
         return `<text x="${lx.toFixed(1)}" y="${(ly + 2.5).toFixed(1)}" text-anchor="${anchor}" class="ag-prev-radar-axis-label">${labels[a]}</text>`;
       }).join("");
       return `
-        <svg class="ag-prev-radar-svg" viewBox="0 0 ${vbW} ${vbH}" xmlns="http://www.w3.org/2000/svg" aria-label="Ability radar">
+        <svg class="ag-prev-radar-svg" viewBox="0 0 ${vbW} ${vbH}" xmlns="http://www.w3.org/2000/svg" aria-label="${this.escape(this._t("ag_preview_radar_aria"))}">
           ${grid}
           ${spokes}
           <polygon points="${curPoly}" class="ag-prev-radar-current"/>
@@ -6830,7 +6801,7 @@
           <span class="composer-pick-title">${this.escape(t.title)}</span>
           <span class="composer-pick-hint">${this.escape(t.hint)}</span>
         </div>
-        <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">no directors</div>`}</div>
+        <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">${this.escape(this._t("picker_no_directors"))}</div>`}</div>
         <div class="composer-pick-foot">
           <button type="button" class="composer-pick-done" data-composer-pick-done>${this.escape(t.done)}</button>
         </div>
@@ -7318,6 +7289,15 @@
       }
     },
 
+    /** Tone hover copy · i18n keyed by mode, falls back to TONE_TIPS. */
+    toneTipFor(mode) {
+      const m = mode || "";
+      const k = "tone_tip_" + m;
+      const tr = this._t(k);
+      if (tr !== k) return tr;
+      return TONE_TIPS[m] || "";
+    },
+
     renderHeader() {
       const head = document.querySelector("[data-room-head]");
       if (!head || !this.currentRoom) return;
@@ -7333,9 +7313,13 @@
         .map((a) => `<img data-agent="${this.escape(a.id)}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`)
         .join("");
       const castCount = this.currentMembers.length;
+      const castTitle =
+        castCount <= 1
+          ? this._t("room_cast_title_1")
+          : this._t("room_cast_n", { n: castCount });
       const castHtml = castImgs +
         (castCount > 0
-          ? `<span class="cast-count" title="${castCount} director${castCount === 1 ? "" : "s"}">${castCount}</span>`
+          ? `<span class="cast-count" title="${this.escape(castTitle)}">${castCount}</span>`
           : "");
 
       const tone = r.mode || "constructive";
@@ -7346,12 +7330,14 @@
       // lives inline in the meta row.
       let stamp = "";
       if (r.status === "paused" && r.pausedAt) {
-        stamp = `paused ${this.relTime(r.pausedAt)} ago`;
+        stamp = this._t("room_stamp_paused", { ago: this.relTime(r.pausedAt) });
       } else if (r.status === "adjourned" && r.adjournedAt) {
-        stamp = `adjourned ${this.relTime(r.adjournedAt)} ago`;
+        stamp = this._t("room_stamp_adjourned", { ago: this.relTime(r.adjournedAt) });
       } else if (r.status === "live" && r.createdAt) {
-        stamp = `opened ${this.relTime(r.createdAt)} ago`;
+        stamp = this._t("room_stamp_opened", { ago: this.relTime(r.createdAt) });
       }
+
+      const toneTip = this.toneTipFor(tone);
 
       // Three primary actions, one per state — CSS hides the wrong ones based
       // on html[data-status]. Per PRD §5.2.3:
@@ -7365,25 +7351,25 @@
       // grid template to a 3-track layout so this button takes the
       // leading auto-track slot.
       head.innerHTML = `
-        <button type="button" class="room-head-expand" data-sidebar-expand title="Expand sidebar" aria-label="Expand sidebar"></button>
+        <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}"></button>
         <div class="room-info">
           <div class="room-id">
-            <span class="room-name">Meeting Room</span>
+            <span class="room-name">${this.escape(this._t("room_meeting_room"))}</span>
             <span class="session-num">// ROOM #${r.number} · ${this.escape(tone.toUpperCase())}</span>
           </div>
           <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(r.subject)}</h1>
           <div class="room-meta" data-room-meta>
-            <span class="meta-tag tag-tone" data-tone-tip="${this.escape(TONE_TIPS[tone] || "")}"><span class="k">tone</span><span class="v">${this.escape(tone)}</span></span>
-            <span class="meta-tag tag-intensity"><span class="k">intensity</span><span class="v">${this.escape(intensity)}</span></span>
-            <span class="meta-tag tag-report"><span class="k">report</span><span class="v">${this.escape(style)}</span></span>
+            <span class="meta-tag tag-tone" data-tone-tip="${this.escape(toneTip)}"><span class="k">${this.escape(this._t("room_meta_tone"))}</span><span class="v">${this.escape(tone)}</span></span>
+            <span class="meta-tag tag-intensity"><span class="k">${this.escape(this._t("room_meta_intensity"))}</span><span class="v">${this.escape(intensity)}</span></span>
+            <span class="meta-tag tag-report"><span class="k">${this.escape(this._t("room_meta_report"))}</span><span class="v">${this.escape(style)}</span></span>
             ${stamp ? `<span class="meta-stamp">${this.escape(stamp)}</span>` : ""}
           </div>
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
-          <a href="#" class="room-settings-trigger" data-room-settings-trigger title="Room settings" aria-label="Room settings">⚙</a>
-          <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> Pause ]</a>
-          <a href="#" class="resume-btn" data-resume>[ ▶ Resume ]</a>
+          <a href="#" class="room-settings-trigger" data-room-settings-trigger title="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}">⚙</a>
+          <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
+          <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
           ${this.currentBrief
             ? (() => {
                 // Multiple briefs · render the View Report button as a
@@ -7396,12 +7382,12 @@
                 const multi = briefs.length > 1;
                 const directHref = `/report.html?r=${this.escape(r.id)}${this.currentBrief.id ? `&b=${this.escape(this.currentBrief.id)}` : ""}`;
                 if (!multi) {
-                  return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>[ View Report ]</a>`;
+                  return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>${this.escape(this._t("room_view_report"))}</a>`;
                 }
-                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this.composerLanguage() === "zh" ? `${briefs.length} 份报告 · 点击选择` : `${briefs.length} reports · click to choose`)}">[ View Report <span class="vr-count">· ${briefs.length}</span> ▾ ]</a>`;
+                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this._t("room_view_report_title_multi", { n: briefs.length }))}">${this.escape(this._t("room_view_report_multi", { n: briefs.length }))}</a>`;
               })()
             : (r.status === "adjourned"
-              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this.composerLanguage() === "zh" ? "为这次会议补出一份报告" : "File a brief from this session")}"><span class="vr-mark">▸</span> ${this.escape(this.composerLanguage() === "zh" ? "生成报告" : "Generate Report")}</a>`
+              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this._t("room_generate_report_title"))}"><span class="vr-mark">▸</span> ${this.escape(this._t("room_generate_report"))}</a>`
               : "")}
         </div>
       `;
@@ -7458,8 +7444,13 @@
       if (!chat) return;
       const messages = this.currentMessages.slice();
       const r = this.currentRoom;
+      const tBanner = this._t("chat_banner", {
+        when: new Date(r.createdAt).toLocaleString(),
+        n: this.currentMembers.length,
+        mode: this.escape(r.mode),
+      });
       const banner = r
-        ? `<div class="chat-banner"><span class="chat-banner-chip"><span class="cb-mark">▸</span><span class="cb-text">room opened · ${new Date(r.createdAt).toLocaleString()} · ${this.currentMembers.length} directors · ${this.escape(r.mode)}</span></span></div>`
+        ? `<div class="chat-banner"><span class="chat-banner-chip"><span class="cb-mark">▸</span><span class="cb-text">${this.escape(tBanner)}</span></span></div>`
         : "";
       const openerId = this.firstUserMessageId();
       // Convening card · appended at the tail of the chat while the
@@ -7482,7 +7473,6 @@
     conveningCardHtml() {
       const s = this.conveneState;
       if (!s) return "";
-      const lang = (s.subject && /[一-鿿]/.test(s.subject)) ? "zh" : "en";
 
       // Stages · auto-picked rooms run all three; manually-cast rooms
       // skip "analyzing" + "seating" because the cast is pre-set.
@@ -7490,15 +7480,18 @@
         ? ["analyzing", "seating", "preparing"]
         : ["preparing"];
       const STAGE_LABELS = {
-        analyzing: lang === "zh"
-          ? { title: "分析议题", deck: "haiku 路由器在拆解你提的话题" }
-          : { title: "Analyzing topic", deck: "Routing your topic to the right perspectives" },
-        seating: lang === "zh"
-          ? { title: "邀请董事", deck: "依据议题匹配的董事正在入席" }
-          : { title: "Seating directors", deck: "Picking the right perspectives for this question" },
-        preparing: lang === "zh"
-          ? { title: "主席组织开场陈词", deck: "主席正在准备介绍发言" }
-          : { title: "Chair preparing remarks", deck: "Drafting the convening speech" },
+        analyzing: {
+          title: this._t("conv_stage_analyzing_title"),
+          deck: this._t("conv_stage_analyzing_deck"),
+        },
+        seating: {
+          title: this._t("conv_stage_seating_title"),
+          deck: this._t("conv_stage_seating_deck"),
+        },
+        preparing: {
+          title: this._t("conv_stage_preparing_title"),
+          deck: this._t("conv_stage_preparing_deck"),
+        },
       };
 
       const currentIdx = stageOrder.indexOf(s.stage);
@@ -7530,7 +7523,7 @@
       // already in currentMembers; rendering it here would be redundant).
       const seatedRow = (s.autoPicked && s.seated.length > 0) ? `
         <div class="conv-seated">
-          <div class="conv-seated-label">${lang === "zh" ? "已入席" : "seated"} · ${s.seated.length}</div>
+          <div class="conv-seated-label">${this.escape(this._t("conv_seated_label"))} · ${s.seated.length}</div>
           <div class="conv-seated-list">
             ${s.seated.map((a) => `
               <div class="conv-seated-item" data-agent-id="${this.escape(a.id)}">
@@ -7547,7 +7540,7 @@
 
       return `
         <article class="convening-card" data-convene-card>
-          <div class="conv-eyebrow">${lang === "zh" ? "▸ 召集中" : "▸ CONVENING"}</div>
+          <div class="conv-eyebrow">${this.escape(this._t("conv_banner_convening"))}</div>
           ${s.subject ? `<blockquote class="conv-subject">${this.escape(s.subject)}</blockquote>` : ""}
           <ul class="conv-stages">${stagesHtml}</ul>
           ${seatedRow}
@@ -7584,13 +7577,16 @@
       const chat = document.querySelector("[data-chat-messages]");
       if (!chat) return;
       const existing = chat.querySelector("[data-chair-pending]");
-      const isCjk = /[一-鿿]/.test(this.currentRoom?.subject || "");
-      const chairName = (this.currentChair?.name) || (isCjk ? "主席" : "Chair");
-      const labelMap = isCjk
-        ? { clarify: "正在整理你的问题", "chair-direct": "正在准备回应", "round-end": "正在收束这一轮", convening: "正在召集会议", "next-speaker": "正在判断接下来的发言", chair: "正在准备" }
-        : { clarify: "is reading your question", "chair-direct": "is preparing a response", "round-end": "is wrapping up the round", convening: "is convening the room", "next-speaker": "is reading the room", chair: "is preparing" };
-      const phraseRaw = labelMap[phase] || labelMap.chair;
-      const phrase = `${chairName} ${phraseRaw}…`;
+      const chairName = (this.currentChair?.name) || this._t("msg_chair_display_fallback");
+      const phaseKeys = {
+        clarify: "chair_pend_clarify",
+        "chair-direct": "chair_pend_chair_direct",
+        "round-end": "chair_pend_round_end",
+        convening: "chair_pend_convening",
+        "next-speaker": "chair_pend_next_speaker",
+      };
+      const pendKey = phaseKeys[phase] || "chair_pend_default";
+      const phrase = this._t(pendKey, { name: chairName });
       if (existing) {
         const span = existing.querySelector(".cp-text");
         if (span) span.textContent = phrase;
@@ -7601,7 +7597,7 @@
       node.setAttribute("data-chair-pending", "");
       node.innerHTML = `
         <div class="cp-rule" aria-hidden="true"></div>
-        <div class="cp-kicker">▸ ${this.escape(isCjk ? "主席" : "chair")}</div>
+        <div class="cp-kicker">${this.escape(this._t("chair_pend_banner"))}</div>
         <div class="cp-body">
           <span class="cp-text">${this.escape(phrase)}</span>
           <span class="thinking-dots"><span></span><span></span><span></span></span>
@@ -7753,14 +7749,14 @@
         const m = this.currentMessages.find((x) => x.id === messageId);
         const n = (m && m.meta && typeof m.meta.roundNum === "number") ? m.meta.roundNum : null;
         const prefix = n != null
-          ? `<span class="rp-spent-round">round #${n}</span><span class="rp-spent-sep">·</span>`
+          ? `<span class="rp-spent-round">${this.escape(this._t("rp_spent_round", { n }))}</span><span class="rp-spent-sep">·</span>`
           : "";
         return `
           <div class="round-prompt-card spent" data-round-prompt-card="${this.escape(messageId)}">
             <span class="rp-spent-chip">
               <span class="rp-spent-mark">◇</span>
               ${prefix}
-              <span class="rp-spent-label">closed · room moved on</span>
+              <span class="rp-spent-label">${this.escape(this._t("rp_spent_label"))}</span>
             </span>
           </div>
         `;
@@ -7779,16 +7775,11 @@
       const recKind = rec && (rec.kind === "end" || rec.kind === "continue") ? rec.kind : null;
       const endClass  = recKind === "end"      ? " recommended" : "";
       const contClass = recKind === "continue" ? " recommended" : "";
-      // Detect language for the indicator label · Chinese rooms get
-      // 中文 copy. Reads from the chair's prompt body which lands in
-      // the message body when a recommendation is present.
-      const lang = (promptMsg && promptMsg.body && /[一-鿿]/.test(promptMsg.body)) ? "zh" : "en";
-      const recLabel = lang === "zh" ? "主席建议" : "chair recommends";
       const recIndicator = recKind
         ? `
           <div class="rp-rec-line rp-rec-line-${this.escape(recKind)}">
             <span class="rp-rec-arrow" aria-hidden="true">↑</span>
-            <span class="rp-rec-text">${this.escape(recLabel)}</span>
+            <span class="rp-rec-text">${this.escape(this._t("rp_chair_recommends"))}</span>
           </div>
         `
         : "";
@@ -7797,17 +7788,17 @@
           <div class="rp-primary">
             <button type="button" class="rp-btn vote${endClass}" data-round-end>
               <span class="rp-mark">▣</span>
-              <span class="rp-label">End round · open key-point vote</span>
+              <span class="rp-label">${this.escape(this._t("round_end_open_vote"))}</span>
             </button>
             <button type="button" class="rp-btn continue${contClass}" data-continue-auto>
               <span class="rp-mark">▶</span>
-              <span class="rp-label">Continue · next round</span>
+              <span class="rp-label">${this.escape(this._t("rp_continue_next"))}</span>
               <span class="rp-timer" data-continue-timer></span>
             </button>
           </div>
           ${recIndicator}
           <button type="button" class="rp-adjourn" data-adjourn-from-chair>
-            ⊘ Adjourn the room &amp; file the brief
+            ${this.escape(this._t("rp_adjourn_room_file"))}
           </button>
         </div>
       `;
@@ -7879,7 +7870,7 @@
         if (isStreaming) {
           return `
             <div class="round-end-card pending" data-round-end-card="${this.escape(messageId)}">
-              <div class="kp-eyebrow kp-eyebrow-pending">▸ key points · drafting</div>
+              <div class="kp-eyebrow kp-eyebrow-pending">${this.escape(this._t("kp_eyebrow_drafting"))}</div>
               <div class="kp-list">
                 <div class="kp-row kp-skeleton" aria-hidden="true">
                   <div class="kp-skeleton-bar"></div>
@@ -7896,7 +7887,7 @@
               </div>
               <div class="kp-ctas-pending">
                 <span class="kp-pending-dot"></span>
-                <span class="kp-pending-text">Chair is drafting key points…</span>
+                <span class="kp-pending-text">${this.escape(this._t("kp_pending_drafting"))}</span>
               </div>
             </div>
           `;
@@ -7906,14 +7897,14 @@
         const ctasDegraded = awaiting
           ? `
             <div class="kp-ctas">
-              <button type="button" class="kp-cta primary" data-continue>[ ▶ Continue · next round ]</button>
-              <button type="button" class="kp-cta ghost" data-adjourn-from-chair>[ ⊘ Adjourn &amp; file brief ]</button>
+              <button type="button" class="kp-cta primary" data-continue>${this.escape(this._t("kp_btn_continue_next"))}</button>
+              <button type="button" class="kp-cta ghost" data-adjourn-from-chair>${this.escape(this._t("kp_btn_adjourn_brief"))}</button>
             </div>
           `
-          : `<div class="kp-ctas-spent">// continued</div>`;
+          : `<div class="kp-ctas-spent">${this.escape(this._t("kp_ctas_spent"))}</div>`;
         return `
           <div class="round-end-card" data-round-end-card="${this.escape(messageId)}">
-            <div class="kp-eyebrow kp-eyebrow-degraded">▸ key points · couldn't be parsed from this round</div>
+            <div class="kp-eyebrow kp-eyebrow-degraded">${this.escape(this._t("kp_eyebrow_degraded"))}</div>
             ${ctasDegraded}
           </div>
         `;
@@ -7922,11 +7913,11 @@
         <div class="kp-row" data-kp-id="${this.escape(p.id)}">
           <div class="kp-body">${this.escape(p.body)}</div>
           <div class="kp-actions">
-            <button type="button" class="kp-vote up ${p.vote === "up" ? "active" : ""}" data-kp-vote="up" data-kp-id="${this.escape(p.id)}" aria-label="Interested">
-              <span>▲</span><span>more</span>
+            <button type="button" class="kp-vote up ${p.vote === "up" ? "active" : ""}" data-kp-vote="up" data-kp-id="${this.escape(p.id)}" aria-label="${this.escape(this._t("kp_vote_aria_up"))}">
+              <span>▲</span><span>${this.escape(this._t("kp_vote_more"))}</span>
             </button>
-            <button type="button" class="kp-vote down ${p.vote === "down" ? "active" : ""}" data-kp-vote="down" data-kp-id="${this.escape(p.id)}" aria-label="Not interested">
-              <span>▼</span><span>drop</span>
+            <button type="button" class="kp-vote down ${p.vote === "down" ? "active" : ""}" data-kp-vote="down" data-kp-id="${this.escape(p.id)}" aria-label="${this.escape(this._t("kp_vote_aria_down"))}">
+              <span>▼</span><span>${this.escape(this._t("kp_vote_drop"))}</span>
             </button>
           </div>
         </div>
@@ -7940,14 +7931,16 @@
       const shiftCallout = (shift && awaiting)
         ? `
           <div class="kp-mode-shift">
-            <div class="kp-shift-eyebrow">▸ chair suggests · switch tone to <strong>${this.escape(shift.to)}</strong></div>
+            <div class="kp-shift-eyebrow">${this.escape(this._t("kp_shift_eyebrow_prefix"))}<strong>${this.escape(shift.to)}</strong></div>
             <div class="kp-shift-because">${this.escape(shift.because)}</div>
           </div>
         `
         : "";
       let ctas;
+      const modeRaw = (this.currentRoom?.mode || "").toLowerCase();
+      const modeKeep = modeRaw || this._t("kp_mode_current_fallback");
       if (!awaiting) {
-        ctas = `<div class="kp-ctas-spent">// continued</div>`;
+        ctas = `<div class="kp-ctas-spent">${this.escape(this._t("kp_ctas_spent"))}</div>`;
       } else if (shift) {
         // 3-button layout · primary takes ~50% of the row, the two
         // secondaries split the rest. Without `kp-ctas-shift`, three
@@ -7955,25 +7948,24 @@
         // longer "switch to constructive" label wraps to two lines.
         // Labels stripped of "& continue" — the action is implicit
         // in this round-end context.
-        const currentMode = (this.currentRoom?.mode || "").toLowerCase();
         ctas = `
           <div class="kp-ctas kp-ctas-shift">
-            <button type="button" class="kp-cta primary" data-shift-accept data-shift-to="${this.escape(shift.to)}">[ ↻ switch to ${this.escape(shift.to)} ]</button>
-            <button type="button" class="kp-cta ghost" data-continue>[ keep ${this.escape(currentMode || "current")} ]</button>
-            <button type="button" class="kp-cta ghost" data-adjourn-from-chair>[ ⊘ adjourn ]</button>
+            <button type="button" class="kp-cta primary" data-shift-accept data-shift-to="${this.escape(shift.to)}">${this.escape(this._t("kp_switch_to", { mode: shift.to }))}</button>
+            <button type="button" class="kp-cta ghost" data-continue>${this.escape(this._t("kp_keep_mode", { mode: modeKeep }))}</button>
+            <button type="button" class="kp-cta ghost" data-adjourn-from-chair>${this.escape(this._t("kp_btn_adjourn"))}</button>
           </div>
         `;
       } else {
         ctas = `
           <div class="kp-ctas">
-            <button type="button" class="kp-cta primary" data-continue>[ ▶ Continue · next round ]</button>
-            <button type="button" class="kp-cta ghost" data-adjourn-from-chair>[ ⊘ Adjourn &amp; file brief ]</button>
+            <button type="button" class="kp-cta primary" data-continue>${this.escape(this._t("kp_btn_continue_next"))}</button>
+            <button type="button" class="kp-cta ghost" data-adjourn-from-chair>${this.escape(this._t("kp_btn_adjourn_brief"))}</button>
           </div>
         `;
       }
       return `
         <div class="round-end-card" data-round-end-card="${this.escape(messageId)}">
-          <div class="kp-eyebrow">▸ key points · vote what you want pursued</div>
+          <div class="kp-eyebrow">${this.escape(this._t("kp_eyebrow_vote"))}</div>
           <div class="kp-list">${items}</div>
           ${shiftCallout}
           ${ctas}
@@ -8011,14 +8003,14 @@
           const truncated = parentSubject.length > 70
             ? parentSubject.slice(0, 70) + "…"
             : parentSubject;
-          const isZh = /[一-鿿]/.test(this.currentRoom?.subject || "");
-          const label = isZh ? "继续自" : "Following up on";
-          const roomTag = isZh ? "Room #" : "Room #";
+          const label = this._t("convene_followup_label");
+          const roomTag = this._t("convene_room_label");
+          const parentTitle = this._t("convene_parent_session_title", { subject: parentSubject || parentId });
           const subjectChunk = truncated
             ? `<span class="convene-origin-sep">·</span><span class="convene-origin-subject">${this.escape(truncated)}</span>`
             : "";
           originHtml = `
-            <a class="convene-origin" href="#/r/${this.escape(parentId)}" data-parent-room-id="${this.escape(parentId)}" title="${this.escape((isZh ? "返回上一场会议 · " : "Open the prior session · ") + (parentSubject || parentId))}">
+            <a class="convene-origin" href="#/r/${this.escape(parentId)}" data-parent-room-id="${this.escape(parentId)}" title="${this.escape(parentTitle)}">
               <span class="convene-origin-arrow">↩</span>
               <span class="convene-origin-label">${this.escape(label)}</span>
               <span class="convene-origin-room">${this.escape(roomTag)}${this.escape(String(parentNum))}</span>
@@ -8031,22 +8023,21 @@
           parentId ? "convene-opener-followup" : "",
           isLongOpener ? "convene-opener-clamped" : "",
         ].filter(Boolean).join(" ");
-        const isZhLang = /[一-鿿]/.test(m.body || "") || /[一-鿿]/.test(this.currentRoom?.subject || "");
-        const moreLabel = isZhLang ? "展开全文 ↓" : "Show more ↓";
-        const lessLabel = isZhLang ? "收起 ↑" : "Show less ↑";
+        const moreLabel = this._t("convene_show_more");
+        const lessLabel = this._t("convene_show_less");
         const toggleHtml = isLongOpener
           ? `<button type="button" class="convene-toggle" data-convene-toggle data-more="${this.escape(moreLabel)}" data-less="${this.escape(lessLabel)}">${moreLabel}</button>`
           : "";
         return `
           <article class="${articleCls}" data-message-id="${this.escape(m.id)}">
-            <div class="convene-eyebrow">▸ Convene · Initial Question</div>
+            <div class="convene-eyebrow">${this.escape(this._t("convene_eyebrow"))}</div>
             ${originHtml}
             <h2 class="convene-body">${this.renderBody(m.body)}</h2>
             ${toggleHtml}
             <div class="convene-meta">
               <span class="convene-by">${who}</span>
               <span class="convene-time">· ${this.timeFmt(m.createdAt)}</span>
-              <span class="convene-cast">·  to ${this.currentMembers.map((a) => this.escape(a.handle)).join(" ")}</span>
+              <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(a.handle)).join(" ")}</span>
             </div>
           </article>
         `;
@@ -8074,9 +8065,10 @@
         const status = meta.status === "done" || meta.status === "failed" ? meta.status : "running";
         const tool = (meta.tool || "tool").toString();
         const target = meta.target ? String(meta.target) : "";
-        const elapsed = typeof meta.elapsedMs === "number" && status !== "running"
-          ? `${(meta.elapsedMs / 1000).toFixed(1)}s`
+        const elapsedSecs = typeof meta.elapsedMs === "number" && status !== "running"
+          ? this._t("msg_ws_secs", { n: (meta.elapsedMs / 1000).toFixed(1) })
           : "";
+        const elapsedTail = elapsedSecs ? ` · ${elapsedSecs}` : "";
         const sources = Array.isArray(meta.sources) ? meta.sources : [];
 
         // web-search renders as a full-width card mirroring `.brief-card`
@@ -8087,10 +8079,16 @@
         if (tool === "web-search") {
           const hasSources = status === "done" && sources.length > 0;
           let stamp;
-          if (status === "running") stamp = "searching…";
-          else if (status === "done")
-            stamp = `${sources.length} source${sources.length === 1 ? "" : "s"}${elapsed ? " · " + elapsed : ""}`;
-          else stamp = elapsed ? `failed · ${elapsed}` : "failed";
+          if (status === "running") stamp = this._t("msg_ws_searching");
+          else if (status === "done") {
+            stamp = sources.length === 1
+              ? this._t("msg_ws_done_one", { tail: elapsedTail })
+              : this._t("msg_ws_done", { n: sources.length, tail: elapsedTail });
+          } else {
+            stamp = elapsedSecs
+              ? this._t("msg_ws_failed_elapsed", { elapsed: elapsedSecs })
+              : this._t("msg_ws_failed");
+          }
 
           const mark = status === "running"
             ? `<span class="msg-tool-pulse"></span>`
@@ -8118,22 +8116,22 @@
                   `;
                 }).join("")}
               </ol>
-              <button type="button" class="msg-tool-sources-expand" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" aria-label="toggle sources">
+              <button type="button" class="msg-tool-sources-expand" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" aria-label="${this.escape(this._t("msg_ws_toggle"))}">
                 <span class="msg-tool-sources-expand-icon" aria-hidden="true">▾</span>
-                <span class="msg-tool-sources-expand-show">Show all ${sources.length} sources</span>
-                <span class="msg-tool-sources-expand-hide">Collapse</span>
+                <span class="msg-tool-sources-expand-show">${this.escape(this._t("msg_ws_expand_show", { n: sources.length }))}</span>
+                <span class="msg-tool-sources-expand-hide">${this.escape(this._t("msg_ws_expand_hide"))}</span>
               </button>`
             : "";
 
           const bodyToggleAttrs = hasSources
-            ? ` data-msg-ws-toggle data-message-id="${this.escape(m.id)}" role="button" tabindex="0" aria-label="toggle sources"`
+            ? ` data-msg-ws-toggle data-message-id="${this.escape(m.id)}" role="button" tabindex="0" aria-label="${this.escape(this._t("msg_ws_toggle"))}"`
             : "";
           const caret = hasSources ? `<span class="msg-tool-caret" aria-hidden="true">▸</span>` : "";
 
           return `
             <div class="msg-tool-card status-${this.escape(status)}" data-message-id="${this.escape(m.id)}">
               <div class="msg-tool-banner">
-                <span class="msg-tool-banner-tag">// web-search</span>
+                <span class="msg-tool-banner-tag">${this.escape(this._t("msg_ws_banner"))}</span>
                 <span class="msg-tool-banner-stamp">${this.escape(stamp)}</span>
               </div>
               <div class="msg-tool-card-body${hasSources ? " is-toggle" : ""}"${bodyToggleAttrs}>
@@ -8159,7 +8157,7 @@
               <span class="msg-tool-name">${this.escape(tool)}</span>
               <span class="msg-tool-sep">·</span>
               <span class="msg-tool-body">${this.escape(m.body || "")}</span>
-              ${elapsed ? `<span class="msg-tool-elapsed">${this.escape(elapsed)}</span>` : ""}
+              ${elapsedSecs ? `<span class="msg-tool-elapsed">${this.escape(elapsedSecs)}</span>` : ""}
               ${isUrlTarget ? `<a href="${this.escape(target)}" target="_blank" rel="noopener noreferrer" class="msg-tool-link" title="${this.escape(target)}">↗</a>` : ""}
             </div>
           </div>
@@ -8182,10 +8180,10 @@
         return `
           <div class="chair-direct${streaming ? " is-streaming" : ""}" data-message-id="${this.escape(m.id)}">
             <div class="cd-rule" aria-hidden="true"></div>
-            <div class="cd-kicker">▸ chair · responding to you</div>
+            <div class="cd-kicker">${this.escape(this._t("msg_chair_direct_kicker"))}</div>
             <div class="cd-body">${bodyHtml}</div>
             <div class="cd-meta">
-              <span class="cd-author">${this.escape(this.currentChair?.name || "Chair")}</span>
+              <span class="cd-author">${this.escape(this.currentChair?.name || this._t("msg_chair_display_fallback"))}</span>
               <span class="cd-time">· ${this.timeFmt(m.createdAt)}</span>
             </div>
           </div>
@@ -8205,7 +8203,7 @@
         return `
           <div class="chair-intervention" data-message-id="${this.escape(m.id)}">
             <div class="ci-rule" aria-hidden="true"></div>
-            <div class="ci-kicker">▸ chair note</div>
+            <div class="ci-kicker">${this.escape(this._t("msg_chair_intervention_kicker"))}</div>
             <div class="ci-body">${this.renderBody(m.body)}</div>
           </div>
         `;
@@ -8220,7 +8218,7 @@
         return `
           <div class="chair-billing-notice" data-message-id="${this.escape(m.id)}">
             <div class="cb-rule" aria-hidden="true"></div>
-            <div class="cb-kicker">▸ billing · attention needed</div>
+            <div class="cb-kicker">${this.escape(this._t("msg_chair_billing_kicker"))}</div>
             <div class="cb-body">${this.renderBody(m.body)}</div>
           </div>
         `;
@@ -8238,9 +8236,9 @@
           <div class="round-open-card ${isOpening ? "is-opening" : "is-reactive"}" data-message-id="${this.escape(m.id)}">
             <span class="ro-chip">
               <span class="ro-mark">${isOpening ? "◆" : "◇"}</span>
-              <span class="ro-round">round #${this.escape(String(roundNum))}</span>
+              <span class="ro-round">${this.escape(this._t("ro_round", { n: roundNum }))}</span>
               <span class="ro-sep">·</span>
-              <span class="ro-mode">${isOpening ? "parallel · independent perspectives" : "reactive · directors react to one another"}</span>
+              <span class="ro-mode">${this.escape(isOpening ? this._t("ro_mode_parallel") : this._t("ro_mode_reactive"))}</span>
             </span>
           </div>
         `;
@@ -8259,15 +8257,15 @@
       // as a historical marker only.
       if (isChair && metaKind === "no-brief") {
         const ts = this.timeFmt(m.createdAt);
-        const isZh = this.composerLanguage() === "zh";
         const hasBrief = !!this.currentBrief;
+        const chairName = (this.prefs?.name || "").trim() || this._t("nb_chair_fallback");
         const cta = hasBrief
           ? ""
           : `
             <div class="nb-actions">
               <button type="button" class="nb-cta" data-generate-brief>
                 <span class="nb-cta-mark">▸</span>
-                <span class="nb-cta-text">${isZh ? "生成报告" : "Generate report now"}</span>
+                <span class="nb-cta-text">${this.escape(this._t("nb_cta"))}</span>
               </button>
             </div>
           `;
@@ -8275,10 +8273,10 @@
           <div class="no-brief-card" data-message-id="${this.escape(m.id)}">
             <span class="nb-chip">
               <span class="nb-mark">⊘</span>
-              <span class="nb-eyebrow">adjourned · no brief filed</span>
+              <span class="nb-eyebrow">${this.escape(this._t("nb_eyebrow"))}</span>
             </span>
             <div class="nb-body">
-              <strong>${this.escape(this.prefs?.name || "The chair")}</strong> ${isZh ? "在结束时跳过了报告。" : "declared no report is needed for this session."}
+              <strong>${this.escape(chairName)}</strong> ${this.escape(this._t("nb_body"))}
             </div>
             ${cta}
             <div class="nb-meta">${this.escape(ts)}</div>
@@ -8293,9 +8291,9 @@
           : (author ? this.escape(author.id) : "agent");
       const name = isUser ? (this.prefs?.name || "You") : (author?.name || "Agent");
       const tag = isUser
-        ? "// you"
+        ? this._t("msg_tag_you")
         : isChair
-          ? "// chair"
+          ? this._t("msg_tag_chair")
           : (author ? `// ${author.roleTag}` : "");
       // Model badge · only shown for non-user messages. Falls back to
       // the raw modelV string if the registry lookup misses (e.g. a
@@ -8349,7 +8347,7 @@
       // is procedural; ctx count would be misleading).
       const ctxCount = !isUser && !isChair ? this.contextCountAt(m.id) : 0;
       const ctxBadge = ctxCount > 0
-        ? `<span class="msg-context" title="${ctxCount} prior turns sent as context to ${this.escape(name)}">· ${ctxCount} ctx</span>`
+        ? `<span class="msg-context" title="${this.escape(this._t("msg_ctx_title", { n: ctxCount, name }))}">${this.escape(this._t("msg_ctx_inline", { n: ctxCount }))}</span>`
         : "";
 
       // Skills badge · the orchestrator's Pass-1 router stamps which
@@ -8359,7 +8357,7 @@
       const skillsUsed = (m.meta && Array.isArray(m.meta.skillsUsed)) ? m.meta.skillsUsed : [];
       const skillsReason = (m.meta && typeof m.meta.skillsReason === "string") ? m.meta.skillsReason : "";
       const skillsBadge = skillsUsed.length > 0
-        ? `<span class="msg-skills" title="${this.escape(skillsReason || ("skills used: " + skillsUsed.join(", ")))}">🛠 ${skillsUsed.map((s) => this.escape(s)).join(", ")}</span>`
+        ? `<span class="msg-skills" title="${this.escape(skillsReason || this._t("msg_skills_used", { list: skillsUsed.join(", ") }))}">🛠 ${skillsUsed.map((s) => this.escape(s)).join(", ")}</span>`
         : "";
 
       // Web-search badge · meta is set by the orchestrator when the
@@ -8370,11 +8368,18 @@
       const webSearchQuery = (m.meta && typeof m.meta.webSearchQuery === "string") ? m.meta.webSearchQuery : "";
       const webSearchSources = (m.meta && Array.isArray(m.meta.webSearchSources)) ? m.meta.webSearchSources : [];
       const webSearchBadge = webSearchUsed
-        ? `<button type="button" class="msg-web-search" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" title="${this.escape(`web search: ${webSearchQuery} · ${webSearchSources.length} source${webSearchSources.length === 1 ? "" : "s"}`)}">🔍 web search · ${webSearchSources.length} source${webSearchSources.length === 1 ? "" : "s"}</button>`
+        ? (() => {
+          const n = webSearchSources.length;
+          const title = this.escape(this._t("msg_ws_title", { query: webSearchQuery, n }));
+          const label = n === 1
+            ? this.escape(this._t("msg_ws_btn_one"))
+            : this.escape(this._t("msg_ws_btn", { n }));
+          return `<button type="button" class="msg-web-search" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" title="${title}">🔍 ${label}</button>`;
+        })()
         : "";
       const webSearchSourcesPanel = webSearchUsed && webSearchSources.length > 0
         ? `<div class="msg-web-search-sources" data-msg-ws-sources data-message-id="${this.escape(m.id)}" hidden>
-            <div class="msg-web-search-query"><span class="msg-web-search-query-label">query</span><span class="msg-web-search-query-text">${this.escape(webSearchQuery)}</span></div>
+            <div class="msg-web-search-query"><span class="msg-web-search-query-label">${this.escape(this._t("msg_ws_query_label"))}</span><span class="msg-web-search-query-text">${this.escape(webSearchQuery)}</span></div>
             <ol class="msg-web-search-list">
               ${webSearchSources.map((s, i) => `
                 <li>
@@ -8421,7 +8426,7 @@
         ? m.meta.chairPick.rationale.trim()
         : "";
       const chairPickKicker = (chairPick && !isUser && !isChair)
-        ? `<div class="msg-chair-pick" title="Chair picked ${this.escape(name)} for this turn">▸ chair · ${this.escape(chairPick)}</div>`
+        ? `<div class="msg-chair-pick" title="${this.escape(this._t("room_chair_pick_title", { name: this.escape(name) }))}">${this.escape(this._t("msg_chair_pick", { body: chairPick }))}</div>`
         : "";
 
       // data-author-id is only attached for director messages (not user
@@ -8437,7 +8442,7 @@
             ${chairPickKicker}
             <div class="msg-meta">
               <span class="msg-name">${this.escape(name)}</span>
-              ${modelLabel ? `<span class="msg-model" title="model · ${this.escape(modelLabel)}">${this.escape(modelLabel)}</span>` : ""}
+              ${modelLabel ? `<span class="msg-model" title="${this.escape(this._t("msg_model_title", { label: modelLabel }))}">${this.escape(modelLabel)}</span>` : ""}
               <span class="msg-tag">${tag}</span>
               ${skillsBadge}
               ${webSearchBadge}
@@ -8490,9 +8495,9 @@
       // Old queue strip used .qw-label; new in-chat card uses .rp-label.
       const label = btn.querySelector(".rp-label, .qw-label");
       if (label) {
-        if (this.currentRoom?.awaitingContinue) label.textContent = "Round wrapped · vote above";
-        else if (this.currentRoom?.awaitingClarify) label.textContent = "Clarifying — wait for chair";
-        else label.textContent = "End round · open key-point vote";
+        if (this.currentRoom?.awaitingContinue) label.textContent = this._t("round_end_vote_above");
+        else if (this.currentRoom?.awaitingClarify) label.textContent = this._t("round_clarifying");
+        else label.textContent = this._t("round_end_open_vote");
       }
     },
 
@@ -8502,7 +8507,7 @@
       const slot = document.querySelector("[data-queue-collapsed]");
       if (!slot) return;
       if (!items || items.length === 0) {
-        slot.innerHTML = `<span class="sum-marker">·</span><span class="sum-state">queue idle</span>`;
+        slot.innerHTML = `<span class="sum-marker">·</span><span class="sum-state">${this.escape(this._t("q_idle"))}</span>`;
         return;
       }
       const head = items[0];
@@ -8511,14 +8516,14 @@
       const speaking = head.status === "speaking";
       const pending = head.status === "pending";
       const stateLabel = speaking
-        ? "●●● speaking"
+        ? this._t("q_speaking")
         : pending
           ? (this.currentRoom?.awaitingContinue
-              ? "pending · waits for vote"
-              : "pending · waits for chair")
-          : "queued";
+              ? this._t("q_pending_vote")
+              : this._t("q_pending_chair"))
+          : this._t("q_queued");
       const next = items[1] ? this.agentsById[items[1].agentId] : null;
-      const rest = items.length > 2 ? `+${items.length - 2} queued` : "";
+      const rest = items.length > 2 ? this._t("q_more_queued", { n: items.length - 2 }) : "";
 
       const parts = [];
       parts.push(`<span class="sum-marker">${speaking ? "▶" : pending ? "◇" : "·"}</span>`);
@@ -8605,9 +8610,9 @@
               <li class="queue-row user-queued" data-user-queued>
                 <span class="pos">↪</span>
                 <span class="who">${this.escape(userName)}</span>
-                <span class="state">queued · "${this.escape(preview)}"</span>
+                <span class="state">${this._t("q_user_queued", { preview: this.escape(preview) })}</span>
                 <span class="actions">
-                  <button type="button" class="user-queued-cancel" data-cancel-user-queued title="Cancel">✕</button>
+                  <button type="button" class="user-queued-cancel" data-cancel-user-queued title="${this.escape(this._t("q_cancel"))}">✕</button>
                 </span>
               </li>
             `;
@@ -8624,16 +8629,16 @@
           const pos = speaking ? "▶" : (POS[i - (firstSpeaking ? 1 : 0)] || (i + 1));
           let stateLabel;
           if (speaking) {
-            stateLabel = `speaking · reading ${ctxTotal} ${ctxTotal === 1 ? "turn" : "turns"}`;
+            stateLabel = this._t("q_state_speaking", { n: ctxTotal });
           } else if (pending) {
             // Pending means "lined up, waiting on something off-queue".
             // Phrasing matches the room's current pause kind so the
             // user knows what they're waiting on.
             stateLabel = this.currentRoom?.awaitingContinue
-              ? "pending · waits for your vote"
+              ? this._t("q_pending_your_vote")
               : this.currentRoom?.awaitingClarify
-                ? "pending · waits for chair"
-                : "pending";
+                ? this._t("q_pending_waits_chair")
+                : this._t("q_pending_chair");
           } else {
             stateLabel = q.status;
           }
@@ -8680,14 +8685,14 @@
       // the natural unit there is still characters, not words.
       if (cjkCount >= stripped.length * 0.3 && cjkCount > 80) {
         const fmt = cjkCount.toLocaleString("en-US");
-        return `~${fmt} 字`;
+        return this._t("brief_wc_approx_chars", { n: fmt });
       }
       // English / Latin: whitespace-split, ignore empty tokens.
       const words = stripped.trim().split(/\s+/).filter((w) => w.length > 0);
       const n = words.length;
       if (n === 0) return null;
       const fmt = n.toLocaleString("en-US");
-      return n === 1 ? "1 word" : `${fmt} words`;
+      return n === 1 ? this._t("brief_wc_one_word") : this._t("brief_wc_words", { n: fmt });
     },
 
     /** Render the brief version tab strip · shared by both the error
@@ -8699,9 +8704,6 @@
       const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
       if (briefs.length < 2) return "";
       const sortedBriefs = briefs.slice().sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
-      const lang = (activeBrief && activeBrief.language === "zh")
-        || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))
-        ? "zh" : "en";
       return `
         <div class="brief-versions">
           ${sortedBriefs.map((bf, i) => {
@@ -8710,11 +8712,11 @@
             const isInitial = i === 0;
             const supp = bf.supplement && bf.supplement.trim()
               ? bf.supplement.trim()
-              : (isInitial ? (lang === "zh" ? "初版" : "Initial") : "");
+              : (isInitial ? this._t("brief_tab_initial") : "");
             const tooltip = isInitial
-              ? (lang === "zh" ? `初版报告 · 由会议本身生成` : `Initial brief · generated from the session`)
-              : `${lang === "zh" ? "补充视角：" : "Supplement: "}${supp || "—"}`;
-            const closeTitle = lang === "zh" ? "删除这份报告" : "Delete this report";
+              ? this._t("brief_tab_tooltip_initial")
+              : `${this._t("brief_tab_supplement_prefix")}${supp || "—"}`;
+            const closeTitle = this._t("brief_tab_delete_title");
             // Errored / interrupted / timed-out tabs get a small
             // visual marker so the user can spot which one needs
             // attention without entering it. The full retry UI is
@@ -8728,7 +8730,7 @@
                   <span class="brief-version-num">${num}</span>
                   ${stateMark}
                   ${isInitial
-                    ? `<span class="brief-version-label">${lang === "zh" ? "初版" : "Initial"}</span>`
+                    ? `<span class="brief-version-label">${this.escape(this._t("brief_tab_initial"))}</span>`
                     : `<span class="brief-version-label">${this.escape((supp || "").slice(0, 20))}${(supp || "").length > 20 ? "…" : ""}</span>`}
                 </button>
                 <button type="button" class="brief-version-close" data-brief-delete data-brief-id="${this.escape(bf.id)}" title="${this.escape(closeTitle)}" aria-label="${this.escape(closeTitle)}">×</button>
@@ -8801,14 +8803,13 @@
           finally { this.currentBrief = prevCurrent; }
           // Prepend the compact retry banner to the rendered card so
           // the existing report stays fully visible below it.
-          const lang = (failed.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
           const detail = failed.timedOut
-            ? (lang === "zh" ? "重新生成超时" : "regeneration timed out")
+            ? this._t("brief_regen_timeout")
             : failed.interrupted
-              ? (lang === "zh" ? "重新生成被中断" : "regeneration interrupted")
-              : (failed.error || (lang === "zh" ? "重新生成失败" : "regeneration failed"));
-          const cta = lang === "zh" ? "重试" : "Retry";
-          const dismiss = lang === "zh" ? "关闭" : "Dismiss";
+              ? this._t("brief_regen_interrupted")
+              : (failed.error || this._t("brief_regen_failed"));
+          const cta = this._t("brief_retry");
+          const dismiss = this._t("brief_dismiss");
           card.insertAdjacentHTML("afterbegin", `
             <div class="brief-retry-banner" data-brief-retry-banner data-failed-brief-id="${this.escape(failed.id)}">
               <span class="brb-mark">⚠</span>
@@ -8822,59 +8823,34 @@
           `);
           return;
         }
-        const lang = (b.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
         const copy = b.timedOut
-          ? (lang === "zh"
-            ? {
-                stamp: "timed out",
-                kicker: "// 报告生成超时",
-                detail: "已超过 8 分钟仍未收到完成信号 · 可能是模型回应过慢、网络中断，或后端流水线卡住了。点击下方按钮重试，或检查 LLM key 与网络后再试。",
-                hint: "",
-                cta: "重试",
-              }
-            : {
-                stamp: "timed out",
-                kicker: "// generation timed out",
-                detail: "No completion signal after 8 minutes — the model may be slow, the connection dropped, or the pipeline stalled. Click below to start a fresh run.",
-                hint: "",
-                cta: "Retry",
-              })
+          ? {
+              stamp: this._t("brief_err_stamp_timeout"),
+              kicker: this._t("brief_err_kicker_timeout"),
+              detail: this._t("brief_err_detail_timeout"),
+              hint: "",
+              cta: this._t("brief_retry"),
+            }
           : b.interrupted
-          ? (lang === "zh"
             ? {
-                stamp: "interrupted",
-                kicker: "// 报告生成被中断了",
-                detail: "上一次生成在浏览器刷新或服务重启时中止了。点击下方按钮重新生成一份报告。",
+                stamp: this._t("brief_err_stamp_interrupted"),
+                kicker: this._t("brief_err_kicker_interrupted"),
+                detail: this._t("brief_err_detail_interrupted"),
                 hint: "",
-                cta: "重新生成报告",
+                cta: this._t("brief_err_cta_regenerate"),
               }
             : {
-                stamp: "interrupted",
-                kicker: "// generation interrupted",
-                detail: "The previous generation was cut short — likely by a browser refresh or a server restart. Click below to start a fresh report.",
-                hint: "",
-                cta: "Regenerate report",
-              })
-          : (lang === "zh"
-            ? {
-                stamp: "failed",
-                kicker: "// 报告生成失败",
+                stamp: this._t("brief_err_stamp_failed"),
+                kicker: this._t("brief_err_kicker_failed"),
                 detail: this.escape(b.error || ""),
-                hint: "Brief writer 需要一个 LLM key（OpenRouter，或 Anthropic / OpenAI / Google / xAI 直连）。在 <strong>Preference → API Key</strong> 中添加后再试。",
-                cta: "重试",
-              }
-            : {
-                stamp: "failed",
-                kicker: "// brief generation failed",
-                detail: this.escape(b.error || ""),
-                hint: "The brief writer needs an LLM key (OpenRouter, or a direct Anthropic / OpenAI / Google / xAI key). Add one in <strong>Preference → API Key</strong> and try again.",
-                cta: "Retry",
-              });
+                hint: this._briefSecondaryHintHtml(b.error || ""),
+                cta: this._t("brief_retry"),
+              };
         card.innerHTML = `
           <div class="brief-card">
             ${tabsStripHtml}
             <div class="brief-banner">
-              <span class="brief-banner-tag" style="color: var(--red);">// report</span>
+              <span class="brief-banner-tag" style="color: var(--red);">${this.escape(this._t("brief_report_tag"))}</span>
               <span class="brief-banner-stamp" style="color: var(--red);">${this.escape(copy.stamp)}</span>
             </div>
             <div class="brief-body brief-body-error">
@@ -8903,8 +8879,10 @@
         .join("");
 
       const filedLabel = generating
-        ? "GENERATING…"
-        : "FILED · " + (b.createdAt ? this.timeFmt(b.createdAt) : this.timeFmt(Date.now()));
+        ? this._t("brief_filed_generating")
+        : this._t("brief_filed_stamp", {
+          when: b.createdAt ? this.timeFmt(b.createdAt) : this.timeFmt(Date.now()),
+        });
 
       // Open Report links to /report.html with both r (room) and b
       // (brief id) — the viewer uses b when present so refining
@@ -8922,14 +8900,14 @@
       card.innerHTML = `
         <header class="ending-block-head">
           <span class="ending-block-line"></span>
-          <span class="ending-block-label">▼ session output ▼</span>
+          <span class="ending-block-label">${this.escape(this._t("brief_output_head"))}</span>
           <span class="ending-block-line"></span>
         </header>
 
         <div class="brief-card">
           ${tabsHtml}
           <div class="brief-banner">
-            <span class="brief-banner-tag">// report</span>
+            <span class="brief-banner-tag">${this.escape(this._t("brief_report_tag"))}</span>
             <span class="brief-banner-stamp">${filedLabel}</span>
           </div>
 
@@ -8939,10 +8917,12 @@
               : (() => {
                   const wc = this._briefWordCount(b);
                   return `<div class="brief-info">
-                    <div class="brief-kicker">// filed by ${this.escape(this.currentChair?.name || "the chair")}</div>
-                    <h2 class="brief-title" data-brief-title>${this.escape(b.title || "(untitled)")}</h2>
+                    <div class="brief-kicker">${this._t("brief_filed_by", {
+                      name: this.currentChair?.name ? this.escape(this.currentChair.name) : this._t("brief_chair_fallback"),
+                    })}</div>
+                    <h2 class="brief-title" data-brief-title>${this.escape(b.title || this._t("brief_untitled"))}</h2>
                     <div class="brief-meta-row">
-                      <span class="brief-meta-line">${this.currentMembers.length} authors</span>
+                      <span class="brief-meta-line">${this.escape(this._t("brief_meta_authors", { n: this.currentMembers.length }))}</span>
                       ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}
                       <div class="brief-signed">
                         <div class="brief-signed-avatars">${signed}</div>
@@ -8955,7 +8935,7 @@
             ${reportHref && !generating ? `
               <a href="${reportHref}" class="brief-open" target="_blank" rel="noopener">
                 <span class="brief-open-icon">▸</span>
-                <span class="brief-open-label">open report</span>
+                <span class="brief-open-label">${this.escape(this._t("brief_open_report"))}</span>
                 <span class="brief-open-arrow">→</span>
               </a>
             ` : ""}
@@ -8965,11 +8945,11 @@
             <div class="brief-supplement-row">
               <button type="button" class="brief-supplement-btn" data-brief-supplement>
                 <span class="brief-supplement-mark">+</span>
-                <span class="brief-supplement-label">${(b.language === "zh" ? "补充视角，再生成一版报告" : "Add a perspective · regenerate")}</span>
+                <span class="brief-supplement-label">${this.escape(this._t("brief_supplement_btn"))}</span>
               </button>
-              <button type="button" class="brief-delete-btn" data-brief-delete data-brief-id="${this.escape(b.id)}" title="${(b.language === "zh" ? "删除这份报告" : "Delete this report")}">
+              <button type="button" class="brief-delete-btn" data-brief-delete data-brief-id="${this.escape(b.id)}" title="${this.escape(this._t("brief_tab_delete_title"))}">
                 <span class="brief-delete-mark">⌫</span>
-                <span class="brief-delete-label">${(b.language === "zh" ? "删除报告" : "Delete report")}</span>
+                <span class="brief-delete-label">${this.escape(this._t("brief_delete_label"))}</span>
               </button>
             </div>
           ` : ""}
@@ -8977,7 +8957,7 @@
 
         <footer class="ending-block-foot">
           <span class="ending-block-foot-line"></span>
-          <span class="ending-block-foot-label">// end of session</span>
+          <span class="ending-block-foot-label">${this.escape(this._t("ending_session_foot"))}</span>
           <span class="ending-block-foot-line"></span>
         </footer>
       `;
@@ -9009,93 +8989,17 @@
       "scaffold-actions":  { eta: [4, 12] },
       write:               { eta: [30, 90] },
     },
-    BRIEF_SUBSTAGES: {
-      en: {
-        extract: [
-          "Re-reading each director's contributions",
-          "Tagging signals by lens (data / dissent / narrative / structural / first-principle)",
-          "Tightening to 2–4 signals per director",
-        ],
-        compose: [
-          "Picking the spine for this brief",
-          "Choosing which component blocks fit",
-          "Sizing density and rhythm",
-        ],
-        "scaffold-anchor": [
-          "Reading the takeaway",
-          "Sizing the confidence call",
-          "Setting the working hypothesis",
-        ],
-        "scaffold-findings": [
-          "Pulling out the headline findings",
-          "Cross-checking each finding to the anchor",
-          "Tightening 3 → 2 if a finding wobbles",
-        ],
-        "scaffold-cluster": [
-          "Mapping where the directors converged",
-          "Surfacing the central tension",
-          "Spotting positions that didn't quite resolve",
-        ],
-        "scaffold-actions": [
-          "Drafting recommendations",
-          "Mapping the pre-mortem",
-          "Surfacing the new questions the room opened",
-        ],
-        write: [
-          "Writing the Bottom Line",
-          "Composing the Frame Shift section",
-          "Writing the 3 Headline Findings",
-          "Drafting Convergence + Divergence sections",
-          "Composing Recommendations",
-          "Writing the Pre-mortem",
-          "Surfacing New Questions",
-          "Drafting the Strategic Planning Assumption",
-          "Polishing the final pass",
-        ],
-      },
-      zh: {
-        extract: [
-          "重读每位董事的发言",
-          "按视角标签（data / dissent / narrative / structural / first-principle）整理信号",
-          "压缩到每位董事 2-4 条关键信号",
-        ],
-        compose: [
-          "选定本份报告的 spine 风格",
-          "决定要纳入哪些组件块",
-          "估算密度与节奏",
-        ],
-        "scaffold-anchor": [
-          "读出 takeaway",
-          "校准 confidence",
-          "落定 working hypothesis",
-        ],
-        "scaffold-findings": [
-          "提炼 3 条 headline findings",
-          "复核每条是否撑住 anchor",
-          "如有勉强，3 → 2 收敛",
-        ],
-        "scaffold-cluster": [
-          "定位董事们达成共识的地方",
-          "标记核心张力",
-          "辨认未消化的立场",
-        ],
-        "scaffold-actions": [
-          "起草 recommendations",
-          "推演 pre-mortem",
-          "梳理会议长出的新问题",
-        ],
-        write: [
-          "撰写 Bottom Line",
-          "撰写 Frame Shift 段落",
-          "撰写 3 条 Headline Findings",
-          "起草 Convergence 与 Divergence 段落",
-          "撰写 Recommendations",
-          "撰写 Pre-mortem",
-          "梳理 New Questions",
-          "起草 Strategic Planning Assumption",
-          "通读润色，准备交稿",
-        ],
-      },
+
+    _briefSubList(stageKey) {
+      const sk = String(stageKey).replace(/-/g, "_");
+      const list = [];
+      for (let i = 0; i < 24; i++) {
+        const k = `brief_sub_${sk}_${i}`;
+        const s = this._t(k);
+        if (s === k) break;
+        list.push(s);
+      }
+      return list;
     },
 
     /** Set up a 1s tick that re-renders the brief stages while at least
@@ -9191,9 +9095,7 @@
       // Hard ceiling · regardless of server state, flip the card to
       // a timed-out error so the user always has a way out.
       if (now - startedAt > this.BRIEF_HARD_TIMEOUT_MS) {
-        b.error = b.language === "zh"
-          ? "报告生成超时（超过 8 分钟仍未完成）。"
-          : "Brief generation timed out (no completion after 8 minutes).";
+        b.error = this._t("brief_hard_timeout_msg");
         b.timedOut = true;
         this.stopBriefStageTick();
         this.stopBriefStallWatch();
@@ -9237,44 +9139,25 @@
         "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null },
         write:               { status: "pending", detail: "", progress: null, startedAt: null },
       };
-      const lang = b.language === "zh" ? "zh" : "en";
-      const chairName = b.chairName || this.currentChair?.name || (lang === "zh" ? "主席" : "Chair");
+      const STAGE_ORDER = ["extract", "compose", "scaffold-anchor", "scaffold-findings", "scaffold-cluster", "scaffold-actions", "write"];
+      const STAGE_DEFS = STAGE_ORDER.map((key) => {
+        const sk = key.replace(/-/g, "_");
+        return {
+          key,
+          label: this._t(`brief_stage_${sk}_label`),
+          pipShort: this._t(`brief_stage_${sk}_pip`),
+        };
+      });
 
       const wordCount = b.bodyMd
         ? (b.bodyMd.trim().match(/\S+/g) || []).length
         : 0;
 
-      // Stage definitions · 7 ordered cells. Must align with the wire
-      // format emitted by emitStage() in src/orchestrator/brief.ts:
-      //
-      //   extract → compose → scaffold-{anchor,findings,cluster,actions} → write
-      //
-      // The 4 scaffold sub-stages are driven by JSON-key arrival in the
-      // Stage 2 streaming buffer (see runStage2 / SCAFFOLD_TRIGGERS in
-      // brief.ts), so each pip transition reflects a real moment in the
-      // model's output — not a synthetic timer.
-      const STAGE_DEFS = lang === "zh"
-        ? [
-            { key: "extract",            label: "读完房间里每个人的发言", pipShort: "听" },
-            { key: "compose",            label: "选定报告骨架与组件",    pipShort: "选" },
-            { key: "scaffold-anchor",    label: "敲定核心判断 (anchor)",  pipShort: "锚" },
-            { key: "scaffold-findings",  label: "勾勒主张与发现",       pipShort: "见" },
-            { key: "scaffold-cluster",   label: "梳理共识与分歧",       pipShort: "辨" },
-            { key: "scaffold-actions",   label: "拟动作 · 推演风险",     pipShort: "拟" },
-            { key: "write",              label: "撰写最终报告",         pipShort: "写" },
-          ]
-        : [
-            { key: "extract",            label: "Reading what each director said", pipShort: "read" },
-            { key: "compose",            label: "Picking the report shape",        pipShort: "pick" },
-            { key: "scaffold-anchor",    label: "Setting the anchor",              pipShort: "anchor" },
-            { key: "scaffold-findings",  label: "Sketching findings",              pipShort: "find" },
-            { key: "scaffold-cluster",   label: "Mapping consensus + dissent",     pipShort: "split" },
-            { key: "scaffold-actions",   label: "Drafting actions + risks",        pipShort: "act" },
-            { key: "write",              label: "Writing the report",              pipShort: "write" },
-          ];
+      const chairDisp = (b.chairName || this.currentChair?.name)
+        ? this.escape(b.chairName || this.currentChair.name)
+        : this._t("brief_chair_fallback");
 
       const meta = this.BRIEF_STAGE_META;
-      const substages = (this.BRIEF_SUBSTAGES[lang] || this.BRIEF_SUBSTAGES.en);
       const stageEta = (key) => {
         const st = stages[key];
         if (st?.etaSec && typeof st.etaSec.lo === "number") return [st.etaSec.lo, st.etaSec.hi];
@@ -9324,9 +9207,9 @@
 
       // Rotating sub-line · advances every 3s within the active stage.
       let substageText = "";
-      if (activeStatus === "active" && substages[activeDef.key]?.length) {
-        const list = substages[activeDef.key];
-        substageText = list[Math.floor(activeElapsed / 3) % list.length];
+      if (activeStatus === "active") {
+        const list = this._briefSubList(activeDef.key);
+        if (list.length) substageText = list[Math.floor(activeElapsed / 3) % list.length];
       }
 
       // Detail · cur/total directors during extract, word count during
@@ -9335,12 +9218,12 @@
       if (activeDef.key === "extract" && activeStage.progress?.total) {
         const cur = activeStage.progress.current;
         const tot = activeStage.progress.total;
-        detailParts.push(lang === "zh" ? `${cur}/${tot} 位董事` : `${cur}/${tot} director${tot === 1 ? "" : "s"}`);
+        detailParts.push(this._t(tot === 1 ? "brief_prog_directors_one" : "brief_prog_directors", { cur, tot }));
       } else if (activeStage.detail) {
         detailParts.push(activeStage.detail);
       }
       if (activeDef.key === "write" && activeStatus === "active" && wordCount > 0) {
-        detailParts.push(lang === "zh" ? `${wordCount} 字` : `${wordCount} word${wordCount === 1 ? "" : "s"}`);
+        detailParts.push(this._t(wordCount === 1 ? "brief_prog_words_one" : "brief_prog_words", { n: wordCount }));
       }
       const detailLine = detailParts.join(" · ");
 
@@ -9349,10 +9232,10 @@
       if (activeStatus === "active") {
         if (activeElapsed <= activeEta[1]) {
           timing = activeElapsed > 0
-            ? `${activeElapsed}s · ~${activeEta[0]}–${activeEta[1]}s`
-            : `~${activeEta[0]}–${activeEta[1]}s`;
+            ? this._t("brief_timing_inband", { e: activeElapsed, lo: activeEta[0], hi: activeEta[1] })
+            : this._t("brief_timing_eta", { lo: activeEta[0], hi: activeEta[1] });
         } else {
-          timing = lang === "zh" ? `已耗时 ${activeElapsed}s` : `${activeElapsed}s elapsed`;
+          timing = this._t("brief_timing_over", { n: activeElapsed });
         }
       }
 
@@ -9402,25 +9285,24 @@
 
       // Total ETA formatting · "1m 12s · ~3-5m left" / "已 1m 12s · 还需约 3–5 分钟"
       const fmtSec = (s) => {
-        if (s < 60) return `${s}s`;
+        if (s < 60) return this._t("brief_fmt_sec", { n: s });
         const m = Math.floor(s / 60);
         const r = s % 60;
-        return r === 0 ? `${m}m` : `${m}m ${r}s`;
+        return r === 0 ? this._t("brief_fmt_min", { n: m }) : this._t("brief_fmt_min_sec", { m, r });
       };
       const fmtRange = (lo, hi) => {
-        if (hi < 60) return lang === "zh" ? `约 ${lo}–${hi}s` : `~${lo}–${hi}s`;
+        if (hi < 60) return this._t("brief_range_sec", { lo, hi });
         const loM = Math.max(1, Math.round(lo / 60));
         const hiM = Math.max(loM, Math.round(hi / 60));
-        return lang === "zh" ? `约 ${loM}–${hiM} 分钟` : `~${loM}-${hiM}m`;
+        return this._t("brief_range_min", { lo: loM, hi: hiM });
       };
 
-      const totalText = lang === "zh"
-        ? `已 ${fmtSec(totalElapsed)} · 还需${fmtRange(totalLo, totalHi)}`
-        : `${fmtSec(totalElapsed)} elapsed · ${fmtRange(totalLo, totalHi)} left`;
+      const totalText = this._t("brief_total_line", {
+        elapsed: fmtSec(totalElapsed),
+        range: fmtRange(totalLo, totalHi),
+      });
 
-      const kickerCore = lang === "zh"
-        ? `// ${chairName} 正在整理纪要 · ${totalText}`
-        : `// ${chairName} is preparing the minutes · ${totalText}`;
+      const kickerCore = this._t("brief_stage_kicker", { chair: chairDisp, total: totalText });
 
       const metaHtml = (detailLine || timing)
         ? `<span class="brief-active-meta">` +
@@ -9452,9 +9334,17 @@
       this._briefSeenHarvestKeys = this._briefSeenHarvestKeys || {};
       const seenH = this._briefSeenHarvestKeys[b.id] = this._briefSeenHarvestKeys[b.id] || new Set();
       const harvest = Array.isArray(b.extractHarvest) ? b.extractHarvest : [];
-      const kindLabels = lang === "zh"
-        ? { claims: "判断", evidence: "证据", tensions: "分歧", assumptions: "假设", risks: "风险", opportunities: "机会", actions: "动作", quotes: "原话", openQuestions: "悬而未决" }
-        : { claims: "claims", evidence: "evidence", tensions: "tensions", assumptions: "assumptions", risks: "risks", opportunities: "opportunities", actions: "actions", quotes: "quotes", openQuestions: "open-q" };
+      const kindLabels = {
+        claims: this._t("brief_harvest_claims"),
+        evidence: this._t("brief_harvest_evidence"),
+        tensions: this._t("brief_harvest_tensions"),
+        assumptions: this._t("brief_harvest_assumptions"),
+        risks: this._t("brief_harvest_risks"),
+        opportunities: this._t("brief_harvest_opportunities"),
+        actions: this._t("brief_harvest_actions"),
+        quotes: this._t("brief_harvest_quotes"),
+        openQuestions: this._t("brief_harvest_open_questions"),
+      };
       if (harvest.length) {
         const chips = harvest.map((h) => {
           const isFresh = !seenH.has(h.directorId);
@@ -9479,7 +9369,7 @@
       // Live word count during write — large and visible since it's the
       // most engaging signal during the long write stage.
       if (writeActive && wordCount > 0) {
-        const w = lang === "zh" ? `${wordCount} 字 · 还在落笔` : `${wordCount} word${wordCount === 1 ? "" : "s"} · still writing`;
+        const w = this._t("brief_stat_writing", { n: wordCount });
         stats.push(`<span class="brief-stat-fact brief-stat-live">${this.escape(w)}</span>`);
       }
       const statsHtml = stats.length
@@ -9543,15 +9433,9 @@
 
     /** Map internal tag id → short visible label. */
     noteTagLabel(tag) {
-      return ({
-        origin:  "input",
-        obs:     "obs",
-        insight: "claim",
-        warn:    "drop",
-        crux:    "crux",
-        soln:    "pursue",
-        open:    "ask",
-      })[tag] || tag;
+      const k = "note_tag_" + String(tag || "").replace(/[^a-z0-9_]/g, "");
+      const tr = this._t(k);
+      return tr === k ? String(tag || "") : tr;
     },
 
     /** True when the user is "stuck to bottom" — within a small margin

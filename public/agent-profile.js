@@ -11,6 +11,25 @@
 */
 (function () {
 
+  function uiT(key, vars) {
+    return (window.I18n && window.I18n.t(key, vars)) || key;
+  }
+
+  function profileRoleLabel(p) {
+    const r = (p.role || "").trim();
+    if (!r) return uiT("ap_role_director_upper");
+    const low = r.toLowerCase();
+    if (low === "moderator") return uiT("agent_role_tag_moderator");
+    if (low === "director") return uiT("ap_role_director_upper");
+    return r;
+  }
+
+  function profileStatusLabel(p) {
+    if (p.status === "intern") return uiT("ap_status_intern");
+    if (p.status === "active" || !p.status) return uiT("ap_status_active");
+    return String(p.status).toUpperCase();
+  }
+
   const PROFILES = {
 
     /* ════════════════════════════════════ SOCRATES ════════════════════════════════════ */
@@ -899,7 +918,7 @@
     const bio = bioFor(slug, p);
     block.innerHTML = `
       <div class="ap-intel-view" data-ap-intel-view>${
-        escape(bio) || `<span class="ap-empty">no description yet · click <strong>edit</strong> to add one</span>`
+        escape(bio) || `<span class="ap-empty">${escape(uiT("ap_intel_empty"))}</span>`
       }</div>
     `;
   }
@@ -910,12 +929,12 @@
     const bio = bioFor(slug, p);
     block.innerHTML = `
       <div class="ap-intel-edit">
-        <textarea class="ap-intel-textarea" data-ap-intel-textarea spellcheck="false" maxlength="${BIO_MAX}" placeholder="One sentence on how this director thinks · ${BIO_MIN}–${BIO_MAX} chars">${escape(bio)}</textarea>
+        <textarea class="ap-intel-textarea" data-ap-intel-textarea spellcheck="false" maxlength="${BIO_MAX}" placeholder="${escape(uiT("ap_intel_placeholder", { min: BIO_MIN, max: BIO_MAX }))}">${escape(bio)}</textarea>
         <div class="ap-intel-edit-foot">
-          <span class="ap-intel-edit-hint" data-ap-intel-hint>${BIO_MIN}–${BIO_MAX} chars · esc to cancel</span>
+          <span class="ap-intel-edit-hint" data-ap-intel-hint>${escape(uiT("ap_intel_hint", { min: BIO_MIN, max: BIO_MAX }))}</span>
           <div class="ap-intel-edit-actions">
-            <button type="button" class="ap-instr-cancel" data-ap-intel-cancel>cancel</button>
-            <button type="button" class="ap-instr-save" data-ap-intel-save>save</button>
+            <button type="button" class="ap-instr-cancel" data-ap-intel-cancel>${escape(uiT("ap_cancel"))}</button>
+            <button type="button" class="ap-instr-save" data-ap-intel-save>${escape(uiT("ap_save"))}</button>
           </div>
         </div>
       </div>
@@ -963,9 +982,9 @@
     return `
       <div class="ap-instr" data-ap-instr data-slug="${escape(slug)}">
         <div class="ap-instr-view" data-ap-instr-view>
-          ${rendered || `<div class="ap-empty">no instruction yet · click <strong>edit</strong> to write one in markdown</div>`}
+          ${rendered || `<div class="ap-empty">${escape(uiT("ap_instr_empty"))}</div>`}
         </div>
-        <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">show more</button>
+        <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">${escape(uiT("ap_show_more"))}</button>
       </div>
     `;
   }
@@ -976,9 +995,9 @@
     block.classList.remove("overflowing");
     block.innerHTML = `
       <div class="ap-instr-view" data-ap-instr-view>
-        ${renderMarkdown(instructionFor(slug, p)) || `<div class="ap-empty">no instruction yet · click <strong>edit</strong> to write one in markdown</div>`}
+        ${renderMarkdown(instructionFor(slug, p)) || `<div class="ap-empty">${escape(uiT("ap_instr_empty"))}</div>`}
       </div>
-      <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">show more</button>
+      <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">${escape(uiT("ap_show_more"))}</button>
     `;
     evaluateInstructionOverflow(slug);
   }
@@ -998,7 +1017,7 @@
     // 'expanded' state from a prior interaction shadowing the check.
     view.classList.remove("expanded");
     toggle.setAttribute("aria-expanded", "false");
-    toggle.textContent = "show more";
+    toggle.textContent = uiT("ap_show_more");
     // scrollHeight is the full content; clientHeight is the rendered
     // (capped) height. A few-pixel epsilon avoids flagging content
     // that fits exactly at the cap as "overflowing".
@@ -1027,12 +1046,12 @@
     const md = instructionFor(slug, p);
     block.innerHTML = `
       <div class="ap-instr-edit">
-        <textarea class="ap-instr-textarea" data-ap-instr-textarea spellcheck="false" placeholder="Use markdown · ### headings · **bold** · *italic* · - lists · \`code\`">${escape(md)}</textarea>
+        <textarea class="ap-instr-textarea" data-ap-instr-textarea spellcheck="false" placeholder="${escape(uiT("ap_instr_placeholder_editor"))}">${escape(md)}</textarea>
         <div class="ap-instr-edit-foot">
-          <span class="ap-instr-edit-hint">markdown supported · esc to cancel</span>
+          <span class="ap-instr-edit-hint">${escape(uiT("ap_instr_edit_hint"))}</span>
           <div class="ap-instr-edit-actions">
-            <button type="button" class="ap-instr-cancel" data-ap-instr-cancel>cancel</button>
-            <button type="button" class="ap-instr-save" data-ap-instr-save>save</button>
+            <button type="button" class="ap-instr-cancel" data-ap-instr-cancel>${escape(uiT("ap_cancel"))}</button>
+            <button type="button" class="ap-instr-save" data-ap-instr-save>${escape(uiT("ap_save"))}</button>
           </div>
         </div>
       </div>
@@ -1055,7 +1074,7 @@
   function renderRulesInner(slug) {
     const rules = rulesForAgent(slug);
     const list = rules.length === 0
-      ? `<li class="ap-rule-empty">no rules yet · use the <strong>+ add rule</strong> button above</li>`
+      ? `<li class="ap-rule-empty">${escape(uiT("ap_rules_empty_list"))}</li>`
       : rules.map((body, i) => `
           <li class="ap-rule" data-rule-idx="${i}">
             <span class="ap-rule-num">${i + 1}</span>
@@ -1478,7 +1497,7 @@
       const r = await fetch("/api/agents/" + encodeURIComponent(slug) + "/skills");
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        list.innerHTML = `<div class="ap-empty">couldn't load skills · ${escape(j.error || ("HTTP " + r.status))}</div>`;
+        list.innerHTML = `<div class="ap-empty">${escape(uiT("ap_skills_load_fail", { detail: String(j.error || ("HTTP " + r.status)) }))}</div>`;
         return;
       }
       const { skills } = await r.json();
@@ -1489,7 +1508,7 @@
       // Header count tag (e.g. "3 / 5 installed").
       const card = block.closest(".ap-block");
       const countTag = card?.querySelector("[data-ap-skills-count]");
-      if (countTag) countTag.textContent = `${userCount} / ${cap} installed`;
+      if (countTag) countTag.textContent = uiT("ap_skills_installed", { current: userCount, cap });
       // Radar reflects user skills only — the system skill has no
       // turn-time ability deltas (it runs at brief time).
       if (radarWrap) radarWrap.innerHTML = renderRadar(slug, userSkills);
@@ -1505,16 +1524,16 @@
           drop.classList.add("disabled");
           drop.setAttribute("aria-disabled", "true");
           const txt = drop.querySelector(".ap-skills-drop-text");
-          if (txt) txt.innerHTML = `cap reached (${userCount}/${cap}) · uninstall to make room`;
+          if (txt) txt.textContent = uiT("ap_skills_cap_reached", { current: userCount, cap });
         } else {
           drop.classList.remove("disabled");
           drop.removeAttribute("aria-disabled");
           const txt = drop.querySelector(".ap-skills-drop-text");
-          if (txt) txt.innerHTML = `install skill · drop a <code>.md</code> file or click`;
+          if (txt) txt.innerHTML = uiT("ap_skills_drop_hint");
         }
       }
     } catch (e) {
-      list.innerHTML = `<div class="ap-empty">couldn't load skills · ${escape(e && e.message ? e.message : String(e))}</div>`;
+      list.innerHTML = `<div class="ap-empty">${escape(uiT("ap_skills_load_fail", { detail: String(e && e.message ? e.message : e) }))}</div>`;
     }
   }
 
@@ -2110,9 +2129,9 @@
     // `effectiveDefaultModel()` does the actual fallback.
     const warning = reachable
       ? ""
-      : `<div class="ap-model-stale" title="This model is not reachable with your current API keys. Runtime calls fall back to the global default.">
+      : `<div class="ap-model-stale" title="${escape(uiT("ap_model_stale_title"))}">
           <span class="ap-model-stale-mark">⚠</span>
-          <span class="ap-model-stale-text">unreachable · falls back at runtime</span>
+          <span class="ap-model-stale-text">${escape(uiT("ap_model_stale_text"))}</span>
         </div>`;
     // Trigger meta line · show the route when present, fall back to
     // provider otherwise. We DROP the leading provider when the route
@@ -2236,7 +2255,7 @@
     }).join("");
 
     const bioBody = (Array.isArray(p.bio) ? p.bio.join("\n\n") : (p.bio || "")).trim();
-    const statusLabel = p.status === "intern" ? "INTERN · TRIAL" : (p.status || "ACTIVE").toUpperCase();
+    const statusLabel = profileStatusLabel(p);
 
     return `
       <section class="ap-profile-card ap-profile-card-full" data-ap-card-slug="${escape(slug)}">
@@ -2250,12 +2269,12 @@
           <div class="ap-id-text">
             <h1 class="ap-id-name">${escape(p.name)}</h1>
             <div class="ap-id-meta">
-              <span class="ap-id-role">${escape(p.role || "DIRECTOR")}</span>
+              <span class="ap-id-role">${escape(profileRoleLabel(p))}</span>
               ${p.handle ? `<span class="ap-id-dot">·</span><span class="ap-id-handle">${escape(p.handle)}</span>` : ""}
               <span class="ap-status-pill">${escape(statusLabel)}</span>
             </div>
           </div>
-          <button type="button" class="ap-id-menu" data-ap-id-menu data-slug="${escape(slug)}" aria-label="more">⋯</button>
+          <button type="button" class="ap-id-menu" data-ap-id-menu data-slug="${escape(slug)}" aria-label="${escape(uiT("ap_aria_id_menu"))}">⋯</button>
         </div>
       </section>
 
@@ -2266,27 +2285,27 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Intel</span>
-                <button type="button" class="ap-block-h-action" data-ap-intel-edit>edit</button>
+                <span class="ap-block-h-title">${escape(uiT("ap_intel"))}</span>
+                <button type="button" class="ap-block-h-action" data-ap-intel-edit>${escape(uiT("ap_edit"))}</button>
               </header>
               <div class="ap-intel" data-ap-intel data-slug="${escape(slug)}">
-                <div class="ap-intel-view" data-ap-intel-view>${escape(bioBody) || `<span class="ap-empty">no description yet · click <strong>edit</strong> to add one</span>`}</div>
+                <div class="ap-intel-view" data-ap-intel-view>${escape(bioBody) || `<span class="ap-empty">${escape(uiT("ap_intel_empty"))}</span>`}</div>
               </div>
             </section>
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Instruction</span>
-                <button type="button" class="ap-block-h-action" data-ap-instr-edit>edit</button>
+                <span class="ap-block-h-title">${escape(uiT("ap_instruction"))}</span>
+                <button type="button" class="ap-block-h-action" data-ap-instr-edit>${escape(uiT("ap_edit"))}</button>
               </header>
               ${renderInstructionBlock(p, slug)}
             </section>
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Rules</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_rules"))}</span>
                 <button type="button" class="ap-block-h-action" data-ap-rule-add data-slug="${escape(slug)}" ${rulesForAgent(slug).length >= RULES_MAX ? "disabled" : ""}>
-                  ${rulesForAgent(slug).length >= RULES_MAX ? `max ${RULES_MAX}` : "+ add rule"}
+                  ${rulesForAgent(slug).length >= RULES_MAX ? escape(uiT("ap_rules_max", { n: RULES_MAX })) : escape(uiT("ap_rules_add"))}
                 </button>
               </header>
               ${renderRulesBlock(slug)}
@@ -2295,8 +2314,8 @@
             ${isChair ? `
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Memory</span>
-                <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">+ add note</button>
+                <span class="ap-block-h-title">${escape(uiT("ap_memory"))}</span>
+                <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">${escape(uiT("ap_memory_add"))}</button>
               </header>
               ${renderMemoryBlock(slug)}
             </section>
@@ -2308,23 +2327,23 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Track Record</span>
-                <span class="ap-block-h-tag">model · usage</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_track_record"))}</span>
+                <span class="ap-block-h-tag">${escape(uiT("ap_track_tag_model_usage"))}</span>
               </header>
               <div class="ap-block-body">
                 ${renderModelBlock(slug, liveModel)}
                 <div class="ap-stats-grid" data-ap-stats data-slug="${escape(slug)}">
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-rooms>—</div>
-                    <div class="ap-stat-l">rooms</div>
+                    <div class="ap-stat-l">${escape(uiT("ap_stat_rooms"))}</div>
                   </div>
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-rounds>—</div>
-                    <div class="ap-stat-l">rounds</div>
+                    <div class="ap-stat-l">${escape(uiT("ap_stat_rounds"))}</div>
                   </div>
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-tokens>—</div>
-                    <div class="ap-stat-l">tokens</div>
+                    <div class="ap-stat-l">${escape(uiT("ap_stat_tokens"))}</div>
                   </div>
                 </div>
               </div>
@@ -2332,22 +2351,22 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Skills</span>
-                <span class="ap-block-h-tag" data-ap-skills-count>0 / ${isChair ? SKILL_CAP.chair : SKILL_CAP.director} installed</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_skills"))}</span>
+                <span class="ap-block-h-tag" data-ap-skills-count>${escape(uiT("ap_skills_installed", { current: 0, cap: isChair ? SKILL_CAP.chair : SKILL_CAP.director }))}</span>
               </header>
               ${renderSkillsBlockV2(slug, isChair)}
             </section>
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Equipment</span>
-                <span class="ap-block-h-tag">coming soon</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_equipment"))}</span>
+                <span class="ap-block-h-tag">${escape(uiT("ap_equipment_soon"))}</span>
               </header>
               <div class="ap-coming-soon">
                 <div class="ap-coming-soon-mark">◆</div>
-                <div class="ap-coming-soon-title">Knowledge docs</div>
-                <p class="ap-coming-soon-body">Attach PDFs, links, and reference notes to ground this agent's reasoning. They'll be cited inline during rooms and available for the agent to recall by name.</p>
-                <div class="ap-coming-soon-tag">in development</div>
+                <div class="ap-coming-soon-title">${escape(uiT("ap_equipment_knowledge_title"))}</div>
+                <p class="ap-coming-soon-body">${escape(uiT("ap_equipment_knowledge_deck"))}</p>
+                <div class="ap-coming-soon-tag">${escape(uiT("ap_equipment_dev"))}</div>
               </div>
             </section>
 
@@ -3099,7 +3118,7 @@
         if (!view) return;
         const expanded = view.classList.toggle("expanded");
         instrToggle.setAttribute("aria-expanded", String(expanded));
-        instrToggle.textContent = expanded ? "show less" : "show more";
+        instrToggle.textContent = expanded ? uiT("ap_show_less") : uiT("ap_show_more");
         return;
       }
 
@@ -3346,6 +3365,10 @@
   window.refreshAgentProfileSkills = function () {
     if (currentlyOpenSlug) loadSkillsForV2(currentlyOpenSlug);
   };
+
+  document.addEventListener("boardroom:locale", () => {
+    if (currentlyOpenSlug && typeof open === "function") open(currentlyOpenSlug);
+  });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

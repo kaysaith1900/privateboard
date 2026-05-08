@@ -203,6 +203,38 @@
      (~6:1) so the key reads cleanly against the topbar bg. */
   .topbar-right .key { color: var(--text-soft); margin-right: 4px; }
   .topbar-right .val { color: var(--text-soft); }
+
+  .locale-switch {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 4px;
+    padding: 1px;
+    border: 0.5px solid var(--line-bright);
+    border-radius: 3px;
+    background: var(--panel-2);
+    text-transform: none;
+    letter-spacing: 0.03em;
+  }
+  .locale-switch,
+  .locale-switch .locale-btn { text-transform: none; }
+  .locale-switch .locale-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 3px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1.2;
+  }
+  .locale-switch .locale-btn:hover { color: var(--text-soft); }
+  .locale-switch .locale-btn.active {
+    background: var(--panel-3);
+    color: var(--lime);
+  }
   @keyframes pulse { 0%, 60% { opacity: 1; } 80% { opacity: 0.4; } }
 
   /* ═══════════════════════════════════════════
@@ -9027,6 +9059,7 @@
 <link rel="stylesheet" href="agent-overlay.css">
 <!-- Shared /api/models cache · loads first so every picker reads the
      same source. See models-cache.js for the API surface. -->
+<script src="i18n.js" defer></script>
 <script src="models-cache.js" defer></script>
 <script src="agent-overlay.js" defer></script>
 <link rel="stylesheet" href="room-settings.css">
@@ -9071,7 +9104,7 @@
 <div class="sys-notice" data-sys-notice hidden>
   <span class="sys-notice-mark">▸</span>
   <span class="sys-notice-text" data-sys-notice-text></span>
-  <button type="button" class="sys-notice-close" data-sys-notice-close aria-label="Dismiss">✕</button>
+  <button type="button" class="sys-notice-close" data-sys-notice-close data-i18n-aria="sys_notice_dismiss" aria-label="Dismiss">✕</button>
 </div>
 
 <div class="control">
@@ -9089,16 +9122,20 @@
         <rect class="fg" x="2"  y="10" width="1"  height="4"/>
         <rect class="fg" x="13" y="10" width="1"  height="4"/>
       </svg>
-      <span class="brand-name">PRIVATEBOARD</span>
+      <span class="brand-name" data-i18n="brand_privateboard">PRIVATEBOARD</span>
       <span class="brand-sep">//</span>
-      <span class="brand-name">CONTROL</span>
-      <span class="classification">PRIVATE ACCESS</span>
+      <span class="brand-name" data-i18n="brand_control">CONTROL</span>
+      <span class="classification" data-i18n="classification">PRIVATE ACCESS</span>
     </div>
 
     <div class="topbar-right">
-      <div><span class="key">SYNC:</span><span class="val">2026·04·28 · 14:42</span></div>
-      <div><span class="key">UID:</span><span class="val">0x4A1F</span></div>
-      <div><span class="key">ROOM:</span><span class="val">047 · ROUND 03</span></div>
+      <div class="locale-switch" role="group" data-i18n-aria="aria_language" aria-label="Language">
+        <button type="button" class="locale-btn" data-locale="en" aria-pressed="false" data-i18n="locale_en">EN</button>
+        <button type="button" class="locale-btn" data-locale="zh" aria-pressed="false" data-i18n="locale_zh">中文</button>
+      </div>
+      <div><span class="key" data-i18n="topbar_sync">SYNC:</span><span class="val">2026·04·28 · 14:42</span></div>
+      <div><span class="key" data-i18n="topbar_uid">UID:</span><span class="val">0x4A1F</span></div>
+      <div><span class="key" data-i18n="topbar_room">ROOM:</span><span class="val">047 · ROUND 03</span></div>
     </div>
   </header>
 
@@ -9109,20 +9146,20 @@
     <aside class="sidebar">
 
       <div class="sidebar-head">
-        <div class="sidebar-head-title">// CONTROL</div>
+        <div class="sidebar-head-title" data-i18n="sidebar_head">// CONTROL</div>
         <div class="sidebar-head-meta"><span class="lime">●</span> <span data-sidebar-summary>0 LIVE / 0 AGENTS</span></div>
-        <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar"></button>
+        <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse data-i18n-title="sidebar_collapse"></button>
       </div>
 
       <div class="sidebar-tabs" role="tablist">
         <a href="#" class="sidebar-tab active" data-sidebar-tab="rooms" role="tab" aria-selected="true">
           <i class="ic ic-rooms ico"></i>
-          <span>Rooms</span>
+          <span data-i18n="sidebar_tab_rooms">Rooms</span>
           <span class="count" data-sidebar-tab-count="rooms">0</span>
         </a>
         <a href="#" class="sidebar-tab" data-sidebar-tab="agents" role="tab" aria-selected="false">
           <i class="ic ic-agents ico"></i>
-          <span>Agents</span>
+          <span data-i18n="sidebar_tab_agents">Agents</span>
           <span class="count" data-sidebar-tab-count="agents">0</span>
         </a>
       </div>
@@ -9130,14 +9167,14 @@
       <!-- ─── ROOMS PANEL ─── -->
       <div class="sidebar-panel" data-sidebar-panel="rooms">
 
-      <a href="#convene" class="new-btn" data-convene-trigger>New room</a>
+      <a href="#convene" class="new-btn" data-convene-trigger data-i18n="sidebar_new_room">New room</a>
       <!-- "All Reports" cross-room index · opens a Perplexity-Discover-
            style grid of every brief any room has produced. Sits below
            "New room" so it reads as a peer destination, not a list
            item, with a square glyph echoing the dashboard glyphs
            elsewhere in the sidebar. -->
       <a href="#" class="new-btn nav-reports" data-reports-trigger>
-        <span class="nav-label">All Reports</span>
+        <span class="nav-label" data-i18n="sidebar_all_reports">All Reports</span>
         <span class="nav-count" data-reports-count hidden></span>
       </a>
       <!-- "All Notes" · chairman's-notes index. Sits directly below
@@ -9147,7 +9184,7 @@
            Reports' FileText glyph. The data-notes-count badge updates
            live as new notes are saved or deleted. -->
       <a href="#" class="new-btn nav-notes" data-notes-trigger>
-        <span class="nav-label">All Notes</span>
+        <span class="nav-label" data-i18n="sidebar_all_notes">All Notes</span>
         <span class="nav-count" data-notes-count hidden></span>
       </a>
 
@@ -9160,7 +9197,7 @@
       <!-- ─── AGENTS PANEL ─── -->
       <div class="sidebar-panel" data-sidebar-panel="agents" hidden>
 
-        <a href="#" class="new-btn" data-agent-composer-trigger>New agent</a>
+        <a href="#" class="new-btn" data-agent-composer-trigger data-i18n="sidebar_new_agent">New agent</a>
 
         <div class="agents-scroll">
           <!-- Rendered dynamically by app.renderSidebarAgents() from
@@ -9174,16 +9211,16 @@
           <div class="user-av" data-user-avatar>K</div>
           <div class="user-info">
             <div class="user-name" data-user-name>—</div>
-            <div class="user-meta" data-user-meta>// host</div>
+            <div class="user-meta" data-user-meta data-i18n="sidebar_host">// host</div>
           </div>
         </a>
-        <a href="#" class="icon-btn" title="Settings" data-user-settings-trigger>⚙</a>
+        <a href="#" class="icon-btn" data-i18n-title="settings_title" data-user-settings-trigger>⚙</a>
       </div>
 
     </aside>
 
     <!-- Resizable handle: sidebar | main -->
-    <div class="col-resizer" data-resize data-var="--sidebar-w" data-side="left" data-min="220" data-max="480" title="drag to resize"></div>
+    <div class="col-resizer" data-resize data-var="--sidebar-w" data-side="left" data-min="220" data-max="480" data-i18n-title="col_resize"></div>
 
     <!-- ═══════════════ MAIN: room view + agent profile view ═══════════════ -->
     <main class="main">
@@ -9206,20 +9243,20 @@
           <div class="speaking-queue" id="speaking-queue">
             <div class="queue-head">
               <div class="queue-head-expanded">
-                <span class="label">speaking queue</span>
-                <span class="mode-tag">mode: <span class="v">constructive</span></span>
+                <span class="label" data-i18n="queue_speaking_queue">speaking queue</span>
+                <span class="mode-tag"><span data-i18n="queue_mode">mode:</span> <span class="v">constructive</span></span>
               </div>
               <div class="queue-head-collapsed" data-queue-collapsed>
                 <!-- populated by app.renderQueue() · summary follows
                      the real queue: speaking, pending, or idle. -->
               </div>
-              <button type="button" class="queue-toggle" title="collapse / expand" aria-expanded="true">
+              <button type="button" class="queue-toggle" data-i18n-title="queue_toggle" aria-expanded="true">
                 <span class="chev">▼</span>
               </button>
             </div>
             <ul class="queue-list" data-queue-list></ul>
             <div class="queue-foot" data-queue-foot>
-              <span class="queue-foot-hint" data-queue-foot-hint>type to interject · <kbd>@</kbd> to direct · the chair files the round-end vote in chat</span>
+              <span class="queue-foot-hint" data-queue-foot-hint data-i18n-html="queue_foot_hint">type to interject · <kbd>@</kbd> to direct · the chair files the round-end vote in chat</span>
             </div>
           </div>
 
@@ -9232,12 +9269,12 @@
                  brackets) but at a tighter scale. Adjourn turns warn
                  on hover to flag its destructiveness. -->
             <div class="input-bar-actions">
-              <button type="button" class="ib-action ib-pause" data-pause aria-label="Pause discussion" data-tip="Pause · you can resume later"></button>
-              <button type="button" class="ib-action ib-adjourn" data-adjourn aria-label="Adjourn the room" data-tip="Adjourn · file the report and end"></button>
+              <button type="button" class="ib-action ib-pause" data-pause data-i18n-title="ib_pause_tip" data-i18n-aria="ib_pause_label" data-i18n-tip="ib_pause_tip"></button>
+              <button type="button" class="ib-action ib-adjourn" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label" data-i18n-tip="ib_adjourn_tip"></button>
             </div>
             <div class="input-wrap">
-              <input type="text" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
-              <button class="send-btn" data-send-button>[ Send ]</button>
+              <input type="text" data-i18n-placeholder="send_placeholder" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
+              <button class="send-btn" data-send-button data-i18n="send_button">[ Send ]</button>
             </div>
           </footer>
 
@@ -9291,7 +9328,7 @@
          below the topbar / brand logo, where the sidebar's own header
          sat before collapse. Frosted black glass with a 3-line
          hamburger glyph. -->
-    <button type="button" class="sidebar-expand-btn" data-sidebar-expand aria-label="Expand sidebar" title="Expand sidebar">
+    <button type="button" class="sidebar-expand-btn" data-sidebar-expand data-i18n-title="sidebar_expand">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
         <line x1="2.5" y1="4.25"  x2="13.5" y2="4.25"/>
         <line x1="2.5" y1="8"     x2="13.5" y2="8"/>
