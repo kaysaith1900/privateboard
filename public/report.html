@@ -3279,7 +3279,7 @@
             "classdiagram", "class",
             "statediagram", "statediagram-v2", "state",
             "erdiagram", "er",
-            "journey",
+            "journey", "userjourney",
             "gantt",
             "pie",
             "mindmap",
@@ -3287,6 +3287,12 @@
             "gitgraph",
             "requirementdiagram", "requirement",
             "c4context", "c4container", "c4component", "c4dynamic",
+            // newer / -beta types in mermaid 10+
+            "sankey-beta", "sankey",
+            "block-beta", "block",
+            "info",
+            "packet-beta", "packet",
+            "architecture-beta", "architecture",
           ]);
           if (MERMAID_TYPES.has(lang)) {
             // For non-"mermaid" lang tags, the fence didn't include
