@@ -962,6 +962,118 @@ export interface TwoPaths {
   pathB: TwoPathPanel;
 }
 
+/* ──────────────────────── Bento scaffold ───────────────────────────
+ * Single-page infographic alternative to the markdown research note.
+ * Fixed shape (no composer · no substitute groups) so the renderer can
+ * lay out a deterministic 8-slot grid:
+ *   · header band     (title · kicker · source line)
+ *   · 3 milestones    (left column · vertical timeline · period · title
+ *                      · 2-3 sentence body · big-number callout · tags)
+ *   · ranked bars     (right column top · 3-5 named entries with ratios)
+ *   · verification    (right column mid · 3-5 single-sentence bullets)
+ *   · talking points  (right column bottom · 3-5 elevator-pitch lines)
+ *   · conclusion      (bottom band · one-line takeaway)
+ *   · flow diagram    (optional inline arrow chain · "before → after"
+ *                      or "10× → 10×" · 2-4 nodes)
+ *   · footer tag      (mono caption right-aligned at the bottom)
+ *
+ * The bento writer fills these slots in a SINGLE chair-LLM call (Stage
+ * 2 produces the structured JSON; Stage 3 is deterministic templating).
+ * The bento body is intentionally lossy — the room's full discussion
+ * compresses into the highest-signal claims, big numbers, and the one
+ * thing that actually changes a reader's call. This is by design: the
+ * research-note path remains for users who want the full memo. */
+export interface BentoScaffold {
+  /** Hero headline · serif, 1 line · the room's takeaway in claim form. */
+  title: string;
+  /** Italic deck under the title · 1 sentence · the angle / what's new. */
+  kicker: string;
+  /** Mono small-caps source line · "from {chair name} · {date}" or
+   *  similar. Auto-filled from room metadata when the LLM doesn't set
+   *  one. */
+  source: string;
+  /** EXACTLY 3 milestones, ordered chronologically or by importance.
+   *  Vertical-timeline cards on the left side of the bento. */
+  milestones: BentoMilestone[];
+  /** Optional · top-right · 3-5 ranked entries with ratio bars.
+   *  Renders only when the room produced quantifiable comparisons. */
+  rankedBars: BentoRankedBars | null;
+  /** Optional · mid-right · 3-5 verification bullets · the validation
+   *  signals that, if observed, would confirm the takeaway. Maps from
+   *  convergence + leading indicators material. */
+  verification: BentoVerification | null;
+  /** ALWAYS rendered · bottom-right · 3-5 talking-point bullets · the
+   *  elevator-pitch sentences a reader could use to brief a colleague.
+   *  Maps from recommendations and bottom-line, collapsed to single
+   *  declarative sentences. */
+  talkingPoints: BentoTalkingPoints;
+  /** Bottom band · one-line conclusion · ≤ 80 chars · the takeaway
+   *  collapsed to a single sentence the reader walks away with. */
+  conclusion: string;
+  /** Optional flow diagram inline next to the conclusion · 2-4 nodes
+   *  joined by arrows · "before → after" or "step 1 → step 2 → step 3".
+   *  Skipped when no clean transformation arc exists. */
+  flow: BentoFlow | null;
+  /** Footer mono tag · "{room subject short} · {time horizon}" or
+   *  similar. Auto-filled from room metadata when the LLM doesn't
+   *  set one. */
+  footerTag: string;
+}
+
+export interface BentoMilestone {
+  /** Time / phase tag · "2025H2" · "Q1 2026" · "Phase 2" · ≤ 24 chars. */
+  period: string;
+  /** Card headline · ≤ 60 chars · the milestone's name. */
+  title: string;
+  /** 2-3 sentence body explaining what happened / will happen. ≤ 220 chars. */
+  body: string;
+  /** Big-number callout · ≤ 12 chars · the metric / multiplier / count
+   *  that anchors the milestone visually. e.g. "-10×", "2000万颗",
+   *  "$120M ARR", "T+90". Empty string when no clean numeric anchor
+   *  exists — the card renders without the gold-callout slot. */
+  callout: string;
+  /** Optional 0-4 short tags rendered as chips (entity names, owners,
+   *  domains). ≤ 16 chars each. */
+  tags: string[];
+}
+
+export interface BentoRankedBars {
+  /** Card title · ≤ 40 chars. */
+  title: string;
+  /** 3-5 entries, sorted in render order. Each ratio is normalized
+   *  0-1 by the writer (e.g. "1.0 / 0.1 / 0.01"). The renderer paints
+   *  bars proportional to ratio. */
+  entries: Array<{
+    /** Bar label · ≤ 40 chars. */
+    label: string;
+    /** Display value · ≤ 20 chars · "1.0×" / "$45M" / "23%". */
+    value: string;
+    /** Normalized 0-1 for bar width. */
+    ratio: number;
+  }>;
+}
+
+export interface BentoVerification {
+  /** Card title · ≤ 40 chars. */
+  title: string;
+  /** 3-5 single-sentence bullets · ≤ 140 chars each. */
+  bullets: string[];
+}
+
+export interface BentoTalkingPoints {
+  /** Card title · default "How to say this" / "口播提纲" · spine-style. */
+  title: string;
+  /** 3-5 elevator-pitch sentences · ≤ 120 chars each. */
+  bullets: string[];
+}
+
+export interface BentoFlow {
+  /** Inline arrow chain · 2-4 nodes joined by "→" at render time. */
+  nodes: string[];
+  /** Optional caption under the arrow chain · ≤ 60 chars. */
+  caption?: string;
+}
+
 /** Top-level scaffold. Composer-driven · only the picked component
  *  fields are filled by Stage 2; the rest are left at their zero values
  *  (empty array, null) so the existing renderer's "skip if empty" rules
@@ -1719,6 +1831,183 @@ export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
         supplementBlock,
         ``,
         `Produce the scaffold now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
+/* ─────────────────────── Bento mode · single-page infographic ──────────
+ *
+ * Bento is a parallel output mode to the markdown research note. The
+ * chair runs a SINGLE chair-LLM call (no separate Stage 3 streaming —
+ * the structured JSON IS the deliverable; the renderer is deterministic
+ * client-side templating).
+ *
+ * The bento body is intentionally lossy — the room's full discussion
+ * compresses into 3 milestones + 3 sidebars + 1 conclusion that fit on
+ * a single screen / single print page. Users who want the full memo
+ * pick research-note instead. */
+
+const BENTO_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a SINGLE-PAGE INFOGRAPHIC report — a structured \"bento box\" that compresses the room's discussion into a one-screen visual brief. Not a memo. Not a research note. A poster.",
+  "",
+  "## What a bento is for",
+  "",
+  "Bento is for the moment AFTER the discussion when the user wants to forward the takeaway to someone in 60 seconds. Not the analysis itself · the answer. Not the room's debate · the conclusion the room reached. Not all the evidence · the 3 most load-bearing claims with their numerics.",
+  "",
+  "Lossy is feature, not bug. If you can't compress to 3 milestones + a one-line conclusion, you didn't pick the load-bearing pieces. Compression is the work.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the takeaway in claim form · serif headline · ≤ 110 chars · ONE sentence that names what the room concluded. Quantified is stronger (\"X cuts cost 10×\" beats \"X is meaningful\").",
+  "",
+  "2. **kicker** · 1 italic sentence · ≤ 200 chars · the angle / what's new about this conclusion. Reads like a magazine deck under the headline.",
+  "",
+  "3. **source** · ≤ 80 chars · attribution / context. Format: \"From {chair name} · {date or horizon}\" or \"{room subject short} · {date}\". Mono small caps register; auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 cards in the LEFT timeline. Each card has:",
+  "   · `period` · time / phase tag · ≤ 24 chars · \"2025H2\" / \"Q1 2026\" / \"Phase 2\" / \"Top finding\" / \"Step 1\". Choose the lens (chronological, ranked, or sequential) that fits this room.",
+  "   · `title` · ≤ 60 chars · the milestone's name in claim form.",
+  "   · `body` · 2-3 sentences · ≤ 220 chars · what happened / will happen / why it matters.",
+  "   · `callout` · ≤ 12 chars · the metric / multiplier / count that anchors this card visually. Examples: \"-10×\", \"2000万颗\", \"$120M ARR\", \"T+90\". Empty string when no clean numeric exists for this milestone.",
+  "   · `tags` · 0-4 short chips · ≤ 16 chars each · entity names, owners, domains. Render as small rounded chips beside the body.",
+  "",
+  "   Pick the 3 most load-bearing pieces of the discussion. NOT the 3 most-mentioned. The 3 that, taken together, produce the takeaway from §1.",
+  "",
+  "5. **rankedBars** · OPTIONAL · top-right card · 3-5 ranked entries with normalised ratio bars. Pick this slot when the room produced quantitative comparisons (e.g. competitor TAM, model latencies, milestone costs). Each entry: `label` (≤ 40), `value` (≤ 20, the displayed number), `ratio` (0-1 normalised for bar width — divide by the largest entry). Set to `null` when the room had no real ranked-numeric material.",
+  "",
+  "6. **verification** · OPTIONAL · mid-right card · 3-5 single-sentence bullets · ≤ 140 chars each · the validation signals that, if observed, would confirm the takeaway. Maps from convergence + leading-indicator material. The card title is your call (default \"What we'd verify\" / \"验证线索\"). Set to `null` when the room raised no clean signals to watch.",
+  "",
+  "7. **talkingPoints** · ALWAYS rendered · bottom-right card · 3-5 elevator-pitch sentences · ≤ 120 chars each · what a reader could literally say to brief a colleague verbally. Imperative, declarative, no hedging. Maps from recommendations + bottom line, collapsed to single declarative sentences. Default title \"How to say this\" / \"口播提纲\".",
+  "",
+  "8. **conclusion** · bottom band · ≤ 100 chars · ONE sentence · the takeaway compressed further than the title. The reader walks away with this single line.",
+  "",
+  "Plus optional **flow** · 2-4 short nodes joined by arrows at render time · for transformations the room argued (\"before → after\" / \"10× → 10×\" / \"weak → defensible\"). Set to `null` when no clean transformation arc exists.",
+  "",
+  "Plus auto **footerTag** · ≤ 80 chars · short caption mono caps · room subject + horizon. Auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into bento slots",
+  "",
+  "The SIGNALS block carries each director's extracted material with kind prefixes (`[claim]`, `[evidence·data]`, `[risk]`, etc.). Route them into bento slots:",
+  "  · **milestones** ← the 3 strongest `[claim]` + `[evidence·data]` pairs · pair each claim with its supporting datapoint when one exists; that becomes the card's `body` + `callout`.",
+  "  · **rankedBars** ← `[evidence·data]` entries that are numeric AND comparable (the room mentioned multiple options / competitors / sizes / dates as ranked numerics).",
+  "  · **verification** ← `[evidence·data]` + `[claim]` material that READS as something to monitor (\"if X stays above Y, the call holds\").",
+  "  · **talkingPoints** ← `[action]` + `[claim·confidence:high]` material distilled to imperative single-sentence form.",
+  "  · **conclusion** ← compressed restatement of the room's anchor (Bottom Line / Thesis equivalent).",
+  "  · **flow** ← when the room argued a transformation (X becomes Y) or a multi-step path, distill it to 2-4 nodes.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed:",
+  "",
+  "```json",
+  "{",
+  '  "title": "Sentence-form takeaway with a quantified element when one fits.",',
+  '  "kicker": "1-sentence italic deck explaining the angle.",',
+  '  "source": "From {chair name} · {date or horizon}",',
+  '  "milestones": [',
+  '    { "period": "2025H2", "title": "Milestone name", "body": "2-3 sentences.", "callout": "-10×", "tags": ["AWS", "GCP"] },',
+  '    { "period": "Q1 2026", "title": "...", "body": "...", "callout": "...", "tags": [] },',
+  '    { "period": "2026H2", "title": "...", "body": "...", "callout": "...", "tags": [] }',
+  "  ],",
+  '  "rankedBars": {',
+  '    "title": "By the numbers",',
+  '    "entries": [',
+  '      { "label": "Hopper", "value": "1.0×", "ratio": 1.0 },',
+  '      { "label": "Blackwell", "value": "0.1×", "ratio": 0.1 },',
+  '      { "label": "Rubin", "value": "0.01×", "ratio": 0.01 }',
+  "    ]",
+  "  },",
+  '  "verification": {',
+  '    "title": "What we\'d verify",',
+  '    "bullets": [',
+  '      "Single sentence verification signal #1.",',
+  '      "Single sentence verification signal #2.",',
+  '      "Single sentence verification signal #3."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "How to say this",',
+  '    "bullets": [',
+  '      "First elevator-pitch sentence.",',
+  '      "Second elevator-pitch sentence.",',
+  '      "Third elevator-pitch sentence."',
+  "    ]",
+  "  },",
+  '  "conclusion": "One-line takeaway · ≤ 100 chars.",',
+  '  "flow": { "nodes": ["Hopper", "Blackwell", "Rubin"], "caption": "Two-stage cost step-down" },',
+  '  "footerTag": "Q4 update · 2025H2 → 2026H2"',
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title MUST be claim-style (state the takeaway, not the topic). \"Three commitments that change the trajectory\" not \"Analysis of strategic options\".",
+  "· Milestones MUST be 3. Pad with the most-mentioned claim if the room only surfaced 2 strong points; trim to the 3 most load-bearing if the room surfaced more.",
+  "· `callout` field carries ONE numeric or unit · no English plus number combinations (\"$120M ARR\" OK; \"makes $120M\" not OK).",
+  "· `talkingPoints` is mandatory · if the room had no recommendations, distil the bottom-line claim into 3 ways a colleague could quote it.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+interface BentoOpts extends Omit<ScaffoldOpts, "picked"> {
+  /** Optional auto-filled fallbacks · used when the LLM omits the
+   *  source / footerTag fields. The orchestrator fills these from the
+   *  chair's display name + the room subject. */
+  fallbackSource?: string;
+  fallbackFooterTag?: string;
+}
+
+export function buildBentoMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the bento. Surface it in the most fitting slot (most often as one of the milestones, occasionally as a verification bullet or a talking point).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [BENTO_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the bento now. JSON only.`,
       ].join("\n"),
     },
   ];
@@ -4432,6 +4721,166 @@ export function parseScaffold(
     appendices: parseAppendices(parsed.appendices),
     openQuestions: parseOpenQuestions(parsed.openQuestions),
   };
+}
+
+/* ──────────────────────── Bento parser ─────────────────────────────
+ * Tolerant JSON parser for the bento-mode scaffold. Returns null when
+ * the LLM produced an unusable shape (no parseable JSON, no milestones,
+ * no title — any of these is a fail). The orchestrator surfaces a
+ * clear error to the user rather than rendering a half-empty bento.
+ *
+ * Field-level tolerance: each slot's parser clamps strings to the
+ * declared char limits, drops malformed array entries, and falls back
+ * to safe defaults. The bento body is shorter than the research-note
+ * scaffold, so parser leniency is less important — but the same
+ * "best-effort, never throw" pattern keeps the pipeline resilient. */
+export function parseBento(
+  raw: string,
+  fallbackTitle: string,
+  fallbackSource: string,
+  fallbackFooterTag: string,
+): BentoScaffold | null {
+  const parsed = extractJson<Record<string, unknown>>(raw);
+  if (!parsed) return null;
+
+  const title = clipString(stringField(parsed.title) || fallbackTitle, 110);
+  if (!title) return null;
+  const kicker = clipString(stringField(parsed.kicker), 200);
+  const source = clipString(stringField(parsed.source) || fallbackSource, 80);
+
+  const milestones = parseBentoMilestones(parsed.milestones);
+  if (milestones.length === 0) return null;
+  // Pad / trim to exactly 3 milestones · the bento layout reserves 3
+  // slots in the left timeline. Fewer leaves the column ragged; more
+  // overflows. Pad with placeholder cards built from openQuestions or
+  // empty strings; trim to the first 3 by render order.
+  while (milestones.length < 3) {
+    milestones.push({ period: "", title: "", body: "", callout: "", tags: [] });
+  }
+  if (milestones.length > 3) milestones.length = 3;
+
+  const rankedBars = parseBentoRankedBars(parsed.rankedBars);
+  const verification = parseBentoVerification(parsed.verification);
+  const talkingPoints = parseBentoTalkingPoints(parsed.talkingPoints);
+
+  const conclusion = clipString(stringField(parsed.conclusion), 100);
+  const flow = parseBentoFlow(parsed.flow);
+  const footerTag = clipString(stringField(parsed.footerTag) || fallbackFooterTag, 80);
+
+  return {
+    title,
+    kicker,
+    source,
+    milestones,
+    rankedBars,
+    verification,
+    talkingPoints,
+    conclusion,
+    flow,
+    footerTag,
+  };
+}
+
+function stringField(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function clipString(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function parseBentoMilestones(raw: unknown): BentoMilestone[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BentoMilestone[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object") continue;
+    const o = m as Record<string, unknown>;
+    const title = clipString(stringField(o.title), 60);
+    const body = clipString(stringField(o.body), 220);
+    if (!title || !body) continue;
+    const period = clipString(stringField(o.period), 24);
+    const callout = clipString(stringField(o.callout), 12);
+    const tagsRaw = Array.isArray(o.tags) ? o.tags : [];
+    const tags = tagsRaw
+      .map((t) => (typeof t === "string" ? clipString(t.trim(), 16) : ""))
+      .filter(Boolean)
+      .slice(0, 4);
+    out.push({ period, title, body, callout, tags });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+function parseBentoRankedBars(raw: unknown): BentoRankedBars | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const title = clipString(stringField(o.title), 40);
+  if (!title) return null;
+  const entriesRaw = Array.isArray(o.entries) ? o.entries : [];
+  const entries: BentoRankedBars["entries"] = [];
+  for (const e of entriesRaw) {
+    if (!e || typeof e !== "object") continue;
+    const eo = e as Record<string, unknown>;
+    const label = clipString(stringField(eo.label), 40);
+    const value = clipString(stringField(eo.value), 20);
+    if (!label || !value) continue;
+    const ratioRaw = typeof eo.ratio === "number" ? eo.ratio : 0;
+    const ratio = Math.max(0, Math.min(1, Number.isFinite(ratioRaw) ? ratioRaw : 0));
+    entries.push({ label, value, ratio });
+    if (entries.length >= 5) break;
+  }
+  if (entries.length < 2) return null;
+  return { title, entries };
+}
+
+function parseBentoVerification(raw: unknown): BentoVerification | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const title = clipString(stringField(o.title), 40);
+  if (!title) return null;
+  const bullets = parseBentoBullets(o.bullets, 140, 5);
+  if (bullets.length === 0) return null;
+  return { title, bullets };
+}
+
+function parseBentoTalkingPoints(raw: unknown): BentoTalkingPoints {
+  // ALWAYS rendered · falls back to a default title + empty bullets
+  // when the LLM omits this slot. The renderer treats an empty bullets
+  // array gracefully (single placeholder line).
+  if (!raw || typeof raw !== "object") {
+    return { title: "How to say this", bullets: [] };
+  }
+  const o = raw as Record<string, unknown>;
+  const title = clipString(stringField(o.title), 40) || "How to say this";
+  const bullets = parseBentoBullets(o.bullets, 120, 5);
+  return { title, bullets };
+}
+
+function parseBentoBullets(raw: unknown, maxChars: number, maxCount: number): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const b of raw) {
+    const s = typeof b === "string" ? clipString(b.trim(), maxChars) : "";
+    if (s) out.push(s);
+    if (out.length >= maxCount) break;
+  }
+  return out;
+}
+
+function parseBentoFlow(raw: unknown): BentoFlow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const nodesRaw = Array.isArray(o.nodes) ? o.nodes : [];
+  const nodes: string[] = [];
+  for (const n of nodesRaw) {
+    const s = typeof n === "string" ? clipString(n.trim(), 24) : "";
+    if (s) nodes.push(s);
+    if (nodes.length >= 4) break;
+  }
+  if (nodes.length < 2) return null;
+  const caption = clipString(stringField(o.caption), 60);
+  return caption ? { nodes, caption } : { nodes };
 }
 
 function parseAppendices(raw: unknown): AppendixItem[] | null {

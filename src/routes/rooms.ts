@@ -1130,13 +1130,17 @@ export function roomsRouter(): Hono {
 
     let body: unknown = {};
     try { body = await c.req.json(); } catch { /* allow empty body */ }
-    const b = (body ?? {}) as { style?: unknown; skipBrief?: unknown };
+    const b = (body ?? {}) as { style?: unknown; skipBrief?: unknown; mode?: unknown };
     const skipBrief = b.skipBrief === true;
     // Style precedence: explicit body.style > room.briefStyle > "mckinsey".
     // "auto" means "let the room pick" — for v1 that resolves to mckinsey.
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
+    // Mode · 'research-note' (default) or 'bento'. The picker UI sets
+    // this on the adjourn / regenerate request; legacy callers without
+    // the field land on the default research-note path.
+    const mode = b.mode === "bento" ? "bento" : "research-note";
 
     // Cancel any in-flight director turn before transitioning state.
     abortRoom(id);
@@ -1184,7 +1188,7 @@ export function roomsRouter(): Hono {
 
     let briefId: string | null = null;
     try {
-      const result = await generateBrief({ roomId: id, style: style as "mckinsey" });
+      const result = await generateBrief({ roomId: id, style: style as "mckinsey", mode });
       briefId = result.briefId;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1251,16 +1255,18 @@ export function roomsRouter(): Hono {
     }
     let body: unknown = {};
     try { body = await c.req.json(); } catch { /* allow empty body */ }
-    const b = (body ?? {}) as { style?: unknown; supplement?: unknown };
+    const b = (body ?? {}) as { style?: unknown; supplement?: unknown; mode?: unknown };
     const supplement = typeof b.supplement === "string" ? b.supplement.trim() : "";
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
+    const mode = b.mode === "bento" ? "bento" : "research-note";
     try {
       const result = await generateBrief({
         roomId: id,
         style: style as "mckinsey",
         supplement: supplement || undefined,
+        mode,
       });
       return c.json({ briefId: result.briefId, status: "generating" });
     } catch (e) {

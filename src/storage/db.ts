@@ -34,6 +34,7 @@ import notes021 from "./migrations/021_notes.sql";
 import intensityTerse022 from "./migrations/022_intensity_brutal_to_terse.sql";
 import briefAssets023 from "./migrations/023_brief_assets.sql";
 import usageDaily024 from "./migrations/024_usage_daily.sql";
+import briefMode025 from "./migrations/025_brief_mode.sql";
 
 interface Migration {
   name: string;
@@ -65,6 +66,7 @@ const MIGRATIONS: Migration[] = [
   { name: "022_intensity_brutal_to_terse.sql", sql: intensityTerse022 },
   { name: "023_brief_assets.sql", sql: briefAssets023 },
   { name: "024_usage_daily.sql", sql: usageDaily024 },
+  { name: "025_brief_mode.sql", sql: briefMode025 },
 ];
 
 let _db: Database.Database | null = null;

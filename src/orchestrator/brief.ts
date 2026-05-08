@@ -22,10 +22,12 @@ import { callLLMStream, callLLMWithUsage, type LLMMessage } from "../ai/adapter.
 import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
   assetsToSignals,
+  buildBentoMessages,
   buildExtractMessages,
   buildScaffoldMessages,
   buildWriteMessages,
   countAssets,
+  parseBento,
   parseDirectorAssets,
   parseScaffold,
   type BriefScaffold,
@@ -46,7 +48,7 @@ import { isModelV, type ModelV } from "../ai/registry.js";
 import { getAgent, getChairAgent, incrementAgentTokens, type Agent } from "../storage/agents.js";
 import { listMessages } from "../storage/messages.js";
 import { getRoom, listRoomMembers } from "../storage/rooms.js";
-import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateBriefCompose } from "../storage/briefs.js";
+import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateBriefBodyJson, updateBriefCompose, type BriefMode } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 import { estimateTokens } from "../utils/tokens.js";
 
@@ -125,6 +127,11 @@ interface GenerateOpts {
    *  weave into the regenerated report. Only stages 2 + 3 see it —
    *  stage 1's per-director extraction stays independent. */
   supplement?: string;
+  /** Output mode · 'research-note' (default · markdown report) or
+   *  'bento' (single-page infographic with structured BentoScaffold
+   *  JSON in body_json). The pipeline branches at Stage 2 based on
+   *  this; Stage 1 (per-director extract) is shared. */
+  mode?: BriefMode;
 }
 
 /** In-flight pipeline state, keyed by briefId. Lives for the duration
@@ -214,6 +221,7 @@ export function abortBriefGeneration(briefId: string): boolean {
 export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: string }> {
   const { roomId } = opts;
   const style: BriefStyle = opts.style ?? "mckinsey";
+  const mode: BriefMode = opts.mode === "bento" ? "bento" : "research-note";
 
   const room = getRoom(roomId);
   if (!room) throw new Error(`room not found: ${roomId}`);
@@ -230,6 +238,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     title: room.subject,
     bodyMd: "",
     supplement: opts.supplement,
+    mode,
   });
 
   // Capture the chair + room language up front so the rehydration
@@ -257,6 +266,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     briefId: placeholder.id,
     roomId,
     style,
+    mode,
     members,
     transcript,
     room,
@@ -273,6 +283,10 @@ interface PipelineArgs {
   briefId: string;
   roomId: string;
   style: BriefStyle;
+  /** Output mode · 'research-note' (default · markdown report through
+   *  composer + scaffold + write) or 'bento' (single chair-LLM call
+   *  that produces BentoScaffold JSON for client-side templating). */
+  mode: BriefMode;
   members: Agent[];
   transcript: ReturnType<typeof listMessages>;
   room: NonNullable<ReturnType<typeof getRoom>>;
@@ -707,6 +721,34 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       process.stderr.write(
         `[brief.stage1] persist assets failed: ${e instanceof Error ? e.message : String(e)}\n`,
       );
+    }
+
+    // ── Bento mode · branch here ─────────────────────────────────────
+    // Bento skips composer + Stage 2 scaffold + Stage 3 write. It runs
+    // one chair-LLM call that produces a BentoScaffold (the complete
+    // deliverable for that mode) and persists it to body_json. The
+    // renderer is deterministic client-side templating in bento.html.
+    // Errors propagate to the outer catch · pipelineError gets set,
+    // brief-error fires from the existing tail block (buf is empty for
+    // bento so the !buf.length condition holds).
+    if (args.mode === "bento") {
+      const ok = await runBentoStage({
+        roomId,
+        briefId,
+        chair,
+        chairId,
+        room,
+        members,
+        perDirectorSignals,
+        language,
+        supplement,
+        signal: args.signal,
+      });
+      if (!ok) {
+        pipelineError =
+          "Bento writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.";
+      }
+      return;
     }
 
     // In-flight calibration · compare stage 1's measured time to its
@@ -1352,6 +1394,126 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
     }
   }
   return null;
+}
+
+/* ─────────────────────────── Bento mode · single-stage ────────────────
+ *
+ * Bento collapses Stage 2 + Stage 3 into one chair-LLM call. The output
+ * is the BentoScaffold JSON · no separate "write" stage because the
+ * renderer is deterministic client-side templating. The function
+ * persists the scaffold on the brief row's body_json and fires the
+ * brief-final SSE event so the UI flips from "generating" to "filed".
+ *
+ * Returns true on success, false when all retries failed (caller sets
+ * pipelineError, the outer tail block fires brief-error). Throws only
+ * on abort / catastrophic LLM-adapter errors.
+ */
+interface BentoStageArgs {
+  roomId: string;
+  briefId: string;
+  chair: Agent | null;
+  chairId: string | null;
+  room: NonNullable<ReturnType<typeof getRoom>>;
+  members: Agent[];
+  perDirectorSignals: DirectorSignals[];
+  language: "zh" | "en";
+  supplement?: string;
+  signal?: AbortSignal;
+}
+
+async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
+  const totalSignals = args.perDirectorSignals.reduce(
+    (acc, d) => acc + d.signals.length,
+    0,
+  );
+  if (totalSignals === 0) return false;
+
+  // Auto-fill fallbacks · used when the LLM omits source / footerTag.
+  // Today's date is "{YYYY-MM-DD}" in the room's locale.
+  const today = new Date().toISOString().slice(0, 10);
+  const chairName = args.chair?.name || "Chair";
+  const fallbackSource = `From ${chairName} · ${today}`;
+  const subjectShort = (args.room.subject || "").slice(0, 60);
+  const fallbackFooterTag = subjectShort ? `${subjectShort} · ${today}` : today;
+
+  const messages = buildBentoMessages({
+    chair: args.chair,
+    room: args.room,
+    members: args.members,
+    perDirectorSignals: args.perDirectorSignals,
+    language: args.language,
+    supplement: args.supplement,
+    fallbackSource,
+    fallbackFooterTag,
+  });
+
+  // Use the same flagship-first retry strategy as Stage 2 scaffold ·
+  // bento is structurally similar (chair LLM producing strict JSON
+  // from the same SIGNALS block). Same retry budget, same temperature
+  // ladder, same maxTokens (bento output is shorter — ≤ 8K is plenty).
+  emitStage(args.roomId, args.briefId, "write", "active", undefined, undefined, { lo: 8, hi: 24 });
+
+  for (const modelV of stageFlagshipList()) {
+    if (!isModelV(modelV)) continue;
+    for (let attempt = 0; attempt < STAGE_2_RETRIES; attempt++) {
+      try {
+        let buf = "";
+        let totalTokens = 0;
+        for await (const chunk of callLLMStream({
+          modelV,
+          messages,
+          temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
+          maxTokens: 8000,
+          signal: args.signal,
+        })) {
+          if (chunk.type === "text") {
+            buf += chunk.delta;
+            // Stream the buffer to the client as bento-token events ·
+            // lets the loading UI eventually preview the headline /
+            // milestones as they arrive (deferred · see bento.html).
+            roomBus.emit(args.roomId, {
+              type: "config-event",
+              kind: "brief-token",
+              payload: { briefId: args.briefId, delta: chunk.delta },
+              createdAt: Date.now(),
+            });
+          } else if (chunk.type === "usage") {
+            totalTokens = chunk.totalTokens;
+          } else if (chunk.type === "error") {
+            throw new Error(chunk.message);
+          }
+        }
+        if (totalTokens > 0) billChair(args.chairId, { totalTokens });
+
+        const bento = parseBento(buf, args.room.subject, fallbackSource, fallbackFooterTag);
+        if (bento) {
+          if (attempt > 0) {
+            process.stderr.write(
+              `[brief.bento] ${modelV} succeeded on retry ${attempt + 1}\n`,
+            );
+          }
+          updateBriefBodyJson(args.briefId, bento, bento.title);
+          emitStage(args.roomId, args.briefId, "write", "done");
+          roomBus.emit(args.roomId, {
+            type: "config-event",
+            kind: "brief-final",
+            payload: { briefId: args.briefId, title: bento.title, modelV },
+            createdAt: Date.now(),
+          });
+          return true;
+        }
+        process.stderr.write(
+          `[brief.bento] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} produced unparseable bento\n`,
+        );
+      } catch (e) {
+        if (args.signal?.aborted) throw e;
+        process.stderr.write(
+          `[brief.bento] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} failed: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      }
+    }
+  }
+  return false;
 }
 
 /** Backstop · synthesize a minimal `directorPerspectives` block when

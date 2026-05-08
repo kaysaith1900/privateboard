@@ -1,0 +1,22 @@
+-- 025_brief_mode · add `mode` column to briefs.
+--
+-- Briefs now come in two flavors:
+--   · 'research-note' (default · the existing markdown-body research
+--     dossier with composer-picked components and a spine-rendered
+--     report.html view)
+--   · 'bento' (new · a single-page infographic with fixed structure ·
+--     header band, 3-milestone timeline, ranked-bars / verification /
+--     talking-points sidebars, conclusion band · rendered by bento.html
+--     from the BentoScaffold JSON persisted in body_json)
+--
+-- Legacy rows pre-dating bento are research-note by definition; the
+-- DEFAULT clause backfills them. The column is NOT NULL so the
+-- pipeline can branch on it without an `?? "research-note"` fallback
+-- at every read site.
+--
+-- For 'bento' rows the body_md column is empty (or carries a plain-
+-- text fallback) and body_json holds the structured BentoScaffold; the
+-- spine / components_json / composer_rationale columns are unused (the
+-- bento has fixed shape, the composer doesn't run for it).
+
+ALTER TABLE briefs ADD COLUMN mode TEXT NOT NULL DEFAULT 'research-note';
