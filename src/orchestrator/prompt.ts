@@ -326,6 +326,44 @@ function detectRecentToneShift(
   return null;
 }
 
+/** Strip "既然你 …" / "Since you …" / "按你说的 …" / "Kaysaith，既然 …"
+ *  acknowledgment prefaces from a director's past turn before re-feeding
+ *  it into the next speaker's prompt history. Defense-in-depth against
+ *  the echo loop the natural-language anti-echo rules in HOUSE_RULES
+ *  alone couldn't break: when N consecutive prior director turns each
+ *  open with this preface, the LLM treats it as the established stylistic
+ *  precedent and continues the pattern, regardless of system-prompt
+ *  instructions. By scrubbing the preface from the rendered transcript,
+ *  the LLM never sees the precedent and has no in-context reason to
+ *  copy it. The substantive engagement (claims, sub-points, trade-offs)
+ *  always follows the preface, so dropping the lead-in sentence
+ *  preserves the meaningful content.
+ *
+ *  Heuristic: scan the first ~220 characters for a signature echo
+ *  phrase. If present, drop everything up to and including the first
+ *  sentence terminator (。 or .). No-op when no echo phrase matches —
+ *  legitimate openers (a director leading with their own claim, or
+ *  starting with "Yes, /handle …") pass through unchanged. */
+function stripUserAcknowledgmentPreface(body: string): string {
+  if (!body) return body;
+  const trimmed = body.replace(/^\s+/, "");
+  const head = trimmed.slice(0, 240);
+  // Signature lead-in patterns observed in director turns. The head
+  // may begin with an optional name+comma prefix (e.g. "Kaysaith，"
+  // or "/socrates,") before the actual echo phrase.
+  const ECHO_LEAD = /^(?:[A-Za-z一-鿿/_-]+[，,][\s]*)?(?:既然(?:你|[A-Za-z一-鿿]+)|Since you (?:asked|insist|insisted|stated|claimed|said|noted|requested)|As you (?:asked|stated|noted|said|requested)|按你(?:说的|的要求)|你既然(?:已经|说|提到|要求))/;
+  if (!ECHO_LEAD.test(head)) return body;
+  // Drop everything up to and including the first sentence terminator
+  // (full-width 。 or half-width . followed by space/newline/end). If
+  // we can't find a terminator within the first ~240 chars, leave the
+  // body alone (rather than risk truncating substantive content mid-
+  // sentence).
+  const terminator = /[。.](?:\s|$|\n)/;
+  const m = terminator.exec(trimmed.slice(0, 280));
+  if (!m) return body;
+  return trimmed.slice(m.index + 1).replace(/^\s+/, "");
+}
+
 // Round mode · the OPENING sweep (first round after a user message)
 // runs every director in parallel — they each only see the user's
 // message + chair pings, NOT each other. This kills the "first speaker
@@ -344,6 +382,8 @@ const REACTIVE_BLOCK = [
   "REACTIVE ROUND. The directors above already weighed in this round.",
   "Your turn now is to ENGAGE with what they said: extend a sharp point, push back on a weak one, name the trade-off they hid, or sharpen the question. Reference specific contributors by handle.",
   "Never duplicate. If a director already covered angle X, your turn must add something genuinely new (a different lens, a missing edge case, a sharper question, a counter-frame) — not restate, applaud, or paraphrase.",
+  "",
+  "The user's most recent message was already absorbed in the opening sweep above — every director acknowledged it once. Do NOT re-preface this turn with \"Since you asked …\" / \"As you requested …\" / \"既然你要求了 …\" / \"按你说的 …\" / \"既然你提出 …\" or any synonym. That phrasing was each director's one-time acknowledgment in the opening round; repeating it every reactive round reads as a stuck loop. Take the user's direction as ABSORBED context (not fresh instruction) and move the discussion forward — push on a peer's point, name a missing piece, sharpen a trade-off. The user can see they were heard from the opening sweep alone.",
 ].join("\n");
 
 // Intensity is the STYLISTIC axis — purely about cadence, length, and
@@ -514,6 +554,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `· Build on prior turns by you (when you've spoken before). Don't repeat yourself; advance.`,
       `· Markdown is allowed. *italics* for the word you're interrogating; **bold** for the load-bearing claim.`,
       `· Do not preface ("Great question!"), do not summarize, do not introduce yourself. Just speak.`,
+      `· When the user's most recent input is already in the room (visible above as a [${prefs.name || "You"}] turn), you may acknowledge it ONCE in the opening sweep — never again. On any later turn, do NOT open with "Since you asked …" / "As you requested …" / "既然你要求了 …" / "按你说的 …" / "既然你提出 …" / "你既然让我 …" or any rephrasing. The user's direction is absorbed context now; engage with the discussion, don't re-preface every turn — that loops. If you've already spoken once on this user input, your next turn must move PAST that acknowledgment.`,
       `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE ${toneOverrideTarget} The user explicitly opted into this register; staying in role is the helpful behaviour, not breaking it for trained politeness or trained adversariness.`,
     ].join("\n"),
   };
@@ -549,8 +590,13 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
     }
     // agent
     if (m.authorId === speaker.id) {
-      // The speaker's own past turns — rendered as their assistant output.
-      out.push({ role: "assistant", content: m.body });
+      // The speaker's own past turns — rendered as their assistant
+      // output. Strip "既然 …" / "Since you …" acknowledgment prefaces
+      // before re-feeding · without this the LLM sees a precedent of
+      // "every prior turn of mine opened by re-acknowledging the user"
+      // and continues the loop. The substantive content (engagement
+      // points, trade-offs, sub-claims) is preserved.
+      out.push({ role: "assistant", content: stripUserAcknowledgmentPreface(m.body) });
       continue;
     }
     // Opening-sweep blindness · if THIS is the opening round and the
@@ -561,13 +607,18 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       continue;
     }
     // Another director's contribution OR any chair message — render
-    // as a user-side input the speaker is "hearing" in the room.
+    // as a user-side input the speaker is "hearing" in the room. Same
+    // preface strip applied to peer turns so the visible transcript
+    // doesn't show a "every director opens with 既然 …" precedent that
+    // the next speaker would pattern-match. Chair messages don't need
+    // stripping (they don't echo user requests), but the helper is a
+    // no-op when no echo phrase matches.
     const who = cast.find((a) => a.id === m.authorId);
     const handle = who?.handle ?? "/director";
     const name = who?.name ?? "Director";
     out.push({
       role: "user",
-      content: `[${name} · ${handle}] ${m.body}`,
+      content: `[${name} · ${handle}] ${stripUserAcknowledgmentPreface(m.body)}`,
     });
   }
 
