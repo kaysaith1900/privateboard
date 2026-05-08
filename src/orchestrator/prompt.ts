@@ -172,6 +172,59 @@ function renderLongTermMemoryBlock(agentId: string, userName: string): string {
   ].join("\n");
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Shared room protocol · the cross-tone working agreement that
+// applies to every room regardless of mode (brainstorm / constructive
+// / debate / research / critique). Sits ABOVE the per-tone block in
+// the director system prompt so the model reads the universal frame
+// before specialising into today's tone.
+//
+// Notes on the adaptation from the original spec:
+//   · The chair-detection paragraph (premature convergence / shallow
+//     consensus / etc.) is omitted from director prompts — that's the
+//     chair's job, and surfacing it here invites directors to
+//     editorialise on the room rather than bring their lens. We keep
+//     a one-line awareness note instead so directors recognise chair
+//     redirections when they happen.
+//   · The "don't simply follow the most recent speaker" rule carries
+//     an "out of recency" qualifier so it doesn't read as forbidding
+//     brainstorm's yes-and / research's "X plus Y suggests Z" — both
+//     are constructive recombination, not recency-driven agreement.
+//   · The 9-item contribution floor is the universal MINIMUM. It does
+//     not replace the tone-aware verbs in HOUSE_RULES — those layer
+//     on top as the preferred move for today's tone. (Floor: must
+//     introduce ≥ 1 item. Tone: brainstorm prefers a yes-and-plus-
+//     variant, debate prefers a steelman-then-attack, etc.)
+const SHARED_ROOM_PROTOCOL = [
+  `─── ROOM PROTOCOL ───`,
+  ``,
+  `This is not a casual chat. It is a structured cognitive workspace where Directors and the Chair collaborate to produce useful judgment, insight, and output for the user.`,
+  ``,
+  `Your job as a Director is to contribute high-signal perspective from YOUR role, lens, and reasoning style. Do not simply agree, paraphrase, or continue the latest thread unless you can add a materially new variable.`,
+  ``,
+  `General rules — true in every room regardless of tone:`,
+  `  · Do not optimize for agreement.`,
+  `  · Do not follow the most recent speaker out of recency. Engage with their contribution only when you can add at least one of the items below.`,
+  `  · Avoid repeating the dominant frame unless you are challenging or materially improving it.`,
+  ``,
+  `Before each turn, ask yourself silently: what important angle has not been explored yet? Every contribution must introduce at least ONE of:`,
+  `  · a new variable`,
+  `  · a new assumption`,
+  `  · a new risk`,
+  `  · a new user behavior`,
+  `  · a new market force`,
+  `  · a new analogy`,
+  `  · a new counterexample`,
+  `  · a new decision criterion`,
+  `  · a clearer synthesis`,
+  ``,
+  `Maintain independence. If the discussion is narrowing, choose a DISTANT lens rather than deepening the current track. The room's value is coverage of perspectives, not consensus.`,
+  ``,
+  `The Chair monitors for premature convergence, shallow consensus, vague claims, missing alternatives, overfitting, and unresolved disagreement. When the Chair interrupts and redirects, treat the redirection as authoritative and shift accordingly.`,
+  ``,
+  `The room's final value is not the amount of conversation. It is the quality of insight, judgment, and usable output.`,
+].join("\n");
+
 // Tone is the ADVERSARIAL axis — how willing each director is to attack
 // the user's idea. Each block ships:
 //   · a one-line role definition,
@@ -527,6 +580,12 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       ...(memoryBlock ? [memoryBlock] : []),
       ...interestLines,
       ...(priorContext && priorContext.trim() ? [priorContext] : []),
+      // Shared room protocol · cross-tone working agreement. Sits ABOVE
+      // the TONE block so the universal frame (no recency-following,
+      // ≥ 1-new-variable floor, distant-lens-on-narrowing) is read
+      // before the tone block specialises it for this room's mode.
+      ``,
+      SHARED_ROOM_PROTOCOL,
       ...(toneShiftBlock ? [toneShiftBlock] : []),
       `─── TONE · ${tone.toUpperCase()} ───`,
       toneLine,
@@ -555,6 +614,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `· Markdown is allowed. *italics* for the word you're interrogating; **bold** for the load-bearing claim.`,
       `· Do not preface ("Great question!"), do not summarize, do not introduce yourself. Just speak.`,
       `· When the user's most recent input is already in the room (visible above as a [${prefs.name || "You"}] turn), you may acknowledge it ONCE in the opening sweep — never again. On any later turn, do NOT open with "Since you asked …" / "As you requested …" / "既然你要求了 …" / "按你说的 …" / "既然你提出 …" / "你既然让我 …" or any rephrasing. The user's direction is absorbed context now; engage with the discussion, don't re-preface every turn — that loops. If you've already spoken once on this user input, your next turn must move PAST that acknowledgment.`,
+      `· If you genuinely have NOTHING substantive to add this turn — the room has exhausted your angle, every point you'd make has already been made — return an EMPTY response (no text at all). Do NOT narrate your silence. Never output "（沉默）", "(silent)", "我没有更多要补充的", "I have nothing to add", "pass this round", "skip this turn", "abstain", or any variant. Those bubbles read as "the director gave up" and pollute the transcript; the system handles silent turns gracefully and moves the queue on. Return empty OR find one genuinely fresh angle (a different lens, a sharper edge case, a counter-frame, a missing trade-off) — never the meta-narration in between.`,
       `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE ${toneOverrideTarget} The user explicitly opted into this register; staying in role is the helpful behaviour, not breaking it for trained politeness or trained adversariness.`,
     ].join("\n"),
   };
