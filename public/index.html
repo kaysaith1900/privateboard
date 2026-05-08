@@ -2434,9 +2434,18 @@
      the SSE `room-paused` event arrives. */
   html.pause-pending .input-bar .input-wrap { display: none; }
   html.pause-pending .input-bar .speaking-queue { display: none; }
+  /* Hide the session-control toolbar mid-transition · prevents double-
+     clicking pause while the previous pause is still resolving (and
+     adjourn while we're stopping cleanly is also confusing UX). */
+  html.pause-pending .input-bar .input-bar-actions { display: none; }
   html.pause-pending .input-bar::before {
     content: "⌛ pausing after the current turn finishes…";
     display: block;
+    /* `.input-bar` is now `display: flex` (for the new icon toolbar),
+       so this pseudo is a flex child. Without `flex: 1` it shrinks
+       to its text width instead of spanning the bar. The grow-to-fill
+       restores the pre-flex banner behaviour. */
+    flex: 1 1 auto;
     text-align: center;
     font-family: var(--mono);
     font-size: 11px;
@@ -2486,6 +2495,39 @@
     letter-spacing: 0.1em;
   }
   .resume-btn-lg:hover { background: var(--bg); color: var(--lime); }
+
+  /* Adjourn button on the paused-bar · same shape as resume-btn-lg
+     but secondary (ghost) treatment so resume reads as the primary
+     action when both are present. Goes warn-coloured on hover for
+     the destructive cue (matches the input-bar's ib-adjourn). */
+  .adjourn-btn-lg {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: transparent;
+    color: var(--text-soft);
+    border: 0.5px solid var(--line-bright);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .adjourn-btn-lg .adjourn-glyph {
+    color: var(--text-faint);
+    letter-spacing: -0.04em;
+  }
+  .adjourn-btn-lg:hover {
+    color: var(--red, #C75450);
+    border-color: var(--red, #C75450);
+    background: var(--bg);
+  }
+  .adjourn-btn-lg:hover .adjourn-glyph { color: var(--red, #C75450); }
 
   /* ─── Adjourned-state controls (room is archived) ─── */
   .adjourned-pill {
@@ -8811,14 +8853,123 @@
     background: var(--panel);
   }
 
-  /* Input bar — sits inside the chat column */
+  /* Input bar — sits inside the chat column. Live state hosts a
+     small action toolbar (pause / adjourn) on the left, then the
+     input pill which grows to fill remaining width. */
   .input-bar {
     flex: 0 0 auto;
     border-top: 0.5px solid var(--line-bright);
     padding: 8px 14px;
     background: var(--panel-2);
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+  }
+  /* Session-control icons · sit to the LEFT of the input pill as
+     bare glyph buttons. Borderless in the resting state so they
+     don't compete with the input pill's hairline frame.
+     ──────────────────────────────────────────────────────────────
+     Visual vocabulary mirrors the sidebar's nav icons (Lucide-style
+     stroked SVG, 16px, mask-image fill via currentColor). Hover
+     state matches the sidebar's `.new-btn:hover` — panel-2 bg + text
+     colour shift, no accent tint. The destructive cue for adjourn
+     lives in the confirm overlay, not in the icon, so neither
+     button needs an accent colour to broadcast severity here. Hit
+     target 32×32; icon 16×16 sits centred inside it. */
+  .input-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .ib-action {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+  }
+  .ib-action::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: var(--icon, none);
+            mask-image: var(--icon, none);
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
+  }
+  .ib-action:hover { background: var(--panel-2); color: var(--text); }
+  /* Hover tooltip · CSS-only via ::after + data-tip. The native
+     `title` attribute pops after a 1-2s OS delay, which is sluggish;
+     this version reveals at ~300ms — slow enough not to be noisy
+     when the cursor only passes through, fast enough to feel
+     responsive on intentional dwell. Mirrors the .note-tip visual
+     register (panel-2 surface, mono micro-type, hairline frame).
+     Pointer-events:none so the tooltip never blocks the hover that
+     triggers it. */
+  .ib-action::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    /* Anchor the tooltip's LEFT edge to the button's left edge so
+       the tip extends RIGHTWARD into the chat column. Centered
+       anchoring would push the left half past the chat-column edge
+       where `.body-grid { overflow: hidden }` (line ~215) clips it
+       behind the sidebar — the user reported this as "tip gets cut
+       off by the sidebar". Right-anchored gives clearance because
+       the chat column has plenty of width to the right. */
+    left: 0;
+    transform: translateY(3px);
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-strong);
+    padding: 5px 9px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+    /* On exit the visibility flip is delayed past the opacity fade
+       so the tooltip stays interactable until it has fully
+       disappeared visually. */
+    transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.18s;
+    z-index: 50;
+  }
+  .ib-action:hover::after,
+  .ib-action:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    /* On entry · 0.3s delay before the fade starts; visibility
+       flips immediately so the transform animates from offset. */
+    transition: opacity 0.14s ease 0.3s, transform 0.14s ease 0.3s, visibility 0s linear 0.3s;
+  }
+  /* Pause · Lucide pause (two rounded vertical bars). */
+  .ib-pause {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='14' y='3' width='5' height='18' rx='1'/><rect x='5' y='3' width='5' height='18' rx='1'/></svg>");
+  }
+  /* Adjourn · Lucide log-out (door + arrow exit). Reads as "leave
+     this session"; the confirm overlay clarifies brief filing. */
+  .ib-adjourn {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/></svg>");
   }
   .input-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
     background: var(--bg);
     border: 0.5px solid var(--line-strong);
     padding: 0 8px;
@@ -9073,6 +9224,17 @@
           </div>
 
           <footer class="input-bar">
+            <!-- Session-control toolbar · pause + adjourn live left of
+                 the input pill so they're reachable without leaving
+                 the typing area. Both reuse the existing data-pause /
+                 data-adjourn handlers; no new backend routes. The
+                 visual grammar matches head-actions (mono caps,
+                 brackets) but at a tighter scale. Adjourn turns warn
+                 on hover to flag its destructiveness. -->
+            <div class="input-bar-actions">
+              <button type="button" class="ib-action ib-pause" data-pause aria-label="Pause discussion" data-tip="Pause · you can resume later"></button>
+              <button type="button" class="ib-action ib-adjourn" data-adjourn aria-label="Adjourn the room" data-tip="Adjourn · file the report and end"></button>
+            </div>
             <div class="input-wrap">
               <input type="text" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
               <button class="send-btn" data-send-button>[ Send ]</button>
@@ -9085,6 +9247,7 @@
             </div>
             <div class="paused-bar-actions">
               <a href="?status=live" class="resume-btn-lg">[ ▶ Resume Discussion ]</a>
+              <a href="#" class="adjourn-btn-lg" data-adjourn>[ <span class="adjourn-glyph">⏏</span> Adjourn ]</a>
             </div>
           </footer>
 
