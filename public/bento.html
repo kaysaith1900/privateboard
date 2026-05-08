@@ -777,38 +777,165 @@
         </article>`;
     }
 
-    /* ─── Export wiring ─────────────────────────────────────────────
-       PNG · uses html-to-image (lazy-loaded from unpkg on first click ·
-       no install dep). Captures the .bento-doc element only — chrome
-       stays out of the export.
-       PDF · just window.print(). Print stylesheet hides the top bar
-       and removes the max-width cap so a single page renders cleanly. */
-    async function exportPng() {
-      const el = document.querySelector("[data-bento-paper]");
-      if (!el) return;
-      try {
-        if (!window.htmlToImage) {
-          await new Promise((res, rej) => {
-            const s = document.createElement("script");
-            s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
-            s.onload = res;
-            s.onerror = rej;
-            document.head.appendChild(s);
-          });
-        }
-        const dataUrl = await window.htmlToImage.toPng(el, {
-          pixelRatio: 2,
-          backgroundColor: "#FFFFFF",
-          cacheBust: true,
+    /* ─── Export wiring ──────────────────────────────────────────────
+       Both PNG and PDF go through the SAME canvas-snapshot path · the
+       browser's native print engine handles CSS Grid / absolute
+       positioning unreliably (grid items break across pages, the
+       `.bento-source` absolute element gets misplaced, the document
+       reflows when max-width is removed for print). So we capture the
+       bento as a single PNG once, then:
+         · PNG · download directly
+         · PDF · open a trivial print page that contains JUST the PNG +
+           `@page` sizing, then `window.print()`. The print engine sees
+           no grid / no absolute positioning, just a single image —
+           always renders pixel-perfect.
+
+       html-to-image is lazy-loaded from jsdelivr on first export click
+       so it's free until used. */
+    let _h2iLoaded = null;
+    async function ensureHtmlToImage() {
+      if (window.htmlToImage) return;
+      if (!_h2iLoaded) {
+        _h2iLoaded = new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
         });
+      }
+      await _h2iLoaded;
+    }
+
+    /** Capture .bento-doc as a PNG data URL. Two reliability fixes
+     *  over the naive `toPng(el)` call:
+     *    1. Pass explicit width/height from `scrollWidth/Height` ·
+     *       html-to-image defaults to `getBoundingClientRect()` size,
+     *       which can be smaller than the actual content height when
+     *       the element sits inside a flex/grid container or a
+     *       scroll viewport. Result: bottom half of the document
+     *       gets clipped (the user's "PNG truncated" report).
+     *    2. Wait for `document.fonts.ready` · web fonts settle
+     *       asynchronously after layout. Capturing before they're
+     *       loaded snapshots fallback glyphs, then the page
+     *       re-renders with web fonts AFTER the snapshot — leaving
+     *       the PNG looking different from what's on screen. */
+    async function captureBentoPng() {
+      const el = document.querySelector("[data-bento-paper]");
+      if (!el) throw new Error("bento doc not found");
+      await ensureHtmlToImage();
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch { /* best-effort */ }
+      }
+      const width = Math.max(el.scrollWidth, el.offsetWidth, el.clientWidth);
+      const height = Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight);
+      return window.htmlToImage.toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: "#FFFFFF",
+        cacheBust: true,
+        width,
+        height,
+        canvasWidth: width,
+        canvasHeight: height,
+        // Pin the captured element to its natural width so flex/grid
+        // ancestors don't squeeze it during snapshot.
+        style: {
+          margin: "0",
+          width: `${width}px`,
+          height: `${height}px`,
+        },
+      });
+    }
+
+    function slugTitle() {
+      return (document.title || "bento").replace(/[^a-z0-9]+/gi, "-").slice(0, 60) || "bento";
+    }
+
+    async function exportPng() {
+      try {
+        const dataUrl = await captureBentoPng();
         const a = document.createElement("a");
-        const slug = (document.title || "bento").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
-        a.download = `${slug}.png`;
+        a.download = `${slugTitle()}.png`;
         a.href = dataUrl;
         a.click();
       } catch (e) {
         console.warn("[bento] PNG export failed:", e);
         alert("PNG export failed · see browser console.");
+      }
+    }
+
+    /** PDF export · capture as PNG, embed in a minimal print-only page,
+     *  trigger window.print(). The print engine sees a single `<img>`
+     *  filling the page — no grid, no absolute positioning, no font
+     *  loading races · always pixel-perfect. User picks "Save as PDF"
+     *  in the print dialog to get the PDF file. */
+    async function exportPdf() {
+      try {
+        const dataUrl = await captureBentoPng();
+        const win = window.open("", "_blank", "width=1024,height=720");
+        if (!win) {
+          alert("PDF export needs to open a new window — please allow popups for this site.");
+          return;
+        }
+        const slug = slugTitle();
+        win.document.open();
+        win.document.write(`<!doctype html><html lang="en"><head>
+          <meta charset="utf-8">
+          <title>${slug}</title>
+          <style>
+            @page { size: auto; margin: 10mm; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body { background: #FFFFFF; }
+            body {
+              display: flex;
+              align-items: flex-start;
+              justify-content: center;
+              padding: 20px;
+              min-height: 100vh;
+            }
+            img {
+              display: block;
+              width: 100%;
+              max-width: 840px;
+              height: auto;
+              box-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
+            }
+            @media print {
+              body { padding: 0; }
+              img { box-shadow: none; max-width: none; width: 100%; }
+            }
+            .hint {
+              position: fixed;
+              top: 12px;
+              left: 12px;
+              font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              font-size: 11px;
+              color: #8E8B83;
+              background: rgba(255,255,255,0.9);
+              padding: 6px 10px;
+              border: 0.5px solid #E5E2DA;
+            }
+            @media print { .hint { display: none; } }
+          </style>
+        </head><body>
+          <div class="hint">// press <kbd>⌘P</kbd> / <kbd>Ctrl+P</kbd> · save as PDF</div>
+          <img alt="${slug}" src="${dataUrl}">
+          <script>
+            // Auto-fire the print dialog once the image has decoded.
+            // Some browsers (Safari) ignore window.print() before the
+            // image is rendered, so wait for the load event.
+            (function () {
+              var img = document.querySelector("img");
+              function go() { setTimeout(function () { window.print(); }, 200); }
+              if (img && img.complete) { go(); }
+              else if (img) { img.addEventListener("load", go, { once: true }); }
+            })();
+          <\/script>
+        </body></html>`);
+        win.document.close();
+      } catch (e) {
+        console.warn("[bento] PDF export failed:", e);
+        alert("PDF export failed · see browser console.");
       }
     }
 
@@ -820,7 +947,7 @@
       }
       if (e.target.closest("[data-bento-print]")) {
         e.preventDefault();
-        window.print();
+        exportPdf();
         return;
       }
     });
