@@ -165,7 +165,7 @@ describe("parseComposerOutput", () => {
         { kind: "why-now", order: 2 },
         { kind: "big-ideas", order: 3 },
         { kind: "the-bet", order: 4 },
-        { kind: "pre-mortem", order: 5 },
+        { kind: "risk-register", order: 5 },
       ],
     });
     const parsed = parseComposerOutput(raw);
@@ -340,7 +340,7 @@ describe("coverage matrix · validatePicks asset-driven rules", () => {
     { kind: "frame-shift", order: 2 },
     { kind: "headline-findings", order: 3 },
     { kind: "divergence", order: 4 },
-    { kind: "pre-mortem", order: 5 },
+    { kind: "risk-register", order: 5 },
     { kind: "metric-strip", order: 6 },
     { kind: "recommendations", order: 7 },
     { kind: "open-questions", order: 8 },
@@ -362,7 +362,7 @@ describe("coverage matrix · validatePicks asset-driven rules", () => {
         { kind: "bottom-line", order: 1 },
         { kind: "frame-shift", order: 2 },
         { kind: "headline-findings", order: 3 },
-        { kind: "pre-mortem", order: 4 },
+        { kind: "risk-register", order: 4 },
         { kind: "recommendations", order: 5 },
         { kind: "open-questions", order: 6 },
       ],
@@ -370,10 +370,10 @@ describe("coverage matrix · validatePicks asset-driven rules", () => {
     expect(parseComposerOutput(raw, { tensions: 2 })).toBeNull();
   });
 
-  it("rejects when risks ≥ 1 but neither pre-mortem nor threats-to-validity is picked", () => {
+  it("rejects when risks ≥ 1 but neither risk-register nor threats-to-validity is picked", () => {
     const raw = fence({
       spine: "boardroom-dark",
-      rationale: "missing pre-mortem",
+      rationale: "missing risk-register",
       components: [
         { kind: "bottom-line", order: 1 },
         { kind: "frame-shift", order: 2 },
@@ -395,7 +395,7 @@ describe("coverage matrix · validatePicks asset-driven rules", () => {
         { kind: "frame-shift", order: 2 },
         { kind: "headline-findings", order: 3 },
         { kind: "divergence", order: 4 },
-        { kind: "pre-mortem", order: 5 },
+        { kind: "risk-register", order: 5 },
         { kind: "recommendations", order: 6 },
       ],
     });

@@ -474,25 +474,17 @@ export interface Recommendation {
   expectedBenefit?: string;
 }
 
-/** Section 10 · Pre-mortem. How the recommendations could fail, with
- *  leading indicators that would warn us early. 2-3 failure modes. */
-export interface FailureMode {
-  /** How the recommendation could fail. 1 sentence. */
-  scenario: string;
-  /** Earliest observable warning sign. */
-  leadingIndicator: string;
-  /** What to do if the leading indicator fires. */
-  mitigation: string;
-}
-
-/** Risk-register item · structurally distinct from pre-mortem.
- *  pre-mortem catalogs ways the *recommendation* fails ("if we ship
- *  this, here are the leading indicators of failure"). risk-register
- *  catalogs the *operating-environment* / *team* / *product* / *market*
- *  risks the room raised — risks that exist whether or not we act on
- *  the recommendations. severity + likelihood are independent axes;
+/** Risk-register item · 3-7 standing risks the operating environment
+ *  poses. Includes both environmental risks (whether or not we act)
+ *  and concrete recommendation-failure modes when the room surfaced
+ *  them as load-bearing. severity + likelihood are independent axes;
  *  owner is who watches it (functional / role, not a person name);
- *  mitigation is the playbook if the risk materialises. 3-7 items. */
+ *  mitigation is the playbook if the risk materialises.
+ *
+ *  (Replaced the older `FailureMode` / `pre-mortem` section · its
+ *  scenario / leading-indicator / mitigation shape collapses cleanly
+ *  into a risk-register row when the room's failure-mode signals
+ *  warrant a Risk Register at all.) */
 export type RiskCategory =
   | "market"      // demand / competition / regulation / macro
   | "execution"   // build / launch / scale / hiring
@@ -909,12 +901,13 @@ export interface MetricStrip {
 export type ThreatSeverity = "low" | "medium" | "high";
 
 /** Threats to validity · Stanford-style critical examination of how
- *  the brief itself could be wrong. Distinct from `pre-mortem` (how
- *  the *recommended action* could fail) and from `critical-assumptions`
- *  (the foundational assumptions the brief rests on, which carry
- *  confidence + falsifier). A threat-to-validity names a way the
- *  *analysis* could be misleading: selection bias, sample of N, lens
- *  blind spot, generalizability ceiling, confounding factor. Each has
+ *  the brief itself could be wrong. Distinct from `risk-register`
+ *  (operating-environment risks the room raised) and from
+ *  `critical-assumptions` (the foundational assumptions the brief
+ *  rests on, which carry confidence + falsifier). A threat-to-validity
+ *  names a way the *analysis* could be misleading: selection bias,
+ *  sample of N, lens blind spot, generalizability ceiling, confounding
+ *  factor. Each has
  *  a category, the threat itself, an observable that would prove it
  *  realized, severity, and an optional mitigation. The room's
  *  intellectual honesty becomes structural — these are not appendix
@@ -1011,7 +1004,6 @@ export interface BriefScaffold {
    *  recommendations but rendered with hedged voice. */
   considerations?: Recommendation[] | null;
   // ── Forward (optional · cont.) ──
-  preMortem: FailureMode[];
   newQuestions: NewQuestion[];
   planningAssumption: PlanningAssumption | null;
   // ── Gartner-density blocks (optional, composer-picked) ──
@@ -1027,16 +1019,15 @@ export interface BriefScaffold {
   leadingIndicators?: LeadingIndicator[] | null;
   /** 3-5 threats to validity · how the analysis itself could be wrong.
    *  Stanford-research-grade self-criticism that's distinct from
-   *  pre-mortem (how the *action* could fail) and critical-assumptions
+   *  risk-register (operating-environment risks) and critical-assumptions
    *  (the foundations the brief rests on). Set when the composer picks
    *  the `threats-to-validity` component. */
   threatsToValidity?: ThreatToValidity[] | null;
-  /** 3-7 environmental / product / team risks the room surfaced ·
-   *  distinct from pre-mortem (which catalogs recommendation-failure
-   *  modes). risk-register exists whether or not we act on the
-   *  recommendations — surfaces the standing risk landscape with
-   *  severity × likelihood × owner × mitigation. Set when the
-   *  composer picks the `risk-register` component. */
+  /** 3-7 standing risks the room surfaced · operating environment +
+   *  recommendation-failure modes (the latter folded in here after
+   *  the older `pre-mortem` slot was retired). Surfaces the risk
+   *  landscape with severity × likelihood × owner × mitigation. Set
+   *  when the composer picks the `risk-register` component. */
   riskRegister?: RiskItem[] | null;
   /** Structured N-option comparison · used when the room weighed 2-5
    *  named options and recommended one. Distinct from `comparison-table`
@@ -1241,7 +1232,7 @@ const SCAFFOLD_SYSTEM = [
   "",
   "## Signal kind tags",
   "",
-  "Each signal in the SIGNALS block carries a bracket prefix that names the KIND of material the director extracted: `[claim]`, `[evidence·data|case|quote]`, `[tension]`, `[assumption]`, `[risk·high|medium|low]`, `[opportunity]`, `[action·owner·horizon]`, `[quote]`, `[open-q·P0|P1|P2]`. **Use these tags to place each signal in the right scaffold section** — `[risk]` material belongs in `pre-mortem` or `threats-to-validity`, NOT in headline-findings; `[action]` belongs in `recommendations` or `the-bet`; `[tension]` belongs in `divergence` or as a tension on a finding; `[open-q]` belongs in `open-questions` or `new-questions`. Treat the tag as a routing hint — the writer who placed it there already classified it.",
+  "Each signal in the SIGNALS block carries a bracket prefix that names the KIND of material the director extracted: `[claim]`, `[evidence·data|case|quote]`, `[tension]`, `[assumption]`, `[risk·high|medium|low]`, `[opportunity]`, `[action·owner·horizon]`, `[quote]`, `[open-q·P0|P1|P2]`. **Use these tags to place each signal in the right scaffold section** — `[risk]` material belongs in `risk-register` or `threats-to-validity`, NOT in headline-findings; `[action]` belongs in `recommendations` or `the-bet`; `[tension]` belongs in `divergence` or as a tension on a finding; `[open-q]` belongs in `open-questions` or `new-questions`. Treat the tag as a routing hint — the writer who placed it there already classified it.",
   "",
   "## Design philosophy",
   "",
@@ -1296,9 +1287,7 @@ const SCAFFOLD_SYSTEM = [
   "",
   "9. **Recommendations** · 3–5 concrete actions, each with: `priority` (P0/P1/P2), `action` (imperative), `rationale`, `ownerType`, `horizon` (e.g. \"next 30 days\"), `successMetric` (observable proof of execution), `riskIfSkipped`, `expectedBenefit` (the upside if you act — stated as a concrete payoff, NOT a metric to watch). Recommendations are imperatives — \"Do X\" not \"X should happen\". The `expectedBenefit` is what gets a stakeholder to actually approve the action — it answers \"if I do this, what do I get?\" in one short sentence.",
   "",
-  "10. **Pre-mortem** · 2–3 ways the recommendations could fail. Each: `scenario`, `leadingIndicator` (earliest observable warning), `mitigation`. McKinsey-grade risk thinking.",
-  "",
-  "10b. **Risk Register** (`riskRegister`) · ONLY emit when the composer picked `risk-register`; otherwise return null. 3–7 standing risks the operating environment poses, distinct from pre-mortem (which catalogs how the recommendation fails). Each entry: `risk` (≤180 chars), `category` (one of: market / execution / product / team / financial / compliance / technical), `severity` (high / medium / low), `likelihood` (high / medium / low), `owner` (functional role label · \"product\", \"ops\", \"legal\" — NOT a person), `mitigation` (≤220 chars · concrete playbook OR \"monitor only\"). Pick categories that match the actual risk; default to `execution` only when no other category fits.",
+  "10. **Risk Register** (`riskRegister`) · ONLY emit when the composer picked `risk-register`; otherwise return null. 3–7 standing risks the operating environment poses — or specific failure modes of the recommendation when the room raised them concretely. Each entry: `risk` (≤180 chars), `category` (one of: market / execution / product / team / financial / compliance / technical), `severity` (high / medium / low), `likelihood` (high / medium / low), `owner` (functional role label · \"product\", \"ops\", \"legal\" — NOT a person), `mitigation` (≤220 chars · concrete playbook OR \"monitor only\"). Pick categories that match the actual risk; default to `execution` only when no other category fits.",
   "",
   "10c. **Decision Options** (`decisionOptions`) · ONLY emit when the composer picked `decision-options`; otherwise return null. 2–5 named candidate options the room weighed, with shared pros/cons. Object shape: `{ intro, options: [...], rationale }`. Each option: `label` (≤32 chars), `summary` (≤200 chars), `pros` (2–4 short clauses ≤80 chars each), `cons` (2–4 short clauses ≤80 chars each), `effort` (low / medium / high), `confidence` (high / medium / low), `recommended` (boolean). EXACTLY ONE option must have `recommended: true` — the room's pick. The `rationale` (≤280 chars) explains why the recommended option wins and connects back to the recommendations section.",
   "",
@@ -1388,9 +1377,6 @@ const SCAFFOLD_SYSTEM = [
   '  ],',
   '  "recommendations": [',
   '    { "priority": "P0", "action": "Imperative concrete action.", "rationale": "Why this works.", "ownerType": "platform team", "horizon": "next 30 days", "successMetric": "Observable proof.", "riskIfSkipped": "What goes wrong.", "criticalDependency": "What MUST be true for this to work — the load-bearing pre-condition. Forces stress-testing.", "expectedBenefit": "The concrete upside if you act — stated as the payoff a stakeholder cares about (revenue captured / risk avoided / position locked in)." }',
-  '  ],',
-  '  "preMortem": [',
-  '    { "scenario": "How it fails.", "leadingIndicator": "Earliest warning.", "mitigation": "What to do." }',
   '  ],',
   '  "newQuestions": [',
   '    { "question": "Question?", "whyItMatters": "Why this is generative.", "surfacedByDirectorId": "dirId-b" }',
@@ -1489,7 +1475,7 @@ const SCAFFOLD_SYSTEM = [
   "  · `the-bet`                    → fill `theBet: { ifBacked, conditions[3-5], killCriteria }`. Leave others.",
   "  · `considerations`             → fill `considerations` with the SAME shape as `recommendations` (3-5 items, P0/P1/P2, owner, horizon, success metric, risk-if-skipped). Voice should be hedged in the prose (we'll worry about voice at write time; the data shape is identical).",
   "",
-  "Optional kinds (`frame-shift`, `convergence`, `divergence`, `positions`, `visuals`, `two-paths`, `why-now`, `pre-mortem`, `new-questions`, `planning-assumption`, `open-questions`, `strategic-outlook`, `critical-assumptions`, `scenario-tree`, `leading-indicators`, `threats-to-validity`, `metric-strip`): when listed in the picked set, fill them as the spec above describes. When NOT listed, set them to the empty value (`[]` for arrays, `null` for nullable objects, `{shifted:false, original:'', reframed:'', trigger:''}` for frameShift).",
+  "Optional kinds (`frame-shift`, `convergence`, `divergence`, `positions`, `visuals`, `two-paths`, `why-now`, `new-questions`, `planning-assumption`, `open-questions`, `strategic-outlook`, `critical-assumptions`, `scenario-tree`, `leading-indicators`, `threats-to-validity`, `risk-register`, `metric-strip`): when listed in the picked set, fill them as the spec above describes. When NOT listed, set them to the empty value (`[]` for arrays, `null` for nullable objects, `{shifted:false, original:'', reframed:'', trigger:''}` for frameShift).",
   "",
   "## Substitute schemas (when picked)",
   "",
@@ -1590,14 +1576,14 @@ const SCAFFOLD_SYSTEM = [
   "[",
   '  {',
   '    "category": "≤ 50 chars · concrete category name (e.g. \\"Selection bias\\", \\"Generalizability ceiling\\", \\"Construct validity\\", \\"Confounding factor\\", \\"Sample of N=1\\", \\"Lens blind spot\\", \\"Survivorship\\", \\"Anchoring on the loudest director\\"). Pick a NAMED category — not a free-form essay.",',
-  '    "threat": "1-2 sentences (≤ 280 chars) naming WHAT about the *analysis itself* could mislead. Distinct from pre-mortem (how the recommended action could fail) and from critical-assumptions (the assumptions the brief rests on).",',
+  '    "threat": "1-2 sentences (≤ 280 chars) naming WHAT about the *analysis itself* could mislead. Distinct from risk-register (operating-environment risks) and from critical-assumptions (the assumptions the brief rests on).",',
   '    "observable": "What you would see if this threat is realized (≤ 200 chars). Without an observable, a threat is just a hedge — it must be falsifiable.",',
   '    "severity": "low | medium | high",',
   '    "mitigation": "What would address or defuse this threat (≤ 200 chars). Set null when the room had no concrete mitigation."',
   "  }",
   "]",
   "```",
-  "Threats name limits of the analysis, not limits of the conclusion. \"The recommendation might fail if X\" is pre-mortem material; \"our analysis only consulted Western strategy directors so the conclusion may not generalize\" is a threat to validity. Pick at most 5; below 3 reads as token effort, above 5 turns into noise.",
+  "Threats name limits of the analysis, not limits of the conclusion. \"The recommendation might fail if X\" is risk-register material; \"our analysis only consulted Western strategy directors so the conclusion may not generalize\" is a threat to validity. Pick at most 5; below 3 reads as token effort, above 5 turns into noise.",
   "",
   "`metricStrip` (3–5 dashboard-style KPI cards · the room's quantitative reads side-by-side):",
   "```json",
@@ -1643,7 +1629,7 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     "convergence", "divergence", "positions",
     "visuals", "two-paths", "why-now",
     "recommendations", "the-bet", "considerations",
-    "pre-mortem", "new-questions", "planning-assumption",
+    "new-questions", "planning-assumption",
     "open-questions",
     // Gartner-density blocks
     "strategic-outlook", "critical-assumptions", "scenario-tree", "leading-indicators",
@@ -1762,7 +1748,7 @@ interface WriteOpts {
    *  briefId. Same seed + same kind always selects the same variant,
    *  so regeneration of a brief renders identically; different briefs
    *  in the same house style land on different variants for high-
-   *  rotation kinds (anchor / findings / action / pre-mortem / etc.).
+   *  rotation kinds (anchor / findings / action / risk-register / etc.).
    *  Optional — omitted callers pin to variant 0 of every entry. */
   briefId?: string;
 }
@@ -1990,7 +1976,7 @@ const WRITE_SYSTEM = [
   "  · `Threats to Validity` → ◇ `flowchart TD` ONLY when threats compound (sample bias → selection bias → generalizability ceiling) with branching, 5+ nodes.",
   "  · `Recommendations` → ✓ `gantt` for multi-phase rollouts (≥ 2 sections AND ≥ 4 tasks). For sequenced action chains under 4 tasks, use prose / numbered list — NOT a linear flowchart.",
   "  · `Leading Indicators` → ◇ `stateDiagram-v2` when indicators map to ≥ 4 scenario states with at least one feedback loop / back-transition.",
-  "  · `Pre-mortem` → ✓ `flowchart TD` when there are ≥ 3 failure modes EACH with its own leading-indicator + mitigation as sub-nodes (root + 3 modes + 6+ children = 10 nodes). With 2 failure modes, the typed table alone reads cleanly.",
+  "  · `Risk Register` → ✓ `flowchart TD` when there are ≥ 5 risks AND multiple risks share a category cluster (root → category nodes → individual risks as leaves = ≥ 10 nodes). The typed risk table is enough on its own when the register is < 5 entries.",
   "  · `Risk Register` → ✓ `quadrantChart` of severity × likelihood (always — the quadrant chart is a 2-axis plot, not subject to the flowchart-complexity floor).",
   "  · `New Questions This Surfaced` → ◇ `mindmap` when there are ≥ 4 new questions clustering into ≥ 3 themes.",
   "  · `Strategic Planning Assumption` → ◇ rarely.",
@@ -1999,14 +1985,14 @@ const WRITE_SYSTEM = [
   "**Reading the trigger map**: ✓ does NOT mean \"always emit\". It means \"emit when the material is non-trivial AND the complexity floor is met\". When in doubt about whether content has enough structure, render prose / a typed table — those don't have a complexity floor and never read as naive.",
   "",
   "**Routing constraints** (avoid double-rendering the same content):",
-  "  · Pre-mortem flowchart + Pre-mortem table = ✓ both, complementary.",
+  "  · Risk Register flowchart + Risk Register table = ✓ both, complementary.",
   "  · Risk Register quadrantChart + Risk Register table = ✓ both, complementary.",
   "  · A single section gets at MOST one inline mermaid (plus the typed visual if any). Never stack 2+ inline charts in one section.",
   "  · A `gantt` and a `flowchart` covering the SAME recommendation rollout = pick one (gantt if dates matter, flowchart if branching matters).",
   "  · If a typed `visuals` block already covers a content shape (e.g. `bar-chart` for ranked options), don't add an inline `flowchart` for the same options.",
   "",
   "  ### flowchart · decision tree / process branches",
-  "  Use when a section argues a decision sequence (\"if X then Y else Z\") or a process where order + branching matters. Natural fits: pre-mortem branches (\"if leading-indicator A fires, do P; else hold\"), the divergence section when there are 3+ positions, scenario trees with named effects.",
+  "  Use when a section argues a decision sequence (\"if X then Y else Z\") or a process where order + branching matters. Natural fits: risk-register branches (\"if risk A materialises, do P; else monitor\"), the divergence section when there are 3+ positions, scenario trees with named effects.",
   "    ```",
   "    flowchart TD",
   "        A[Starting state] --> B{Decision point}",
@@ -2140,9 +2126,6 @@ const WRITE_SYSTEM = [
   "    The _What this earns_ line is the upside payoff in a stakeholder's language (revenue captured / risk avoided / position locked in / time saved). Render it whenever `expectedBenefit` is non-empty; skip the line only when the field is absent or empty. This is the line that gets the action approved — without it, the recommendation reads as cost without payoff.",
   "    Length budget · the WHOLE Recommendations section should land between 1,500 and 2,500 characters total. Per item: ~400–600 chars including all the labelled lines. The Rationale field is the only one that benefits from elaboration (1–2 sentences); every other labelled line is a single phrase or clause. Keep the action / metric / risk / dependency / benefit lines tight — verbose action items get skipped.",
   "",
-  "  ## Pre-mortem",
-  "  Skip if `preMortem` is empty. Otherwise a markdown table with columns `Failure mode | Leading indicator | Mitigation`. One row per failure mode. Leave a BLANK LINE between the section heading / any intro prose and the table's header row — without that gap markdown parsers concatenate the prose with the table and the pipe syntax leaks as text.",
-  "",
   "  ## Risk Register",
   "  Skip if `riskRegister` is empty / null. Otherwise render TWO complementary blocks (in this order):",
   "",
@@ -2164,7 +2147,7 @@ const WRITE_SYSTEM = [
   "       ```",
   "       Leave a BLANK LINE between the H2 heading and the fenced ```mermaid block.",
   "",
-  "    2. **Risk table** — markdown table with columns `Risk | Category | Severity | Likelihood | Owner | Mitigation`. One row per `RiskItem`. Sort rows: severity high before medium before low; within the same severity, likelihood high before medium before low. Render category and severity / likelihood as **bold inline tags** (`**Market**`, `**High**`). Leave a BLANK LINE between the quadrant chart and the table header row · same gluing rule as Pre-mortem.",
+  "    2. **Risk table** — markdown table with columns `Risk | Category | Severity | Likelihood | Owner | Mitigation`. One row per `RiskItem`. Sort rows: severity high before medium before low; within the same severity, likelihood high before medium before low. Render category and severity / likelihood as **bold inline tags** (`**Market**`, `**High**`). Leave a BLANK LINE between the quadrant chart and the table header row · without that gap markdown parsers concatenate the prose with the table and pipe syntax leaks.",
   "       When `mitigation` is the literal string `\"monitor only\"`, render the cell as italic: `_monitor only_` so the reader sees this row as a watch-list rather than a closeable risk.",
   "",
   "  Section title alternatives — pick one that matches the brief's voice: \"Risk Register\" (default · McKinsey/Gartner), \"Standing Risks\" (a16z), \"Risks We're Carrying\" (Anthropic-essay).",
@@ -2211,7 +2194,7 @@ const WRITE_SYSTEM = [
   "       Body line under the table (mono caps for the tags): `**Effort:** {effort} · **Confidence:** {confidence}`. Use the literal title-cased values (Low / Medium / High).",
   "    3. Final paragraph: `**Why {recommended.label}:** {rationale}` — the takeaway anchored to the recommended option.",
   "  Section title alternatives: \"Decision Options\" (default), \"Options We Weighed\" (Anthropic-essay), \"The Path We're Recommending\" (a16z).",
-  "  Leave a BLANK LINE between the section H2 and the first H3 option, AND between each option's table and the next H3 — without those gaps the table syntax leaks. SAME gluing rule as Pre-mortem and Risk Register above.",
+  "  Leave a BLANK LINE between the section H2 and the first H3 option, AND between each option's table and the next H3 — without those gaps the table syntax leaks. SAME gluing rule as Risk Register above.",
   "",
   "  ## New Questions This Surfaced",
   "  Skip if `newQuestions` is empty. Otherwise:",
@@ -2232,6 +2215,23 @@ const WRITE_SYSTEM = [
   "",
   "  ## Open Questions",
   "  Skip if `openQuestions` is empty. Otherwise a bulleted list. Each bullet: priority badge `**\\`P0\\`**` or `\\`P1\\`` followed by the question text.",
+  "",
+  "  ## Where This Leaves You",
+  "  ALWAYS render — this is the report's narrative close. Without it the body ends on a list (Recommendations / Leading Indicators / Open Questions) and the reader experiences \"戛然而止\" — abrupt drop-out. The Closing reorients the reader before the methodology footer.",
+  "",
+  "  Tight prose paragraph — 3 to 4 sentences, ≤ 360 chars total. NO bullets, NO tables, NO labels (\"Echo:\" / \"Action:\"), NO sub-headings. The structure is internal to the prose:",
+  "    1. **ECHO** · paraphrase the bottom line / thesis / working hypothesis in collapsed form. Don't quote it; render its essence in tighter language than the opening did. ≤ 1 sentence.",
+  "    2. **ACKNOWLEDGE** · name the unresolved unknown that would change the call. Pull from highest-priority `openQuestions` (P0 first), or the most fragile entry in `criticalAssumptions`, or a load-bearing `riskRegister` row, or the SPA falsifier. Skip this beat ONLY when the room genuinely surfaced no real uncertainty. ≤ 1 sentence.",
+  "    3. **POINT FORWARD** · one specific next move. From `recommendations[0].action` collapsed to ≤ 16 words, or `theBet.commitment`, or for considerations: \"the next thing worth testing is X\". Imperative, concrete, not a meta-instruction. ≤ 1 sentence.",
+  "",
+  "  House style alternatives for the section title (override the default \"Where This Leaves You\"):",
+  "    · mckinsey-deck → \"Next Steps\"",
+  "    · a16z-thesis → \"If This Holds\"",
+  "    · gartner-research → \"What to Watch\"",
+  "    · anthropic-essay → \"Where We Are Left\"",
+  "    · boardroom-default / 8bit / others → \"Where This Leaves You\"",
+  "",
+  "  Voice register applies (mckinsey is imperative, anthropic is reflective, a16z is implicational), but the 3-sentence Echo→Acknowledge→Point-Forward structure is INVARIANT across styles. If you find yourself writing a 4th paragraph or > 360 chars or adding bullets, you've over-built it — the Closing's whole job is the felt close, a tight prose moment.",
   "",
   "## Substitute components (composer-driven · render only when filled)",
   "",
@@ -2330,7 +2330,7 @@ const WRITE_SYSTEM = [
   "      | Category | Threat | Observable | Severity | Mitigation |",
   "      | --- | --- | --- | --- | --- |",
   "      | {category} | {threat} | {observable} | **`Severity`** | {mitigation or —} |",
-  "    Don't pad the section with prose — the table IS the section. The voice register from the picked house style applies, but the table structure stays identical across styles. Threats here name the limits of the *analysis*, not the limits of the *recommendation* (that's pre-mortem).",
+  "    Don't pad the section with prose — the table IS the section. The voice register from the picked house style applies, but the table structure stays identical across styles. Threats here name the limits of the *analysis*, not the limits of the *recommendation* (recommendation-failure goes in risk-register when picked).",
   "",
   "  ### metricStrip (dashboard · the room's numbers as a row of KPI cards)",
   "  When `scaffold.metricStrip` is non-null AND was picked, render it as the report's first quantitative beat — natural slot is RIGHT AFTER the anchor (Bottom Line / Thesis / Working Hypothesis), so a reader skimming the top of the report sees the headline judgement followed immediately by the numbers behind it. Acceptable alternative slot: right before Recommendations, when the numbers frame the action rather than the judgement.",
@@ -2484,10 +2484,14 @@ const DEFAULT_KIND_LABELS: Partial<Record<ComponentKind, string>> = {
   "leading-indicators":    "Leading Indicators",
   "threats-to-validity":   "Threats to Validity",
   "metric-strip":          "By the Numbers",
-  "pre-mortem":            "Pre-mortem",
   "new-questions":         "New Questions This Surfaced",
   "planning-assumption":   "Strategic Planning Assumption",
   "open-questions":        "Open Questions",
+  // Note · the always-rendered "Where This Leaves You" closing
+  // section is NOT in this dictionary — it's not a composer-picked
+  // component, just a structural close. Its heading + house-style
+  // alternatives ("Next Steps" / "If This Holds" / "What to Watch")
+  // are described directly in the WRITE_SYSTEM section render rule.
 };
 
 /** Build the house-style addendum to WRITE_SYSTEM · two blocks:
@@ -2815,19 +2819,6 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         .join("\n\n")
     : "  (no recommendations — skip the section)";
 
-  // ── Pre-mortem ──
-  const preMortemBlock = scaffold.preMortem.length
-    ? scaffold.preMortem
-        .map((f, i) =>
-          [
-            `  Failure ${i + 1}: ${f.scenario}`,
-            `    Leading indicator: ${f.leadingIndicator}`,
-            `    Mitigation: ${f.mitigation}`,
-          ].join("\n"),
-        )
-        .join("\n\n")
-    : "  (no pre-mortem — skip the section)";
-
   // ── New Questions ──
   const newQuestionsBlock = scaffold.newQuestions.length
     ? scaffold.newQuestions
@@ -3128,9 +3119,6 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         `## Recommendations`,
         recsBlock,
         ``,
-        `## Pre-mortem`,
-        preMortemBlock,
-        ``,
         `## New Questions`,
         newQuestionsBlock,
         ``,
@@ -3203,7 +3191,7 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
               ``,
             ]
           : []),
-        `Write the final report now. Markdown only (the metricStrip / path-comparison / views-compared fenced blocks are embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Views Compared (MANDATORY when ≥ 2 active directors) → A Comparison (when picked · path-comparison) → Options Analysis / Two Paths → Decision Options (when picked) → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Pre-mortem → Risk Register (when picked) → New Questions This Surfaced → Strategic Planning Assumption → Open Questions.`,
+        `Write the final report now. Markdown only (the metricStrip / path-comparison / views-compared fenced blocks are embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Views Compared (MANDATORY when ≥ 2 active directors) → A Comparison (when picked · path-comparison) → Options Analysis / Two Paths → Decision Options (when picked) → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Risk Register (when picked) → New Questions This Surfaced → Strategic Planning Assumption → Open Questions → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Where This Leaves You (ALWAYS — narrative close that reorients the reader). The Closing is the report's last body section before the methodology footer; without it the report ends on a list and feels truncated. Render order is now uncertainty-then-action: lay out what's true / what's still open BEFORE telling the user what to do, so the action sits at the end where it lands hardest.`,
       ].join("\n"),
     },
   ];
@@ -3834,24 +3822,6 @@ function parseRecommendations(raw: unknown): Recommendation[] {
   return out;
 }
 
-function parsePreMortem(raw: unknown): FailureMode[] {
-  if (!Array.isArray(raw)) return [];
-  const out: FailureMode[] = [];
-  for (const f of raw) {
-    if (!f || typeof f !== "object") continue;
-    const o = f as Record<string, unknown>;
-    const scenario = typeof o.scenario === "string" ? o.scenario.trim() : "";
-    if (!scenario) continue;
-    out.push({
-      scenario,
-      leadingIndicator: typeof o.leadingIndicator === "string" ? o.leadingIndicator.trim() : "",
-      mitigation: typeof o.mitigation === "string" ? o.mitigation.trim() : "",
-    });
-    if (out.length >= 4) break;
-  }
-  return out;
-}
-
 const RISK_CATEGORIES: readonly RiskCategory[] = [
   "market", "execution", "product", "team", "financial", "compliance", "technical",
 ];
@@ -4447,7 +4417,6 @@ export function parseScaffold(
     recommendations: parseRecommendations(parsed.recommendations),
     theBet,
     considerations: considerationsField,
-    preMortem: parsePreMortem(parsed.preMortem),
     newQuestions: parseNewQuestions(parsed.newQuestions),
     planningAssumption: parsePlanningAssumption(parsed.planningAssumption),
     strategicOutlook: parseStrategicOutlook(parsed.strategicOutlook),

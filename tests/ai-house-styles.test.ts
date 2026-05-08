@@ -114,7 +114,6 @@ describe("parseScaffold · threats-to-validity + dense blocks", () => {
       positions: [],
       visuals: [],
       recommendations: [],
-      preMortem: [],
       newQuestions: [],
       planningAssumption: null,
       openQuestions: [],
@@ -391,7 +390,7 @@ describe("parseScaffold · Phase 2B components", () => {
         },
       ],
       convergence: [], divergence: null, positions: [], visuals: [],
-      recommendations: [], preMortem: [], newQuestions: [],
+      recommendations: [], newQuestions: [],
       planningAssumption: null, openQuestions: [],
       ...extra,
     };

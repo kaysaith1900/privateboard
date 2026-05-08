@@ -293,7 +293,7 @@ interface PipelineArgs {
  *  · `scaffold-anchor`   · bottomLine + thesis · "what's the takeaway"
  *  · `scaffold-findings` · headlineFindings   · "what supports it"
  *  · `scaffold-cluster`  · convergence/divergence/positions · "consensus + dissent"
- *  · `scaffold-actions`  · recommendations + preMortem + newQuestions
+ *  · `scaffold-actions`  · recommendations + newQuestions + planningAssumption
  *  · `write`    · final report streaming (opus)
  *
  *  The 4 scaffold sub-stages replace the older single `scaffold` event.
@@ -386,7 +386,7 @@ function emitStage(
  *   · Opus is similarly slowed when producing rich markdown with tables
  *     and mermaid blocks. Real-world ~25-30 tps.
  *   · Output token volumes grow super-linearly with section count once
- *     recommendations / pre-mortem / new questions all kick in.
+ *     recommendations / risk-register / new questions all kick in.
  *   · Stage 2 retries up to 3× on parse failure — half of slow runs
  *     have at least one retry, so the upper bound carries a × 1.8
  *     factor to absorb that without lying to the user.
@@ -521,7 +521,7 @@ function estimateStage2Eta(args: Stage2EtaArgs): StageEta {
   //   3 positions × ~120        = 360
   //   2 convergence × ~150      = 300
   //   1 divergence (4 rows)     = 250
-  //   3 pre-mortem × ~100       = 300
+  //   5 risk-register × ~120    = 600
   //   3 new questions × ~80     = 240
   //   1 planning assumption     = 120
   //   bottom line + frame shift = 160
@@ -566,10 +566,10 @@ function estimateStage3Eta(args: Stage3EtaArgs): StageEta {
     (args.scaffold.positions.length ? 1 : 0) +
     (args.scaffold.visuals.length ? 1 : 0) +
     (args.scaffold.recommendations.length ? 1 : 0) +
-    (args.scaffold.preMortem.length ? 1 : 0) +
     (args.scaffold.newQuestions.length ? 1 : 0) +
     (args.scaffold.planningAssumption ? 1 : 0) +
-    (args.scaffold.openQuestions.length ? 1 : 0);
+    (args.scaffold.openQuestions.length ? 1 : 0) +
+    1 /* closing · always rendered */;
   const outputTokens = Math.max(3500, sectionsPresent * 350 + 1500);
   // Opus is the primary writer (slower but stronger); fallback to sonnet.
   const t = llmTimeSec(inputTokens, outputTokens, "opus");
@@ -1035,7 +1035,7 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
   // Coverage inputs · feed the validatePicks coverage matrix the
   // per-field totals so it can reject picks that ignored available
   // material (tensions surfaced but no divergence, risks surfaced but
-  // no pre-mortem, etc.).
+  // no risk-register, etc.).
   const coverage = {
     tensions: args.perDirectorAssets.reduce((n, d) => n + d.tensions.length, 0),
     risks: args.perDirectorAssets.reduce((n, d) => n + d.risks.length, 0),
@@ -1124,17 +1124,17 @@ const SCAFFOLD_SUB_STAGES = [
  *  flipped done and this one becomes active. The model's JSON-emit
  *  order matches the prompt's example template (title → bottomLine →
  *  frameShift → headlineFindings → convergence → divergence → ...
- *  → recommendations → preMortem → newQuestions), so these triggers
- *  reflect the real arrival sequence — not a synthetic timer. */
+ *  → recommendations → newQuestions → planningAssumption), so these
+ *  triggers reflect the real arrival sequence — not a synthetic timer. */
 const SCAFFOLD_TRIGGERS: Partial<Record<StageKey, RegExp>> = {
   "scaffold-findings": /"headlineFindings"\s*:/,
   "scaffold-cluster":  /"convergence"\s*:|"divergence"\s*:|"positions"\s*:/,
-  "scaffold-actions":  /"recommendations"\s*:|"theBet"\s*:|"considerations"\s*:|"preMortem"\s*:/,
+  "scaffold-actions":  /"recommendations"\s*:|"theBet"\s*:|"considerations"\s*:|"newQuestions"\s*:/,
 };
 
 /** Fractional ETA budgets across the 4 sub-stages. Sum to 1.0. The
  *  longest blocks are findings (the heart of the report) and actions
- *  (recommendations + pre-mortem + new questions all live there). */
+ *  (recommendations + new questions + risk-register all live there). */
 const SCAFFOLD_FRACTIONS: Record<typeof SCAFFOLD_SUB_STAGES[number], number> = {
   "scaffold-anchor":   0.20,
   "scaffold-findings": 0.30,
@@ -1232,6 +1232,41 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
     }
   };
 
+  // Active director count drives the "directorPerspectives is mandatory"
+  // gate · ≥ 2 active directors means the views-compared section MUST
+  // appear in the brief. If the LLM omits it (common on long rooms /
+  // dense scaffolds), we retry; on final attempt we synthesize a
+  // minimal backstop from existing signals so the section always
+  // ships rather than silently disappearing.
+  const activeDirectorCount = args.perDirectorSignals.filter(
+    (d) => d.signals.length > 0,
+  ).length;
+  const requiresPerspectives = activeDirectorCount >= 2;
+
+  // Track whether the most recent attempt was rejected for missing
+  // directorPerspectives · used to augment the next attempt's user
+  // message with a corrective note. Plumbed via a closure so we
+  // don't have to thread a flag through buildScaffoldMessages.
+  let priorAttemptMissedPerspectives = false;
+
+  // Build the messages once · prepend a corrective note when we're
+  // retrying because of a missing mandatory section. The base messages
+  // remain the same; we just push an additional user-side reminder
+  // before the LLM call so the previous attempt's failure mode is
+  // explicitly addressed.
+  const messagesForAttempt = (): typeof messages => {
+    if (!priorAttemptMissedPerspectives) return messages;
+    const correction: typeof messages[number] = {
+      role: "user",
+      content:
+        "RETRY · your previous JSON omitted `directorPerspectives` (or returned it as null). " +
+        `That field is MANDATORY for this room — there are ${activeDirectorCount} active directors with signals, so the views-compared block MUST be filled. ` +
+        "Include it this time: object with `intro`, `alignment` (≥0 groups), `divergence` (≥0 entries), `perspectives` (one entry per active director · directorId from the room's member list, stance ≤60 chars, position ≤300 chars, optional quote ≤40 words, lens), `chairSynthesis` (≤400 chars). " +
+        "Do NOT skip it again — every active director gets a row.",
+    };
+    return [...messages, correction];
+  };
+
   // Try each model up to STAGE_2_RETRIES times with rising temperature.
   for (const modelV of stageFlagshipList()) {
     if (!isModelV(modelV)) continue;
@@ -1241,7 +1276,7 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
         let totalTokens = 0;
         for await (const chunk of callLLMStream({
           modelV,
-          messages,
+          messages: messagesForAttempt(),
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
           maxTokens: 8000,
           signal: args.signal,
@@ -1262,6 +1297,38 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           args.room.subject,
         );
         if (scaffold) {
+          // Mandatory-section gate · the prompt marks
+          // `directorPerspectives` as MANDATORY for ≥ 2 active
+          // directors, but the LLM occasionally drops it on long /
+          // dense rooms. parseScaffold accepts the missing field
+          // (it's optional in the schema for single-director rooms);
+          // we enforce the requirement here at the orchestrator layer.
+          const missingPerspectives =
+            requiresPerspectives && !scaffold.directorPerspectives;
+          // We have one more attempt available · retry with a
+          // corrective note prepended.
+          const isLastAttempt =
+            attempt === STAGE_2_RETRIES - 1 &&
+            modelV === stageFlagshipList()[stageFlagshipList().length - 1];
+          if (missingPerspectives && !isLastAttempt) {
+            priorAttemptMissedPerspectives = true;
+            process.stderr.write(
+              `[brief.stage2] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} parsed OK but missed mandatory directorPerspectives — retrying with correction\n`,
+            );
+            continue;
+          }
+          // Last attempt · accept the scaffold. If perspectives are
+          // still missing, synthesize a minimal backstop from the
+          // signals we already have so the section always renders.
+          if (missingPerspectives && isLastAttempt) {
+            scaffold.directorPerspectives = synthesizeDirectorPerspectivesFallback(
+              args.perDirectorSignals,
+              args.members,
+            );
+            process.stderr.write(
+              `[brief.stage2] ${modelV} final attempt still missed directorPerspectives — synthesized minimal backstop from signals (${activeDirectorCount} active directors)\n`,
+            );
+          }
           if (attempt > 0) {
             process.stderr.write(
               `[brief.stage2] ${modelV} succeeded on retry ${attempt + 1}\n`,
@@ -1285,6 +1352,58 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
     }
   }
   return null;
+}
+
+/** Backstop · synthesize a minimal `directorPerspectives` block when
+ *  the scaffold writer keeps omitting it. Uses each active director's
+ *  first signal (if any) as their position so every director still
+ *  shows up in the social-map view. Loses the alignment / divergence
+ *  groupings (those need cross-signal reasoning the LLM does well
+ *  but we don't replicate here) — those just render as empty groups,
+ *  which the views-compared renderer handles gracefully with
+ *  "No clear convergence" / "No central fork" placeholders. The
+ *  important thing is that EVERY ACTIVE DIRECTOR gets a row, which
+ *  is the section's load-bearing function. */
+function synthesizeDirectorPerspectivesFallback(
+  perDirectorSignals: DirectorSignals[],
+  members: Agent[],
+): NonNullable<BriefScaffold["directorPerspectives"]> {
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const VALID_LENSES: ReadonlySet<string> = new Set([
+    "data", "dissent", "narrative", "structural", "first-principle",
+  ]);
+  const perspectives = perDirectorSignals
+    .filter((d) => d.signals.length > 0)
+    .map((d) => {
+      const first = d.signals[0];
+      const lensRaw = String(first.lens || "structural");
+      const lens = (VALID_LENSES.has(lensRaw) ? lensRaw : "structural") as
+        | "data" | "dissent" | "narrative" | "structural" | "first-principle";
+      const text = String(first.text || "").trim();
+      // Trim the position to the schema's ≤300 char ceiling at the
+      // nearest sentence boundary so the backstop reads as a clean
+      // paraphrase rather than a mid-sentence cutoff.
+      const position = text.length <= 300
+        ? text
+        : text.slice(0, 300).replace(/[\s,，;。.!?！？]+\S*$/, "") + "…";
+      const member = memberById.get(d.directorId);
+      const stanceSeed = member?.roleTag || member?.bio || "Their angle on this room.";
+      const stance = stanceSeed.length <= 60 ? stanceSeed : stanceSeed.slice(0, 57) + "…";
+      return {
+        directorId: d.directorId,
+        stance,
+        position,
+        quote: "",
+        lens,
+      };
+    });
+  return {
+    intro: "Each active director's read on the room — drawn from the signals they surfaced.",
+    alignment: [],
+    divergence: [],
+    perspectives,
+    chairSynthesis: "",
+  };
 }
 
 /* ─────────────────────────── Stage 3 ──────────────────────────────────── */
