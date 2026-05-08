@@ -1484,6 +1484,37 @@
       return false;
     },
 
+    /** Build the right viewer URL for a brief based on its mode.
+     *  · 'research-note' (default · or unknown) → `/report.html?r=R&b=B`
+     *  · 'bento' → `/bento.html?b=B` (the bento renderer doesn't
+     *    need the room context · the brief is self-contained).
+     *
+     *  Used by the View Report button, the brief-picker popover, the
+     *  open-report link in the brief card, and the All Reports page —
+     *  one helper so a future renderer route change touches one place. */
+    briefViewerHref(b, roomId) {
+      if (!b || !b.id) return null;
+      const id = encodeURIComponent(b.id);
+      if (b.mode === "bento") return `/bento.html?b=${id}`;
+      const r = roomId ? encodeURIComponent(roomId) : "";
+      return r ? `/report.html?r=${r}&b=${id}` : `/report.html?b=${id}`;
+    },
+
+    /** Read the user's last-picked report mode from localStorage so the
+     *  picker defaults to their previous choice. Falls back to
+     *  'research-note' on first run / private mode. */
+    lastBriefMode() {
+      try {
+        const v = localStorage.getItem("pb.briefMode");
+        return v === "bento" ? "bento" : "research-note";
+      } catch { return "research-note"; }
+    },
+    saveLastBriefMode(mode) {
+      try {
+        localStorage.setItem("pb.briefMode", mode === "bento" ? "bento" : "research-note");
+      } catch { /* private-mode etc. — silently ignore */ }
+    },
+
     /** Pure cache read · returns true when the local app.keys map
      *  reports any model provider as configured. Used by the gate
      *  and (via wrappers) anywhere downstream UI needs the answer
@@ -1647,6 +1678,7 @@
     async adjournRoom(opts) {
       if (!this.currentRoomId) return;
       const skipBrief = !!(opts && opts.skipBrief);
+      const mode = opts && opts.mode === "bento" ? "bento" : "research-note";
       // Pre-flight · adjourn-with-brief triggers the brief writer
       // pipeline (3 LLM stages). When skipBrief=true the chair just
       // posts the no-brief marker without LLM calls, so we let it
@@ -1657,7 +1689,7 @@
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(skipBrief ? { skipBrief: true } : {}),
+          body: JSON.stringify(skipBrief ? { skipBrief: true } : { mode }),
         },
       );
       if (!r.ok) {
@@ -1691,6 +1723,10 @@
       const confirmTxt = isGen ? "[ Generate ]" : "[ Adjourn & file ]";
       const subjectTxt = room.subject || room.name || "—";
       const memberCount = (this.currentMembers || []).length;
+      // Default the mode picker to whatever the user picked last. Bento
+      // is opt-in · 'research-note' is the safe initial default for new
+      // users / private-mode browsers (where localStorage is empty).
+      const defaultMode = this.lastBriefMode();
       const html = `
         <div class="adjourn-overlay" id="adjourn-overlay" role="dialog" aria-modal="true" data-adjourn-mode="${this.escape(mode)}">
           <div class="adjourn-backdrop" data-adjourn-close></div>
@@ -1725,10 +1761,30 @@
                 </div>
               </div>
               <p class="adjourn-summary-note">
-                The chair compiles a standard report from the room's transcript —
-                situation, key findings, and implications. The room is marked
-                adjourned and the report is filed in the chat.
+                The chair compiles a report from the room's transcript. Pick the
+                format below — the room is marked adjourned and the report is
+                filed in the chat once it's ready.
               </p>
+
+              <div class="adjourn-mode-picker" data-adjourn-mode-picker>
+                <div class="adjourn-mode-label">// report format</div>
+                <div class="adjourn-mode-options">
+                  <label class="adjourn-mode-option${defaultMode === "research-note" ? " on" : ""}">
+                    <input type="radio" name="adjourn-mode" value="research-note"${defaultMode === "research-note" ? " checked" : ""}>
+                    <div class="adjourn-mode-body">
+                      <div class="adjourn-mode-title">Research note</div>
+                      <div class="adjourn-mode-deck">Markdown memo with sections — bottom line, findings, recommendations, the full record.</div>
+                    </div>
+                  </label>
+                  <label class="adjourn-mode-option${defaultMode === "bento" ? " on" : ""}">
+                    <input type="radio" name="adjourn-mode" value="bento"${defaultMode === "bento" ? " checked" : ""}>
+                    <div class="adjourn-mode-body">
+                      <div class="adjourn-mode-title">Bento infographic</div>
+                      <div class="adjourn-mode-deck">Single-page poster — 3 milestones, a few sidebar cards, one-line takeaway. Good for sharing.</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
             </div>
 
             <footer class="adjourn-foot">
@@ -2723,17 +2779,22 @@
       const mode = overlay.getAttribute("data-adjourn-mode") || "adjourn";
       const isGen = mode === "generate-brief";
       const skipPicked = overlay.querySelector(".adjourn-skip-btn.picked") !== null;
+      // Read the report-mode picker (research-note / bento). Persist the
+      // choice so the picker defaults to the same option next time.
+      const briefModeInput = overlay.querySelector('input[name="adjourn-mode"]:checked');
+      const briefMode = briefModeInput && briefModeInput.value === "bento" ? "bento" : "research-note";
+      this.saveLastBriefMode(briefMode);
       const btn = overlay.querySelector("[data-adjourn-confirm]");
       const origLabel = isGen ? "[ Generate ]" : "[ Adjourn & file ]";
       const busyLabel = isGen ? "[ Generating… ]" : "[ Adjourning… ]";
       if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
       try {
         if (isGen) {
-          await this.generateBriefForAdjournedRoom();
+          await this.generateBriefForAdjournedRoom(briefMode);
         } else if (skipPicked) {
           await this.adjournRoom({ skipBrief: true });
         } else {
-          await this.adjournRoom({});
+          await this.adjournRoom({ mode: briefMode });
         }
         this.closeAdjournOverlay();
       } catch (e) {
@@ -2746,8 +2807,9 @@
      *  whose user originally skipped the brief. Server emits the same
      *  brief-started / brief-token / brief-final SSE events as a normal
      *  adjourn, so the existing handlers in connectSSE handle the rest. */
-    async generateBriefForAdjournedRoom() {
+    async generateBriefForAdjournedRoom(mode) {
       if (!this.currentRoomId) return;
+      const briefMode = mode === "bento" ? "bento" : "research-note";
       // Pre-flight · the brief writer is a 3-stage LLM pipeline (per-
       // director extract → composer → final write). All require a key.
       if (!(await this.requireModelKey())) return;
@@ -2756,7 +2818,7 @@
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: "{}",
+          body: JSON.stringify({ mode: briefMode }),
         },
       );
       if (!r.ok) {
@@ -6610,7 +6672,7 @@
               year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
             })
           : "";
-        const href = `/report.html?r=${encodeURIComponent(roomId)}&b=${encodeURIComponent(b.id)}`;
+        const href = this.briefViewerHref(b, roomId);
         return `
           <a class="brief-picker-row" href="${this.escape(href)}" target="_blank" rel="noopener" data-brief-picker-row data-brief-id="${this.escape(b.id)}">
             <span class="brief-picker-num">${this.escape(num)}</span>
@@ -7280,7 +7342,7 @@
                 // opens the picker.
                 const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
                 const multi = briefs.length > 1;
-                const directHref = `/report.html?r=${this.escape(r.id)}${this.currentBrief.id ? `&b=${this.escape(this.currentBrief.id)}` : ""}`;
+                const directHref = this.briefViewerHref(this.currentBrief, r.id) || `/report.html?r=${this.escape(r.id)}`;
                 if (!multi) {
                   return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>[ View Report ]</a>`;
                 }
@@ -8813,12 +8875,12 @@
         ? "GENERATING…"
         : "FILED · " + (b.createdAt ? this.timeFmt(b.createdAt) : this.timeFmt(Date.now()));
 
-      // Open Report links to /report.html with both r (room) and b
-      // (brief id) — the viewer uses b when present so refining
-      // shows the right version.
-      const reportHref = this.currentRoomId && b.id
-        ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}&b=${encodeURIComponent(b.id)}`
-        : (this.currentRoomId ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}` : null);
+      // Open Report URL · routes to /bento.html for bento briefs and
+      // /report.html for research-note briefs (default). The bento
+      // renderer doesn't need the room id so the URL is shorter for
+      // that mode.
+      const reportHref = this.briefViewerHref(b, this.currentRoomId)
+        || (this.currentRoomId ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}` : null);
 
       // Tab strip — already computed at the top of renderBrief as
       // `tabsStripHtml` so both error and success paths can mount it.
@@ -9683,6 +9745,23 @@
         alert("Brief generation failed: " + (err && err.message ? err.message : err));
       });
       return;
+    }
+    // Adjourn overlay · report-mode picker · clicking a label (or its
+    // radio) toggles the .on class on that option AND off on the
+    // siblings. The native radio behaviour handles `:checked` state but
+    // we use a manual class for visual styling (left accent stripe +
+    // tint) since we can't `:has()` reliably on older browsers.
+    const modeOpt = e.target.closest(".adjourn-mode-option");
+    if (modeOpt) {
+      const overlay = modeOpt.closest("#adjourn-overlay");
+      if (overlay) {
+        overlay.querySelectorAll(".adjourn-mode-option").forEach((el) => el.classList.remove("on"));
+        modeOpt.classList.add("on");
+        const radio = modeOpt.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+      }
+      // Don't preventDefault · let the label's native click behaviour
+      // also tick the radio for keyboard / a11y users.
     }
     // Adjourn overlay · "skip report" footer button — clicking commits
     // immediately (mark picked + dispatch + close).

@@ -177,6 +177,104 @@
   letter-spacing: -0.003em;
 }
 
+/* ─── Report-mode picker · two cards radio-style. Sits between the
+   summary note and the foot actions. Selected option gets a left
+   accent stripe + tinted bg; unselected stays quiet. The radio inputs
+   are visually hidden (the label IS the click target) but stay in the
+   DOM for accessibility / keyboard nav. ─────────────────────────── */
+.adjourn-mode-picker {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--line);
+}
+.adjourn-mode-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+.adjourn-mode-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 540px) {
+  .adjourn-mode-options { grid-template-columns: 1fr; }
+}
+.adjourn-mode-option {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.adjourn-mode-option:hover {
+  border-color: var(--line-bright);
+  background: var(--panel-3);
+}
+.adjourn-mode-option.on {
+  border-color: var(--lime);
+  background: rgba(124, 184, 88, 0.06);
+}
+.adjourn-mode-option.on::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--lime);
+}
+.adjourn-mode-option input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0 0;
+  flex: 0 0 14px;
+  border: 1px solid var(--line-bright);
+  border-radius: 50%;
+  background: var(--bg);
+  cursor: pointer;
+  position: relative;
+}
+.adjourn-mode-option.on input[type="radio"] {
+  border-color: var(--lime);
+}
+.adjourn-mode-option.on input[type="radio"]::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--lime);
+}
+.adjourn-mode-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.adjourn-mode-title {
+  font-family: var(--font-human);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.adjourn-mode-deck {
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+.adjourn-mode-option.on .adjourn-mode-deck { color: var(--text-soft); }
+
 /* ─── Footer ─── skip-button on the left, primary actions on the right.
    The skip moves out of the gallery-body and into a real button slot
    so the visual weight matches Cancel / Adjourn (peers in size and
