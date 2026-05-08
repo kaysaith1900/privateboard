@@ -1,6 +1,6 @@
 {
   "name": "privateboard",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
   "bin": {
