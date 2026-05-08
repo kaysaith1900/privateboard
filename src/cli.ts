@@ -20,8 +20,7 @@ import { reconcileAgentModels } from "./storage/reconcile-models.js";
 import { recoverStuckClarifyRooms } from "./storage/rooms.js";
 import { ensureBoardroomDir } from "./utils/paths.js";
 import { findFreePort } from "./utils/port.js";
-
-const VERSION = "0.1.2";
+import { VERSION } from "./version.js";
 
 interface CliOptions {
   port?: string;

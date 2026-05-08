@@ -162,6 +162,43 @@
 .us-nav-item.danger { color: var(--text-faint, #3A382F); }
 .us-nav-item.danger:hover { color: var(--red, #B5706A); }
 
+/* ─── Sidebar foot · app version stamp ───
+   Pinned to the bottom of the column flex via `margin-top: auto` so
+   it sits below every nav item even when the section list is short.
+   Tiny mono kicker · matches the section-tag typography elsewhere in
+   the overlay so it reads as quiet metadata, not a sixth nav item. */
+.us-nav-foot {
+  margin-top: auto;
+  padding: 12px 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  font-family: var(--mono);
+}
+.us-nav-foot-label {
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+}
+.us-nav-foot-value {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft, #8E8B83);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  /* On the horizontal-row mobile nav layout, the foot would steal a
+     slot in the scrollable tab strip — hide it there. The version
+     still surfaces via the running server's /api/version endpoint
+     for anyone who needs it. */
+  .us-nav-foot { display: none; }
+}
+
 /* Right pane (scrollable section content) */
 .us-pane {
   padding: 18px 22px 18px;

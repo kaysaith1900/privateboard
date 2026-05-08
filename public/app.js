@@ -292,20 +292,14 @@
         return;
       }
 
-      const lang = (this.composerLanguage && this.composerLanguage()) || "en";
       const count = fresh.length;
       const names = fresh.map((m) => m.name).join(", ");
-      const copy = lang === "zh"
-        ? {
-            head: `存储结构已升级`,
-            body: `已应用 ${count} 个新迁移 · 你已有的房间、董事、报告、设置都已保留。`,
-            tooltip: names,
-          }
-        : {
-            head: `Storage upgraded`,
-            body: `${count} new migration${count > 1 ? "s" : ""} applied · your existing rooms, agents, briefs, and settings were preserved.`,
-            tooltip: names,
-          };
+      // System UI · always English (storage-migration banner).
+      const copy = {
+        head: `Storage upgraded`,
+        body: `${count} new migration${count > 1 ? "s" : ""} applied · your existing rooms, agents, briefs, and settings were preserved.`,
+        tooltip: names,
+      };
       textEl.innerHTML =
         `<span class="sys-notice-strong">${this.escape(copy.head)}</span> · ${this.escape(copy.body)}`;
       banner.title = copy.tooltip;
@@ -1498,24 +1492,15 @@
      *  visual treatment stays consistent. */
     openNoKeyModal() {
       this.closeNoKeyModal();
-      const lang = (this.prefs && /[一-鿿]/.test(this.prefs.name || this.prefs.intro || "")) ? "zh" : "en";
-      const t = lang === "zh"
-        ? {
-            title: "需要配置模型 API key",
-            deck: "Boardroom 的董事和主席都依赖大模型。请先配置一个模型供应商的 API key（Anthropic / OpenAI / Google / xAI / DeepSeek / OpenRouter），任意一个即可。",
-            primary: "[ 打开设置 ▸ ]",
-            dismiss: "[ 取消 ]",
-            classification: "● ai · 缺少模型 key",
-            tag: "▸ 配置 API key",
-          }
-        : {
-            title: "Configure a model API key",
-            deck: "The chair and directors run on a large language model. Configure at least one provider key (Anthropic / OpenAI / Google / xAI / DeepSeek / OpenRouter) before AI features will work.",
-            primary: "[ Open settings ▸ ]",
-            dismiss: "[ Dismiss ]",
-            classification: "● ai · no model key",
-            tag: "▸ Configure API key",
-          };
+      // System UI · always English. No-key modal is app chrome.
+      const t = {
+        title: "Configure a model API key",
+        deck: "The chair and directors run on a large language model. Configure at least one provider key (Anthropic / OpenAI / Google / xAI / DeepSeek / OpenRouter) before AI features will work.",
+        primary: "[ Open settings ▸ ]",
+        dismiss: "[ Dismiss ]",
+        classification: "● ai · no model key",
+        tag: "▸ Configure API key",
+      };
       const html = `
         <div id="no-key-overlay" class="pc-overlay" data-no-key-overlay>
           <div class="pc-modal">
@@ -1531,7 +1516,7 @@
             <div class="pc-body">
               <button type="button" class="pc-choice primary" data-no-key-open-settings>
                 <div class="pc-choice-mark">${this.escape(t.primary)}</div>
-                <div class="pc-choice-deck">${lang === "zh" ? "进入 Preferences → API Key 配置任意一个模型供应商。" : "Jump to Preferences → API Key. Paste any one provider's key to unlock the room."}</div>
+                <div class="pc-choice-deck">Jump to Preferences → API Key. Paste any one provider's key to unlock the room.</div>
               </button>
               <button type="button" class="pc-choice ghost" data-no-key-dismiss>
                 <div class="pc-choice-mark">${this.escape(t.dismiss)}</div>
@@ -1783,30 +1768,18 @@
     openSupplementOverlay() {
       if (!this.currentRoomId || !this.currentBrief) return;
       this.closeSupplementOverlay();
-      const lang = this.currentBrief?.language === "zh" ? "zh" : "en";
-      const t = lang === "zh"
-        ? {
-            classify: "report · 补充视角再生成",
-            classifyRight: "// regenerate",
-            title: "补充一个视角",
-            metaPrefix: "// 当前报告",
-            placeholder: "请描述这次想让 chair 额外考虑的角度。例如：\n· 加入一个商业可行性的视角\n· 重点关注女性用户的体验\n· 把时间窗口拉长到 5 年看",
-            hint: "这个视角会被织入现有的 Findings、Recommendations、New Questions 等段落，不会单独成节。",
-            cancel: "[ Cancel ]",
-            confirm: "[ Regenerate ]",
-            confirmBusy: "[ Regenerating… ]",
-          }
-        : {
-            classify: "report · regenerate with supplement",
-            classifyRight: "// regenerate",
-            title: "Add a perspective",
-            metaPrefix: "// Current report",
-            placeholder: "Describe an angle you want the chair to additionally consider. For example:\n· Bring in a commercial-viability lens\n· Center the experience of women users\n· Stretch the time window to 5 years",
-            hint: "The new perspective will be woven through the existing Findings, Recommendations, and New Questions sections — not added as a separate section.",
-            cancel: "[ Cancel ]",
-            confirm: "[ Regenerate ]",
-            confirmBusy: "[ Regenerating… ]",
-          };
+      // System UI · always English. Supplement-overlay chrome.
+      const t = {
+        classify: "report · regenerate with supplement",
+        classifyRight: "// regenerate",
+        title: "Add a perspective",
+        metaPrefix: "// Current report",
+        placeholder: "Describe an angle you want the chair to additionally consider. For example:\n· Bring in a commercial-viability lens\n· Center the experience of women users\n· Stretch the time window to 5 years",
+        hint: "The new perspective will be woven through the existing Findings, Recommendations, and New Questions sections — not added as a separate section.",
+        cancel: "[ Cancel ]",
+        confirm: "[ Regenerate ]",
+        confirmBusy: "[ Regenerating… ]",
+      };
       const html = `
         <div class="supplement-overlay" id="supplement-overlay" role="dialog" aria-modal="true">
           <div class="supplement-backdrop" data-supplement-close></div>
@@ -1875,31 +1848,19 @@
       if (!this.currentRoomId || !this.currentRoom) return;
       if (this.currentRoom.status !== "paused") return;
       this.closePausedSupplementOverlay();
-      const lang = this.composerLanguage();
-      const t = lang === "zh"
-        ? {
-            classify: "room · 暂停时补充",
-            classifyRight: "// queued first",
-            title: "补充一个观点",
-            metaPrefix: "// 当前房间",
-            placeholder: "想补一个观点 · 一个想再追问的细节 · 一个让董事们重新考虑的角度。\n\n会立即作为你的发言进入对话；点击 [ Resume ] 后，董事们会先看到这条再继续。",
-            hint: "暂停期间的补充会以你的身份立即出现在对话里，原本的发言队列不变；恢复后队首董事将带着这条补充开口。",
-            cancel: "[ Cancel ]",
-            confirm: "[ Add to chat ]",
-            confirmBusy: "[ Posting… ]",
-          }
-        : {
-            classify: "room · paused supplement",
-            classifyRight: "// queued first",
-            title: "Add a supplemental input",
-            metaPrefix: "// Current room",
-            placeholder: "Drop in an extra thought, a follow-up question, or an angle you'd like the board to take into account.\n\nIt lands in the chat as your message right now; when you hit [ Resume ], the next director picks up with this in front of them.",
-            hint: "Posted while paused, the supplement lands as your message immediately; the saved speaker queue is untouched. After resume, the next director responds with the supplement first.",
-            cancel: "[ Cancel ]",
-            confirm: "[ Add to chat ]",
-            confirmBusy: "[ Posting… ]",
-          };
-      const subject = (this.currentRoom.subject || "").trim() || (lang === "zh" ? "(无主题)" : "(no subject)");
+      // System UI · always English. Paused-supplement overlay chrome.
+      const t = {
+        classify: "room · paused supplement",
+        classifyRight: "// queued first",
+        title: "Add a supplemental input",
+        metaPrefix: "// Current room",
+        placeholder: "Drop in an extra thought, a follow-up question, or an angle you'd like the board to take into account.\n\nIt lands in the chat as your message right now; when you hit [ Resume ], the next director picks up with this in front of them.",
+        hint: "Posted while paused, the supplement lands as your message immediately; the saved speaker queue is untouched. After resume, the next director responds with the supplement first.",
+        cancel: "[ Cancel ]",
+        confirm: "[ Add to chat ]",
+        confirmBusy: "[ Posting… ]",
+      };
+      const subject = (this.currentRoom.subject || "").trim() || "(no subject)";
       const html = `
         <div class="supplement-overlay" id="paused-supplement-overlay" role="dialog" aria-modal="true">
           <div class="supplement-backdrop" data-paused-supplement-close></div>
@@ -2019,54 +1980,30 @@
       if (this.currentRoom.status !== "adjourned") return;
       this.closeFollowUpOverlay();
 
-      const lang = this.composerLanguage();
-      const t = lang === "zh"
-        ? {
-            classify: "follow-up · 跟进会议",
-            classifyRight: "// continuing",
-            title: "开一场跟进会议",
-            metaPrefix: "// following up",
-            placeholder: "在上一场判断之上，下一个要追问的问题是什么？",
-            contextNote: "上一场的议题、最终判断（brief）和每位 director 的关键观察会作为这场 follow-up 房间的上下文交给新一组 director —— 他们可以直接在已成型的判断上推进，不会从零开始。",
-            castLabel: "Directors",
-            castHint: "建议 2-4 位",
-            castSame: "沿用上一场的 cast",
-            pickerLabel: "选择董事",
-            autoLabel: "directors",
-            autoVal: "自动挑选",
-            countersDirectors: (n) => `${n} 位董事`,
-            toneLabel: "Tone",
-            intensityLabel: "Intensity",
-            cancel: "[ Cancel ]",
-            confirm: "[ Convene → ]",
-            confirmBusy: "[ Convening… ]",
-            adjournedAtPrefix: "adjourned",
-            briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
-            noBrief: "no brief filed",
-          }
-        : {
-            classify: "follow-up · continuation room",
-            classifyRight: "// continuing",
-            title: "Convene a follow-up",
-            metaPrefix: "// following up",
-            placeholder: "What's the next question to chase, given what the prior session settled?",
-            contextNote: "The prior subject, the filed brief (room's settled judgement), and each director's load-bearing observations are bundled as context for this follow-up — the new cast picks up where the prior session left off rather than starting from scratch.",
-            castLabel: "Directors",
-            castHint: "2–4 recommended",
-            castSame: "Same cast as last session",
-            pickerLabel: "Pick directors",
-            autoLabel: "directors",
-            autoVal: "auto-pick",
-            countersDirectors: (n) => `${n} director${n === 1 ? "" : "s"}`,
-            toneLabel: "Tone",
-            intensityLabel: "Intensity",
-            cancel: "[ Cancel ]",
-            confirm: "[ Convene → ]",
-            confirmBusy: "[ Convening… ]",
-            adjournedAtPrefix: "adjourned",
-            briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
-            noBrief: "no brief filed",
-          };
+      // System UI · always English. Follow-up overlay chrome.
+      const t = {
+        classify: "follow-up · continuation room",
+        classifyRight: "// continuing",
+        title: "Convene a follow-up",
+        metaPrefix: "// following up",
+        placeholder: "What's the next question to chase, given what the prior session settled?",
+        contextNote: "The prior subject, the filed brief (room's settled judgement), and each director's load-bearing observations are bundled as context for this follow-up — the new cast picks up where the prior session left off rather than starting from scratch.",
+        castLabel: "Directors",
+        castHint: "2–4 recommended",
+        castSame: "Same cast as last session",
+        pickerLabel: "Pick directors",
+        autoLabel: "directors",
+        autoVal: "auto-pick",
+        countersDirectors: (n) => `${n} director${n === 1 ? "" : "s"}`,
+        toneLabel: "Tone",
+        intensityLabel: "Intensity",
+        cancel: "[ Cancel ]",
+        confirm: "[ Convene → ]",
+        confirmBusy: "[ Convening… ]",
+        adjournedAtPrefix: "adjourned",
+        briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
+        noBrief: "no brief filed",
+      };
 
       const room = this.currentRoom;
       const briefCount = Array.isArray(this.currentBriefs) ? this.currentBriefs.length : 0;
@@ -2286,9 +2223,8 @@
         const avatars = visible.map((a) =>
           `<img class="cmp-cast-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}" title="${this.escape(a.name || "")}">`,
         ).join("");
-        const count = lang === "zh"
-          ? `${parents.length} 位 · 沿用上一场`
-          : `${parents.length} · same as last`;
+        // System UI · always English (cast button chrome).
+        const count = `${parents.length} · same as last`;
         btn.innerHTML =
           `<span class="cmp-cast-stack">${avatars}${overflow > 0 ? `<span class="cmp-cast-more">+${overflow}</span>` : ""}</span>` +
           `<span class="cmp-cast-count">${this.escape(count)}</span>`;
@@ -2304,8 +2240,9 @@
         // Auto-pick · default
         btn.classList.add("cmp-cast-btn-auto");
         btn.setAttribute("data-cast-mode", "auto");
-        const autoKey = lang === "zh" ? "directors" : "directors";
-        const autoVal = lang === "zh" ? "自动挑选" : "auto-pick";
+        // System UI · always English (cast button chrome).
+        const autoKey = "directors";
+        const autoVal = "auto-pick";
         btn.innerHTML =
           `<span class="cmp-cast-stack cmp-cast-stack-auto"><span class="cmp-cast-auto-mark">✦</span></span>` +
           `<span class="cmp-cast-count cmp-cast-auto-label">` +
@@ -2320,9 +2257,8 @@
       const avatars = visible.map((a) =>
         `<img class="cmp-cast-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}" title="${this.escape(a.name || "")}">`,
       ).join("");
-      const countText = lang === "zh"
-        ? `${picked.length} 位董事`
-        : `${picked.length} director${picked.length === 1 ? "" : "s"}`;
+      // System UI · always English (cast button chrome count).
+      const countText = `${picked.length} director${picked.length === 1 ? "" : "s"}`;
       btn.setAttribute("data-cast-mode", "manual");
       btn.innerHTML =
         `<span class="cmp-cast-stack">${avatars}${overflow > 0 ? `<span class="cmp-cast-more">+${overflow}</span>` : ""}<span class="cmp-cast-add" aria-hidden="true">+</span></span>` +
@@ -2338,14 +2274,12 @@
       if (!anchorBtn || !this._followupCastState) return;
       if (this._followupCastState.sameAsLast) return;   // disabled when "same cast" is on
       const state = this._followupCastState;
-      const lang = state.lang || "en";
       const dirs = (this.agents || [])
         .filter((a) => a.roleKind !== "moderator")
         .slice()
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      const t = lang === "zh"
-        ? { title: "选择董事", hint: "建议 2-4 位", info: "查看资料" }
-        : { title: "Pick directors", hint: "2-4 recommended", info: "View profile" };
+      // System UI · always English (director picker chrome).
+      const t = { title: "Pick directors", hint: "2-4 recommended", info: "View profile" };
       const rows = dirs.map((a) => {
         const checked = state.directorIds.includes(a.id);
         return `
@@ -2679,23 +2613,14 @@
     async deleteBriefAt(briefId) {
       if (!briefId) return;
       const target = (this.currentBriefs || []).find((b) => b.id === briefId);
-      const lang = (this.currentBrief?.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
-      // If the target brief is still being generated, the confirmation
-      // copy is sharper · the user is also cancelling an in-flight
-      // pipeline (LLM calls actively burning tokens), not just removing
-      // a finished row. Server aborts the upstream fetches when we DELETE.
+      // System UI · always English. Confirm + alert dialogs are app
+      // chrome and stay fixed-string regardless of brief language.
       const isStillGenerating = !!(target && (!target.bodyMd || !target.bodyMd.trim()));
-      const confirmText = lang === "zh"
-        ? (isStillGenerating
-            ? "这份报告还在生成中。删除会立即停止生成并删除这份报告，此操作不可恢复。"
-            : (target?.supplement
-                ? `删除这份"${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}"补充视角的报告？此操作不可恢复。`
-                : "删除这份报告？此操作不可恢复。"))
-        : (isStillGenerating
-            ? "This report is still generating. Deleting will stop the generation and remove the report. This can't be undone."
-            : (target?.supplement
-                ? `Delete the "${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}" version? This can't be undone.`
-                : "Delete this report? This can't be undone."));
+      const confirmText = isStillGenerating
+        ? "This report is still generating. Deleting will stop the generation and remove the report. This can't be undone."
+        : (target?.supplement
+            ? `Delete the "${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}" version? This can't be undone.`
+            : "Delete this report? This can't be undone.");
       if (!confirm(confirmText)) return;
       try {
         const r = await fetch("/api/briefs/" + encodeURIComponent(briefId), { method: "DELETE" });
@@ -2704,7 +2629,7 @@
           throw new Error(e.error || ("HTTP " + r.status));
         }
       } catch (e) {
-        alert((lang === "zh" ? "删除失败：" : "Delete failed: ") + (e && e.message ? e.message : e));
+        alert("Delete failed: " + (e && e.message ? e.message : e));
         return;
       }
       // Patch local state · remove the deleted brief, refresh active.
@@ -3886,7 +3811,8 @@
       if (existingBanner) existingBanner.remove();
       const parent = this.currentParentRef;
       if (chat && parent && parent.id) {
-        const labelText = lang === "zh" ? "// 跟进自" : "// following up";
+        // System UI · always English (banner chrome on the follow-up parent link).
+        const labelText = "// following up";
         const subject = (parent.subject || "(no subject)").trim();
         const banner = document.createElement("a");
         banner.href = "#";
@@ -3906,9 +3832,8 @@
       if (existingChildren) existingChildren.remove();
       const kids = Array.isArray(this.currentFollowUps) ? this.currentFollowUps : [];
       if (briefCard && kids.length > 0) {
-        const headLabel = lang === "zh"
-          ? `跟进会议 · ${kids.length}`
-          : `Follow-up rooms · ${kids.length}`;
+        // System UI · always English (sidebar / brief-card chrome head).
+        const headLabel = `Follow-up rooms · ${kids.length}`;
         const block = document.createElement("div");
         block.className = "followup-children";
         block.innerHTML = [
@@ -4031,36 +3956,23 @@
       const briefCard = document.querySelector("[data-brief-card]");
       if (!briefCard) return;
 
-      const isZh = this.composerLanguage() === "zh";
-      const t = isZh
-        ? {
-            head: "// 会议数据",
-            stamp: "已结束",
-            tokens: "tokens",
-            messages: "条消息",
-            rounds: "轮讨论",
-            minutes: "分钟",
-            modelHead: "模型用量",
-            valueHead: "你认为有价值的",
-            valueEmpty: "本次没有 ▲ key point 投票，也没有用 probe / second。",
-            voted: "▲ 投票",
-            seconded: "附议",
-            probed: "追问",
-          }
-        : {
-            head: "// session analytics",
-            stamp: "closed",
-            tokens: "tokens",
-            messages: "msgs",
-            rounds: "rounds",
-            minutes: "min",
-            modelHead: "Model usage",
-            valueHead: "What you valued",
-            valueEmpty: "No ▲ key-point votes, probes, or seconds in this session.",
-            voted: "▲ voted",
-            seconded: "★ seconded",
-            probed: "✎ probed",
-          };
+      // System UI · always English. Session-analytics tile chrome
+      // (banner, metric labels, section heads, chip text) is part of
+      // the app shell and doesn't follow the brief language.
+      const t = {
+        head: "// session analytics",
+        stamp: "closed",
+        tokens: "tokens",
+        messages: "msgs",
+        rounds: "rounds",
+        minutes: "min",
+        modelHead: "Model usage",
+        valueHead: "What you valued",
+        valueEmpty: "No ▲ key-point votes, probes, or seconds in this session.",
+        voted: "▲ voted",
+        seconded: "★ seconded",
+        probed: "✎ probed",
+      };
 
       const fmtTokens = (n) => {
         if (!Number.isFinite(n) || n <= 0) return "0";
@@ -4164,8 +4076,10 @@
       // analytics tile; capping keeps the section as a tight strip
       // and lets the user opt in.
       const VALUE_PREVIEW_CAP = 2;
-      const moreLabel = (n) => isZh ? `[ + 展开剩余 ${n} 条 ]` : `[ + show ${n} more ]`;
-      const lessLabel = isZh ? "[ 收起 ]" : "[ collapse ]";
+      // System UI · always English (the surrounding tile content can
+      // still localize via `t`, but toggle chrome is fixed-string).
+      const moreLabel = (n) => `[ + show ${n} more ]`;
+      const lessLabel = "[ collapse ]";
       const upvotedHtml = stats.upvotedPoints.length > 0
         ? (() => {
             const items = stats.upvotedPoints.map((p, i) => {
@@ -4281,12 +4195,13 @@
         ? this.escape(nextSpeaker.handle.replace(/^\//, ""))
         : "";
 
-      const lang = this.composerLanguage();
-      const addInputLabel = lang === "zh" ? "[ + 补充观点 ]" : "[ + Add input ]";
-      const adjournLabel  = lang === "zh" ? "[ ▸ 结束并存档 ]" : "[ ▸ Adjourn & File Brief ]";
-      const resumeLabel   = lang === "zh" ? "[ ▶ 恢复讨论 ]"   : "[ ▶ Resume Discussion ]";
-      const pausedLabel   = lang === "zh" ? "已暂停" : "paused";
-      const nextLabel     = lang === "zh" ? "下一位" : "next";
+      // System UI · always English. App chrome (paused bar, action
+      // buttons, status labels) doesn't follow the brief language.
+      const addInputLabel = "[ + Add input ]";
+      const adjournLabel  = "[ ▸ Adjourn & File Brief ]";
+      const resumeLabel   = "[ ▶ Resume Discussion ]";
+      const pausedLabel   = "paused";
+      const nextLabel     = "next";
       const nextChunk = nextHandle
         ? ` · ${nextLabel} → <span class="lime">${nextHandle}</span>`
         : "";
@@ -5535,31 +5450,23 @@
       const userName = (this.prefs?.name || "you").trim() || "you";
       const lang = this.composerLanguage();
       const greeting = this.composerGreeting(lang, userName);
-      const t = lang === "zh"
-        ? {
-            greet: greeting,
-            prompt: "今天想和董事会聊点什么？",
-            placeholder: "一个还没把握的想法 · 一个一直绕开的决定 · 一个想被压力测试的判断",
-            convene: "Convene",
-            tuneLabel: "tune",
-            starterLabel: "starter",
-            starterCaption: "或者试一个起手式",
-            pickerLabel: "选择董事",
-            directorsLabel: (n) => `${n} 位董事`,
-            directorsAdd: "添加",
-          }
-        : {
-            greet: greeting,
-            prompt: "What's on your mind today?",
-            placeholder: "an idea you're not sure about · a decision you keep avoiding · a thesis you want stress-tested",
-            convene: "Convene",
-            tuneLabel: "tune",
-            starterLabel: "starter",
-            starterCaption: "or try a starter",
-            pickerLabel: "Pick directors",
-            directorsLabel: (n) => `${n} director${n === 1 ? "" : "s"}`,
-            directorsAdd: "add",
-          };
+      // System UI · always English. Composer chrome (prompt /
+      // placeholder / button labels) doesn't follow the brief
+      // language. The brief content + chair/director output still
+      // honours the user's input language; only the app shell is
+      // fixed-string.
+      const t = {
+        greet: greeting,
+        prompt: "What's on your mind today?",
+        placeholder: "an idea you're not sure about · a decision you keep avoiding · a thesis you want stress-tested",
+        convene: "Convene",
+        tuneLabel: "tune",
+        starterLabel: "starter",
+        starterCaption: "or try a starter",
+        pickerLabel: "Pick directors",
+        directorsLabel: (n) => `${n} director${n === 1 ? "" : "s"}`,
+        directorsAdd: "add",
+      };
 
       // Cast slot · two visual modes:
       //   1. Auto-pick (default · empty manual selection): chip
@@ -5578,16 +5485,15 @@
         // Label uses "directors" (not "cast") so the chip's purpose
         // is unambiguous: it's the slot that picks the boardroom's
         // director agents. Tooltip carries the long-form explanation.
-        const autoTip = lang === "zh"
-          ? "Convene 时由 chair 根据主题挑选 3 位董事 · 点击手动选择"
-          : "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
+        // System UI · always English (auto-pick chip tooltip).
+        const autoTip = "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
         castInner = `
           <span class="cmp-cast-stack cmp-cast-stack-auto" data-cast-auto title="${this.escape(autoTip)}">
             <span class="cmp-cast-auto-mark">✦</span>
           </span>
           <span class="cmp-cast-count cmp-cast-auto-label" title="${this.escape(autoTip)}">
-            <span class="cmp-cast-auto-key">${lang === "zh" ? "董事" : "directors"}</span>
-            <span class="cmp-cast-auto-val">${lang === "zh" ? "自动挑选" : "auto-pick"}</span>
+            <span class="cmp-cast-auto-key">directors</span>
+            <span class="cmp-cast-auto-val">auto-pick</span>
           </span>
         `;
       } else {
@@ -5598,7 +5504,7 @@
         `).join("");
         const dirCount = dirObjs.length
           ? `<span class="cmp-cast-count">${this.escape(t.directorsLabel(dirObjs.length))}</span>`
-          : `<span class="cmp-cast-count cmp-cast-empty">${lang === "zh" ? "未选董事" : "no directors"}</span>`;
+          : `<span class="cmp-cast-count cmp-cast-empty">no directors</span>`;
         castInner = `
           <span class="cmp-cast-stack">
             ${dirAvatars}
@@ -5612,8 +5518,9 @@
       // Tune dropdowns · two trigger buttons that open option popovers
       // on click. Discoverable (label + value + chevron pattern is
       // unmistakeably a select) without taking up visual real estate.
-      const toneLbl = lang === "zh" ? "tone" : "tone";
-      const intensityLbl = lang === "zh" ? "intensity" : "intensity";
+      // System UI · always English (tune dropdown labels).
+      const toneLbl = "tone";
+      const intensityLbl = "intensity";
 
       // Starter grid · 2-col responsive cards.
       const starters = Array.isArray(window.BOARDROOM_STARTERS) ? window.BOARDROOM_STARTERS : [];
@@ -5679,12 +5586,10 @@
     },
 
     /** Time-of-day greeting like "// good evening, Kay" / "// 晚上好，Kay". */
-    composerGreeting(lang, name) {
+    composerGreeting(_lang, name) {
+      // System UI · always English. Greeting is part of the composer
+      // chrome; the brief language doesn't change the app's voice.
       const h = new Date().getHours();
-      if (lang === "zh") {
-        const part = h < 5 ? "凌晨好" : h < 12 ? "早上好" : h < 14 ? "中午好" : h < 18 ? "下午好" : h < 23 ? "晚上好" : "夜深了";
-        return `// ${part}，${name}`;
-      }
       const part = h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
       return `// ${part}, ${name}`;
     },
@@ -5851,7 +5756,7 @@
      *  user can edit before submitting. */
     applyAgentStarter(idx) {
       const lang = this.composerLanguage();
-      const list = lang === "zh" ? this.AGENT_STARTERS_ZH : this.AGENT_STARTERS_EN;
+      const list = this.AGENT_STARTERS_EN;
       const item = list[idx];
       if (!item) return;
       const ta = document.querySelector("[data-agent-composer-desc]");
@@ -5878,39 +5783,27 @@
       { key: "voice",       label: "Picking the model voice",           startSec: 28, sub: ["matching depth to role"] },
       { key: "polish",      label: "Polishing",                         startSec: 31, sub: ["clamping lengths", "final tightening"] },
     ],
-    AGENT_GEN_STAGES_ZH_BASE: [
-      { key: "lineage",     label: "勾画智识画像",   startSec: 0,  sub: ["梳理思想脉络", "标记反对的传统", "挑出具体引用"] },
-      { key: "imagine",     label: "构思角色",       startSec: 8,  sub: ["勾画语气", "拟定立场", "确定视角"] },
-      { key: "name",        label: "起名 + handle",  startSec: 11, sub: ["试几个短名", "排查 handle 重名"] },
-      { key: "bio",         label: "起草 bio",       startSec: 14, sub: ["一两句话", "点明方法"] },
-      { key: "quote",       label: "写一句开场问",   startSec: 17, sub: ["这位董事每次会议会先问什么"] },
-      { key: "instruction", label: "撰写 instruction", startSec: 20, sub: ["脉络 + 概念", "method + 引用集", "语气 + 边界", "失效模式"] },
-      { key: "voice",       label: "挑选模型嗓音",   startSec: 28, sub: ["按角色深度匹配 model"] },
-      { key: "polish",      label: "收尾打磨",       startSec: 31, sub: ["长度修剪", "最后一遍"] },
-    ],
     /** Web-search prefix · prepended to the base list when the user
      *  opted into web search this run. Adds ~5s to the perceived
-     *  pipeline; downstream startSecs are shifted in agentGenStagesFor. */
+     *  pipeline; downstream startSecs are shifted in agentGenStagesFor.
+     *  System UI · English-only. */
     AGENT_GEN_STAGES_WS_EN: { key: "search", label: "Searching the web for context", startSec: 0, sub: ["refining the query", "scanning Brave results", "distilling 5–6 named sources"] },
-    AGENT_GEN_STAGES_WS_ZH: { key: "search", label: "联网检索领域上下文",         startSec: 0, sub: ["精炼查询", "扫描 Brave 结果", "提炼 5–6 条具名来源"] },
 
     /** Build the active stage list for THIS generation. When web search
-     *  is on, prepend the search stage and shift everything else later. */
-    agentGenStagesFor(lang) {
-      const base = lang === "zh" ? this.AGENT_GEN_STAGES_ZH_BASE : this.AGENT_GEN_STAGES_EN_BASE;
+     *  is on, prepend the search stage and shift everything else later.
+     *  System UI · English-only regardless of `lang`. */
+    agentGenStagesFor(_lang) {
+      const base = this.AGENT_GEN_STAGES_EN_BASE;
       const useWs = !!this._agentGenUsingWebSearch;
       if (!useWs) return base;
-      const wsEntry = lang === "zh" ? this.AGENT_GEN_STAGES_WS_ZH : this.AGENT_GEN_STAGES_WS_EN;
       const SHIFT = 5;
       const shifted = base.map((s) => ({ ...s, startSec: s.startSec + SHIFT }));
-      return [wsEntry, ...shifted];
+      return [this.AGENT_GEN_STAGES_WS_EN, ...shifted];
     },
 
-    /** Back-compat shims · existing references read these names directly.
-     *  Resolved at call-time so the web-search variant is picked when
-     *  the flag is set. */
+    /** Back-compat shims · existing references read these names directly. */
     get AGENT_GEN_STAGES_EN() { return this.agentGenStagesFor("en"); },
-    get AGENT_GEN_STAGES_ZH() { return this.agentGenStagesFor("zh"); },
+    get AGENT_GEN_STAGES_ZH() { return this.agentGenStagesFor("en"); },
 
     /** Start the stage tick. Called when /generate-spec request fires.
      *  Idempotent — calling twice is safe. */
@@ -5925,8 +5818,7 @@
           return;
         }
         const elapsed = (Date.now() - this.agentGenStartedAt) / 1000;
-        const lang = this.composerLanguage();
-        const stages = lang === "zh" ? this.AGENT_GEN_STAGES_ZH : this.AGENT_GEN_STAGES_EN;
+        const stages = this.AGENT_GEN_STAGES_EN;
         // Find current stage index by elapsed time.
         let idx = 0;
         for (let i = 0; i < stages.length; i++) {
@@ -5957,12 +5849,13 @@
     },
 
     renderAgentGenStagesInner() {
-      const lang = this.composerLanguage();
-      const stages = lang === "zh" ? this.AGENT_GEN_STAGES_ZH : this.AGENT_GEN_STAGES_EN;
+      // System UI · always English. Agent-generation stage panel is
+      // app chrome around the LLM call.
+      const stages = this.AGENT_GEN_STAGES_EN;
       const active = this.agentGenStageIndex;
       const elapsed = Math.max(0, (Date.now() - this.agentGenStartedAt) / 1000);
-      const elapsedLabel = lang === "zh" ? `已耗时 ${Math.round(elapsed)} s` : `${Math.round(elapsed)} s elapsed`;
-      const headerLabel = lang === "zh" ? "正在生成 director" : "Summoning director";
+      const elapsedLabel = `${Math.round(elapsed)} s elapsed`;
+      const headerLabel = "Summoning director";
       const sigilSvg = this.renderAgentGenSigilSvg(stages, active, elapsed);
       // The active stage's headline pulse — lifted out from the list so
       // it reads as the focal "what's happening RIGHT NOW" line.
@@ -5980,7 +5873,7 @@
         <div class="ag-gen-stage-area">
           <div class="ag-gen-sigil" aria-hidden="true">${sigilSvg}</div>
           <div class="ag-gen-active-block">
-            <div class="ag-gen-active-kicker">${this.escape(lang === "zh" ? `第 ${active + 1} / ${stages.length} 步` : `step ${active + 1} of ${stages.length}`)}</div>
+            <div class="ag-gen-active-kicker">${this.escape(`step ${active + 1} of ${stages.length}`)}</div>
             <div class="ag-gen-active-label">${this.escape(activeStage ? activeStage.label : "")}</div>
             ${activeSubText ? `<div class="ag-gen-active-sub">${this.escape(activeSubText)}</div>` : ""}
           </div>
@@ -6096,42 +5989,28 @@
       { tag: "critique-reviewer", text: "A senior critic who audits any deliverable systematically — labels each flaw blocker / major / minor, points at the load-bearing piece, names the mechanism. Won't praise without finding at least one major issue." },
       { tag: "phenomenologist", text: "An observer who notices what the room ISN'T saying. Tracks tone, what got skipped, who agreed too fast." },
     ],
-    AGENT_STARTERS_ZH: [
-      { tag: "long-horizon", text: "一位向前看四步的战略家，区分『此刻』和『真正起作用的时间点』，逼问决策落到哪个 horizon 上。" },
-      { tag: "user-empathy", text: "一位从用户摩擦时刻反推的产品老兵，反对任何不说清『用户那一刻在干嘛』的论点。" },
-      { tag: "first-principles", text: "一位把问题拆到可观测、因果链上的物理学家，拒绝从类比里搬假设。" },
-      { tag: "value-investor", text: "一位用三十年品类史做底的长周期读者，新点子要先和三个老案例对照才相信。" },
-      { tag: "critique-reviewer", text: "一位资深评审，对任何交付物做系统性审稿——每个瑕疵打 blocker / major / minor 严重度，指向具体段落、说出失败机制。不挑出至少一条 major 不会放过。" },
-      { tag: "phenomenologist", text: "一位观察者，捕捉房间里没说出来的东西：语气、被跳过的话题、太快达成的一致。" },
-    ],
+    /** Legacy ZH list · kept as an alias of EN so any external caller
+     *  reading the property still resolves. System UI is English-only
+     *  per the global rule (the brief language doesn't change app
+     *  chrome). New code should reference AGENT_STARTERS_EN directly. */
+    get AGENT_STARTERS_ZH() { return this.AGENT_STARTERS_EN; },
 
     renderAgentComposerHtml() {
       const userName = (this.prefs?.name || "you").trim() || "you";
       const lang = this.composerLanguage();
       const greeting = this.composerGreeting(lang, userName);
-      const t = lang === "zh"
-        ? {
-            greet: greeting,
-            prompt: "想招一位什么样的董事？",
-            placeholder: "几句话描述这位董事的角色、方法、立场。比如：一位每件事都从用户视角出发的产品老兵，会反对任何不带『用户在那一刻干嘛』的论点。",
-            cta: "Generate",
-            ctaHint: "AI 会生成一份完整 spec，你可以再调",
-            manual: "手动配置",
-            generating: "生成中…",
-            modelLabel: "model",
-            starterCaption: "或者从一个 archetype 起手",
-          }
-        : {
-            greet: greeting,
-            prompt: "What kind of director do you want?",
-            placeholder: "A few sentences on their role, method, stance. e.g. A seasoned product hand who reasons from the user's moment of friction. Will reject any argument that doesn't name what the user is doing right then.",
-            cta: "Generate",
-            ctaHint: "AI drafts the full spec — you'll edit before saving",
-            manual: "Configure manually",
-            generating: "Generating…",
-            modelLabel: "model",
-            starterCaption: "or start from an archetype",
-          };
+      // System UI · always English (new-agent composer chrome).
+      const t = {
+        greet: greeting,
+        prompt: "What kind of director do you want?",
+        placeholder: "A few sentences on their role, method, stance. e.g. A seasoned product hand who reasons from the user's moment of friction. Will reject any argument that doesn't name what the user is doing right then.",
+        cta: "Generate",
+        ctaHint: "AI drafts the full spec — you'll edit before saving",
+        manual: "Configure manually",
+        generating: "Generating…",
+        modelLabel: "model",
+        starterCaption: "or start from an archetype",
+      };
       // If we already have a spec preview, render that instead of the input.
       if (this.agentSpec) {
         return this.renderAgentSpecPreviewHtml(this.agentSpec, lang);
@@ -6145,7 +6024,7 @@
       const generating = this.agentSpecGenerating;
       const currentModel = this.loadAgentComposerModel();
       const modelDisplay = MODEL_LABELS[currentModel] || currentModel;
-      const starters = lang === "zh" ? this.AGENT_STARTERS_ZH : this.AGENT_STARTERS_EN;
+      const starters = this.AGENT_STARTERS_EN;
       const starterCards = starters.map((q, idx) => `
         <button type="button" class="cmp-starter" data-agent-starter="${idx}">
           <div class="cmp-starter-tag">${this.escape(q.tag)}</div>
@@ -6181,23 +6060,14 @@
                 // skill row at agent-profile.js:1411.
                 const configured = this.agentComposerBraveConfigured();
                 const on = configured && this.loadAgentComposerWebSearch();
-                const stateLabel = !configured
-                  ? (lang === "zh" ? "未配置" : "needs key")
-                  : on
-                    ? (lang === "zh" ? "已开启" : "enabled")
-                    : (lang === "zh" ? "已关闭" : "disabled");
+                // System UI · always English (web-search toggle chrome).
+                const stateLabel = !configured ? "needs key" : on ? "enabled" : "disabled";
                 const titleText = !configured
-                  ? (lang === "zh"
-                    ? "联网搜索需要 Brave Search API key · 点击配置"
-                    : "Web search needs a Brave Search API key · click to configure")
+                  ? "Web search needs a Brave Search API key · click to configure"
                   : on
-                    ? (lang === "zh"
-                      ? "生成时联网检索领域真实案例 · 点击关闭"
-                      : "Search the web for real domain references during generation · click to disable")
-                    : (lang === "zh"
-                      ? "生成时不联网 · 点击开启"
-                      : "Generation runs offline · click to enable web search");
-                const wsLabel = lang === "zh" ? "联网搜索" : "web search";
+                    ? "Search the web for real domain references during generation · click to disable"
+                    : "Generation runs offline · click to enable web search";
+                const wsLabel = "web search";
                 const cls = [
                   "ap-skill-row-toggle",
                   "cmp-ws-toggle",
@@ -6722,10 +6592,9 @@
       // Sort newest-first · the most recently filed brief is the one a
       // returning user most likely wants to re-open.
       briefs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      const lang = (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject)) ? "zh" : "en";
-      const t = lang === "zh"
-        ? { title: "选择一份报告打开", supplementPrefix: "补充视角：", initial: "初版", filed: "已归档" }
-        : { title: "Open a report", supplementPrefix: "Supplement: ", initial: "Initial", filed: "filed" };
+      // System UI · always English. Brief picker chrome (popover
+      // title, row labels) doesn't follow the brief language.
+      const t = { title: "Open a report", supplementPrefix: "Supplement: ", initial: "Initial", filed: "filed" };
       const initialIdx = briefs.length - 1; // oldest is "Initial"
       const rows = briefs.map((b, i) => {
         // The numbering is stable across renders: oldest = 01, newest
@@ -6740,7 +6609,7 @@
           : "";
         const subtitle = isInitial ? t.initial : (supplementSnippet ? `${t.supplementPrefix}${supplementSnippet}` : "");
         const filedLabel = b.createdAt
-          ? new Date(b.createdAt).toLocaleString(lang === "zh" ? "zh-CN" : undefined, {
+          ? new Date(b.createdAt).toLocaleString(undefined, {
               year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
             })
           : "";
@@ -6974,17 +6843,16 @@
       const isAutoPick = state.autoPickDirectors === true && dirObjs.length === 0;
       btn.classList.toggle("cmp-cast-btn-auto", isAutoPick);
       if (isAutoPick) {
-        const autoTip = lang === "zh"
-          ? "Convene 时由 chair 根据主题挑选 3 位董事 · 点击手动选择"
-          : "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
+        // System UI · always English (auto-pick chip tooltip).
+        const autoTip = "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
         btn.title = autoTip;
         btn.innerHTML = `
           <span class="cmp-cast-stack cmp-cast-stack-auto" data-cast-auto>
             <span class="cmp-cast-auto-mark">✦</span>
           </span>
           <span class="cmp-cast-count cmp-cast-auto-label">
-            <span class="cmp-cast-auto-key">${lang === "zh" ? "董事" : "directors"}</span>
-            <span class="cmp-cast-auto-val">${lang === "zh" ? "自动挑选" : "auto-pick"}</span>
+            <span class="cmp-cast-auto-key">directors</span>
+            <span class="cmp-cast-auto-val">auto-pick</span>
           </span>
         `;
         return;
@@ -7221,7 +7089,7 @@
       const useAutoPick = state.autoPickDirectors === true && state.directorIds.length === 0;
       if (!useAutoPick && !state.directorIds.length) {
         const lang = this.composerLanguage();
-        alert(lang === "zh" ? "请至少选择一位董事再 convene" : "Pick at least one director before convening");
+        alert("Pick at least one director before convening");
         return;
       }
       const btn = document.querySelector("[data-composer-go]");
@@ -7516,23 +7384,17 @@
     conveningCardHtml() {
       const s = this.conveneState;
       if (!s) return "";
-      const lang = (s.subject && /[一-鿿]/.test(s.subject)) ? "zh" : "en";
-
+      // System UI · always English. Convening overlay (analyzing /
+      // seating / preparing labels + decks) is app chrome.
       // Stages · auto-picked rooms run all three; manually-cast rooms
       // skip "analyzing" + "seating" because the cast is pre-set.
       const stageOrder = s.autoPicked
         ? ["analyzing", "seating", "preparing"]
         : ["preparing"];
       const STAGE_LABELS = {
-        analyzing: lang === "zh"
-          ? { title: "分析议题", deck: "haiku 路由器在拆解你提的话题" }
-          : { title: "Analyzing topic", deck: "Routing your topic to the right perspectives" },
-        seating: lang === "zh"
-          ? { title: "邀请董事", deck: "依据议题匹配的董事正在入席" }
-          : { title: "Seating directors", deck: "Picking the right perspectives for this question" },
-        preparing: lang === "zh"
-          ? { title: "主席组织开场陈词", deck: "主席正在准备介绍发言" }
-          : { title: "Chair preparing remarks", deck: "Drafting the convening speech" },
+        analyzing: { title: "Analyzing topic", deck: "Routing your topic to the right perspectives" },
+        seating:   { title: "Seating directors", deck: "Picking the right perspectives for this question" },
+        preparing: { title: "Chair preparing remarks", deck: "Drafting the convening speech" },
       };
 
       const currentIdx = stageOrder.indexOf(s.stage);
@@ -7564,7 +7426,7 @@
       // already in currentMembers; rendering it here would be redundant).
       const seatedRow = (s.autoPicked && s.seated.length > 0) ? `
         <div class="conv-seated">
-          <div class="conv-seated-label">${lang === "zh" ? "已入席" : "seated"} · ${s.seated.length}</div>
+          <div class="conv-seated-label">seated · ${s.seated.length}</div>
           <div class="conv-seated-list">
             ${s.seated.map((a) => `
               <div class="conv-seated-item" data-agent-id="${this.escape(a.id)}">
@@ -7581,7 +7443,7 @@
 
       return `
         <article class="convening-card" data-convene-card>
-          <div class="conv-eyebrow">${lang === "zh" ? "▸ 召集中" : "▸ CONVENING"}</div>
+          <div class="conv-eyebrow">▸ CONVENING</div>
           ${s.subject ? `<blockquote class="conv-subject">${this.escape(s.subject)}</blockquote>` : ""}
           <ul class="conv-stages">${stagesHtml}</ul>
           ${seatedRow}
@@ -7817,7 +7679,7 @@
       // 中文 copy. Reads from the chair's prompt body which lands in
       // the message body when a recommendation is present.
       const lang = (promptMsg && promptMsg.body && /[一-鿿]/.test(promptMsg.body)) ? "zh" : "en";
-      const recLabel = lang === "zh" ? "主席建议" : "chair recommends";
+      const recLabel = "chair recommends";
       const recIndicator = recKind
         ? `
           <div class="rp-rec-line rp-rec-line-${this.escape(recKind)}">
@@ -8065,9 +7927,11 @@
           parentId ? "convene-opener-followup" : "",
           isLongOpener ? "convene-opener-clamped" : "",
         ].filter(Boolean).join(" ");
-        const isZhLang = /[一-鿿]/.test(m.body || "") || /[一-鿿]/.test(this.currentRoom?.subject || "");
-        const moreLabel = isZhLang ? "展开全文 ↓" : "Show more ↓";
-        const lessLabel = isZhLang ? "收起 ↑" : "Show less ↑";
+        // System UI · always English. Earlier this followed the brief
+        // language; now fixed-string per the rule that app chrome stays
+        // English regardless of the user's query language.
+        const moreLabel = "Show more ↓";
+        const lessLabel = "Show less ↑";
         const toggleHtml = isLongOpener
           ? `<button type="button" class="convene-toggle" data-convene-toggle data-more="${this.escape(moreLabel)}" data-less="${this.escape(lessLabel)}">${moreLabel}</button>`
           : "";
@@ -8800,9 +8664,7 @@
       const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
       if (briefs.length < 2) return "";
       const sortedBriefs = briefs.slice().sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
-      const lang = (activeBrief && activeBrief.language === "zh")
-        || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))
-        ? "zh" : "en";
+      // System UI · always English (brief-version tab strip chrome).
       return `
         <div class="brief-versions">
           ${sortedBriefs.map((bf, i) => {
@@ -8811,11 +8673,11 @@
             const isInitial = i === 0;
             const supp = bf.supplement && bf.supplement.trim()
               ? bf.supplement.trim()
-              : (isInitial ? (lang === "zh" ? "初版" : "Initial") : "");
+              : (isInitial ? "Initial" : "");
             const tooltip = isInitial
-              ? (lang === "zh" ? `初版报告 · 由会议本身生成` : `Initial brief · generated from the session`)
-              : `${lang === "zh" ? "补充视角：" : "Supplement: "}${supp || "—"}`;
-            const closeTitle = lang === "zh" ? "删除这份报告" : "Delete this report";
+              ? `Initial brief · generated from the session`
+              : `Supplement: ${supp || "—"}`;
+            const closeTitle = "Delete this report";
             // Errored / interrupted / timed-out tabs get a small
             // visual marker so the user can spot which one needs
             // attention without entering it. The full retry UI is
@@ -8829,7 +8691,7 @@
                   <span class="brief-version-num">${num}</span>
                   ${stateMark}
                   ${isInitial
-                    ? `<span class="brief-version-label">${lang === "zh" ? "初版" : "Initial"}</span>`
+                    ? `<span class="brief-version-label">Initial</span>`
                     : `<span class="brief-version-label">${this.escape((supp || "").slice(0, 20))}${(supp || "").length > 20 ? "…" : ""}</span>`}
                 </button>
                 <button type="button" class="brief-version-close" data-brief-delete data-brief-id="${this.escape(bf.id)}" title="${this.escape(closeTitle)}" aria-label="${this.escape(closeTitle)}">×</button>
@@ -8902,14 +8764,14 @@
           finally { this.currentBrief = prevCurrent; }
           // Prepend the compact retry banner to the rendered card so
           // the existing report stays fully visible below it.
-          const lang = (failed.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
+          // System UI · always English (error banner chrome).
           const detail = failed.timedOut
-            ? (lang === "zh" ? "重新生成超时" : "regeneration timed out")
+            ? "regeneration timed out"
             : failed.interrupted
-              ? (lang === "zh" ? "重新生成被中断" : "regeneration interrupted")
-              : (failed.error || (lang === "zh" ? "重新生成失败" : "regeneration failed"));
-          const cta = lang === "zh" ? "重试" : "Retry";
-          const dismiss = lang === "zh" ? "关闭" : "Dismiss";
+              ? "regeneration interrupted"
+              : (failed.error || "regeneration failed");
+          const cta = "Retry";
+          const dismiss = "Dismiss";
           card.insertAdjacentHTML("afterbegin", `
             <div class="brief-retry-banner" data-brief-retry-banner data-failed-brief-id="${this.escape(failed.id)}">
               <span class="brb-mark">⚠</span>
@@ -8923,54 +8785,30 @@
           `);
           return;
         }
-        const lang = (b.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
+        // System UI · always English (full error-card copy).
         const copy = b.timedOut
-          ? (lang === "zh"
-            ? {
-                stamp: "timed out",
-                kicker: "// 报告生成超时",
-                detail: "已超过 8 分钟仍未收到完成信号 · 可能是模型回应过慢、网络中断，或后端流水线卡住了。点击下方按钮重试，或检查 LLM key 与网络后再试。",
-                hint: "",
-                cta: "重试",
-              }
-            : {
-                stamp: "timed out",
-                kicker: "// generation timed out",
-                detail: "No completion signal after 8 minutes — the model may be slow, the connection dropped, or the pipeline stalled. Click below to start a fresh run.",
-                hint: "",
-                cta: "Retry",
-              })
+          ? {
+              stamp: "timed out",
+              kicker: "// generation timed out",
+              detail: "No completion signal after 8 minutes — the model may be slow, the connection dropped, or the pipeline stalled. Click below to start a fresh run.",
+              hint: "",
+              cta: "Retry",
+            }
           : b.interrupted
-          ? (lang === "zh"
-            ? {
-                stamp: "interrupted",
-                kicker: "// 报告生成被中断了",
-                detail: "上一次生成在浏览器刷新或服务重启时中止了。点击下方按钮重新生成一份报告。",
-                hint: "",
-                cta: "重新生成报告",
-              }
-            : {
-                stamp: "interrupted",
-                kicker: "// generation interrupted",
-                detail: "The previous generation was cut short — likely by a browser refresh or a server restart. Click below to start a fresh report.",
-                hint: "",
-                cta: "Regenerate report",
-              })
-          : (lang === "zh"
-            ? {
-                stamp: "failed",
-                kicker: "// 报告生成失败",
-                detail: this.escape(b.error || ""),
-                hint: "Brief writer 需要一个 LLM key（OpenRouter，或 Anthropic / OpenAI / Google / xAI 直连）。在 <strong>Preference → API Key</strong> 中添加后再试。",
-                cta: "重试",
-              }
-            : {
-                stamp: "failed",
-                kicker: "// brief generation failed",
-                detail: this.escape(b.error || ""),
-                hint: "The brief writer needs an LLM key (OpenRouter, or a direct Anthropic / OpenAI / Google / xAI key). Add one in <strong>Preference → API Key</strong> and try again.",
-                cta: "Retry",
-              });
+          ? {
+              stamp: "interrupted",
+              kicker: "// generation interrupted",
+              detail: "The previous generation was cut short — likely by a browser refresh or a server restart. Click below to start a fresh report.",
+              hint: "",
+              cta: "Regenerate report",
+            }
+          : {
+              stamp: "failed",
+              kicker: "// brief generation failed",
+              detail: this.escape(b.error || ""),
+              hint: "The brief writer needs an LLM key (OpenRouter, or a direct Anthropic / OpenAI / Google / xAI key). Add one in <strong>Preference → API Key</strong> and try again.",
+              cta: "Retry",
+            };
         card.innerHTML = `
           <div class="brief-card">
             ${tabsStripHtml}
@@ -9340,7 +9178,7 @@
         write:               { status: "pending", detail: "", progress: null, startedAt: null },
       };
       const lang = b.language === "zh" ? "zh" : "en";
-      const chairName = b.chairName || this.currentChair?.name || (lang === "zh" ? "主席" : "Chair");
+      const chairName = b.chairName || this.currentChair?.name || "Chair";
 
       const wordCount = b.bodyMd
         ? (b.bodyMd.trim().match(/\S+/g) || []).length
@@ -9355,25 +9193,18 @@
       // Stage 2 streaming buffer (see runStage2 / SCAFFOLD_TRIGGERS in
       // brief.ts), so each pip transition reflects a real moment in the
       // model's output — not a synthetic timer.
-      const STAGE_DEFS = lang === "zh"
-        ? [
-            { key: "extract",            label: "读完房间里每个人的发言", pipShort: "听" },
-            { key: "compose",            label: "选定报告骨架与组件",    pipShort: "选" },
-            { key: "scaffold-anchor",    label: "敲定核心判断 (anchor)",  pipShort: "锚" },
-            { key: "scaffold-findings",  label: "勾勒主张与发现",       pipShort: "见" },
-            { key: "scaffold-cluster",   label: "梳理共识与分歧",       pipShort: "辨" },
-            { key: "scaffold-actions",   label: "拟动作 · 推演风险",     pipShort: "拟" },
-            { key: "write",              label: "撰写最终报告",         pipShort: "写" },
-          ]
-        : [
-            { key: "extract",            label: "Reading what each director said", pipShort: "read" },
-            { key: "compose",            label: "Picking the report shape",        pipShort: "pick" },
-            { key: "scaffold-anchor",    label: "Setting the anchor",              pipShort: "anchor" },
-            { key: "scaffold-findings",  label: "Sketching findings",              pipShort: "find" },
-            { key: "scaffold-cluster",   label: "Mapping consensus + dissent",     pipShort: "split" },
-            { key: "scaffold-actions",   label: "Drafting actions + risks",        pipShort: "act" },
-            { key: "write",              label: "Writing the report",              pipShort: "write" },
-          ];
+      // System UI · always English regardless of brief language.
+      // The pipeline labels are the app's voice (chrome around the
+      // generation), not the report content itself.
+      const STAGE_DEFS = [
+        { key: "extract",            label: "Reading what each director said", pipShort: "read" },
+        { key: "compose",            label: "Picking the report shape",        pipShort: "pick" },
+        { key: "scaffold-anchor",    label: "Setting the anchor",              pipShort: "anchor" },
+        { key: "scaffold-findings",  label: "Sketching findings",              pipShort: "find" },
+        { key: "scaffold-cluster",   label: "Mapping consensus + dissent",     pipShort: "split" },
+        { key: "scaffold-actions",   label: "Drafting actions + risks",        pipShort: "act" },
+        { key: "write",              label: "Writing the report",              pipShort: "write" },
+      ];
 
       const meta = this.BRIEF_STAGE_META;
       const substages = (this.BRIEF_SUBSTAGES[lang] || this.BRIEF_SUBSTAGES.en);
@@ -9437,12 +9268,12 @@
       if (activeDef.key === "extract" && activeStage.progress?.total) {
         const cur = activeStage.progress.current;
         const tot = activeStage.progress.total;
-        detailParts.push(lang === "zh" ? `${cur}/${tot} 位董事` : `${cur}/${tot} director${tot === 1 ? "" : "s"}`);
+        detailParts.push(`${cur}/${tot} director${tot === 1 ? "" : "s"}`);
       } else if (activeStage.detail) {
         detailParts.push(activeStage.detail);
       }
       if (activeDef.key === "write" && activeStatus === "active" && wordCount > 0) {
-        detailParts.push(lang === "zh" ? `${wordCount} 字` : `${wordCount} word${wordCount === 1 ? "" : "s"}`);
+        detailParts.push(`${wordCount} word${wordCount === 1 ? "" : "s"}`);
       }
       const detailLine = detailParts.join(" · ");
 
@@ -9454,7 +9285,7 @@
             ? `${activeElapsed}s · ~${activeEta[0]}–${activeEta[1]}s`
             : `~${activeEta[0]}–${activeEta[1]}s`;
         } else {
-          timing = lang === "zh" ? `已耗时 ${activeElapsed}s` : `${activeElapsed}s elapsed`;
+          timing = `${activeElapsed}s elapsed`;
         }
       }
 
@@ -9510,19 +9341,15 @@
         return r === 0 ? `${m}m` : `${m}m ${r}s`;
       };
       const fmtRange = (lo, hi) => {
-        if (hi < 60) return lang === "zh" ? `约 ${lo}–${hi}s` : `~${lo}–${hi}s`;
+        if (hi < 60) return `~${lo}–${hi}s`;
         const loM = Math.max(1, Math.round(lo / 60));
         const hiM = Math.max(loM, Math.round(hi / 60));
-        return lang === "zh" ? `约 ${loM}–${hiM} 分钟` : `~${loM}-${hiM}m`;
+        return `~${loM}-${hiM}m`;
       };
 
-      const totalText = lang === "zh"
-        ? `已 ${fmtSec(totalElapsed)} · 还需${fmtRange(totalLo, totalHi)}`
-        : `${fmtSec(totalElapsed)} elapsed · ${fmtRange(totalLo, totalHi)} left`;
-
-      const kickerCore = lang === "zh"
-        ? `// ${chairName} 正在整理纪要 · ${totalText}`
-        : `// ${chairName} is preparing the minutes · ${totalText}`;
+      // System UI · always English (brief-progress kicker copy).
+      const totalText = `${fmtSec(totalElapsed)} elapsed · ${fmtRange(totalLo, totalHi)} left`;
+      const kickerCore = `// ${chairName} is preparing the minutes · ${totalText}`;
 
       const metaHtml = (detailLine || timing)
         ? `<span class="brief-active-meta">` +
@@ -9554,9 +9381,8 @@
       this._briefSeenHarvestKeys = this._briefSeenHarvestKeys || {};
       const seenH = this._briefSeenHarvestKeys[b.id] = this._briefSeenHarvestKeys[b.id] || new Set();
       const harvest = Array.isArray(b.extractHarvest) ? b.extractHarvest : [];
-      const kindLabels = lang === "zh"
-        ? { claims: "判断", evidence: "证据", tensions: "分歧", assumptions: "假设", risks: "风险", opportunities: "机会", actions: "动作", quotes: "原话", openQuestions: "悬而未决" }
-        : { claims: "claims", evidence: "evidence", tensions: "tensions", assumptions: "assumptions", risks: "risks", opportunities: "opportunities", actions: "actions", quotes: "quotes", openQuestions: "open-q" };
+      // System UI · always English (signal-kind chip labels).
+      const kindLabels = { claims: "claims", evidence: "evidence", tensions: "tensions", assumptions: "assumptions", risks: "risks", opportunities: "opportunities", actions: "actions", quotes: "quotes", openQuestions: "open-q" };
       if (harvest.length) {
         const chips = harvest.map((h) => {
           const isFresh = !seenH.has(h.directorId);
@@ -9581,7 +9407,7 @@
       // Live word count during write — large and visible since it's the
       // most engaging signal during the long write stage.
       if (writeActive && wordCount > 0) {
-        const w = lang === "zh" ? `${wordCount} 字 · 还在落笔` : `${wordCount} word${wordCount === 1 ? "" : "s"} · still writing`;
+        const w = `${wordCount} word${wordCount === 1 ? "" : "s"} · still writing`;
         stats.push(`<span class="brief-stat-fact brief-stat-live">${this.escape(w)}</span>`);
       }
       const statsHtml = stats.length

@@ -930,6 +930,10 @@
               <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false">Usage</a>
               <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false">API Key</a>
               <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false">Default Model</a>
+              <div class="us-nav-foot" data-us-version aria-label="App version">
+                <span class="us-nav-foot-label">version</span>
+                <span class="us-nav-foot-value" data-us-version-value>·</span>
+              </div>
             </nav>
 
             <div class="us-pane" data-us-pane></div>
@@ -1219,6 +1223,34 @@
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Lazy-fetch the version string on each open. Cheap (one tiny
+    // request, no DB hit) and the user expects the foot to reflect
+    // the running server, not a baked-in client constant — if they
+    // upgrade the npm package and a tab is still open, the next
+    // overlay open shows the new version.
+    fetchAppVersion();
+  }
+
+  let _versionCache = null;
+  async function fetchAppVersion() {
+    const slot = overlay && overlay.querySelector("[data-us-version-value]");
+    if (!slot) return;
+    // Use cache if we already have it · the version doesn't change
+    // mid-process. First open does the network round-trip; subsequent
+    // opens repaint from cache instantly.
+    if (_versionCache) {
+      slot.textContent = _versionCache;
+      return;
+    }
+    try {
+      const r = await fetch("/api/version");
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j && typeof j.version === "string") {
+        _versionCache = `v${j.version}`;
+        slot.textContent = _versionCache;
+      }
+    } catch { /* swallow · the foot just stays at "·" if offline */ }
   }
   function close() {
     if (!overlay) return;
