@@ -1076,10 +1076,14 @@
               }
             }
           }
-          // Typing-SFX presence cue · same as message-token. Ticks
-          // even on off-tab briefs so the user has aural awareness
-          // that the brief writer is making progress.
-          window.boardroomTypingSfx && window.boardroomTypingSfx.tick();
+          // No typing-SFX during the brief writer's Stage 3 stream.
+          // The write phase is a long, off-screen streaming pass (the
+          // user is usually reading prior content or doing something
+          // else while the report builds) — a continuous click track
+          // for tens of seconds reads as background noise, not a
+          // presence cue. Director / chair turns still tick because
+          // those land in the active conversation the user is
+          // following.
         } else if (kind === "brief-final") {
           this.markBriefEvent();
           const target = this._briefById(payload.briefId);
@@ -1482,6 +1486,31 @@
       if (this.hasAnyModelKey()) return true;
       this.openNoKeyModal();
       return false;
+    },
+
+    /** Has the brief got its body content yet? Mode-aware check ·
+     *  research-note briefs land their content in `bodyMd`; bento
+     *  briefs land theirs in `bodyJson` and leave bodyMd empty. The
+     *  card-rendering / placeholder-detection / generating-check
+     *  logic uses this everywhere so a bento brief doesn't stay
+     *  stuck in "generating…" state after the BentoScaffold has
+     *  actually been persisted.
+     *
+     *  Without this helper, a successful bento generation followed
+     *  by a page refresh hid the View Report button forever (the
+     *  card thought it was still generating because bodyMd was empty
+     *  — which is the steady-state shape for bento, not an
+     *  in-flight signal). */
+    briefHasBody(b) {
+      if (!b) return false;
+      if (b.mode === "bento") {
+        // Bento populates bodyJson with the BentoScaffold. An empty
+        // object isn't a body; check for at least a title field.
+        const j = b.bodyJson;
+        return !!(j && typeof j === "object" && (j.title || j.milestones));
+      }
+      // Default research-note · body lives in markdown.
+      return !!(b.bodyMd && b.bodyMd.trim());
     },
 
     /** Build the right viewer URL for a brief based on its mode.
@@ -2560,7 +2589,7 @@
      *  whether streaming is actually in flight. */
     isBriefPlaceholder(brief, room) {
       if (!brief) return false;
-      if (brief.bodyMd && brief.bodyMd.trim()) return false;
+      if (this.briefHasBody(brief)) return false;
       if (!room) return true;
       // Title matches the seed (room subject) → never got an updated title.
       // Or title is the literal "Generating…" placeholder.
@@ -2677,7 +2706,7 @@
       const target = (this.currentBriefs || []).find((b) => b.id === briefId);
       // System UI · always English. Confirm + alert dialogs are app
       // chrome and stay fixed-string regardless of brief language.
-      const isStillGenerating = !!(target && (!target.bodyMd || !target.bodyMd.trim()));
+      const isStillGenerating = !!(target && !this.briefHasBody(target));
       const confirmText = isStillGenerating
         ? "This report is still generating. Deleting will stop the generation and remove the report. This can't be undone."
         : (target?.supplement
@@ -8784,7 +8813,7 @@
         // a failed-brief tab becomes unreachable — clicking it just
         // re-renders whichever good brief the salvage path picks.
         const goodBrief = bypassSalvage ? null : (this.currentBriefs || []).find(
-          (x) => x && x.id !== b.id && !x.error && x.bodyMd && x.bodyMd.trim().length > 0,
+          (x) => x && x.id !== b.id && !x.error && this.briefHasBody(x),
         );
         if (goodBrief) {
           const failed = b;
@@ -8866,7 +8895,7 @@
         return;
       }
 
-      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
       const signed = this.currentMembers
         .map((a) => `<img src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`)
         .join("");
@@ -9042,7 +9071,7 @@
         }
         const stages = b.stages || {};
         const anyActive = Object.values(stages).some((s) => s && s.status === "active");
-        const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+        const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
         if (!anyActive && !generating) {
           this.stopBriefStageTick();
           return;
@@ -9093,7 +9122,7 @@
       if (this._briefStallWatchTimer) return;
       const b = this.currentBrief;
       if (!b || !b.id || b.error) return;
-      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
       if (!generating) return;
       if (!this._lastBriefEventAt) this._lastBriefEventAt = Date.now();
       this._lastBriefHealthPollAt = 0;
@@ -9113,7 +9142,7 @@
     async tickBriefStallWatch() {
       const b = this.currentBrief;
       if (!b || b.error) { this.stopBriefStallWatch(); return; }
-      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
       if (!generating) { this.stopBriefStallWatch(); return; }
 
       const now = Date.now();

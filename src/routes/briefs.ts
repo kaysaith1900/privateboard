@@ -16,8 +16,23 @@ import { join } from "node:path";
 import { Hono } from "hono";
 
 import { abortBriefGeneration, getBriefGenerationState, isBriefGenerating } from "../orchestrator/brief.js";
-import { countBriefs, deleteBrief, getBrief, listAllBriefs } from "../storage/briefs.js";
+import { countBriefs, deleteBrief, getBrief, listAllBriefs, type Brief } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
+
+/** Mode-aware "has the brief landed its body content yet?" check.
+ *  Research-note briefs put their content in body_md (markdown);
+ *  bento briefs put theirs in body_json (BentoScaffold) and leave
+ *  body_md empty by design. Without this routing, bento briefs were
+ *  reported as `hasBody: false` forever after generation completed,
+ *  which kept the frontend's "View Report" button hidden — the user
+ *  saw their brief disappear after a page refresh. */
+function briefHasBody(b: Brief): boolean {
+  if (b.mode === "bento") {
+    const j = b.bodyJson as { title?: unknown } | null;
+    return !!(j && typeof j === "object" && typeof j.title === "string" && j.title.length > 0);
+  }
+  return !!(b.bodyMd && b.bodyMd.trim().length > 0);
+}
 
 export function briefsRouter(): Hono {
   const r = new Hono();
@@ -29,7 +44,7 @@ export function briefsRouter(): Hono {
   // request per brief; the route still drops bodies for any brief
   // that's still generating to avoid surfacing partial output.
   r.get("/", (c) => {
-    const briefs = listAllBriefs().filter((b) => !isBriefGenerating(b.id) && b.bodyMd && b.bodyMd.trim());
+    const briefs = listAllBriefs().filter((b) => !isBriefGenerating(b.id) && briefHasBody(b));
     return c.json({ briefs });
   });
 
@@ -50,7 +65,7 @@ export function briefsRouter(): Hono {
     const id = c.req.param("id");
     const b = getBrief(id);
     if (!b) return c.json({ error: "not found" }, 404);
-    const hasBody = !!(b.bodyMd && b.bodyMd.trim());
+    const hasBody = briefHasBody(b);
     const generating = isBriefGenerating(id);
     const completed = hasBody && !generating;
     // When the pipeline is still running, hand back the per-stage

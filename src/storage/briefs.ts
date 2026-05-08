@@ -552,11 +552,20 @@ export function deleteBrief(id: string): boolean {
 /** Count of briefs that have a non-empty body · drives the All Reports
  *  sidebar badge. Mirrors `countNotes()` in storage/notes.ts: cheap
  *  SELECT COUNT(*), one row, no joins. Excludes empty placeholders so
- *  the count matches what the All Reports page actually renders (the
- *  list filters `b.bodyMd && b.bodyMd.trim()`). */
+ *  the count matches what the All Reports page actually renders.
+ *  Mode-aware · research-note briefs land their body in body_md
+ *  (markdown); bento briefs land theirs in body_json (BentoScaffold)
+ *  and leave body_md empty. The original count filtered on body_md
+ *  alone, which silently dropped bento briefs from the badge / list.
+ *  This version counts a brief as present when EITHER body channel
+ *  has content. */
 export function countBriefs(): number {
   const row = getDb()
-    .prepare("SELECT COUNT(*) AS c FROM briefs WHERE body_md IS NOT NULL AND TRIM(body_md) != ''")
+    .prepare(
+      "SELECT COUNT(*) AS c FROM briefs " +
+      "WHERE (body_md IS NOT NULL AND TRIM(body_md) != '') " +
+      "   OR (body_json IS NOT NULL AND TRIM(body_json) != '' AND TRIM(body_json) != 'null')",
+    )
     .get() as { c: number };
   return row.c ?? 0;
 }
