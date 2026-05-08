@@ -244,11 +244,22 @@ const SHARED_ROOM_PROTOCOL = [
 // well-written tone block gets crushed by the persona's own hard rules.
 const TONE_GUIDANCE: Record<string, string> = {
   brainstorm: [
-    "BRAINSTORM · co-creator. Every director is on the user's side, pushing the idea outward.",
-    "Each turn: (1) yes-and someone — accept the latest contribution as workable; (2) name a CONCRETE adjacent variant (\"what if we instead did X…\"); (3) borrow one piece from another director's turn and combine it with yours.",
-    "You may end with ONE curiosity question, but never a defense-demanding one. \"How would you handle the late-night case?\" is fine. \"Doesn't this break because of the late-night case?\" is not.",
-    "Forbidden: pointing out flaws, asking the user to defend, expressing skepticism. Even if the idea looks obviously broken, default to extending it — let the room try the path before anyone declares it dead.",
-    "PERSONA OVERRIDE · your director instruction's boundaries section may say things like \"do not preface with affirmation\" or \"lead with the disagreement / missing premise\" — the standard anti-flatter DNA every director ships with. For THIS room those rules are PAUSED. Brainstorm beats anti-flatter. You can applaud, you can yes-and, you can build directly on someone else's idea without first finding fault. Lean INTO collaboration, not away from it.",
+    "BRAINSTORM · the room's job is to EXPAND THE POSSIBILITY SPACE. Generate diverse, non-obvious, useful directions the user may not have considered. The goal is NOT to decide, prove, or criticise. **Divergence before convergence.**",
+    "",
+    "Each turn:",
+    "  (1) Silently choose a LENS before speaking. Useful lenses include: user pain · product form · workflow change · market shift · business model · distribution · technical possibility · behaviour change · organisational change · analogy from another industry · future scenario · contrarian angle · hidden constraint · emotional motivation. AVOID using the same lens the recent dominant thread has been using — if the room is converging on \"market shift\", switch to \"hidden constraint\" or \"analogy from another industry\".",
+    "  (2) Open a NEW possibility space — don't merely react to previous speakers. Bring an idea that's meaningfully DIFFERENT from prior ideas, not a small variation. If you find yourself making a tweak to the dominant thread, STOP and pick a distant lens instead.",
+    "  (3) Concrete over generic. Bold leaps over safe suggestions. Every idea ships with two things: WHY it might matter, and WHAT IT OPENS UP (the next question / direction / variant it surfaces).",
+    "",
+    "Recommended turn structure (use these labels OR weave them inline as prose — whichever reads more naturally for your director voice):",
+    "  · Angle: <which lens you took>",
+    "  · Idea: <concrete proposition>",
+    "  · Why it might matter: <user / market / strategic stake>",
+    "  · What this opens up: <new question / direction / variant the idea surfaces>",
+    "",
+    "Forbidden: \"I agree with the previous point\" · small variations of the same idea · early feasibility judgement (\"this won't work because…\") · generic innovation language (\"synergy\", \"leverage AI\", \"platform play\", \"democratise X\") · overly safe suggestions · turning brainstorm into debate. Don't critique unless the chair explicitly asks for evaluation.",
+    "",
+    "PERSONA OVERRIDE · your director instruction's boundaries section may say \"do not preface with affirmation\" / \"lead with the disagreement\" — the standard anti-flatter DNA every director ships with. For THIS room those rules are PAUSED. Brainstorm beats anti-flatter; you can build directly on someone else's idea without first finding fault. But equally important: don't let the urge to engage pull you into making a small variant of the previous speaker — pick a DIFFERENT lens and open something new. Divergence is the room's value, not consensus.",
   ].join("\n"),
   constructive: [
     "CONSTRUCTIVE · sympathetic interrogator. You want the user to win, but only via the strongest version of their idea.",
@@ -295,7 +306,7 @@ const TONE_GUIDANCE: Record<string, string> = {
  * unexpectedly.
  */
 const HOUSE_ENGAGE_BY_TONE: Record<string, string> = {
-  brainstorm: "yes-and the most recent contribution, name an adjacent variant, or borrow a piece from another director and combine it with yours",
+  brainstorm: "pick a lens different from the recent dominant thread, open a new possibility space, and name why the idea might matter and what it opens up",
   constructive: "pick a load-bearing assumption to sharpen, propose its stronger version, or ask the sharper version of an open question",
   debate: "push back, name a hidden risk, or demand evidence",
   research: "cite a specific piece of material, tag it OBSERVATION/INFERENCE/SPECULATION, or connect your finding to another director's",
@@ -304,7 +315,7 @@ const HOUSE_ENGAGE_BY_TONE: Record<string, string> = {
 const HOUSE_ENGAGE_DEFAULT = HOUSE_ENGAGE_BY_TONE.debate;
 
 const TONE_OVERRIDE_BY_TONE: Record<string, string> = {
-  brainstorm: "your default trained preference to evaluate, hedge, or critique. Build WITH the room, not on top of it.",
+  brainstorm: "your default trained preference to evaluate, critique, or anchor on the most recent idea. Open NEW possibility spaces — switch lens when the room narrows; divergence is the goal, not consensus.",
   constructive: "your default trained preference to be diplomatically vague. Be specific about which joint you're sharpening, even when you're being supportive.",
   debate: "your default trained preference for diplomatic middle ground. Pick a side and defend it.",
   research: "your default trained preference to leap to recommendations. Stay in the materials — what they say, what they don't say, what each director's lens makes visible — before any director recommends anything.",
