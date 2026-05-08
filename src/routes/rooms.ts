@@ -237,6 +237,52 @@ export function roomsRouter(): Hono {
       if (!getAgent(id)) return c.json({ error: `unknown agent: ${id}` }, 400);
     }
 
+    // Director-presence guard · the room's whole value comes from
+    // directors speaking; without ≥ 1 director-role agent the chair
+    // clarifies once and then tickRoom dispatches into an empty
+    // queue, leaving the room silent forever (no members to call,
+    // no error path to surface). Two paths to check:
+    //
+    //   · autoPick=true · the picker pulls from the global registry
+    //     of director-role agents. If that pool is empty (fresh
+    //     install / user deleted them all), the picker returns []
+    //     and the room is created with chair only.
+    //
+    //   · autoPick=false · agentIds passed validation for existence
+    //     and non-emptiness, but might still contain only the chair
+    //     (or other non-director agents). createRoom dedupes the
+    //     chair, so a chair-only agentIds list lands the room with
+    //     0 directors despite passing earlier checks.
+    //
+    // Refuse upfront with a clear `code` so the frontend can route
+    // the user to the agents tab to add a director.
+    if (autoPick) {
+      const directorPool = listAgents().filter((a) => a.roleKind === "director");
+      if (directorPool.length === 0) {
+        return c.json(
+          {
+            error: "No directors are configured. Add at least one director agent before convening a room.",
+            code: "no-directors",
+          },
+          400,
+        );
+      }
+    } else {
+      const hasDirector = agentIds.some((id) => {
+        const a = getAgent(id);
+        return !!a && a.roleKind === "director";
+      });
+      if (!hasDirector) {
+        return c.json(
+          {
+            error: "At least one director must be invited (the chair alone can't carry the room).",
+            code: "no-directors",
+          },
+          400,
+        );
+      }
+    }
+
     const name = typeof b.name === "string" && b.name.trim()
       ? b.name.trim().slice(0, 80)
       : subject.slice(0, 60);
@@ -351,6 +397,35 @@ export function roomsRouter(): Hono {
       try {
         if (autoPick) {
           await runAutoPickAndSeat(room.id, subject);
+        }
+        // Defensive · refuse to tick a room with 0 director-role
+        // members. Layer 1 (the route validation above) blocks this at
+        // creation time, but if a future regression or an
+        // addRoomMember failure leaves us here with 0 directors, we
+        // surface a clear pause rather than letting tickRoom dispatch
+        // into an empty queue (which produces a silent room with no
+        // error path · the symptom the user reported).
+        const seated = listRoomMembers(room.id).filter((m) => {
+          const a = getAgent(m.agentId);
+          return !!a && a.roleKind === "director";
+        });
+        if (seated.length === 0) {
+          const pausedAt = Date.now();
+          setRoomStatus(room.id, "paused", { pausedAt });
+          setAwaitingClarify(room.id, false);
+          insertConfigEvent({
+            roomId: room.id,
+            kind: "room-paused",
+            payload: { pausedAt, mode: "hard", reason: "no-directors-seated" },
+            actorKind: "system",
+          });
+          roomBus.emit(room.id, {
+            type: "config-event",
+            kind: "room-paused",
+            payload: { pausedAt, mode: "hard", reason: "no-directors-seated" },
+            createdAt: pausedAt,
+          });
+          return;
         }
         const result = await runChairClarify(room.id);
         if (result.ready) tickRoom(room.id, { roundNum: 1, kind: initialTickKind });
