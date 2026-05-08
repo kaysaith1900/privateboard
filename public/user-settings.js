@@ -225,6 +225,19 @@
             <div class="us-row-meta"><span data-us-intro-count>0</span> / 320 chars</div>
           </div>
         </div>
+
+        <div class="us-row">
+          <div class="us-row-label">Typing sound</div>
+          <div class="us-row-field">
+            <div class="us-toggle-row">
+              <button type="button" class="us-toggle-pill" data-us-sfx-typing aria-pressed="false">
+                <span class="us-toggle-dot"></span>
+                <span class="us-toggle-label" data-us-sfx-typing-label>off</span>
+              </button>
+              <span class="us-toggle-deck">a soft keyboard click as directors stream their replies. Persists locally.</span>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -1021,6 +1034,32 @@
       persist();
     });
     introCount.textContent = introInput.value.length;
+
+    // Typing-sound toggle · the persistence + audio context lives in
+    // window.boardroomTypingSfx (typing-sfx.js), so this row only
+    // mirrors the current state and proxies clicks. Reading inside the
+    // wire-up call (not at HTML build time) means the pill always
+    // reflects the LATEST stored state when the User pane re-mounts.
+    const sfxBtn = paneEl.querySelector("[data-us-sfx-typing]");
+    const sfxLabel = paneEl.querySelector("[data-us-sfx-typing-label]");
+    if (sfxBtn && sfxLabel && window.boardroomTypingSfx) {
+      const paint = () => {
+        const on = window.boardroomTypingSfx.isEnabled();
+        sfxBtn.classList.toggle("on", on);
+        sfxBtn.setAttribute("aria-pressed", on ? "true" : "false");
+        sfxLabel.textContent = on ? "on" : "off";
+      };
+      paint();
+      sfxBtn.addEventListener("click", () => {
+        const next = !window.boardroomTypingSfx.isEnabled();
+        window.boardroomTypingSfx.setEnabled(next);
+        paint();
+        // Audible confirmation when turning ON · the click that just
+        // toggled also serves as the gesture the AudioContext needs,
+        // so this tick will actually be heard.
+        if (next) window.boardroomTypingSfx.tick();
+      });
+    }
 
     // Regenerate avatar · same pattern as agent-profile's
     // regenerateProfileAvatar: pull a fresh randomSeed, persist it to

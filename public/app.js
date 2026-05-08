@@ -777,6 +777,10 @@
         msg.body += data.delta;
         this.updateMessageBodyDom(data.messageId, msg.body, true);
         this.scrollChatToBottom();
+        // Typing-SFX presence cue · the module throttles internally,
+        // mutes when the tab is backgrounded, and respects the user's
+        // toggle in Preference → User. Safe to call on every chunk.
+        window.boardroomTypingSfx && window.boardroomTypingSfx.tick();
       });
 
       this.sse.addEventListener("message-final", (e) => {
@@ -1072,6 +1076,10 @@
               }
             }
           }
+          // Typing-SFX presence cue · same as message-token. Ticks
+          // even on off-tab briefs so the user has aural awareness
+          // that the brief writer is making progress.
+          window.boardroomTypingSfx && window.boardroomTypingSfx.tick();
         } else if (kind === "brief-final") {
           this.markBriefEvent();
           const target = this._briefById(payload.briefId);
@@ -3767,14 +3775,11 @@
     renderSidebarCounts() {
       const roomsCount = this.rooms.length;
       const agentsCount = this.agents.length;
-      const liveCount = this.rooms.filter((r) => r.status === "live").length;
 
       const r = document.querySelector('[data-sidebar-tab-count="rooms"]');
       if (r) r.textContent = String(roomsCount);
       const a = document.querySelector('[data-sidebar-tab-count="agents"]');
       if (a) a.textContent = String(agentsCount);
-      const sum = document.querySelector("[data-sidebar-summary]");
-      if (sum) sum.textContent = `${liveCount} LIVE / ${agentsCount} AGENTS`;
     },
 
     // ── Rendering · main view ─────────────────────────────────
@@ -4358,6 +4363,12 @@
         try { this._reportsLoadObserver.disconnect(); } catch { /* noop */ }
         this._reportsLoadObserver = null;
       }
+      // The floating sidebar-expand button is gated on `html.no-room`.
+      // Without setting it here, a user who collapses the sidebar
+      // while on All Reports loses access to the expand control —
+      // they have to navigate back to a room view to recover. Same
+      // reasoning for openAllNotes / openAgentProfile.
+      document.documentElement.classList.add("no-room");
       // If we're inside a room or on the agent profile, leave them.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -4563,32 +4574,14 @@
         `;
       };
 
-      // Group filtered items by date label (Today / Yesterday / This
-      // week / Earlier) so the list still has rhythm without splitting
-      // into multiple sections each with its own header chrome.
-      // Iterates the *visible* slice; the load-more sentinel below
-      // tops the list up by 20 each time it crosses the viewport.
-      const groups = [];
-      const yesterdayStart = todayStart - 86400_000;
-      let currentGroup = null;
-      const groupLabelFor = (ts) => {
-        if (ts >= todayStart)      return "Today";
-        if (ts >= yesterdayStart)  return "Yesterday";
-        if (ts >= weekStart)       return "This week";
-        return "Earlier";
-      };
-      for (const b of visibleFiltered) {
-        const label = groupLabelFor(b.createdAt);
-        if (!currentGroup || currentGroup.label !== label) {
-          currentGroup = { label, items: [] };
-          groups.push(currentGroup);
-        }
-        currentGroup.items.push(b);
-      }
-
+      // Flat list under the filter chips · earlier iterations grouped
+      // by Today / Yesterday / This week / Earlier, but the user
+      // wanted a single divider followed by the items. The filter
+      // chips above already disclose the recency dimension; redundant
+      // group headers were just visual chrome.
       const filterLabels = { all: "the archive", today: "Today", week: "This week", earlier: "Earlier" };
       const filterCopyTitle = filterLabels[activeFilter] || "this window";
-      const groupsHtml = groups.length === 0
+      const groupsHtml = visibleFiltered.length === 0
         ? `
           <div class="reports-list-empty">
             <!-- Notice text · explains the empty window. -->
@@ -4613,14 +4606,11 @@
             ` : ""}
           </div>
         `
-        : groups.map((g) => `
-            <div class="reports-group">
-              <div class="reports-group-label">${this.escape(g.label)}</div>
-              <ul class="reports-list">
-                ${g.items.map((b) => this.renderReportItemHtml(b)).join("")}
-              </ul>
-            </div>
-          `).join("");
+        : `
+            <ul class="reports-list">
+              ${visibleFiltered.map((b) => this.renderReportItemHtml(b)).join("")}
+            </ul>
+          `;
 
       // Bottom sentinel · IntersectionObserver target. Renders only
       // when there's more to load. The "+ N more" hint doubles as a
@@ -4775,6 +4765,9 @@
      *  Pulls the live list and renders three time-bucket sections
      *  (Today / This Week / Earlier). */
     async openAllNotes() {
+      // Set the no-room flag for the same reason openAllReports does
+      // — the floating sidebar-expand button is gated on this class.
+      document.documentElement.classList.add("no-room");
       // Same view-leaving routine as openAllReports.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -4903,9 +4896,30 @@
             <div class="notes-empty-mark">○</div>
             <div class="notes-empty-title">no saved notes yet</div>
             <div class="notes-empty-deck">
-              While reading a director's reply, select an interesting passage and hit
-              <span class="kbd">S</span> or click <span class="kbd">⌖ Save</span>
-              on the floating bar to bookmark it here.
+              Capture a director's line as a note:
+            </div>
+            <ol class="notes-empty-steps">
+              <li>
+                <span class="notes-empty-step-num">1</span>
+                <span class="notes-empty-step-text">
+                  <strong>Open a room.</strong> Any director's reply can be saved.
+                </span>
+              </li>
+              <li>
+                <span class="notes-empty-step-num">2</span>
+                <span class="notes-empty-step-text">
+                  <strong>Select a passage.</strong> Drag-highlight the sentence or paragraph you want to keep.
+                </span>
+              </li>
+              <li>
+                <span class="notes-empty-step-num">3</span>
+                <span class="notes-empty-step-text">
+                  <strong>Click <span class="kbd">⌖ Save</span></strong> on the floating bar that appears, or press <span class="kbd">S</span>. The excerpt lands here, indexed across all rooms.
+                </span>
+              </li>
+            </ol>
+            <div class="notes-empty-foot">
+              Each saved excerpt links back to the original room + speaker, so you can jump back any time.
             </div>
           </div>
         `;
@@ -4920,27 +4934,12 @@
         return true;
       });
 
-      // Group filtered items by date label so even an "All" view has
-      // visual rhythm. When a recency filter narrows to a single
-      // bucket, only that bucket's section renders — no empty headers.
-      const groupLabelFor = (ts) => {
-        if (ts >= todayStart) return "Today";
-        if (ts >= weekStart)  return "This week";
-        return "Earlier";
-      };
-      const groups = [];
-      let currentGroup = null;
-      for (const n of filtered) {
-        const label = groupLabelFor(n.createdAt || 0);
-        if (!currentGroup || currentGroup.label !== label) {
-          currentGroup = { label, items: [] };
-          groups.push(currentGroup);
-        }
-        currentGroup.items.push(n);
-      }
-
+      // Flat list under the filter chips. Earlier iterations grouped
+      // by Today / This week / Earlier headers; the user wanted a
+      // single divider followed by the items, since the chips above
+      // already disclose the recency dimension.
       const filterLabels = { all: "the archive", today: "Today", week: "This week", earlier: "Earlier" };
-      const groupsHtml = groups.length === 0
+      const groupsHtml = filtered.length === 0
         ? `
           <div class="notes-list-empty">
             <div class="notes-empty-mark">○</div>
@@ -4954,17 +4953,11 @@
             ` : ""}
           </div>
         `
-        : groups.map((g) => `
-          <section class="notes-group">
-            <div class="notes-group-head">
-              <span class="notes-group-label">${this.escape(g.label)}</span>
-              <span class="notes-group-count">${g.items.length}</span>
-            </div>
-            <ul class="notes-list">
-              ${g.items.map((n) => this.renderNoteItemHtml(n)).join("")}
-            </ul>
-          </section>
-        `).join("");
+        : `
+          <ul class="notes-list">
+            ${filtered.map((n) => this.renderNoteItemHtml(n)).join("")}
+          </ul>
+        `;
 
       const totalLabel = `${total} ${total === 1 ? "note" : "notes"}`;
       const roomLabel = distinctRooms > 0
@@ -5004,9 +4997,12 @@
       const author = n.authorName || "Director";
       // The jump link uses the room's hash route + the note id as a
       // fragment-style query so openRoom can scroll to + flash the
-      // matching span (Step 5 wires the receiver). For now the link
-      // just navigates · the in-room overlay step adds the scroll.
+      // matching span. The delete button sits as a SIBLING of the
+      // anchor (inside the .notes-item) so its click never bubbles
+      // through the navigation link — same pattern as session-row
+      // delete in the rooms sidebar.
       const href = `#/r/${this.escape(n.roomId)}?note=${this.escape(n.id)}`;
+      const deleteTitle = "Delete this note";
       return `
         <li class="notes-item" data-note-id="${this.escape(n.id)}">
           <a class="notes-item-link" href="${href}" data-note-jump="${this.escape(n.id)}" data-note-room="${this.escape(n.roomId)}">
@@ -5023,8 +5019,37 @@
               n.contextAfter ? `<span class="note-context note-context-after">${this.escape(n.contextAfter)}</span>` : ""
             }</p>
           </a>
+          <button type="button" class="notes-item-delete" data-note-delete title="${this.escape(deleteTitle)}" aria-label="${this.escape(deleteTitle)}">✕</button>
         </li>
       `;
+    },
+
+    /** DELETE /api/notes/:id · drops a saved excerpt from the index.
+     *  Confirmation is light because the action is reversible only by
+     *  re-saving the same passage; we keep the prompt as a single
+     *  click-confirm rather than a full overlay. */
+    async deleteNoteAt(id) {
+      if (!id) return;
+      if (!confirm("Delete this note? You can save it again from the room.")) return;
+      try {
+        const r = await fetch("/api/notes/" + encodeURIComponent(id), { method: "DELETE" });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          alert("Delete failed: " + (j.error || r.statusText));
+          return;
+        }
+      } catch (e) {
+        alert("Delete failed: " + (e && e.message ? e.message : e));
+        return;
+      }
+      // Patch local cache so the immediate re-render reflects the
+      // delete without a refetch round-trip. The sidebar count badge
+      // re-fetches via the /count endpoint.
+      if (Array.isArray(this._notesCache)) {
+        this._notesCache = this._notesCache.filter((n) => n && n.id !== id);
+        this.renderNotesPage(this._notesCache);
+      }
+      this.refreshNotesCount();
     },
 
     /** Refresh the sidebar count badge · called on boot, after
@@ -6111,38 +6136,23 @@
     },
 
     /** Preview card · all generated fields editable inline. */
-    renderAgentSpecPreviewHtml(spec, lang) {
-      const t = lang === "zh"
-        ? {
-            kicker: "// 生成的 director · 编辑后保存",
-            avatar: "头像",
-            reroll: "换一个",
-            name: "Name",
-            handle: "Handle",
-            role: "Role tag",
-            bio: "Bio",
-            quote: "Cover quote",
-            instruction: "Instruction",
-            model: "Model",
-            save: "Save director",
-            discard: "丢弃",
-            redo: "重新生成",
-          }
-        : {
-            kicker: "// generated director · edit and save",
-            avatar: "Avatar",
-            reroll: "Reroll",
-            name: "Name",
-            handle: "Handle",
-            role: "Role tag",
-            bio: "Bio",
-            quote: "Cover quote",
-            instruction: "Instruction",
-            model: "Model",
-            save: "Save director",
-            discard: "Discard",
-            redo: "Regenerate",
-          };
+    renderAgentSpecPreviewHtml(spec, _lang) {
+      // System UI · always English (agent-spec preview card chrome).
+      const t = {
+        kicker: "// generated director · edit and save",
+        avatar: "Avatar",
+        reroll: "Reroll",
+        name: "Name",
+        handle: "Handle",
+        role: "Role tag",
+        bio: "Bio",
+        quote: "Cover quote",
+        instruction: "Instruction",
+        model: "Model",
+        save: "Save director",
+        discard: "Discard",
+        redo: "Regenerate",
+      };
       const seed = this.agentSpecAvatarSeed;
       const avatarSvg = (window.AvatarSkill && seed)
         ? window.AvatarSkill.generate(seed, { size: 96 })
@@ -6229,25 +6239,16 @@
      *  composer back to its input state). The description text is
      *  surfaced read-only so the user can copy it before discard. */
     renderAgentSpecErrorHtml(err, lang) {
-      const t = lang === "zh"
-        ? {
-            kicker: err.kind === "timeout" ? "// 生成超时" : "// 生成失败",
-            title: err.kind === "timeout" ? "生成超过 5 分钟仍未完成" : "生成失败",
-            hintTimeout: "可能是模型回应过慢、网络波动，或后端 LLM 流水线卡住了。点击重试再来一次。",
-            hintFailed: "请确认 API key 配置正确、模型可达。重试通常能解决临时性失败。",
-            descLabel: "你的描述（重试时会复用）",
-            retry: "重试",
-            discard: "放弃",
-          }
-        : {
-            kicker: err.kind === "timeout" ? "// generation timed out" : "// generation failed",
-            title: err.kind === "timeout" ? "Generation didn't complete after 5 minutes" : "Generation failed",
-            hintTimeout: "The model may be slow, the network flaky, or the backend pipeline stalled. Click retry to start a fresh run.",
-            hintFailed: "Check your API key configuration and model reachability. Retry often clears transient failures.",
-            descLabel: "Your description (re-used on retry)",
-            retry: "Retry",
-            discard: "Discard",
-          };
+      // System UI · always English (agent-spec error card chrome).
+      const t = {
+        kicker: err.kind === "timeout" ? "// generation timed out" : "// generation failed",
+        title: err.kind === "timeout" ? "Generation didn't complete after 5 minutes" : "Generation failed",
+        hintTimeout: "The model may be slow, the network flaky, or the backend pipeline stalled. Click retry to start a fresh run.",
+        hintFailed: "Check your API key configuration and model reachability. Retry often clears transient failures.",
+        descLabel: "Your description (re-used on retry)",
+        retry: "Retry",
+        discard: "Discard",
+      };
       const desc = this._agentComposerLastDesc || "";
       const hint = err.kind === "timeout" ? t.hintTimeout : t.hintFailed;
       const detail = err.message ? `<div class="ag-gen-error-detail">${this.escape(err.message)}</div>` : "";
@@ -6255,7 +6256,7 @@
         <section class="cmp ag-cmp">
           <header class="cmp-hero">
             <div class="cmp-greet">${this.escape(this.composerGreeting(lang, (this.prefs?.name || "you").trim() || "you"))}</div>
-            <h1 class="cmp-prompt">${this.escape(lang === "zh" ? "想招一位什么样的董事？" : "What kind of director do you want?")}</h1>
+            <h1 class="cmp-prompt">${this.escape("What kind of director do you want?")}</h1>
           </header>
           <div class="ag-gen-error-card">
             <div class="ag-gen-error-kicker">${this.escape(t.kicker)}</div>
@@ -6420,13 +6421,11 @@
         this.agentSpecError = null;
       } catch (e) {
         const isAbort = (e && (e.name === "AbortError" || /aborted/i.test(String(e.message))));
-        const lang = this.composerLanguage();
         if (timedOut || isAbort) {
+          // System UI · always English (error message text).
           this.agentSpecError = {
             kind: "timeout",
-            message: lang === "zh"
-              ? "生成超过 5 分钟仍未完成 · 模型回应慢、网络波动，或后端流水线卡住了。"
-              : "Generation took longer than 5 minutes · the model may be slow, the network flaky, or the backend stuck.",
+            message: "Generation took longer than 5 minutes · the model may be slow, the network flaky, or the backend stuck.",
           };
         } else {
           this.agentSpecError = {
@@ -6701,10 +6700,8 @@
       const dirs = (this.agents || [])
         .filter((a) => a.roleKind !== "moderator")
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      const lang = this.composerLanguage();
-      const t = lang === "zh"
-        ? { title: "选择董事", hint: "建议 2-4 位", done: "完成", info: "查看资料" }
-        : { title: "Pick directors", hint: "2-4 recommended", done: "Done", info: "View profile" };
+      // System UI · always English (composer director picker chrome).
+      const t = { title: "Pick directors", hint: "2-4 recommended", done: "Done", info: "View profile" };
       const rows = dirs.map((a) => {
         const checked = state.directorIds.includes(a.id);
         const modelLabel = MODEL_LABELS[a.modelV] || a.modelV || "";
@@ -6858,9 +6855,10 @@
       const visible = dirObjs.slice(0, 4);
       const overflow = Math.max(0, dirObjs.length - 4);
       const avs = visible.map((a) => `<img class="cmp-cast-av" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`).join("");
+      // System UI · always English (cast button count chrome).
       const countText = dirObjs.length
-        ? (lang === "zh" ? `${dirObjs.length} 位董事` : `${dirObjs.length} director${dirObjs.length === 1 ? "" : "s"}`)
-        : (lang === "zh" ? "未选董事" : "no directors");
+        ? `${dirObjs.length} director${dirObjs.length === 1 ? "" : "s"}`
+        : "no directors";
       const countCls = dirObjs.length ? "cmp-cast-count" : "cmp-cast-count cmp-cast-empty";
       btn.innerHTML = `
         <span class="cmp-cast-stack">
@@ -6908,21 +6906,14 @@
       let opts;
       let current;
       if (kind === "tone") {
-        opts = lang === "zh"
-          ? [
-              { v: "brainstorm",   label: "Brainstorm",   hint: "共同发散" },
-              { v: "constructive", label: "Constructive", hint: "推一把" },
-              { v: "research",     label: "Research",     hint: "梳理材料找洞察" },
-              { v: "debate",       label: "Debate",       hint: "找漏洞" },
-              { v: "critique",     label: "Critique",     hint: "系统性挑毛病" },
-            ]
-          : [
-              { v: "brainstorm",   label: "Brainstorm",   hint: "yes-and" },
-              { v: "constructive", label: "Constructive", hint: "push & sharpen" },
-              { v: "research",     label: "Research",     hint: "mine the material" },
-              { v: "debate",       label: "Debate",       hint: "find the holes" },
-              { v: "critique",     label: "Critique",     hint: "audit the deliverable" },
-            ];
+        // System UI · always English (tune dropdown options).
+        opts = [
+          { v: "brainstorm",   label: "Brainstorm",   hint: "yes-and" },
+          { v: "constructive", label: "Constructive", hint: "push & sharpen" },
+          { v: "research",     label: "Research",     hint: "mine the material" },
+          { v: "debate",       label: "Debate",       hint: "find the holes" },
+          { v: "critique",     label: "Critique",     hint: "audit the deliverable" },
+        ];
         if (followUpScope) {
           const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
           current = valSpan ? (valSpan.textContent || "").trim().toLowerCase() : "";
@@ -6934,17 +6925,12 @@
         // the third value (terse) is a cadence dial, not a harshness
         // dial. The earlier "no prisoners" / "直击痛点" copy pulled
         // users into thinking it controlled tone.
-        opts = lang === "zh"
-          ? [
-              { v: "calm",  label: "Calm",  hint: "慢慢说" },
-              { v: "sharp", label: "Sharp", hint: "不绕弯" },
-              { v: "terse", label: "Terse", hint: "一句话" },
-            ]
-          : [
-              { v: "calm",  label: "Calm",  hint: "let them think" },
-              { v: "sharp", label: "Sharp", hint: "no hedging" },
-              { v: "terse", label: "Terse", hint: "telegraphic" },
-            ];
+        // System UI · always English (intensity dropdown options).
+        opts = [
+          { v: "calm",  label: "Calm",  hint: "let them think" },
+          { v: "sharp", label: "Sharp", hint: "no hedging" },
+          { v: "terse", label: "Terse", hint: "telegraphic" },
+        ];
         if (followUpScope) {
           const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
           current = valSpan ? (valSpan.textContent || "").trim().toLowerCase() : "";
@@ -7298,10 +7284,10 @@
                 if (!multi) {
                   return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>[ View Report ]</a>`;
                 }
-                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this.composerLanguage() === "zh" ? `${briefs.length} 份报告 · 点击选择` : `${briefs.length} reports · click to choose`)}">[ View Report <span class="vr-count">· ${briefs.length}</span> ▾ ]</a>`;
+                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(`${briefs.length} reports · click to choose`)}">[ View Report <span class="vr-count">· ${briefs.length}</span> ▾ ]</a>`;
               })()
             : (r.status === "adjourned"
-              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this.composerLanguage() === "zh" ? "为这次会议补出一份报告" : "File a brief from this session")}"><span class="vr-mark">▸</span> ${this.escape(this.composerLanguage() === "zh" ? "生成报告" : "Generate Report")}</a>`
+              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape("File a brief from this session")}"><span class="vr-mark">▸</span> Generate Report</a>`
               : "")}
         </div>
       `;
@@ -7478,11 +7464,9 @@
       const chat = document.querySelector("[data-chat-messages]");
       if (!chat) return;
       const existing = chat.querySelector("[data-chair-pending]");
-      const isCjk = /[一-鿿]/.test(this.currentRoom?.subject || "");
-      const chairName = (this.currentChair?.name) || (isCjk ? "主席" : "Chair");
-      const labelMap = isCjk
-        ? { clarify: "正在整理你的问题", "chair-direct": "正在准备回应", "round-end": "正在收束这一轮", convening: "正在召集会议", "next-speaker": "正在判断接下来的发言", chair: "正在准备" }
-        : { clarify: "is reading your question", "chair-direct": "is preparing a response", "round-end": "is wrapping up the round", convening: "is convening the room", "next-speaker": "is reading the room", chair: "is preparing" };
+      // System UI · always English (chair-pending placeholder chrome).
+      const chairName = (this.currentChair?.name) || "Chair";
+      const labelMap = { clarify: "is reading your question", "chair-direct": "is preparing a response", "round-end": "is wrapping up the round", convening: "is convening the room", "next-speaker": "is reading the room", chair: "is preparing" };
       const phraseRaw = labelMap[phase] || labelMap.chair;
       const phrase = `${chairName} ${phraseRaw}…`;
       if (existing) {
@@ -7495,7 +7479,7 @@
       node.setAttribute("data-chair-pending", "");
       node.innerHTML = `
         <div class="cp-rule" aria-hidden="true"></div>
-        <div class="cp-kicker">▸ ${this.escape(isCjk ? "主席" : "chair")}</div>
+        <div class="cp-kicker">▸ chair</div>
         <div class="cp-body">
           <span class="cp-text">${this.escape(phrase)}</span>
           <span class="thinking-dots"><span></span><span></span><span></span></span>
@@ -7905,14 +7889,14 @@
           const truncated = parentSubject.length > 70
             ? parentSubject.slice(0, 70) + "…"
             : parentSubject;
-          const isZh = /[一-鿿]/.test(this.currentRoom?.subject || "");
-          const label = isZh ? "继续自" : "Following up on";
-          const roomTag = isZh ? "Room #" : "Room #";
+          // System UI · always English (follow-up origin link chrome).
+          const label = "Following up on";
+          const roomTag = "Room #";
           const subjectChunk = truncated
             ? `<span class="convene-origin-sep">·</span><span class="convene-origin-subject">${this.escape(truncated)}</span>`
             : "";
           originHtml = `
-            <a class="convene-origin" href="#/r/${this.escape(parentId)}" data-parent-room-id="${this.escape(parentId)}" title="${this.escape((isZh ? "返回上一场会议 · " : "Open the prior session · ") + (parentSubject || parentId))}">
+            <a class="convene-origin" href="#/r/${this.escape(parentId)}" data-parent-room-id="${this.escape(parentId)}" title="${this.escape("Open the prior session · " + (parentSubject || parentId))}">
               <span class="convene-origin-arrow">↩</span>
               <span class="convene-origin-label">${this.escape(label)}</span>
               <span class="convene-origin-room">${this.escape(roomTag)}${this.escape(String(parentNum))}</span>
@@ -8155,7 +8139,7 @@
       // as a historical marker only.
       if (isChair && metaKind === "no-brief") {
         const ts = this.timeFmt(m.createdAt);
-        const isZh = this.composerLanguage() === "zh";
+        // System UI · always English (no-brief card chrome).
         const hasBrief = !!this.currentBrief;
         const cta = hasBrief
           ? ""
@@ -8163,7 +8147,7 @@
             <div class="nb-actions">
               <button type="button" class="nb-cta" data-generate-brief>
                 <span class="nb-cta-mark">▸</span>
-                <span class="nb-cta-text">${isZh ? "生成报告" : "Generate report now"}</span>
+                <span class="nb-cta-text">Generate report now</span>
               </button>
             </div>
           `;
@@ -8174,7 +8158,7 @@
               <span class="nb-eyebrow">adjourned · no brief filed</span>
             </span>
             <div class="nb-body">
-              <strong>${this.escape(this.prefs?.name || "The chair")}</strong> ${isZh ? "在结束时跳过了报告。" : "declared no report is needed for this session."}
+              <strong>${this.escape(this.prefs?.name || "The chair")}</strong> declared no report is needed for this session.
             </div>
             ${cta}
             <div class="nb-meta">${this.escape(ts)}</div>
@@ -8625,31 +8609,17 @@
      *  research note reads "sweet." */
     _briefWordCountTip(wc) {
       if (!wc) return "";
-      const isZh = wc.isCjk;
-      const toneLabel = ({
-        brainstorm:   isZh ? "脑暴" : "brainstorm",
-        constructive: isZh ? "构建" : "constructive",
-        debate:       isZh ? "辩论" : "debate",
-        research:     isZh ? "研究" : "research",
-        critique:     isZh ? "评审" : "critique",
-      })[wc.tone] || wc.tone;
+      // System UI · always English (word-count chip tooltip).
+      const toneLabel = wc.tone;
       const range = `${wc.bands.sweetLo.toLocaleString("en-US")}-${wc.bands.sweetHi.toLocaleString("en-US")}`;
-      const unit = isZh ? "字" : "words";
-      const copy = isZh
-        ? {
-            "thin":     `偏短 · ${toneLabel} 模式甜点区约 ${range} ${unit}`,
-            "sweet":    `甜点区 · ${toneLabel} 模式正合适`,
-            "dense":    `偏密集 · 已超出 ${toneLabel} 模式甜点区，但仍可读`,
-            "long":     `偏长 · 接近"会被存档而非阅读"的临界`,
-            "too-long": `过长 · 大概率会被快速跳读`,
-          }
-        : {
-            "thin":     `Lean · ${toneLabel} sweet zone is ${range} ${unit}`,
-            "sweet":    `Sweet zone for ${toneLabel} · most read-through-able length`,
-            "dense":    `Dense · past the ${toneLabel} sweet zone, still readable`,
-            "long":     `Long · approaching "filed instead of read"`,
-            "too-long": `Too long · likely to be skimmed, not read`,
-          };
+      const unit = "words";
+      const copy = {
+        "thin":     `Lean · ${toneLabel} sweet zone is ${range} ${unit}`,
+        "sweet":    `Sweet zone for ${toneLabel} · most read-through-able length`,
+        "dense":    `Dense · past the ${toneLabel} sweet zone, still readable`,
+        "long":     `Long · approaching "filed instead of read"`,
+        "too-long": `Too long · likely to be skimmed, not read`,
+      };
       return copy[wc.tier] || "";
     },
 
@@ -8903,11 +8873,11 @@
             <div class="brief-supplement-row">
               <button type="button" class="brief-supplement-btn" data-brief-supplement>
                 <span class="brief-supplement-mark">+</span>
-                <span class="brief-supplement-label">${(b.language === "zh" ? "补充视角，再生成一版报告" : "Add a perspective · regenerate")}</span>
+                <span class="brief-supplement-label">Add a perspective · regenerate</span>
               </button>
-              <button type="button" class="brief-delete-btn" data-brief-delete data-brief-id="${this.escape(b.id)}" title="${(b.language === "zh" ? "删除这份报告" : "Delete this report")}">
+              <button type="button" class="brief-delete-btn" data-brief-delete data-brief-id="${this.escape(b.id)}" title="Delete this report">
                 <span class="brief-delete-mark">⌫</span>
-                <span class="brief-delete-label">${(b.language === "zh" ? "删除报告" : "Delete report")}</span>
+                <span class="brief-delete-label">Delete report</span>
               </button>
             </div>
           ` : ""}
@@ -8991,49 +8961,10 @@
           "Polishing the final pass",
         ],
       },
-      zh: {
-        extract: [
-          "重读每位董事的发言",
-          "按视角标签（data / dissent / narrative / structural / first-principle）整理信号",
-          "压缩到每位董事 2-4 条关键信号",
-        ],
-        compose: [
-          "选定本份报告的 spine 风格",
-          "决定要纳入哪些组件块",
-          "估算密度与节奏",
-        ],
-        "scaffold-anchor": [
-          "读出 takeaway",
-          "校准 confidence",
-          "落定 working hypothesis",
-        ],
-        "scaffold-findings": [
-          "提炼 3 条 headline findings",
-          "复核每条是否撑住 anchor",
-          "如有勉强，3 → 2 收敛",
-        ],
-        "scaffold-cluster": [
-          "定位董事们达成共识的地方",
-          "标记核心张力",
-          "辨认未消化的立场",
-        ],
-        "scaffold-actions": [
-          "起草 recommendations",
-          "推演 pre-mortem",
-          "梳理会议长出的新问题",
-        ],
-        write: [
-          "撰写 Bottom Line",
-          "撰写 Frame Shift 段落",
-          "撰写 3 条 Headline Findings",
-          "起草 Convergence 与 Divergence 段落",
-          "撰写 Recommendations",
-          "撰写 Pre-mortem",
-          "梳理 New Questions",
-          "起草 Strategic Planning Assumption",
-          "通读润色，准备交稿",
-        ],
-      },
+      // System UI · always English. The `zh` key is kept as an alias
+      // of `en` so any caller indexing BRIEF_SUBSTAGES["zh"] still
+      // resolves; brief language no longer changes the substage copy.
+      get zh() { return this.en; },
     },
 
     /** Set up a 1s tick that re-renders the brief stages while at least
@@ -9129,9 +9060,8 @@
       // Hard ceiling · regardless of server state, flip the card to
       // a timed-out error so the user always has a way out.
       if (now - startedAt > this.BRIEF_HARD_TIMEOUT_MS) {
-        b.error = b.language === "zh"
-          ? "报告生成超时（超过 8 分钟仍未完成）。"
-          : "Brief generation timed out (no completion after 8 minutes).";
+        // System UI · always English (timeout error message).
+        b.error = "Brief generation timed out (no completion after 8 minutes).";
         b.timedOut = true;
         this.stopBriefStageTick();
         this.stopBriefStallWatch();
@@ -9726,8 +9656,8 @@
       genBriefBtn.setAttribute("data-pending", "1");
       if ("disabled" in genBriefBtn) genBriefBtn.disabled = true;
 
-      const isZh = app.composerLanguage() === "zh";
-      const generatingText = isZh ? "正在生成…" : "generating…";
+      // System UI · always English (generating-button chrome).
+      const generatingText = "generating…";
       const originalHtml = genBriefBtn.innerHTML;
 
       // Swap to a "generating…" state. The two button shapes both
@@ -9750,7 +9680,7 @@
         genBriefBtn.removeAttribute("data-pending");
         if ("disabled" in genBriefBtn) genBriefBtn.disabled = false;
         genBriefBtn.innerHTML = originalHtml;
-        alert((isZh ? "生成失败：" : "Brief generation failed: ") + (err && err.message ? err.message : err));
+        alert("Brief generation failed: " + (err && err.message ? err.message : err));
       });
       return;
     }
@@ -10009,11 +9939,9 @@
       // map, which user-settings.js patches in place after every
       // setProviderKey, so we get fresh truth here.
       const configured = !!(app.agentComposerBraveConfigured && app.agentComposerBraveConfigured());
-      const isZh = (app.composerLanguage && app.composerLanguage()) === "zh";
       if (!configured) {
-        const ok = confirm(isZh
-          ? "联网搜索需要 Brave Search API key。\n\nBrave Search · 约 $5 / 1000 次查询 · 注重隐私\n\n现在去 Preferences 配置吗？"
-          : "Web Search needs a Brave Search API key.\n\nBrave Search · ≈ $5 per 1000 queries · privacy-respecting\n\nOpen Preferences to paste your key now?");
+        // System UI · always English (Brave key prompt confirm dialog).
+        const ok = confirm("Web Search needs a Brave Search API key.\n\nBrave Search · ≈ $5 per 1000 queries · privacy-respecting\n\nOpen Preferences to paste your key now?");
         if (ok && typeof window.openUserSettings === "function") {
           window.openUserSettings({ section: "keys", focusProvider: "brave" });
         }
@@ -10035,19 +9963,14 @@
       wsToggle.setAttribute("aria-pressed", next ? "true" : "false");
       const txt = wsToggle.querySelector(".ap-skill-row-toggle-text");
       if (txt) {
-        const wsLabel = isZh ? "联网搜索" : "web search";
-        const stateLabel = next
-          ? (isZh ? "已开启" : "enabled")
-          : (isZh ? "已关闭" : "disabled");
+        // System UI · always English (web-search toggle chrome).
+        const wsLabel = "web search";
+        const stateLabel = next ? "enabled" : "disabled";
         txt.textContent = `${wsLabel} · ${stateLabel}`;
       }
       wsToggle.title = next
-        ? (isZh
-          ? "生成时联网检索领域真实案例 · 点击关闭"
-          : "Search the web for real domain references during generation · click to disable")
-        : (isZh
-          ? "生成时不联网 · 点击开启"
-          : "Generation runs offline · click to enable web search");
+        ? "Search the web for real domain references during generation · click to disable"
+        : "Generation runs offline · click to enable web search";
       return;
     }
     // ─── Agent spec preview · field actions
@@ -10181,6 +10104,20 @@
       const shell = del.closest(".session-row-shell");
       const id = shell?.dataset.roomId;
       if (id) app.deleteRoom(id);
+      return;
+    }
+    // Delete a saved note from the All Notes list. The button is a
+    // sibling of the note's anchor (inside .notes-item) so its click
+    // never bubbles through the navigation link — but we still
+    // preventDefault + stopPropagation defensively to keep the row's
+    // hover/focus state quiet.
+    const noteDel = e.target.closest("[data-note-delete]");
+    if (noteDel) {
+      e.preventDefault();
+      e.stopPropagation();
+      const item = noteDel.closest("[data-note-id]");
+      const id = item?.dataset.noteId;
+      if (id) app.deleteNoteAt(id);
       return;
     }
     // Delete a custom agent · this used to live as an inline X button

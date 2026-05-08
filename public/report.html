@@ -588,6 +588,29 @@
     border-top-width: 0;
   }
 
+  /* ─── Hide mermaid SVG until spine palette is applied ─────────
+     Pattern from user reports: "first time wrong, refresh OK" /
+     strict alternation (1st wrong, 2nd right, 3rd wrong, 4th
+     right). Cause: even with our continuous post-render takeover
+     (see report.html post-mermaid.run block), mermaid paints at
+     least once with its default palette BEFORE our takeover lands
+     — and the user sees that first paint. The takeover then
+     corrects it, but the user's already perceived "wrong colors."
+     On refresh, cached rendering may finish faster and the first
+     paint happens AFTER our takeover, which they perceive as
+     correct.
+     Defense: hide the SVG inside each pre.mermaid until we add
+     the `is-painted` class. The post-render takeover adds the
+     class as its last step. Until then, the user sees the frame
+     (matching the spine) with no SVG inside — no off-brand
+     colors flash at any point. */
+  .body pre.mermaid svg {
+    visibility: hidden;
+  }
+  .body pre.mermaid.is-painted svg {
+    visibility: visible;
+  }
+
   /* ─── Metric-strip · spine-agnostic baseline ─────────────────────
      Editorial / Swiss register: oversized thin numerals top-left, mute
      mono label bottom-left, hairline grid (no card backgrounds, no
@@ -5396,73 +5419,347 @@
             },
           });
           await mermaid.run({ querySelector: ".mermaid" });
-          // ── Post-render colour forcing ───────────────────────────
-          // Mermaid 10's themeVariables don't fully replace built-in
-          // colour defaults on every chart type — quadrant fills,
-          // pie slices, journey faces and similar can leak the
-          // theme preset's primary colour (purple/violet on
-          // theme:"dark"). Walk every rendered SVG and force-set
-          // fills directly on the elements we know about. Bulletproof
-          // because it runs LAST, after mermaid's own paint.
-          try {
-            document.querySelectorAll('.mermaid svg').forEach((svg) => {
-              // ── Quadrant chart ──
-              // The four quadrant rects + internal/external borders +
-              // point dots. Mermaid 10 uses class `.quadrant-fill` on
-              // each filled rect inside the chart group.
-              svg.querySelectorAll('rect.quadrant-fill, .quadrant-fill').forEach((el) => {
-                el.setAttribute('fill', t.vars.quadrantFill);
+          // ── Post-render spine palette takeover ───────────────────
+          // Definitive fix for "mermaid charts don't match the spine
+          // palette." Mermaid's color system has 4 layers (theme
+          // preset, themeVariables, embedded SVG <style>, inline
+          // attributes) that all leak in different ways. Instead of
+          // playing whack-a-mole with mermaid's internals, we let
+          // mermaid render the structure, then:
+          //   1. WIPE mermaid's embedded <style> block in each SVG
+          //      (eliminates the CSS-vs-attribute specificity gotcha
+          //      where <style> rules silently beat setAttribute calls)
+          //   2. Force-set fill/stroke via inline `style` attribute on
+          //      every visual element by class — inline style has the
+          //      highest CSS specificity, so nothing in the cascade
+          //      can override our spine palette.
+          // Result: every chart element renders in the spine's colors
+          // regardless of mermaid version, theme preset, or which
+          // themeVariables we pass.
+          // Define the takeover as a re-runnable function so we can
+          // schedule it multiple times to defeat first-load timing
+          // races. Pattern observed: on cold loads (CDN uncached, CSS
+          // uncached) mermaid does async post-render work via
+          // requestAnimationFrame / setTimeout AFTER the run() promise
+          // resolves — re-injecting <style>, recomputing layouts, etc.
+          // A single sync takeover then loses the race because mermaid
+          // overwrites our inline styles afterward. On refresh
+          // everything's cached, mermaid finishes faster, and a single
+          // takeover wins by accident.
+          //
+          // Fix: run the takeover at multiple frames + delays so any
+          // mermaid post-processing gets caught regardless of timing.
+          // Each call is idempotent (same selectors set the same
+          // inline styles) so re-running is cheap.
+          const setFill = (el, c) => { if (c) el.style.setProperty('fill', c, 'important'); };
+          const setStroke = (el, c) => { if (c !== undefined && c !== null) el.style.setProperty('stroke', c, 'important'); };
+          const setColor = (el, c) => { if (c) el.style.setProperty('color', c, 'important'); };
+          const cyclePalette = (i) => t.palette[i % t.palette.length];
+
+          const applySpinePaletteOnce = () => {
+            try {
+              document.querySelectorAll('.mermaid svg').forEach((svg) => {
+              // ── 1. Wipe mermaid's embedded <style> block ──
+              // Mermaid generates `<style>.quadrant-chart > .quadrant-
+              // point > circle { fill: #...; }` etc. inside each SVG;
+              // those CSS rules beat our setAttribute-set fills. After
+              // removal, our inline-style fills below have no rivals.
+              svg.querySelectorAll(':scope > style, defs > style').forEach((s) => s.remove());
+
+              // ── 2. SVG canvas / background ──
+              // Any rect that fills the whole SVG is the chart canvas;
+              // pin to t.vars.background so the chart blends with its
+              // spine frame instead of showing mermaid's default white.
+              const sw = parseFloat(svg.getAttribute('width') || '0');
+              svg.querySelectorAll(':scope > rect, :scope > g > rect.background, rect.main-bkg').forEach((el) => {
+                const w = parseFloat(el.getAttribute('width') || '0');
+                if (w > 0 && sw > 0 && w >= sw * 0.95) setFill(el, t.vars.background);
               });
-              // Defense for any rect inside .quadrant-chart that wasn't
-              // class-tagged (mermaid version drift). Skip the chart's
-              // outer container rect (full-svg-width).
-              const chartG = svg.querySelector('g.quadrant-chart, .quadrant-chart');
-              if (chartG) {
-                const svgWidth = parseFloat(svg.getAttribute('width') || '0');
-                chartG.querySelectorAll(':scope > g > rect, :scope > rect').forEach((el) => {
-                  const w = parseFloat(el.getAttribute('width') || '0');
-                  if (w > 0 && (svgWidth === 0 || w < svgWidth * 0.95)) {
-                    el.setAttribute('fill', t.vars.quadrantFill);
-                  }
-                });
-              }
-              // Quadrant data points · pointFill (the spine's
-              // strongest brand colour for marker-style data) with a
-              // frame-bg stroke for separation from the quadrant fill.
-              svg.querySelectorAll('circle.quadrant-point, .quadrant-point circle, g.quadrant-point > circle').forEach((el) => {
-                el.setAttribute('fill', t.vars.pointFill);
-                el.setAttribute('stroke', t.vars.background);
+
+              // ── 3. Quadrant chart ──
+              // Mermaid 10's actual class names (verified against rendered DOM):
+              //   `.quadrant` — each of the 4 quadrant rects (NOT .quadrant-fill)
+              //   `.quadrants` — parent group
+              //   `.data-point` — each data circle (NOT .quadrant-point)
+              //   `.data-points` — parent group
+              //   `.axis-line` / `.axisl-line` — axis lines
+              //   `.bottom-axis`, `.left-axis` — axis text
+              // Older / alternate class names from .quadrant-* family kept
+              // as a defensive fallback for version drift.
+              svg.querySelectorAll('rect.quadrant, .quadrants > .quadrant, rect.quadrant-fill, .quadrant-fill').forEach((el) => setFill(el, t.vars.quadrantFill));
+              svg.querySelectorAll('.axis-line, .axisl-line, .quadrants line').forEach((el) => setStroke(el, t.vars.border));
+              svg.querySelectorAll('.quadrant-internal-border, line.quadrant-internal-border').forEach((el) => setStroke(el, t.vars.inner));
+              svg.querySelectorAll('.quadrant-external-border, rect.quadrant-external-border').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
               });
-              // ── Pie chart slices · cycle palette, force stroke ──
-              svg.querySelectorAll('path.pieCircle').forEach((el, i) => {
-                el.setAttribute('fill', t.palette[i % t.palette.length]);
-                el.setAttribute('stroke', t.vars.background);
+              svg.querySelectorAll('text.quadrant-title, .quadrant-title, .chart-title').forEach((el) => setFill(el, t.vars.titleFill));
+              // Quadrant labels (the 4 corner labels). Mermaid 10
+              // doesn't put them in a class; they're plain `<text>` inside
+              // each `.quadrant` group. Walk children of `.quadrant` text.
+              svg.querySelectorAll('.quadrant text, .quadrants text:not(.chart-title)').forEach((el) => setFill(el, t.vars.quadrantText));
+              svg.querySelectorAll('text.quadrant-text, text.quadrant-quadrant-1-text-fill, text.quadrant-quadrant-2-text-fill, text.quadrant-quadrant-3-text-fill, text.quadrant-quadrant-4-text-fill').forEach((el) => setFill(el, t.vars.quadrantText));
+              // Axis labels · "Low likelihood / High likelihood" etc.
+              svg.querySelectorAll('.bottom-axis text, .left-axis text, .top-axis text, .right-axis text, text.x-axis-text-label, text.y-axis-text-label, .quadrant-x-axis-label, .quadrant-y-axis-label').forEach((el) => setFill(el, t.vars.axisText));
+              // Data points · the load-bearing accent.
+              svg.querySelectorAll('.data-point, .data-points circle, circle.data-point, .quadrant-point > circle, g.quadrant-point > circle, circle.quadrant-point').forEach((el) => {
+                setFill(el, t.vars.pointFill);
+                setStroke(el, t.vars.background);
               });
-              // Pie outer ring border.
+              svg.querySelectorAll('.data-point text, .data-points text, text.point-text, .quadrant-point text').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 4. Pie chart ──
+              svg.querySelectorAll('path.pieCircle, g.pieCircle path, .slice').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.background);
+              });
               svg.querySelectorAll('.pieOuterCircle, circle.pieOuterCircle').forEach((el) => {
-                el.setAttribute('stroke', t.vars.border);
-                el.setAttribute('fill', 'none');
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
               });
-              // ── Journey · face circles cycle palette ──
-              svg.querySelectorAll('circle.face-circle, .face-circle').forEach((el, i) => {
-                el.setAttribute('fill', t.palette[i % t.palette.length]);
+              svg.querySelectorAll('text.slice, text.pieLegendText, .legend text, g.legend text').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.pieTitleText').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 5. xychart-beta ──
+              // Bars cycle through palette; axes + grid + labels match
+              // the spine's neutrals.
+              svg.querySelectorAll('g.plot rect, g.bar-plot rect, g[class*="-plot"] rect, rect.bar').forEach((el, i) => {
+                // Skip the plot-background rect (full plot width).
+                const w = parseFloat(el.getAttribute('width') || '0');
+                if (w >= 200) return;
+                setFill(el, cyclePalette(i));
+                setStroke(el, 'none');
               });
-              // ── Generic SVG canvas guard · any rect that fills the
-              // entire SVG and was painted with mermaid's default
-              // primaryColor (could be off-brand on dark spines). Cap
-              // its fill to t.vars.background.
-              const root = svg.querySelector(':scope > rect, :scope > g > rect.background');
-              if (root) {
-                const w = parseFloat(root.getAttribute('width') || '0');
-                const sw = parseFloat(svg.getAttribute('width') || '0');
-                if (w > 0 && sw > 0 && w >= sw * 0.95) {
-                  root.setAttribute('fill', t.vars.background);
-                }
+              svg.querySelectorAll('.xy-chart .background, rect.background').forEach((el) => setFill(el, 'transparent'));
+              svg.querySelectorAll('.xy-chart text, g.xy-chart text, .xy-chart .x-axis text, .xy-chart .y-axis text').forEach((el) => setFill(el, t.vars.axisText));
+              svg.querySelectorAll('.xy-chart .x-axis path.domain, .xy-chart .y-axis path.domain, .xy-chart .x-axis line, .xy-chart .y-axis line').forEach((el) => setStroke(el, t.vars.titleFill));
+              svg.querySelectorAll('.xy-chart .grid line, .xy-chart line.grid').forEach((el) => setStroke(el, t.vars.inner));
+
+              // ── 6. Flowchart ──
+              svg.querySelectorAll('.flowchart .node rect, .flowchart .node circle, .flowchart .node ellipse, .flowchart .node polygon, .node rect, .node circle, .node polygon, .node ellipse').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.flowchart-link, .edgePath path, .edgePath .path, path.flowchart-link').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('marker path, #arrowhead path, marker#arrowhead path').forEach((el) => {
+                setFill(el, t.vars.border);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.cluster rect').forEach((el) => {
+                setFill(el, t.vars.background);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.cluster text, .nodeLabel, .label foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('.edgeLabel, .edgeLabel foreignObject *').forEach((el) => {
+                setFill(el, t.vars.axisText);
+                setColor(el, t.vars.axisText);
+                el.style.setProperty('background-color', t.vars.background, 'important');
+              });
+
+              // ── 7. Mindmap ──
+              svg.querySelectorAll('.mindmap g.section circle, .mindmap-node circle, g.mindmap-node circle').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.mindmap g.section rect, .mindmap-node rect, g.mindmap-node rect').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.mindmap g.section polygon, .mindmap-node polygon, g.mindmap-node polygon').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.mindmap-edges path, .mindmap path.edge').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('.mindmap text, .mindmap-node text, g.mindmap-node text, .mindmap foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+
+              // ── 8. Sequence diagram ──
+              svg.querySelectorAll('rect.actor, .actor').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('line.actor-line, .actor-line').forEach((el) => setStroke(el, t.vars.border));
+              svg.querySelectorAll('text.actor, text.actor tspan, .actor-box-text, .messageText, text.messageText, .noteText, text.noteText, .note text').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.messageLine0, .messageLine1, line.messageLine0, line.messageLine1').forEach((el) => setStroke(el, t.vars.titleFill));
+              svg.querySelectorAll('rect.note, .note').forEach((el) => {
+                setFill(el, t.vars.accentSoft);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.activation0, .activation1, .activation2, rect.activation0, rect.activation1, rect.activation2').forEach((el) => {
+                setFill(el, t.vars.inner);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.labelBox, rect.labelBox').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+
+              // ── 9. State diagram ──
+              svg.querySelectorAll('.stateGroup rect, g.stateGroup rect, rect.state').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.stateGroup circle, g.stateGroup circle').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setStroke(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('.stateGroup line, line.transition, path.transition').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('.stateLabel, .state-description, .stateGroup text').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.compositeBackground, rect.compositeBackground').forEach((el) => {
+                setFill(el, t.vars.background);
+                setStroke(el, t.vars.border);
+              });
+
+              // ── 10. Journey ──
+              svg.querySelectorAll('.face-circle, circle.face-circle, .journey-section .face').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.background);
+              });
+              svg.querySelectorAll('.journey-section text, .section text, .journey-section foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('rect.journey, .journey-section rect').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+
+              // ── 11. Gantt ──
+              svg.querySelectorAll('rect.task, rect.task0, rect.task1, rect.task2, rect.task3, rect.activeTask0, rect.activeTask1, rect.activeTask2, rect.activeTask3').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, 'none');
+              });
+              svg.querySelectorAll('rect.done, rect.done0, rect.done1, rect.done2, rect.done3, rect.doneTask').forEach((el) => {
+                setFill(el, t.vars.inner);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('rect.crit, rect.crit0, rect.crit1, rect.crit2, rect.crit3').forEach((el) => {
+                setFill(el, t.vars.accent);
+                setStroke(el, t.vars.accent);
+              });
+              svg.querySelectorAll('.taskText, .taskTextOutsideRight, .taskTextOutsideLeft, text.taskText').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.tick text, g.tick text').forEach((el) => setFill(el, t.vars.axisText));
+              svg.querySelectorAll('.tick line, .grid line, g.tick line, g.grid line').forEach((el) => setStroke(el, t.vars.inner));
+              svg.querySelectorAll('.section0 text, .section1 text, .section2 text, .section3 text, .sectionTitle0, .sectionTitle1, .sectionTitle2, .sectionTitle3').forEach((el) => setFill(el, t.vars.axisText));
+              svg.querySelectorAll('line.today, .today').forEach((el) => setStroke(el, t.vars.accent));
+
+              // ── 12. Timeline ──
+              svg.querySelectorAll('.timeline rect, .timeline-section rect').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.timeline text, .timeline foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('.timeline path, .timeline-line').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+
+              // ── 13. Git graph ──
+              svg.querySelectorAll('.commit-bullets circle, circle.commit, .commit').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.commit-arrows path, path.commit-arrow, .commit-arrow').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('text.commit-label, .commit-label, .branch-label').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 14. Generic title (every chart type) ──
+              svg.querySelectorAll('text.titleText, .titleText, text.chart-title').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 15. Universal text safety net ──
+              // Any text element that survived the per-type passes
+              // without an inline style fill — pin to titleFill so no
+              // text leaks the mermaid-default purple/blue.
+              svg.querySelectorAll('text').forEach((el) => {
+                if (!el.style.fill) setFill(el, t.vars.titleFill);
+              });
+
+              // ── 16. Mark the parent pre.mermaid as painted ──
+              // CSS hides `.body pre.mermaid svg` until `.is-painted`
+              // is added, so the user never sees mermaid's default
+              // colors during the brief window between mermaid.run()
+              // resolving and our takeover applying. Adding it here
+              // (last step of each takeover pass) reveals the SVG only
+              // after our spine fills are pinned.
+              const host = svg.closest('pre.mermaid');
+              if (host && !host.classList.contains('is-painted')) {
+                host.classList.add('is-painted');
               }
+              });  // forEach svg
+            } catch (forceColorErr) {
+              console.warn('[mermaid] post-render palette takeover failed:', forceColorErr);
+            }
+          };  // applySpinePaletteOnce
+
+          // Safety net · if the takeover errors out for some reason
+          // (script bug, exotic chart type), make sure every chart
+          // becomes visible within 6s so the user at least sees the
+          // chart (even if colours leak) instead of an empty frame.
+          // Normal flow: each successful takeover pass marks its
+          // pre.mermaid as `.is-painted` immediately, so the chart
+          // appears as soon as the first pass succeeds (~16ms).
+          setTimeout(() => {
+            document.querySelectorAll('pre.mermaid:not(.is-painted)').forEach((el) => {
+              el.classList.add('is-painted');
             });
-          } catch (forceColorErr) {
-            console.warn('[mermaid] post-render colour force failed:', forceColorErr);
-          }
+          }, 6000);
+
+          // ── Continuous re-apply for the first 5 seconds ──
+          // The user reported strict alternation ("1st wrong, 2nd
+          // right, 3rd wrong, 4th right…") which means a single
+          // setTimeout chain wasn't enough — mermaid's deferred
+          // work was landing in different timing windows on
+          // alternate loads, and my chain was missing odd-numbered
+          // ones.
+          //
+          // Defense in depth: re-apply EVERY 60ms for the first 5
+          // seconds. By the time the user perceives the chart, our
+          // styles have been pinned 80+ times across every possible
+          // mermaid post-render window. After 5s, switch to a pure
+          // MutationObserver (only fires on real DOM changes) so we
+          // keep up with future mutations without the polling cost.
+          //
+          // Each call is idempotent — same selectors set the same
+          // inline-style values, so re-running is a cheap no-op
+          // when nothing changed.
+          applySpinePaletteOnce();                                // sync, before next paint
+          let pollCount = 0;
+          const pollInterval = setInterval(() => {
+            applySpinePaletteOnce();
+            if (++pollCount > 80) clearInterval(pollInterval);    // 80 × 60ms ≈ 4.8s
+          }, 60);
+
+          // Persistent MutationObserver · catches any post-poll
+          // mutations (container resize, font swap, late SSE
+          // re-render). Watches structural changes only — our own
+          // setProperty calls modify the `style` attribute, which
+          // is excluded by `attributes: false` (default), so this
+          // can't loop on itself.
+          document.querySelectorAll('.mermaid svg').forEach((svg) => {
+            const obs = new MutationObserver(() => {
+              requestAnimationFrame(applySpinePaletteOnce);
+            });
+            obs.observe(svg, { childList: true, subtree: true });
+          });
           // ── Post-render xychart bar slimming ─────────────────────
           // mermaid xychart-beta renders bars at near-full slot width
           // regardless of `plotReservedSpacePercent` in some 11.x

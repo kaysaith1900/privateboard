@@ -2389,6 +2389,14 @@
     document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
     document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
     currentlyOpenSlug = null;
+    // Clear the no-room flag IFF there's an actual room loaded · the
+    // floating sidebar-expand button shouldn't show on top of a real
+    // room view (the in-header expand button takes over there). When
+    // showRoom fires without an active room (e.g. bouncing back to
+    // the empty-state composer), keep no-room set so the expand
+    // control stays reachable.
+    const hasRoom = window.app && window.app.currentRoomId;
+    if (hasRoom) document.documentElement.classList.remove("no-room");
   }
 
   /** Build a minimal profile object from a live /api/agents record so
@@ -2474,6 +2482,12 @@
     // notes empty-state through the agent view.
     if (v.reports) v.reports.setAttribute("hidden", "");
     if (v.notes)   v.notes.setAttribute("hidden", "");
+    // The floating sidebar-expand button is gated on `html.no-room`
+    // — without setting it here, a user who collapses the sidebar
+    // while on an agent profile loses the expand control and has to
+    // navigate back to a room view to recover it. Same logic that
+    // app.js applies in openAllReports / openAllNotes.
+    document.documentElement.classList.add("no-room");
     document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
     document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
     v.agent.removeAttribute("hidden");

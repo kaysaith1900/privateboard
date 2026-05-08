@@ -55,7 +55,7 @@
 
   /* Logo stays on Inter so the brandmark reads consistently
      across pages, regardless of the chat-page font swap. */
-  .brand-name,
+  .sidebar-brand-name,
   .brand-mark {
     font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   }
@@ -131,78 +131,33 @@
   }
   .sys-notice-close:hover { color: var(--lime, #6FB572); }
 
-  /* ─────────── ROOT ─────────── */
+  /* ─────────── ROOT ───────────
+     Single-row grid · the previous decorative top "classification
+     banner" (PRIVATEBOARD wordmark + SYNC / UID / ROOM placeholder
+     metadata) was retired. The brand mark moved into the sidebar's
+     header, and the placeholder fields were never real data. Sidebar
+     and room now get the full viewport height. */
   .control {
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr;
     flex: 1 1 auto;
     min-height: 0;
-    gap: 8px;
     padding: 8px;
   }
 
-  /* ═══════════════════════════════════════════
-     TOP BAR (classification banner)
-     ═══════════════════════════════════════════ */
-  .topbar {
-    background: var(--panel);
-    border: 0.5px solid var(--line);
-    padding: 8px 14px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 20px;
-    position: relative;
-  }
-
-  .brand-block {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
+  /* ─── Brand mark · 16-pixel "PrivateBoard" logo ───
+     The single remaining piece of the retired topbar — kept because
+     the sidebar's header re-uses it as the lock-up logo (replacing
+     the prior "// CONTROL" text title). The fill swap (lime bg / bg
+     fg) produces the inverse-tile look when rendered against the
+     sidebar's panel-2 surface. */
   .brand-mark {
-    width: 20px; height: 20px;
+    width: 16px; height: 16px;
     display: block;
     flex-shrink: 0;
   }
   .brand-mark .bg { fill: var(--lime); }
   .brand-mark .fg { fill: var(--bg); }
-  .brand-name {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--text);
-    letter-spacing: 0.1em;
-  }
-  .brand-sep {
-    color: var(--text-dim);
-    margin: 0 4px;
-  }
-  .classification {
-    color: var(--lime);
-    background: var(--panel-3);
-    border: 0.5px solid var(--lime-dim);
-    padding: 1px 7px;
-    font-size: 9px;
-    letter-spacing: 0.14em;
-    margin-left: 6px;
-    font-weight: 700;
-  }
-  .classification::before { content: "["; margin-right: 3px; }
-  .classification::after { content: "]"; margin-left: 3px; }
-
-  .topbar-right {
-    display: flex;
-    gap: 18px;
-    align-items: center;
-    color: var(--text-dim);
-    font-size: 9.5px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  /* Topbar key label · bumped from text-faint (~2:1) to text-soft
-     (~6:1) so the key reads cleanly against the topbar bg. */
-  .topbar-right .key { color: var(--text-soft); margin-right: 4px; }
-  .topbar-right .val { color: var(--text-soft); }
   @keyframes pulse { 0%, 60% { opacity: 1; } 80% { opacity: 0.4; } }
 
   /* ═══════════════════════════════════════════
@@ -214,10 +169,10 @@
     gap: 0;
     overflow: hidden;
     min-height: 0;
-    /* `position: relative` so the floating sidebar-expand-btn (absolute-
-       positioned) anchors to the body-grid's top-left edge instead of
-       the viewport — that puts the button below the topbar / brand
-       logo where the user expects it, not on top of it. */
+    /* `position: relative` so the floating sidebar-expand-btn
+       (absolute-positioned) anchors to the body-grid's top-left
+       edge — which, after the topbar's retirement, is the viewport's
+       top-left under the 8px page padding. */
     position: relative;
   }
 
@@ -280,27 +235,37 @@
   }
 
   .sidebar-head {
-    padding: 6px 12px;
+    padding: 8px 12px;
     border-bottom: 0.5px solid var(--line-bright);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
     background: var(--panel-2);
   }
-  .sidebar-head-title {
-    font-size: 10px;
+  /* Lock-up · brand mark + wordmark in the slot the prior
+     "// CONTROL" title held. Anchored as a link so a click on the
+     logo returns to the boardroom root (`/`) — same affordance the
+     pre-retired topbar offered. */
+  .sidebar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: inherit;
+    min-width: 0;
+  }
+  .sidebar-brand-name {
+    font-size: 11px;
     color: var(--text);
-    letter-spacing: 0.14em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .sidebar-head-meta {
-    font-size: 9px;
-    color: var(--text-dim);
-    letter-spacing: 0.06em;
-  }
-  .sidebar-head-meta .lime { color: var(--lime); }
-
+  .sidebar-brand:hover .sidebar-brand-name { color: var(--lime); }
   /* ─── Sidebar collapse toggle ───
      Sits at the right edge of sidebar-head. Pure CSS glyph (no svg)
      so we can flip the direction via class without re-rendering DOM.
@@ -1178,7 +1143,13 @@
 
   .sidebar-foot {
     border-top: 0.5px solid var(--line-bright);
-    padding: 8px 10px;
+    padding: 0 10px;
+    /* Pinned to the same min-height as the room's `.adjourned-bar`
+       (the "Convene Follow-up" rail at the bottom of an adjourned
+       room) so the two footers sit on a single visual baseline
+       regardless of which view is showing. */
+    min-height: 44px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1447,7 +1418,14 @@
   .notes-filter-chip.on .notes-filter-count { color: var(--text-dim); }
 
   /* ─── Reading list ─────────────────────────────────────────────── */
-  .reports-list-wrap { margin-top: 18px; }
+  /* Divider hair under the filter chips · group headers were dropped
+     in favour of a single rule + flat list (chips already disclose
+     recency, no need for repeated section headers). */
+  .reports-list-wrap {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
 
   /* Load-more sentinel · sits at the bottom of the list when more
      items are available beyond the current page (default 20). The
@@ -1483,21 +1461,6 @@
   .reports-load-more-arrow {
     font-size: 13px;
     line-height: 1;
-  }
-
-  /* Date-bucket label · sits flush left, hairline rule fills the
-     remaining width. Reads as a quiet section break. */
-  .reports-group + .reports-group { margin-top: 32px; }
-  .reports-group-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-    padding-bottom: 8px;
-    border-bottom: 0.5px solid var(--line);
-    margin-bottom: 4px;
   }
 
   .reports-list {
@@ -1783,36 +1746,53 @@
     color: var(--text-dim);
   }
 
-  /* Date-bucket sections · each opens with its own hairline-divided
-     label row, matching the reports `.reports-group` rhythm. */
-  .notes-group + .notes-group { margin-top: 32px; }
-  .notes-group:first-of-type { margin-top: 22px; }
-  .notes-group-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding-bottom: 8px;
-    border-bottom: 0.5px solid var(--line);
-    margin-bottom: 4px;
-  }
-  .notes-group-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-  }
-  .notes-group-count {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    letter-spacing: 0.04em;
-  }
-
   .notes-list { list-style: none; margin: 0; padding: 0; }
-  .notes-item { border-bottom: 0.5px solid var(--line); }
+  /* `position: relative` so the absolutely-positioned delete button
+     (top-right of each note row) anchors to its own item. Hover-only
+     reveal — the row stays clean during normal scanning. */
+  .notes-item {
+    position: relative;
+    border-bottom: 0.5px solid var(--line);
+  }
   .notes-item:last-child { border-bottom: none; }
+  .notes-item-delete {
+    position: absolute;
+    top: 16px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright);
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    z-index: 2;
+  }
+  .notes-item:hover .notes-item-delete { display: flex; }
+  .notes-item-delete:hover {
+    color: var(--red);
+    border-color: var(--red);
+    background: var(--bg);
+  }
+  /* Reserve the right-edge gutter ALWAYS (not only on hover) so the
+     passage text doesn't reflow when the delete button appears. An
+     earlier version applied `padding-right: 30px` only on hover —
+     the text visibly jumped each time the user mousemoved across
+     rows. Cost: a fixed 30px of empty space at the right edge of
+     every passage; cheap compared to the jitter. */
+  .notes-item-passage { padding-right: 30px; }
+  /* On hover · hide the trailing time tag so the delete button
+     occupies the right-edge slot cleanly. visibility:hidden keeps
+     the layout box (the meta row doesn't reflow either). Same
+     pattern as `.session-row-shell:hover .row-time` in rooms. */
+  .notes-item:hover .notes-item-time { visibility: hidden; }
   .notes-item-link {
     display: block;
     padding: 18px 4px;
@@ -2018,6 +1998,63 @@
     color: var(--text);
     background: var(--panel-3);
   }
+  /* Cold empty state · 3-step capture workflow rendered as an
+     ordered list. Each step has a circled number on the left + a
+     bilingual instruction on the right (zh + en together because
+     a note may be saved from either language room). The steps are
+     the load-bearing pedagogy of this view — without them, new
+     users hit "All Notes" and have no idea how to get the first
+     note in. */
+  .notes-empty-steps {
+    list-style: none;
+    margin: 6px 0 4px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 560px;
+  }
+  .notes-empty-steps li {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .notes-empty-step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 0.5px solid var(--line-bright);
+    background: var(--panel-3);
+    color: var(--lime);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  .notes-empty-step-text {
+    font-family: var(--font-human);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+  .notes-empty-step-text strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .notes-empty-foot {
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 0.5px dashed var(--line-bright);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: var(--text-faint);
+    max-width: 560px;
+  }
   /* Window-empty CTA · "← Show all notes" button shown when a
      non-All filter has zero matches. Same visual register as
      `.reports-list-empty-cta`. */
@@ -2049,9 +2086,14 @@
     font-size: 11px;
     line-height: 1;
   }
-  /* Wrap around the date-grouped list · matches the reports list
-     wrap so the chip strip → list spacing reads identically. */
-  .notes-list-wrap { margin-top: 18px; }
+  /* Wrap around the flat list · matches the reports list wrap so
+     the chip strip → divider → list rhythm reads identically. Group
+     headers were dropped in favour of a single hair under the chips. */
+  .notes-list-wrap {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
 
   /* Loading skeleton · matches `.reports-skeleton` rhythm and
      reuses its pulse keyframe. */
@@ -2463,10 +2505,15 @@
     50%      { opacity: 1; }
   }
 
-  /* Paused footer bar (sits where input-bar would be) */
+  /* Paused footer bar (sits where input-bar would be) — shares the
+     `.adjourned-bar` height so the bottom edge of the room view stays
+     on the same baseline as the sidebar's user footer regardless of
+     which state (paused vs adjourned) is showing. */
   .paused-bar {
     border-top: 0.5px solid var(--line-bright);
-    padding: 8px 14px;
+    padding: 0 14px;
+    min-height: 44px;
+    box-sizing: border-box;
     background: var(--panel-2);
     display: flex;
     align-items: center;
@@ -2594,7 +2641,11 @@
 
   .adjourned-bar {
     border-top: 0.5px solid var(--line-bright);
-    padding: 8px 14px;
+    padding: 0 14px;
+    /* Same min-height as `.sidebar-foot` so the bottom edges of the
+       sidebar footer and this room footer sit on a single baseline. */
+    min-height: 44px;
+    box-sizing: border-box;
     background: var(--panel-2);
     display: flex;
     align-items: center;
@@ -9082,6 +9133,7 @@
 <script src="onboarding.js" defer></script>
 <link rel="stylesheet" href="quote-cta.css">
 <script src="quote-cta.js" defer></script>
+<script src="typing-sfx.js" defer></script>
 <script src="app.js" defer></script>
 <script>
   /* FOUC-prevention: apply saved theme synchronously before paint */
@@ -9113,41 +9165,31 @@
 
 <div class="control">
 
-  <!-- ═══════════════ TOP BAR (classification banner) ═══════════════ -->
-  <header class="topbar">
-    <div class="brand-block">
-      <svg class="brand-mark" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="PrivateBoard">
-        <rect class="bg" width="16" height="16"/>
-        <rect class="fg" x="3"  y="2"  width="2" height="2"/>
-        <rect class="fg" x="7"  y="2"  width="2" height="2"/>
-        <rect class="fg" x="11" y="2"  width="2" height="2"/>
-        <rect class="fg" x="2"  y="4"  width="12" height="2"/>
-        <rect class="fg" x="1"  y="7"  width="14" height="2"/>
-        <rect class="fg" x="2"  y="10" width="1"  height="4"/>
-        <rect class="fg" x="13" y="10" width="1"  height="4"/>
-      </svg>
-      <span class="brand-name">PRIVATEBOARD</span>
-      <span class="brand-sep">//</span>
-      <span class="brand-name">CONTROL</span>
-      <span class="classification">PRIVATE ACCESS</span>
-    </div>
-
-    <div class="topbar-right">
-      <div><span class="key">SYNC:</span><span class="val">2026·04·28 · 14:42</span></div>
-      <div><span class="key">UID:</span><span class="val">0x4A1F</span></div>
-      <div><span class="key">ROOM:</span><span class="val">047 · ROUND 03</span></div>
-    </div>
-  </header>
-
   <!-- ═══════════════ MAIN GRID ═══════════════ -->
+  <!-- The previous `<header class="topbar">` (decorative classification
+       banner with brand mark + SYNC / UID / ROOM placeholder fields)
+       has been retired. The brand mark moved into `.sidebar-head` as
+       the lock-up logo; the placeholder fields were never load-bearing
+       data. Sidebar + room now reach the top of the viewport. -->
   <div class="body-grid">
 
     <!-- ═══════════════ SIDEBAR ═══════════════ -->
     <aside class="sidebar">
 
       <div class="sidebar-head">
-        <div class="sidebar-head-title">// CONTROL</div>
-        <div class="sidebar-head-meta"><span class="lime">●</span> <span data-sidebar-summary>0 LIVE / 0 AGENTS</span></div>
+        <a href="/" class="sidebar-brand" aria-label="PrivateBoard">
+          <svg class="brand-mark" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="PrivateBoard">
+            <rect class="bg" width="16" height="16"/>
+            <rect class="fg" x="3"  y="2"  width="2" height="2"/>
+            <rect class="fg" x="7"  y="2"  width="2" height="2"/>
+            <rect class="fg" x="11" y="2"  width="2" height="2"/>
+            <rect class="fg" x="2"  y="4"  width="12" height="2"/>
+            <rect class="fg" x="1"  y="7"  width="14" height="2"/>
+            <rect class="fg" x="2"  y="10" width="1"  height="4"/>
+            <rect class="fg" x="13" y="10" width="1"  height="4"/>
+          </svg>
+          <span class="sidebar-brand-name">PRIVATEBOARD</span>
+        </a>
         <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar"></button>
       </div>
 

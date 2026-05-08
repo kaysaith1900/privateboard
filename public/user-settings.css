@@ -261,6 +261,59 @@
   margin-top: 5px;
 }
 
+/* ─── Toggle row · pill button + supporting deck text ───
+   Matches the visual vocabulary of the day-picker pills (mono
+   uppercase, hairline border, lime accent when on) so the User pane
+   doesn't introduce a third button style for one toggle. */
+.us-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.us-toggle-pill {
+  appearance: none;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft, #8E8B83);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.us-toggle-pill:hover {
+  color: var(--text, #C8C5BE);
+  border-color: var(--text-faint, #3A382F);
+}
+.us-toggle-pill.on {
+  color: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.us-toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint, #3A382F);
+  transition: background 0.12s;
+}
+.us-toggle-pill.on .us-toggle-dot { background: var(--lime, #6FB572); }
+.us-toggle-deck {
+  font-size: 11px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
 /* User avatar block */
 .us-avatar-row {
   display: flex;
