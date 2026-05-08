@@ -255,6 +255,27 @@ const UTILITY_PREFERENCE: ModelV[] = [
 
 export function utilityModelFor(fallback: ModelV | null = null): ModelV | null {
   const reachable = new Set(reachableModels().map((m) => m.modelV));
+
+  // User-default-first · if the user explicitly picked a utility-class
+  // model as their default (Gemini Flash, GPT-mini, Haiku, Grok Fast),
+  // use it directly. The earlier carrier-aware path forced OpenRouter
+  // users onto haiku-4-5 even when they'd switched their default to
+  // a different family's small-fast model — the user reported this as
+  // "I changed default to Gemini 3.1 Flash but report generation still
+  // shows haiku in the terminal". That detour wasted both fidelity to
+  // the user's explicit choice AND the chance to keep the whole
+  // pipeline on a single model family. When the default is itself
+  // small-fast, just use it.
+  const prefs = getPrefs();
+  const userDefault = prefs.defaultModelV as ModelV | null;
+  if (
+    userDefault &&
+    (UTILITY_PREFERENCE as readonly ModelV[]).includes(userDefault) &&
+    reachable.has(userDefault)
+  ) {
+    return userDefault;
+  }
+
   // Active-carrier-first · whichever carrier serves the user's current
   // default model gets first dibs on the utility slot. Prevents the
   // "I switched to Gemini but background calls still hit OpenAI" trap
