@@ -2042,7 +2042,6 @@
         directorIds: [],
         autoPick: true,
         parentDirectorIds: parentDirectorIds.slice(),
-        lang,
       };
 
       const html = `
@@ -2206,7 +2205,6 @@
       const btn = document.querySelector("[data-followup-cast-btn]");
       if (!btn || !this._followupCastState) return;
       const state = this._followupCastState;
-      const lang = state.lang || "en";
 
       btn.classList.remove("cmp-cast-btn-auto");
       btn.removeAttribute("data-cast-mode");
@@ -2972,7 +2970,7 @@
     /** Spin up the countdown if conditions are met; otherwise cancel. */
     maybeStartContinueCountdown() {
       if (!this.canAutoContinue()) {
-        this.cancelContinueCountdown("not-idle");
+        this.cancelContinueCountdown();
         this.refreshContinueButton();
         return;
       }
