@@ -9046,10 +9046,22 @@
           "Writing the 3 Headline Findings",
           "Drafting Convergence + Divergence sections",
           "Composing Recommendations",
-          "Writing the Pre-mortem",
           "Surfacing New Questions",
           "Drafting the Strategic Planning Assumption",
           "Polishing the final pass",
+        ],
+        // Bento's `write` stage does different work · one chair-LLM
+        // call that compresses the room into the 8-slot bento layout.
+        // Keyed under `bento-write` and selected at render time when
+        // the brief's mode is bento.
+        "bento-write": [
+          "Compressing to the takeaway · the 1-line title",
+          "Picking the 3 milestones",
+          "Sizing the big-number callouts",
+          "Mapping ranked bars from the room's data",
+          "Distilling the verification signals",
+          "Compressing recommendations into elevator-pitch lines",
+          "Naming the closing flow · before → after",
         ],
       },
       // System UI · always English. The `zh` key is kept as an alias
@@ -9203,27 +9215,39 @@
         ? (b.bodyMd.trim().match(/\S+/g) || []).length
         : 0;
 
-      // Stage definitions · 7 ordered cells. Must align with the wire
-      // format emitted by emitStage() in src/orchestrator/brief.ts:
+      // Stage definitions · mode-aware. The wire format emitted by
+      // emitStage() in src/orchestrator/brief.ts depends on which
+      // pipeline ran:
       //
-      //   extract → compose → scaffold-{anchor,findings,cluster,actions} → write
+      //   research-note (default) · extract → compose → scaffold-
+      //     {anchor,findings,cluster,actions} → write (7 stages · the
+      //     4 scaffold sub-stages are driven by JSON-key arrival in
+      //     the streaming buffer, see SCAFFOLD_TRIGGERS in brief.ts)
       //
-      // The 4 scaffold sub-stages are driven by JSON-key arrival in the
-      // Stage 2 streaming buffer (see runStage2 / SCAFFOLD_TRIGGERS in
-      // brief.ts), so each pip transition reflects a real moment in the
-      // model's output — not a synthetic timer.
-      // System UI · always English regardless of brief language.
-      // The pipeline labels are the app's voice (chrome around the
+      //   bento · extract → write (2 stages · runBentoStage runs ONE
+      //     chair-LLM call that produces the BentoScaffold; composer
+      //     and the scaffold sub-stages are skipped entirely · their
+      //     pips would otherwise stay "pending" forever and the rail
+      //     would jump from extract straight to write with 5 black
+      //     pips in between)
+      //
+      // System UI · always English regardless of brief language. The
+      // pipeline labels are the app's voice (chrome around the
       // generation), not the report content itself.
-      const STAGE_DEFS = [
-        { key: "extract",            label: "Reading what each director said", pipShort: "read" },
-        { key: "compose",            label: "Picking the report shape",        pipShort: "pick" },
-        { key: "scaffold-anchor",    label: "Setting the anchor",              pipShort: "anchor" },
-        { key: "scaffold-findings",  label: "Sketching findings",              pipShort: "find" },
-        { key: "scaffold-cluster",   label: "Mapping consensus + dissent",     pipShort: "split" },
-        { key: "scaffold-actions",   label: "Drafting actions + risks",        pipShort: "act" },
-        { key: "write",              label: "Writing the report",              pipShort: "write" },
-      ];
+      const STAGE_DEFS = b.mode === "bento"
+        ? [
+            { key: "extract", label: "Reading what each director said", pipShort: "read" },
+            { key: "write",   label: "Composing the bento",             pipShort: "compose" },
+          ]
+        : [
+            { key: "extract",            label: "Reading what each director said", pipShort: "read" },
+            { key: "compose",            label: "Picking the report shape",        pipShort: "pick" },
+            { key: "scaffold-anchor",    label: "Setting the anchor",              pipShort: "anchor" },
+            { key: "scaffold-findings",  label: "Sketching findings",              pipShort: "find" },
+            { key: "scaffold-cluster",   label: "Mapping consensus + dissent",     pipShort: "split" },
+            { key: "scaffold-actions",   label: "Drafting actions + risks",        pipShort: "act" },
+            { key: "write",              label: "Writing the report",              pipShort: "write" },
+          ];
 
       const meta = this.BRIEF_STAGE_META;
       const substages = (this.BRIEF_SUBSTAGES[lang] || this.BRIEF_SUBSTAGES.en);
@@ -9275,9 +9299,16 @@
       }
 
       // Rotating sub-line · advances every 3s within the active stage.
+      // Bento mode's `write` stage does different work than the
+      // research-note `write` stage — pick its dedicated rotator
+      // (`bento-write`) when active. Falls through to the regular
+      // key for every other stage / mode.
       let substageText = "";
-      if (activeStatus === "active" && substages[activeDef.key]?.length) {
-        const list = substages[activeDef.key];
+      const subKey = (b.mode === "bento" && activeDef.key === "write")
+        ? "bento-write"
+        : activeDef.key;
+      if (activeStatus === "active" && substages[subKey]?.length) {
+        const list = substages[subKey];
         substageText = list[Math.floor(activeElapsed / 3) % list.length];
       }
 
