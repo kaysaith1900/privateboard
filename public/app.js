@@ -6178,10 +6178,10 @@
                   <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(state.intensity)}</span>
                   <span class="cmp-dd-chevron">▾</span>
                 </button>
-                <label class="cmp-voice-switch" title="${this.escape(lang === "zh" ? "开启语音会议" : "Enable voice mode")}">
+                <label class="cmp-voice-switch" title="${this.escape(this._t("cmp_voice_tooltip"))}">
                   <input type="checkbox" data-composer-voice-toggle ${state.deliveryMode === "voice" ? "checked" : ""}>
                   <span class="cmp-voice-switch-track"></span>
-                  <span class="cmp-voice-switch-label">${lang === "zh" ? "语音" : "Voice"}</span>
+                  <span class="cmp-voice-switch-label">${this.escape(this._t("cmp_voice_label"))}</span>
                 </label>
               </div>
 

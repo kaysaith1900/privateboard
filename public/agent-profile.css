@@ -3803,21 +3803,15 @@
   white-space: nowrap;
   min-width: 70px;
 }
+.ap-voice-slider .ap-voice-emotion-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .ap-voice-slider input[type="range"] {
   flex: 1;
   height: 4px;
   accent-color: var(--lime, #6FB572);
   cursor: pointer;
-}
-.ap-voice-slider select {
-  flex: 1;
-  background: var(--panel-2, #1a1a1a);
-  border: 1px solid var(--line-bright, #333);
-  color: var(--text, #eee);
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-  padding: 3px 6px;
-  border-radius: 3px;
 }
 .ap-voice-advanced {
   margin-top: 10px;

@@ -2230,6 +2230,7 @@
 
   function openModelPicker(triggerEl) {
     closeModelPicker();
+    closeEmotionPicker();
     const row = triggerEl.closest("[data-ap-model-row]");
     const slug = row?.getAttribute("data-slug");
     if (!slug) return;
@@ -2305,6 +2306,16 @@
     if (prov) prov.textContent = formatTriggerMeta(m);
   }
 
+  function voiceEmotionOptionLabel(emotionSlug) {
+    const s = emotionSlug === undefined || emotionSlug === null ? "" : String(emotionSlug);
+    const key = !s ? "ap_voice_emotion_auto" : `ap_voice_emotion_${s}`;
+    const txt = uiT(key);
+    return txt === key ? s || "auto" : txt;
+  }
+
+  /** API emotion slugs mirrored in PATCH body `voice.emotion`. */
+  const VOICE_EMOTION_VALUES = ["", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"];
+
   let voiceOptionsCache = null;
   async function ensureVoiceOptions() {
     if (voiceOptionsCache) return voiceOptionsCache;
@@ -2323,8 +2334,8 @@
   }
   function renderVoiceBlock(slug) {
     const v = voiceForAgent(slug);
-    const label = v ? `${v.provider} · ${v.voiceId}` : "Browser default";
-    const deck = v ? v.model : "speechSynthesis";
+    const label = v ? `${v.provider} · ${v.voiceId}` : uiT("ap_voice_browser_default");
+    const deck = v ? v.model : uiT("ap_voice_engine_browser");
     const speed = v?.speed ?? 1;
     const pitch = v?.pitch ?? 0;
     const emotion = v?.emotion || "";
@@ -2332,10 +2343,7 @@
     const modIntensity = v?.modifyIntensity ?? 0;
     const modTimbre = v?.modifyTimbre ?? 0;
 
-    const emotions = ["", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"];
-    const emotionOpts = emotions.map((e) =>
-      `<option value="${e}" ${emotion === e ? "selected" : ""}>${e || "auto"}</option>`
-    ).join("");
+    const emotionLabel = voiceEmotionOptionLabel(emotion);
 
     return `
       <div class="ap-voice-config" data-ap-voice-row data-slug="${escape(slug)}">
@@ -2347,35 +2355,40 @@
             </span>
             <span class="ap-model-trigger-caret">▾</span>
           </button>
-          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="试听 / Preview">▶</button>
+          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="${escape(uiT("ap_voice_preview_btn_title"))}" aria-label="${escape(uiT("ap_voice_preview_btn_title"))}">▶</button>
         </div>
         <div class="ap-voice-sliders">
           <label class="ap-voice-slider">
-            <span class="ap-voice-slider-label">语速 <span data-ap-voice-val="speed">${speed.toFixed(1)}</span></span>
+            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_speed"))} <span data-ap-voice-val="speed">${speed.toFixed(1)}</span></span>
             <input type="range" min="0.5" max="2" step="0.1" value="${speed}" data-ap-voice-range="speed" data-slug="${escape(slug)}">
           </label>
           <label class="ap-voice-slider">
-            <span class="ap-voice-slider-label">语调 <span data-ap-voice-val="pitch">${pitch}</span></span>
+            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_pitch"))} <span data-ap-voice-val="pitch">${pitch}</span></span>
             <input type="range" min="-12" max="12" step="1" value="${pitch}" data-ap-voice-range="pitch" data-slug="${escape(slug)}">
           </label>
           <label class="ap-voice-slider">
-            <span class="ap-voice-slider-label">情绪</span>
-            <select data-ap-voice-emotion data-slug="${escape(slug)}">${emotionOpts}</select>
+            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_emotion_label"))}</span>
+            <button type="button" class="ap-model-trigger ap-voice-emotion-trigger" data-ap-emotion-trigger data-slug="${escape(slug)}">
+              <span class="ap-model-trigger-text">
+                <span class="ap-model-trigger-name" data-ap-voice-emotion-label>${escape(emotionLabel)}</span>
+              </span>
+              <span class="ap-model-trigger-caret">▾</span>
+            </button>
           </label>
         </div>
         <details class="ap-voice-advanced">
-          <summary>高级调节</summary>
+          <summary>${escape(uiT("ap_voice_advanced"))}</summary>
           <div class="ap-voice-sliders">
             <label class="ap-voice-slider">
-              <span class="ap-voice-slider-label">音高 <span data-ap-voice-val="modifyPitch">${modPitch}</span></span>
+              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_pitch"))} <span data-ap-voice-val="modifyPitch">${modPitch}</span></span>
               <input type="range" min="-100" max="100" step="5" value="${modPitch}" data-ap-voice-range="modifyPitch" data-slug="${escape(slug)}">
             </label>
             <label class="ap-voice-slider">
-              <span class="ap-voice-slider-label">力度 <span data-ap-voice-val="modifyIntensity">${modIntensity}</span></span>
+              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_intensity"))} <span data-ap-voice-val="modifyIntensity">${modIntensity}</span></span>
               <input type="range" min="-100" max="100" step="5" value="${modIntensity}" data-ap-voice-range="modifyIntensity" data-slug="${escape(slug)}">
             </label>
             <label class="ap-voice-slider">
-              <span class="ap-voice-slider-label">音色 <span data-ap-voice-val="modifyTimbre">${modTimbre}</span></span>
+              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_timbre"))} <span data-ap-voice-val="modifyTimbre">${modTimbre}</span></span>
               <input type="range" min="-100" max="100" step="5" value="${modTimbre}" data-ap-voice-range="modifyTimbre" data-slug="${escape(slug)}">
             </label>
           </div>
@@ -2385,6 +2398,7 @@
   }
   async function openVoicePicker(triggerEl) {
     closeVoicePicker();
+    closeEmotionPicker();
     const row = triggerEl.closest("[data-ap-voice-row]");
     const slug = row?.getAttribute("data-slug");
     if (!slug) return;
@@ -2395,7 +2409,7 @@
     pop.className = "ap-model-picker";
     pop.dataset.slug = slug;
     if (voices.length === 0) {
-      pop.innerHTML = `<div class="ap-model-group">No voice provider configured</div>`;
+      pop.innerHTML = `<div class="ap-model-group">${escape(uiT("ap_voice_no_provider"))}</div>`;
     } else {
       const groups = [];
       let last = null;
@@ -2409,7 +2423,7 @@
         const active = current && current.provider === provider && current.model === v.model && current.voiceId === v.voiceId;
         groups.push(`
           <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-voice-pick="${escape(id)}">
-            <span class="ap-model-opt-label">${escape(v.label || v.voiceId || "voice")}</span>
+            <span class="ap-model-opt-label">${escape(v.label || v.voiceId || uiT("ap_voice_fallback_voice"))}</span>
             <span class="ap-model-opt-hint">${escape((v.model || "") + (v.language ? " · " + v.language : ""))}</span>
           </button>
         `);
@@ -2427,6 +2441,43 @@
     const el = document.getElementById("ap-voice-picker");
     if (el) el.remove();
   }
+  function closeEmotionPicker() {
+    const el = document.getElementById("ap-emotion-picker");
+    if (el) el.remove();
+  }
+  /** Custom popover for voice emotion · matches `.ap-model-picker` chrome (no native `<select>` menu). */
+  function openEmotionPicker(triggerEl) {
+    closeEmotionPicker();
+    closeVoicePicker();
+    closeModelPicker();
+    const row = triggerEl.closest("[data-ap-voice-row]");
+    const slug = row?.getAttribute("data-slug");
+    if (!slug) return;
+    const curVoice = voiceForAgent(slug);
+    const raw = curVoice && curVoice.emotion != null && curVoice.emotion !== ""
+      ? String(curVoice.emotion)
+      : "";
+    const parts = [`<div class="ap-model-group">${escape(uiT("ap_voice_emotion_label"))}</div>`];
+    for (const e of VOICE_EMOTION_VALUES) {
+      const active = raw === e;
+      parts.push(`
+        <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-emotion-pick="${escape(e)}">
+          <span class="ap-model-opt-label">${escape(voiceEmotionOptionLabel(e))}</span>
+        </button>`);
+    }
+    const pop = document.createElement("div");
+    pop.id = "ap-emotion-picker";
+    pop.className = "ap-model-picker";
+    pop.dataset.slug = slug;
+    pop.innerHTML = parts.join("");
+    document.body.appendChild(pop);
+    const r = triggerEl.getBoundingClientRect();
+    const popW = Math.min(280, Math.max(220, r.width));
+    let left = Math.round(Math.min(r.left, window.innerWidth - popW - 8));
+    pop.style.top = `${Math.round(r.bottom + 4)}px`;
+    pop.style.left = `${left}px`;
+    pop.style.width = `${Math.round(popW)}px`;
+  }
   function setVoiceFor(slug, voice) {
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     if (!live) return;
@@ -2437,19 +2488,25 @@
     })
       .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
       .then((updated) => {
-        live.voice = updated.voice || voice;
+        const nv = updated.voice != null ? updated.voice : voice;
+        live.voice = nv;
         const row = document.querySelector(`[data-ap-voice-row][data-slug="${slug}"]`);
         const name = row?.querySelector("[data-ap-voice-name]");
         const prov = row?.querySelector("[data-ap-voice-provider]");
-        if (name) name.textContent = `${voice.provider} · ${voice.voiceId}`;
-        if (prov) prov.textContent = voice.model;
+        if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
+        if (prov && nv && nv.model != null) prov.textContent = nv.model;
+        const emLb = row?.querySelector("[data-ap-voice-emotion-label]");
+        if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
       })
-      .catch((e) => alert("Couldn't save voice: " + (e && e.message ? e.message : e)));
+      .catch((e) => alert(uiT("ap_voice_save_err", { msg: e && e.message ? e.message : String(e) })));
   }
 
   async function previewVoice(slug) {
     const v = voiceForAgent(slug);
-    if (!v || !v.voiceId) { alert("Please select a voice first"); return; }
+    if (!v || !v.voiceId) {
+      alert(uiT("ap_voice_preview_need_voice"));
+      return;
+    }
     const btn = document.querySelector(`[data-ap-voice-preview][data-slug="${slug}"]`);
     if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
     try {
@@ -2470,13 +2527,13 @@
       });
       const data = await r.json();
       if (!r.ok || !data.audioBase64) {
-        alert("Preview failed: " + (data.error || "no audio"));
+        alert(uiT("ap_voice_preview_failed", { msg: data.error || "no audio" }));
         return;
       }
       const audio = new Audio(`data:${data.mimeType};base64,${data.audioBase64}`);
-      audio.play().catch((e) => alert("Playback blocked: " + e.message));
+      audio.play().catch((e) => alert(uiT("ap_voice_preview_playback_blocked", { msg: e.message || String(e) })));
     } catch (e) {
-      alert("Preview error: " + (e.message || e));
+      alert(uiT("ap_voice_preview_err", { msg: e.message || String(e) }));
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = "▶"; }
     }
@@ -2566,7 +2623,7 @@
               <header class="ap-block-h">
                 <span class="ap-block-h-title">${escape(uiT("ap_memory"))}</span>
                 <div class="ap-block-h-actions">
-                  <button type="button" class="ap-block-h-action ap-dream-trigger" data-ap-dream-trigger data-slug="${escape(slug)}" title="${escape(lang === "zh" ? "整理记忆：丢下过时笔记，保留稳定模式" : "Consolidate · drop stale notes, keep stable patterns")}">${escape(lang === "zh" ? "☾ 整理记忆" : "☾ run consolidation")}</button>
+                  <button type="button" class="ap-block-h-action ap-dream-trigger" data-ap-dream-trigger data-slug="${escape(slug)}" title="${escape(uiT("ap_dream_consolidate_title"))}">${escape(uiT("ap_dream_consolidate_btn"))}</button>
                   <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">${escape(uiT("ap_memory_add"))}</button>
                 </div>
               </header>
@@ -3762,6 +3819,29 @@
         else openVoicePicker(voiceTrigger);
         return;
       }
+      const emoTrig = e.target.closest("[data-ap-emotion-trigger]");
+      if (emoTrig) {
+        e.preventDefault();
+        if (document.getElementById("ap-emotion-picker")) closeEmotionPicker();
+        else openEmotionPicker(emoTrig);
+        return;
+      }
+      const emoOpt = e.target.closest("[data-ap-emotion-pick]");
+      if (emoOpt) {
+        e.preventDefault();
+        const pop = document.getElementById("ap-emotion-picker");
+        const slug = pop?.dataset.slug;
+        if (!slug) return;
+        let rawPick = emoOpt.getAttribute("data-ap-emotion-pick");
+        if (rawPick === null) rawPick = "";
+        const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        setVoiceFor(slug, {
+          ...existing,
+          emotion: rawPick === "" ? undefined : rawPick,
+        });
+        closeEmotionPicker();
+        return;
+      }
       const voiceOpt = e.target.closest("[data-ap-voice-pick]");
       if (voiceOpt) {
         e.preventDefault();
@@ -3798,6 +3878,13 @@
       if (e.target.closest("[data-ap-voice-trigger]")) return;
       closeVoicePicker();
     }, true);
+    document.addEventListener("click", (e) => {
+      const pop = document.getElementById("ap-emotion-picker");
+      if (!pop) return;
+      if (e.target.closest("#ap-emotion-picker")) return;
+      if (e.target.closest("[data-ap-emotion-trigger]")) return;
+      closeEmotionPicker();
+    }, true);
 
     // Voice config sliders + emotion
     document.addEventListener("input", (e) => {
@@ -3822,14 +3909,6 @@
         const val = parseFloat(range.value);
         const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
         setVoiceFor(slug, { ...existing, [param]: val });
-        return;
-      }
-      const emotionSel = e.target.closest("[data-ap-voice-emotion]");
-      if (emotionSel) {
-        const slug = emotionSel.getAttribute("data-slug");
-        if (!slug) return;
-        const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
-        setVoiceFor(slug, { ...existing, emotion: emotionSel.value || undefined });
         return;
       }
     });
