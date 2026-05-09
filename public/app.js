@@ -7856,6 +7856,10 @@
 
       const tone = r.mode || "constructive";
       const intensity = r.intensity || "sharp";
+      const briefStyle =
+        typeof r.briefStyle === "string" && r.briefStyle.trim()
+          ? r.briefStyle.trim()
+          : "auto";
 
       // Status timestamp — what was on the right (paused-stamp / stamp) now
       // lives inline in the meta row.
@@ -7897,7 +7901,7 @@
           <div class="room-meta" data-room-meta>
             <span class="meta-tag tag-tone" data-tone-tip="${this.escape(toneTip)}"><span class="k">${this.escape(this._t("room_meta_tone"))}</span><span class="v">${this.escape(tone)}</span></span>
             <span class="meta-tag tag-intensity"><span class="k">${this.escape(this._t("room_meta_intensity"))}</span><span class="v">${this.escape(intensity)}</span></span>
-            <span class="meta-tag tag-report"><span class="k">${this.escape(this._t("room_meta_report"))}</span><span class="v">${this.escape(style)}</span></span>
+            <span class="meta-tag tag-report"><span class="k">${this.escape(this._t("room_meta_report"))}</span><span class="v">${this.escape(briefStyle)}</span></span>
             ${stamp ? `<span class="meta-stamp">${this.escape(stamp)}</span>` : ""}
           </div>        </div>
         <div class="head-actions">
