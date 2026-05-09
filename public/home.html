@@ -30,6 +30,11 @@
     --amber: #B59560;
     --red: #B5706A;
     --cyan: #6A9B97;
+    /* Cool steel-blue accent · used for the research-room mode card.
+       Stays in the same low-saturation, warm-leaning palette as the
+       other accents so the four modes read as a coherent quartet. */
+    --steel: #8B97A8;
+    --steel-dim: #354048;
 
     --mono: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
   }
@@ -913,6 +918,265 @@
     color: var(--text-soft);
   }
 
+  /* ─────────── MODE CARDS · brainstorm / debate / critique ───────
+     Three figure cards, each carries: mono kicker, big numeric
+     headline, unit caption, deck, viz frame, ghost-button CTA.
+     Per-card accent (`--accent`) colours the headline numeral,
+     bracketed corners, viz strokes, and CTA hover state in one
+     unified shade.
+     Note · these styles are scoped under `.section #modes` so they
+     can't leak into the existing `.how-card` blocks two sections
+     above (which still use the older flat-card vocabulary for
+     "convene · sharpen · adjourn"). */
+  /* Four modes side-by-side at desktop, 2×2 at tablet, stacked on
+     mobile. Card padding is slightly tighter than the 3-up version
+     used to be (24 vs 28) so the four cards still breathe at
+     1280px max-width without the headline crowding the deck. */
+  #modes .modes-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1100px) {
+    #modes .modes-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px) {
+    #modes .modes-grid { grid-template-columns: 1fr; }
+  }
+  #modes .mode-card {
+    background: var(--panel-2);
+    border: 1px solid var(--line-bright);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    color: var(--text);
+    min-height: 520px;
+    position: relative;
+    /* Bracketed corners use `currentColor`, so set the card's color
+       to its accent up-front. The body text below resets to the
+       neutral palette via explicit declarations. */
+  }
+  /* Bracketed L-corners · echoes the `.bracketed` decoration on the
+     section wrapper, but at card scale and tinted to the card accent. */
+  #modes .mode-card::before,
+  #modes .mode-card::after {
+    content: "";
+    position: absolute;
+    width: 10px; height: 10px;
+    border: 1px solid currentColor;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  #modes .mode-card::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  #modes .mode-card::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  #modes .mode-card.lime  { --accent: var(--lime);  --accent-dim: var(--lime-dim);  color: var(--lime); }
+  #modes .mode-card.cyan  { --accent: var(--cyan);  --accent-dim: #2E4A47; color: var(--cyan); }
+  #modes .mode-card.amber { --accent: var(--amber); --accent-dim: #5A4730; color: var(--amber); }
+  #modes .mode-card.steel { --accent: var(--steel); --accent-dim: var(--steel-dim); color: var(--steel); }
+
+  #modes .mode-kicker {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+    white-space: nowrap;
+  }
+  #modes .mode-kicker::before { content: "// "; opacity: 0.6; }
+
+  #modes .mode-headline {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 52px;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  #modes .mode-headline em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  #modes .mode-unit {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 10px;
+    margin-bottom: 16px;
+  }
+  #modes .mode-deck {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    margin-bottom: 22px;
+  }
+
+  /* Viz frame · pinned 168px so all three figures land on the same
+     vertical baseline; the CTA below them therefore lines up across
+     the row regardless of how many lines the deck wrapped to. */
+  #modes .mode-viz {
+    height: 168px;
+    flex-shrink: 0;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 22px 14px 14px;
+    margin-bottom: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  #modes .mode-viz::before {
+    content: attr(data-cap);
+    position: absolute;
+    top: 7px;
+    left: 12px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  /* Bars (lime) · 7 vertical columns + 3 hairline gridlines via
+     repeating-linear-gradient. Two "spike" bars take full accent;
+     the rest sit in `--accent-dim`. */
+  #modes .mode-bars {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    background:
+      linear-gradient(to bottom,
+        transparent 0,
+        transparent calc(33% - 0.5px),
+        var(--line) calc(33% - 0.5px),
+        var(--line) calc(33% + 0.5px),
+        transparent calc(33% + 0.5px),
+        transparent calc(66% - 0.5px),
+        var(--line) calc(66% - 0.5px),
+        var(--line) calc(66% + 0.5px),
+        transparent calc(66% + 0.5px),
+        transparent 100%);
+  }
+  #modes .mode-bars span {
+    flex: 1;
+    background: var(--accent-dim);
+    min-width: 0;
+  }
+  #modes .mode-bars span.tall { background: var(--accent); }
+
+  /* Heatmap (cyan) · 6×6 director × lens. Fixed 140×140 square,
+     centred horizontally inside the viz frame. */
+  #modes .mode-grid {
+    width: 140px;
+    height: 140px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    gap: 3px;
+  }
+  #modes .mode-grid i {
+    background: var(--line);
+  }
+  #modes .mode-grid i.m { background: var(--accent-dim); }
+  #modes .mode-grid i.d { background: var(--accent); }
+
+  /* Severity × likelihood (amber) · the actual 3×3 matrix the
+     critique reports render. Axis labels live in their own fixed
+     `36px` left column so the cells stay square. */
+  #modes .mode-matrix {
+    display: grid;
+    grid-template-columns: 36px repeat(3, 1fr);
+    grid-template-rows: 14px repeat(3, 1fr);
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  #modes .mode-matrix .ax {
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+  }
+  #modes .mode-matrix .ax-row { justify-content: flex-end; padding-right: 4px; }
+  #modes .mode-matrix .cell {
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    min-width: 0;
+    min-height: 0;
+  }
+  #modes .mode-matrix .cell.minor { background: var(--accent-dim); border-color: var(--accent-dim); opacity: 0.55; }
+  #modes .mode-matrix .cell.major { background: var(--accent-dim); border-color: var(--accent); }
+  #modes .mode-matrix .cell.block { background: var(--accent); border-color: var(--accent); }
+
+  /* Citation network (steel) · the research card's viz. A center
+     "claim" node connected by hairline edges to five "source" dots
+     scattered around it. SVG is the right tool for the job — pure
+     CSS makes the connecting lines fragile. The center node uses
+     full accent fill, satellites use a hollow ring (accent stroke,
+     panel-2 fill) so the eye reads "one claim, many sources." */
+  #modes .mode-network {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #modes .mode-network svg {
+    width: 100%;
+    height: 100%;
+    max-width: 220px;
+    overflow: visible;
+  }
+  #modes .mode-network .net-edge {
+    stroke: var(--accent-dim);
+    stroke-width: 0.7;
+    fill: none;
+  }
+  #modes .mode-network .net-claim {
+    fill: var(--accent);
+    stroke: var(--accent);
+  }
+  #modes .mode-network .net-source {
+    fill: var(--panel);
+    stroke: var(--accent);
+    stroke-width: 1.2;
+  }
+
+  /* CTA · `[ → label ]` ghost-button vocabulary. Border lifts to
+     accent on hover, no fill change. */
+  #modes .mode-cta {
+    align-self: flex-start;
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: border-color 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  #modes .mode-cta:hover { border-color: var(--accent); color: var(--accent); }
+  #modes .mode-cta-arrow { color: var(--accent); }
+  #modes .mode-cta::before { content: "["; color: var(--text-dim); margin-right: 4px; }
+  #modes .mode-cta::after  { content: "]"; color: var(--text-dim); margin-left: 4px; }
+
   /* ─────────── REPORT GRID · 4 cards, each with cover art ──────
      Each report is a card: a bordered cover at the top holding
      a single piece of abstract SVG artwork (concentric target /
@@ -1509,28 +1773,136 @@
       <div class="section-tag">Modes</div>
       <h2 class="section-title">Same room. <span class="accent">Different temperature.</span></h2>
       <p class="section-deck">
-        A brainstorm room and a debate room aren't the same room with different cast lists — they're the same cast playing different roles. Pick the mode that fits the question; the chair enforces the rhythm.
+        Four rooms, one cast. Brainstorm to open the surface area, debate to test the obvious answer, critique to break what's already committed, research to chase what you don't yet know. The chair enforces the rhythm so the same six directors play four different games.
       </p>
     </div>
 
-    <div class="how-grid modes-grid">
-      <div class="how-card">
-        <span class="how-step">brainstorm</span>
-        <h3>Yes-and the wild ideas first.</h3>
-        <p>Generative tone. Directors build on each other instead of tearing down. Use this when you don't know the question yet — let the surface area open.</p>
-      </div>
+    <div class="modes-grid">
 
-      <div class="how-card">
-        <span class="how-step">debate</span>
-        <h3>Force opposing positions, in writing.</h3>
-        <p>Each director takes a side and defends it with logic, not flattery. Use this when the answer feels too obvious or you've been alone with it too long.</p>
-      </div>
+      <!-- ─── Brainstorm · lime ─── -->
+      <article class="mode-card lime">
+        <div class="mode-kicker">brainstorm room</div>
+        <h3 class="mode-headline"><em>3–6</em></h3>
+        <div class="mode-unit">ideas per turn</div>
+        <p class="mode-deck">Generative tone. Each director throws three to six ideas per turn — yes-and the wild ones first, prune later. Use this when you don't know the question yet.</p>
 
-      <div class="how-card">
-        <span class="how-step">critique</span>
-        <h3>Find every weakness, mercilessly.</h3>
-        <p>You're already committed to the idea — you want it tested. The cast goes after structure, assumptions, and second-order effects until what's left is load-bearing.</p>
-      </div>
+        <div class="mode-viz" data-cap="ideas / turn">
+          <div class="mode-bars" aria-hidden="true">
+            <span style="height: 38%"></span>
+            <span class="tall" style="height: 78%"></span>
+            <span style="height: 22%"></span>
+            <span style="height: 34%"></span>
+            <span class="tall" style="height: 92%"></span>
+            <span style="height: 64%"></span>
+            <span style="height: 41%"></span>
+          </div>
+        </div>
+
+        <a href="#install" class="mode-cta">
+          <span class="mode-cta-arrow">→</span>
+          Try Brainstorm
+        </a>
+      </article>
+
+      <!-- ─── Debate · cyan ─── -->
+      <article class="mode-card cyan">
+        <div class="mode-kicker">debate room</div>
+        <h3 class="mode-headline"><em>6×6</em></h3>
+        <div class="mode-unit">lens × director</div>
+        <p class="mode-deck">Six standing directors, six lenses each. Steelman before challenge — every claim survives a triangulation through philosophy, finance, design, history.</p>
+
+        <div class="mode-viz" data-cap="lens coverage">
+          <div class="mode-grid" aria-hidden="true">
+            <!-- 6×6 = 36 cells, mostly populated. The shape is the
+                 pitch: lens × director matrix is dense, not sparse. -->
+            <i class="m"></i><i class="d"></i><i class="m"></i><i class="m"></i><i class="d"></i><i class="m"></i>
+            <i class="d"></i><i class="m"></i><i class="m"></i><i class="d"></i><i class="m"></i><i class="m"></i>
+            <i class="m"></i><i class="m"></i><i class="d"></i><i class="m"></i><i class="m"></i><i class="d"></i>
+            <i class="m"></i><i class="d"></i><i class="m"></i><i class="m"></i><i class="d"></i><i class="m"></i>
+            <i class="d"></i><i class="m"></i><i class="m"></i><i class="d"></i><i class="m"></i><i class="m"></i>
+            <i class="m"></i><i class="m"></i><i class="d"></i><i class="m"></i><i class="m"></i><i class="d"></i>
+          </div>
+        </div>
+
+        <a href="#install" class="mode-cta">
+          <span class="mode-cta-arrow">→</span>
+          Try Debate
+        </a>
+      </article>
+
+      <!-- ─── Critique · amber ─── -->
+      <article class="mode-card amber">
+        <div class="mode-kicker">critique room</div>
+        <h3 class="mode-headline"><em>3×3</em></h3>
+        <div class="mode-unit">severity × likelihood</div>
+        <p class="mode-deck">Severity × likelihood matrix surfaces what's load-bearing. Strength preservation per blocker — every objection ships with what to keep.</p>
+
+        <div class="mode-viz" data-cap="risk register">
+          <div class="mode-matrix" aria-hidden="true">
+            <span class="ax"></span>
+            <span class="ax">edge</span>
+            <span class="ax">plaus.</span>
+            <span class="ax">likely</span>
+
+            <span class="ax ax-row">block</span>
+            <span class="cell major"></span>
+            <span class="cell block"></span>
+            <span class="cell block"></span>
+
+            <span class="ax ax-row">major</span>
+            <span class="cell minor"></span>
+            <span class="cell major"></span>
+            <span class="cell block"></span>
+
+            <span class="ax ax-row">minor</span>
+            <span class="cell minor"></span>
+            <span class="cell minor"></span>
+            <span class="cell major"></span>
+          </div>
+        </div>
+
+        <a href="#install" class="mode-cta">
+          <span class="mode-cta-arrow">→</span>
+          Try Critique
+        </a>
+      </article>
+
+      <!-- ─── Research · steel ─── -->
+      <article class="mode-card steel">
+        <div class="mode-kicker">research room</div>
+        <h3 class="mode-headline"><em>5+</em></h3>
+        <div class="mode-unit">sources per claim</div>
+        <p class="mode-deck">Claims demand evidence. Each director cross-references their assertions; the chair flags weak chains. Use this when the question hinges on facts you don't yet have.</p>
+
+        <div class="mode-viz" data-cap="citation graph">
+          <div class="mode-network" aria-hidden="true">
+            <!-- Center "claim" node + 5 satellite "source" nodes,
+                 wired with hairline edges. Coordinates picked so the
+                 layout reads as a star with one slightly-asymmetric
+                 outlier (top-right) — a research figure, not a
+                 perfect symmetric mandala. -->
+            <svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid meet">
+              <line class="net-edge" x1="100" y1="65" x2="38"  y2="28"  />
+              <line class="net-edge" x1="100" y1="65" x2="160" y2="22"  />
+              <line class="net-edge" x1="100" y1="65" x2="178" y2="78"  />
+              <line class="net-edge" x1="100" y1="65" x2="125" y2="115" />
+              <line class="net-edge" x1="100" y1="65" x2="36"  y2="100" />
+              <circle class="net-source" cx="38"  cy="28"  r="4.5" />
+              <circle class="net-source" cx="160" cy="22"  r="4.5" />
+              <circle class="net-source" cx="178" cy="78"  r="4.5" />
+              <circle class="net-source" cx="125" cy="115" r="4.5" />
+              <circle class="net-source" cx="36"  cy="100" r="4.5" />
+              <circle class="net-claim"  cx="100" cy="65"  r="7"   />
+            </svg>
+          </div>
+        </div>
+
+        <a href="#install" class="mode-cta">
+          <span class="mode-cta-arrow">→</span>
+          Try Research
+        </a>
+      </article>
+
     </div>
   </section>
 

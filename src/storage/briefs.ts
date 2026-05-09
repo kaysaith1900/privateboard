@@ -49,12 +49,18 @@ export interface Brief {
    *    by report.html through the spine system)
    *  · 'bento' (single-page infographic · BentoScaffold lives in
    *    body_json, rendered by bento.html · spine / components / house
-   *    style are unused for this mode) */
+   *    style are unused for this mode)
+   *  · 'magazine' (editorial magazine spread · same BentoScaffold JSON
+   *    in body_json but rendered by magazine.html with a magazine
+   *    layout · masthead + numbered card grid + dark closer band)
+   *  · 'newspaper' (broadsheet front page · same BentoScaffold JSON
+   *    rendered by newspaper.html · banner nameplate + meta strip +
+   *    3-column editorial grid with inverted callouts) */
   mode: BriefMode;
   createdAt: number;
 }
 
-export type BriefMode = "research-note" | "bento";
+export type BriefMode = "research-note" | "bento" | "magazine" | "newspaper";
 
 /** Per-director asset bundle persisted alongside a brief · mirrors
  *  the `DirectorAssets` shape Stage 1 produces. Storing it lets a
@@ -297,7 +303,9 @@ function mapRow(row: Row): Brief {
     subjectType: row.subject_type,
     houseStyle: row.house_style || "boardroom-default",
     assets: parseAssets(row.assets_json),
-    mode: row.mode === "bento" ? "bento" : "research-note",
+    mode: row.mode === "bento" || row.mode === "magazine" || row.mode === "newspaper"
+      ? row.mode
+      : "research-note",
     createdAt: row.created_at,
   };
 }
@@ -424,7 +432,9 @@ export function insertBrief(b: BriefInsert): Brief {
     b.composerRationale && b.composerRationale.trim() ? b.composerRationale.trim() : null;
   const subjectType = b.subjectType && b.subjectType.trim() ? b.subjectType.trim() : null;
   const houseStyle = b.houseStyle && b.houseStyle.trim() ? b.houseStyle.trim() : "boardroom-default";
-  const mode: BriefMode = b.mode === "bento" ? "bento" : "research-note";
+  const mode: BriefMode = b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper"
+    ? b.mode
+    : "research-note";
   db.prepare(
     `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(

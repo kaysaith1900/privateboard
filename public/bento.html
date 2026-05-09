@@ -7,31 +7,66 @@
   <link rel="icon" href="/avatars/chair.svg" type="image/svg+xml">
   <style>
   /* ═══════════════════════════════════════════════════════════════════
-     Bento · single-page infographic layout. White paper register.
-     Single accent colour (lime-green by default · matches the reference
-     poster). Serif headlines + sans body + mono kickers + gold callout
-     numbers. Card-grid via CSS grid; deterministic from BentoScaffold
-     JSON · no markdown parsing here.
+     Bento · single-page POSTER. Off-white paper, flat bordered tiles,
+     display-grade typography, full-width hero blocks on near-black.
+
+     Poster register (not blog register) · the visual energy comes
+     from oversized type (60px+ display title, 64px+ milestone callouts,
+     32px+ pull-quote), high-contrast inverse blocks (near-black + cream
+     + bright lime), and a confident horizontal 3-tile milestone row
+     with the middle tile flipped to dark for visual rhythm.
+
+     Tiles are bordered + flat instead of floating-with-shadow · the
+     prior "soft floating cards on cream" register read as a personal
+     blog. The new register reads as printed editorial poster.
      ─────────────────────────────────────────────────────────────────── */
   :root {
-    --bg:           #FFFFFF;
-    --paper-soft:   #FAF7EC;
-    --ink:          #1A1814;
-    --ink-soft:     #4A4338;
-    --ink-mid:      #6B6359;
-    --ink-faint:    #8E8B83;
-    --ink-muted:    #B5AB9B;
-    --rule:         #E5E2DA;
-    --rule-soft:    #F0EDE3;
-    --rule-strong:  #C9C4B7;
-    --accent:       #76B900;
-    --accent-deep:  #5E9300;
-    --accent-pale:  #ECF7DA;
+    /* Surfaces · warm off-white paper, plain not gradient · cards are
+       bordered tiles, not floating shadow surfaces */
+    --bg:           #ECE5D2;
+    --paper:        #F6F1E0;
+    --paper-soft:   #FBF8EC;
+    --paper-warm:   #F2ECD8;
+
+    /* Ink · pushed near-black for poster contrast */
+    --ink:          #0F0D08;
+    --ink-soft:     #2C2618;
+    --ink-mid:      #5C5340;
+    --ink-faint:    #8E8470;
+    --ink-muted:    #B8AE96;
+    --cream:        #FFFCEE;
+
+    /* Rules */
+    --rule:         #D4C9AC;
+    --rule-soft:    #E2D9BE;
+    --rule-strong:  #A89C7B;
+
+    /* Accent · sage-lime kept, plus a brighter variant for use on
+       the dark inverse blocks where #6FB572 reads too subdued. */
+    --accent:       #6FB572;
+    --accent-deep:  #4F8E54;
+    --accent-bright:#B7E84A;
+    --accent-soft:  #DDEED1;
+    --accent-tint:  #EEF6E4;
+
     --gold:         #C9A46B;
-    --gold-deep:    #B58950;
+    --gold-deep:    #8E6B3A;
+    --gold-pale:    #EFE0BD;
+
+    /* Radius scale · tighter than before; poster typography wants
+       crisper edges than rounded blog cards. */
+    --r-xs: 2px;
+    --r-sm: 4px;
+    --r-md: 8px;
+
+    /* Type stack · display serif elevated to Tiempos / Playfair so
+       the title and callouts read as masthead-grade, not blog-grade. */
+    --serif-display: "Tiempos Headline", "Playfair Display", "Source Serif Pro",
+                     "Charter", Georgia, "Source Han Serif SC",
+                     "Songti SC", "STSong", serif;
     --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
-             "Tiempos Headline", Georgia,
-             "PingFang SC", "Songti SC", "STSong", serif;
+             "Source Han Serif SC", Georgia,
+             "Songti SC", "STSong", serif;
     --sans:  "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont,
              "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
              "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
@@ -45,7 +80,7 @@
     color: var(--ink);
     font-family: var(--sans);
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     min-height: 100vh;
@@ -57,346 +92,392 @@
     align-items: center;
     justify-content: space-between;
     gap: 14px;
-    padding: 16px 32px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--rule);
+    padding: 18px 32px;
+    background: rgba(236, 229, 210, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--ink);
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
   .bento-crumb {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    font-family: var(--serif);
-    font-size: 16px;
-    font-weight: 500;
+    gap: 12px;
+    font-family: var(--serif-display);
+    font-size: 17px;
+    font-weight: 700;
     color: var(--ink);
     text-decoration: none;
+    letter-spacing: -0.005em;
   }
   .bento-crumb::before {
     content: "";
-    width: 9px;
-    height: 9px;
-    background: var(--accent);
-    border-radius: 50%;
+    width: 10px;
+    height: 10px;
+    background: var(--ink);
     flex: 0 0 auto;
   }
   .bento-crumb-accent {
-    color: var(--ink-faint);
+    color: var(--ink-mid);
     font-style: italic;
-    font-weight: 400;
+    font-weight: 500;
   }
-  .bento-actions { display: flex; gap: 6px; }
+  .bento-actions { display: flex; gap: 8px; }
   .bento-btn {
     font-family: var(--mono);
     font-size: 11px;
-    letter-spacing: 0.04em;
-    padding: 6px 12px;
-    background: transparent;
-    border: 0.5px solid var(--rule-strong);
-    color: var(--ink-mid);
+    letter-spacing: 0.06em;
+    padding: 8px 14px;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    color: var(--ink);
     cursor: pointer;
     text-decoration: none;
-    transition: color 0.12s, background 0.12s, border-color 0.12s;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
   }
   .bento-btn:hover {
-    color: var(--accent-deep);
-    border-color: var(--accent);
-    background: var(--accent-pale);
+    background: var(--ink);
+    color: var(--paper);
   }
-  .bento-btn:active { transform: translateY(1px); }
-  .bento-btn .glyph { color: var(--ink-faint); margin-right: 4px; }
-  .bento-btn:hover .glyph { color: var(--accent-deep); }
+  .bento-btn .glyph { margin-right: 4px; }
 
-  /* ─── Doc container · max-width 840px to match the reference ──── */
+  /* ─── Doc · the poster sheet ────────────────────────────────────
+     Plain warm paper bg + crisp 1px ink edge. No floating cards · the
+     poster IS one composition with bordered tile zones inside it. */
   .bento-doc {
-    max-width: 840px;
-    margin: 0 auto;
-    padding: 32px 32px 64px;
-    background: var(--bg);
+    max-width: 920px;
+    margin: 28px auto 56px;
+    padding: 36px 36px 32px;
+    background: var(--paper);
+    border: 1px solid var(--ink);
   }
 
-  /* ─── Header band · serif headline + italic deck + source line ─ */
+  /* ─── Header · meta strip + huge display title + serif kicker ─── */
   .bento-header {
-    margin-bottom: 24px;
-    position: relative;
+    margin-bottom: 28px;
+  }
+  .bento-header-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .bento-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .bento-eyebrow-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--accent-deep);
+    border-radius: 50%;
   }
   .bento-source {
-    position: absolute;
-    top: 6px;
-    right: 0;
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.06em;
-    color: var(--ink-faint);
+    color: var(--ink-mid);
     text-align: right;
     white-space: nowrap;
-    max-width: 260px;
+    max-width: 320px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .bento-title {
-    font-family: var(--serif);
-    font-size: 32px;
-    font-weight: 600;
-    line-height: 1.18;
-    letter-spacing: -0.012em;
+    font-family: var(--serif-display);
+    font-size: 60px;
+    font-weight: 700;
+    line-height: 0.98;
+    letter-spacing: -0.025em;
     color: var(--ink);
-    margin: 0 280px 14px 0;
-    max-width: 580px;
-  }
-  .bento-kicker {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    font-family: var(--serif);
-    font-size: 14px;
-    line-height: 1.55;
-    color: var(--ink-soft);
-    font-style: italic;
-    max-width: 640px;
-  }
-  .bento-kicker::before {
-    content: "";
-    width: 4px;
-    flex: 0 0 4px;
-    align-self: stretch;
-    background: var(--accent);
-    margin-top: 3px;
-  }
-  .bento-kicker-text { padding-top: 1px; }
-
-  /* ─── Main grid · 2 columns · left timeline + right card stack ─ */
-  .bento-grid {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 18px;
-    margin-bottom: 18px;
+    margin: 0 0 14px;
   }
   @media (max-width: 720px) {
-    .bento-grid { grid-template-columns: 1fr; }
+    .bento-title { font-size: 38px; }
   }
-
-  /* ─── Left column · vertical milestone timeline ────────────────── */
-  .bento-milestones-card {
-    background: var(--bg);
-    border: 1px solid var(--rule);
-    padding: 16px 18px 18px;
-  }
-  .bento-milestones-head {
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--rule);
-  }
-  .bento-milestones-title {
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--ink);
+  .bento-kicker {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    font-style: italic;
+    max-width: 720px;
     letter-spacing: -0.005em;
   }
-  .bento-milestones-sub {
+
+  /* ─── Hero conclusion · full-width near-black pull-quote ──────── */
+  .bento-conclusion {
+    background: var(--ink);
+    color: var(--cream);
+    padding: 32px 36px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .bento-conclusion-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     font-family: var(--mono);
-    font-size: 10px;
-    color: var(--ink-faint);
-    letter-spacing: 0.04em;
-    margin-top: 4px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent-bright);
+    font-weight: 700;
+    margin-bottom: 14px;
   }
-  .bento-timeline {
-    position: relative;
-    padding-left: 20px;
-  }
-  .bento-timeline::before {
+  .bento-conclusion-mark::before {
     content: "";
-    position: absolute;
-    top: 6px;
-    bottom: 6px;
-    left: 5px;
-    border-left: 1px dashed var(--rule-strong);
+    width: 18px;
+    height: 1px;
+    background: var(--accent-bright);
   }
+  .bento-conclusion-inner { width: 100%; }
+  .bento-conclusion-text {
+    font-family: var(--serif-display);
+    font-size: 32px;
+    line-height: 1.18;
+    color: var(--cream);
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    max-width: 800px;
+  }
+  @media (max-width: 720px) {
+    .bento-conclusion { padding: 24px 22px; }
+    .bento-conclusion-text { font-size: 22px; }
+  }
+
+  /* ─── Milestones row · 3 horizontal tiles, middle one inverted
+     for poster rhythm. Each tile leads with a HUGE callout. ─────── */
+  .bento-milestones-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 720px) {
+    .bento-milestones-row { grid-template-columns: 1fr; }
+  }
+
   .bento-milestone {
-    position: relative;
-    padding: 0 0 18px;
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 22px 22px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 280px;
   }
-  .bento-milestone:last-child { padding-bottom: 0; }
-  .bento-milestone::before {
-    content: "";
-    position: absolute;
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 1.5px solid var(--accent);
-    top: 4px;
-    left: -20px;
+  /* Middle tile · inverse treatment for poster rhythm. SCOPED TO
+     LAYOUT 1 only · layouts 2 + 3 don't use the alternating rhythm
+     (layout 2 has its own dedicated featured-hero tile · layout 3's
+     mosaic uses a wide dark conclusion block as its dark element). */
+  .bento-doc.bento-layout-1 .bento-milestone.bento-milestone-1 {
+    background: var(--ink);
+    color: var(--cream);
   }
-  .bento-milestone:nth-child(2)::before { background: var(--accent); }
+  .bento-doc.bento-layout-1 .bento-milestone.bento-milestone-1 .bento-milestone-period {
+    color: var(--accent-bright);
+  }
+  .bento-doc.bento-layout-1 .bento-milestone.bento-milestone-1 .bento-milestone-callout {
+    color: var(--accent-bright);
+  }
+  .bento-doc.bento-layout-1 .bento-milestone.bento-milestone-1 .bento-milestone-title {
+    color: var(--cream);
+  }
+  .bento-doc.bento-layout-1 .bento-milestone.bento-milestone-1 .bento-milestone-body {
+    color: rgba(255, 252, 238, 0.8);
+  }
+  .bento-doc.bento-layout-1 .bento-milestone.bento-milestone-1 .bento-tag {
+    background: rgba(255, 252, 238, 0.10);
+    border-color: rgba(255, 252, 238, 0.22);
+    color: rgba(255, 252, 238, 0.88);
+  }
+
   .bento-milestone-period {
     font-family: var(--mono);
     font-size: 10px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--accent-deep);
     font-weight: 700;
-    margin-bottom: 4px;
-  }
-  .bento-milestone-card {
-    background: var(--paper-soft);
-    border: 1px solid var(--rule);
-    padding: 12px 14px 14px;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 14px;
-    align-items: start;
-  }
-  .bento-milestone-title {
-    font-family: var(--serif);
-    font-size: 16px;
-    font-weight: 600;
-    line-height: 1.3;
-    color: var(--ink);
-    grid-column: 1;
-    grid-row: 1;
   }
   .bento-milestone-callout {
-    font-family: var(--serif);
-    font-size: 26px;
-    font-weight: 600;
-    line-height: 1;
-    color: var(--gold-deep);
-    letter-spacing: -0.02em;
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    align-self: center;
-    text-align: right;
-    white-space: nowrap;
+    font-family: var(--serif-display);
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    margin: 2px 0 4px;
+    word-break: break-word;
+  }
+  @media (max-width: 720px) {
+    .bento-milestone-callout { font-size: 48px; }
+  }
+  .bento-milestone-title {
+    font-family: var(--serif-display);
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.22;
+    letter-spacing: -0.008em;
+    color: var(--ink);
   }
   .bento-milestone-body {
-    font-family: var(--sans);
-    font-size: 13px;
-    line-height: 1.55;
-    color: var(--ink-soft);
-    grid-column: 1;
-    grid-row: 2;
-    margin-top: 4px;
+    font-family: var(--serif);
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--ink-mid);
   }
   .bento-milestone-tags {
-    grid-column: 1 / -1;
-    grid-row: 3;
     display: flex;
-    gap: 6px;
-    margin-top: 10px;
     flex-wrap: wrap;
+    gap: 4px;
+    margin-top: auto;
+    padding-top: 8px;
   }
   .bento-tag {
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--ink-mid);
-    background: var(--bg);
-    border: 0.5px solid var(--rule-strong);
+    background: var(--paper-warm);
+    border: 1px solid var(--rule-strong);
     padding: 2px 8px;
-    border-radius: 8px;
-    letter-spacing: 0.02em;
+    font-weight: 600;
   }
 
-  /* ─── Right column · stacked sidebar cards ─────────────────────── */
-  .bento-col-right {
+  /* ─── Lower grid · ranked / verification / talking points ───── */
+  .bento-lower-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 720px) {
+    .bento-lower-grid { grid-template-columns: 1fr; }
+  }
+  .bento-card {
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 22px 22px;
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
-  .bento-card {
-    background: var(--bg);
-    border: 1px solid var(--rule);
-    padding: 14px 16px;
-  }
   .bento-card-title {
-    font-family: var(--sans);
-    font-size: 13px;
+    font-family: var(--serif-display);
+    font-size: 18px;
     font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.008em;
     color: var(--ink);
-    margin-bottom: 4px;
-    letter-spacing: -0.005em;
-  }
-  .bento-card-sub {
-    font-family: var(--mono);
-    font-size: 9.5px;
-    color: var(--ink-faint);
-    letter-spacing: 0.04em;
-    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--ink);
   }
 
-  /* Ranked bars · horizontal bar list */
+  /* Ranked bars · grid-row layout · big bold solid bars */
   .bento-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+    margin-bottom: 14px;
     font-family: var(--sans);
-    font-size: 12px;
   }
   .bento-bar:last-child { margin-bottom: 0; }
   .bento-bar-label {
-    flex: 0 0 80px;
+    font-size: 13px;
     color: var(--ink);
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+  .bento-bar-value {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-mid);
+    font-weight: 600;
+    letter-spacing: 0.02em;
   }
   .bento-bar-track {
-    flex: 1 1 auto;
-    height: 6px;
-    background: var(--rule-soft);
+    grid-column: 1 / -1;
+    height: 8px;
+    background: var(--paper-warm);
+    border: 1px solid var(--ink);
     position: relative;
-    border-radius: 1px;
+    margin-top: 2px;
   }
   .bento-bar-fill {
     position: absolute;
     top: 0;
     left: 0;
     bottom: 0;
-    background: linear-gradient(90deg, var(--accent), var(--accent-deep));
-  }
-  .bento-bar-value {
-    flex: 0 0 auto;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--ink-soft);
-    text-align: right;
-    min-width: 48px;
+    background: var(--ink);
   }
 
-  /* Bullet lists · verification + talking points */
+  /* Bullet lists · default (verification) · ▸ markers */
   .bento-bullets {
     list-style: none;
     margin: 0;
     padding: 0;
   }
   .bento-bullets li {
-    position: relative;
-    padding-left: 16px;
-    margin-bottom: 8px;
-    font-family: var(--sans);
-    font-size: 12.5px;
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    gap: 8px;
+    align-items: baseline;
+    font-family: var(--serif);
+    font-size: 13px;
     line-height: 1.5;
     color: var(--ink-soft);
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
   }
-  .bento-bullets li:last-child { margin-bottom: 0; }
+  .bento-bullets li:last-child {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: 0;
+  }
   .bento-bullets li::before {
-    content: "";
-    position: absolute;
-    width: 5px;
-    height: 5px;
-    left: 4px;
-    top: 7px;
-    background: var(--accent);
+    content: "▸";
+    color: var(--accent-deep);
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1;
+  }
+  /* Talking points · numbered display-serif italic numerals */
+  .bento-card.bento-talking .bento-bullets {
+    counter-reset: tp;
+  }
+  .bento-card.bento-talking .bento-bullets li {
+    counter-increment: tp;
+    grid-template-columns: 32px 1fr;
+    gap: 12px;
   }
   .bento-card.bento-talking .bento-bullets li::before {
-    background: var(--accent);
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    top: 7px;
+    content: counter(tp, decimal-leading-zero);
+    font-family: var(--serif-display);
+    font-size: 22px;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--accent-deep);
+    line-height: 1;
+    letter-spacing: -0.02em;
   }
   .bento-empty {
     font-family: var(--mono);
@@ -406,150 +487,325 @@
     padding: 4px 0;
   }
 
-  /* ─── Bottom band · conclusion + optional flow ─────────────────── */
-  .bento-bottom {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 18px;
-    margin-bottom: 18px;
-    align-items: stretch;
-  }
-  @media (max-width: 720px) {
-    .bento-bottom { grid-template-columns: 1fr; }
-  }
-  .bento-conclusion {
-    background: var(--bg);
-    border: 1px solid var(--rule);
-    padding: 16px 20px 18px;
-    display: flex;
-    align-items: center;
-  }
-  .bento-conclusion-mark {
-    font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--accent-deep);
-    font-weight: 700;
-    margin-bottom: 6px;
-  }
-  .bento-conclusion-inner { width: 100%; }
-  .bento-conclusion-text {
-    font-family: var(--serif);
-    font-size: 16px;
-    line-height: 1.45;
-    color: var(--ink);
-    font-weight: 500;
-  }
+  /* ─── Flow band · full-width near-black band with display arrows ─ */
   .bento-flow {
-    background: var(--bg);
-    border: 1px solid var(--rule);
-    padding: 14px 18px 16px;
-    min-width: 220px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+    background: var(--ink);
+    color: var(--cream);
+    padding: 26px 36px;
+    margin-bottom: 16px;
+    text-align: center;
   }
   .bento-flow-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.16em;
+    font-size: 11px;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
-    color: var(--accent-deep);
+    color: var(--accent-bright);
     font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .bento-flow-mark::before {
+    content: "";
+    width: 18px;
+    height: 1px;
+    background: var(--accent-bright);
   }
   .bento-flow-chain {
-    font-family: var(--serif);
-    font-size: 18px;
+    font-family: var(--serif-display);
+    font-size: 28px;
     font-weight: 600;
-    color: var(--ink);
-    letter-spacing: -0.01em;
-    text-align: center;
-    line-height: 1.25;
+    color: var(--cream);
+    letter-spacing: -0.014em;
+    line-height: 1.2;
+  }
+  @media (max-width: 720px) {
+    .bento-flow-chain { font-size: 22px; }
   }
   .bento-flow-chain .arrow {
-    color: var(--accent);
-    margin: 0 6px;
+    color: var(--accent-bright);
+    margin: 0 14px;
     font-weight: 700;
   }
   .bento-flow-caption {
-    font-family: var(--sans);
-    font-size: 11px;
-    color: var(--ink-mid);
-    text-align: center;
-    margin-top: 2px;
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13px;
+    color: rgba(255, 252, 238, 0.7);
+    margin-top: 10px;
+    letter-spacing: -0.005em;
   }
 
-  /* ─── Footer band · mono caption ───────────────────────────────── */
+  /* ─── Footer · mono brand stamp ────────────────────────────────── */
   .bento-footer {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 14px;
-    padding-top: 14px;
-    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+    margin-top: 4px;
+    border-top: 2px solid var(--ink);
     font-family: var(--mono);
     font-size: 10px;
-    letter-spacing: 0.06em;
-    color: var(--ink-faint);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 600;
     flex-wrap: wrap;
   }
-  .bento-footer-left {
-    color: var(--ink-mid);
-    font-weight: 500;
-  }
-  .bento-footer-right {
-    color: var(--ink-faint);
-  }
-  .bento-footer-right .accent-swatch {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    background: var(--accent);
-    margin-right: 6px;
-    vertical-align: middle;
-    border-radius: 1px;
+  .bento-footer-stamp {
+    color: var(--ink);
+    font-weight: 700;
   }
 
   /* ─── States · loading / error / empty ─────────────────────────── */
   .bento-state {
     max-width: 560px;
     margin: 80px auto;
-    padding: 40px 32px;
+    padding: 48px 36px;
     text-align: center;
-    background: var(--bg);
-    border: 1px solid var(--rule);
+    background: var(--paper);
+    border: 1px solid var(--ink);
   }
   .bento-state-mark {
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--ink-faint);
-    margin-bottom: 12px;
+    color: var(--ink);
+    background: var(--accent-tint);
+    border: 1px solid var(--ink);
+    padding: 5px 14px;
+    display: inline-block;
+    margin-bottom: 16px;
+    font-weight: 700;
   }
   .bento-state-title {
-    font-family: var(--serif);
-    font-size: 22px;
+    font-family: var(--serif-display);
+    font-size: 26px;
+    font-weight: 700;
     color: var(--ink);
     margin-bottom: 10px;
-    line-height: 1.3;
+    line-height: 1.2;
+    letter-spacing: -0.014em;
   }
   .bento-state-body {
-    font-family: var(--sans);
+    font-family: var(--serif);
     font-size: 13.5px;
     color: var(--ink-soft);
     line-height: 1.6;
   }
 
-  /* ─── Print · drop chrome, fit single page ────────────────────── */
+  /* ═════════════════════════════════════════════════════════════════
+     LAYOUT 2 · Featured-hero · ms0 takes a full-width inverted dark
+     tile at the top with a MASSIVE callout numeral; ms1 + ms2 sit
+     below in a 2-tile row; conclusion lands in the middle as a
+     centered framed pull-quote (NOT dark, italic serif).
+     ═════════════════════════════════════════════════════════════════ */
+  .bento-feature-hero {
+    background: var(--ink);
+    color: var(--cream);
+    padding: 36px 36px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 32px;
+    align-items: center;
+  }
+  @media (max-width: 720px) {
+    .bento-feature-hero { grid-template-columns: 1fr; padding: 24px 22px; }
+  }
+  .bento-feature-callout {
+    font-family: var(--serif-display);
+    font-size: 112px;
+    font-weight: 700;
+    line-height: 0.88;
+    letter-spacing: -0.045em;
+    color: var(--accent-bright);
+    word-break: break-word;
+  }
+  @media (max-width: 720px) {
+    .bento-feature-callout { font-size: 72px; }
+  }
+  .bento-feature-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .bento-feature-period {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent-bright);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .bento-feature-period::before {
+    content: "";
+    width: 16px;
+    height: 1px;
+    background: var(--accent-bright);
+  }
+  .bento-feature-title {
+    font-family: var(--serif-display);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.014em;
+    color: var(--cream);
+  }
+  .bento-feature-body {
+    font-family: var(--serif);
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: rgba(255, 252, 238, 0.82);
+  }
+
+  /* 2-tile milestone row · used by layout 2 (after the featured
+     hero, ms1 + ms2 sit side-by-side). */
+  .bento-milestones-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 720px) {
+    .bento-milestones-2 { grid-template-columns: 1fr; }
+  }
+
+  /* Centered pull-quote conclusion · used by layout 2 in place of
+     the full-width dark conclusion block. Italic serif, framed top
+     + bottom by 2px ink rules — magazine pull-quote register. */
+  .bento-conclusion-pull {
+    text-align: center;
+    padding: 28px 32px;
+    margin: 0 auto 16px;
+    max-width: 760px;
+    border-top: 2px solid var(--ink);
+    border-bottom: 2px solid var(--ink);
+  }
+  .bento-conclusion-pull .bento-conclusion-mark {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: inline-block;
+  }
+  .bento-conclusion-pull .bento-conclusion-text {
+    font-family: var(--serif-display);
+    font-size: 28px;
+    line-height: 1.22;
+    color: var(--ink);
+    font-weight: 500;
+    font-style: italic;
+    letter-spacing: -0.012em;
+  }
+  @media (max-width: 720px) {
+    .bento-conclusion-pull .bento-conclusion-text { font-size: 20px; }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     LAYOUT 3 · Mosaic · mixed-size tiles in an asymmetric grid:
+       · ms0 spans column 1 across 2 rows (tall narrow tile)
+       · conclusion spans columns 2-3 row 1 (wide dark hero)
+       · ms1 in column 2 row 2 · ms2 in column 3 row 2
+     The lower 3-col grid (bars / verify / talking) and flow band
+     follow as in layout 1. The mosaic feels like a magazine spread
+     rather than a uniform horizontal stack.
+     ═════════════════════════════════════════════════════════════════ */
+  .bento-mosaic {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+    /* Set a min height so the tall ms0 tile has room to breathe ·
+       the row tracks divide this between the conclusion (top-right)
+       and ms1/ms2 (bottom-right). */
+    min-height: 440px;
+  }
+  .bento-mosaic > .bento-mosaic-ms0 {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  .bento-mosaic > .bento-mosaic-concl {
+    grid-column: 2 / span 2;
+    grid-row: 1;
+    background: var(--ink);
+    color: var(--cream);
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 12px;
+  }
+  .bento-mosaic > .bento-mosaic-concl .bento-conclusion-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent-bright);
+    font-weight: 700;
+  }
+  .bento-mosaic > .bento-mosaic-concl .bento-conclusion-mark::before {
+    content: "";
+    width: 18px;
+    height: 1px;
+    background: var(--accent-bright);
+  }
+  .bento-mosaic > .bento-mosaic-concl .bento-conclusion-text {
+    font-family: var(--serif-display);
+    font-size: 28px;
+    line-height: 1.18;
+    color: var(--cream);
+    font-weight: 500;
+    letter-spacing: -0.012em;
+  }
+  .bento-mosaic > .bento-mosaic-ms1 {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .bento-mosaic > .bento-mosaic-ms2 {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  @media (max-width: 720px) {
+    .bento-mosaic {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      min-height: 0;
+    }
+    .bento-mosaic > .bento-mosaic-ms0,
+    .bento-mosaic > .bento-mosaic-concl,
+    .bento-mosaic > .bento-mosaic-ms1,
+    .bento-mosaic > .bento-mosaic-ms2 {
+      grid-column: 1;
+      grid-row: auto;
+    }
+  }
+
+  /* ─── Print · drop chrome ─────────────────────────────────────── */
   @media print {
     .bento-top-bar { display: none; }
-    .bento-doc { padding: 12mm; max-width: none; }
+    .bento-doc {
+      padding: 12mm;
+      max-width: none;
+      border: 0;
+    }
     body, html { background: white; }
-    .bento-milestone-card,
+    .bento-milestone,
     .bento-card,
     .bento-conclusion,
     .bento-flow {
@@ -575,7 +831,7 @@
 
   <main data-bento-root>
     <div class="bento-state" data-bento-loading>
-      <div class="bento-state-mark">// loading</div>
+      <div class="bento-state-mark">Loading</div>
       <div class="bento-state-title">Loading bento…</div>
       <div class="bento-state-body">Fetching the structured infographic for this brief.</div>
     </div>
@@ -620,36 +876,108 @@
       } else if (roomId) {
         url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
       } else {
-        showState("// missing query", "No brief specified",
+        showState("Missing query", "No brief specified",
           "Add ?b=<briefId> or ?r=<roomId> to the URL.");
         return null;
       }
       const res = await fetch(url);
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        showState("// not found", "Brief not found",
+        showState("Not found", "Brief not found",
           e.error || "The requested brief doesn't exist or is no longer available.");
         return null;
       }
       return await res.json();
     }
 
-    function renderMilestone(m) {
+    /** Render one milestone tile. The index determines which tile in
+     *  the row it is · in layout 1 the middle tile (i === 1) gets
+     *  an inverse near-black treatment via CSS scoped to
+     *  `.bento-doc.bento-layout-1`. The data layout (period · big
+     *  callout · title · body · tags) flows top-to-bottom inside the
+     *  tile. `extraClass` is appended to the article's classList ·
+     *  used by layout 3's mosaic to set grid-position classes
+     *  (bento-mosaic-ms0 · ms1 · ms2). */
+    function renderMilestone(m, i, extraClass) {
       const tagsHtml = (m.tags || []).map((t) =>
         `<span class="bento-tag">${escape(t)}</span>`).join("");
-      const bodyParts = [];
-      bodyParts.push(`<div class="bento-milestone-period">${escape(m.period || "")}</div>`);
-      bodyParts.push(`<div class="bento-milestone-card">`);
-      bodyParts.push(`  <div class="bento-milestone-title">${escape(m.title || "")}</div>`);
-      if (m.callout) {
-        bodyParts.push(`  <div class="bento-milestone-callout">${escape(m.callout)}</div>`);
+      const period = m.period
+        ? `<div class="bento-milestone-period">${escape(m.period)}</div>`
+        : "";
+      const callout = m.callout
+        ? `<div class="bento-milestone-callout">${escape(m.callout)}</div>`
+        : "";
+      const title = m.title
+        ? `<div class="bento-milestone-title">${escape(m.title)}</div>`
+        : "";
+      const body = m.body
+        ? `<div class="bento-milestone-body">${escape(m.body)}</div>`
+        : "";
+      const tags = tagsHtml
+        ? `<div class="bento-milestone-tags">${tagsHtml}</div>`
+        : "";
+      const cls = `bento-milestone bento-milestone-${i}${extraClass ? " " + extraClass : ""}`;
+      return `<article class="${cls}">${period}${callout}${title}${body}${tags}</article>`;
+    }
+
+    /** Featured-hero tile · layout 2's full-width inverted dark
+     *  block that promotes ms0 to a poster-cover element. The
+     *  callout is scaled to 112px display serif (or 72px on small
+     *  screens) and pairs with the title + body in the right half.
+     *  Falls back to using the period as the big numeral when the
+     *  milestone has no explicit callout. */
+    function renderFeatureHero(m0) {
+      if (!m0) return "";
+      const big = m0.callout || m0.period || "";
+      return `
+        <section class="bento-feature-hero">
+          ${big ? `<div class="bento-feature-callout">${escape(big)}</div>` : ""}
+          <div class="bento-feature-content">
+            ${m0.callout && m0.period ? `<div class="bento-feature-period">${escape(m0.period)}</div>` : ""}
+            ${m0.title ? `<div class="bento-feature-title">${escape(m0.title)}</div>` : ""}
+            ${m0.body ? `<div class="bento-feature-body">${escape(m0.body)}</div>` : ""}
+          </div>
+        </section>`;
+    }
+
+    /** Pull-quote conclusion · layout 2's centered framed conclusion
+     *  block (italic serif top + bottom rules) that replaces the
+     *  full-width dark conclusion of layout 1. Skipped when there
+     *  is no conclusion text. */
+    function renderConclusionPull(text) {
+      if (!text) return "";
+      return `
+        <section class="bento-conclusion-pull">
+          <div class="bento-conclusion-mark">The takeaway</div>
+          <div class="bento-conclusion-text">"${escape(text)}"</div>
+        </section>`;
+    }
+
+    /** Pick one of three bento layouts deterministically from the
+     *  brief id, so a refresh always shows the same look for the
+     *  same brief. The `?v=1|2|3` URL parameter overrides the hash
+     *  for previewing / debugging.
+     *
+     *  · 1 · Linear · current uniform horizontal stack · conclusion
+     *        hero on top, 3 milestones row, lower 3-col grid, flow
+     *  · 2 · Featured-hero · ms0 promoted to a full-width inverted
+     *        dark feature tile with a HUGE callout · ms1 + ms2 in a
+     *        2-tile row · conclusion as a centered framed pull-quote
+     *  · 3 · Mosaic · asymmetric grid · ms0 tall on the left
+     *        spanning 2 rows, conclusion wide on the top-right,
+     *        ms1 + ms2 in the bottom-right cells
+     */
+    function pickVariant(id) {
+      const force = (params.get("v") || "").trim();
+      if (force === "1" || force === "2" || force === "3") return parseInt(force, 10);
+      const s = String(id || "");
+      if (!s) return 1;
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h) + s.charCodeAt(i);
+        h |= 0;
       }
-      bodyParts.push(`  <div class="bento-milestone-body">${escape(m.body || "")}</div>`);
-      if (tagsHtml) {
-        bodyParts.push(`  <div class="bento-milestone-tags">${tagsHtml}</div>`);
-      }
-      bodyParts.push(`</div>`);
-      return `<div class="bento-milestone">${bodyParts.join("")}</div>`;
+      return (Math.abs(h) % 3) + 1;
     }
 
     function renderRankedBars(rb) {
@@ -667,7 +995,6 @@
       return `
         <section class="bento-card bento-ranked">
           <div class="bento-card-title">${escape(rb.title || "By the numbers")}</div>
-          <div class="bento-card-sub">// ranked</div>
           ${items}
         </section>`;
     }
@@ -678,7 +1005,7 @@
         return `
           <section class="bento-card ${klass}">
             <div class="bento-card-title">${escape(bd.title)}</div>
-            <div class="bento-empty">// no bullets</div>
+            <div class="bento-empty">— awaiting</div>
           </section>`;
       }
       const items = bd.bullets.map((b) => `<li>${escape(b)}</li>`).join("");
@@ -688,6 +1015,10 @@
           <ul class="bento-bullets">${items}</ul>
         </section>`;
     }
+    // Note: the `<div class="bento-empty">— awaiting</div>` branch above
+    // ran when a card had a title but no bullets · we now hide such
+    // cards entirely (the empty pill read as broken). Rendering nothing
+    // for an unfilled section is more honest than a placeholder.
 
     function renderFlow(flow) {
       if (!flow || !Array.isArray(flow.nodes) || flow.nodes.length < 2) return "";
@@ -695,7 +1026,7 @@
       const cap = flow.caption ? `<div class="bento-flow-caption">${escape(flow.caption)}</div>` : "";
       return `
         <aside class="bento-flow">
-          <div class="bento-flow-mark">// transformation</div>
+          <div class="bento-flow-mark">Transformation</div>
           <div class="bento-flow-chain">${chain}</div>
           ${cap}
         </aside>`;
@@ -703,18 +1034,18 @@
 
     function render(brief) {
       if (brief.mode !== "bento") {
-        showState("// wrong mode", "This brief is a research note",
+        showState("Wrong mode", "This brief is a research note",
           "Open it in the report viewer instead. Bento is a separate output mode.");
         return;
       }
       const bento = brief.bodyJson;
       if (!bento || typeof bento !== "object") {
         if (brief.isGenerating) {
-          showState("// generating",
+          showState("Generating",
             "Bento is still being prepared",
             "The chair is currently composing the infographic. Refresh in a few seconds.");
         } else {
-          showState("// empty",
+          showState("Empty",
             "This brief has no bento data",
             "It may have failed to generate. Try regenerating from the room view.");
         }
@@ -724,56 +1055,154 @@
       // Set page title to the bento headline.
       if (bento.title) document.title = `${bento.title} · Bento`;
 
-      const milestones = (bento.milestones || []).map(renderMilestone).join("");
+      // Pre-render shared parts · the 3 layouts compose them into
+      // different DOM structures.
       const rankedBars = renderRankedBars(bento.rankedBars);
       const verification = renderBullets(bento.verification, "bento-verify");
       const talkingPoints = renderBullets(bento.talkingPoints, "bento-talking");
       const flow = renderFlow(bento.flow);
+
+      const parts = { bento, rankedBars, verification, talkingPoints, flow };
+
+      // Pick the variant deterministically from the brief id and
+      // dispatch to the matching layout function.
+      const variant = pickVariant(brief.id);
+      const html = (variant === 2) ? layoutVariant2(parts)
+                : (variant === 3) ? layoutVariant3(parts)
+                : layoutVariant1(parts);
+      root.innerHTML = html;
+    }
+
+    /* ─────────────────────── Layout dispatch ───────────────────────
+     * Three structurally distinct bento layouts. All share the same
+     * BentoScaffold data + tile renderers (renderMilestone,
+     * renderRankedBars, etc.). Layouts differ in DOM structure +
+     * scoped CSS classes (.bento-layout-1 / -2 / -3 on the doc).
+     * ─────────────────────────────────────────────────────────────── */
+
+    /** Helper · render the doc's header band identically across
+     *  layouts (eyebrow + source + title + kicker). */
+    function bentoHeaderHTML(bento) {
+      return `
+        <header class="bento-header">
+          <div class="bento-header-meta">
+            <span class="bento-eyebrow"><span class="bento-eyebrow-dot"></span>Bento brief</span>
+            ${bento.source ? `<span class="bento-source">${escape(bento.source)}</span>` : ""}
+          </div>
+          <h1 class="bento-title">${escape(bento.title || "")}</h1>
+          ${bento.kicker ? `<div class="bento-kicker">${escape(bento.kicker)}</div>` : ""}
+        </header>`;
+    }
+
+    /** Helper · footer stamp · identical across layouts. */
+    function bentoFooterHTML(bento) {
+      if (!bento.footerTag) return "";
+      return `
+        <footer class="bento-footer">
+          <span class="bento-footer-stamp">PrivateBoard · Bento</span>
+          <span>${escape(bento.footerTag)}</span>
+        </footer>`;
+    }
+
+    /** Layout 1 · Linear stack.
+     *  Header → conclusion (full-width dark hero) → 3 milestones
+     *  horizontal row (middle tile inverted) → 3-col lower grid →
+     *  flow band → footer. */
+    function layoutVariant1(p) {
+      const { bento, rankedBars, verification, talkingPoints, flow } = p;
+      const milestones = (bento.milestones || []).slice(0, 3)
+        .map((m, i) => renderMilestone(m, i)).join("");
       const conclusion = bento.conclusion
-        ? `<div class="bento-conclusion-inner">
-             <div class="bento-conclusion-mark">// the takeaway</div>
+        ? `<section class="bento-conclusion">
+             <div class="bento-conclusion-inner">
+               <div class="bento-conclusion-mark">The takeaway</div>
+               <div class="bento-conclusion-text">${escape(bento.conclusion)}</div>
+             </div>
+           </section>`
+        : "";
+
+      return `
+        <article class="bento-doc bento-layout-1" data-bento-paper>
+          ${bentoHeaderHTML(bento)}
+          ${conclusion}
+          ${milestones ? `<section class="bento-milestones-row">${milestones}</section>` : ""}
+          <section class="bento-lower-grid">
+            ${rankedBars}
+            ${verification}
+            ${talkingPoints}
+          </section>
+          ${flow}
+          ${bentoFooterHTML(bento)}
+        </article>`;
+    }
+
+    /** Layout 2 · Featured-hero.
+     *  Header → ms0 promoted to full-width inverted dark feature
+     *  with HUGE callout → 2-tile row (ms1 | ms2) → centered framed
+     *  pull-quote conclusion → 3-col lower grid → flow → footer.
+     *  Reading order shifts: detail first, takeaway in the middle. */
+    function layoutVariant2(p) {
+      const { bento, rankedBars, verification, talkingPoints, flow } = p;
+      const ms = bento.milestones || [];
+      const featureHero = renderFeatureHero(ms[0]);
+      // ms1 + ms2 · render at index 0 to skip the layout-1 dark
+      // inverse treatment (it's scoped to .bento-layout-1 anyway,
+      // but staying at 0 also avoids the "middle tile dark" rhythm).
+      const milestones2 = [ms[1], ms[2]].filter(Boolean)
+        .map((m, i) => renderMilestone(m, i)).join("");
+
+      return `
+        <article class="bento-doc bento-layout-2" data-bento-paper>
+          ${bentoHeaderHTML(bento)}
+          ${featureHero}
+          ${milestones2 ? `<section class="bento-milestones-2">${milestones2}</section>` : ""}
+          ${renderConclusionPull(bento.conclusion)}
+          <section class="bento-lower-grid">
+            ${rankedBars}
+            ${verification}
+            ${talkingPoints}
+          </section>
+          ${flow}
+          ${bentoFooterHTML(bento)}
+        </article>`;
+    }
+
+    /** Layout 3 · Mosaic asymmetric grid.
+     *  Header → mosaic block where ms0 takes a tall narrow column
+     *  spanning 2 rows on the left, conclusion sits wide on the
+     *  top-right (cols 2-3 row 1) as a dark hero, ms1 + ms2 fill
+     *  the bottom-right cells (col 2 row 2 · col 3 row 2) → 3-col
+     *  lower grid → flow → footer. The mosaic feels like a
+     *  magazine spread rather than a uniform horizontal stack. */
+    function layoutVariant3(p) {
+      const { bento, rankedBars, verification, talkingPoints, flow } = p;
+      const ms = bento.milestones || [];
+      const ms0 = ms[0] ? renderMilestone(ms[0], 0, "bento-mosaic-ms0") : "";
+      const ms1 = ms[1] ? renderMilestone(ms[1], 0, "bento-mosaic-ms1") : "";
+      const ms2 = ms[2] ? renderMilestone(ms[2], 0, "bento-mosaic-ms2") : "";
+      const conclusionTile = bento.conclusion
+        ? `<div class="bento-mosaic-concl">
+             <div class="bento-conclusion-mark">The takeaway</div>
              <div class="bento-conclusion-text">${escape(bento.conclusion)}</div>
            </div>`
-        : `<div class="bento-conclusion-inner">
-             <div class="bento-empty">// no conclusion</div>
-           </div>`;
+        : "";
 
-      root.innerHTML = `
-        <article class="bento-doc" data-bento-paper>
-          <header class="bento-header">
-            ${bento.source ? `<div class="bento-source">${escape(bento.source)}</div>` : ""}
-            <h1 class="bento-title">${escape(bento.title || "")}</h1>
-            ${bento.kicker ? `<div class="bento-kicker"><span class="bento-kicker-text">${escape(bento.kicker)}</span></div>` : ""}
-          </header>
-
-          <div class="bento-grid">
-            <section class="bento-milestones-card">
-              <div class="bento-milestones-head">
-                <div class="bento-milestones-title">Timeline</div>
-                <div class="bento-milestones-sub">// 3 milestones</div>
-              </div>
-              <div class="bento-timeline">${milestones}</div>
-            </section>
-
-            <div class="bento-col-right">
-              ${rankedBars}
-              ${verification}
-              ${talkingPoints}
-            </div>
-          </div>
-
-          <div class="bento-bottom">
-            <section class="bento-conclusion">${conclusion}</section>
-            ${flow}
-          </div>
-
-          <footer class="bento-footer">
-            <span class="bento-footer-left">${escape(bento.footerTag || "")}</span>
-            <span class="bento-footer-right">
-              <span class="accent-swatch"></span>
-              accent · <span style="font-family: var(--mono)">--accent</span>
-            </span>
-          </footer>
+      return `
+        <article class="bento-doc bento-layout-3" data-bento-paper>
+          ${bentoHeaderHTML(bento)}
+          <section class="bento-mosaic">
+            ${ms0}
+            ${conclusionTile}
+            ${ms1}
+            ${ms2}
+          </section>
+          <section class="bento-lower-grid">
+            ${rankedBars}
+            ${verification}
+            ${talkingPoints}
+          </section>
+          ${flow}
+          ${bentoFooterHTML(bento)}
         </article>`;
     }
 
@@ -957,7 +1386,7 @@
       if (brief) render(brief);
     }).catch((e) => {
       console.error("[bento] load failed:", e);
-      showState("// error", "Couldn't load this brief",
+      showState("Error", "Couldn't load this brief",
         e instanceof Error ? e.message : String(e));
     });
   })();

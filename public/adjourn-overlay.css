@@ -168,6 +168,45 @@
   line-height: 1.4;
   word-break: break-word;
 }
+
+/* Subject row · the subject text can run several lines on long room
+   titles. We clamp to 3 lines by default and reveal a Show more /
+   less toggle only when the text actually overflows (the toggle is
+   `hidden` at render time and unhidden by openAdjournOverlay's post-
+   mount measurement). */
+.adjourn-subject-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.adjourn-subject-text {
+  display: block;
+  white-space: pre-wrap;
+}
+.adjourn-subject-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.adjourn-subject-toggle {
+  align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.12s;
+}
+.adjourn-subject-toggle:hover { color: var(--lime); }
+.adjourn-subject-toggle::before { content: "[ "; color: var(--text-faint); }
+.adjourn-subject-toggle::after  { content: " ]"; color: var(--text-faint); }
 .adjourn-summary-note {
   margin: 0;
   font-family: var(--font-human);
@@ -200,65 +239,116 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+.adjourn-mode-options-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.adjourn-mode-options-4 {
+  grid-template-columns: 1fr 1fr;
+}
+/* At desktop width the primary tile (Report · the long-form
+   markdown mode) takes 1.5× the width of the other three so it
+   reads as the default / recommended choice. The implementation
+   piggybacks on grid auto-placement: the primary is always the
+   first child, so giving column 1 a 1.5fr track is enough. */
+@media (min-width: 800px) {
+  .adjourn-mode-options-4 { grid-template-columns: 1.5fr 1fr 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .adjourn-mode-options-3 { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 540px) {
   .adjourn-mode-options { grid-template-columns: 1fr; }
+  .adjourn-mode-options-3 { grid-template-columns: 1fr; }
+  .adjourn-mode-options-4 { grid-template-columns: 1fr; }
 }
 .adjourn-mode-option {
   position: relative;
   display: flex;
-  gap: 10px;
-  padding: 10px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+  gap: 8px;
+  padding: 14px 10px 12px;
   background: var(--panel-2);
-  border: 0.5px solid var(--line);
+  border: 1px solid var(--line);
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color 0.12s, color 0.12s;
+  min-height: 130px;
 }
 .adjourn-mode-option:hover {
   border-color: var(--line-bright);
-  background: var(--panel-3);
 }
+/* Selected state · just the border + icon shift to lime. No
+   background tint, no transform · the visual delta against
+   neighbour tiles is enough on its own. */
 .adjourn-mode-option.on {
   border-color: var(--lime);
-  background: rgba(124, 184, 88, 0.06);
 }
-.adjourn-mode-option.on::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--lime);
-}
+/* The native radio is the source of truth for `:checked` state and
+   keyboard navigation, but visually it's hidden — the whole tile IS
+   the click target. Keeping it in the DOM (at 1×1 absolutely-
+   positioned) preserves a11y without occupying layout space. */
 .adjourn-mode-option input[type="radio"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  margin: 1px 0 0 0;
-  flex: 0 0 14px;
-  border: 1px solid var(--line-bright);
-  border-radius: 50%;
-  background: var(--bg);
-  cursor: pointer;
-  position: relative;
-}
-.adjourn-mode-option.on input[type="radio"] {
-  border-color: var(--lime);
-}
-.adjourn-mode-option.on input[type="radio"]::after {
-  content: "";
   position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: var(--lime);
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }
+/* Keyboard focus only · `:has(input:focus-visible)` skips the ring
+   on plain mouse clicks (which already get the lime border + icon
+   feedback) so a clicked tile doesn't show a doubled outline. */
+.adjourn-mode-option:has(input:focus-visible) {
+  outline: 1px solid var(--lime);
+  outline-offset: 1px;
+}
+
+/* Icon block · 40px high, centered. Color inherits from the parent
+   so hover / selected states cascade through `currentColor` in the
+   SVG without per-mode overrides. */
+.adjourn-mode-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  margin-bottom: 2px;
+  color: var(--text-soft);
+  transition: color 0.12s;
+}
+.adjourn-mode-icon svg {
+  width: 36px;
+  height: 36px;
+  display: block;
+}
+.adjourn-mode-option:hover .adjourn-mode-icon {
+  color: var(--text);
+}
+.adjourn-mode-option.on .adjourn-mode-icon {
+  color: var(--lime);
+}
+
+/* Primary tile · the Report mode is the recommended default, so it
+   gets a slightly larger icon + a touch more padding to read as the
+   "main" choice without changing its visual register. */
+.adjourn-mode-option-primary {
+  padding: 16px 14px 14px;
+}
+.adjourn-mode-option-primary .adjourn-mode-icon {
+  height: 50px;
+}
+.adjourn-mode-option-primary .adjourn-mode-icon svg {
+  width: 42px;
+  height: 42px;
+}
+
 .adjourn-mode-body {
-  flex: 1 1 auto;
-  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  min-width: 0;
 }
 .adjourn-mode-title {
   font-family: var(--font-human);
@@ -266,14 +356,20 @@
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.005em;
+  line-height: 1.2;
 }
 .adjourn-mode-deck {
   font-family: var(--font-human);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--text-faint);
+  /* Clamp to 2 lines so 4 tiles align to the same height regardless
+     of deck length; longer decks ellipsis cleanly. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.adjourn-mode-option.on .adjourn-mode-deck { color: var(--text-soft); }
 
 /* ─── Footer ─── skip-button on the left, primary actions on the right.
    The skip moves out of the gallery-body and into a real button slot

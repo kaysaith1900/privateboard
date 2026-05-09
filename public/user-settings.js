@@ -226,18 +226,6 @@
           </div>
         </div>
 
-        <div class="us-row">
-          <div class="us-row-label">Typing sound</div>
-          <div class="us-row-field">
-            <div class="us-toggle-row">
-              <button type="button" class="us-toggle-pill" data-us-sfx-typing aria-pressed="false">
-                <span class="us-toggle-dot"></span>
-                <span class="us-toggle-label" data-us-sfx-typing-label>off</span>
-              </button>
-              <span class="us-toggle-deck">a soft keyboard click as directors stream their replies. Persists locally.</span>
-            </div>
-          </div>
-        </div>
       </div>
     `;
   }
@@ -266,6 +254,66 @@
         </div>
       </div>
     `;
+  }
+
+  /* ── Other settings · misc per-user toggles that don't fit a
+        dedicated section. Currently just the typing-sound effect; a
+        natural home for future small ambient / UX preferences (sound
+        cues, animations, etc.) without growing the nav for each one. */
+  function otherSettingsSectionHTML() {
+    return `
+      <div class="us-pane-head">
+        <div class="us-pane-tag">▸ Other settings</div>
+        <div class="us-pane-deck">small UX preferences that don't fit elsewhere. All persisted locally.</div>
+      </div>
+
+      <div class="us-pane-body">
+        <div class="us-row">
+          <div class="us-row-label">Typing sound</div>
+          <div class="us-row-field">
+            <div class="us-toggle-row">
+              <button type="button" class="us-switch" data-us-sfx-typing role="switch" aria-checked="false">
+                <span class="us-switch-track" aria-hidden="true">
+                  <span class="us-switch-thumb"></span>
+                </span>
+                <span class="us-switch-label" data-us-sfx-typing-label>off</span>
+              </button>
+              <span class="us-toggle-deck">a soft keyboard click as directors stream their replies in chat. Brief generation stays silent regardless of this setting.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireOtherSettingsSection() {
+    if (!paneEl) return;
+    // Typing-sound toggle · the persistence + audio context lives in
+    // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
+    // the current state and proxies clicks. Reading inside wire-up
+    // (not at HTML build time) means the pill always reflects the
+    // LATEST stored state when the section re-mounts.
+    const sfxBtn = paneEl.querySelector("[data-us-sfx-typing]");
+    const sfxLabel = paneEl.querySelector("[data-us-sfx-typing-label]");
+    if (sfxBtn && sfxLabel && window.boardroomTypingSfx) {
+      const paint = () => {
+        const on = window.boardroomTypingSfx.isEnabled();
+        sfxBtn.classList.toggle("on", on);
+        // role="switch" wants `aria-checked`, not `aria-pressed`.
+        sfxBtn.setAttribute("aria-checked", on ? "true" : "false");
+        sfxLabel.textContent = on ? "on" : "off";
+      };
+      paint();
+      sfxBtn.addEventListener("click", () => {
+        const next = !window.boardroomTypingSfx.isEnabled();
+        window.boardroomTypingSfx.setEnabled(next);
+        paint();
+        // Audible confirmation when turning ON · the click that just
+        // toggled also serves as the gesture the AudioContext needs,
+        // so this tick is actually heard.
+        if (next) window.boardroomTypingSfx.tick();
+      });
+    }
   }
 
   /* ── Usage section ────────────────────────────────────────── */
@@ -404,11 +452,20 @@
       if (isToday) cls.push("today");
       if (isSelected) cls.push("active");
       if (total === 0) cls.push("empty");
-      const tooltip = total > 0
-        ? `${fmtDayLong(d.day)} · ${fmtTokens(total)} tokens`
-        : `${fmtDayLong(d.day)} · no usage`;
+      // Custom hover tooltip · two lines (day + token count) rendered
+      // via CSS `::before` from `data-tip-day` / `data-tip-num`. We
+      // use `aria-label` (not `title`) so screen readers still get
+      // the info but the native browser tooltip with its ~500ms
+      // delay doesn't fight with the instant custom one.
+      const dayLabel = fmtDayLong(d.day);
+      const numLabel = total > 0 ? `${fmtTokens(total)} tokens` : "no usage";
+      const aria = `${dayLabel} · ${numLabel}`;
       return `
-        <button type="button" class="${cls.join(' ')}" data-usage-day="${escape(d.day)}" title="${escape(tooltip)}">
+        <button type="button" class="${cls.join(' ')}"
+          data-usage-day="${escape(d.day)}"
+          data-tip-day="${escape(dayLabel)}"
+          data-tip-num="${escape(numLabel)}"
+          aria-label="${escape(aria)}">
           <span class="us-chart-stack" style="height:${heightPct.toFixed(2)}%">${segHtml}</span>
           <span class="us-chart-tick">${escape(fmtDayLabel(d.day))}</span>
         </button>
@@ -943,6 +1000,7 @@
               <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false">Usage</a>
               <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false">API Key</a>
               <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false">Default Model</a>
+              <a href="#" class="us-nav-item"        data-section="other"   role="tab" aria-selected="false">Other settings</a>
               <div class="us-nav-foot" data-us-version aria-label="App version">
                 <span class="us-nav-foot-label">version</span>
                 <span class="us-nav-foot-value" data-us-version-value>·</span>
@@ -975,12 +1033,14 @@
     else if (id === "usage")  paneEl.innerHTML = usageSectionHTML();
     else if (id === "keys")   paneEl.innerHTML = keysSectionHTML();
     else if (id === "default") paneEl.innerHTML = defaultModelSectionHTML();
+    else if (id === "other")  paneEl.innerHTML = otherSettingsSectionHTML();
 
     // Section-specific wiring
     if (id === "user")    wireUserSection();
     if (id === "keys")    wireKeysSection();
     if (id === "usage")   wireUsageSection();
     if (id === "default") wireDefaultModelSection();
+    if (id === "other")   wireOtherSettingsSection();
 
     // Active rail item
     modal.querySelectorAll(".us-nav-item").forEach((el) => {
@@ -1034,32 +1094,6 @@
       persist();
     });
     introCount.textContent = introInput.value.length;
-
-    // Typing-sound toggle · the persistence + audio context lives in
-    // window.boardroomTypingSfx (typing-sfx.js), so this row only
-    // mirrors the current state and proxies clicks. Reading inside the
-    // wire-up call (not at HTML build time) means the pill always
-    // reflects the LATEST stored state when the User pane re-mounts.
-    const sfxBtn = paneEl.querySelector("[data-us-sfx-typing]");
-    const sfxLabel = paneEl.querySelector("[data-us-sfx-typing-label]");
-    if (sfxBtn && sfxLabel && window.boardroomTypingSfx) {
-      const paint = () => {
-        const on = window.boardroomTypingSfx.isEnabled();
-        sfxBtn.classList.toggle("on", on);
-        sfxBtn.setAttribute("aria-pressed", on ? "true" : "false");
-        sfxLabel.textContent = on ? "on" : "off";
-      };
-      paint();
-      sfxBtn.addEventListener("click", () => {
-        const next = !window.boardroomTypingSfx.isEnabled();
-        window.boardroomTypingSfx.setEnabled(next);
-        paint();
-        // Audible confirmation when turning ON · the click that just
-        // toggled also serves as the gesture the AudioContext needs,
-        // so this tick will actually be heard.
-        if (next) window.boardroomTypingSfx.tick();
-      });
-    }
 
     // Regenerate avatar · same pattern as agent-profile's
     // regenerateProfileAvatar: pull a fresh randomSeed, persist it to

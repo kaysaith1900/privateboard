@@ -21,13 +21,14 @@ import { ensureBoardroomDir } from "../utils/paths.js";
 
 /** Mode-aware "has the brief landed its body content yet?" check.
  *  Research-note briefs put their content in body_md (markdown);
- *  bento briefs put theirs in body_json (BentoScaffold) and leave
- *  body_md empty by design. Without this routing, bento briefs were
- *  reported as `hasBody: false` forever after generation completed,
- *  which kept the frontend's "View Report" button hidden — the user
- *  saw their brief disappear after a page refresh. */
+ *  bento and magazine briefs share the BentoScaffold JSON in
+ *  body_json and leave body_md empty by design. Without this
+ *  routing, structured-mode briefs were reported as `hasBody: false`
+ *  forever after generation completed, which kept the frontend's
+ *  "View Report" button hidden — the user saw their brief disappear
+ *  after a page refresh. */
 function briefHasBody(b: Brief): boolean {
-  if (b.mode === "bento") {
+  if (b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper") {
     const j = b.bodyJson as { title?: unknown } | null;
     return !!(j && typeof j === "object" && typeof j.title === "string" && j.title.length > 0);
   }

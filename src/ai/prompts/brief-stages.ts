@@ -2013,6 +2013,334 @@ export function buildBentoMessages(opts: BentoOpts): LLMMessage[] {
   ];
 }
 
+/* ─────────────────────────── Magazine mode · same JSON ──────────────────
+ *
+ * Magazine reuses the BentoScaffold JSON shape but routes the content
+ * to a different layout (magazine.html). The system prompt biases the
+ * writer toward magazine-spread content density:
+ *   · 5 numbered talking points (the right-side card grid in the
+ *     magazine layout) · each is a self-contained "tip" or "tactic"
+ *     paired with a body sentence
+ *   · 3 setup-step milestones (the middle band's 3-column step row)
+ *   · 4 verification bullets ("why it matters" closer band)
+ *   · A hero takeaway as the conclusion
+ *
+ * Same parser (parseBento) reads the output · the only client-side
+ * difference is which page renders the JSON.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const MAGAZINE_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a MAGAZINE-SPREAD report — an editorial single-page layout that opens like a magazine cover, lays out a numbered card grid of takeaways, walks through a 3-step setup band, and closes with a high-contrast \"why this matters\" pull-list. Not a memo. Not a research note. A magazine.",
+  "",
+  "## What a magazine spread is for",
+  "",
+  "Magazine is for the moment when the user wants to share the takeaway as a *piece of editorial content* — something a reader could scroll on a feed. Not the analysis itself · the cover line + the numbered tactics + the setup recipe. Not the room's debate · the published version a stranger could understand cold.",
+  "",
+  "Editorial register · magazines lead with personality, not with hedging. Headlines are claim-style, decks have voice, talking points read like \"5 tactics that actually work\" rather than \"considerations\". You are writing the cover spread, not the white paper.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the cover headline · serif display · ≤ 110 chars · ONE sentence in claim form. Magazine covers state the takeaway with confidence — quantified or named (\"How {chair} {verb} {object}\" / \"X is the operating system for Y\" / \"Three commitments that change the trajectory\").",
+  "",
+  "2. **kicker** · the cover deck · ≤ 200 chars · 1 sentence under the headline. Non-italic register · subtitle voice. Names the angle / what's new.",
+  "",
+  "3. **source** · ≤ 80 chars · the masthead byline · \"From {chair name} · {date}\" / \"Issue 01 · {date}\" / \"{chair name} presents\". Mono small caps register; auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 cards · these become the magazine's middle band — a \"how to set this up in 10 minutes\" 3-step recipe. Each card has:",
+  "   · `period` · short step label · ≤ 24 chars · \"Step 1\" / \"准备\" / \"Phase 2\" / \"First\". Imperative or sequential.",
+  "   · `title` · ≤ 60 chars · what to do at this step. Imperative voice (\"Set up environment\" / \"准备环境\").",
+  "   · `body` · 2 sentences · ≤ 220 chars · the concrete instruction · how a reader actually does this step.",
+  "   · `callout` · ≤ 12 chars · optional anchor numeric · usually empty in magazine mode (the layout doesn't lean on big numbers in this band).",
+  "   · `tags` · empty array (`[]`) · the magazine layout doesn't render tags on the setup band.",
+  "",
+  "5. **rankedBars** · OPTIONAL · 3-5 ranked entries. Renders only when the room produced a clean ranking. Set to `null` when there's no real ranked-numeric material.",
+  "",
+  "6. **verification** · MANDATORY for magazine · these become the dark closing band's \"why this matters\" pull-list. Provide 4 bullets · ≤ 140 chars each · each bullet is a SHORT REASON the takeaway matters · phrased as a stand-alone declaration (\"Saves time · routine work compresses to minutes\" / \"Highly personalized · tailored to your context\"). Title is your call (default \"Why this matters\" / \"为什么这很强大\").",
+  "",
+  "7. **talkingPoints** · MANDATORY · 5 numbered cards · ≤ 120 chars each · these become the magazine's hero card grid · the \"5 tactics\" feature. EACH BULLET MUST BEGIN WITH A SHORT PHRASE (the card's title — what the renderer extracts as the card headline) FOLLOWED BY \" · \" (a middle-dot with spaces) AND THEN THE BODY SENTENCE. Example format: \"Weekly check-in · Run /weekly check-in to track key metrics across a personal dashboard.\" The renderer splits on \" · \" to extract title + body. If you can't fit 5, output as many as you have ≥3.",
+  "",
+  "   Title side ≤ 24 chars · body side ≤ 100 chars. Imperative voice in the body (\"Run X\" / \"使用 X\"). Imperative for English magazine voice; in Chinese, lead the body with the verb (\"使用…\" / \"运行…\" / \"通过…\").",
+  "",
+  "   Default talkingPoints title · \"5 tactics\" / \"5 个例子看明白\" / \"5 ways to use this\" · the LARGE outline numeral on the magazine cover is derived from this section's count.",
+  "",
+  "8. **conclusion** · ≤ 100 chars · ONE sentence · the cover-line reinforcement. The reader walks away with this single line · usually a short imperative or claim restatement.",
+  "",
+  "Plus optional **flow** · usually `null` in magazine mode · only fill when the room argued a clean transformation arc.",
+  "",
+  "Plus auto **footerTag** · ≤ 80 chars · masthead-style caption · auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into magazine slots",
+  "",
+  "  · **title** ← the strongest claim · phrased as a magazine cover headline.",
+  "  · **kicker** ← the supporting deck · ≤ 1 sentence · what's new about this conclusion.",
+  "  · **milestones** ← if the room argued a setup / how-to flow, route the 3 most important steps. If the room didn't produce a clean recipe, distill the 3 most actionable items into imperative steps.",
+  "  · **talkingPoints** ← the 5 strongest action / claim entries · each rewritten in \"Title · Body\" form (split with the middle dot + spaces).",
+  "  · **verification** ← 4 reasons the takeaway matters · drawn from the room's evidence + bottom-line material · phrased as standalone declarations.",
+  "  · **conclusion** ← compressed restatement of the room's anchor.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed (same as bento mode):",
+  "",
+  "```json",
+  "{",
+  '  "title": "Cover-line takeaway in claim form.",',
+  '  "kicker": "1-sentence deck explaining the angle.",',
+  '  "source": "From {chair name} · {date}",',
+  '  "milestones": [',
+  '    { "period": "Step 1", "title": "Set up environment", "body": "Install the tooling and create the workspace folder.", "callout": "", "tags": [] },',
+  '    { "period": "Step 2", "title": "Initialize and configure", "body": "Run the init command and follow the prompts to wire up your slash commands.", "callout": "", "tags": [] },',
+  '    { "period": "Step 3", "title": "Run and customize", "body": "Run weekly or daily, customize prompts to your context.", "callout": "", "tags": [] }',
+  "  ],",
+  '  "rankedBars": null,',
+  '  "verification": {',
+  '    "title": "Why this matters",',
+  '    "bullets": [',
+  '      "Saves time · routine work compresses to minutes a week.",',
+  '      "Highly personalized · tailored to the context you provide.",',
+  '      "Beyond coding · use cases extend well past development tasks.",',
+  '      "Infinite extensibility · spin up more agents to fit any new need."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "5 tactics",',
+  '    "bullets": [',
+  '      "Weekly check-in · Run /weekly check-in to track key metrics on a personal dashboard.",',
+  '      "Daily journal · Run /daily check-in to journal accomplishments and feelings.",',
+  '      "Content research · Use /newsletter researcher to draft your own briefs in your voice.",',
+  '      "Brain-dump analyzer · Run /brain dump analysis on raw notes to surface a mind-map.",',
+  '      "Daily brief · Use /daily brief for a tailored news round-up by your interests."',
+  "    ]",
+  "  },",
+  '  "conclusion": "One-line takeaway · ≤ 100 chars.",',
+  '  "flow": null,',
+  '  "footerTag": "Issue 01 · {date}"',
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title MUST be cover-style (a magazine wouldn't run \"Analysis of strategic options\" — it would run \"How X built the operating system for Y\"). State the takeaway, not the topic.",
+  "· talkingPoints bullets MUST follow \"Title · Body\" with the middle dot + spaces · the renderer's split is exact.",
+  "· Provide 4 verification bullets when the room has the material; 3 acceptable as a floor.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+export function buildMagazineMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the magazine. Surface it in the most fitting slot (most often as one of the talking points or verification bullets).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [MAGAZINE_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the magazine spread now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
+/* ─────────────────────────── Newspaper mode · same JSON ─────────────────
+ *
+ * Newspaper reuses the BentoScaffold JSON shape but drives a broadsheet
+ * front-page layout (newspaper.html). The writer's tonal register is
+ * front-page journalism: declarative claim-form headlines, lead-
+ * paragraph editorial body, longer prose per milestone (each fills a
+ * full newspaper column).
+ *
+ * Same parser (parseBento) reads the output · only the system prompt
+ * and renderer differ.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const NEWSPAPER_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a NEWSPAPER FRONT-PAGE report — a broadsheet single-page layout with a banner masthead, a full-width front-page headline, and a 3-column editorial spread with sidebar callouts. Not a memo. Not a magazine. A NEWSPAPER.",
+  "",
+  "## Voice",
+  "",
+  "Front-page journalism. Headlines are declarative, present-tense, claim-form (\"BOARD COMMITS TO TWO-TRACK RELEASE\" — not \"An analysis of release strategy\" or \"What the board decided\"). Body prose is lead-paragraph editorial: each paragraph carries one claim with its supporting evidence, sentences are short, transitions are crisp, hedging is minimal.",
+  "",
+  "Newspaper voice is more formal than magazine voice and more confident than research-note voice. Imagine the front page of a serious broadsheet · The Wall Street Journal, The Financial Times, The Economist if it ran a daily.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the front-page banner headline · ≤ 110 chars · ALL-CAPS-ABLE claim (the renderer applies uppercase) · NOT a question, NOT a label, a CLAIM. Examples: \"BOARD COMMITS TO TWO-TRACK RELEASE\", \"MARKETS BRACE FOR Q4 RESET\", \"REGULATORS MOVE AGAINST DARK PATTERNS\".",
+  "",
+  "2. **kicker** · the subheading deck · ≤ 200 chars · 1 sentence under the headline · expands the claim with the angle / what's new.",
+  "",
+  "3. **source** · masthead byline · ≤ 80 chars · \"From the desk of {chair name} · {date}\" or similar. Mono small caps register; auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 column-stories. Each milestone IS one of the newspaper's 3 main columns. Each card has:",
+  "   · `period` · column section label · ≤ 24 chars · \"TOP STORY\" / \"MARKETS\" / \"POLICY\" / \"OPS\" / \"OPINION\". Section-banner register. ALL-CAPS-ABLE.",
+  "   · `title` · column subheading · ≤ 60 chars · the column's hook. Question or claim form OK.",
+  "   · `body` · 4-7 sentences · ≤ 420 chars · LONGER than other modes since this fills a full editorial column. Lead-paragraph style: open with the claim, support with evidence, close with the so-what. Present tense, declarative.",
+  "   · `callout` · usually empty · the layout doesn't lean on big-number callouts in this pattern.",
+  "   · `tags` · empty array.",
+  "",
+  "5. **rankedBars** · OPTIONAL · top-right \"image slot\" · 3-5 ranked entries painted as a small editorial chart. Set null when the room has no clean ranked-numeric material.",
+  "",
+  "6. **verification** · MANDATORY · these become the bottom-left \"MORE HEADINGS\" stacked sidebar · 3-5 entries · each ≤ 180 chars · phrased as \"Heading: body sentence.\" — use a colon as separator (the renderer splits on it for typography). Each entry is a SHORT NEWS ITEM that supports or qualifies the front-page claim.",
+  "",
+  "7. **talkingPoints** · MANDATORY · 3-5 quotable lines · ≤ 140 chars each · these become the bottom editorial column's paragraphs · imperative or declarative, no hedging. Each is a self-contained line a reader could pull-quote.",
+  "",
+  "8. **conclusion** · the front-page \"BOTTOM LINE\" inverted callout · ≤ 100 chars · ONE sentence · the takeaway compressed to a quote. The reader walks away with this single line.",
+  "",
+  "Plus optional **flow** · usually `null` in newspaper mode · only fill when the room argued a clean transformation arc.",
+  "",
+  "Plus auto **footerTag** · ≤ 80 chars · masthead-style date caption · auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into newspaper slots",
+  "",
+  "  · **title** ← the strongest claim · phrased as a front-page headline (declarative, claim-form).",
+  "  · **kicker** ← the supporting deck · ≤ 1 sentence · what's new about this conclusion.",
+  "  · **milestones** ← the 3 most load-bearing columns of the discussion · each milestone gets a section banner (TOP STORY / MARKETS / etc.) + a column-length editorial body.",
+  "  · **verification** ← the room's secondary findings · each phrased as \"Heading: body.\" with a colon separator.",
+  "  · **talkingPoints** ← the room's actionable conclusions · 3-5 quotable lines.",
+  "  · **conclusion** ← the IMPORTANT-DETAILS callout · the room's bottom line in claim form.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed (same as bento mode):",
+  "",
+  "```json",
+  "{",
+  '  "title": "Banner headline in claim form",',
+  '  "kicker": "1-sentence subdeck explaining the angle.",',
+  '  "source": "From the desk of {chair name} · {date}",',
+  '  "milestones": [',
+  '    { "period": "TOP STORY", "title": "What the board decided", "body": "4-7 sentence editorial column body explaining the lead story with evidence and so-what.", "callout": "", "tags": [] },',
+  '    { "period": "MARKETS", "title": "Why the market is reading this", "body": "4-7 sentence editorial column body covering the second angle.", "callout": "", "tags": [] },',
+  '    { "period": "POLICY", "title": "Open questions for the regulator", "body": "4-7 sentence editorial column body covering the third angle.", "callout": "", "tags": [] }',
+  "  ],",
+  '  "rankedBars": null,',
+  '  "verification": {',
+  '    "title": "More headings",',
+  '    "bullets": [',
+  '      "Q4 outlook: Three commitments anchor the next quarter\'s plan.",',
+  '      "Pricing: The pilot programme survives, but caps are tightening.",',
+  '      "Hiring: Two new senior roles open by next board meeting.",',
+  '      "Risk: Compliance review remains the gating constraint."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "From the editorial",',
+  '    "bullets": [',
+  '      "First quotable editorial line that names the takeaway.",',
+  '      "Second quotable line that addresses the obvious objection.",',
+  '      "Third quotable line that sets the next-step expectation."',
+  "    ]",
+  "  },",
+  '  "conclusion": "One-sentence bottom-line takeaway · ≤ 100 chars.",',
+  '  "flow": null,',
+  '  "footerTag": "{date} · Edition 01"',
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title MUST be declarative claim-form (newspaper headlines DO NOT ask questions on the front page · they STATE).",
+  "· Milestones bodies are LONGER than other modes (4-7 sentences) · this is a column, not a card.",
+  "· Verification bullets MUST follow \"Heading: body.\" with a colon separator · the renderer splits on it.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+export function buildNewspaperMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the newspaper. Surface it in the most fitting slot (most often as one of the 3 milestone columns or as a verification headline).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [NEWSPAPER_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the newspaper front page now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
 /* ─────────────────────── Stage 3 · chair final write ──────────────────── */
 
 interface WriteOpts {

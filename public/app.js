@@ -912,11 +912,37 @@
           }
         } else if (kind === "brief-started") {
           this.markBriefEvent();
+          // Mode determines BOTH the seeded stage map and which pip
+          // rail renderBriefStages picks. Bento, magazine, and
+          // newspaper modes each emit only 2 stage events (extract
+          // + write), so seeding the 7-stage layout for a
+          // structured-mode brief leaves the 5 middle pips forever
+          // pending — the rail then renders with a row of dead
+          // black pips between extract and write. Read mode from
+          // the payload (server includes it on brief-started for
+          // exactly this reason) and seed accordingly.
+          const isStructured = this.isStructuredBriefMode(payload.mode);
+          const briefMode = isStructured ? payload.mode : "research-note";
+          const seededStages = isStructured
+            ? {
+                extract: { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                write:   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              }
+            : {
+                extract:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                compose:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              };
           const newBrief = {
             id: payload.briefId,
             title: "Generating…",
             bodyMd: "",
             style: payload.style || "mckinsey",
+            mode: briefMode,
             // Carry the supplement so the tab strip can render the
             // in-progress brief with its supplement label ("xxx 视角")
             // immediately, instead of waiting for brief-final to
@@ -931,21 +957,13 @@
             language: payload.language === "zh" ? "zh" : "en",
             pipelineStartedAt: Date.now(),
             createdAt: Date.now(),
-            // Stage checklist · seeded with all seven stages in pending
-            // state (extract / compose / 4 scaffold sub-stages / write).
-            // brief-stage events flip them active → done as the pipeline
-            // progresses. startedAt is captured when each stage first
-            // becomes active so the UI can display elapsed time
-            // alongside the ETA range.
-            stages: {
-              extract:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              compose:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-            },
+            // Stage checklist · seeded according to the brief mode (see
+            // briefMode resolution above). brief-stage events flip
+            // them active → done as the pipeline progresses.
+            // startedAt is captured when each stage first becomes
+            // active so the UI can display elapsed time alongside the
+            // ETA range.
+            stages: seededStages,
           };
           this.currentBrief = newBrief;
           // Insert the in-progress brief into currentBriefs so the tab
@@ -1501,11 +1519,21 @@
      *  card thought it was still generating because bodyMd was empty
      *  — which is the steady-state shape for bento, not an
      *  in-flight signal). */
+    /** True for any structured-output mode — bento, magazine,
+     *  newspaper — that persists to body_json instead of body_md and
+     *  runs the single-pass chair-LLM pipeline (extract + write only,
+     *  no Stage 2/3 scaffold/write). Centralised so future modes
+     *  touch one place. */
+    isStructuredBriefMode(mode) {
+      return mode === "bento" || mode === "magazine" || mode === "newspaper";
+    },
+
     briefHasBody(b) {
       if (!b) return false;
-      if (b.mode === "bento") {
-        // Bento populates bodyJson with the BentoScaffold. An empty
-        // object isn't a body; check for at least a title field.
+      if (this.isStructuredBriefMode(b.mode)) {
+        // Bento + magazine populate bodyJson with the BentoScaffold.
+        // An empty object isn't a body; check for at least a title
+        // field.
         const j = b.bodyJson;
         return !!(j && typeof j === "object" && (j.title || j.milestones));
       }
@@ -1515,18 +1543,137 @@
 
     /** Build the right viewer URL for a brief based on its mode.
      *  · 'research-note' (default · or unknown) → `/report.html?r=R&b=B`
-     *  · 'bento' → `/bento.html?b=B` (the bento renderer doesn't
-     *    need the room context · the brief is self-contained).
+     *  · 'bento' → `/bento.html?b=B`
+     *  · 'magazine' → `/magazine.html?b=B`
+     *  · 'newspaper' → `/newspaper.html?b=B`
      *
-     *  Used by the View Report button, the brief-picker popover, the
-     *  open-report link in the brief card, and the All Reports page —
-     *  one helper so a future renderer route change touches one place. */
+     *  Structured renderers don't need the room context · the brief
+     *  is self-contained. Used by the View Report button, the
+     *  brief-picker popover, the open-report link in the brief card,
+     *  and the All Reports page — one helper so a future renderer
+     *  route change touches one place. */
     briefViewerHref(b, roomId) {
       if (!b || !b.id) return null;
       const id = encodeURIComponent(b.id);
       if (b.mode === "bento") return `/bento.html?b=${id}`;
+      if (b.mode === "magazine") return `/magazine.html?b=${id}`;
+      if (b.mode === "newspaper") return `/newspaper.html?b=${id}`;
       const r = roomId ? encodeURIComponent(roomId) : "";
       return r ? `/report.html?r=${r}&b=${id}` : `/report.html?b=${id}`;
+    },
+
+    /** Human-readable label for a brief's mode · used in the brief-card
+     *  banner so the user sees which renderer the report will use
+     *  before they open it.
+     *
+     *  IMPORTANT · the user-facing label for `research-note` is
+     *  "Report", NOT "Research Note". The internal mode key stays as
+     *  `research-note` (storage column, API value, picker option id),
+     *  but every user-facing surface — the mode picker (`renderBrief-
+     *  ModePicker` line ~1662 in this file), the report viewer's
+     *  header, etc. — calls it "Report". Keep this map in sync with
+     *  the picker labels rather than inventing a fresh user-facing
+     *  vocabulary.
+     *
+     *  Legacy rows without an explicit `mode` default to "Report" by
+     *  the same backfill the storage layer applies. */
+    briefModeLabel(b) {
+      const mode = (b && b.mode) || "research-note";
+      switch (mode) {
+        case "bento":     return "Bento";
+        case "magazine":  return "Magazine";
+        case "newspaper": return "Newspaper";
+        default:          return "Report";
+      }
+    },
+
+    /** Render the report-mode picker · four icon-tile cards that let
+     *  the user pick between research-note, bento, magazine, and
+     *  newspaper. Each tile shows a custom monoline SVG that
+     *  visually mirrors that mode's layout — research-note as a
+     *  memo, bento as a 4-cell grid, magazine as a masthead +
+     *  numeral block + small cards, newspaper as a banner + 3-column
+     *  text grid. The native radio is visually hidden (kept in the
+     *  DOM for a11y / keyboard nav).
+     *
+     *  Used by both the adjourn overlay (filing the report at
+     *  adjourn-time / generate-brief flow) AND the supplement
+     *  overlay (regenerating with an extra perspective). The picker
+     *  reads its selected option via `input[name="brief-mode"]:checked`
+     *  from inside whatever overlay it lives in · the click-to-toggle
+     *  handler scopes to the `.adjourn-mode-options` container so it
+     *  works for any overlay embedding the picker. */
+    renderBriefModePicker(defaultMode) {
+      const safe = this.isStructuredBriefMode(defaultMode) ? defaultMode : "research-note";
+      // Icon SVGs · `currentColor` lets each tile pick up its hover /
+      // selected accent from the parent `.adjourn-mode-icon { color }`
+      // rule. Stroke hierarchy is deliberate · main outlines at 1.0,
+      // a single emphasis rule at 1.2 (newspaper headline + magazine
+      // masthead bar), body details at 0.8. Filled blocks soften to
+      // currentColor at 0.5 opacity so the lime selected-state reads
+      // as a tint rather than a slab. The 24-unit viewBox renders at
+      // 36px on screen → 1.5× scale, so stroke-1.0 is a clean 1.5px.
+      const ICONS = {
+        "research-note": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 3h9l4 4v14H6z"/>
+            <path d="M15 3v4h4"/>
+            <line x1="9" y1="12" x2="16" y2="12"/>
+            <line x1="9" y1="15" x2="16" y2="15"/>
+            <line x1="9" y1="18" x2="14" y2="18"/>
+          </svg>`,
+        "bento": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="9" height="13" rx="1.5"/>
+            <rect x="13" y="3" width="8" height="6" rx="1.5"/>
+            <rect x="13" y="10" width="8" height="6" rx="1.5"/>
+            <rect x="3" y="17" width="18" height="4" rx="1.5"/>
+          </svg>`,
+        "magazine": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="4" x2="21" y2="4" stroke-width="1.2"/>
+            <rect x="3" y="7" width="6" height="9" rx="1.2"/>
+            <rect x="11" y="7" width="4.5" height="4" rx="1.2"/>
+            <rect x="16.5" y="7" width="4.5" height="4" rx="1.2"/>
+            <rect x="11" y="12" width="4.5" height="4" rx="1.2"/>
+            <rect x="16.5" y="12" width="4.5" height="4" rx="1.2"/>
+            <rect x="3" y="18" width="18" height="3" rx="1" fill="currentColor" fill-opacity="0.45" stroke="none"/>
+          </svg>`,
+        "newspaper": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="2.5" fill="currentColor" fill-opacity="0.85" stroke="none"/>
+            <line x1="7" y1="8" x2="17" y2="8" stroke-width="1.2"/>
+            <line x1="4" y1="11.5" x2="8" y2="11.5" stroke-width="0.8"/>
+            <line x1="4" y1="13.5" x2="8" y2="13.5" stroke-width="0.8"/>
+            <line x1="4" y1="15.5" x2="6.5" y2="15.5" stroke-width="0.8"/>
+            <line x1="10" y1="11.5" x2="14" y2="11.5" stroke-width="0.8"/>
+            <line x1="10" y1="13.5" x2="14" y2="13.5" stroke-width="0.8"/>
+            <line x1="10" y1="15.5" x2="12.5" y2="15.5" stroke-width="0.8"/>
+            <line x1="16" y1="11.5" x2="20" y2="11.5" stroke-width="0.8"/>
+            <line x1="16" y1="13.5" x2="20" y2="13.5" stroke-width="0.8"/>
+            <line x1="16" y1="15.5" x2="18.5" y2="15.5" stroke-width="0.8"/>
+            <line x1="3" y1="18.5" x2="21" y2="18.5" stroke-width="0.9"/>
+          </svg>`,
+      };
+      const opt = (value, title, deck, primary) => `
+            <label class="adjourn-mode-option${primary ? " adjourn-mode-option-primary" : ""}${safe === value ? " on" : ""}">
+              <input type="radio" name="brief-mode" value="${value}"${safe === value ? " checked" : ""}>
+              <div class="adjourn-mode-icon">${ICONS[value] || ""}</div>
+              <div class="adjourn-mode-body">
+                <div class="adjourn-mode-title">${title}</div>
+                <div class="adjourn-mode-deck">${deck}</div>
+              </div>
+            </label>`;
+      return `
+        <div class="adjourn-mode-picker" data-mode-picker>
+          <div class="adjourn-mode-label">// report format</div>
+          <div class="adjourn-mode-options adjourn-mode-options-4">
+            ${opt("research-note", "Report", "Long-form markdown · bottom line, findings, recommendations.", true)}
+            ${opt("bento", "Bento", "Single-page poster · 3 milestones + sidebar cards.")}
+            ${opt("magazine", "Magazine", "Editorial spread · cover line, 5 cards, dark closer.")}
+            ${opt("newspaper", "Newspaper", "Broadsheet · banner masthead, 3-column editorial.")}
+          </div>
+        </div>`;
     },
 
     /** Read the user's last-picked report mode from localStorage so the
@@ -1535,12 +1682,13 @@
     lastBriefMode() {
       try {
         const v = localStorage.getItem("pb.briefMode");
-        return v === "bento" ? "bento" : "research-note";
+        return this.isStructuredBriefMode(v) ? v : "research-note";
       } catch { return "research-note"; }
     },
     saveLastBriefMode(mode) {
       try {
-        localStorage.setItem("pb.briefMode", mode === "bento" ? "bento" : "research-note");
+        const safe = this.isStructuredBriefMode(mode) ? mode : "research-note";
+        localStorage.setItem("pb.briefMode", safe);
       } catch { /* private-mode etc. — silently ignore */ }
     },
 
@@ -1707,7 +1855,9 @@
     async adjournRoom(opts) {
       if (!this.currentRoomId) return;
       const skipBrief = !!(opts && opts.skipBrief);
-      const mode = opts && opts.mode === "bento" ? "bento" : "research-note";
+      const mode = opts && this.isStructuredBriefMode(opts.mode)
+        ? opts.mode
+        : "research-note";
       // Pre-flight · adjourn-with-brief triggers the brief writer
       // pipeline (3 LLM stages). When skipBrief=true the chair just
       // posts the no-brief marker without LLM calls, so we let it
@@ -1776,9 +1926,12 @@
 
             <div class="adjourn-body">
               <div class="adjourn-summary">
-                <div class="adjourn-summary-row">
+                <div class="adjourn-summary-row adjourn-summary-row-subject">
                   <span class="adjourn-summary-key">// subject</span>
-                  <span class="adjourn-summary-val">${this.escape(subjectTxt)}</span>
+                  <div class="adjourn-summary-val adjourn-subject-wrap">
+                    <span class="adjourn-subject-text is-clamped" data-adjourn-subject>${this.escape(subjectTxt)}</span>
+                    <button type="button" class="adjourn-subject-toggle" data-adjourn-subject-toggle hidden>Show more</button>
+                  </div>
                 </div>
                 <div class="adjourn-summary-row">
                   <span class="adjourn-summary-key">// authors</span>
@@ -1795,25 +1948,7 @@
                 filed in the chat once it's ready.
               </p>
 
-              <div class="adjourn-mode-picker" data-adjourn-mode-picker>
-                <div class="adjourn-mode-label">// report format</div>
-                <div class="adjourn-mode-options">
-                  <label class="adjourn-mode-option${defaultMode === "research-note" ? " on" : ""}">
-                    <input type="radio" name="adjourn-mode" value="research-note"${defaultMode === "research-note" ? " checked" : ""}>
-                    <div class="adjourn-mode-body">
-                      <div class="adjourn-mode-title">Research note</div>
-                      <div class="adjourn-mode-deck">Markdown memo with sections — bottom line, findings, recommendations, the full record.</div>
-                    </div>
-                  </label>
-                  <label class="adjourn-mode-option${defaultMode === "bento" ? " on" : ""}">
-                    <input type="radio" name="adjourn-mode" value="bento"${defaultMode === "bento" ? " checked" : ""}>
-                    <div class="adjourn-mode-body">
-                      <div class="adjourn-mode-title">Bento infographic</div>
-                      <div class="adjourn-mode-deck">Single-page poster — 3 milestones, a few sidebar cards, one-line takeaway. Good for sharing.</div>
-                    </div>
-                  </label>
-                </div>
-              </div>
+              ${this.renderBriefModePicker(defaultMode)}
             </div>
 
             <footer class="adjourn-foot">
@@ -1834,6 +1969,19 @@
       wrap.innerHTML = html.trim();
       document.body.appendChild(wrap.firstChild);
       document.body.style.overflow = "hidden";
+      // Subject clamp · the subject value is clamped to 3 lines by
+      // default (a long room title shouldn't crowd the rest of the
+      // overlay). After mount, measure whether the text actually
+      // overflows the clamp — only then reveal the Show more / less
+      // toggle. rAF lets the browser settle the initial layout so
+      // scrollHeight is meaningful.
+      requestAnimationFrame(() => {
+        const subjEl = document.querySelector("[data-adjourn-subject]");
+        const subjBtn = document.querySelector("[data-adjourn-subject-toggle]");
+        if (subjEl && subjBtn && subjEl.scrollHeight > subjEl.clientHeight + 1) {
+          subjBtn.hidden = false;
+        }
+      });
       // Esc closes the overlay. Listener auto-detaches on close so
       // we don't accumulate handlers across opens.
       this._adjournEsc = (ev) => {
@@ -1873,6 +2021,14 @@
         confirm: "[ Regenerate ]",
         confirmBusy: "[ Regenerating… ]",
       };
+      // Default the picker to the existing brief's mode · the user's
+      // baseline assumption when regenerating with a supplement is "I
+      // want the same kind of report, just with this extra angle." If
+      // the parent brief's mode is missing for any reason, fall back
+      // to the user's last picked mode (localStorage).
+      const defaultMode = this.isStructuredBriefMode(this.currentBrief?.mode)
+        ? this.currentBrief.mode
+        : this.lastBriefMode();
       const html = `
         <div class="supplement-overlay" id="supplement-overlay" role="dialog" aria-modal="true">
           <div class="supplement-backdrop" data-supplement-close></div>
@@ -1891,6 +2047,7 @@
             <div class="supplement-body">
               <textarea class="supplement-input" data-supplement-input rows="6" placeholder="${this.escape(t.placeholder)}"></textarea>
               <p class="supplement-hint">${this.escape(t.hint)}</p>
+              ${this.renderBriefModePicker(defaultMode)}
             </div>
             <footer class="supplement-foot">
               <button type="button" class="supplement-cancel" data-supplement-close>${this.escape(t.cancel)}</button>
@@ -2540,6 +2697,17 @@
         if (input) input.focus();
         return;
       }
+      // Read the report-mode picker (research-note / bento). The
+      // overlay defaults the picker to the existing brief's mode, so a
+      // plain "regenerate with this perspective" keeps the same
+      // format. Persisting the choice keeps the picker stable next
+      // time. Server-side the same `/api/rooms/:id/brief` route reads
+      // `mode` regardless of whether the call came from supplement or
+      // generate-brief, so no backend change is needed.
+      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      const v = briefModeInput && briefModeInput.value;
+      const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
+      this.saveLastBriefMode(briefMode);
       // Frontend in-flight guard · without this, a slow server roundtrip
       // gives the user time to click confirm twice (or to close+reopen
       // the overlay and click again). Each click was firing its own POST,
@@ -2558,7 +2726,7 @@
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ supplement: text }),
+            body: JSON.stringify({ supplement: text, mode: briefMode }),
           },
         );
         if (!r.ok) {
@@ -2810,8 +2978,9 @@
       const skipPicked = overlay.querySelector(".adjourn-skip-btn.picked") !== null;
       // Read the report-mode picker (research-note / bento). Persist the
       // choice so the picker defaults to the same option next time.
-      const briefModeInput = overlay.querySelector('input[name="adjourn-mode"]:checked');
-      const briefMode = briefModeInput && briefModeInput.value === "bento" ? "bento" : "research-note";
+      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      const v = briefModeInput && briefModeInput.value;
+      const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
       this.saveLastBriefMode(briefMode);
       const btn = overlay.querySelector("[data-adjourn-confirm]");
       const origLabel = isGen ? "[ Generate ]" : "[ Adjourn & file ]";
@@ -2838,7 +3007,7 @@
      *  adjourn, so the existing handlers in connectSSE handle the rest. */
     async generateBriefForAdjournedRoom(mode) {
       if (!this.currentRoomId) return;
-      const briefMode = mode === "bento" ? "bento" : "research-note";
+      const briefMode = this.isStructuredBriefMode(mode) ? mode : "research-note";
       // Pre-flight · the brief writer is a 3-stage LLM pipeline (per-
       // director extract → composer → final write). All require a key.
       if (!(await this.requireModelKey())) return;
@@ -8873,6 +9042,7 @@
             ${tabsStripHtml}
             <div class="brief-banner">
               <span class="brief-banner-tag" style="color: var(--red);">// report</span>
+              <span class="brief-banner-type" style="color: var(--red); border-color: var(--red);">${this.escape(this.briefModeLabel(b))}</span>
               <span class="brief-banner-stamp" style="color: var(--red);">${this.escape(copy.stamp)}</span>
             </div>
             <div class="brief-body brief-body-error">
@@ -8928,6 +9098,7 @@
           ${tabsHtml}
           <div class="brief-banner">
             <span class="brief-banner-tag">// report</span>
+            <span class="brief-banner-type">${this.escape(this.briefModeLabel(b))}</span>
             <span class="brief-banner-stamp">${filedLabel}</span>
           </div>
 
@@ -9062,6 +9233,31 @@
           "Distilling the verification signals",
           "Compressing recommendations into elevator-pitch lines",
           "Naming the closing flow · before → after",
+        ],
+        // Magazine mode · same single-pass chair-LLM call but the
+        // emphasis is on editorial cover-line composition rather
+        // than infographic compression. Keyed under `magazine-write`
+        // and selected at render time when the brief's mode is
+        // magazine.
+        "magazine-write": [
+          "Drafting the cover headline",
+          "Writing the subdeck",
+          "Picking the 5 numbered cards",
+          "Sequencing the 3 setup steps",
+          "Selecting why-this-matters reasons",
+          "Stamping the masthead byline",
+        ],
+        // Newspaper mode · same single-pass chair-LLM call but voice
+        // shifts to broadsheet front-page journalism. Keyed under
+        // `newspaper-write` and selected at render time when the
+        // brief's mode is newspaper.
+        "newspaper-write": [
+          "Setting the banner headline",
+          "Writing the subdeck",
+          "Filing the three column stories",
+          "Drafting the bottom-line callout",
+          "Stacking the more-headings sidebar",
+          "Stamping the masthead date",
         ],
       },
       // System UI · always English. The `zh` key is kept as an alias
@@ -9224,20 +9420,24 @@
       //     4 scaffold sub-stages are driven by JSON-key arrival in
       //     the streaming buffer, see SCAFFOLD_TRIGGERS in brief.ts)
       //
-      //   bento · extract → write (2 stages · runBentoStage runs ONE
-      //     chair-LLM call that produces the BentoScaffold; composer
-      //     and the scaffold sub-stages are skipped entirely · their
-      //     pips would otherwise stay "pending" forever and the rail
-      //     would jump from extract straight to write with 5 black
-      //     pips in between)
+      //   bento + magazine · extract → write (2 stages · runBentoStage
+      //     runs ONE chair-LLM call that produces the BentoScaffold;
+      //     composer and the scaffold sub-stages are skipped entirely.
+      //     Both modes share the same 2-stage rail · only the write
+      //     label and renderer differ)
       //
       // System UI · always English regardless of brief language. The
       // pipeline labels are the app's voice (chrome around the
       // generation), not the report content itself.
-      const STAGE_DEFS = b.mode === "bento"
+      const STRUCTURED_WRITE_LABELS = {
+        bento: "Composing the bento",
+        magazine: "Composing the magazine",
+        newspaper: "Composing the newspaper",
+      };
+      const STAGE_DEFS = this.isStructuredBriefMode(b.mode)
         ? [
             { key: "extract", label: "Reading what each director said", pipShort: "read" },
-            { key: "write",   label: "Composing the bento",             pipShort: "compose" },
+            { key: "write",   label: STRUCTURED_WRITE_LABELS[b.mode] || "Composing the report", pipShort: "compose" },
           ]
         : [
             { key: "extract",            label: "Reading what each director said", pipShort: "read" },
@@ -9304,9 +9504,14 @@
       // (`bento-write`) when active. Falls through to the regular
       // key for every other stage / mode.
       let substageText = "";
-      const subKey = (b.mode === "bento" && activeDef.key === "write")
-        ? "bento-write"
-        : activeDef.key;
+      // Structured-mode write stages get their own rotator copy
+      // ("bento-write" / "magazine-write" / "newspaper-write") since
+      // the work is different from research-note's chapter-by-chapter
+      // write.
+      let subKey = activeDef.key;
+      if (activeDef.key === "write" && this.isStructuredBriefMode(b.mode)) {
+        subKey = `${b.mode}-write`;
+      }
       if (activeStatus === "active" && substages[subKey]?.length) {
         const list = substages[subKey];
         substageText = list[Math.floor(activeElapsed / 3) % list.length];
@@ -9806,16 +10011,20 @@
       });
       return;
     }
-    // Adjourn overlay · report-mode picker · clicking a label (or its
-    // radio) toggles the .on class on that option AND off on the
-    // siblings. The native radio behaviour handles `:checked` state but
-    // we use a manual class for visual styling (left accent stripe +
-    // tint) since we can't `:has()` reliably on older browsers.
+    // Brief-mode picker · clicking a label (or its radio) toggles the
+    // .on class on that option AND off on the siblings. Used by both
+    // the adjourn overlay and the supplement overlay. We scope to the
+    // picker's `.adjourn-mode-options` container (set in
+    // renderBriefModePicker) instead of a specific overlay id, so the
+    // same handler works wherever the picker is embedded. The native
+    // radio behaviour handles `:checked` state but we use a manual
+    // class for visual styling (left accent stripe + tint) since we
+    // can't `:has()` reliably on older browsers.
     const modeOpt = e.target.closest(".adjourn-mode-option");
     if (modeOpt) {
-      const overlay = modeOpt.closest("#adjourn-overlay");
-      if (overlay) {
-        overlay.querySelectorAll(".adjourn-mode-option").forEach((el) => el.classList.remove("on"));
+      const group = modeOpt.closest(".adjourn-mode-options");
+      if (group) {
+        group.querySelectorAll(".adjourn-mode-option").forEach((el) => el.classList.remove("on"));
         modeOpt.classList.add("on");
         const radio = modeOpt.querySelector('input[type="radio"]');
         if (radio) radio.checked = true;
@@ -9844,6 +10053,18 @@
     if (e.target.closest("[data-adjourn-close]")) {
       e.preventDefault();
       app.closeAdjournOverlay();
+      return;
+    }
+    // Adjourn overlay · subject Show more / less toggle. Flips the
+    // `is-clamped` class on the value span and swaps the button label.
+    const subjToggle = e.target.closest("[data-adjourn-subject-toggle]");
+    if (subjToggle) {
+      e.preventDefault();
+      const subjEl = document.querySelector("[data-adjourn-subject]");
+      if (subjEl) {
+        const expanded = subjEl.classList.toggle("is-clamped") === false;
+        subjToggle.textContent = expanded ? "Show less" : "Show more";
+      }
       return;
     }
     // Brief card · "Add a perspective" → opens the supplement overlay.

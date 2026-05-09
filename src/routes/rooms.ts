@@ -1137,10 +1137,12 @@ export function roomsRouter(): Hono {
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
-    // Mode · 'research-note' (default) or 'bento'. The picker UI sets
-    // this on the adjourn / regenerate request; legacy callers without
-    // the field land on the default research-note path.
-    const mode = b.mode === "bento" ? "bento" : "research-note";
+    // Mode · 'research-note' (default), 'bento', or 'magazine'. The
+    // picker UI sets this on the adjourn / regenerate request; legacy
+    // callers without the field land on the default research-note path.
+    const mode = b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper"
+      ? b.mode
+      : "research-note";
 
     // Cancel any in-flight director turn before transitioning state.
     abortRoom(id);
@@ -1260,7 +1262,9 @@ export function roomsRouter(): Hono {
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
-    const mode = b.mode === "bento" ? "bento" : "research-note";
+    const mode = b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper"
+      ? b.mode
+      : "research-note";
     try {
       const result = await generateBrief({
         roomId: id,

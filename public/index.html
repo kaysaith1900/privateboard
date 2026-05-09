@@ -1375,7 +1375,7 @@
   .notes-filters {
     display: flex;
     gap: 2px;
-    margin: 22px 0 6px;
+    margin: 22px 0 2px;
     flex-wrap: wrap;
   }
   .reports-filter-chip,
@@ -1422,8 +1422,8 @@
      in favour of a single rule + flat list (chips already disclose
      recency, no need for repeated section headers). */
   .reports-list-wrap {
-    margin-top: 14px;
-    padding-top: 14px;
+    margin-top: 8px;
+    padding-top: 8px;
     border-top: 1px solid var(--border);
   }
 
@@ -2090,8 +2090,8 @@
      the chip strip → divider → list rhythm reads identically. Group
      headers were dropped in favour of a single hair under the chips. */
   .notes-list-wrap {
-    margin-top: 14px;
-    padding-top: 14px;
+    margin-top: 8px;
+    padding-top: 8px;
     border-top: 1px solid var(--border);
   }
 
@@ -2759,6 +2759,23 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--lime);
+  }
+  /* Mode chip · "Report" / "Bento" / "Magazine" / "Newspaper".
+     Sits between the // report kicker and the FILED stamp, styled as
+     a hairline mono pill so the user sees the report type at a glance
+     without it competing with the kicker for primary emphasis.
+     `margin-right: auto` pushes the stamp to the right edge while the
+     chip stays anchored next to the kicker. */
+  .brief-banner-type {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    border: 0.5px solid var(--line-bright, var(--line));
+    padding: 2px 8px;
+    margin-right: auto;
+    white-space: nowrap;
   }
   .brief-banner-stamp {
     font-size: 9px;

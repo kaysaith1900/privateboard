@@ -1,0 +1,1770 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=900, initial-scale=1">
+  <title>Newspaper · PrivateBoard</title>
+  <link rel="icon" href="/avatars/chair.svg" type="image/svg+xml">
+  <style>
+  /* ═══════════════════════════════════════════════════════════════════
+     Newspaper · broadsheet single-page front page.
+       · Masthead band · two flanking decoration blocks + huge display
+         serif nameplate ("BOARDROOM") + thin double-rule below
+       · Meta strip · date | brand domain | brief id (mono)
+       · Front-page band · all-caps banner headline (bento.title) +
+         subdeck (bento.kicker) + hairline rule
+       · Three-column editorial grid · each column is one milestone
+         · LEFT col carries the inverted "BOTTOM LINE" callout
+         (bento.conclusion) above its body
+         · MIDDLE col carries an inverted date callout in the middle
+         (footerTag stacked vertically)
+         · RIGHT col carries the rankedBars chart in the "image slot"
+       · Bottom band · 3-column "more from the room" continuations
+         · LEFT · "MORE HEADINGS" stacked (verification bullets)
+         · MIDDLE · editorial paragraphs (talkingPoints)
+         · RIGHT · sign-off / brief id
+     Reads BentoScaffold JSON from body_json. Same data shape as bento /
+     magazine modes · only the renderer differs.
+     ─────────────────────────────────────────────────────────────────── */
+  :root {
+    /* Default = Variant 1 (Broadsheet · WSJ / FT weekend register).
+       Two sibling variants override these tokens at the body level
+       (see the `[data-np-variant="2"]` and `="3"` blocks at the
+       bottom of this stylesheet). */
+
+    /* Page bg + soft radial accent that rides on top */
+    --bg:           #DCC9A1;
+    --bg-radial:    rgba(176, 160, 133, 0.10);
+
+    /* Surfaces · cream paper + deep brown ink */
+    --paper:        #EEE2C6;
+    --paper-soft:   #F2E8D2;
+    --paper-edge:   #E5D8B7;
+    --surface:      #FFFFFF;
+    --ink:          #2A1D10;
+    --ink-soft:     #4A3725;
+    --ink-mid:      #6B5440;
+    --ink-faint:    #8E7A60;
+    --ink-muted:    #B0A085;
+
+    /* Inverted register · dark callouts */
+    --inv-bg:       #2A1D10;
+    --inv-bg-soft:  #3A2A1A;
+    --inv-ink:      #F5EBD2;
+    --inv-ink-soft: #C7B894;
+
+    /* Rules · brown hairlines */
+    --rule:         #B5A483;
+    --rule-soft:    #C9BB9D;
+    --rule-strong:  #8C7A56;
+
+    /* Accent · sparing · used for chart bars + small marks */
+    --accent:       #6B4515;
+
+    /* Radii · zero everywhere · newspapers don't round */
+    --r-0: 0;
+
+    /* Shadow · only on the doc itself (lift it off the page) */
+    --shadow-doc:   0 2px 8px rgba(40, 25, 10, 0.08),
+                    0 12px 36px rgba(40, 25, 10, 0.10);
+
+    --serif-display: "Tiempos Headline", "Playfair Display", "Bodoni 72",
+                     "Didot", "Source Serif Pro", "Charter", Georgia,
+                     "Source Han Serif SC", "Songti SC", "STSong", serif;
+    --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
+             "Tiempos Text", "Source Han Serif SC", Georgia,
+             "Songti SC", "STSong", serif;
+    --sans:  "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont,
+             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+             "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
+    --mono:  "SF Mono", "JetBrains Mono", "Menlo",
+             "PingFang SC", "Source Han Sans CN", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    /* Three variants override `--bg` and `--bg-radial` to retint the
+       broadsheet · the radial gradient sits on top of the flat fill
+       to give the page a slight printed-press hint without committing
+       to a noise texture. */
+    background:
+      radial-gradient(120% 80% at 50% 0%, var(--bg-radial) 0%, transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+  }
+
+  /* ─── Top chrome · brand crumb + actions ────────────────────────── */
+  .np-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px 32px;
+    background: var(--top-bar-bg, rgba(220, 201, 161, 0.85));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    font-family: var(--serif);
+  }
+  .np-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .np-crumb::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    background: var(--ink);
+    flex: 0 0 auto;
+  }
+  .np-crumb-accent {
+    color: var(--ink-faint);
+    font-style: italic;
+    font-weight: 400;
+  }
+  .np-actions { display: flex; gap: 8px; }
+  .np-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink);
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .np-btn:hover {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+    transform: translateY(-1px);
+  }
+  .np-btn:active { transform: translateY(0); }
+  .np-btn .glyph { margin-right: 4px; }
+
+  /* ─── Doc · the broadsheet sheet ───────────────────────────────── */
+  .np-doc {
+    max-width: 880px;
+    margin: 28px auto;
+    background: var(--paper);
+    box-shadow: var(--shadow-doc);
+    padding: 36px 44px 40px;
+    position: relative;
+  }
+  /* Subtle paper edge · slight darkening at the very edge gives the
+     impression of a printed sheet rather than a flat web rectangle. */
+  .np-doc::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(120, 90, 50, 0.04) 0%, transparent 30px),
+      linear-gradient(0deg, rgba(120, 90, 50, 0.04) 0%, transparent 30px);
+  }
+
+  /* ─── Rules · single + double hairlines ──────────────────────── */
+  .np-rule {
+    height: 1px;
+    background: var(--ink);
+    margin: 14px 0;
+  }
+  .np-rule-double {
+    height: 6px;
+    background:
+      linear-gradient(to bottom,
+        var(--ink) 0,
+        var(--ink) 1px,
+        transparent 1px,
+        transparent 5px,
+        var(--ink) 5px,
+        var(--ink) 6px);
+    margin: 14px 0;
+  }
+  .np-rule-thick {
+    height: 3px;
+    background: var(--ink);
+    margin: 18px 0;
+  }
+
+  /* ─── Masthead · flanks + nameplate ─────────────────────────── */
+  .np-masthead {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 24px;
+    align-items: center;
+    padding: 4px 0 18px;
+  }
+  .np-mast-flank {
+    font-family: var(--serif);
+    font-size: 9.5px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    text-align: justify;
+    text-justify: inter-word;
+    /* Vertical hairlines bracket the flanks · one inside edge each ·
+       evokes the nameplate "advertorial" boxes in classic broadsheets. */
+    border-left: 1px solid var(--ink);
+    border-right: 1px solid var(--ink);
+    padding: 4px 8px;
+    max-width: 160px;
+    word-spacing: -0.03em;
+  }
+  .np-mast-flank-left { justify-self: end; }
+  .np-mast-flank-right { justify-self: start; }
+  .np-mast-flank b {
+    display: block;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 3px;
+    font-size: 9.5px;
+  }
+  .np-mast-name {
+    font-family: var(--serif-display);
+    font-size: 64px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    /* Optical centering · serif display fonts often want a tiny nudge */
+    padding: 0 4px;
+    white-space: nowrap;
+  }
+  @media (max-width: 720px) {
+    .np-mast-name { font-size: 44px; letter-spacing: 0.03em; }
+    .np-mast-flank { display: none; }
+    .np-masthead { grid-template-columns: 1fr; }
+  }
+
+  /* ─── Meta strip · date | url | id ──────────────────────────── */
+  .np-meta-strip {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 18px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    color: var(--ink);
+    padding: 4px 0;
+  }
+  .np-meta-left { text-align: left; }
+  .np-meta-center { text-align: center; }
+  .np-meta-right { text-align: right; }
+
+  /* ─── Front page · headline + deck ──────────────────────────── */
+  .np-frontpage {
+    text-align: center;
+    padding: 18px 24px 14px;
+  }
+  .np-frontpage-title {
+    font-family: var(--serif-display);
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: 0.005em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 0 0 8px;
+  }
+  .np-frontpage-deck {
+    font-family: var(--serif-display);
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  @media (max-width: 720px) {
+    .np-frontpage-title { font-size: 28px; }
+    .np-frontpage-deck { font-size: 15px; }
+  }
+
+  /* ─── Editorial 3-column grid ───────────────────────────────── */
+  .np-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 22px;
+    margin: 18px 0;
+  }
+  /* Vertical hairline column rules between adjacent columns · the
+     classic newspaper spine. The rules are drawn via right border on
+     non-last children so resizing reflows correctly. */
+  .np-grid > .np-col {
+    padding-right: 22px;
+    border-right: 1px solid var(--rule);
+  }
+  .np-grid > .np-col:last-child {
+    padding-right: 0;
+    border-right: 0;
+  }
+  @media (max-width: 720px) {
+    .np-grid {
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+    .np-grid > .np-col {
+      padding-right: 0;
+      border-right: 0;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 18px;
+    }
+    .np-grid > .np-col:last-child { border-bottom: 0; }
+  }
+
+  .np-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .np-col-heading {
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+    line-height: 1.15;
+    margin: 0;
+    /* Tight underline rule below section heading */
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .np-col-heading-large {
+    font-size: 22px;
+    line-height: 1.1;
+  }
+
+  /* Editorial body prose · justified, narrow, drop cap on first
+     paragraph of the column. */
+  .np-prose {
+    font-family: var(--serif);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  .np-prose p + p { margin-top: 8px; }
+  .np-prose-lead::first-letter {
+    font-family: var(--serif-display);
+    font-size: 42px;
+    line-height: 0.9;
+    font-weight: 700;
+    color: var(--ink);
+    float: left;
+    margin: 4px 6px 0 0;
+    padding: 0;
+  }
+  .np-prose strong, .np-prose b {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .np-pagehint {
+    font-family: var(--serif);
+    font-size: 11px;
+    font-style: italic;
+    color: var(--ink-mid);
+    margin-top: 4px;
+  }
+  .np-pagehint::before { content: "→ "; font-style: normal; color: var(--ink); }
+
+  /* ─── Inverted callouts · IMPORTANT DETAILS / date stack ───── */
+  .np-callout {
+    background: var(--inv-bg);
+    color: var(--inv-ink);
+    padding: 14px 16px 16px;
+  }
+  .np-callout-label {
+    font-family: var(--serif-display);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--inv-ink-soft);
+    margin-bottom: 8px;
+    line-height: 1.2;
+  }
+  .np-callout-text {
+    font-family: var(--serif-display);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.005em;
+    color: var(--inv-ink);
+    text-transform: uppercase;
+  }
+  /* Vertical date stack · used in the middle column of the upper grid */
+  .np-callout-date {
+    text-align: center;
+    padding: 18px 14px 16px;
+  }
+  .np-callout-date .np-date-day {
+    font-family: var(--serif-display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--inv-ink-soft);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .np-callout-date .np-date-month {
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--inv-ink);
+    line-height: 1;
+    margin-bottom: 12px;
+  }
+  .np-callout-date .np-date-num {
+    font-family: var(--serif-display);
+    font-size: 56px;
+    font-weight: 900;
+    line-height: 1;
+    color: var(--inv-ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .np-callout-date .np-date-year {
+    font-family: var(--serif-display);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    color: var(--inv-ink);
+    margin-bottom: 10px;
+  }
+  .np-callout-date .np-date-source {
+    font-family: var(--serif);
+    font-size: 11px;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--inv-ink-soft);
+  }
+
+  /* ─── Figure · ranked-bars chart in the image slot ──────────── */
+  .np-figure {
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 12px 14px 10px;
+  }
+  .np-figure-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .np-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    align-items: baseline;
+    font-family: var(--serif);
+    font-size: 11.5px;
+    color: var(--ink);
+  }
+  .np-bar-row {
+    grid-column: 1 / -1;
+    height: 10px;
+    background:
+      repeating-linear-gradient(
+        45deg,
+        var(--paper-edge) 0,
+        var(--paper-edge) 4px,
+        var(--paper-soft) 4px,
+        var(--paper-soft) 8px
+      );
+    border: 1px solid var(--ink);
+    position: relative;
+    margin-top: 2px;
+  }
+  .np-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--ink);
+  }
+  .np-bar-value {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    letter-spacing: 0.02em;
+  }
+  .np-figcaption {
+    font-family: var(--serif);
+    font-size: 11px;
+    font-style: italic;
+    color: var(--ink-mid);
+    text-align: right;
+    margin-top: 4px;
+    letter-spacing: 0.02em;
+  }
+  .np-figcaption::before {
+    content: "Fig. ";
+    font-style: normal;
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  /* ─── More headings sidebar list ────────────────────────────── */
+  .np-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .np-list li {
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .np-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .np-list li b {
+    font-family: var(--serif-display);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin-right: 4px;
+  }
+  .np-list li b::after {
+    content: ":";
+    color: var(--ink);
+  }
+
+  /* ─── Pull quote · used in the bottom-middle column ─────────── */
+  .np-pull {
+    font-family: var(--serif-display);
+    font-size: 18px;
+    font-weight: 600;
+    font-style: italic;
+    line-height: 1.3;
+    color: var(--ink);
+    text-align: center;
+    padding: 10px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    margin: 8px 0;
+  }
+
+  /* ─── Footer ────────────────────────────────────────────────── */
+  .np-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ink);
+    font-family: var(--serif);
+    font-size: 11px;
+    font-style: italic;
+    color: var(--ink-mid);
+    flex-wrap: wrap;
+  }
+  .np-footer-stamp {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-style: normal;
+    color: var(--ink);
+    letter-spacing: 0.04em;
+  }
+
+  /* ─── States · loading / error / empty ─────────────────────── */
+  .np-state {
+    max-width: 560px;
+    margin: 80px auto;
+    padding: 48px 36px;
+    text-align: center;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    box-shadow: var(--shadow-doc);
+  }
+  .np-state-mark {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    padding: 5px 14px;
+    display: inline-block;
+    margin-bottom: 16px;
+    font-weight: 700;
+  }
+  .np-state-title {
+    font-family: var(--serif-display);
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .np-state-body {
+    font-family: var(--serif);
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.6;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     LAYOUT-SPECIFIC GRIDS · variant 2 + variant 3 ship distinct
+     structures, not just paint changes. Variant 1 keeps the original
+     symmetric 3+3 broadsheet grid.
+     ═════════════════════════════════════════════════════════════════ */
+
+  /* Layout 2 · wide hero band · lead story 2/3 LEFT (drop-cap +
+     bottom-line callout below) · sidebar 1/3 RIGHT (figure stacked
+     above date-stack so the column never reads as short). The
+     `:first-child` column gets the vertical column rule so the rule
+     paints between the two regardless of which child sits first. */
+  .np-hero-band {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+    margin: 8px 0 12px;
+    align-items: stretch;
+  }
+  .np-hero-band > :first-child {
+    padding-right: 24px;
+    border-right: 1px solid var(--rule);
+  }
+  .np-hero-band > .np-hero-figure {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .np-hero-band > .np-hero-lead {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  @media (max-width: 720px) {
+    .np-hero-band { grid-template-columns: 1fr; gap: 18px; }
+    .np-hero-band > :first-child {
+      border-right: 0;
+      padding-right: 0;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 18px;
+    }
+  }
+
+  .np-grid-4 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 18px;
+    margin: 12px 0;
+  }
+  .np-grid-4 > .np-col {
+    padding-right: 18px;
+    border-right: 1px solid var(--rule);
+  }
+  .np-grid-4 > .np-col:last-child {
+    padding-right: 0;
+    border-right: 0;
+  }
+  @media (max-width: 720px) {
+    .np-grid-4 { grid-template-columns: 1fr; }
+    .np-grid-4 > .np-col {
+      border-right: 0;
+      padding-right: 0;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--rule);
+    }
+    .np-grid-4 > .np-col:last-child { border-bottom: 0; padding-bottom: 0; }
+  }
+
+  /* Centered pull-quote band · used by layout 2 between the
+     narrow-column body and the talking-points tail. */
+  .np-pull-band {
+    text-align: center;
+    font-family: var(--serif-display);
+    font-size: 22px;
+    font-style: italic;
+    line-height: 1.35;
+    color: var(--ink);
+    padding: 16px 36px;
+    letter-spacing: -0.005em;
+    margin: 10px auto;
+    max-width: 720px;
+  }
+
+  /* 2-col grid · used by layout 2 + layout 3 for the talking-points
+     tail (split into halves). */
+  .np-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    margin: 12px 0;
+  }
+  .np-grid-2 > .np-col {
+    padding-right: 22px;
+    border-right: 1px solid var(--rule);
+  }
+  .np-grid-2 > .np-col:last-child {
+    padding-right: 0;
+    border-right: 0;
+  }
+  @media (max-width: 720px) {
+    .np-grid-2 { grid-template-columns: 1fr; gap: 18px; }
+    .np-grid-2 > .np-col {
+      border-right: 0;
+      padding-right: 0;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 18px;
+    }
+    .np-grid-2 > .np-col:last-child { border-bottom: 0; padding-bottom: 0; }
+  }
+
+  /* Layout 3 · asymmetric 2/3 main + 1/3 sidebar. The sidebar
+     stacks all the non-prose elements (callouts + figure/headings)
+     while the main column carries the lead + secondary stories. */
+  .np-hero-asym {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 28px;
+    margin: 10px 0;
+    align-items: start;
+  }
+  .np-hero-asym > .np-hero-main {
+    padding-right: 28px;
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .np-hero-asym > .np-hero-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  @media (max-width: 720px) {
+    .np-hero-asym { grid-template-columns: 1fr; gap: 18px; }
+    .np-hero-asym > .np-hero-main {
+      padding-right: 0;
+      border-right: 0;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--rule);
+    }
+  }
+
+  /* Framed pull-quote · used by layout 3 · double-rule top + bottom
+     for an antique broadsheet pull-quote feel. */
+  .np-pull-framed {
+    text-align: center;
+    font-family: var(--serif-display);
+    font-size: 22px;
+    font-style: italic;
+    line-height: 1.4;
+    color: var(--ink);
+    padding: 24px 36px;
+    border-top: 2px double var(--ink);
+    border-bottom: 2px double var(--ink);
+    margin: 12px auto;
+    max-width: 760px;
+    letter-spacing: -0.005em;
+  }
+
+  /* Centered figure · used by layout 3 at the bottom of the page
+     (the chart sits as the closing visual element rather than tucked
+     into a column). */
+  .np-figure-centered {
+    max-width: 480px;
+    margin: 12px auto;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     VARIANT 2 · Modern monochrome (Le Monde / Berliner register)
+     Cooler off-white paper, near-black ink, deep red spot accent.
+     Masthead nameplate flips to a CONDENSED SANS for the visual
+     identity shift; the body stays serif for editorial readability.
+     The dark callout fills become solid black with a red kicker.
+     ═════════════════════════════════════════════════════════════════ */
+  body[data-np-variant="2"] {
+    --bg:          #ECE7DA;
+    --bg-radial:   rgba(20, 20, 15, 0.04);
+    --paper:       #F8F4EA;
+    --paper-soft:  #F2EDE0;
+    --paper-edge:  #E8E2D2;
+    --ink:         #14140F;
+    --ink-soft:    #2C2A24;
+    --ink-mid:     #5A574F;
+    --ink-faint:   #8A867D;
+    --ink-muted:   #B0ABA0;
+    --inv-bg:      #14140F;
+    --inv-bg-soft: #1F1E18;
+    --inv-ink:     #FFFFFF;
+    --inv-ink-soft:#C4C0B6;
+    --rule:        #B0ABA0;
+    --rule-soft:   #C8C4B8;
+    --rule-strong: #75716A;
+    --accent:      #B12B2B;
+    --top-bar-bg:  rgba(236, 231, 218, 0.92);
+  }
+  body[data-np-variant="2"] .np-mast-name {
+    font-family: "Inter", "Helvetica Neue", -apple-system,
+                 "PingFang SC", "Hiragino Sans GB", sans-serif;
+    font-weight: 900;
+    font-stretch: 80%;
+    letter-spacing: -0.04em;
+    font-size: 70px;
+  }
+  @media (max-width: 720px) {
+    body[data-np-variant="2"] .np-mast-name { font-size: 46px; }
+  }
+  body[data-np-variant="2"] .np-frontpage-title { letter-spacing: -0.005em; }
+  body[data-np-variant="2"] .np-rule-double {
+    height: 2px;
+    background: var(--ink);
+  }
+  body[data-np-variant="2"] .np-callout-label {
+    color: var(--accent);
+    letter-spacing: 0.22em;
+  }
+  body[data-np-variant="2"] .np-callout-date .np-date-day {
+    color: var(--accent);
+  }
+  body[data-np-variant="2"] .np-conclusion-mark { color: var(--accent); }
+  body[data-np-variant="2"] .np-flow-mark { color: var(--accent); }
+  body[data-np-variant="2"] .np-prose-lead::first-letter {
+    color: var(--accent);
+  }
+  body[data-np-variant="2"] .np-bar-fill { background: var(--ink); }
+  body[data-np-variant="2"] .np-bar-row {
+    background: repeating-linear-gradient(
+      45deg,
+      #E8E2D2 0,
+      #E8E2D2 4px,
+      #F8F4EA 4px,
+      #F8F4EA 8px
+    );
+  }
+  body[data-np-variant="2"] .np-grid > .np-col {
+    border-right-color: var(--accent);
+  }
+  body[data-np-variant="2"] .np-list li b {
+    color: var(--accent);
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     VARIANT 3 · Vintage / Sepia (penny-press · turn-of-the-century)
+     Deeper aged-paper, warm sepia ink, amber accent. Masthead flips
+     to an italic high-contrast Didot/Bodoni-style display serif.
+     Section dividers become ornamental ◆◆◆ dingbat rows. Callouts
+     pick up a 2px double border for a framed, antique feel.
+     ═════════════════════════════════════════════════════════════════ */
+  body[data-np-variant="3"] {
+    --bg:          #C9B286;
+    --bg-radial:   rgba(155, 100, 50, 0.10);
+    --paper:       #E5D2A4;
+    --paper-soft:  #EBDAB0;
+    --paper-edge:  #DCC68F;
+    --ink:         #3D2818;
+    --ink-soft:    #5C3F22;
+    --ink-mid:     #7A593A;
+    --ink-faint:   #9A7E5A;
+    --ink-muted:   #B89D7A;
+    --inv-bg:      #3D2818;
+    --inv-bg-soft: #4F3622;
+    --inv-ink:     #F2DBB4;
+    --inv-ink-soft:#C7AC7E;
+    --rule:        #A88D5F;
+    --rule-soft:   #BFA677;
+    --rule-strong: #6B4A1F;
+    --accent:      #B5722E;
+    --top-bar-bg:  rgba(201, 178, 134, 0.92);
+  }
+  body[data-np-variant="3"] .np-mast-name {
+    font-family: "Didot", "Bodoni 72", "Bodoni Moda",
+                 "Tiempos Headline", "Playfair Display", Georgia, serif;
+    font-weight: 900;
+    font-style: italic;
+    letter-spacing: 0.02em;
+    font-size: 60px;
+  }
+  @media (max-width: 720px) {
+    body[data-np-variant="3"] .np-mast-name { font-size: 42px; }
+  }
+  /* Replace the double-rule horizontal divider with a dingbat row.
+     Keeps the visual rhythm but reads as engraved/antique. */
+  body[data-np-variant="3"] .np-rule-double {
+    height: auto;
+    background: transparent;
+    margin: 18px 0;
+    text-align: center;
+    font-family: "Didot", "Bodoni 72", serif;
+    color: var(--ink);
+    font-size: 14px;
+    letter-spacing: 0.6em;
+    line-height: 1;
+  }
+  body[data-np-variant="3"] .np-rule-double::before {
+    content: "◆ ◆ ◆";
+  }
+  body[data-np-variant="3"] .np-callout {
+    border: 2px double var(--accent);
+  }
+  body[data-np-variant="3"] .np-callout-label,
+  body[data-np-variant="3"] .np-callout-date .np-date-day {
+    color: var(--accent);
+  }
+  body[data-np-variant="3"] .np-conclusion-mark::before {
+    color: var(--accent);
+  }
+  body[data-np-variant="3"] .np-flow-mark::before { color: var(--accent); }
+  body[data-np-variant="3"] .np-prose-lead::first-letter {
+    color: var(--accent);
+    font-family: "Didot", "Bodoni 72", "Tiempos Headline", Georgia, serif;
+    font-style: italic;
+    font-size: 48px;
+  }
+  body[data-np-variant="3"] .np-bar-fill { background: var(--accent); }
+  body[data-np-variant="3"] .np-figure { border: 2px double var(--ink); }
+  body[data-np-variant="3"] .np-list li b {
+    font-family: "Didot", "Bodoni 72", "Tiempos Headline", Georgia, serif;
+    font-style: italic;
+  }
+  body[data-np-variant="3"] .np-frontpage-title {
+    font-style: italic;
+  }
+
+  /* ─── Print · drop chrome ───────────────────────────────────── */
+  @media print {
+    .np-top-bar { display: none; }
+    body, html { background: white; }
+    .np-doc {
+      max-width: none;
+      margin: 0;
+      box-shadow: none;
+    }
+    .np-col, .np-callout, .np-figure,
+    .np-hero-band > .np-hero-figure,
+    .np-hero-asym > .np-hero-main,
+    .np-pull-band, .np-pull-framed {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  }
+  </style>
+</head>
+<body>
+
+  <header class="np-top-bar" data-np-chrome>
+    <a href="/" class="np-crumb">PrivateBoard <span class="np-crumb-accent">· newspaper</span></a>
+    <div class="np-actions">
+      <button type="button" class="np-btn" data-np-png>
+        <span class="glyph">↓</span>PNG
+      </button>
+      <button type="button" class="np-btn" data-np-print>
+        <span class="glyph">↓</span>PDF
+      </button>
+    </div>
+  </header>
+
+  <main data-np-root>
+    <div class="np-state">
+      <div class="np-state-mark">Loading</div>
+      <div class="np-state-title">Loading newspaper…</div>
+      <div class="np-state-body">Fetching the broadsheet for this brief.</div>
+    </div>
+  </main>
+
+  <script>
+  /* ──────────────────────────────────────────────────────────────────
+     Newspaper renderer · reads the same BentoScaffold JSON that bento /
+     magazine modes produce, but maps the slots into a broadsheet layout.
+
+     Slot mapping:
+       title         → front-page banner headline
+       kicker        → subdeck under the headline
+       source        → masthead byline (used in flank decoration)
+       footerTag     → meta-strip date / date-stack callout
+       milestones[3] → 3 main column-stories
+                       · LEFT: heading + BOTTOM-LINE callout + body
+                       · MIDDLE: lead drop-cap body + date callout +
+                         continuation prose
+                       · RIGHT: figure (rankedBars chart) + heading + body
+       rankedBars    → figure card in the right column's "image slot"
+       verification  → "MORE HEADINGS" stacked sidebar in bottom-left
+       talkingPoints → bottom-middle / bottom-right editorial paragraphs
+                       (with one card promoted to a centered pull-quote)
+       conclusion    → BOTTOM-LINE inverted callout in the LEFT column
+       flow          → bottom-right "FROM HERE" closing prose
+
+     The renderer is defensive — it skips any slot that's missing/empty
+     instead of leaving placeholder boxes, so partial data still
+     produces a clean page.
+     ────────────────────────────────────────────────────────────── */
+  (function () {
+    const params = new URLSearchParams(location.search);
+    const briefId = (params.get("b") || "").trim();
+    const roomId = (params.get("r") || "").trim();
+    const root = document.querySelector("[data-np-root]");
+
+    /** Pick one of three newspaper variants deterministically from
+     *  the brief id, so a refresh always shows the same look for the
+     *  same brief. The `?v=1|2|3` URL parameter overrides the hash
+     *  for previewing / debugging.
+     *
+     *  · 1 · Broadsheet · the default WSJ / FT register · cream paper
+     *        + deep brown ink + heavy serif nameplate
+     *  · 2 · Modern monochrome · Le Monde register · cooler off-white
+     *        + near-black + deep red accent · CONDENSED SANS nameplate
+     *  · 3 · Vintage sepia · penny-press register · aged sepia paper
+     *        + amber accent · italic Didot/Bodoni nameplate · ◆◆◆
+     *        ornamental dingbats replace the double-rule dividers
+     */
+    function pickVariant(id) {
+      const force = (params.get("v") || "").trim();
+      if (force === "1" || force === "2" || force === "3") return parseInt(force, 10);
+      const s = String(id || "");
+      if (!s) return 1;
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h) + s.charCodeAt(i);
+        h |= 0;
+      }
+      return (Math.abs(h) % 3) + 1;
+    }
+
+    function escape(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showState(mark, title, body) {
+      root.innerHTML = `
+        <div class="np-state">
+          <div class="np-state-mark">${escape(mark)}</div>
+          <div class="np-state-title">${escape(title)}</div>
+          <div class="np-state-body">${escape(body)}</div>
+        </div>`;
+    }
+
+    async function loadBrief() {
+      let url;
+      if (briefId) {
+        url = `/api/briefs/${encodeURIComponent(briefId)}`;
+      } else if (roomId) {
+        url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
+      } else {
+        showState("Missing query", "No brief specified",
+          "Add ?b=<briefId> or ?r=<roomId> to the URL.");
+        return null;
+      }
+      const res = await fetch(url);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        showState("Not found", "Brief not found",
+          e.error || "The requested brief doesn't exist or is no longer available.");
+        return null;
+      }
+      return await res.json();
+    }
+
+    /** Split a "Heading: body." style verification bullet on the
+     *  first colon. Falls back to em-dash / middle-dot, then to
+     *  whole-bullet-as-heading. The newspaper prompt asks for colon
+     *  separators specifically. */
+    function splitHeading(raw) {
+      const s = String(raw || "").trim();
+      if (!s) return { heading: "", body: "" };
+      const seps = [": ", " · ", " — ", " - "];
+      for (const sep of seps) {
+        const idx = s.indexOf(sep);
+        if (idx > 0 && idx < 60) {
+          return {
+            heading: s.slice(0, idx).trim(),
+            body: s.slice(idx + sep.length).trim(),
+          };
+        }
+      }
+      return { heading: s, body: "" };
+    }
+
+    /** Render the rankedBars chart inside the right column's figure
+     *  slot · diagonal-hatched track + solid ink fill, mono labels,
+     *  newspaper-graphic register. Skipped when the brief has no
+     *  ranked-numeric material. */
+    function renderFigure(rankedBars, fallbackCaption) {
+      if (!rankedBars || !Array.isArray(rankedBars.entries) || rankedBars.entries.length === 0) {
+        return "";
+      }
+      const rows = rankedBars.entries.slice(0, 5).map((e) => {
+        const ratio = Math.max(0, Math.min(1, Number(e.ratio) || 0));
+        const pct = (ratio * 100).toFixed(1);
+        return `
+          <div class="np-bar">
+            <span>${escape(e.label || "")}</span>
+            <span class="np-bar-value">${escape(e.value || "")}</span>
+            <div class="np-bar-row"><span class="np-bar-fill" style="width: ${pct}%"></span></div>
+          </div>`;
+      }).join("");
+      const caption = rankedBars.title || fallbackCaption || "Reading the room";
+      return `
+        <figure class="np-figure">
+          <div class="np-figure-bars">${rows}</div>
+          <figcaption class="np-figcaption">${escape(caption)}</figcaption>
+        </figure>`;
+    }
+
+    function renderBottomLineCallout(conclusion) {
+      if (!conclusion) return "";
+      return `
+        <aside class="np-callout">
+          <div class="np-callout-label">Bottom line</div>
+          <div class="np-callout-text">${escape(conclusion)}</div>
+        </aside>`;
+    }
+
+    /** Render the inverted date-stack callout. Pulls a date out of the
+     *  footerTag if one is present (matching `\d{4}` or `YYYY-MM-DD`);
+     *  otherwise uses today's date. */
+    function renderDateCallout(footerTag) {
+      const today = new Date();
+      const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+      const days = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"];
+      // Try to parse a date out of footerTag — supports YYYY-MM-DD anywhere in the string.
+      let target = today;
+      const m = String(footerTag || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (m) {
+        const parsed = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+        if (!isNaN(parsed.getTime())) target = parsed;
+      }
+      const day = days[target.getDay()];
+      const month = months[target.getMonth()];
+      const num = String(target.getDate());
+      const year = String(target.getFullYear());
+      return `
+        <aside class="np-callout np-callout-date">
+          <div class="np-date-day">${day}</div>
+          <div class="np-date-month">${month}</div>
+          <div class="np-date-num">${num}</div>
+          <div class="np-date-year">${year}</div>
+          <div class="np-date-source">privateboard.app</div>
+        </aside>`;
+    }
+
+    function renderColumnHeading(period, title) {
+      // Use period as the small section banner; promote title to a
+      // larger column heading when both are present and meaningfully
+      // different.
+      const p = String(period || "").trim();
+      const t = String(title || "").trim();
+      if (!p && !t) return "";
+      if (p && t && p.toLowerCase() !== t.toLowerCase()) {
+        return `
+          <h4 class="np-col-heading">${escape(p)}</h4>
+          <h3 class="np-col-heading np-col-heading-large">${escape(t)}</h3>`;
+      }
+      return `<h4 class="np-col-heading np-col-heading-large">${escape(t || p)}</h4>`;
+    }
+
+    function renderProse(text, options) {
+      const opts = options || {};
+      const t = String(text || "").trim();
+      if (!t) return "";
+      const klass = opts.lead ? "np-prose np-prose-lead" : "np-prose";
+      return `<div class="${klass}">${escape(t)}</div>`;
+    }
+
+    function renderBullets(verification) {
+      if (!verification || !Array.isArray(verification.bullets) || verification.bullets.length === 0) {
+        return "";
+      }
+      const items = verification.bullets.slice(0, 5).map((b) => {
+        const parts = splitHeading(b);
+        const inner = parts.body
+          ? `<b>${escape(parts.heading)}</b>${escape(parts.body)}`
+          : escape(parts.heading);
+        return `<li>${inner}</li>`;
+      }).join("");
+      return `<ul class="np-list">${items}</ul>`;
+    }
+
+    /** Render talking points · first one becomes a centered pull-quote
+     *  (the bottom-middle column's signature element); the rest become
+     *  paragraph prose for the right column. */
+    function renderTalkingMiddle(talking) {
+      if (!talking || !Array.isArray(talking.bullets) || talking.bullets.length === 0) {
+        return "";
+      }
+      const first = talking.bullets[0];
+      const rest = talking.bullets.slice(1, 3).map((b) => `<p>${escape(b)}</p>`).join("");
+      return `
+        <p class="np-pull">"${escape(first)}"</p>
+        ${rest ? `<div class="np-prose">${rest}</div>` : ""}`;
+    }
+    function renderTalkingTail(talking) {
+      if (!talking || !Array.isArray(talking.bullets) || talking.bullets.length === 0) {
+        return "";
+      }
+      const tail = talking.bullets.slice(3, 6).map((b) => `<p>${escape(b)}</p>`).join("");
+      if (!tail) return "";
+      return `<div class="np-prose">${tail}</div>`;
+    }
+
+    function render(brief) {
+      if (brief.mode !== "newspaper") {
+        showState("Wrong mode", "This brief isn't a newspaper",
+          "Open it in the matching viewer instead. Newspaper, magazine, bento, and research-note are separate output modes.");
+        return;
+      }
+      const m = brief.bodyJson;
+      if (!m || typeof m !== "object") {
+        if (brief.isGenerating) {
+          showState("Generating",
+            "Newspaper is still being prepared",
+            "The chair is currently composing the front page. Refresh in a few seconds.");
+        } else {
+          showState("Empty",
+            "This brief has no newspaper data",
+            "It may have failed to generate. Try regenerating from the room view.");
+        }
+        return;
+      }
+
+      if (m.title) document.title = `${m.title} · Newspaper`;
+
+      // Apply the variant attribute · drives the broadsheet / modern
+      // / vintage skin via CSS. Setting on body so the page bg and
+      // top-bar bg also retint per variant. Cleared / overwritten on
+      // every render so re-renders within the same page (e.g. retry
+      // path) pick up the right look.
+      const variant = pickVariant(brief.id);
+      document.body.setAttribute("data-np-variant", String(variant));
+
+      // Masthead flanks · use the source byline as the left flank's
+      // "advertorial" decoration and a stable static line on the right
+      // so the masthead reads as balanced regardless of brief length.
+      const sourceTxt = m.source || "From the editor's desk";
+      const leftFlankBody = m.kicker || sourceTxt;
+      const flankLeft = `<b>${escape((sourceTxt || "Boardroom").toUpperCase())}</b>${escape(leftFlankBody.slice(0, 180))}`;
+      const flankRight = `<b>EDITORIAL NOTE</b>An issue from the room · pour a coffee, take it column by column, and trust the numbers more than the slogans.`;
+
+      // Meta strip · prefer footerTag for the date format; fall back
+      // to today.
+      const today = new Date();
+      const monthsShort = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+      const daysShort = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+      const dateMatch = String(m.footerTag || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      const dispDate = (() => {
+        const d = dateMatch ? new Date(`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}T00:00:00`) : today;
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yyyy = d.getFullYear();
+        const wk = daysShort[d.getDay()];
+        return `${dd}.${mm}.${yyyy} / ${wk}`;
+      })();
+      const briefIdShort = brief.id ? `#${String(brief.id).slice(0, 10).toUpperCase()}` : "";
+
+      const milestones = (m.milestones || []).slice(0, 3);
+      const ms0 = milestones[0] || {};
+      const ms1 = milestones[1] || {};
+      const ms2 = milestones[2] || {};
+
+      const figure = renderFigure(m.rankedBars, ms2.title);
+      const bottomLine = renderBottomLineCallout(m.conclusion);
+      const dateStack = renderDateCallout(m.footerTag);
+      const moreHeadings = renderBullets(m.verification);
+
+      // Bottom band · 3 cols · MORE HEADINGS / pull quote + tail / closing
+      const flowText = (m.flow && Array.isArray(m.flow.nodes) && m.flow.nodes.length >= 2)
+        ? `<div class="np-prose">${escape(m.flow.nodes.join(" → "))}${m.flow.caption ? `<p style="font-style:italic;margin-top:6px;">${escape(m.flow.caption)}</p>` : ""}</div>`
+        : "";
+
+      const parts = {
+        m, ms0, ms1, ms2,
+        flankLeft, flankRight, dispDate, briefIdShort,
+        bottomLine, dateStack, figure, moreHeadings, flowText,
+      };
+
+      // Dispatch to the layout matching the picked variant. Each
+      // layout owns its full <article> tree · they share helpers
+      // (renderProse, renderFigure, renderColumnHeading, etc.) but
+      // arrange the blocks differently.
+      let html;
+      if (variant === 2) html = layoutVariant2(parts);
+      else if (variant === 3) html = layoutVariant3(parts);
+      else html = layoutVariant1(parts);
+      root.innerHTML = html;
+    }
+
+    /* ─────────────────────── Layout dispatch ───────────────────────
+     * Three structurally distinct broadsheet layouts. Each takes the
+     * pre-rendered field parts and composes them into its own <article>
+     * tree. Variant 1 keeps the symmetric 3+3 broadsheet feel · variant
+     * 2 leans modular with a 2:1 hero band, 4-narrow-column body, and
+     * a centered pull-quote band · variant 3 goes asymmetric (2/3 main
+     * + 1/3 sidebar), framed pull-quote, 2-col tail, and a centered
+     * closing figure.
+     * ─────────────────────────────────────────────────────────────── */
+
+    /** Layout 1 · classic 3+3 broadsheet (WSJ / FT register).
+     *  TOP grid · heading+callout+body / heading+lead-drop+date / figure+heading+body
+     *  BOTTOM grid · MORE HEADINGS / pull-quote + tail / closing prose */
+    function layoutVariant1(p) {
+      const { m, ms0, ms1, ms2, flankLeft, flankRight, dispDate, briefIdShort,
+              bottomLine, dateStack, figure, moreHeadings, flowText } = p;
+      const middlePull = renderTalkingMiddle(m.talkingPoints);
+      const tailProse = renderTalkingTail(m.talkingPoints);
+      const tailFallback = tailProse || flowText
+        || (m.conclusion ? `<h4 class="np-col-heading">From here</h4><div class="np-prose">${escape(m.conclusion)}</div>` : "");
+
+      return `
+        <article class="np-doc np-layout-1" data-np-paper>
+          <div class="np-rule"></div>
+
+          <header class="np-masthead">
+            <div class="np-mast-flank np-mast-flank-left">${flankLeft}</div>
+            <h1 class="np-mast-name">PrivateBoard</h1>
+            <div class="np-mast-flank np-mast-flank-right">${flankRight}</div>
+          </header>
+
+          <div class="np-rule"></div>
+
+          <div class="np-meta-strip">
+            <span class="np-meta-left">${escape(dispDate)}</span>
+            <span class="np-meta-center">www.privateboard.app</span>
+            <span class="np-meta-right">${escape(briefIdShort)}</span>
+          </div>
+
+          <div class="np-rule-double"></div>
+
+          <section class="np-frontpage">
+            <h2 class="np-frontpage-title">${escape(m.title || "")}</h2>
+            ${m.kicker ? `<div class="np-frontpage-deck">${escape(m.kicker)}</div>` : ""}
+          </section>
+
+          <div class="np-rule"></div>
+
+          <section class="np-grid">
+            <div class="np-col">
+              ${renderColumnHeading(ms0.period, ms0.title)}
+              ${bottomLine}
+              ${renderProse(ms0.body)}
+              ${m.talkingPoints && m.talkingPoints.title ? `<div class="np-pagehint">See ${escape(m.talkingPoints.title)}</div>` : ""}
+            </div>
+            <div class="np-col">
+              ${renderColumnHeading(ms1.period, ms1.title)}
+              ${renderProse(ms1.body, { lead: true })}
+              ${dateStack}
+            </div>
+            <div class="np-col">
+              ${figure || ""}
+              ${renderColumnHeading(ms2.period, ms2.title)}
+              ${renderProse(ms2.body)}
+            </div>
+          </section>
+
+          <div class="np-rule"></div>
+
+          <section class="np-grid">
+            <div class="np-col">
+              <h4 class="np-col-heading">${escape((m.verification && m.verification.title) || "More headings")}</h4>
+              ${moreHeadings}
+            </div>
+            <div class="np-col">${middlePull}</div>
+            <div class="np-col">${tailFallback}</div>
+          </section>
+
+          <footer class="np-footer">
+            <span>${escape(m.footerTag || "")}</span>
+            <span class="np-footer-stamp">PrivateBoard · ${escape(briefIdShort)}</span>
+          </footer>
+        </article>`;
+    }
+
+    /** Layout 2 · modular Le Monde feel.
+     *  · LEAD STORY 2/3 wide on the LEFT (drop-cap body + bottom-
+     *    line callout below) · SIDEBAR 1/3 on the RIGHT stacking
+     *    figure ABOVE date-stack so the column always packs 2 items
+     *    (no short-figure-leaves-whitespace problem)
+     *  · Centered pull-quote band drawn from talking[0]
+     *  · 3-col tail · ms1 / ms2 / "more from the room" (verification
+     *    bullets + tail talking points + flow stacked dense in the
+     *    third column so it always reads full)
+     */
+    function layoutVariant2(p) {
+      const { m, ms0, ms1, ms2, flankLeft, flankRight, dispDate, briefIdShort,
+              bottomLine, dateStack, figure, moreHeadings, flowText } = p;
+
+      const tp = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const pullText = tp[0] || "";
+      const tail = tp.slice(1, 5).map((b) => `<p>${escape(b)}</p>`).join("");
+
+      // Sidebar always packs 2 stacked elements so the 1fr column
+      // matches the lead story's height. When rankedBars is missing
+      // we substitute a "From the desk" callout so the slot still
+      // carries weight rather than going blank.
+      const sidebarTop = figure
+        || `<aside class="np-callout"><div class="np-callout-label">From the desk</div><div class="np-callout-text">${escape((m.source || "Boardroom").toUpperCase())}</div></aside>`;
+
+      return `
+        <article class="np-doc np-layout-2" data-np-paper>
+          <div class="np-rule"></div>
+
+          <header class="np-masthead">
+            <div class="np-mast-flank np-mast-flank-left">${flankLeft}</div>
+            <h1 class="np-mast-name">PrivateBoard</h1>
+            <div class="np-mast-flank np-mast-flank-right">${flankRight}</div>
+          </header>
+
+          <div class="np-rule-double"></div>
+
+          <div class="np-meta-strip">
+            <span class="np-meta-left">${escape(dispDate)}</span>
+            <span class="np-meta-center">www.privateboard.app</span>
+            <span class="np-meta-right">${escape(briefIdShort)}</span>
+          </div>
+
+          <div class="np-rule"></div>
+
+          <section class="np-frontpage">
+            <h2 class="np-frontpage-title">${escape(m.title || "")}</h2>
+            ${m.kicker ? `<div class="np-frontpage-deck">${escape(m.kicker)}</div>` : ""}
+          </section>
+
+          <div class="np-rule"></div>
+
+          <!-- Lead story 2fr LEFT, dense sidebar 1fr RIGHT -->
+          <section class="np-hero-band">
+            <div class="np-hero-lead">
+              ${renderColumnHeading(ms0.period, ms0.title)}
+              ${renderProse(ms0.body, { lead: true })}
+              ${bottomLine}
+            </div>
+            <div class="np-hero-figure">
+              ${sidebarTop}
+              ${dateStack}
+            </div>
+          </section>
+
+          ${pullText ? `
+          <div class="np-rule"></div>
+          <section class="np-pull-band">"${escape(pullText)}"</section>
+          ` : ""}
+
+          <div class="np-rule"></div>
+
+          <!-- 3-col tail · column 3 packs verification + talking +
+               flow dense so it never reads as a short empty cell. -->
+          <section class="np-grid">
+            <div class="np-col">
+              ${renderColumnHeading(ms1.period, ms1.title)}
+              ${renderProse(ms1.body)}
+            </div>
+            <div class="np-col">
+              ${renderColumnHeading(ms2.period, ms2.title)}
+              ${renderProse(ms2.body)}
+            </div>
+            <div class="np-col">
+              <h4 class="np-col-heading">${escape((m.verification && m.verification.title) || "More headings")}</h4>
+              ${moreHeadings}
+              ${tail ? `<div class="np-prose" style="margin-top:14px;">${tail}</div>` : ""}
+              ${flowText}
+            </div>
+          </section>
+
+          <footer class="np-footer">
+            <span>${escape(m.footerTag || "")}</span>
+            <span class="np-footer-stamp">PrivateBoard · ${escape(briefIdShort)}</span>
+          </footer>
+        </article>`;
+    }
+
+    /** Layout 3 · 2x2 framed-quote spread (penny-press feel).
+     *  Each quadrant carries a milestone body + a callout/figure so
+     *  the four cells are roughly the same height — the prior 2/3 +
+     *  1/3 asymmetric layout left the sidebar short relative to the
+     *  main column's two stacked bodies.
+     *
+     *  · TOP 2-col · LEFT: ms0 lead-drop + bottom-line · RIGHT: ms1
+     *    + figure (chart inline)
+     *  · CENTER · framed full-width pull-quote drawn from talking[0]
+     *  · BOTTOM 2-col · LEFT: ms2 + date-stack · RIGHT: more-headings
+     *    + talking tail + flow
+     *
+     *  Result: 4 quadrants bookending a centered framed quote ·
+     *  reads as a magazine spread on broadsheet paper, not a
+     *  half-empty asymmetric grid.
+     */
+    function layoutVariant3(p) {
+      const { m, ms0, ms1, ms2, flankLeft, flankRight, dispDate, briefIdShort,
+              bottomLine, dateStack, figure, moreHeadings, flowText } = p;
+
+      const tp = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const pullText = tp[0] || "";
+      const tail = tp.slice(1, 5).map((b) => `<p>${escape(b)}</p>`).join("");
+
+      // Quadrant fillers · right-top carries the figure when
+      // present, otherwise the date-stack steps in so that cell
+      // never reads as prose-only. Left-bottom carries the
+      // date-stack ONLY when right-top got the figure (avoids
+      // double-rendering); when figure is missing the date-stack
+      // already sat in right-top, so left-bottom stays bare prose.
+      const rightTopAside = figure || dateStack;
+      const leftBottomAside = figure ? dateStack : "";
+
+      return `
+        <article class="np-doc np-layout-3" data-np-paper>
+          <div class="np-rule"></div>
+
+          <header class="np-masthead">
+            <div class="np-mast-flank np-mast-flank-left">${flankLeft}</div>
+            <h1 class="np-mast-name">PrivateBoard</h1>
+            <div class="np-mast-flank np-mast-flank-right">${flankRight}</div>
+          </header>
+
+          <div class="np-rule-double"></div>
+
+          <div class="np-meta-strip">
+            <span class="np-meta-left">${escape(dispDate)}</span>
+            <span class="np-meta-center">www.privateboard.app</span>
+            <span class="np-meta-right">${escape(briefIdShort)}</span>
+          </div>
+
+          <div class="np-rule-double"></div>
+
+          <section class="np-frontpage">
+            <h2 class="np-frontpage-title">${escape(m.title || "")}</h2>
+            ${m.kicker ? `<div class="np-frontpage-deck">${escape(m.kicker)}</div>` : ""}
+          </section>
+
+          <div class="np-rule-double"></div>
+
+          <!-- TOP quadrants · ms0+bottomLine | ms1+figure -->
+          <section class="np-grid-2">
+            <div class="np-col">
+              ${renderColumnHeading(ms0.period, ms0.title)}
+              ${renderProse(ms0.body, { lead: true })}
+              ${bottomLine}
+            </div>
+            <div class="np-col">
+              ${renderColumnHeading(ms1.period, ms1.title)}
+              ${renderProse(ms1.body)}
+              ${rightTopAside}
+            </div>
+          </section>
+
+          ${pullText ? `
+          <div class="np-rule-double"></div>
+          <section class="np-pull-framed">"${escape(pullText)}"</section>
+          ` : ""}
+
+          <div class="np-rule-double"></div>
+
+          <!-- BOTTOM quadrants · ms2+dateStack | more-headings + tail + flow -->
+          <section class="np-grid-2">
+            <div class="np-col">
+              ${renderColumnHeading(ms2.period, ms2.title)}
+              ${renderProse(ms2.body)}
+              ${leftBottomAside}
+            </div>
+            <div class="np-col">
+              <h4 class="np-col-heading">${escape((m.verification && m.verification.title) || "More headings")}</h4>
+              ${moreHeadings}
+              ${tail ? `<div class="np-prose" style="margin-top:14px;">${tail}</div>` : ""}
+              ${flowText}
+            </div>
+          </section>
+
+          <div class="np-rule"></div>
+
+          <footer class="np-footer">
+            <span>${escape(m.footerTag || "")}</span>
+            <span class="np-footer-stamp">PrivateBoard · ${escape(briefIdShort)}</span>
+          </footer>
+        </article>`;
+    }
+
+    /* ─── Export wiring · same PNG-as-PDF strategy as bento/magazine ── */
+    let _h2iLoaded = null;
+    async function ensureHtmlToImage() {
+      if (window.htmlToImage) return;
+      if (!_h2iLoaded) {
+        _h2iLoaded = new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      await _h2iLoaded;
+    }
+
+    async function captureNpPng() {
+      const el = document.querySelector("[data-np-paper]");
+      if (!el) throw new Error("newspaper doc not found");
+      await ensureHtmlToImage();
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch { /* best-effort */ }
+      }
+      const width = Math.max(el.scrollWidth, el.offsetWidth, el.clientWidth);
+      const height = Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight);
+      return window.htmlToImage.toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: "#EEE2C6",
+        cacheBust: true,
+        width,
+        height,
+        canvasWidth: width,
+        canvasHeight: height,
+        style: {
+          margin: "0",
+          width: `${width}px`,
+          height: `${height}px`,
+        },
+      });
+    }
+
+    function slugTitle() {
+      return (document.title || "newspaper").replace(/[^a-z0-9]+/gi, "-").slice(0, 60) || "newspaper";
+    }
+
+    async function exportPng() {
+      try {
+        const dataUrl = await captureNpPng();
+        const a = document.createElement("a");
+        a.download = `${slugTitle()}.png`;
+        a.href = dataUrl;
+        a.click();
+      } catch (e) {
+        console.warn("[newspaper] PNG export failed:", e);
+        alert("PNG export failed · see browser console.");
+      }
+    }
+
+    async function exportPdf() {
+      try {
+        const dataUrl = await captureNpPng();
+        const win = window.open("", "_blank", "width=1024,height=720");
+        if (!win) {
+          alert("PDF export needs to open a new window — please allow popups for this site.");
+          return;
+        }
+        const slug = slugTitle();
+        win.document.open();
+        win.document.write(`<!doctype html><html lang="en"><head>
+          <meta charset="utf-8">
+          <title>${slug}</title>
+          <style>
+            @page { size: auto; margin: 10mm; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body { background: #FFFFFF; }
+            body {
+              display: flex;
+              align-items: flex-start;
+              justify-content: center;
+              padding: 20px;
+              min-height: 100vh;
+            }
+            img {
+              display: block;
+              width: 100%;
+              max-width: 880px;
+              height: auto;
+              box-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
+            }
+            @media print {
+              body { padding: 0; }
+              img { box-shadow: none; max-width: none; width: 100%; }
+            }
+            .hint {
+              position: fixed;
+              top: 12px;
+              left: 12px;
+              font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              font-size: 11px;
+              color: #8E8B83;
+              background: rgba(255,255,255,0.9);
+              padding: 6px 10px;
+              border: 1px solid #E5E2DA;
+            }
+            @media print { .hint { display: none; } }
+          </style>
+        </head><body>
+          <div class="hint">// press <kbd>⌘P</kbd> / <kbd>Ctrl+P</kbd> · save as PDF</div>
+          <img alt="${slug}" src="${dataUrl}">
+          <script>
+            (function () {
+              var img = document.querySelector("img");
+              function go() { setTimeout(function () { window.print(); }, 200); }
+              if (img && img.complete) { go(); }
+              else if (img) { img.addEventListener("load", go, { once: true }); }
+            })();
+          <\/script>
+        </body></html>`);
+        win.document.close();
+      } catch (e) {
+        console.warn("[newspaper] PDF export failed:", e);
+        alert("PDF export failed · see browser console.");
+      }
+    }
+
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("[data-np-png]")) {
+        e.preventDefault();
+        exportPng();
+        return;
+      }
+      if (e.target.closest("[data-np-print]")) {
+        e.preventDefault();
+        exportPdf();
+        return;
+      }
+    });
+
+    /* ─── Boot ──────────────────────────────────────────────────── */
+    loadBrief().then((brief) => {
+      if (brief) render(brief);
+    }).catch((e) => {
+      console.error("[newspaper] load failed:", e);
+      showState("Error", "Couldn't load this brief",
+        e instanceof Error ? e.message : String(e));
+    });
+  })();
+  </script>
+
+</body>
+</html>

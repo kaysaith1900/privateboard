@@ -23,6 +23,8 @@ import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
   assetsToSignals,
   buildBentoMessages,
+  buildMagazineMessages,
+  buildNewspaperMessages,
   buildExtractMessages,
   buildScaffoldMessages,
   buildWriteMessages,
@@ -221,7 +223,9 @@ export function abortBriefGeneration(briefId: string): boolean {
 export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: string }> {
   const { roomId } = opts;
   const style: BriefStyle = opts.style ?? "mckinsey";
-  const mode: BriefMode = opts.mode === "bento" ? "bento" : "research-note";
+  const mode: BriefMode = opts.mode === "bento" || opts.mode === "magazine" || opts.mode === "newspaper"
+    ? opts.mode
+    : "research-note";
 
   const room = getRoom(roomId);
   if (!room) throw new Error(`room not found: ${roomId}`);
@@ -602,11 +606,16 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
   // Surface "started" immediately so the UI can render the placeholder
   // card. Includes chairName + language so the UI can show "{Chair} is
   // preparing the minutes…" in the right language. The model used in
-  // stage 3 is reported in brief-final.
+  // stage 3 is reported in brief-final. `mode` is critical for the
+  // pip-rail: the bento pipeline only emits 2 stage events (extract +
+  // write), while research-note emits 7 (extract → compose → 4 ×
+  // scaffold-* → write). Without `mode` on the brief object the
+  // client picks the 7-stage rail by default and bento jobs render
+  // with 5 forever-pending pips between extract and write.
   roomBus.emit(roomId, {
     type: "config-event",
     kind: "brief-started",
-    payload: { briefId, style, chairName, language },
+    payload: { briefId, style, chairName, language, mode: args.mode },
     createdAt: Date.now(),
   });
 
@@ -723,15 +732,14 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       );
     }
 
-    // ── Bento mode · branch here ─────────────────────────────────────
-    // Bento skips composer + Stage 2 scaffold + Stage 3 write. It runs
-    // one chair-LLM call that produces a BentoScaffold (the complete
-    // deliverable for that mode) and persists it to body_json. The
-    // renderer is deterministic client-side templating in bento.html.
-    // Errors propagate to the outer catch · pipelineError gets set,
-    // brief-error fires from the existing tail block (buf is empty for
-    // bento so the !buf.length condition holds).
-    if (args.mode === "bento") {
+    // ── Structured modes · bento / magazine / newspaper ─────────────
+    // All structured modes skip composer + Stage 2 scaffold + Stage 3
+    // write. They share the BentoScaffold JSON shape, so they run
+    // through the SAME chair-LLM single-pass stage — only the prompt
+    // and the client-side renderer differ. The data lands in
+    // body_json; bento.html / magazine.html / newspaper.html template
+    // the same fields into different layouts.
+    if (args.mode === "bento" || args.mode === "magazine" || args.mode === "newspaper") {
       const ok = await runBentoStage({
         roomId,
         briefId,
@@ -742,11 +750,15 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
         perDirectorSignals,
         language,
         supplement,
+        mode: args.mode,
         signal: args.signal,
       });
       if (!ok) {
+        const label = args.mode === "magazine" ? "Magazine"
+          : args.mode === "newspaper" ? "Newspaper"
+          : "Bento";
         pipelineError =
-          "Bento writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.";
+          `${label} writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.`;
       }
       return;
     }
@@ -1418,6 +1430,12 @@ interface BentoStageArgs {
   perDirectorSignals: DirectorSignals[];
   language: "zh" | "en";
   supplement?: string;
+  /** 'bento' (default) or 'magazine'. Both modes share the
+   *  BentoScaffold JSON output · only the system prompt differs. The
+   *  magazine prompt biases the model toward 5 numbered talking
+   *  points + 3 setup steps + 4 "why it matters" bullets, matching
+   *  the magazine.html renderer's slot density. */
+  mode: BriefMode;
   signal?: AbortSignal;
 }
 
@@ -1436,7 +1454,10 @@ async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
   const subjectShort = (args.room.subject || "").slice(0, 60);
   const fallbackFooterTag = subjectShort ? `${subjectShort} · ${today}` : today;
 
-  const messages = buildBentoMessages({
+  const buildMessages = args.mode === "magazine" ? buildMagazineMessages
+    : args.mode === "newspaper" ? buildNewspaperMessages
+    : buildBentoMessages;
+  const messages = buildMessages({
     chair: args.chair,
     room: args.room,
     members: args.members,
@@ -1489,7 +1510,7 @@ async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
         if (bento) {
           if (attempt > 0) {
             process.stderr.write(
-              `[brief.bento] ${modelV} succeeded on retry ${attempt + 1}\n`,
+              `[brief.${args.mode}] ${modelV} succeeded on retry ${attempt + 1}\n`,
             );
           }
           updateBriefBodyJson(args.briefId, bento, bento.title);
@@ -1503,12 +1524,12 @@ async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
           return true;
         }
         process.stderr.write(
-          `[brief.bento] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} produced unparseable bento\n`,
+          `[brief.${args.mode}] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} produced unparseable bento\n`,
         );
       } catch (e) {
         if (args.signal?.aborted) throw e;
         process.stderr.write(
-          `[brief.bento] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          `[brief.${args.mode}] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} failed: ${e instanceof Error ? e.message : String(e)}\n`,
         );
       }
     }

@@ -261,50 +261,76 @@
   margin-top: 5px;
 }
 
-/* ─── Toggle row · pill button + supporting deck text ───
-   Matches the visual vocabulary of the day-picker pills (mono
-   uppercase, hairline border, lime accent when on) so the User pane
-   doesn't introduce a third button style for one toggle. */
+/* ─── Toggle row · proper switch + supporting deck text ───
+   Switch shape (track + sliding thumb) instead of the prior pill
+   button: the affordance reads "on/off state" at a glance, not
+   "press me to do something." Track is a 32×18 rounded rect, thumb
+   is a 14×14 disc that slides 14px between rest positions. Lime
+   fill when on; panel-3 fill + hairline border when off. */
 .us-toggle-row {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
-.us-toggle-pill {
+.us-switch {
   appearance: none;
   background: transparent;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-soft, #8E8B83);
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
   font-family: var(--mono);
+  color: inherit;
+}
+.us-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  background: var(--panel-3, #21211E);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  border-radius: 9px;
+  flex-shrink: 0;
+  transition: background 0.18s, border-color 0.18s;
+}
+.us-switch-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-faint, #3A382F);
+  transition: transform 0.18s ease, background 0.18s;
+}
+.us-switch.on .us-switch-track {
+  background: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+}
+.us-switch.on .us-switch-thumb {
+  transform: translateX(14px);
+  background: var(--bg, #0A0A0A);
+}
+.us-switch:hover .us-switch-track { border-color: var(--text-faint, #3A382F); }
+.us-switch.on:hover .us-switch-track { border-color: var(--lime, #6FB572); }
+.us-switch:focus-visible { outline: none; }
+.us-switch:focus-visible .us-switch-track {
+  outline: 1.5px solid var(--lime, #6FB572);
+  outline-offset: 2px;
+}
+.us-switch-label {
   font-size: 10.5px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   font-weight: 700;
-  padding: 6px 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  color: var(--text-soft, #8E8B83);
+  transition: color 0.12s;
 }
-.us-toggle-pill:hover {
-  color: var(--text, #C8C5BE);
-  border-color: var(--text-faint, #3A382F);
-}
-.us-toggle-pill.on {
-  color: var(--lime, #6FB572);
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
-}
-.us-toggle-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-faint, #3A382F);
-  transition: background 0.12s;
-}
-.us-toggle-pill.on .us-toggle-dot { background: var(--lime, #6FB572); }
+.us-switch.on .us-switch-label { color: var(--lime, #6FB572); }
+
 .us-toggle-deck {
   font-size: 11px;
   color: var(--text-faint, #3A382F);
@@ -895,9 +921,11 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 96px;
+  height: 180px;
   /* The stack within each bar lives at the bottom (flex-end) so
-     bar height grows upward like a real chart axis. */
+     bar height grows upward like a real chart axis. Bumped from
+     96px → 180px so the chart reads as a real exhibit instead of
+     a squashed sparkline. */
 }
 .us-chart-bar {
   appearance: none;
@@ -915,27 +943,46 @@
   position: relative;
 }
 .us-chart-bar:hover .us-chart-stack { filter: brightness(1.15); }
+/* Hover tooltip · two-line custom tip rendered via ::before from the
+   bar's data-tip-day / data-tip-num attributes. Floats above the
+   column so it doesn't overlap the stack or get clipped by the bar's
+   contents. Native browser title= is replaced by aria-label= on the
+   button to keep a11y without the 500ms native-tooltip delay.
+   Suppressed on `.empty` bars · zero-usage days show no tooltip
+   (the row is already empty; a tooltip saying "no usage" is noise). */
+.us-chart-bar:not(.empty)::before {
+  content: attr(data-tip-day) "\A" attr(data-tip-num);
+  white-space: pre;
+  text-align: center;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg, #0A0A0A);
+  border: 1px solid var(--line-bright, #2A2A26);
+  padding: 6px 10px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: var(--text, #C8C5BE);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 10;
+}
+.us-chart-bar:not(.empty):hover::before { opacity: 1; }
 .us-chart-bar.empty .us-chart-stack {
   height: 1px !important;
   background: var(--line-bright, #2A2A26);
 }
-.us-chart-bar.today::before {
-  /* Outline marker for today's bar — a hairline ring around the
-     full bar slot (including the empty space above the stack)
-     so the present is locatable even on a zero-token day. */
-  content: "";
-  position: absolute;
-  inset: 0 -1px 14px -1px;
-  border: 0.5px solid var(--text-faint, #3A382F);
-  pointer-events: none;
-}
-.us-chart-bar.active::before {
-  content: "";
-  position: absolute;
-  inset: 0 -1px 14px -1px;
-  border: 1px solid var(--lime, #6FB572);
-  pointer-events: none;
-}
+/* Today / active markers carry only on the tick label below
+   (color shift) — no perimeter border around the bar slot.
+   Earlier the today/active states drew an outline ring via
+   `::before` which read as an ugly box around an otherwise
+   clean stacked-bar; the tick-colour change carries enough
+   signal. See `.us-chart-bar.today .us-chart-tick` and
+   `.us-chart-bar.active .us-chart-tick` below. */
 .us-chart-stack {
   display: flex;
   flex-direction: column-reverse; /* first segment at the bottom */

@@ -588,6 +588,22 @@
     border-top-width: 0;
   }
 
+  /* ─── Hide mermaid's internal render scratchpad ──────────────
+     During `mermaid.render(id, src)`, mermaid 10 briefly appends a
+     `<div id="dmermaid-...">` to document.body to measure layout +
+     produce the SVG. The div is removed once render() resolves,
+     but in the meantime it can flash visibly. Force it offscreen
+     so the user never sees mermaid's pre-takeover render at all.
+     The element still has natural dimensions for mermaid's layout
+     measurement — only its position + visibility is constrained. */
+  body > [id^="dmermaid-"] {
+    position: absolute !important;
+    left: -99999px !important;
+    top: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
   /* ─── Hide mermaid SVG until spine palette is applied ─────────
      Pattern from user reports: "first time wrong, refresh OK" /
      strict alternation (1st wrong, 2nd right, 3rd wrong, 4th
@@ -609,6 +625,129 @@
   }
   .body pre.mermaid.is-painted svg {
     visibility: visible;
+  }
+
+  /* ─── CSS-variable mermaid palette · timing-race-immune ──────
+     Final defense layer for the recurring "first time wrong,
+     refresh OK" bug. JS takeover fights timing with mermaid's
+     deferred render work; CSS doesn't have that problem — as
+     soon as the SVG is in the DOM, these rules apply. The
+     spine-specific colours are injected as CSS variables on
+     `:root` from JS in the swapSpine flow (see swapSpine /
+     mermaid.initialize block). Variables update when the spine
+     changes; CSS rules are static.
+
+     Specificity: each rule uses a 3-class+ chain plus
+     !important, beating mermaid's `.quadrant-fill { fill: ... }`
+     and any `fill="..."` presentation attribute. The element
+     selectors target every mermaid 10 chart-type's known
+     visual elements. */
+
+  /* Quadrant chart · 4 quadrant rects + data points */
+  .body pre.mermaid svg .quadrants .quadrant rect,
+  .body pre.mermaid svg g.quadrant > rect,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] g.quadrant rect {
+    fill: var(--mm-q-fill, #1A1A18) !important;
+  }
+  .body pre.mermaid svg .data-points circle,
+  .body pre.mermaid svg circle.data-point,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .data-points circle {
+    fill: var(--mm-q-point, #C9A46B) !important;
+    stroke: var(--mm-q-bg, #1A1A18) !important;
+  }
+  .body pre.mermaid svg .quadrants line,
+  .body pre.mermaid svg .axis-line,
+  .body pre.mermaid svg .axisl-line,
+  .body pre.mermaid svg g.border line,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] line,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] g.border line {
+    stroke: var(--mm-q-border, #3A3934) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] text {
+    fill: var(--mm-q-text, #C8C5BE) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .bottom-axis text,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .left-axis text,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .top-axis text,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .right-axis text {
+    fill: var(--mm-q-axis-text, #5C5A4D) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .quadrant text {
+    fill: var(--mm-q-quad-text, #8E8B83) !important;
+  }
+
+  /* xychart-beta · bars cycle through palette via :nth-child */
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect,
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect {
+    fill: var(--mm-pal-0, #C9A46B) !important;
+    stroke: none !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect:nth-child(2),
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect:nth-child(2) {
+    fill: var(--mm-pal-1, #B6B0A2) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect:nth-child(3),
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect:nth-child(3) {
+    fill: var(--mm-pal-2, #8E8B83) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect:nth-child(n+4),
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect:nth-child(n+4) {
+    fill: var(--mm-pal-3, #5C5A52) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] text {
+    fill: var(--mm-axis-text, #5C5A4D) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] .background,
+  .body pre.mermaid svg [aria-roledescription="xychart"] rect.background {
+    fill: transparent !important;
+  }
+
+  /* Pie · slice palette */
+  .body pre.mermaid svg path.pieCircle:nth-of-type(1) { fill: var(--mm-pal-0, #C9A46B) !important; stroke: var(--mm-q-bg, #1A1A18) !important; }
+  .body pre.mermaid svg path.pieCircle:nth-of-type(2) { fill: var(--mm-pal-1, #B6B0A2) !important; }
+  .body pre.mermaid svg path.pieCircle:nth-of-type(3) { fill: var(--mm-pal-2, #8E8B83) !important; }
+  .body pre.mermaid svg path.pieCircle:nth-of-type(n+4) { fill: var(--mm-pal-3, #5C5A52) !important; }
+  .body pre.mermaid svg circle.pieOuterCircle {
+    stroke: var(--mm-q-border, #3A3934) !important;
+    fill: none !important;
+  }
+
+  /* Universal text safety net inside any mermaid SVG · titleFill
+     for anything that escaped the per-type rules above. Lower
+     specificity than the type-specific rules so they still win. */
+  .body pre.mermaid svg text {
+    fill: var(--mm-text, #C8C5BE);  /* no !important · type-specific rules above WIN */
+  }
+
+  /* ─── Chart display sizes · CSS-enforced ─────────────────────
+     Mermaid 10.9.5's chartWidth/chartHeight config keys for
+     quadrantChart and xychart are silently ignored by the
+     bundled CDN build (verified via DOM dump showing default
+     500×500 viewBox even when chartWidth: 460 is configured).
+     CSS-enforced sizes via `max-width` on the rendered SVG let
+     us get refined-compact dimensions regardless of what
+     mermaid's config validator does. The viewBox stays at
+     mermaid's internal coordinate space (500×500 etc.) but the
+     displayed SVG scales down to our target size. Centered with
+     margin: 0 auto so the chart sits flush in the article column
+     instead of stretching to full width. */
+  .body pre.mermaid svg[aria-roledescription="quadrantChart"] {
+    max-width: 460px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
+  }
+  .body pre.mermaid svg[aria-roledescription="xychart"] {
+    max-width: 560px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
+  }
+  .body pre.mermaid svg[aria-roledescription="pie"] {
+    max-width: 420px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
   }
 
   /* ─── Metric-strip · spine-agnostic baseline ─────────────────────
@@ -4806,6 +4945,31 @@
             },
           };
           const t = themes[spineKey];
+
+          // Inject spine palette as CSS variables on :root so the
+          // CSS rules in the global <style> block (mermaid spine
+          // CSS) resolve to the right colours. This is the
+          // PRIMARY mechanism — CSS applies on every paint, no JS
+          // timing race possible. The JS takeover below stays as
+          // belt-and-suspenders for chart elements not covered by
+          // the CSS rules.
+          try {
+            const root = document.documentElement.style;
+            root.setProperty('--mm-q-fill',     t.vars.quadrantFill);
+            root.setProperty('--mm-q-bg',       t.vars.background);
+            root.setProperty('--mm-q-point',    t.vars.pointFill);
+            root.setProperty('--mm-q-border',   t.vars.border);
+            root.setProperty('--mm-q-text',     t.vars.titleFill);
+            root.setProperty('--mm-q-axis-text', t.vars.axisText);
+            root.setProperty('--mm-q-quad-text', t.vars.quadrantText);
+            root.setProperty('--mm-text',       t.vars.titleFill);
+            root.setProperty('--mm-axis-text',  t.vars.axisText);
+            root.setProperty('--mm-pal-0', t.palette[0]);
+            root.setProperty('--mm-pal-1', t.palette[1]);
+            root.setProperty('--mm-pal-2', t.palette[2]);
+            root.setProperty('--mm-pal-3', t.palette[3]);
+          } catch (_) {}
+
           // Build pie / journey / state / git slice-color overrides
           // by cycling through the spine's monochrome `palette`.
           // Without these, mermaid 11+ paints pie1..pie12 +
@@ -5418,47 +5582,74 @@
               useMaxWidth: true,
             },
           });
-          await mermaid.run({ querySelector: ".mermaid" });
-          // ── Post-render spine palette takeover ───────────────────
-          // Definitive fix for "mermaid charts don't match the spine
-          // palette." Mermaid's color system has 4 layers (theme
-          // preset, themeVariables, embedded SVG <style>, inline
-          // attributes) that all leak in different ways. Instead of
-          // playing whack-a-mole with mermaid's internals, we let
-          // mermaid render the structure, then:
-          //   1. WIPE mermaid's embedded <style> block in each SVG
-          //      (eliminates the CSS-vs-attribute specificity gotcha
-          //      where <style> rules silently beat setAttribute calls)
-          //   2. Force-set fill/stroke via inline `style` attribute on
-          //      every visual element by class — inline style has the
-          //      highest CSS specificity, so nothing in the cascade
-          //      can override our spine palette.
-          // Result: every chart element renders in the spine's colors
-          // regardless of mermaid version, theme preset, or which
-          // themeVariables we pass.
-          // Define the takeover as a re-runnable function so we can
-          // schedule it multiple times to defeat first-load timing
-          // races. Pattern observed: on cold loads (CDN uncached, CSS
-          // uncached) mermaid does async post-render work via
-          // requestAnimationFrame / setTimeout AFTER the run() promise
-          // resolves — re-injecting <style>, recomputing layouts, etc.
-          // A single sync takeover then loses the race because mermaid
-          // overwrites our inline styles afterward. On refresh
-          // everything's cached, mermaid finishes faster, and a single
-          // takeover wins by accident.
+          // ── Off-screen render + paint-then-insert ────────────────
+          // DEFINITIVE fix for "first time wrong, refresh OK" /
+          // strict alternation pattern. Earlier strategies all let
+          // mermaid render in-place, then patched colors after —
+          // which gave the user a visible window of mermaid-default
+          // colors before our takeover landed.
           //
-          // Fix: run the takeover at multiple frames + delays so any
-          // mermaid post-processing gets caught regardless of timing.
-          // Each call is idempotent (same selectors set the same
-          // inline styles) so re-running is cheap.
-          const setFill = (el, c) => { if (c) el.style.setProperty('fill', c, 'important'); };
-          const setStroke = (el, c) => { if (c !== undefined && c !== null) el.style.setProperty('stroke', c, 'important'); };
+          // The only race-free approach: render OFFSCREEN, paint our
+          // spine palette onto the SVG while it's still detached,
+          // THEN insert into the visible DOM. The user's first paint
+          // sees the spine-colored SVG; there is no intermediate
+          // mermaid-default state to perceive.
+          //
+          // mermaid 10's `render(id, src)` returns the SVG as a
+          // string (not in-DOM) — perfect for this flow. We loop
+          // through every `pre.mermaid`, render its source via
+          // `mermaid.render`, parse the resulting string, apply the
+          // takeover to the parsed (still-detached) SVG, then swap
+          // the corrected SVG into the visible container.
+          // Belt-and-suspenders fill setter · sets BOTH the inline
+          // `style="fill: X !important"` AND the SVG `fill="X"`
+          // presentation attribute. With mermaid's embedded <style>
+          // already wiped, either layer is sufficient — but setting
+          // both means even if one is somehow stripped/overridden
+          // (browser quirk, late mermaid post-processing, CSS
+          // cascade edge case), the chart still renders in the
+          // spine palette.
+          const setFill = (el, c) => {
+            if (!c) return;
+            try { el.style.setProperty('fill', c, 'important'); } catch (_) {}
+            try { if (el.setAttribute) el.setAttribute('fill', c); } catch (_) {}
+          };
+          const setStroke = (el, c) => {
+            if (c === undefined || c === null) return;
+            try { el.style.setProperty('stroke', c, 'important'); } catch (_) {}
+            try { if (el.setAttribute) el.setAttribute('stroke', c); } catch (_) {}
+          };
           const setColor = (el, c) => { if (c) el.style.setProperty('color', c, 'important'); };
           const cyclePalette = (i) => t.palette[i % t.palette.length];
 
-          const applySpinePaletteOnce = () => {
+          // Apply the spine palette to ONE SVG element (offscreen or
+          // onscreen — works either way since every fill/stroke is
+          // forced via inline `!important`). Pure function: no
+          // global queries, only operates on the passed element.
+          const applySpineToSvg = (svg) => {
             try {
-              document.querySelectorAll('.mermaid svg').forEach((svg) => {
+              // ── 0. Pin the SVG max-width per chart type ──
+              // Mermaid 10's chartWidth/chartHeight config is silently
+              // ignored by the bundled CDN build, so the SVG ships at
+              // its default size with `style="max-width: 500px"`
+              // inline. CSS in <style> overrides it at paint time, but
+              // there's a one-frame race on cold loads where the
+              // user can perceive the unconstrained size before CSS
+              // applies. Pin via inline style with !important here
+              // for refined-compact dimensions on every first paint.
+              const role = svg.getAttribute('aria-roledescription') || '';
+              const chartMaxWidth = (
+                role === 'quadrantChart' ? '460px' :
+                role === 'xychart' ? '560px' :
+                role === 'pie' ? '420px' :
+                ''
+              );
+              if (chartMaxWidth) {
+                svg.style.setProperty('max-width', chartMaxWidth, 'important');
+                svg.style.setProperty('height', 'auto', 'important');
+                svg.style.setProperty('margin', '0 auto', 'important');
+                svg.style.setProperty('display', 'block', 'important');
+              }
               // ── 1. Wipe mermaid's embedded <style> block ──
               // Mermaid generates `<style>.quadrant-chart > .quadrant-
               // point > circle { fill: #...; }` etc. inside each SVG;
@@ -5478,16 +5669,39 @@
 
               // ── 3. Quadrant chart ──
               // Mermaid 10's actual class names (verified against rendered DOM):
-              //   `.quadrant` — each of the 4 quadrant rects (NOT .quadrant-fill)
-              //   `.quadrants` — parent group
-              //   `.data-point` — each data circle (NOT .quadrant-point)
+              //   `<g class="quadrant">` — group; each contains a child <rect>
+              //   `.quadrants` — outer parent group
+              //   `<circle class="data-point">` — each data circle
               //   `.data-points` — parent group
               //   `.axis-line` / `.axisl-line` — axis lines
-              //   `.bottom-axis`, `.left-axis` — axis text
-              // Older / alternate class names from .quadrant-* family kept
-              // as a defensive fallback for version drift.
-              svg.querySelectorAll('rect.quadrant, .quadrants > .quadrant, rect.quadrant-fill, .quadrant-fill').forEach((el) => setFill(el, t.vars.quadrantFill));
-              svg.querySelectorAll('.axis-line, .axisl-line, .quadrants line').forEach((el) => setStroke(el, t.vars.border));
+              //   `.bottom-axis`, `.left-axis` — axis text containers
+              // CRITICAL: the `.quadrant` class is on a <g>, but the
+              // actual fillable rect is INSIDE the group. Selecting
+              // `.quadrants > .quadrant` matches the <g> only;
+              // setting style.fill on a <g> does NOT override the
+              // child <rect>'s `fill="..."` attribute in SVG. We
+              // must select the inner rect directly.
+              //
+              // Belt-and-suspenders: also match ALL <rect> inside
+              // any quadrantChart SVG (excluding the canvas-bg rect
+              // we already handled via dimensions). Catches any
+              // mermaid version variation in class naming.
+              svg.querySelectorAll('.quadrants .quadrant rect, g.quadrant > rect, rect.quadrant, rect.quadrant-fill, .quadrant-fill').forEach((el) => setFill(el, t.vars.quadrantFill));
+              if (svg.getAttribute('aria-roledescription') === 'quadrantChart') {
+                const qsw = parseFloat(svg.getAttribute('width') || '0');
+                svg.querySelectorAll('rect').forEach((el) => {
+                  // Skip the canvas-bg rect (full-width).
+                  const w = parseFloat(el.getAttribute('width') || '0');
+                  if (qsw > 0 && w >= qsw * 0.95) return;
+                  setFill(el, t.vars.quadrantFill);
+                });
+              }
+              // Quadrant border lines · mermaid 10 puts the outer
+              // rectangle + cross-divider lines inside `<g class="border">`,
+              // a sibling of `.quadrants` (NOT a descendant). Catch
+              // both the inside-quadrants axis-line case AND the
+              // border group case.
+              svg.querySelectorAll('.axis-line, .axisl-line, .quadrants line, g.border line, .border line').forEach((el) => setStroke(el, t.vars.border));
               svg.querySelectorAll('.quadrant-internal-border, line.quadrant-internal-border').forEach((el) => setStroke(el, t.vars.inner));
               svg.querySelectorAll('.quadrant-external-border, rect.quadrant-external-border').forEach((el) => {
                 setStroke(el, t.vars.border);
@@ -5695,20 +5909,120 @@
 
               // ── 16. Mark the parent pre.mermaid as painted ──
               // CSS hides `.body pre.mermaid svg` until `.is-painted`
-              // is added, so the user never sees mermaid's default
-              // colors during the brief window between mermaid.run()
-              // resolving and our takeover applying. Adding it here
-              // (last step of each takeover pass) reveals the SVG only
-              // after our spine fills are pinned.
+              // is added on the parent. We add it here so that even
+              // when the SVG is later inserted into the live DOM, the
+              // CSS-based hide is already lifted (no flash).
               const host = svg.closest('pre.mermaid');
               if (host && !host.classList.contains('is-painted')) {
                 host.classList.add('is-painted');
               }
-              });  // forEach svg
             } catch (forceColorErr) {
-              console.warn('[mermaid] post-render palette takeover failed:', forceColorErr);
+              console.warn('[mermaid] palette takeover failed for svg:', forceColorErr);
             }
-          };  // applySpinePaletteOnce
+          };  // applySpineToSvg
+
+          // Wrapper · walks every onscreen SVG and applies the
+          // takeover. Used by the safety polling + MutationObserver
+          // (defense-in-depth) for any SVGs that were already
+          // inserted before the offscreen-render loop took over.
+          const applySpinePaletteOnce = () => {
+            document.querySelectorAll('.mermaid svg').forEach(applySpineToSvg);
+          };
+
+          // ── Offscreen render via mermaid.run + DOM relocation ─
+          // DEFINITIVE fix for "first load wrong / strict
+          // alternation." Keep mermaid.run (it handles lazy module
+          // loading for diagram types correctly — mermaid.render's
+          // first call races with that loading on cold cache),
+          // but move every pre.mermaid INTO AN OFFSCREEN CONTAINER
+          // before running. mermaid renders inside the offscreen
+          // container (user can't see it), we apply the spine
+          // takeover to every resulting SVG, then move each
+          // pre.mermaid back to its original DOM position. The
+          // user's first paint of each chart shows the
+          // spine-coloured SVG; no race possible.
+          //
+          // Diagnostic logs (console.info) so the user can verify
+          // which path was taken and at what timing — open DevTools
+          // and refresh; the log narrates the flow.
+          const _mLog = (msg, ...rest) => {
+            try { console.info(`[mermaid-spine] ${msg}`, ...rest); } catch (_) {}
+          };
+          _mLog('flow start · spine =', spineKey);
+          const charts = Array.from(document.querySelectorAll('pre.mermaid'));
+          _mLog('charts found:', charts.length);
+          if (charts.length > 0) {
+            // Capture original DOM positions so we can restore each
+            // pre.mermaid exactly where it was.
+            const anchors = charts.map((el) => ({
+              el,
+              parent: el.parentNode,
+              nextSibling: el.nextSibling,
+            }));
+            // Build the offscreen host. Width matches a typical
+            // article column so mermaid sizes the SVG correctly
+            // (useMaxWidth: true uses the offscreen container's
+            // dimensions for layout). Height: 0 + overflow: visible
+            // so mermaid can compute proper SVG sizes.
+            const offscreen = document.createElement('div');
+            offscreen.id = 'mermaid-offscreen-host';
+            offscreen.style.cssText = [
+              'position: absolute',
+              'left: -99999px',
+              'top: 0',
+              'width: 880px',
+              'visibility: hidden',
+              'pointer-events: none',
+              'z-index: -1',
+            ].join('; ');
+            document.body.appendChild(offscreen);
+            // Move each pre.mermaid into the offscreen host.
+            anchors.forEach((a) => offscreen.appendChild(a.el));
+            _mLog('moved offscreen, calling mermaid.run');
+            // Run mermaid · scoped to the offscreen host so it only
+            // touches elements we just moved. mermaid handles lazy
+            // module registration internally.
+            try {
+              await mermaid.run({ querySelector: '#mermaid-offscreen-host pre.mermaid' });
+              _mLog('mermaid.run resolved');
+            } catch (runErr) {
+              console.warn('[mermaid-spine] offscreen run failed:', runErr);
+            }
+            // Wait for mermaid's deferred post-render work to land.
+            // Quadrant chart (specifically) does d3-based label
+            // positioning in a setTimeout(0) AFTER mermaid.run
+            // resolves — if we apply takeover before that fires,
+            // mermaid overwrites our fills. Two rAF + setTimeout(0)
+            // cycles guarantee deferred work has settled. Cheap
+            // (~32ms) and only runs once per page load.
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0))));
+            // Apply takeover to all SVGs while still offscreen.
+            const svgsOffscreen = offscreen.querySelectorAll('svg');
+            _mLog('SVGs rendered offscreen:', svgsOffscreen.length);
+            svgsOffscreen.forEach(applySpineToSvg);
+            _mLog('takeover applied offscreen');
+            // Move each pre.mermaid back to its original position
+            // and mark as painted (CSS reveal rule). Single DOM
+            // mutation per chart → single paint frame with the
+            // corrected SVG already in place.
+            anchors.forEach((a) => {
+              a.el.classList.add('is-painted');
+              if (a.parent) {
+                if (a.nextSibling && a.nextSibling.parentNode === a.parent) {
+                  a.parent.insertBefore(a.el, a.nextSibling);
+                } else {
+                  a.parent.appendChild(a.el);
+                }
+              }
+              // Re-apply takeover immediately after move · catches
+              // any post-attach mermaid behaviour (ResizeObserver
+              // re-renders, deferred rAF) that might restyle.
+              a.el.querySelectorAll('svg').forEach(applySpineToSvg);
+            });
+            _mLog('moved back onscreen + reapplied takeover');
+            // Cleanup offscreen host.
+            offscreen.remove();
+          }
 
           // Safety net · if the takeover errors out for some reason
           // (script bug, exotic chart type), make sure every chart
