@@ -4256,8 +4256,7 @@
       if (r) r.textContent = String(roomsCount);
       const a = document.querySelector('[data-sidebar-tab-count="agents"]');
       if (a) a.textContent = String(agentsCount);
-      const sum = document.querySelector("[data-sidebar-summary]");
-      if (sum) sum.textContent = this._t("sidebar_summary", { live: liveCount, agents: agentsCount });    },
+    },
 
     // ── Rendering · main view ─────────────────────────────────
     renderRoom() {
@@ -6207,9 +6206,8 @@
     },
 
     /** Time-of-day greeting like "// good evening, Kay" / "// 晚上好，Kay". */
-    composerGreeting(_lang, name) {
-      // System UI · always English. Greeting is part of the composer
-      // chrome; the brief language doesn't change the app's voice.
+    composerGreeting(lang, name) {
+      // Follows composer chrome locale (`lang` · en or zh via I18n).
       const h = new Date().getHours();
       const isZh = lang === "zh";
       let key;

@@ -343,6 +343,43 @@
   min-width: 0;
 }
 
+/* Preferences → Other · EN / Zh (moved off the sidebar chrome) */
+.us-pane-body .locale-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  border: 1px solid var(--line-bright, rgba(255, 255, 255, 0.09));
+  border-radius: 3px;
+  background: var(--panel-2, #151514);
+}
+.us-pane-body .locale-switch .locale-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: 2px;
+  line-height: 1.2;
+}
+.us-pane-body .locale-switch .locale-btn:hover { color: var(--text-soft); }
+.us-pane-body .locale-switch .locale-btn.active {
+  background: var(--panel-3);
+  color: var(--lime, #6fb572);
+}
+.us-locale-deck {
+  margin: 10px 0 0;
+  padding: 0;
+  max-width: 420px;
+  font-size: 11px;
+  color: var(--text-faint, #3a382f);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+
 /* User avatar block */
 .us-avatar-row {
   display: flex;

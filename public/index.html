@@ -159,33 +159,6 @@
   .brand-mark .bg { fill: var(--lime); }
   .brand-mark .fg { fill: var(--bg); }
 
-  .locale-switch {
-    display: inline-flex;
-    align-items: center;
-    margin-left: 8px;
-    padding: 1px;
-    border: 1px solid var(--line-bright);
-    border-radius: 3px;
-    background: var(--panel-2);
-  }
-  .locale-switch .locale-btn {
-    appearance: none;
-    border: 0;
-    background: transparent;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    padding: 3px 8px;
-    cursor: pointer;
-    border-radius: 2px;
-    line-height: 1.2;
-  }
-  .locale-switch .locale-btn:hover { color: var(--text-soft); }
-  .locale-switch .locale-btn.active {
-    background: var(--panel-3);
-    color: var(--lime);
-  }
   @keyframes pulse { 0%, 60% { opacity: 1; } 80% { opacity: 0.4; } }
 
   /* ═══════════════════════════════════════════
@@ -9499,13 +9472,8 @@
           </svg>
           <span class="sidebar-brand-name" data-i18n="brand_privateboard">PRIVATEBOARD</span>
         </a>
-        <div class="locale-switch" role="group" data-i18n-aria="aria_language" aria-label="Language">
-          <button type="button" class="locale-btn" data-locale="en" aria-pressed="false" data-i18n="locale_en">EN</button>
-          <button type="button" class="locale-btn" data-locale="zh" aria-pressed="false" data-i18n="locale_zh">中文</button>
-        </div>
         <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse data-i18n-title="sidebar_collapse" aria-label="Collapse sidebar" title="Collapse sidebar"></button>
       </div>
-      <div class="sidebar-head-meta"><span class="lime">●</span> <span data-sidebar-summary>0 LIVE / 0 AGENTS</span></div>
 
       <div class="sidebar-tabs" role="tablist">
         <a href="#" class="sidebar-tab active" data-sidebar-tab="rooms" role="tab" aria-selected="true">

@@ -687,6 +687,9 @@ When the room ___, raise an objection.`,
       us_close: "Close",
       us_nav_api_key: "API Key",
       us_nav_other_settings: "Other settings",
+      us_locale_label: "Interface language",
+      us_locale_deck:
+        "Sidebar labels, dialogs, and app chrome follow this locale. Room messages and briefs still mirror the language you write in.",
       us_default_model_title: "Default Model",
       us_default_deck_long:
         "new agents inherit this. when an agent's saved model becomes unreachable (key removed / model retired), it falls back here too. flagship tier uses this as the deep-write model.",
@@ -1382,6 +1385,8 @@ When the room ___, raise an objection.`,
       us_close: "关闭",
       us_nav_api_key: "API 密钥",
       us_nav_other_settings: "其他设置",
+      us_locale_label: "界面语言",
+      us_locale_deck: "侧边栏、对话框和应用外壳使用该语言；房间消息与简报仍会以你书写的内容为准。",
       us_default_model_title: "默认模型",
       us_default_deck_long:
         "新创建的董事默认继承此项；若已保存的模型因密钥变更或下线而不可达，也会回退到这里。旗舰档位的深度写作同样使用该模型。",

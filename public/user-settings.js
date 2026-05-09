@@ -252,9 +252,8 @@
   }
 
   /* ── Other settings · misc per-user toggles that don't fit a
-        dedicated section. Currently just the typing-sound effect; a
-        natural home for future small ambient / UX preferences (sound
-        cues, animations, etc.) without growing the nav for each one. */
+        dedicated section. Interface language · typing-sound effect;
+        natural home for future small ambient / UX preferences. */
   function otherSettingsSectionHTML() {
     return `
       <div class="us-pane-head">
@@ -263,6 +262,17 @@
       </div>
 
       <div class="us-pane-body">
+        <div class="us-row">
+          <div class="us-row-label">${tr("us_locale_label")}</div>
+          <div class="us-row-field">
+            <div class="locale-switch" role="group" data-i18n-aria="aria_language" aria-label="">
+              <button type="button" class="locale-btn" data-locale="en" aria-pressed="false" data-i18n="locale_en">EN</button>
+              <button type="button" class="locale-btn" data-locale="zh" aria-pressed="false" data-i18n="locale_zh">中文</button>
+            </div>
+            <p class="us-locale-deck">${escape(tr("us_locale_deck"))}</p>
+          </div>
+        </div>
+
         <div class="us-row">
           <div class="us-row-label">Typing sound</div>
           <div class="us-row-field">
@@ -283,6 +293,12 @@
 
   function wireOtherSettingsSection() {
     if (!paneEl) return;
+    if (window.I18n && typeof window.I18n.applyDom === "function") {
+      window.I18n.applyDom(paneEl);
+    }
+    if (window.I18n && typeof window.I18n.syncLocaleControls === "function") {
+      window.I18n.syncLocaleControls();
+    }
     // Typing-sound toggle · the persistence + audio context lives in
     // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
     // the current state and proxies clicks. Reading inside wire-up
@@ -1043,10 +1059,7 @@
             <span class="right" data-i18n="us_modal_kicker_right"></span>
           </div>
 
-          <header class="us-head">
-            <div class="us-title" data-i18n="us_pref_title"></div>
-            <button type="button" class="us-close" data-i18n-aria="us_close" aria-label="Close">✕</button>
-          </header>
+          <button type="button" class="us-close" data-i18n-aria="us_close" aria-label="Close">✕</button>
 
           <div class="us-frame">
             <nav class="us-nav" role="tablist">
