@@ -422,22 +422,12 @@
       // No explicit room in the hash — land on the new-room composer
       // (ChatGPT / Claude style: default = fresh, existing rooms live
       // in the sidebar). The composer renders inside closeRoom →
-      // renderEmptyState. Previously we auto-opened the first selectable
-      // room; that's been retired so users always start on the composer
-      // unless they explicitly navigate to a room.
+      // renderEmptyState. The sidebar persistence layer in index.html
+      // (boardroom.sidebar.* keys + restore() on DOMContentLoaded)
+      // takes over from here · if the user's last sidebar selection
+      // was a specific room / reports / notes, that fires AFTER
+      // app.init and overrides this composer landing.
       this.closeRoom();
-    },
-
-    /** Choose a sensible default room when none is in the URL hash. */
-    firstSelectableRoom() {
-      if (!this.rooms || !this.rooms.length) return null;
-      const rank = (status) => (status === "live" ? 0 : status === "paused" ? 1 : 2);
-      const sorted = this.rooms.slice().sort((a, b) => {
-        const dr = rank(a.status) - rank(b.status);
-        if (dr !== 0) return dr;
-        return (b.createdAt || 0) - (a.createdAt || 0);
-      });
-      return sorted[0] || null;
     },
 
     navigateToRoom(roomId) {
@@ -648,7 +638,15 @@
       this.currentRoom = null;
       this.currentMessages = [];
       this.currentMembers = [];
-      this.currentChair = null;
+      // `currentChair` is NOT reset · the chair is a structural
+      // singleton (one moderator agent in the catalog, same across
+      // every room), and the sidebar's Chair section keys off it
+      // whether or not a room is loaded. Earlier this line read
+      // `this.currentChair = null;`, which dropped the Chair row
+      // from the Agents tab any time the user landed on the no-
+      // room state — the chair would re-appear the moment a room
+      // re-opened (since `openRoom` re-sets it from data.chair),
+      // but the empty + composer states looked broken.
       this.currentQueue = [];
       this.currentRound = { spoken: 0, total: 0 };
       this.currentKeyPoints = [];
@@ -1519,21 +1517,21 @@
      *  card thought it was still generating because bodyMd was empty
      *  — which is the steady-state shape for bento, not an
      *  in-flight signal). */
-    /** True for any structured-output mode — bento, magazine,
-     *  newspaper — that persists to body_json instead of body_md and
-     *  runs the single-pass chair-LLM pipeline (extract + write only,
-     *  no Stage 2/3 scaffold/write). Centralised so future modes
-     *  touch one place. */
+    /** True for any structured-output mode — magazine, newspaper,
+     *  ppt — that persists to body_json instead of body_md and
+     *  runs the single-pass chair-LLM pipeline (extract + write
+     *  only, no Stage 2/3 scaffold/write). Centralised so future
+     *  modes touch one place. */
     isStructuredBriefMode(mode) {
-      return mode === "bento" || mode === "magazine" || mode === "newspaper";
+      return mode === "magazine" || mode === "newspaper" || mode === "ppt";
     },
 
     briefHasBody(b) {
       if (!b) return false;
       if (this.isStructuredBriefMode(b.mode)) {
-        // Bento + magazine populate bodyJson with the BentoScaffold.
-        // An empty object isn't a body; check for at least a title
-        // field.
+        // Magazine, newspaper + ppt all populate bodyJson with the
+        // structured scaffold. An empty object isn't a body; check
+        // for at least a title field.
         const j = b.bodyJson;
         return !!(j && typeof j === "object" && (j.title || j.milestones));
       }
@@ -1543,9 +1541,9 @@
 
     /** Build the right viewer URL for a brief based on its mode.
      *  · 'research-note' (default · or unknown) → `/report.html?r=R&b=B`
-     *  · 'bento' → `/bento.html?b=B`
      *  · 'magazine' → `/magazine.html?b=B`
      *  · 'newspaper' → `/newspaper.html?b=B`
+     *  · 'ppt' → `/ppt.html?b=B`
      *
      *  Structured renderers don't need the room context · the brief
      *  is self-contained. Used by the View Report button, the
@@ -1555,9 +1553,9 @@
     briefViewerHref(b, roomId) {
       if (!b || !b.id) return null;
       const id = encodeURIComponent(b.id);
-      if (b.mode === "bento") return `/bento.html?b=${id}`;
       if (b.mode === "magazine") return `/magazine.html?b=${id}`;
       if (b.mode === "newspaper") return `/newspaper.html?b=${id}`;
+      if (b.mode === "ppt") return `/ppt.html?b=${id}`;
       const r = roomId ? encodeURIComponent(roomId) : "";
       return r ? `/report.html?r=${r}&b=${id}` : `/report.html?b=${id}`;
     },
@@ -1580,21 +1578,21 @@
     briefModeLabel(b) {
       const mode = (b && b.mode) || "research-note";
       switch (mode) {
-        case "bento":     return "Bento";
         case "magazine":  return "Magazine";
         case "newspaper": return "Newspaper";
+        case "ppt":       return "Slides";
         default:          return "Report";
       }
     },
 
     /** Render the report-mode picker · four icon-tile cards that let
-     *  the user pick between research-note, bento, magazine, and
-     *  newspaper. Each tile shows a custom monoline SVG that
-     *  visually mirrors that mode's layout — research-note as a
-     *  memo, bento as a 4-cell grid, magazine as a masthead +
-     *  numeral block + small cards, newspaper as a banner + 3-column
-     *  text grid. The native radio is visually hidden (kept in the
-     *  DOM for a11y / keyboard nav).
+     *  the user pick between research-note, magazine, newspaper, and
+     *  ppt (slides). Each tile shows a custom monoline SVG that
+     *  visually mirrors that mode's layout — research-note as a memo,
+     *  magazine as a masthead + numeral block + small cards,
+     *  newspaper as a banner + 3-column text grid, ppt as a slide
+     *  rectangle with bullet lines. The native radio is visually
+     *  hidden (kept in the DOM for a11y / keyboard nav).
      *
      *  Used by both the adjourn overlay (filing the report at
      *  adjourn-time / generate-brief flow) AND the supplement
@@ -1622,13 +1620,6 @@
             <line x1="9" y1="15" x2="16" y2="15"/>
             <line x1="9" y1="18" x2="14" y2="18"/>
           </svg>`,
-        "bento": `
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="3" width="9" height="13" rx="1.5"/>
-            <rect x="13" y="3" width="8" height="6" rx="1.5"/>
-            <rect x="13" y="10" width="8" height="6" rx="1.5"/>
-            <rect x="3" y="17" width="18" height="4" rx="1.5"/>
-          </svg>`,
         "magazine": `
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="3" y1="4" x2="21" y2="4" stroke-width="1.2"/>
@@ -1654,6 +1645,17 @@
             <line x1="16" y1="15.5" x2="18.5" y2="15.5" stroke-width="0.8"/>
             <line x1="3" y1="18.5" x2="21" y2="18.5" stroke-width="0.9"/>
           </svg>`,
+        "ppt": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="1"/>
+            <line x1="7" y1="9" x2="14" y2="9" stroke-width="1.2"/>
+            <line x1="7" y1="12" x2="17" y2="12" stroke-width="0.8"/>
+            <line x1="7" y1="14" x2="15" y2="14" stroke-width="0.8"/>
+            <circle cx="5.5" cy="12" r="0.6" fill="currentColor" stroke="none"/>
+            <circle cx="5.5" cy="14" r="0.6" fill="currentColor" stroke="none"/>
+            <line x1="10" y1="20" x2="14" y2="20" stroke-width="1"/>
+            <line x1="12" y1="17" x2="12" y2="20" stroke-width="0.6"/>
+          </svg>`,
       };
       const opt = (value, title, deck, primary) => `
             <label class="adjourn-mode-option${primary ? " adjourn-mode-option-primary" : ""}${safe === value ? " on" : ""}">
@@ -1669,9 +1671,9 @@
           <div class="adjourn-mode-label">// report format</div>
           <div class="adjourn-mode-options adjourn-mode-options-4">
             ${opt("research-note", "Report", "Long-form markdown · bottom line, findings, recommendations.", true)}
-            ${opt("bento", "Bento", "Single-page poster · 3 milestones + sidebar cards.")}
             ${opt("magazine", "Magazine", "Editorial spread · cover line, 5 cards, dark closer.")}
             ${opt("newspaper", "Newspaper", "Broadsheet · banner masthead, 3-column editorial.")}
+            ${opt("ppt", "Slides", "Slide deck · 7-9 slides, arrow-key navigation, present mode.")}
           </div>
         </div>`;
     },
@@ -2021,14 +2023,12 @@
         confirm: "[ Regenerate ]",
         confirmBusy: "[ Regenerating… ]",
       };
-      // Default the picker to the existing brief's mode · the user's
-      // baseline assumption when regenerating with a supplement is "I
-      // want the same kind of report, just with this extra angle." If
-      // the parent brief's mode is missing for any reason, fall back
-      // to the user's last picked mode (localStorage).
-      const defaultMode = this.isStructuredBriefMode(this.currentBrief?.mode)
-        ? this.currentBrief.mode
-        : this.lastBriefMode();
+      // Default the picker to the user's last picked mode — same
+      // behaviour as the adjourn (Generate) flow, so the picker reads
+      // consistently across both surfaces. The parent brief's mode is
+      // available if needed, but the user's most recent explicit
+      // choice wins.
+      const defaultMode = this.lastBriefMode();
       const html = `
         <div class="supplement-overlay" id="supplement-overlay" role="dialog" aria-modal="true">
           <div class="supplement-backdrop" data-supplement-close></div>
@@ -2261,7 +2261,7 @@
       const adjournedLine = room.adjournedAt
         ? `${t.adjournedAtPrefix} ${this.timeFmt(room.adjournedAt)}`
         : "";
-      const subjectShort = (room.subject || "(no subject)").slice(0, 140);
+      const subjectFull = room.subject || "(no subject)";
 
       // Tone + intensity inherit from parent. Trigger uses the same
       // `.cmp-dd` markup as the new-room composer's toolbar buttons —
@@ -2311,8 +2311,11 @@
             </header>
             <div class="supplement-body">
               <div class="followup-parent-card">
-                <div class="followup-parent-subject">${this.escape(subjectShort)}</div>
-                <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
+                <div class="followup-parent-subject is-clamped" data-followup-subject-text>${this.escape(subjectFull)}</div>
+                <div class="followup-parent-meta-row">
+                  <button type="button" class="followup-parent-subject-toggle" data-followup-subject-toggle hidden>Show more</button>
+                  <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
+                </div>
                 <div class="followup-parent-note">${this.escape(t.contextNote)}</div>
               </div>
 
@@ -2386,6 +2389,24 @@
       // so listeners are GC'd when the modal is removed.
       const overlayEl = document.getElementById("followup-overlay");
       if (overlayEl) {
+        // Subject clamp · long parent-room subjects clamp to 2 lines
+        // by default. Post-mount measurement reveals the Show more /
+        // less toggle only when the text actually overflows. rAF
+        // settles initial layout so scrollHeight is meaningful.
+        const subjEl = overlayEl.querySelector("[data-followup-subject-text]");
+        const subjBtn = overlayEl.querySelector("[data-followup-subject-toggle]");
+        if (subjEl && subjBtn) {
+          requestAnimationFrame(() => {
+            if (subjEl.scrollHeight > subjEl.clientHeight + 1) {
+              subjBtn.hidden = false;
+            }
+          });
+          subjBtn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            const expanded = subjEl.classList.toggle("is-clamped") === false;
+            subjBtn.textContent = expanded ? "Show less" : "Show more";
+          });
+        }
         const sameCheckbox = overlayEl.querySelector("[data-followup-same-cast]");
         const castBtn = overlayEl.querySelector("[data-followup-cast-btn]");
         if (sameCheckbox && castBtn) {
@@ -3887,6 +3908,47 @@
       this.composerMode = "room";
     },
 
+    /** Toggle the `isPinned` flag for an agent · the sidebar pin
+     *  button calls this. Persists to the server (PATCH /api/agents/:id
+     *  { isPinned }), updates local state in place, then re-renders
+     *  the sidebar so the row moves between the Pinned / Custom /
+     *  Core buckets. Optimistic with rollback on failure: we flip the
+     *  flag locally + repaint immediately, then revert if the PATCH
+     *  fails — no waiting on the round-trip for visible feedback. */
+    async togglePinAgent(agentId) {
+      if (!agentId) return;
+      const idx = (this.agents || []).findIndex((a) => a && a.id === agentId);
+      if (idx < 0) return;
+      const agent = this.agents[idx];
+      const prev = !!agent.isPinned;
+      const next = !prev;
+      // Optimistic flip · render immediately so the click feels instant.
+      agent.isPinned = next;
+      this.agentsById[agent.id] = agent;
+      this.renderSidebarAgents();
+      try {
+        const r = await fetch("/api/agents/" + encodeURIComponent(agentId), {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ isPinned: next }),
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        // Server returns the updated row · merge the canonical fields
+        // back in so any side-effect updates (updated_at, etc.) land.
+        const updated = await r.json();
+        if (updated && updated.id) {
+          this.agents[idx] = updated;
+          this.agentsById[updated.id] = updated;
+        }
+      } catch (e) {
+        // Rollback · keep the UI honest about persistence failure.
+        agent.isPinned = prev;
+        this.agentsById[agent.id] = agent;
+        this.renderSidebarAgents();
+        alert((e && e.message ? e.message : "pin failed") + " — try again.");
+      }
+    },
+
     /** Render the sidebar's Agents panel from the live agent catalog.
      *  Three buckets so the seeded directors keep their familiar
      *  groupings while user-created ones stack into a Custom section
@@ -4606,7 +4668,44 @@
       if (brief) brief.innerHTML = "";
 
       const chatScroller = document.querySelector(".chat");
-      if (chatScroller) chatScroller.scrollTop = 0;
+      if (chatScroller) {
+        chatScroller.scrollTop = 0;
+        // Mark the chat as hosting a composer so the CSS rule
+        // `.chat.chat--composer` flips it to a grid with
+        // `align-content: center` — vertically centring the
+        // composer when it fits the viewport. When .cmp's natural
+        // height > .chat height we also add `.chat--composer-overflow`
+        // (via updateComposerOverflow) which switches to a layout
+        // where the .cmp-fold (hero + input) is min-height: 100% of
+        // the chat with content centred inside, and .cmp-starters
+        // flow below as scrollable extras. Removed in renderChat()
+        // when real chat messages take over.
+        chatScroller.classList.add("chat--composer");
+        this.updateComposerOverflow();
+      }
+    },
+
+    /** Toggle `.chat--composer-overflow` on the chat scroller based on
+     *  whether the composer's natural height exceeds the visible chat
+     *  area. In overflow mode the hero (`.cmp-fold`) anchors at the
+     *  viewport centre and `.cmp-starters` flow below the fold;
+     *  without overflow, the parent's `align-content: center` keeps
+     *  the whole composer block centred. Called after composer render
+     *  and on window resize. */
+    updateComposerOverflow() {
+      const chat = document.querySelector(".chat.chat--composer");
+      if (!chat) return;
+      const cmp = chat.querySelector(".cmp");
+      if (!cmp) return;
+      requestAnimationFrame(() => {
+        chat.classList.remove("chat--composer-overflow");
+        const overflows = cmp.scrollHeight > chat.clientHeight + 1;
+        chat.classList.toggle("chat--composer-overflow", overflows);
+      });
+      if (!this._composerResizeAttached) {
+        this._composerResizeAttached = true;
+        window.addEventListener("resize", () => this.updateComposerOverflow());
+      }
     },
 
     /** Open the All Reports page · cross-room brief index in a card
@@ -4983,16 +5082,34 @@
       }
     },
 
-    /** Single reading-list row · room kicker, title, judgement excerpt,
+    /** Single reading-list row · room kicker, title, subtitle excerpt,
      *  meta tail. No card chrome — entries are separated by a hairline
-     *  inside the list. */
+     *  inside the list.
+     *
+     *  Subtitle source by mode:
+     *    · Report     → bodyJson.bottomLine.judgement
+     *    · Magazine   → bodyJson.kicker
+     *    · Newspaper  → bodyJson.kicker
+     *  All three fall back to a cleaned-up first content paragraph
+     *  from bodyMd if the structured field is missing. */
     renderReportItemHtml(b) {
       const json = b.bodyJson || {};
       const bottomLine = json.bottomLine || {};
-      const judgement = (bottomLine.judgement || "").trim() || (b.bodyMd || "").slice(0, 240);
+      // Pull the right subtitle for this mode. Magazine / newspaper
+      // carry their deck/lede text in `kicker`; Report carries it
+      // in `bottomLine.judgement`. Either may be missing on legacy
+      // / partial briefs — fall back to the first prose paragraph
+      // from bodyMd.
+      const subtitle = (
+        (bottomLine.judgement || "").trim() ||
+        (json.kicker || "").trim() ||
+        this._extractBriefExcerpt(b.bodyMd) ||
+        ""
+      );
       const time = this.relTime(b.createdAt) || "";
       const roomLabel = b.roomName || b.roomSubject || "—";
       const roomNumLabel = b.roomNumber != null ? `#${String(b.roomNumber).padStart(3, "0")}` : "";
+      const typeLabel = this.briefModeLabel(b);
       const findingsCount = Array.isArray(json.headlineFindings) ? json.headlineFindings.length : 0;
       const positionsCount = Array.isArray(json.positions) ? json.positions.length : 0;
       const metaParts = [];
@@ -5009,14 +5126,43 @@
               <span class="reports-item-num">${this.escape(roomNumLabel)}</span>
               <span class="reports-item-sep">·</span>
               <span class="reports-item-room">${this.escape(roomLabel)}</span>
+              <span class="reports-item-sep">·</span>
+              <span class="reports-item-type" data-mode="${this.escape(((b && b.mode) || "research-note").toLowerCase())}">${this.escape(typeLabel)}</span>
               <span class="reports-item-time">${this.escape(time)}</span>
             </div>
             <h3 class="reports-item-title">${this.escape(b.title || "Untitled brief")}</h3>
-            ${judgement ? `<p class="reports-item-judgement">${this.escape(judgement)}</p>` : ""}
+            ${subtitle ? `<p class="reports-item-judgement">${this.escape(subtitle)}</p>` : ""}
             ${metaHtml}
           </a>
         </li>
       `;
+    },
+
+    /** Pull the first prose paragraph from a brief's bodyMd as a
+     *  subtitle fallback. Skips markdown headers, code fences, table
+     *  rows, list markers, blockquotes — finds the first content line
+     *  that reads as prose. Strips inline markdown (bold/italic/code/
+     *  link syntax) so the excerpt reads as plain text. */
+    _extractBriefExcerpt(md) {
+      if (!md || typeof md !== "string") return "";
+      const lines = md.split("\n");
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        if (t.startsWith("#")) continue;       // markdown heading
+        if (t.startsWith("```")) continue;     // code fence
+        if (t.startsWith("|") || /^[-=]{3,}$/.test(t)) continue; // table / hr
+        if (t.startsWith("> ")) continue;      // blockquote
+        if (/^[-*+]\s/.test(t)) continue;      // list item
+        if (/^\d+\.\s/.test(t)) continue;      // ordered list item
+        const cleaned = t
+          .replace(/\*\*([^*]+)\*\*/g, "$1")
+          .replace(/\*([^*]+)\*/g, "$1")
+          .replace(/`([^`]+)`/g, "$1")
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+        if (cleaned.length >= 12) return cleaned.slice(0, 240);
+      }
+      return md.slice(0, 240).replace(/\s+/g, " ").trim();
     },
 
     // ── All Notes view · chairman's notes index ───────────────
@@ -5697,10 +5843,12 @@
       // of which composer we're switching to.
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
-      // If the URL still carries the All-Reports hash from a prior
-      // navigation, drop it — otherwise refresh would bounce the user
-      // back to the reports view.
-      if (/^#\/reports$/i.test(location.hash || "")) {
+      // If the URL still carries an All-Reports / All-Notes hash from
+      // a prior navigation, drop it — otherwise refresh would bounce
+      // the user back to that view (handleRoute matches the hash on
+      // boot and beats the sidebar-restore path that would otherwise
+      // honour ROOMS_KEY="new").
+      if (/^#\/(reports|notes)$/i.test(location.hash || "")) {
         try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
       }
 
@@ -5741,7 +5889,7 @@
       const t = {
         greet: greeting,
         prompt: "What's on your mind today?",
-        placeholder: "an idea you're not sure about · a decision you keep avoiding · a thesis you want stress-tested",
+        placeholder: "An idea you're not sure about, a decision you keep avoiding, or a thesis you want stress-tested. e.g. Should we lean into mid-market or stay enterprise-only? Or: What's the strongest argument against shipping the self-serve tier next quarter?",
         convene: "Convene",
         tuneLabel: "tune",
         starterLabel: "starter",
@@ -7486,18 +7634,16 @@
 
       const tone = r.mode || "constructive";
       const intensity = r.intensity || "sharp";
-      const style = r.briefStyle || "auto";
 
-      // Status timestamp — what was on the right (paused-stamp / stamp) now
-      // lives inline in the meta row.
-      let stamp = "";
-      if (r.status === "paused" && r.pausedAt) {
-        stamp = `paused ${this.relTime(r.pausedAt)} ago`;
-      } else if (r.status === "adjourned" && r.adjournedAt) {
-        stamp = `adjourned ${this.relTime(r.adjournedAt)} ago`;
-      } else if (r.status === "live" && r.createdAt) {
-        stamp = `opened ${this.relTime(r.createdAt)} ago`;
-      }
+      // Status word for the kicker · the coloured glyph (●/❚❚/▣) is
+      // drawn via CSS `::before` on `.kicker-status.status-{state}`
+      // so all the styling lives next to the colour rule.
+      const statusWord = (
+        r.status === "paused" ? "PAUSED" :
+        r.status === "adjourned" ? "ADJOURNED" :
+        r.status === "live" ? "LIVE" :
+        ""
+      );
 
       // Three primary actions, one per state — CSS hides the wrong ones based
       // on html[data-status]. Per PRD §5.2.3:
@@ -7510,20 +7656,24 @@
       // the DOM stays stable; the collapsed state flips room-head's
       // grid template to a 3-track layout so this button takes the
       // leading auto-track slot.
+      //
+      // Compact two-row layout: kicker (mono, all the meta) + subject.
+      // Replaces the prior three-row stack (badge+id / subject /
+      // tagged-meta-pills) — net height reduction ~150 → ~85px.
+      // Tone / intensity / brief-style remain editable in the room
+      // settings overlay; only their on-header surface is collapsed.
       head.innerHTML = `
         <button type="button" class="room-head-expand" data-sidebar-expand title="Expand sidebar" aria-label="Expand sidebar"></button>
         <div class="room-info">
-          <div class="room-id">
-            <span class="room-name">Meeting Room</span>
-            <span class="session-num">// ROOM #${r.number} · ${this.escape(tone.toUpperCase())}</span>
+          <div class="room-kicker">
+            <span class="kicker-num">// ROOM #${r.number}</span>
+            <span class="kicker-sep">·</span>
+            <span class="kicker-tone" data-tone-tip="${this.escape(TONE_TIPS[tone] || "")}">${this.escape(tone.toUpperCase())}</span>
+            <span class="kicker-sep">·</span>
+            <span class="kicker-intensity">${this.escape(intensity.toUpperCase())}</span>
+            ${statusWord ? `<span class="kicker-sep">·</span><span class="kicker-status status-${this.escape(r.status)}">${statusWord}</span>` : ""}
           </div>
           <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(r.subject)}</h1>
-          <div class="room-meta" data-room-meta>
-            <span class="meta-tag tag-tone" data-tone-tip="${this.escape(TONE_TIPS[tone] || "")}"><span class="k">tone</span><span class="v">${this.escape(tone)}</span></span>
-            <span class="meta-tag tag-intensity"><span class="k">intensity</span><span class="v">${this.escape(intensity)}</span></span>
-            <span class="meta-tag tag-report"><span class="k">report</span><span class="v">${this.escape(style)}</span></span>
-            ${stamp ? `<span class="meta-stamp">${this.escape(stamp)}</span>` : ""}
-          </div>
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
@@ -7556,8 +7706,9 @@
       // overflow:hidden chain (.main / .main-view both clip absolutely-
       // positioned descendants and CAN'T be relaxed without breaking
       // chat scroll). Body-attached fixed-position tooltip is the only
-      // reliable approach.
-      const toneTag = head.querySelector(".meta-tag.tag-tone[data-tone-tip]");
+      // reliable approach. Anchor moved from the old .meta-tag pill to
+      // .kicker-tone in the compact two-row header.
+      const toneTag = head.querySelector(".kicker-tone[data-tone-tip]");
       if (toneTag) {
         toneTag.addEventListener("mouseenter", () => this.showToneTip(toneTag));
         toneTag.addEventListener("mouseleave", () => this.hideToneTip());
@@ -7602,6 +7753,14 @@
     renderChat() {
       const chat = document.querySelector("[data-chat-messages]");
       if (!chat) return;
+      // Strip the composer-centring class · real chat messages take
+      // over `[data-chat-messages]` here, and chat-message mode wants
+      // the default top-flow scroll (messages stack from the top).
+      const chatScroller = chat.closest(".chat");
+      if (chatScroller) {
+        chatScroller.classList.remove("chat--composer");
+        chatScroller.classList.remove("chat--composer-overflow");
+      }
       const messages = this.currentMessages.slice();
       const r = this.currentRoom;
       const banner = r
@@ -8132,7 +8291,7 @@
         // tight (~4 lines of body text) so even mid-length openers
         // collapse — the user can always one-click to read the full
         // text. Toggle handler lives at doc level (see init).
-        const isLongOpener = (m.body || "").length > 100;
+        const isLongOpener = (m.body || "").length > 80;
         // Follow-up rooms get an "origin" row above the question that
         // names the parent room (number + subject) and links back to
         // it via the hash route. Without this, a follow-up looks
@@ -9074,10 +9233,11 @@
         ? "GENERATING…"
         : "FILED · " + (b.createdAt ? this.timeFmt(b.createdAt) : this.timeFmt(Date.now()));
 
-      // Open Report URL · routes to /bento.html for bento briefs and
-      // /report.html for research-note briefs (default). The bento
-      // renderer doesn't need the room id so the URL is shorter for
-      // that mode.
+      // Open Report URL · routes to /magazine.html or /newspaper.html
+      // for the structured modes and /report.html for research-note
+      // briefs (default). The structured renderers don't need the
+      // room id so the URL is shorter for those modes. See
+      // briefViewerHref for the routing table.
       const reportHref = this.briefViewerHref(b, this.currentRoomId)
         || (this.currentRoomId ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}` : null);
 
@@ -9221,19 +9381,6 @@
           "Drafting the Strategic Planning Assumption",
           "Polishing the final pass",
         ],
-        // Bento's `write` stage does different work · one chair-LLM
-        // call that compresses the room into the 8-slot bento layout.
-        // Keyed under `bento-write` and selected at render time when
-        // the brief's mode is bento.
-        "bento-write": [
-          "Compressing to the takeaway · the 1-line title",
-          "Picking the 3 milestones",
-          "Sizing the big-number callouts",
-          "Mapping ranked bars from the room's data",
-          "Distilling the verification signals",
-          "Compressing recommendations into elevator-pitch lines",
-          "Naming the closing flow · before → after",
-        ],
         // Magazine mode · same single-pass chair-LLM call but the
         // emphasis is on editorial cover-line composition rather
         // than infographic compression. Keyed under `magazine-write`
@@ -9258,6 +9405,18 @@
           "Drafting the bottom-line callout",
           "Stacking the more-headings sidebar",
           "Stamping the masthead date",
+        ],
+        // PPT mode · same single-pass chair-LLM call · biases toward
+        // slide-friendly short claims and one-idea-per-slide content.
+        // Keyed under `ppt-write` and selected at render time when
+        // the brief's mode is ppt.
+        "ppt-write": [
+          "Drafting the cover slide",
+          "Sketching the agenda",
+          "Writing milestone slides",
+          "Compressing recommendations to bullets",
+          "Sizing the data callouts",
+          "Stamping the closing takeaway",
         ],
       },
       // System UI · always English. The `zh` key is kept as an alias
@@ -9430,9 +9589,9 @@
       // pipeline labels are the app's voice (chrome around the
       // generation), not the report content itself.
       const STRUCTURED_WRITE_LABELS = {
-        bento: "Composing the bento",
         magazine: "Composing the magazine",
         newspaper: "Composing the newspaper",
+        ppt: "Composing the deck",
       };
       const STAGE_DEFS = this.isStructuredBriefMode(b.mode)
         ? [
@@ -9499,15 +9658,12 @@
       }
 
       // Rotating sub-line · advances every 3s within the active stage.
-      // Bento mode's `write` stage does different work than the
-      // research-note `write` stage — pick its dedicated rotator
-      // (`bento-write`) when active. Falls through to the regular
-      // key for every other stage / mode.
-      let substageText = "";
       // Structured-mode write stages get their own rotator copy
-      // ("bento-write" / "magazine-write" / "newspaper-write") since
-      // the work is different from research-note's chapter-by-chapter
-      // write.
+      // (`magazine-write` / `newspaper-write`) since the work is
+      // different from research-note's chapter-by-chapter write.
+      // Falls through to the regular stage key for every other
+      // stage / mode.
+      let substageText = "";
       let subKey = activeDef.key;
       if (activeDef.key === "write" && this.isStructuredBriefMode(b.mode)) {
         subKey = `${b.mode}-write`;

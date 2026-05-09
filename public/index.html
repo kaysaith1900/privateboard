@@ -166,13 +166,22 @@
   .body-grid {
     display: grid;
     grid-template-columns: var(--sidebar-w) 8px 1fr;
+    grid-template-rows: 1fr;
     gap: 0;
     overflow: hidden;
     min-height: 0;
     /* `position: relative` so the floating sidebar-expand-btn
        (absolute-positioned) anchors to the body-grid's top-left
        edge — which, after the topbar's retirement, is the viewport's
-       top-left under the 8px page padding. */
+       top-left under the 8px page padding.
+       `grid-template-rows: 1fr` is the load-bearing fix that lets
+       the height chain reach all the way down to `[data-chat-messages]`.
+       Without it the implicit row is `auto` (= content height), so
+       `.main`/`.main-view`/`.body`/`.chat-col`/`.chat` all collapse
+       to content size — and any centring rule on `.chat` has no free
+       space to work with. With `1fr`, every flex/grid layer below
+       inherits a viewport-relative height and the composer can
+       actually centre vertically inside `.chat`. */
     position: relative;
   }
 
@@ -647,23 +656,49 @@
     align-items: center;
     justify-content: center;
   }
-  /* CHAIR badge · outlined hairline pill, cyan accent only · this is
-     the one place the chair's color signal lives. Quieter than the
-     prior solid-cyan-fill which painted itself across the row. */
+  /* CHAIR badge · pure typographic kicker, no pill geometry.
+     Earlier this was an outlined hairline pill (cyan border + cyan
+     text + transparent fill) — the only colored hairline box
+     anywhere on the page, so it read as a sticker rather than part
+     of the design system. The refined treatment drops border /
+     background / padding / radius and keeps the chair's identity
+     signal in pure typography:
+       · mono uppercase, generous letter-spacing (matches section
+         headers, brief banner kickers, time tags)
+       · cyan color (the chair's accent stays)
+       · em-dash sigil prefix separates it from the title — soft
+         enough to feel like part of the same line, distinct enough
+         that the eye lands on it as a label, not a name fragment
+       · weight 600 (one notch below 700) so it doesn't compete
+         with the title's emphasis
+     The avatar already carries the `⊘` immutability cue and the
+     section header already says "Chair", so this badge is now the
+     quietest possible identity stamp instead of a third tier of
+     decoration. */
   .agent-row .agent-row-chair-badge {
     font-family: var(--mono);
-    font-size: 8.5px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
-    padding: 1px 6px;
-    color: var(--cyan, #6A9B97);
+    /* Track the active theme's primary accent — `--lime` remaps per
+       theme (gold in regent, blue in apple, red in pinterest,
+       magenta in amuse, etc.). The earlier `--cyan` was static and
+       clashed in themes whose palette didn't include teal. */
+    color: var(--lime);
     background: transparent;
-    border: 0.5px solid var(--cyan, #6A9B97);
-    border-radius: 2px;
+    border: none;
+    padding: 0;
     white-space: nowrap;
     align-self: center;
     margin-left: auto;
+  }
+  .agent-row .agent-row-chair-badge::before {
+    content: "—";
+    color: var(--text-faint);
+    margin-right: 8px;
+    font-weight: 400;
+    letter-spacing: 0;
   }
   .agent-row .agent-row-chair-role { color: var(--text-soft); font-weight: 600; }
   .agent-row .agent-row-chair-note { color: var(--text-faint); }
@@ -943,6 +978,13 @@
     opacity: 1;
     color: var(--lime);
   }
+  /* Pinned · the lime pin glyph stays visible permanently, so the
+     in-flow time tag has to hide too — otherwise the two stack on
+     the right edge (pin + "7h" overlapping in the same 18px slot).
+     The hover rule above only handles hover; pinned rows live in
+     "always visible" state and need their own hide. */
+  .agent-row.pinned .agent-row-time,
+  .session-row.pinned .row-time { visibility: hidden; }
 
   /* The shell wraps the link + delete button as siblings so the click on
      the X button doesn't get absorbed by the anchor's navigation.
@@ -1262,6 +1304,7 @@
     grid-template-rows: auto 1fr auto;
     overflow: hidden;
     min-height: 0;
+    height: 100%;
   }
   .main-view[data-main-view="agent"] {
     /* Switch from grid to block so the profile card flows naturally
@@ -1514,6 +1557,18 @@
     color: var(--text-faint);
     letter-spacing: 0.06em;
   }
+  /* Report-mode type chip in the kicker line · "REPORT" / "BENTO" /
+     "MAGAZINE" / "NEWSPAPER". Mono register matching the kicker.
+     Slight color shift per mode so the type is glanceable without
+     being a heavy badge. */
+  .reports-item-type {
+    color: var(--text-soft);
+    letter-spacing: 0.16em;
+    font-weight: 700;
+  }
+  .reports-item-type[data-mode="magazine"]  { color: var(--amber, #C8A36F); }
+  .reports-item-type[data-mode="newspaper"] { color: var(--text); }
+  .reports-item-type[data-mode="ppt"]       { color: var(--cyan, #6FC3C8); }
   .reports-item-sep {
     color: var(--text-faint);
     opacity: 0.7;
@@ -2117,15 +2172,17 @@
     .notes-item-subject { max-width: 160px; }
   }
 
-  /* Room head — generously padded so the title has breathing
-     room above and below. */
+  /* Room head — compact register · the title is the only
+     vertical anchor users actually read here, so we keep the
+     padding moderately tight while still leaving the kicker +
+     title pair some breathing room. */
   .room-head {
     background: var(--panel-2);
     border-bottom: 0.5px solid var(--line-bright);
-    padding: 16px 18px;
+    padding: 11px 16px;
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 14px;
+    gap: 12px;
     align-items: center;
   }
   /* When the sidebar is collapsed the room-head gains a leading
@@ -2144,36 +2201,51 @@
      at this level. */
   .room-info { min-width: 0; overflow: visible; }
 
-  .room-id {
+  /* ─── Compact kicker · single mono line at top of room-head ───
+     Replaces the prior `.room-id` row (`MEETING ROOM` badge +
+     `// ROOM #N · TONE`) AND the `.room-meta` row (tone/intensity/
+     report tagged pills + status stamp). Net: three stacked rows
+     collapse into one. Tone / intensity / brief-style remain
+     editable in the room-settings overlay. */
+  .room-kicker {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-  .room-name {
+    gap: 6px;
+    font-family: var(--mono);
     font-size: 9.5px;
-    color: var(--bg);
-    background: var(--lime);
-    padding: 1px 7px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-weight: 700;
-  }
-  .session-num {
-    font-size: 9.5px;
     color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    margin-bottom: 5px;
+    flex-wrap: wrap;
+    font-weight: 700;
+    line-height: 1.3;
   }
+  .kicker-num       { color: var(--text-soft); }
+  .kicker-tone      { color: var(--lime); cursor: help; }
+  .kicker-intensity { color: var(--amber); }
+  .kicker-sep       { color: var(--text-faint); opacity: 0.6; }
+  .kicker-status    { display: inline-flex; align-items: center; gap: 5px; }
+  .kicker-status::before {
+    font-size: 11px;
+    line-height: 1;
+    display: inline-block;
+  }
+  .kicker-status.status-live              { color: var(--lime); }
+  .kicker-status.status-live::before      { content: "●"; font-size: 7px; animation: pulse 1.5s infinite; }
+  .kicker-status.status-paused            { color: var(--amber); }
+  .kicker-status.status-paused::before    { content: "❚❚"; font-size: 9px; letter-spacing: -0.1em; }
+  .kicker-status.status-adjourned         { color: var(--text-dim); }
+  .kicker-status.status-adjourned::before { content: "▣"; font-size: 10px; }
 
   .room-subject {
-    font-size: 17px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text);
     line-height: 1.3;
-    margin-bottom: 10px;
+    margin-bottom: 0;
     font-family: var(--sans);
-    letter-spacing: -0.012em;
+    letter-spacing: -0.005em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2262,64 +2334,18 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* ─── Room subtitle / meta line ───
-     Compact tag row beneath the room subject. */
-  .room-meta {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px 8px;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    line-height: 1.4;
-  }
-  .room-meta .meta-stamp {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 8px;
-    border: 0.5px solid var(--lime-dim);
-    background: var(--panel);
-    color: var(--lime);
-    font-weight: 700;
-    font-size: 9.5px;
-    letter-spacing: 0.06em;
-    text-transform: lowercase;
-  }
-  .room-meta .meta-stamp::before {
-    content: "●";
-    font-size: 7px;
-    line-height: 1;
-    color: var(--lime);
-    animation: pulse 1.5s infinite;
-  }
-  html[data-status="paused"] .room-meta .meta-stamp {
-    color: var(--amber);
-    border-color: var(--amber-dim);
-  }
-  html[data-status="paused"] .room-meta .meta-stamp::before {
-    content: "❚❚";
-    color: var(--amber);
-    animation: none;
-  }
-  html[data-status="adjourned"] .room-meta .meta-stamp {
-    color: var(--text-soft);
-    border-color: var(--line-bright);
-  }
-  html[data-status="adjourned"] .room-meta .meta-stamp::before {
-    content: "▣";
-    color: var(--text-soft);
-    animation: none;
-  }
+  /* `.room-meta` / `.meta-stamp` — REMOVED. The tone/intensity/
+     report tags + status stamp that lived in this row are now
+     part of `.room-kicker` (single mono line above the subject).
+     Tone / intensity / brief style remain editable in the
+     room-settings overlay. */
 
   .head-actions { display: flex; align-items: center; gap: 6px; }
   .head-cast { display: flex; align-items: center; }
-  /* Avatar size matches the settings icon (26px square) so the row of
-     director portraits, the count tile, and the ⚙ button all read as
-     one toolbar at consistent height. */
+  /* Avatar size aligned with the new compact header rhythm (22px) ·
+     keeps the toolbar height in proportion to the 14px title. */
   .head-cast img {
-    width: 26px; height: 26px;
+    width: 22px; height: 22px;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     border: 0.5px solid var(--line-strong);
@@ -2334,9 +2360,9 @@
   /* Stacked count tile · sits at the end of the avatar cascade and
      matches the avatar height so the row stays flush. */
   .head-cast .cast-count {
-    height: 26px;
-    min-width: 26px;
-    padding: 0 6px;
+    height: 22px;
+    min-width: 22px;
+    padding: 0 5px;
     background: var(--panel-3);
     color: var(--text);
     border: 0.5px solid var(--lime-dim);
@@ -2345,7 +2371,7 @@
     align-items: center;
     justify-content: center;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0;
   }
@@ -2760,7 +2786,7 @@
     text-transform: uppercase;
     color: var(--lime);
   }
-  /* Mode chip · "Report" / "Bento" / "Magazine" / "Newspaper".
+  /* Mode chip · "Report" / "Magazine" / "Newspaper".
      Sits between the // report kicker and the FILED stamp, styled as
      a hairline mono pill so the user sees the report type at a glance
      without it competing with the kicker for primary emphasis.
@@ -3605,13 +3631,56 @@
     margin-bottom: 18px;
     font-family: var(--mono);
   }
+  /* Subject · clamp to 2 lines by default. The Show more / less
+     toggle is rendered hidden and unhidden by the follow-up
+     overlay's post-mount measurement only when the text actually
+     overflows. Mirrors the adjourn-overlay / room-settings clamp
+     pattern so all three modals read identically. */
   .followup-parent-subject {
     font-size: 13px;
     font-weight: 600;
     color: var(--text);
     line-height: 1.4;
     margin-bottom: 4px;
+    word-break: break-word;
   }
+  .followup-parent-subject.is-clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Meta row · single line that pairs the Show more toggle (left,
+     when present) with the adjourned-time / brief-count meta
+     (right). `margin-left: auto` on the meta keeps it pinned to
+     the right edge regardless of whether the toggle is shown, so
+     the meta doesn't shift between states. */
+  .followup-parent-meta-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .followup-parent-meta-row .followup-parent-meta {
+    margin-left: auto;
+    margin-bottom: 0;
+  }
+  .followup-parent-subject-toggle {
+    appearance: none;
+    background: transparent;
+    border: none;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.12s;
+  }
+  .followup-parent-subject-toggle:hover { color: var(--lime); }
+  .followup-parent-subject-toggle::before { content: "[ "; color: var(--text-faint); }
+  .followup-parent-subject-toggle::after  { content: " ]"; color: var(--text-faint); }
   .followup-parent-meta {
     font-size: 10px;
     color: var(--text-soft);
@@ -4175,12 +4244,29 @@
   html[data-status="adjourned"] .paused-bar { display: none; }
 
   /* Body · single chat column. Live-notes panel was removed, so there's
-     no right-side resizer or aside to apportion space for. */
+     no right-side resizer or aside to apportion space for.
+     `grid-template-rows: 1fr` is required so the implicit row stretches
+     to body's height instead of collapsing to content height. Without
+     it, .chat-col would be only as tall as its visible children, and
+     .chat (`flex: 1 1 auto`) would have nothing to grow into — making
+     [data-chat-messages] sit flush at the top of a content-sized
+     chat. With `1fr`, .chat-col fills body, .chat fills chat-col, and
+     vertical centring of the composer inside .chat actually has free
+     space to work with. */
   .body {
     display: grid;
     grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
     overflow: hidden;
     min-height: 0;
+    height: 100%;
+    /* Pin to .main-view's 1fr row · without this, when room-head is
+       :empty + display:none (composer mode), .body becomes the first
+       non-hidden grid child and auto-flows into row 1 (auto), where
+       it collapses to content height. Vertical centring then has no
+       free space. Explicit grid-row: 2 keeps .body in the 1fr row
+       regardless of whether room-head is visible. */
+    grid-row: 2;
   }
 
   /* Chat (zen plain text) */
@@ -7022,14 +7108,76 @@
      edge so the page has one clear focal point. Refined: generous
      vertical rhythm, single-accent colour discipline, mono micro-type
      paired with serif-leaning sans display. ─── */
+  /* Composer (new-room AND new-agent) shared rhythm.
+     Vertical centring is split across two modes:
+       · Default (`.chat.chat--composer`, content fits viewport) ·
+         the chat is `display: grid; align-content: center` so the
+         whole .cmp block sits in the visual centre.
+       · Overflow (`.chat.chat--composer.chat--composer-overflow`,
+         JS-toggled when `cmp.scrollHeight > chat.clientHeight`) ·
+         the chat switches to block flow + scroll, .cmp-fold (hero
+         + input) is min-height ≈ 100vh with content centred inside,
+         and .cmp-starters flow below as scrollable extras. Title +
+         input stay visually centred on initial paint regardless of
+         viewport height; starter cards live below the fold.
+     Padding stays modest because vertical position no longer comes
+     from top padding; it's just breathing room around the cmp box.
+     Keep both composers in lock-step by editing here only. */
   .cmp {
     max-width: 760px;
     margin: 0 auto;
-    padding: 88px 32px 96px;
+    padding: 32px 32px;
+    width: 100%;
+  }
+  /* Default composer mode (content fits viewport).
+     Toggled by JS via `.chat--composer` (added in
+     renderEmptyState; removed in renderChat). The
+     `.chat--composer-overflow` variant below handles the case
+     where the composer is taller than .chat. */
+  .chat.chat--composer {
+    /* Grid centring · `align-content: center` is the most reliable
+       cross-browser way to vertically centre a grid track. Beats
+       flex auto-margins (which can resolve to 0 if any parent in
+       the chain doesn't propagate height correctly) and beats
+       `justify-content: safe center` (the `safe` keyword can
+       silently invalidate the whole declaration in older browsers).
+       When content overflows, the grid item still scrolls naturally
+       inside .chat's `overflow-y: auto`. */
+    display: grid !important;
+    align-content: center !important;
+    justify-items: stretch !important;
+  }
+  .chat.chat--composer > [data-chat-messages] {
+    width: 100% !important;
+  }
+  .chat.chat--composer > [data-brief-card] {
+    /* In composer mode the brief-card is empty · hide it so it
+       doesn't claim a grid row that throws off the centring. */
+    display: none !important;
+  }
+  /* Overflow mode · when .cmp's natural height exceeds .chat's height,
+     centring the entire composer block would clip the title above the
+     scroll area. Instead, push the .cmp's top down with a viewport-
+     relative padding-top so hero + input sit at the visual centre of
+     the viewport on initial paint; .cmp-starters fall below the input
+     in normal document flow with the SAME spacing as the fits case
+     (no `justify-content: center` void zone). Approximation: hero +
+     input combined ≈ 220px tall, so half ≈ 110px; padding-top of
+     `50vh - 110px` puts the hero+input vertical midpoint at 50vh.
+     `max(32px, …)` keeps the original padding floor on tiny viewports
+     where the calc would go negative.
+     Toggled by JS (updateComposerOverflow) on render + resize. */
+  .chat.chat--composer.chat--composer-overflow {
+    display: block !important;
+    align-content: initial !important;
+    overflow-y: auto;
+  }
+  .chat.chat--composer.chat--composer-overflow .cmp {
+    padding-top: max(32px, calc(50vh - 110px));
   }
   .cmp-hero {
     text-align: center;
-    margin-bottom: 36px;
+    margin-bottom: 22px;
   }
   .cmp-greet {
     font-family: var(--mono);
@@ -7038,11 +7186,11 @@
     text-transform: uppercase;
     color: var(--text-faint);
     font-weight: 700;
-    margin-bottom: 22px;
+    margin-bottom: 14px;
   }
   .cmp-prompt {
     font-family: var(--font-human);
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 600;
     color: var(--text);
     line-height: 1.2;
@@ -7087,7 +7235,13 @@
   }
 
   /* Toolbar inside input frame · cast on left, tune in the middle,
-     convene on the right. Hairline divider above. */
+     convene on the right. Hairline divider above. min-height pinned
+     to the room composer's natural height (driven by the 22px cast
+     avatars + button padding) so the agent composer's toolbar — which
+     has no avatar-bearing button — grows to match. Without this the
+     agent input frame is a few pixels shorter than the room frame.
+     Box-sizing is border-box (universal in this project), so the
+     min-height includes the 8px+8px vertical padding. */
   .cmp-toolbar {
     display: flex;
     align-items: center;
@@ -7095,6 +7249,7 @@
     padding: 8px 8px 8px 14px;
     border-top: 0.5px solid var(--line);
     background: var(--panel-2);
+    min-height: 48px;
   }
 
   .cmp-cast-btn {
@@ -7430,7 +7585,7 @@
      accent borders. Just hairline-separated rows that brighten on
      hover, with the arrow turning lime — the only visual reward. */
   .cmp-starters {
-    margin-top: 56px;
+    margin-top: 28px;
   }
   .cmp-starters-rule {
     display: flex;
@@ -7461,7 +7616,7 @@
     gap: 16px;
     align-items: center;
     width: 100%;
-    padding: 14px 4px;
+    padding: 10px 4px;
     background: transparent;
     border: none;
     border-bottom: 0.5px solid var(--line);
@@ -7507,7 +7662,10 @@
   /* ─── New-agent composer · variant of the new-room composer.
      Reuses .cmp / .cmp-* classes for the hero + input frame; adds
      ag-cmp-* for agent-specific bits and ag-prev-* for the editable
-     spec preview card that appears after AI generation. ─── */
+     spec preview card that appears after AI generation. The vertical
+     rhythm (padding, hero/starter margins, starter card density) is
+     SHARED with the new-room composer via the base .cmp rules — so
+     edits land in one place and both composers stay in sync. ─── */
   .ag-cmp .cmp-toolbar {
     /* Model + manual buttons sit at the left, Generate hugs the right
        via margin-left: auto on .cmp-go. No justify-content override
@@ -8638,12 +8796,12 @@
 
   /* Long-opener clamp · when the user wrote more than a sentence of
      context, the card would otherwise dominate the viewport. We
-     clamp the body to ~2.5 lines with a fade-out overlay; a
+     clamp the body to 2 lines with a fade-out overlay; a
      `<button data-convene-toggle>` below toggles `.expanded` on the
-     opener parent to reveal the rest. 2.5 × line-height (1.32 ×
-     19px ≈ 25px) = 63px. */
+     opener parent to reveal the rest. 2 × line-height (1.32 × 19px
+     ≈ 25px) = 50px. */
   .convene-opener-clamped:not(.expanded) .convene-body {
-    max-height: 63px;
+    max-height: 50px;
     overflow: hidden;
     position: relative;
   }
@@ -8653,7 +8811,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    height: 32px;
+    height: 24px;
     background: linear-gradient(to bottom, transparent, var(--panel-2));
     pointer-events: none;
   }
@@ -8956,6 +9114,7 @@
     min-height: 0;
     overflow: hidden;
     background: var(--panel);
+    height: 100%;
   }
 
   /* Input bar — sits inside the chat column. Live state hosts a
@@ -9577,13 +9736,27 @@
     io.observe(hint);
   })();
 
-  /* ─── Pin toggle (visual demo) ─── */
+  /* ─── Pin toggle ───
+     Two paths: agent rows persist via PATCH /api/agents/:id { isPinned }
+     through `app.togglePinAgent`, which mutates local state and
+     re-renders the sidebar so the row moves into the Pinned bucket.
+     Session (room) rows fall through to a visual-only toggle for now —
+     room pinning isn't a backend feature yet, so the class flip is a
+     placeholder that will go away once it lands. */
   (function () {
     document.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-pin-toggle]");
       if (!btn) return;
       e.preventDefault();
       e.stopPropagation();
+      // Agent row · persist the pin via the API and let the sidebar
+      // re-render rebuild the Pinned / Custom / Core buckets.
+      const agentShell = btn.closest(".agent-row-shell[data-agent-id]");
+      if (agentShell && window.app && typeof window.app.togglePinAgent === "function") {
+        window.app.togglePinAgent(agentShell.dataset.agentId);
+        return;
+      }
+      // Fallback · session-row (room pinning is visual-only for now).
       const row = btn.closest(".session-row, .agent-row");
       if (!row) return;
       row.classList.toggle("pinned");
@@ -9732,35 +9905,36 @@
       });
 
       if (which === "rooms") {
-        // Resolve which sub-state to apply. The room id ROOMS_KEY
-        // points to is the user's explicit choice when set; on
-        // user-driven tab switches we additionally prefer the last
-        // actually-opened room over a blank "new"-composer landing,
-        // so re-entering the Rooms tab feels continuous (selection
-        // restored) instead of resetting. Initial-load (refresh /
-        // boot) keeps the legacy "lands on composer" intent so a
-        // fresh user without prior history sees the new-room invite.
+        // Resolve which sub-state to apply. ROOMS_KEY is the user's
+        // explicit choice — preserve it on every nav (tab click,
+        // refresh, deep-link). All four sub-states are first-class:
+        // an explicit room id, "new" (composer), "reports", "notes".
+        //
+        // Earlier the fromTabClick path overrode saved="new" with
+        // ROOMS_LAST_KEY, on the theory that "re-entering the Rooms
+        // tab should feel continuous." In practice that broke the
+        // user's expectation: pick "+ New Room", switch to Agents
+        // tab, switch back, lands on a different room. The user's
+        // mental model is "the sidebar remembers what I last clicked"
+        // — so "new" is now sticky just like "reports" / "notes".
+        // Fallback to the last-opened room (or first row) only fires
+        // when there's no saved sub-state at all.
         const saved = lsGet(ROOMS_KEY);
         let target;
         if (saved && saved !== "new" && saved !== "reports" && saved !== "notes") {
           target = saved; // explicit room id
-        } else if (saved === "reports" || saved === "notes") {
-          target = saved; // cross-room destinations preserve on any nav
+        } else if (saved === "reports" || saved === "notes" || saved === "new") {
+          target = saved; // explicit destination preserved on any nav
         } else if (fromTabClick) {
-          // User-driven tab switch · prefer the last actually-opened
-          // room (or first row) over the +New Room composer, so
-          // re-entering the Rooms tab feels continuous instead of
-          // resetting to the composer. The "new" intent only persists
-          // within the rooms tab — once the user leaves and returns,
-          // we surface their last room.
+          // No saved sub-state · fresh user clicking the tab. Prefer
+          // the last actually-opened room so the tab feels populated
+          // instead of bouncing them to a blank composer.
           const last = lsGet(ROOMS_LAST_KEY);
           if (last && document.querySelector(`.session-row-shell[data-room-id="${last}"]`)) {
             target = last;
           } else {
             target = firstRoomId() || "new";
           }
-        } else if (saved === "new") {
-          target = "new"; // initial load · preserve composer intent
         } else {
           target = "new"; // initial load with no history → composer
         }
@@ -9907,9 +10081,13 @@
       const tab = (savedTab && VALID_TABS.has(savedTab)) ? savedTab : "rooms";
       // Honor URL hash → if user came in with #/r/<id>, that's the
       // intended room; promote it to the rooms sub-state and switch
-      // to rooms tab regardless of saved tab.
+      // to rooms tab. BUT only when the saved tab isn't already
+      // "agents" — opening an agent profile doesn't update the URL
+      // hash, so a refresh on the agent page would otherwise get
+      // bounced to rooms by a leftover hash from the prior room
+      // view. Sticky agent tab beats stale-hash deep linking.
       const m = (location.hash || "").match(/^#\/r\/([a-z0-9]+)/i);
-      if (m && m[1]) {
+      if (m && m[1] && tab !== "agents") {
         lsSet(ROOMS_KEY, m[1]);
         lsSet(ROOMS_LAST_KEY, m[1]);
         activate("rooms", { persist: false });

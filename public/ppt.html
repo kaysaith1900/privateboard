@@ -1,0 +1,2623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=900, initial-scale=1">
+  <title>Slides · PrivateBoard</title>
+  <link rel="icon" href="/avatars/chair.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&display=swap" rel="stylesheet">
+  <style>
+  /* ═══════════════════════════════════════════════════════════════════
+     PPT · two distinct slide-deck templates picked deterministically:
+       · ANTHROPIC · research-note register · warm cream paper · mono
+         kickers above every section · roman serif headlines with
+         italic-clay <em> · italic lower-roman / decimal-leading-zero
+         numerals · top + bottom rules only (no border-left)
+       · KEYNOTE   · cinematic register · near-black slides · cream type
+         · big display serif · gold accent · one idea per slide
+     Both render 7-12 slides (cover · agenda · timeline · director
+     voices · milestones · data · consensus · conflicts · recommendations
+     · what to watch · takeaway). Reader steps through with arrow keys /
+     clicks / thumb strip / fullscreen.
+     ─────────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:           #0E0E10;
+    --paper:        #FFFFFF;
+    --paper-soft:   #F8F6EE;
+    --paper-edge:   #ECE7D6;
+    --ink:          #14110B;
+    --ink-soft:     #2D281D;
+    --ink-mid:      #5C5645;
+    --ink-faint:    #8B8470;
+    --ink-muted:    #B0A893;
+    --rule:         #D4CDB6;
+    --rule-strong:  #918966;
+    --accent:       #1A3A6B;
+    --accent-deep:  #0F2647;
+    --accent-soft:  #99B0CD;
+
+    --shadow-slide: 0 2px 8px rgba(0, 0, 0, 0.20),
+                    0 18px 48px rgba(0, 0, 0, 0.28);
+
+    --serif-display: "Playfair Display", "Tiempos Headline",
+                     "Bodoni 72", "Source Serif Pro", "Charter",
+                     Georgia, "Source Han Serif SC", "Songti SC",
+                     "STSong", serif;
+    --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
+             "Source Han Serif SC", Georgia, "Songti SC", "STSong", serif;
+    --sans:  "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont,
+             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+             "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
+    --mono:  "SF Mono", "JetBrains Mono", "Menlo",
+             "PingFang SC", "Source Han Sans CN", monospace;
+  }
+
+  body[data-ppt-variant="keynote"] {
+    --paper:       #0A0A0A;
+    --paper-soft:  #161514;
+    --paper-edge:  #2C2A26;
+    --ink:         #F4EFDF;
+    --ink-soft:    #C8C2AE;
+    --ink-mid:     #8A856F;
+    --ink-faint:   #5A5546;
+    --ink-muted:   #3F3B30;
+    --rule:        #2C2A26;
+    --rule-strong: #4A4738;
+    --accent:      #D4A24A;
+    --accent-deep: #A9802E;
+    --accent-soft: #E5BD78;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── Top chrome ───────────────────────────────────────────────── */
+  .ppt-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 28px;
+    background: rgba(14, 14, 16, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(244, 239, 223, 0.12);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    color: #F4EFDF;
+  }
+  .ppt-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: #F4EFDF;
+    text-decoration: none;
+  }
+  .ppt-crumb::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    background: #D4A24A;
+    flex: 0 0 auto;
+    border-radius: 50%;
+  }
+  .ppt-crumb-accent {
+    color: #8B8470;
+    font-style: italic;
+    font-weight: 400;
+  }
+  .ppt-actions { display: flex; gap: 8px; align-items: center; }
+  .ppt-counter {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: #C8C2AE;
+    margin-right: 14px;
+    min-width: 48px;
+    text-align: center;
+  }
+  .ppt-variant-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #E5BD78;
+    margin-right: 12px;
+    padding: 4px 10px;
+    background: rgba(244, 239, 223, 0.06);
+    border: 1px solid rgba(244, 239, 223, 0.16);
+  }
+  .ppt-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid rgba(244, 239, 223, 0.30);
+    color: #F4EFDF;
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
+  }
+  .ppt-btn:hover { background: #F4EFDF; color: #0E0E10; }
+  .ppt-btn .glyph { margin-right: 4px; }
+
+  /* ─── Stage · slide is centered with shadow ────────────────────── */
+  .ppt-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 60px - 100px);
+    padding: 28px 28px 16px;
+  }
+  .ppt-deck {
+    width: 100%;
+    max-width: 1120px;
+    aspect-ratio: 16 / 9;
+    position: relative;
+    box-shadow: var(--shadow-slide);
+  }
+  .ppt-slide {
+    position: absolute;
+    inset: 0;
+    background: var(--paper);
+    color: var(--ink);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .ppt-slide.is-active { display: flex; }
+  /* Click halves · invisible regions on each slide for prev / next
+     navigation. Sit above tile content with z-index lower than
+     chrome but above text · text is still selectable. */
+  .ppt-slide-click {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 18%;
+    z-index: 2;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    font: inherit;
+    color: inherit;
+    outline: none;
+  }
+  .ppt-slide-click:focus { outline: none; }
+  .ppt-slide-click:focus-visible { outline: none; }
+  .ppt-slide-click::-moz-focus-inner { border: 0; padding: 0; }
+  .ppt-slide-click.prev { left: 0; }
+  .ppt-slide-click.next { right: 0; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     ANTHROPIC-ESSAY variant · research-note register
+     · warm cream surface · mono kickers above every section
+     · roman serif H2 with italic-clay <em> emphasis
+     · italic lower-roman + decimal-leading-zero numerals
+     · top/bottom rules only — no border-left, no decorative chrome
+     ═══════════════════════════════════════════════════════════════ */
+
+  body[data-ppt-variant="anthropic"] {
+    --paper:       #F8F6EE;
+    --paper-soft:  #F1ECDB;
+    --paper-edge:  #E5DEC2;
+    --ink:         #14110B;
+    --ink-soft:    #2D281D;
+    --ink-mid:     #5C5645;
+    --ink-faint:   #8B8470;
+    --ink-muted:   #B0A893;
+    --rule:        #D4CDB6;
+    --rule-strong: #918966;
+    --accent:      #A0492C;
+    --accent-deep: #7E371F;
+    --accent-soft: #C97554;
+  }
+
+  body[data-ppt-variant="anthropic"] .ppt-slide {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    padding: 0;
+  }
+  /* Floating chrome · mono kicker top-left, counter bottom-right.
+     The slide itself is the focus · no top bar / no footer band. */
+  .ant-eye-top {
+    position: absolute;
+    top: 26px;
+    left: 56px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    z-index: 3;
+  }
+  .ant-foot {
+    position: absolute;
+    bottom: 26px;
+    left: 56px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    z-index: 3;
+  }
+  .ant-foot b {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    letter-spacing: 0;
+    font-size: 13px;
+    text-transform: none;
+    color: var(--ink);
+  }
+  .ant-counter {
+    position: absolute;
+    bottom: 26px;
+    right: 56px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    z-index: 3;
+  }
+  .ant-counter b {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Body container · 1080px max so essay-width text doesn't sprawl on
+     wide slides; padded generously top/bottom so kickers don't crowd
+     the chrome. */
+  .ant-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 72px 96px;
+    min-height: 0;
+    max-width: 1080px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .ant-headline {
+    font-family: var(--serif-display);
+    font-weight: 700;
+    font-size: 46px;
+    line-height: 1.1;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .ant-headline em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .ant-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin-top: 18px;
+    max-width: 880px;
+  }
+  .ant-deck em { color: var(--accent); }
+
+  /* Cover · hero serif title with italic emphasis · stat strip below */
+  .ant-slide-cover .ant-body {
+    justify-content: center;
+    padding: 64px 96px 72px;
+  }
+  .ant-cover-kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  .ant-slide-cover .ant-headline {
+    font-size: 64px;
+  }
+  .ant-slide-cover .ant-deck {
+    font-size: 22px;
+    max-width: 920px;
+    margin-top: 22px;
+  }
+  .ant-byline {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 28px;
+  }
+  .ant-byline em {
+    font-family: var(--serif);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--ink);
+  }
+  .ant-cover-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    margin-top: 36px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+  }
+  .ant-cover-stat-num {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 48px;
+    line-height: 0.96;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+  }
+  .ant-cover-stat-cap {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 12px;
+  }
+
+  /* Agenda · decimal-leading-zero markers in italic serif */
+  .ant-agenda {
+    list-style: none;
+    margin: 24px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 36px;
+    counter-reset: aagenda;
+  }
+  .ant-agenda li {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule);
+    counter-increment: aagenda;
+  }
+  .ant-agenda li::before {
+    content: counter(aagenda, decimal-leading-zero);
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .ant-agenda li span {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.36;
+    color: var(--ink);
+  }
+
+  /* Milestone · headline + body + side stat or roman numeral */
+  .ant-milestone {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    gap: 56px;
+    align-items: center;
+    flex: 1;
+  }
+  .ant-milestone.no-side {
+    grid-template-columns: 1fr;
+  }
+  .ant-milestone-body {
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    margin-top: 18px;
+    max-width: 720px;
+  }
+  .ant-milestone-body em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .ant-callout-num {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 124px;
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+    text-align: center;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .ant-callout-cap {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 12px;
+    text-align: center;
+  }
+  .ant-roman {
+    text-align: center;
+  }
+  .ant-roman-num {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 168px;
+    line-height: 0.86;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+  }
+  .ant-roman-cap {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 14px;
+  }
+
+  /* Timeline · italic roman markers on hairline rule */
+  .ant-timeline {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(var(--n, 3), 1fr);
+    gap: 0;
+    margin-top: 32px;
+    position: relative;
+  }
+  .ant-timeline::before {
+    content: "";
+    position: absolute;
+    top: 80px;
+    left: 24px;
+    right: 24px;
+    height: 1px;
+    background: var(--rule-strong);
+  }
+  .ant-tl-cell {
+    padding: 0 18px;
+  }
+  .ant-tl-cell:first-child { padding-left: 0; }
+  .ant-tl-cell:last-child { padding-right: 0; }
+  .ant-tl-period {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    min-height: 14px;
+  }
+  .ant-tl-marker {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 56px;
+    line-height: 0.86;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+    background: var(--paper);
+    padding-right: 14px;
+    margin-bottom: 18px;
+    display: inline-block;
+  }
+  .ant-tl-title {
+    font-family: var(--serif-display);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.22;
+    color: var(--ink);
+    margin-bottom: 8px;
+    letter-spacing: -0.005em;
+  }
+  .ant-tl-body {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--ink-mid);
+  }
+
+  /* Data · ranked bars */
+  .ant-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 24px;
+  }
+  .ant-bar {
+    display: grid;
+    grid-template-columns: 220px 1fr 90px;
+    gap: 16px;
+    align-items: center;
+  }
+  .ant-bar-label {
+    font-family: var(--serif);
+    font-size: 17px;
+    color: var(--ink);
+  }
+  .ant-bar-track {
+    height: 14px;
+    background: var(--paper-soft);
+    position: relative;
+  }
+  .ant-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--accent);
+  }
+  .ant-bar-value {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    text-align: right;
+    font-weight: 700;
+  }
+
+  /* Director voices · italic-clay name, mono role, italic stance.
+     Pull-quote uses TOP + BOTTOM rules only — no border-left. */
+  .ant-voices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 22px 28px;
+    margin-top: 18px;
+    align-content: start;
+  }
+  .ant-voices.is-three-up { grid-template-columns: repeat(3, 1fr); }
+  .ant-voices.is-two-up   { grid-template-columns: repeat(2, 1fr); }
+  .ant-voice {
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+  }
+  .ant-voice-name {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 26px;
+    line-height: 1.1;
+    color: var(--accent);
+    letter-spacing: -0.01em;
+  }
+  .ant-voice-role {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+  .ant-voice-stance {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 15px;
+    line-height: 1.42;
+    color: var(--accent-deep);
+    margin-top: 12px;
+  }
+  .ant-voice-position {
+    font-family: var(--serif);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin-top: 10px;
+  }
+  .ant-voice-quote {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.46;
+    color: var(--ink-mid);
+    margin-top: 14px;
+    padding: 12px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* Where we agreed · italic-roman markers in serif italic */
+  .ant-aligns {
+    list-style: none;
+    margin: 22px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    counter-reset: aalign;
+  }
+  .ant-align {
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 18px;
+    counter-increment: aalign;
+  }
+  .ant-align::before {
+    content: counter(aalign, lower-roman) ".";
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .ant-align-point {
+    font-family: var(--serif-display);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.22;
+    color: var(--ink);
+    letter-spacing: -0.012em;
+  }
+  .ant-align-point em { color: var(--accent); font-style: italic; }
+  .ant-align-note {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin-top: 10px;
+  }
+  .ant-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .ant-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--rule-strong);
+    padding: 4px 10px;
+  }
+
+  /* Where we split · divergence */
+  .ant-splits {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    margin-top: 14px;
+  }
+  .ant-split {
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+  }
+  .ant-split-hinge {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.22;
+    color: var(--ink);
+    letter-spacing: -0.012em;
+    margin-bottom: 14px;
+  }
+  .ant-split-hinge em { color: var(--accent); }
+  .ant-split-sides {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .ant-split-sides.is-three { grid-template-columns: 1fr 1fr 1fr; }
+  .ant-split-side {
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 10px;
+  }
+  .ant-split-side-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .ant-split-side-stance {
+    font-family: var(--serif);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .ant-split-side-names {
+    margin-top: 10px;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .ant-split-resolve {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.46;
+    color: var(--ink-mid);
+    margin-top: 12px;
+  }
+  .ant-split-resolve b {
+    font-family: var(--mono);
+    font-style: normal;
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-right: 8px;
+  }
+
+  /* Bullets · italic lower-roman (recommendations) /
+     decimal-leading-zero (verification) */
+  .ant-bullets {
+    list-style: none;
+    margin: 24px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    counter-reset: abullets;
+  }
+  .ant-bullets li {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 18px;
+    align-items: baseline;
+    counter-increment: abullets;
+  }
+  .ant-bullets.is-roman li::before {
+    content: counter(abullets, lower-roman) ".";
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 30px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .ant-bullets.is-decimal li::before {
+    content: counter(abullets, decimal-leading-zero);
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 30px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .ant-bullets li span {
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.4;
+    color: var(--ink);
+  }
+
+  /* Takeaway · pull-quote register · italic serif hero */
+  .ant-slide-takeaway .ant-body {
+    justify-content: center;
+    text-align: center;
+    align-items: center;
+    padding: 64px 96px;
+  }
+  .ant-takeaway-mark {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 96px;
+    color: var(--accent);
+    line-height: 0.5;
+    margin-bottom: 28px;
+  }
+  .ant-takeaway-text {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 44px;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    max-width: 940px;
+    word-break: break-word;
+  }
+  .ant-takeaway-cite {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 28px;
+  }
+  .ant-takeaway-cite em {
+    font-family: var(--serif);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--accent);
+  }
+
+  @media (max-width: 1080px) {
+    .ant-slide-cover .ant-headline { font-size: 48px; }
+    .ant-headline { font-size: 36px; }
+    .ant-deck { font-size: 16px; }
+    .ant-takeaway-text { font-size: 32px; }
+    .ant-roman-num { font-size: 132px; }
+    .ant-callout-num { font-size: 96px; }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     KEYNOTE variant · cinematic register
+     ═══════════════════════════════════════════════════════════════ */
+
+  body[data-ppt-variant="keynote"] .ppt-slide {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif-display);
+  }
+  .key-floater {
+    position: absolute;
+    bottom: 24px;
+    right: 32px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+  }
+  .key-floater b { color: var(--accent); font-weight: 700; }
+  .key-eye-top {
+    position: absolute;
+    top: 24px;
+    left: 36px;
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .key-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 64px 80px;
+    min-height: 0;
+  }
+  .key-cover-mark {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 64px;
+    color: var(--accent);
+    line-height: 0.5;
+    margin-bottom: 18px;
+  }
+  .key-headline {
+    font-family: var(--serif-display);
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1.04;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .key-headline em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .key-deck {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 24px;
+    line-height: 1.4;
+    color: var(--ink-soft);
+    margin-top: 18px;
+    max-width: 880px;
+  }
+  .key-byline {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 22px;
+  }
+  .key-byline em { color: var(--ink-soft); font-style: italic; text-transform: none; letter-spacing: 0; }
+
+  /* Cover · centered display title */
+  .key-slide-cover .key-body {
+    align-items: center;
+    text-align: center;
+    padding: 64px 56px;
+  }
+  .key-slide-cover .key-headline { font-size: 84px; }
+  .key-slide-cover .key-deck { text-align: center; }
+
+  @media (max-width: 1080px) {
+    .key-slide-cover .key-headline { font-size: 56px; }
+    .key-headline { font-size: 44px; }
+    .key-deck { font-size: 19px; }
+  }
+
+  /* Agenda · centered short list */
+  .key-agenda {
+    list-style: none;
+    margin: 18px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    counter-reset: kagenda;
+  }
+  .key-agenda li {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    counter-increment: kagenda;
+  }
+  .key-agenda li::before {
+    content: counter(kagenda, decimal-leading-zero);
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 32px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .key-agenda li span {
+    font-family: var(--serif-display);
+    font-size: 22px;
+    line-height: 1.32;
+    color: var(--ink);
+  }
+
+  /* Milestone slide · headline + body + optional big callout */
+  .key-milestone {
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+    gap: 48px;
+    align-items: center;
+    flex: 1;
+  }
+  .key-milestone.no-side {
+    grid-template-columns: 1fr;
+  }
+  .key-milestone-body {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin-top: 16px;
+  }
+  .key-callout-num {
+    font-family: var(--serif-display);
+    font-weight: 900;
+    font-size: 132px;
+    line-height: 0.94;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .key-callout-cap {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 16px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+    margin-top: 8px;
+    text-align: center;
+  }
+  .key-roman {
+    text-align: center;
+    align-self: center;
+  }
+  .key-roman-num {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 192px;
+    line-height: 0.86;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+  }
+  .key-roman-cap {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 14px;
+  }
+  .key-cover-mark { /* override the overly-cramped quote · keep tasteful */ }
+  .key-cover-stats {
+    display: flex;
+    gap: 28px;
+    margin-top: 28px;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+  }
+  .key-cover-stat {
+    text-align: center;
+  }
+  .key-cover-stat-num {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 44px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+  }
+  .key-cover-stat-cap {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 8px;
+  }
+
+  /* Bullets (talking points / verification) · big sparse list */
+  .key-bullets {
+    list-style: none;
+    margin: 24px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    counter-reset: kbullets;
+  }
+  .key-bullets li {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 18px;
+    align-items: baseline;
+    counter-increment: kbullets;
+  }
+  .key-bullets li::before {
+    content: counter(kbullets, decimal-leading-zero);
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 32px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .key-bullets li span {
+    font-family: var(--serif-display);
+    font-size: 22px;
+    line-height: 1.36;
+    color: var(--ink);
+  }
+
+  /* Timeline · keynote register · italic roman markers */
+  .key-timeline {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(var(--n, 3), 1fr);
+    gap: 0;
+    margin-top: 36px;
+    position: relative;
+  }
+  .key-timeline::before {
+    content: "";
+    position: absolute;
+    top: 92px;
+    left: 28px;
+    right: 28px;
+    height: 1px;
+    background: var(--rule-strong);
+  }
+  .key-tl-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0 18px;
+  }
+  .key-tl-cell:first-child { padding-left: 0; }
+  .key-tl-cell:last-child { padding-right: 0; }
+  .key-tl-period {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    min-height: 14px;
+  }
+  .key-tl-marker {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 64px;
+    line-height: 0.86;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+    background: var(--paper);
+    padding-right: 14px;
+    margin-bottom: 18px;
+    z-index: 1;
+  }
+  .key-tl-title {
+    font-family: var(--serif-display);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--ink);
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+  }
+  .key-tl-body {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+  }
+
+  /* Data · ranked bars · keynote register */
+  .key-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 18px;
+  }
+  .key-bar {
+    display: grid;
+    grid-template-columns: 200px 1fr 100px;
+    gap: 16px;
+    align-items: center;
+  }
+  .key-bar-label {
+    font-family: var(--serif-display);
+    font-size: 19px;
+    color: var(--ink);
+  }
+  .key-bar-track {
+    height: 14px;
+    background: var(--paper-soft);
+    position: relative;
+  }
+  .key-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--accent);
+  }
+  .key-bar-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-align: right;
+  }
+
+  /* Director voices · keynote register */
+  .key-voices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px 28px;
+    margin-top: 18px;
+    align-content: start;
+  }
+  .key-voices.is-three-up { grid-template-columns: repeat(3, 1fr); }
+  .key-voices.is-two-up   { grid-template-columns: repeat(2, 1fr); }
+  .key-voice {
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 14px;
+  }
+  .key-voice-name {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.1;
+    color: var(--accent);
+    letter-spacing: -0.01em;
+  }
+  .key-voice-role {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+  .key-voice-stance {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 16px;
+    line-height: 1.36;
+    color: var(--ink);
+    margin-top: 12px;
+  }
+  .key-voice-position {
+    font-family: var(--serif-display);
+    font-size: 14px;
+    line-height: 1.52;
+    color: var(--ink-soft);
+    margin-top: 10px;
+  }
+  .key-voice-quote {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.46;
+    color: var(--ink-mid);
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--rule);
+  }
+
+  /* Where we agreed · keynote */
+  .key-aligns {
+    list-style: none;
+    margin: 18px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .key-align {
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+  }
+  .key-align-point {
+    font-family: var(--serif-display);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.18;
+    color: var(--ink);
+    letter-spacing: -0.012em;
+  }
+  .key-align-point em { color: var(--accent); font-style: italic; }
+  .key-align-note {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin-top: 10px;
+  }
+  .key-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .key-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--rule-strong);
+    padding: 4px 10px;
+  }
+
+  /* Where we split · keynote */
+  .key-splits {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    margin-top: 14px;
+  }
+  .key-split {
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+  }
+  .key-split-hinge {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.22;
+    color: var(--ink);
+    letter-spacing: -0.012em;
+    margin-bottom: 14px;
+  }
+  .key-split-hinge em { color: var(--accent); }
+  .key-split-sides {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .key-split-sides.is-three { grid-template-columns: 1fr 1fr 1fr; }
+  .key-split-side {
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 10px;
+  }
+  .key-split-side-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .key-split-side-stance {
+    font-family: var(--serif-display);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .key-split-side-names {
+    margin-top: 10px;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .key-split-resolve {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.46;
+    color: var(--ink-mid);
+    margin-top: 12px;
+  }
+  .key-split-resolve b {
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-right: 8px;
+  }
+
+  /* Takeaway slide · big italic quote */
+  .key-slide-takeaway .key-body {
+    align-items: center;
+    text-align: center;
+  }
+  .key-takeaway-mark {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 96px;
+    color: var(--accent);
+    line-height: 0.5;
+    margin-bottom: 28px;
+  }
+  .key-takeaway-text {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 56px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -0.014em;
+    color: var(--ink);
+    max-width: 940px;
+    word-break: break-word;
+  }
+  @media (max-width: 1080px) {
+    .key-takeaway-text { font-size: 38px; }
+  }
+  .key-takeaway-cite {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 28px;
+  }
+
+  /* ─── Thumb strip · all slides preview at the bottom ─────────── */
+  .ppt-thumbs {
+    display: flex;
+    gap: 8px;
+    padding: 12px 28px 18px;
+    overflow-x: auto;
+    background: rgba(14, 14, 16, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(244, 239, 223, 0.10);
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+  }
+  .ppt-thumb {
+    flex: 0 0 auto;
+    width: 116px;
+    aspect-ratio: 16 / 9;
+    background: rgba(244, 239, 223, 0.06);
+    border: 1px solid rgba(244, 239, 223, 0.16);
+    cursor: pointer;
+    transition: border-color 0.12s, transform 0.12s;
+    color: #C8C2AE;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+  }
+  .ppt-thumb:hover {
+    border-color: rgba(244, 239, 223, 0.40);
+    transform: translateY(-1px);
+  }
+  .ppt-thumb.is-active {
+    border-color: #D4A24A;
+    background: rgba(212, 162, 74, 0.12);
+  }
+  .ppt-thumb-num {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    color: #8B8470;
+  }
+  .ppt-thumb.is-active .ppt-thumb-num { color: #D4A24A; }
+  .ppt-thumb-title {
+    font-family: var(--serif-display);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #F4EFDF;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  /* ─── Fullscreen mode · hide chrome ─────────────────────────── */
+  body.is-fullscreen .ppt-top-bar,
+  body.is-fullscreen .ppt-thumbs { display: none; }
+  body.is-fullscreen .ppt-stage { padding: 0; min-height: 100vh; }
+  body.is-fullscreen .ppt-deck { max-width: none; height: 100vh; aspect-ratio: auto; box-shadow: none; }
+
+  /* ─── States · loading / error ─────────────────────────── */
+  .ppt-state {
+    max-width: 560px;
+    margin: 80px auto;
+    padding: 48px 36px;
+    text-align: center;
+    background: #FFFFFF;
+    box-shadow: var(--shadow-slide);
+    color: var(--ink);
+  }
+  .ppt-state-mark {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #14110B;
+    border: 1px solid #14110B;
+    padding: 5px 14px;
+    display: inline-block;
+    margin-bottom: 16px;
+    font-weight: 700;
+  }
+  .ppt-state-title {
+    font-family: var(--serif-display);
+    font-size: 24px;
+    font-weight: 700;
+    color: #14110B;
+    margin-bottom: 10px;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .ppt-state-body {
+    font-family: var(--serif);
+    font-size: 14px;
+    color: #2D281D;
+    line-height: 1.6;
+  }
+
+  @media print {
+    .ppt-top-bar, .ppt-thumbs { display: none; }
+    body, html { background: white; }
+    .ppt-stage { padding: 0; min-height: 0; }
+    .ppt-deck { box-shadow: none; max-width: none; aspect-ratio: auto; }
+    .ppt-slide { display: flex !important; page-break-after: always; position: relative; min-height: 100vh; }
+    .ppt-slide:last-child { page-break-after: auto; }
+  }
+  </style>
+</head>
+<body>
+
+  <header class="ppt-top-bar" data-ppt-chrome>
+    <a href="/" class="ppt-crumb">PrivateBoard <span class="ppt-crumb-accent">· slides</span></a>
+    <div class="ppt-actions">
+      <span class="ppt-variant-badge" data-ppt-variant-badge>Loading…</span>
+      <span class="ppt-counter" data-ppt-counter>— / —</span>
+      <button type="button" class="ppt-btn" data-ppt-fullscreen title="Fullscreen (F)">
+        <span class="glyph">⛶</span>FS
+      </button>
+      <button type="button" class="ppt-btn" data-ppt-png title="Download active slide as PNG">
+        <span class="glyph">↓</span>PNG
+      </button>
+      <button type="button" class="ppt-btn" data-ppt-print title="Print all slides as PDF">
+        <span class="glyph">↓</span>PDF
+      </button>
+    </div>
+  </header>
+
+  <main data-ppt-root>
+    <div class="ppt-state">
+      <div class="ppt-state-mark">Loading</div>
+      <div class="ppt-state-title">Loading deck…</div>
+      <div class="ppt-state-body">Fetching the slides for this brief.</div>
+    </div>
+  </main>
+
+  <script>
+  /* ──────────────────────────────────────────────────────────────────
+     PPT renderer · two distinct templates (Anthropic-essay / Keynote)
+     picked deterministically per brief id. Each renders 7-12 slides.
+     Reader steps through with arrow keys, click navigation, thumb
+     strip, or fullscreen mode.
+     ────────────────────────────────────────────────────────────── */
+  (function () {
+    const params = new URLSearchParams(location.search);
+    const briefId = (params.get("b") || "").trim();
+    const roomId = (params.get("r") || "").trim();
+    const root = document.querySelector("[data-ppt-root]");
+    const variantBadge = document.querySelector("[data-ppt-variant-badge]");
+    const counterEl = document.querySelector("[data-ppt-counter]");
+
+    function escape(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showState(mark, title, body) {
+      root.innerHTML = `
+        <div class="ppt-state">
+          <div class="ppt-state-mark">${escape(mark)}</div>
+          <div class="ppt-state-title">${escape(title)}</div>
+          <div class="ppt-state-body">${escape(body)}</div>
+        </div>`;
+    }
+
+    async function loadBrief() {
+      let url;
+      if (briefId) url = `/api/briefs/${encodeURIComponent(briefId)}`;
+      else if (roomId) url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
+      else { showState("Missing query", "No brief specified", "Add ?b=<briefId> or ?r=<roomId> to the URL."); return null; }
+      const res = await fetch(url);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        showState("Not found", "Brief not found", e.error || "The requested brief doesn't exist or is no longer available.");
+        return null;
+      }
+      return await res.json();
+    }
+
+    /** Pick "anthropic" or "keynote" deterministically from the brief
+     *  id · same id always renders the same template. The
+     *  `?v=anthropic|keynote` URL parameter forces a specific template. */
+    function pickVariant(id) {
+      const force = (params.get("v") || "").trim().toLowerCase();
+      if (force === "anthropic" || force === "keynote") return force;
+      const s = String(id || "");
+      if (!s) return "anthropic";
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h) + s.charCodeAt(i);
+        h |= 0;
+      }
+      return (Math.abs(h) % 2) === 0 ? "anthropic" : "keynote";
+    }
+
+    function formatDate(footerTag) {
+      const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const m = String(footerTag || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      const target = m ? new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`) : new Date();
+      const d = isNaN(target.getTime()) ? new Date() : target;
+      return {
+        long: `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
+        monthYear: `${months[d.getMonth()]} ${d.getFullYear()}`,
+        year: String(d.getFullYear()),
+      };
+    }
+
+    /** Strict stat picker · only short numeric callouts. */
+    function pickStat(milestone) {
+      if (!milestone || !milestone.callout) return null;
+      const c = String(milestone.callout).trim();
+      if (!c || c.length > 14) return null;
+      return { num: c, cap: milestone.title || milestone.period || "" };
+    }
+
+    /** Lower-case roman numerals i / ii / iii / iv / v · used for
+     *  side-pane phase indicators when no numeric callout exists. */
+    function toRoman(n) {
+      const map = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"];
+      return map[n] || String(n);
+    }
+
+    /** Count meaningful items for the cover stat-strip · falls back
+     *  silently when the brief has fewer signals to surface. */
+    function coverStats(m) {
+      const out = [];
+      const ms = (m.milestones || []).filter((x) => x && (x.title || x.body || x.callout));
+      if (ms.length) out.push({ num: String(ms.length).padStart(2, "0"), cap: ms.length === 1 ? "Milestone" : "Milestones" });
+      const tp = (m.talkingPoints && m.talkingPoints.bullets) ? m.talkingPoints.bullets.length : 0;
+      if (tp) out.push({ num: String(tp).padStart(2, "0"), cap: tp === 1 ? "Recommendation" : "Recommendations" });
+      const ver = (m.verification && m.verification.bullets) ? m.verification.bullets.length : 0;
+      if (ver) out.push({ num: String(ver).padStart(2, "0"), cap: ver === 1 ? "Watch item" : "Watch items" });
+      return out.slice(0, 3);
+    }
+
+    /** Split a milestone body into 2-3 bullet phrases on natural
+     *  punctuation breaks (sentence end, semicolon, em-dash). When
+     *  the body is short / unsplittable, returns a single-item
+     *  array · the renderer prints it as one bullet. */
+    function splitToBullets(body, max) {
+      const s = String(body || "").trim();
+      if (!s) return [];
+      const cap = max || 3;
+      // Split on sentence enders + ; + em-dash · keep splits >= 16
+      // chars so we don't fragment on stray punctuation.
+      const parts = s.split(/(?<=[.!?。！？])\s+|\s*;\s+|\s*—\s+/)
+        .map((x) => x.trim())
+        .filter((x) => x.length >= 16);
+      if (parts.length === 0) return [s];
+      return parts.slice(0, cap);
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       Slide builders · each returns one slide's HTML string ·
+       wrapped in a .ppt-slide container.
+       ═════════════════════════════════════════════════════════════ */
+
+    function wrapSlide(idx, classes, content, opts) {
+      // The clickable navigation halves sit at the slide's edges so
+      // the user can advance / step back without finding a precise
+      // button. Active state toggles via the container's class.
+      const o = opts || {};
+      return `
+        <section class="ppt-slide ${classes}" data-slide-index="${idx}" data-slide-title="${escape(o.title || "")}">
+          <button type="button" class="ppt-slide-click prev" data-ppt-prev aria-label="Previous slide"></button>
+          <button type="button" class="ppt-slide-click next" data-ppt-next aria-label="Next slide"></button>
+          ${content}
+        </section>`;
+    }
+
+    /* ─── Anthropic-essay variant slides ─────────────────────────
+       Modeled after mvp/screen-7-report-anthropic.html: warm cream
+       paper, mono kickers above every section, roman serif headlines
+       with italic-clay <em>, italic lower-roman / decimal-leading-zero
+       numerals, top + bottom rules only (no border-left). */
+
+    function antChrome(idx, total) {
+      // Anthropic · floating mono kicker top-left, brand foot
+      // bottom-left, counter bottom-right. The kicker is placed by
+      // each builder so it can encode the section name; we only emit
+      // foot + counter here.
+      return `
+        <div class="ant-foot"><b>PrivateBoard</b> · The Boardroom</div>
+        <div class="ant-counter"><b>${idx + 1}</b> / ${total}</div>`;
+    }
+
+    function antKicker(label) {
+      // Mono-kicker prefix · "01 — section name" / "— introduction".
+      // The em-dash separator and clay-deep colour are the spine's
+      // signature opener.
+      return `<div class="ant-eye-top">${escape(label)}</div>`;
+    }
+
+    function antCover(idx, total, m, dateInfo, briefIdShort) {
+      const stats = coverStats(m);
+      const statsHtml = stats.length ? `
+        <div class="ant-cover-stats">
+          ${stats.map((s) => `
+            <div>
+              <div class="ant-cover-stat-num">${escape(s.num)}</div>
+              <div class="ant-cover-stat-cap">${escape(s.cap)}</div>
+            </div>`).join("")}
+        </div>` : "";
+      const content = `
+        ${antKicker(`The Boardroom · Brief ${briefIdShort.replace(/^#/, "")}`)}
+        <div class="ant-body ant-slide-cover">
+          <div class="ant-cover-kicker">— a working hypothesis</div>
+          <h1 class="ant-headline">${escape(m.title || "")}</h1>
+          ${m.kicker ? `<div class="ant-deck">${escape(m.kicker)}</div>` : ""}
+          <div class="ant-byline">By <em>${escape(m.source || "the chair")}</em> · ${escape(dateInfo.long)}</div>
+          ${statsHtml}
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide ant-slide-cover", content, { title: m.title || "Cover" });
+    }
+
+    function antAgenda(idx, total, m, agendaItems) {
+      const items = agendaItems.map((it) => `<li><span>${escape(it)}</span></li>`).join("");
+      const content = `
+        ${antKicker("— Outline")}
+        <div class="ant-body">
+          <h2 class="ant-headline">What we'll <em>cover</em>.</h2>
+          <ul class="ant-agenda">${items}</ul>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: "Agenda" });
+    }
+
+    function antMilestone(idx, total, ms, n) {
+      const stat = pickStat(ms);
+      // Side pane · prefer numeric callout, otherwise a giant italic
+      // roman numeral as phase indicator. The reference reserves big
+      // numerals for considerations / open questions; we use the same
+      // typographic gesture for milestone phases.
+      const sideHtml = stat ? `
+        <aside class="ant-roman">
+          <div class="ant-callout-num">${escape(stat.num)}</div>
+          <div class="ant-callout-cap">— ${escape(stat.cap)}</div>
+        </aside>` : `
+        <aside class="ant-roman">
+          <div class="ant-roman-num">${toRoman(n)}.</div>
+          <div class="ant-roman-cap">— Phase ${n}</div>
+        </aside>`;
+      const kickerLabel = `${String(n).padStart(2, "0")} — ${ms.period || `Phase ${n}`}`;
+      const content = `
+        ${antKicker(kickerLabel)}
+        <div class="ant-body">
+          <div class="ant-milestone">
+            <div>
+              <h2 class="ant-headline">${escape(ms.title || "")}</h2>
+              ${ms.body ? `<div class="ant-milestone-body">${escape(ms.body)}</div>` : ""}
+            </div>
+            ${sideHtml}
+          </div>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: ms.title || `Milestone ${n}` });
+    }
+
+    function antTimeline(idx, total, items) {
+      const cells = items.map((it, i) => {
+        const oneLine = String(it.body || "").split(/(?<=[.!?。！？])\s+/)[0] || "";
+        return `
+          <div class="ant-tl-cell">
+            <div class="ant-tl-period">${escape(it.period || `Phase ${i + 1}`)}</div>
+            <div class="ant-tl-marker">${toRoman(i + 1)}.</div>
+            <div class="ant-tl-title">${escape(it.title || "")}</div>
+            <div class="ant-tl-body">${escape(oneLine)}</div>
+          </div>`;
+      }).join("");
+      const content = `
+        ${antKicker("01 — The arc")}
+        <div class="ant-body">
+          <h2 class="ant-headline">How the work <em>unfolds</em>.</h2>
+          <div class="ant-timeline" style="--n: ${items.length}">${cells}</div>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: "Timeline" });
+    }
+
+    function antDataSlide(idx, total, rb) {
+      const rows = rb.entries.slice(0, 5).map((e) => {
+        const ratio = Math.max(0, Math.min(1, Number(e.ratio) || 0));
+        const pct = (ratio * 100).toFixed(1);
+        return `
+          <div class="ant-bar">
+            <span class="ant-bar-label">${escape(e.label || "")}</span>
+            <span class="ant-bar-track"><span class="ant-bar-fill" style="width: ${pct}%"></span></span>
+            <span class="ant-bar-value">${escape(e.value || "")}</span>
+          </div>`;
+      }).join("");
+      const content = `
+        ${antKicker("— By the numbers")}
+        <div class="ant-body">
+          <h2 class="ant-headline">${escape(rb.title || "By the numbers")}</h2>
+          <div class="ant-bars">${rows}</div>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: rb.title || "By the numbers" });
+    }
+
+    function antBulletsSlide(idx, total, eyebrow, headline, bullets, kind) {
+      // kind = "roman" for talking-points (italic lower-roman), or
+      // "decimal" for verification (decimal-leading-zero). Both are
+      // legitimate Anthropic-spine numeral patterns from the reference.
+      const variantClass = kind === "roman" ? " is-roman" : " is-decimal";
+      const items = bullets.slice(0, 5).map((b) => `<li><span>${escape(b)}</span></li>`).join("");
+      // Headline gets italic emphasis on its operative word: simplest
+      // heuristic is to italicise the first noun-ish phrase. Reference
+      // does this manually in copy; we approximate by italicising the
+      // last word, which usually carries the load in imperative or
+      // claim-form headings ("What to <em>watch</em>" / "How to
+      // <em>act</em>").
+      const headlineHtml = (() => {
+        const h = String(headline || "").trim();
+        if (!h) return "";
+        const m = h.match(/^(.+?)\s+(\S+)([.?!]?)$/);
+        if (!m) return escape(h);
+        return `${escape(m[1])} <em>${escape(m[2].replace(/[.?!]$/, ""))}</em>${escape(m[3])}`;
+      })();
+      const content = `
+        ${antKicker(`— ${eyebrow}`)}
+        <div class="ant-body">
+          <h2 class="ant-headline">${headlineHtml}</h2>
+          <ol class="ant-bullets${variantClass}">${items}</ol>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: headline });
+    }
+
+    function antVoicesSlide(idx, total, persp) {
+      const upClass = persp.length === 2 ? " is-two-up" : (persp.length === 3 ? " is-three-up" : "");
+      const cards = persp.slice(0, 4).map((p) => `
+        <div class="ant-voice">
+          <div class="ant-voice-name">${escape(p.directorName || "")}</div>
+          ${p.directorRole ? `<div class="ant-voice-role">${escape(p.directorRole)}</div>` : ""}
+          ${p.stance ? `<div class="ant-voice-stance">${escape(p.stance)}</div>` : ""}
+          ${p.position ? `<div class="ant-voice-position">${escape(p.position)}</div>` : ""}
+          ${p.quote ? `<div class="ant-voice-quote">"${escape(p.quote)}"</div>` : ""}
+        </div>`).join("");
+      const content = `
+        ${antKicker("— The room")}
+        <div class="ant-body">
+          <h2 class="ant-headline">How each <em>read</em> it.</h2>
+          <div class="ant-voices${upClass}">${cards}</div>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: "Director voices" });
+    }
+
+    function antConsensusSlide(idx, total, aligns, chairSyn) {
+      const items = aligns.slice(0, 3).map((a) => `
+        <li class="ant-align">
+          <div>
+            <div class="ant-align-point">${escape(a.pointOfAgreement || "")}</div>
+            ${a.note ? `<div class="ant-align-note">${escape(a.note)}</div>` : ""}
+            <div class="ant-chips">${(a.directorNames || []).map((n) => `<span class="ant-chip">${escape(n)}</span>`).join("")}</div>
+          </div>
+        </li>`).join("");
+      const content = `
+        ${antKicker("— Convergence")}
+        <div class="ant-body">
+          <h2 class="ant-headline">Where the room <em>agreed</em>.</h2>
+          <ul class="ant-aligns">${items}</ul>
+          ${chairSyn ? `<div class="ant-voice-quote" style="margin-top: 22px;">— ${escape(chairSyn)}</div>` : ""}
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: "Where we agreed" });
+    }
+
+    function antSplitsSlide(idx, total, divs) {
+      const items = divs.slice(0, 2).map((d) => {
+        const sides = (d.sides || []).slice(0, 3);
+        const sideClass = sides.length >= 3 ? " is-three" : "";
+        const sidesHtml = sides.map((s) => `
+          <div class="ant-split-side">
+            <div class="ant-split-side-label">${escape(s.label || "")}</div>
+            <div class="ant-split-side-stance">${escape(s.stance || "")}</div>
+            <div class="ant-split-side-names">${(s.directorNames || []).map((n) => `<span class="ant-chip">${escape(n)}</span>`).join("")}</div>
+          </div>`).join("");
+        return `
+          <div class="ant-split">
+            <div class="ant-split-hinge">${escape(d.hinge || "")}</div>
+            <div class="ant-split-sides${sideClass}">${sidesHtml}</div>
+            ${d.resolution ? `<div class="ant-split-resolve"><b>To resolve</b>${escape(d.resolution)}</div>` : ""}
+          </div>`;
+      }).join("");
+      const content = `
+        ${antKicker("— Divergence")}
+        <div class="ant-body">
+          <h2 class="ant-headline">The <em>hinge</em> points.</h2>
+          <div class="ant-splits">${items}</div>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide", content, { title: "Where we split" });
+    }
+
+    function antTakeaway(idx, total, m) {
+      const content = `
+        ${antKicker("— The takeaway")}
+        <div class="ant-body ant-slide-takeaway">
+          <div class="ant-takeaway-mark">"</div>
+          <div class="ant-takeaway-text">${escape(m.conclusion || m.title || "")}</div>
+          <div class="ant-takeaway-cite">— signed, <em>${escape(m.source || "the chair")}</em></div>
+        </div>
+        ${antChrome(idx, total)}`;
+      return wrapSlide(idx, "ant-slide ant-slide-takeaway", content, { title: "Takeaway" });
+    }
+
+    /* ─── Keynote variant slides ──────────────────────────────── */
+
+    function keyChrome(idx, total) {
+      // Keynote · minimal floating chrome at the bottom-right only,
+      // no top bar / no footer bar · the slide is the focus.
+      return `<div class="key-floater"><b>${idx + 1}</b> / ${total}</div>`;
+    }
+
+    function keyCover(idx, total, m, dateInfo) {
+      const stats = coverStats(m);
+      const statsHtml = stats.length ? `
+        <div class="key-cover-stats">
+          ${stats.map((s) => `
+            <div class="key-cover-stat">
+              <div class="key-cover-stat-num">${escape(s.num)}</div>
+              <div class="key-cover-stat-cap">${escape(s.cap)}</div>
+            </div>`).join("")}
+        </div>` : "";
+      const content = `
+        <div class="key-eye-top">The Boardroom</div>
+        <div class="key-body key-slide-cover">
+          <div class="key-cover-mark">"</div>
+          <h1 class="key-headline">${escape(m.title || "")}</h1>
+          ${m.kicker ? `<div class="key-deck">${escape(m.kicker)}</div>` : ""}
+          <div class="key-byline">By <em>${escape(m.source || "the chair")}</em> · ${escape(dateInfo.long)}</div>
+          ${statsHtml}
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide key-slide-cover", content, { title: m.title || "Cover" });
+    }
+
+    function keyAgenda(idx, total, m, agendaItems) {
+      const items = agendaItems.map((it) => `<li><span>${escape(it)}</span></li>`).join("");
+      const content = `
+        <div class="key-eye-top">Agenda</div>
+        <div class="key-body">
+          <h2 class="key-headline">What we'll <em>cover</em>.</h2>
+          <ul class="key-agenda">${items}</ul>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: "Agenda" });
+    }
+
+    function keyMilestone(idx, total, ms, n) {
+      const stat = pickStat(ms);
+      // Side pane · prefer numeric callout, otherwise show a giant
+      // italic roman numeral as the phase indicator. Empty milestones
+      // already get filtered out by the dispatcher.
+      const sideHtml = stat ? `
+        <aside>
+          <div class="key-callout-num">${escape(stat.num)}</div>
+          <div class="key-callout-cap">${escape(stat.cap)}</div>
+        </aside>` : `
+        <aside class="key-roman">
+          <div class="key-roman-num">${toRoman(n)}.</div>
+          <div class="key-roman-cap">— Phase ${n}</div>
+        </aside>`;
+      const content = `
+        <div class="key-eye-top">${escape(ms.period || `Phase ${n}`)}</div>
+        <div class="key-body">
+          <div class="key-milestone">
+            <div>
+              <h2 class="key-headline">${escape(ms.title || "")}</h2>
+              ${ms.body ? `<div class="key-milestone-body">${escape(ms.body)}</div>` : ""}
+            </div>
+            ${sideHtml}
+          </div>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: ms.title || `Milestone ${n}` });
+    }
+
+    function keyTimeline(idx, total, items) {
+      const cells = items.map((it, i) => {
+        const oneLine = String(it.body || "").split(/(?<=[.!?。！？])\s+/)[0] || "";
+        return `
+          <div class="key-tl-cell">
+            <div class="key-tl-period">${escape(it.period || `Phase ${i + 1}`)}</div>
+            <div class="key-tl-marker">${toRoman(i + 1)}.</div>
+            <div class="key-tl-title">${escape(it.title || "")}</div>
+            <div class="key-tl-body">${escape(oneLine)}</div>
+          </div>`;
+      }).join("");
+      const content = `
+        <div class="key-eye-top">The arc</div>
+        <div class="key-body">
+          <h2 class="key-headline">How the work <em>unfolds</em>.</h2>
+          <div class="key-timeline" style="--n: ${items.length}">${cells}</div>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: "Timeline" });
+    }
+
+    function keyDataSlide(idx, total, rb) {
+      const rows = rb.entries.slice(0, 5).map((e) => {
+        const ratio = Math.max(0, Math.min(1, Number(e.ratio) || 0));
+        const pct = (ratio * 100).toFixed(1);
+        return `
+          <div class="key-bar">
+            <span class="key-bar-label">${escape(e.label || "")}</span>
+            <span class="key-bar-track"><span class="key-bar-fill" style="width: ${pct}%"></span></span>
+            <span class="key-bar-value">${escape(e.value || "")}</span>
+          </div>`;
+      }).join("");
+      const content = `
+        <div class="key-eye-top">By the numbers</div>
+        <div class="key-body">
+          <h2 class="key-headline">${escape(rb.title || "By the numbers")}</h2>
+          <div class="key-bars">${rows}</div>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: rb.title || "By the numbers" });
+    }
+
+    function keyBulletsSlide(idx, total, eyebrow, headline, bullets) {
+      const items = bullets.slice(0, 5).map((b) => `<li><span>${escape(b)}</span></li>`).join("");
+      const content = `
+        <div class="key-eye-top">${escape(eyebrow)}</div>
+        <div class="key-body">
+          <h2 class="key-headline">${escape(headline)}</h2>
+          <ul class="key-bullets">${items}</ul>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: headline });
+    }
+
+    function keyVoicesSlide(idx, total, persp) {
+      const upClass = persp.length === 2 ? " is-two-up" : (persp.length === 3 ? " is-three-up" : "");
+      const cards = persp.slice(0, 4).map((p) => `
+        <div class="key-voice">
+          <div class="key-voice-name">${escape(p.directorName || "")}</div>
+          ${p.directorRole ? `<div class="key-voice-role">${escape(p.directorRole)}</div>` : ""}
+          ${p.stance ? `<div class="key-voice-stance">${escape(p.stance)}</div>` : ""}
+          ${p.position ? `<div class="key-voice-position">${escape(p.position)}</div>` : ""}
+          ${p.quote ? `<div class="key-voice-quote">"${escape(p.quote)}"</div>` : ""}
+        </div>`).join("");
+      const content = `
+        <div class="key-eye-top">The room</div>
+        <div class="key-body">
+          <h2 class="key-headline">How each <em>read</em> it.</h2>
+          <div class="key-voices${upClass}">${cards}</div>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: "Director voices" });
+    }
+
+    function keyConsensusSlide(idx, total, aligns, chairSyn) {
+      const items = aligns.slice(0, 3).map((a) => `
+        <li class="key-align">
+          <div class="key-align-point">${escape(a.pointOfAgreement || "")}</div>
+          ${a.note ? `<div class="key-align-note">${escape(a.note)}</div>` : ""}
+          <div class="key-chips">${(a.directorNames || []).map((n) => `<span class="key-chip">${escape(n)}</span>`).join("")}</div>
+        </li>`).join("");
+      const content = `
+        <div class="key-eye-top">Convergence</div>
+        <div class="key-body">
+          <h2 class="key-headline">Where the room <em>agreed</em>.</h2>
+          <ul class="key-aligns">${items}</ul>
+          ${chairSyn ? `<div class="key-voice-quote" style="margin-top: 22px;">— ${escape(chairSyn)}</div>` : ""}
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: "Where we agreed" });
+    }
+
+    function keySplitsSlide(idx, total, divs) {
+      const items = divs.slice(0, 2).map((d) => {
+        const sides = (d.sides || []).slice(0, 3);
+        const sideClass = sides.length >= 3 ? " is-three" : "";
+        const sidesHtml = sides.map((s) => `
+          <div class="key-split-side">
+            <div class="key-split-side-label">${escape(s.label || "")}</div>
+            <div class="key-split-side-stance">${escape(s.stance || "")}</div>
+            <div class="key-split-side-names">${(s.directorNames || []).map((n) => `<span class="key-chip">${escape(n)}</span>`).join("")}</div>
+          </div>`).join("");
+        return `
+          <div class="key-split">
+            <div class="key-split-hinge">${escape(d.hinge || "")}</div>
+            <div class="key-split-sides${sideClass}">${sidesHtml}</div>
+            ${d.resolution ? `<div class="key-split-resolve"><b>To resolve</b>${escape(d.resolution)}</div>` : ""}
+          </div>`;
+      }).join("");
+      const content = `
+        <div class="key-eye-top">Divergence</div>
+        <div class="key-body">
+          <h2 class="key-headline">The <em>hinge</em> points.</h2>
+          <div class="key-splits">${items}</div>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide", content, { title: "Where we split" });
+    }
+
+    function keyTakeaway(idx, total, m) {
+      const content = `
+        <div class="key-eye-top">The takeaway</div>
+        <div class="key-body key-slide-takeaway">
+          <div class="key-takeaway-mark">"</div>
+          <div class="key-takeaway-text">${escape(m.conclusion || m.title || "")}</div>
+          <div class="key-takeaway-cite">— Bottom line</div>
+        </div>
+        ${keyChrome(idx, total)}`;
+      return wrapSlide(idx, "key-slide key-slide-takeaway", content, { title: "Takeaway" });
+    }
+
+    /* ─── Build the deck ─────────────────────────────────────── */
+
+    function buildSlides(brief, variant) {
+      const m = brief.bodyJson;
+      const ms = (m.milestones || []).slice(0, 3);
+      const tp = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const ver = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+      const rb = m.rankedBars;
+      const hasChart = rb && Array.isArray(rb.entries) && rb.entries.length > 0;
+      const dateInfo = formatDate(m.footerTag);
+      const briefIdShort = brief.id ? `#${String(brief.id).slice(0, 10).toUpperCase()}` : "";
+
+      // Director-comparison block · only present in PPT-mode briefs
+      // generated by the new schema. Each section is gated on having
+      // its own content.
+      const db = m.directorBlock && typeof m.directorBlock === "object" ? m.directorBlock : null;
+      const persp = (db && Array.isArray(db.perspectives)) ? db.perspectives : [];
+      const aligns = (db && Array.isArray(db.alignment)) ? db.alignment : [];
+      const splits = (db && Array.isArray(db.divergence)) ? db.divergence : [];
+      const chairSyn = (db && typeof db.chairSynthesis === "string") ? db.chairSynthesis : "";
+      const showVoices = persp.length >= 2;
+      const showConsensus = aligns.length >= 1;
+      const showSplits = splits.length >= 1;
+
+      // Milestone slides only when the milestone has actual content
+      const filledMilestones = ms.filter((x) => x && (x.title || x.body || x.callout));
+
+      // Timeline overview · skipped when fewer than 2 milestones
+      // (a timeline of one phase is not a timeline).
+      const showTimeline = filledMilestones.length >= 2;
+
+      // Build agenda labels in the same order the slides will render.
+      const agenda = [];
+      if (showTimeline) agenda.push("The arc");
+      if (showVoices) agenda.push("Director voices");
+      ms.forEach((x) => {
+        if (x && (x.title || x.period)) agenda.push(x.title || x.period);
+      });
+      if (hasChart) agenda.push("By the numbers");
+      if (showConsensus) agenda.push("Where we agreed");
+      if (showSplits) agenda.push("Where we split");
+      if (tp.length) agenda.push((m.talkingPoints && m.talkingPoints.title) || "Recommendations");
+      if (ver.length) agenda.push((m.verification && m.verification.title) || "What to watch");
+      if (m.conclusion) agenda.push("The takeaway");
+
+      // Total slide count · cover + agenda + (timeline) + (voices) +
+      // milestones + (data) + (consensus) + (splits) + (talking) +
+      // (verify) + (takeaway).
+      let total = 2 + filledMilestones.length;
+      if (showTimeline) total += 1;
+      if (showVoices) total += 1;
+      if (hasChart) total += 1;
+      if (showConsensus) total += 1;
+      if (showSplits) total += 1;
+      if (tp.length) total += 1;
+      if (ver.length) total += 1;
+      if (m.conclusion) total += 1;
+
+      const slides = [];
+      let idx = 0;
+      const cover = variant === "keynote" ? keyCover : antCover;
+      const agendaSlide = variant === "keynote" ? keyAgenda : antAgenda;
+      const timelineSlide = variant === "keynote" ? keyTimeline : antTimeline;
+      const voicesSlide = variant === "keynote" ? keyVoicesSlide : antVoicesSlide;
+      const consensusSlide = variant === "keynote" ? keyConsensusSlide : antConsensusSlide;
+      const splitsSlide = variant === "keynote" ? keySplitsSlide : antSplitsSlide;
+      const milestoneSlide = variant === "keynote" ? keyMilestone : antMilestone;
+      const dataSlide = variant === "keynote" ? keyDataSlide : antDataSlide;
+      const bulletsSlide = variant === "keynote" ? keyBulletsSlide : antBulletsSlide;
+      const takeawaySlide = variant === "keynote" ? keyTakeaway : antTakeaway;
+
+      slides.push(cover(idx++, total, m, dateInfo, briefIdShort));
+      slides.push(agendaSlide(idx++, total, m, agenda));
+      if (showTimeline) {
+        slides.push(timelineSlide(idx++, total, filledMilestones));
+      }
+      if (showVoices) {
+        slides.push(voicesSlide(idx++, total, persp));
+      }
+      filledMilestones.forEach((ms_, i) => {
+        slides.push(milestoneSlide(idx++, total, ms_, i + 1));
+      });
+      if (hasChart) {
+        slides.push(dataSlide(idx++, total, rb));
+      }
+      if (showConsensus) {
+        slides.push(consensusSlide(idx++, total, aligns, chairSyn));
+      }
+      if (showSplits) {
+        slides.push(splitsSlide(idx++, total, splits));
+      }
+      if (tp.length) {
+        const tpHead = (m.talkingPoints && m.talkingPoints.title) || "Recommendations";
+        slides.push(bulletsSlide(idx++, total, "Recommendations", tpHead, tp, "roman"));
+      }
+      if (ver.length) {
+        const verHead = (m.verification && m.verification.title) || "What to watch";
+        slides.push(bulletsSlide(idx++, total, "What to watch", verHead, ver, "decimal"));
+      }
+      if (m.conclusion) {
+        slides.push(takeawaySlide(idx++, total, m));
+      }
+
+      return slides;
+    }
+
+    /* ─── Active-slide state · keyboard / click / hash sync ─── */
+
+    let _state = { current: 0, total: 0 };
+
+    function updateCounter() {
+      if (counterEl) counterEl.textContent = `${_state.current + 1} / ${_state.total}`;
+    }
+    function updateActive() {
+      const slides = document.querySelectorAll(".ppt-slide");
+      slides.forEach((el, i) => {
+        el.classList.toggle("is-active", i === _state.current);
+      });
+      const thumbs = document.querySelectorAll(".ppt-thumb");
+      thumbs.forEach((el, i) => {
+        el.classList.toggle("is-active", i === _state.current);
+        if (i === _state.current) {
+          el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        }
+      });
+      updateCounter();
+      // Sync URL hash without scrolling
+      const newHash = `#slide-${_state.current + 1}`;
+      if (location.hash !== newHash) {
+        history.replaceState(null, "", newHash);
+      }
+    }
+    function goTo(i) {
+      const n = Math.max(0, Math.min(_state.total - 1, i));
+      _state.current = n;
+      updateActive();
+    }
+
+    /** Read `#slide-N` from the URL and clamp to a valid index. */
+    function readHashIndex() {
+      const m = String(location.hash || "").match(/^#slide-(\d+)$/);
+      if (!m) return 0;
+      const n = parseInt(m[1], 10) - 1;
+      return isNaN(n) ? 0 : Math.max(0, Math.min(_state.total - 1, n));
+    }
+
+    function attachHandlers() {
+      // Keyboard
+      document.addEventListener("keydown", (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        // Skip when typing inside a form field
+        const t = e.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        switch (e.key) {
+          case "ArrowRight":
+          case "PageDown":
+          case " ":
+            e.preventDefault(); goTo(_state.current + 1); break;
+          case "ArrowLeft":
+          case "PageUp":
+            e.preventDefault(); goTo(_state.current - 1); break;
+          case "Home":
+            e.preventDefault(); goTo(0); break;
+          case "End":
+            e.preventDefault(); goTo(_state.total - 1); break;
+          case "f": case "F":
+            e.preventDefault(); toggleFullscreen(); break;
+          case "Escape":
+            if (document.body.classList.contains("is-fullscreen")) {
+              e.preventDefault();
+              document.body.classList.remove("is-fullscreen");
+            }
+            break;
+          default:
+            if (/^[1-9]$/.test(e.key)) {
+              e.preventDefault();
+              goTo(parseInt(e.key, 10) - 1);
+            }
+        }
+      });
+      // Click halves on slides
+      document.addEventListener("click", (e) => {
+        if (e.target.closest("[data-ppt-prev]")) {
+          e.preventDefault();
+          goTo(_state.current - 1);
+          return;
+        }
+        if (e.target.closest("[data-ppt-next]")) {
+          e.preventDefault();
+          goTo(_state.current + 1);
+          return;
+        }
+        const thumb = e.target.closest("[data-ppt-thumb]");
+        if (thumb) {
+          e.preventDefault();
+          const idx = parseInt(thumb.getAttribute("data-ppt-thumb"), 10);
+          if (!isNaN(idx)) goTo(idx);
+          return;
+        }
+        if (e.target.closest("[data-ppt-fullscreen]")) {
+          e.preventDefault(); toggleFullscreen(); return;
+        }
+        if (e.target.closest("[data-ppt-png]")) {
+          e.preventDefault(); exportPng(); return;
+        }
+        if (e.target.closest("[data-ppt-print]")) {
+          e.preventDefault(); exportPdf(); return;
+        }
+      });
+      // Hash sync · external nav (link click) updates the slide
+      window.addEventListener("hashchange", () => {
+        goTo(readHashIndex());
+      });
+    }
+
+    function toggleFullscreen() {
+      const body = document.body;
+      const isFs = body.classList.toggle("is-fullscreen");
+      // Try to also use the browser fullscreen API for a real
+      // OS-level fullscreen experience (esc-key still exits).
+      try {
+        if (isFs) {
+          if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        } else {
+          if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
+      } catch { /* no-op · the body class still toggles for a CSS-only fallback */ }
+    }
+
+    document.addEventListener("fullscreenchange", () => {
+      // Keep body class in sync with browser fullscreen state
+      if (!document.fullscreenElement) {
+        document.body.classList.remove("is-fullscreen");
+      }
+    });
+
+    /* ─── Render the deck ─────────────────────────────────────── */
+
+    function render(brief) {
+      if (brief.mode !== "ppt") {
+        showState("Wrong mode", "This brief isn't a slide deck",
+          "Open it in the matching viewer instead. Slides, magazine, newspaper, and research-note are separate output modes.");
+        return;
+      }
+      const m = brief.bodyJson;
+      if (!m || typeof m !== "object") {
+        if (brief.isGenerating) {
+          showState("Generating", "Deck is still being prepared",
+            "The chair is currently composing the slides. Refresh in a few seconds.");
+        } else {
+          showState("Empty", "This brief has no deck data",
+            "It may have failed to generate. Try regenerating from the room view.");
+        }
+        return;
+      }
+
+      if (m.title) document.title = `${m.title} · Slides`;
+
+      const variant = pickVariant(brief.id);
+      document.body.setAttribute("data-ppt-variant", variant);
+      if (variantBadge) {
+        variantBadge.textContent = variant === "keynote" ? "Keynote Edition" : "Anthropic Edition";
+      }
+
+      const slides = buildSlides(brief, variant);
+      _state.total = slides.length;
+      _state.current = readHashIndex();
+      if (_state.current >= _state.total) _state.current = 0;
+
+      // Build thumb strip · short labels with slide index
+      const thumbs = slides.map((html, i) => {
+        const titleMatch = html.match(/data-slide-title="([^"]*)"/);
+        const title = titleMatch ? titleMatch[1] : `Slide ${i + 1}`;
+        return `
+          <div class="ppt-thumb" data-ppt-thumb="${i}">
+            <div class="ppt-thumb-num">Slide ${String(i + 1).padStart(2, "0")}</div>
+            <div class="ppt-thumb-title">${title}</div>
+          </div>`;
+      }).join("");
+
+      root.innerHTML = `
+        <div class="ppt-stage">
+          <article class="ppt-deck" data-ppt-paper>${slides.join("")}</article>
+        </div>
+        <div class="ppt-thumbs">${thumbs}</div>`;
+
+      updateActive();
+    }
+
+    /* ─── Export wiring ────────────────────────────────────── */
+    let _h2iLoaded = null;
+    async function ensureHtmlToImage() {
+      if (window.htmlToImage) return;
+      if (!_h2iLoaded) {
+        _h2iLoaded = new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      await _h2iLoaded;
+    }
+
+    /** Capture the active slide as a PNG data URL. */
+    async function captureSlidePng(slideEl) {
+      await ensureHtmlToImage();
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch { /* best-effort */ }
+      }
+      const width = Math.max(slideEl.scrollWidth, slideEl.offsetWidth, slideEl.clientWidth);
+      const height = Math.max(slideEl.scrollHeight, slideEl.offsetHeight, slideEl.clientHeight);
+      // Force the slide into display:flex temporarily so html-to-image
+      // can capture even non-active slides. Remember the old display
+      // and restore after.
+      const prevDisplay = slideEl.style.display;
+      slideEl.style.display = "flex";
+      try {
+        return await window.htmlToImage.toPng(slideEl, {
+          pixelRatio: 2,
+          backgroundColor: getComputedStyle(slideEl).backgroundColor || "#FFFFFF",
+          cacheBust: true,
+          width, height,
+          canvasWidth: width, canvasHeight: height,
+          style: { margin: "0", width: `${width}px`, height: `${height}px`, display: "flex" },
+        });
+      } finally {
+        slideEl.style.display = prevDisplay;
+      }
+    }
+
+    function slugTitle() {
+      return (document.title || "deck").replace(/[^a-z0-9]+/gi, "-").slice(0, 60) || "deck";
+    }
+
+    async function exportPng() {
+      try {
+        const active = document.querySelector(".ppt-slide.is-active");
+        if (!active) throw new Error("no active slide");
+        const dataUrl = await captureSlidePng(active);
+        const a = document.createElement("a");
+        a.download = `${slugTitle()}-slide-${_state.current + 1}.png`;
+        a.href = dataUrl;
+        a.click();
+      } catch (e) {
+        console.warn("[ppt] PNG export failed:", e);
+        alert("PNG export failed · see browser console.");
+      }
+    }
+
+    /** Export every slide as a separate page in a printable popup ·
+     *  user picks "Save as PDF" in the print dialog. Each slide is
+     *  captured as a PNG (in display order) and embedded in the
+     *  popup as a one-image-per-page layout. */
+    async function exportPdf() {
+      try {
+        const slides = Array.from(document.querySelectorAll(".ppt-slide"));
+        if (!slides.length) throw new Error("no slides");
+        // Capture all slides in order · this can take a few seconds
+        const dataUrls = [];
+        for (const slide of slides) {
+          // eslint-disable-next-line no-await-in-loop
+          dataUrls.push(await captureSlidePng(slide));
+        }
+        const win = window.open("", "_blank", "width=1280,height=720");
+        if (!win) {
+          alert("PDF export needs to open a new window — please allow popups for this site.");
+          return;
+        }
+        const slug = slugTitle();
+        const imgs = dataUrls.map((url, i) => `<img alt="${slug} slide ${i + 1}" src="${url}">`).join("");
+        win.document.open();
+        win.document.write(`<!doctype html><html lang="en"><head>
+          <meta charset="utf-8">
+          <title>${slug}</title>
+          <style>
+            @page { size: 16in 9in landscape; margin: 0; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body { background: #0E0E10; }
+            body {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              padding: 24px 0;
+              gap: 24px;
+              min-height: 100vh;
+            }
+            img {
+              display: block;
+              width: 100%;
+              max-width: 1200px;
+              aspect-ratio: 16 / 9;
+              object-fit: contain;
+              box-shadow: 0 0 24px rgba(0, 0, 0, 0.40);
+            }
+            @media print {
+              body { padding: 0; gap: 0; background: white; }
+              img { box-shadow: none; max-width: none; width: 100vw; height: 100vh; aspect-ratio: auto; page-break-after: always; }
+              img:last-child { page-break-after: auto; }
+            }
+            .hint {
+              position: fixed; top: 12px; left: 12px;
+              font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              font-size: 11px; color: #C8C2AE;
+              background: rgba(20,20,20,0.85); padding: 6px 10px;
+              border: 1px solid rgba(255,255,255,0.18);
+            }
+            @media print { .hint { display: none; } }
+          </style>
+        </head><body>
+          <div class="hint">// press <kbd>⌘P</kbd> / <kbd>Ctrl+P</kbd> · save as PDF · landscape</div>
+          ${imgs}
+          <script>
+            (function () {
+              var imgs = document.querySelectorAll("img");
+              var loaded = 0;
+              function go() { setTimeout(function () { window.print(); }, 200); }
+              if (!imgs.length) { go(); return; }
+              imgs.forEach(function (img) {
+                if (img.complete) { loaded++; if (loaded === imgs.length) go(); }
+                else { img.addEventListener("load", function () { loaded++; if (loaded === imgs.length) go(); }, { once: true }); }
+              });
+            })();
+          <\/script>
+        </body></html>`);
+        win.document.close();
+      } catch (e) {
+        console.warn("[ppt] PDF export failed:", e);
+        alert("PDF export failed · see browser console.");
+      }
+    }
+
+    /* ─── Boot ──────────────────────────────────────────────────── */
+    attachHandlers();
+    loadBrief().then((brief) => {
+      if (brief) render(brief);
+    }).catch((e) => {
+      console.error("[ppt] load failed:", e);
+      showState("Error", "Couldn't load this brief", e instanceof Error ? e.message : String(e));
+    });
+  })();
+  </script>
+
+</body>
+</html>

@@ -988,10 +988,7 @@
             <span class="right">// local</span>
           </div>
 
-          <header class="us-head">
-            <div class="us-title">Preference</div>
-            <button type="button" class="us-close" aria-label="Close">✕</button>
-          </header>
+          <button type="button" class="us-close" aria-label="Close">✕</button>
 
           <div class="us-frame">
             <nav class="us-nav" role="tablist">

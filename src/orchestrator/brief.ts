@@ -22,9 +22,9 @@ import { callLLMStream, callLLMWithUsage, type LLMMessage } from "../ai/adapter.
 import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
   assetsToSignals,
-  buildBentoMessages,
   buildMagazineMessages,
   buildNewspaperMessages,
+  buildPptMessages,
   buildExtractMessages,
   buildScaffoldMessages,
   buildWriteMessages,
@@ -223,7 +223,7 @@ export function abortBriefGeneration(briefId: string): boolean {
 export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: string }> {
   const { roomId } = opts;
   const style: BriefStyle = opts.style ?? "mckinsey";
-  const mode: BriefMode = opts.mode === "bento" || opts.mode === "magazine" || opts.mode === "newspaper"
+  const mode: BriefMode = opts.mode === "magazine" || opts.mode === "newspaper" || opts.mode === "ppt"
     ? opts.mode
     : "research-note";
 
@@ -732,14 +732,15 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       );
     }
 
-    // ── Structured modes · bento / magazine / newspaper ─────────────
+    // ── Structured modes · magazine / newspaper / ppt ───────────────
     // All structured modes skip composer + Stage 2 scaffold + Stage 3
-    // write. They share the BentoScaffold JSON shape, so they run
-    // through the SAME chair-LLM single-pass stage — only the prompt
-    // and the client-side renderer differ. The data lands in
-    // body_json; bento.html / magazine.html / newspaper.html template
-    // the same fields into different layouts.
-    if (args.mode === "bento" || args.mode === "magazine" || args.mode === "newspaper") {
+    // write. They share the BentoScaffold JSON shape (kept under
+    // that name for historical reasons — it's the structured output
+    // schema) and run through the SAME chair-LLM single-pass stage ·
+    // only the prompt and the client-side renderer differ. The data
+    // lands in body_json; magazine.html / newspaper.html / ppt.html
+    // template the same fields into different layouts.
+    if (args.mode === "magazine" || args.mode === "newspaper" || args.mode === "ppt") {
       const ok = await runBentoStage({
         roomId,
         briefId,
@@ -755,8 +756,8 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       });
       if (!ok) {
         const label = args.mode === "magazine" ? "Magazine"
-          : args.mode === "newspaper" ? "Newspaper"
-          : "Bento";
+          : args.mode === "ppt" ? "Slide deck"
+          : "Newspaper";
         pipelineError =
           `${label} writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.`;
       }
@@ -1430,11 +1431,11 @@ interface BentoStageArgs {
   perDirectorSignals: DirectorSignals[];
   language: "zh" | "en";
   supplement?: string;
-  /** 'bento' (default) or 'magazine'. Both modes share the
-   *  BentoScaffold JSON output · only the system prompt differs. The
-   *  magazine prompt biases the model toward 5 numbered talking
-   *  points + 3 setup steps + 4 "why it matters" bullets, matching
-   *  the magazine.html renderer's slot density. */
+  /** 'magazine', 'newspaper', or 'ppt'. All three modes share the
+   *  BentoScaffold JSON output · only the system prompt differs.
+   *  Magazine biases toward 5-card editorial · newspaper toward
+   *  broadsheet front-page sectioning · ppt toward slide-friendly
+   *  short-line bullets and one-claim-per-slide content. */
   mode: BriefMode;
   signal?: AbortSignal;
 }
@@ -1454,9 +1455,9 @@ async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
   const subjectShort = (args.room.subject || "").slice(0, 60);
   const fallbackFooterTag = subjectShort ? `${subjectShort} · ${today}` : today;
 
-  const buildMessages = args.mode === "magazine" ? buildMagazineMessages
-    : args.mode === "newspaper" ? buildNewspaperMessages
-    : buildBentoMessages;
+  const buildMessages = args.mode === "newspaper" ? buildNewspaperMessages
+    : args.mode === "ppt" ? buildPptMessages
+    : buildMagazineMessages;
   const messages = buildMessages({
     chair: args.chair,
     room: args.room,

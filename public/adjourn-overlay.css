@@ -246,11 +246,12 @@
   grid-template-columns: 1fr 1fr;
 }
 /* At desktop width the primary tile (Report · the long-form
-   markdown mode) takes 1.5× the width of the other three so it
+   markdown mode) takes 1.5× the width of the other tiles so it
    reads as the default / recommended choice. The implementation
    piggybacks on grid auto-placement: the primary is always the
    first child, so giving column 1 a 1.5fr track is enough. */
 @media (min-width: 800px) {
+  .adjourn-mode-options-3 { grid-template-columns: 1.5fr 1fr 1fr; }
   .adjourn-mode-options-4 { grid-template-columns: 1.5fr 1fr 1fr 1fr; }
 }
 @media (max-width: 720px) {

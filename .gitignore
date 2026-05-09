@@ -29,3 +29,8 @@ coverage
 
 # Netlify build output (assembled from public/ at deploy time)
 _site/
+
+# Skill packs · `skills-lock.json` is the committed lockfile (like
+# package-lock); `.agents/` is the populated cache the lockfile
+# resolves to and shouldn't be tracked.
+.agents/

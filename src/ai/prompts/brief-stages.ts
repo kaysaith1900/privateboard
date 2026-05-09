@@ -1018,6 +1018,69 @@ export interface BentoScaffold {
    *  similar. Auto-filled from room metadata when the LLM doesn't
    *  set one. */
   footerTag: string;
+  /** PPT-mode only · multi-director comparison block. Populated only
+   *  when generating PPT briefs with ≥ 2 active directors. Null in
+   *  every other case. Magazine / newspaper renderers ignore it; the
+   *  PPT renderer surfaces it as 1-3 dedicated slides (director
+   *  voices · where we agreed · where we split). */
+  directorBlock?: PptDirectorBlock | null;
+}
+
+/** PPT-only multi-director block · uses resolved names + roles
+ *  inline so the slide renderer doesn't need a member-id resolver
+ *  at render time. Different shape from BriefScaffold's
+ *  DirectorPerspectivesBlock (which uses ids). */
+export interface PptDirectorBlock {
+  /** EVERY active director gets one entry. ≥ 2 entries required, else
+   *  the parent populator returns null. */
+  perspectives: PptDirectorPerspective[];
+  /** 0-3 cross-cutting agreements · each ≥ 2 directors. */
+  alignment: PptAlignment[];
+  /** 0-2 hinge points the room split on. */
+  divergence: PptDivergence[];
+  /** Chair's synthesis · 1-2 sentences (≤ 240 chars). What the chair
+   *  takes from comparing the views. Moderator-neutral. */
+  chairSynthesis: string;
+}
+
+export interface PptDirectorPerspective {
+  /** Display name · "Socrates" / "Drucker". ≤ 32 chars. */
+  directorName: string;
+  /** Display role · "Devil's advocate" / "Operator's lens". ≤ 48 chars. */
+  directorRole: string;
+  /** Short stance label · ≤ 60 chars · "Sees this as a moat play". */
+  stance: string;
+  /** Their load-bearing position · 1-2 sentences ≤ 240 chars. */
+  position: string;
+  /** Optional verbatim phrase · ≤ 160 chars. Empty when no memorable
+   *  verbatim available. Rendered as italic pull-quote. */
+  quote: string;
+}
+
+export interface PptAlignment {
+  /** What the directors agreed on · 1 sentence ≤ 120 chars. */
+  pointOfAgreement: string;
+  /** Display names of the directors who converged. ≥ 2. */
+  directorNames: string[];
+  /** Why this convergence is structurally meaningful · ≤ 200 chars. */
+  note: string;
+}
+
+export interface PptDivergence {
+  /** The hinge that separated the directors · ≤ 140 chars. */
+  hinge: string;
+  /** 2-3 sides · each side has a label, the directors on it, and a
+   *  1-sentence stance. */
+  sides: PptDivergenceSide[];
+  /** What would resolve the split · ≤ 200 chars. Empty when
+   *  unresolved. */
+  resolution: string;
+}
+
+export interface PptDivergenceSide {
+  label: string;
+  directorNames: string[];
+  stance: string;
 }
 
 export interface BentoMilestone {
@@ -1836,117 +1899,17 @@ export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
   ];
 }
 
-/* ─────────────────────── Bento mode · single-page infographic ──────────
+/* ─────────────────────── Structured-mode shared scaffold ──────────────
  *
- * Bento is a parallel output mode to the markdown research note. The
- * chair runs a SINGLE chair-LLM call (no separate Stage 3 streaming —
- * the structured JSON IS the deliverable; the renderer is deterministic
- * client-side templating).
- *
- * The bento body is intentionally lossy — the room's full discussion
- * compresses into 3 milestones + 3 sidebars + 1 conclusion that fit on
- * a single screen / single print page. Users who want the full memo
- * pick research-note instead. */
-
-const BENTO_SYSTEM = [
-  "You are the chair of a boardroom session. You produce a SINGLE-PAGE INFOGRAPHIC report — a structured \"bento box\" that compresses the room's discussion into a one-screen visual brief. Not a memo. Not a research note. A poster.",
-  "",
-  "## What a bento is for",
-  "",
-  "Bento is for the moment AFTER the discussion when the user wants to forward the takeaway to someone in 60 seconds. Not the analysis itself · the answer. Not the room's debate · the conclusion the room reached. Not all the evidence · the 3 most load-bearing claims with their numerics.",
-  "",
-  "Lossy is feature, not bug. If you can't compress to 3 milestones + a one-line conclusion, you didn't pick the load-bearing pieces. Compression is the work.",
-  "",
-  "## The 8 slots you fill (output is JSON only)",
-  "",
-  "1. **title** · the takeaway in claim form · serif headline · ≤ 110 chars · ONE sentence that names what the room concluded. Quantified is stronger (\"X cuts cost 10×\" beats \"X is meaningful\").",
-  "",
-  "2. **kicker** · 1 italic sentence · ≤ 200 chars · the angle / what's new about this conclusion. Reads like a magazine deck under the headline.",
-  "",
-  "3. **source** · ≤ 80 chars · attribution / context. Format: \"From {chair name} · {date or horizon}\" or \"{room subject short} · {date}\". Mono small caps register; auto-filled if you skip.",
-  "",
-  "4. **milestones** · EXACTLY 3 cards in the LEFT timeline. Each card has:",
-  "   · `period` · time / phase tag · ≤ 24 chars · \"2025H2\" / \"Q1 2026\" / \"Phase 2\" / \"Top finding\" / \"Step 1\". Choose the lens (chronological, ranked, or sequential) that fits this room.",
-  "   · `title` · ≤ 60 chars · the milestone's name in claim form.",
-  "   · `body` · 2-3 sentences · ≤ 220 chars · what happened / will happen / why it matters.",
-  "   · `callout` · ≤ 12 chars · the metric / multiplier / count that anchors this card visually. Examples: \"-10×\", \"2000万颗\", \"$120M ARR\", \"T+90\". Empty string when no clean numeric exists for this milestone.",
-  "   · `tags` · 0-4 short chips · ≤ 16 chars each · entity names, owners, domains. Render as small rounded chips beside the body.",
-  "",
-  "   Pick the 3 most load-bearing pieces of the discussion. NOT the 3 most-mentioned. The 3 that, taken together, produce the takeaway from §1.",
-  "",
-  "5. **rankedBars** · OPTIONAL · top-right card · 3-5 ranked entries with normalised ratio bars. Pick this slot when the room produced quantitative comparisons (e.g. competitor TAM, model latencies, milestone costs). Each entry: `label` (≤ 40), `value` (≤ 20, the displayed number), `ratio` (0-1 normalised for bar width — divide by the largest entry). Set to `null` when the room had no real ranked-numeric material.",
-  "",
-  "6. **verification** · OPTIONAL · mid-right card · 3-5 single-sentence bullets · ≤ 140 chars each · the validation signals that, if observed, would confirm the takeaway. Maps from convergence + leading-indicator material. The card title is your call (default \"What we'd verify\" / \"验证线索\"). Set to `null` when the room raised no clean signals to watch.",
-  "",
-  "7. **talkingPoints** · ALWAYS rendered · bottom-right card · 3-5 elevator-pitch sentences · ≤ 120 chars each · what a reader could literally say to brief a colleague verbally. Imperative, declarative, no hedging. Maps from recommendations + bottom line, collapsed to single declarative sentences. Default title \"How to say this\" / \"口播提纲\".",
-  "",
-  "8. **conclusion** · bottom band · ≤ 100 chars · ONE sentence · the takeaway compressed further than the title. The reader walks away with this single line.",
-  "",
-  "Plus optional **flow** · 2-4 short nodes joined by arrows at render time · for transformations the room argued (\"before → after\" / \"10× → 10×\" / \"weak → defensible\"). Set to `null` when no clean transformation arc exists.",
-  "",
-  "Plus auto **footerTag** · ≤ 80 chars · short caption mono caps · room subject + horizon. Auto-filled if you skip.",
-  "",
-  "## Routing the SIGNALS block into bento slots",
-  "",
-  "The SIGNALS block carries each director's extracted material with kind prefixes (`[claim]`, `[evidence·data]`, `[risk]`, etc.). Route them into bento slots:",
-  "  · **milestones** ← the 3 strongest `[claim]` + `[evidence·data]` pairs · pair each claim with its supporting datapoint when one exists; that becomes the card's `body` + `callout`.",
-  "  · **rankedBars** ← `[evidence·data]` entries that are numeric AND comparable (the room mentioned multiple options / competitors / sizes / dates as ranked numerics).",
-  "  · **verification** ← `[evidence·data]` + `[claim]` material that READS as something to monitor (\"if X stays above Y, the call holds\").",
-  "  · **talkingPoints** ← `[action]` + `[claim·confidence:high]` material distilled to imperative single-sentence form.",
-  "  · **conclusion** ← compressed restatement of the room's anchor (Bottom Line / Thesis equivalent).",
-  "  · **flow** ← when the room argued a transformation (X becomes Y) or a multi-step path, distill it to 2-4 nodes.",
-  "",
-  "## Output format",
-  "",
-  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed:",
-  "",
-  "```json",
-  "{",
-  '  "title": "Sentence-form takeaway with a quantified element when one fits.",',
-  '  "kicker": "1-sentence italic deck explaining the angle.",',
-  '  "source": "From {chair name} · {date or horizon}",',
-  '  "milestones": [',
-  '    { "period": "2025H2", "title": "Milestone name", "body": "2-3 sentences.", "callout": "-10×", "tags": ["AWS", "GCP"] },',
-  '    { "period": "Q1 2026", "title": "...", "body": "...", "callout": "...", "tags": [] },',
-  '    { "period": "2026H2", "title": "...", "body": "...", "callout": "...", "tags": [] }',
-  "  ],",
-  '  "rankedBars": {',
-  '    "title": "By the numbers",',
-  '    "entries": [',
-  '      { "label": "Hopper", "value": "1.0×", "ratio": 1.0 },',
-  '      { "label": "Blackwell", "value": "0.1×", "ratio": 0.1 },',
-  '      { "label": "Rubin", "value": "0.01×", "ratio": 0.01 }',
-  "    ]",
-  "  },",
-  '  "verification": {',
-  '    "title": "What we\'d verify",',
-  '    "bullets": [',
-  '      "Single sentence verification signal #1.",',
-  '      "Single sentence verification signal #2.",',
-  '      "Single sentence verification signal #3."',
-  "    ]",
-  "  },",
-  '  "talkingPoints": {',
-  '    "title": "How to say this",',
-  '    "bullets": [',
-  '      "First elevator-pitch sentence.",',
-  '      "Second elevator-pitch sentence.",',
-  '      "Third elevator-pitch sentence."',
-  "    ]",
-  "  },",
-  '  "conclusion": "One-line takeaway · ≤ 100 chars.",',
-  '  "flow": { "nodes": ["Hopper", "Blackwell", "Rubin"], "caption": "Two-stage cost step-down" },',
-  '  "footerTag": "Q4 update · 2025H2 → 2026H2"',
-  "}",
-  "```",
-  "",
-  "Constraints:",
-  "· Title MUST be claim-style (state the takeaway, not the topic). \"Three commitments that change the trajectory\" not \"Analysis of strategic options\".",
-  "· Milestones MUST be 3. Pad with the most-mentioned claim if the room only surfaced 2 strong points; trim to the 3 most load-bearing if the room surfaced more.",
-  "· `callout` field carries ONE numeric or unit · no English plus number combinations (\"$120M ARR\" OK; \"makes $120M\" not OK).",
-  "· `talkingPoints` is mandatory · if the room had no recommendations, distil the bottom-line claim into 3 ways a colleague could quote it.",
-  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
-].join("\n");
+ * Magazine + newspaper modes both produce the same structured JSON
+ * (BentoScaffold · the name is historical · originally introduced for
+ * the retired bento mode). The chair runs a SINGLE chair-LLM call
+ * per mode (no separate Stage 3 streaming — the structured JSON IS
+ * the deliverable; the renderer is deterministic client-side
+ * templating). The two prompts below (MAGAZINE_SYSTEM ·
+ * NEWSPAPER_SYSTEM) bias the writer for each renderer's specific
+ * slot density / register; both share the BentoOpts input type +
+ * the BentoScaffold output schema. */
 
 interface BentoOpts extends Omit<ScaffoldOpts, "picked"> {
   /** Optional auto-filled fallbacks · used when the LLM omits the
@@ -1954,63 +1917,6 @@ interface BentoOpts extends Omit<ScaffoldOpts, "picked"> {
    *  chair's display name + the room subject. */
   fallbackSource?: string;
   fallbackFooterTag?: string;
-}
-
-export function buildBentoMessages(opts: BentoOpts): LLMMessage[] {
-  const { room, members, perDirectorSignals, language } = opts;
-
-  const memberList = members
-    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
-    .join("\n  · ");
-
-  const signalsBlock = perDirectorSignals
-    .map((d) => {
-      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
-      const lines = d.signals
-        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
-        .join("\n");
-      return `[${d.directorId}] ${d.directorName}\n${lines}`;
-    })
-    .join("\n\n");
-
-  const supplementBlock = opts.supplement && opts.supplement.trim()
-    ? [
-        ``,
-        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
-        ``,
-        `The user has asked you to additionally consider this angle when building the bento. Surface it in the most fitting slot (most often as one of the milestones, occasionally as a verification bullet or a talking point).`,
-        ``,
-        opts.supplement.trim(),
-        ``,
-        `─── END SUPPLEMENT ───`,
-      ].join("\n")
-    : "";
-
-  return [
-    {
-      role: "system",
-      content: [BENTO_SYSTEM, "", languageInstruction(language)].join("\n"),
-    },
-    {
-      role: "user",
-      content: [
-        `ROOM #${room.number} · ${room.name}`,
-        `Subject: ${room.subject}`,
-        ``,
-        `Directors:`,
-        `  · ${memberList}`,
-        ``,
-        `─── SIGNALS ───`,
-        ``,
-        signalsBlock || "(no signals extracted)",
-        ``,
-        `─── END SIGNALS ───`,
-        supplementBlock,
-        ``,
-        `Produce the bento now. JSON only.`,
-      ].join("\n"),
-    },
-  ];
 }
 
 /* ─────────────────────────── Magazine mode · same JSON ──────────────────
@@ -2080,7 +1986,7 @@ const MAGAZINE_SYSTEM = [
   "",
   "## Output format",
   "",
-  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed (same as bento mode):",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed:",
   "",
   "```json",
   "{",
@@ -2195,7 +2101,7 @@ export function buildMagazineMessages(opts: BentoOpts): LLMMessage[] {
  * ────────────────────────────────────────────────────────────────────── */
 
 const NEWSPAPER_SYSTEM = [
-  "You are the chair of a boardroom session. You produce a NEWSPAPER FRONT-PAGE report — a broadsheet single-page layout with a banner masthead, a full-width front-page headline, and a 3-column editorial spread with sidebar callouts. Not a memo. Not a magazine. A NEWSPAPER.",
+  "You are the chair of a boardroom session. You produce a MULTI-PAGE NEWSPAPER report — a broadsheet that spreads across 3 distinct pages (front cover · inside spread · back / Best Of). The reader scrolls through them like flipping a real paper. Not a memo. Not a magazine. A NEWSPAPER.",
   "",
   "## Voice",
   "",
@@ -2211,37 +2117,39 @@ const NEWSPAPER_SYSTEM = [
   "",
   "3. **source** · masthead byline · ≤ 80 chars · \"From the desk of {chair name} · {date}\" or similar. Mono small caps register; auto-filled if you skip.",
   "",
-  "4. **milestones** · EXACTLY 3 column-stories. Each milestone IS one of the newspaper's 3 main columns. Each card has:",
+  "4. **milestones** · EXACTLY 3 column-stories · they distribute across the 3 pages. Each card has:",
   "   · `period` · column section label · ≤ 24 chars · \"TOP STORY\" / \"MARKETS\" / \"POLICY\" / \"OPS\" / \"OPINION\". Section-banner register. ALL-CAPS-ABLE.",
   "   · `title` · column subheading · ≤ 60 chars · the column's hook. Question or claim form OK.",
-  "   · `body` · 4-7 sentences · ≤ 420 chars · LONGER than other modes since this fills a full editorial column. Lead-paragraph style: open with the claim, support with evidence, close with the so-what. Present tense, declarative.",
-  "   · `callout` · usually empty · the layout doesn't lean on big-number callouts in this pattern.",
+  "   · `body` · 4-7 sentences · ≤ 480 chars · LONGER than other modes since this fills an editorial column. Lead-paragraph style: open with the claim, support with evidence, close with the so-what. Present tense, declarative.",
+  "   · `callout` · short numeric / metric · ≤ 12 chars · used as the front-page sidebar's big number when present (\"124,000\" / \"-10×\" / \"$120M\"). Empty when the milestone has no clean numeric anchor.",
   "   · `tags` · empty array.",
   "",
-  "5. **rankedBars** · OPTIONAL · top-right \"image slot\" · 3-5 ranked entries painted as a small editorial chart. Set null when the room has no clean ranked-numeric material.",
+  "   Page distribution · ms[0] = the LEAD STORY on page 1's front (drop-cap body) · ms[1] = the ECONOMY band on page 1 (chart-paired short article) AND continued on page 2 · ms[2] = the BREAKING NEWS sidebar on page 1 (short headline + body + numeric callout) AND extends on page 2.",
   "",
-  "6. **verification** · MANDATORY · these become the bottom-left \"MORE HEADINGS\" stacked sidebar · 3-5 entries · each ≤ 180 chars · phrased as \"Heading: body sentence.\" — use a colon as separator (the renderer splits on it for typography). Each entry is a SHORT NEWS ITEM that supports or qualifies the front-page claim.",
+  "5. **rankedBars** · OPTIONAL · ECONOMY-band chart on page 1 · 3-5 ranked entries painted as a teal-bar chart. Set null when the room has no clean ranked-numeric material.",
   "",
-  "7. **talkingPoints** · MANDATORY · 3-5 quotable lines · ≤ 140 chars each · these become the bottom editorial column's paragraphs · imperative or declarative, no hedging. Each is a self-contained line a reader could pull-quote.",
+  "6. **verification** · MANDATORY · stacked \"MORE HEADINGS\" sidebar on page 2 · 3-5 entries · each ≤ 180 chars · phrased as \"Heading: body sentence.\" — use a colon as separator (the renderer splits on it for typography). Each entry is a SHORT NEWS ITEM that supports or qualifies the front-page claim.",
   "",
-  "8. **conclusion** · the front-page \"BOTTOM LINE\" inverted callout · ≤ 100 chars · ONE sentence · the takeaway compressed to a quote. The reader walks away with this single line.",
+  "7. **talkingPoints** · MANDATORY · 3-6 entries · these distribute across the document: talking[0] becomes the front-page portrait pull-quote AND the page-2 inset quote; the full list reappears on page 3 as a 2-col grid of feature articles (Best of the Best). Each entry: ≤ 160 chars · self-contained quotable line · imperative or declarative.",
   "",
-  "Plus optional **flow** · usually `null` in newspaper mode · only fill when the room argued a clean transformation arc.",
+  "8. **conclusion** · the front-page inverted PULL-QUOTE band · ≤ 100 chars · ONE sentence · the takeaway compressed to a quote. The reader walks away with this single line.",
+  "",
+  "Plus optional **flow** · 2-4 short nodes · transformation arc · renders as a strip on page 3 when present.",
   "",
   "Plus auto **footerTag** · ≤ 80 chars · masthead-style date caption · auto-filled if you skip.",
   "",
   "## Routing the SIGNALS block into newspaper slots",
   "",
-  "  · **title** ← the strongest claim · phrased as a front-page headline (declarative, claim-form).",
+  "  · **title** ← the strongest claim · phrased as a front-page banner headline (declarative, claim-form).",
   "  · **kicker** ← the supporting deck · ≤ 1 sentence · what's new about this conclusion.",
-  "  · **milestones** ← the 3 most load-bearing columns of the discussion · each milestone gets a section banner (TOP STORY / MARKETS / etc.) + a column-length editorial body.",
+  "  · **milestones** ← the 3 most load-bearing pieces · ms[0] is the lead story (longest body), ms[1] feeds the economy band on page 1, ms[2] feeds the breaking-news sidebar.",
   "  · **verification** ← the room's secondary findings · each phrased as \"Heading: body.\" with a colon separator.",
-  "  · **talkingPoints** ← the room's actionable conclusions · 3-5 quotable lines.",
-  "  · **conclusion** ← the IMPORTANT-DETAILS callout · the room's bottom line in claim form.",
+  "  · **talkingPoints** ← 3-6 quotable lines · the page-3 \"Best of the Best\" features.",
+  "  · **conclusion** ← the front-page pull-quote band · the room's bottom line in claim form.",
   "",
   "## Output format",
   "",
-  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed (same as bento mode):",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed:",
   "",
   "```json",
   "{",
@@ -2336,6 +2244,204 @@ export function buildNewspaperMessages(opts: BentoOpts): LLMMessage[] {
         supplementBlock,
         ``,
         `Produce the newspaper front page now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
+/* ─────────────────────────── PPT mode · same JSON ───────────────────────
+ *
+ * PPT reuses the BentoScaffold JSON shape but routes the content to a
+ * slide-deck layout (ppt.html). The writer's tonal register is
+ * presentation-grade · short sharp claims, slide-friendly bullet
+ * lengths, one big takeaway per slide. The renderer decomposes the
+ * scaffold into 7-9 slides:
+ *   1. cover (title + kicker)
+ *   2. agenda (milestone periods + verification labels)
+ *   3-5. milestones (one per slide)
+ *   6. by the numbers (rankedBars, optional)
+ *   7. talking points
+ *   8. what to watch (verification)
+ *   9. takeaway (conclusion)
+ *
+ * Same parser (parseBento) reads the output · only the system prompt
+ * and renderer differ.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const PPT_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a SLIDE DECK report — a presentation that decomposes into 7-9 slides the reader scrolls through with arrow keys: cover · agenda · 3 milestone slides · optional data slide · talking-points slide · what-to-watch slide · takeaway slide. Not a memo. Not a magazine. A DECK.",
+  "",
+  "## Voice",
+  "",
+  "Slide voice is COMPRESSED. Every line is a slide-line · short, claim-form, declarative. No essays inside slot bodies · the renderer paints each milestone body as bullets / a single short paragraph. If a sentence wouldn't fit on a slide line at 32px, cut it.",
+  "",
+  "Each milestone fills exactly ONE slide · each talking point is one slide-line · each verification entry is one slide-line · the conclusion is the closing slide's hero quote.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the deck's cover title · ≤ 80 chars · one short claim-form sentence. Slide-friendly: short enough to render at 60px display type without wrapping more than 2 lines.",
+  "",
+  "2. **kicker** · cover deck / sub-title · 1 sentence ≤ 160 chars. Sits below the cover title in italic register.",
+  "",
+  "3. **source** · cover byline · ≤ 80 chars · \"From the desk of {chair name} · {date}\" or similar. Auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 slide-stories · each fills ONE content slide. Each card has:",
+  "   · `period` · slide-section label · ≤ 24 chars · \"PHASE 1\" / \"Q4 OUTLOOK\" / \"NEXT STEP\". Slide-banner register · ALL-CAPS-ABLE.",
+  "   · `title` · slide headline · ≤ 60 chars · the slide's one-line claim.",
+  "   · `body` · 2-3 sentences · ≤ 280 chars · short-form for slide rendering. The renderer may break this into 2-3 bullets at the colon / semicolon, so you can write \"Three forces line up: pricing pressure, regulatory shift, talent gap.\" and the renderer will visualise it.",
+  "   · `callout` · short numeric · ≤ 12 chars · \"-10×\" / \"$120M\" / \"Q1 2026\" · used as the slide's stat callout when present. Empty when no clean numeric anchor.",
+  "   · `tags` · empty array · the slide layout doesn't render tags.",
+  "",
+  "5. **rankedBars** · OPTIONAL · the 'By the numbers' slide · 3-5 ranked entries with normalised ratio bars. Set null when the room has no clean ranked-numeric material.",
+  "",
+  "6. **verification** · MANDATORY · the 'What to watch' slide · 3-5 entries · each ≤ 100 chars · phrased as a SINGLE-LINE bullet (\"Compliance review remains gating constraint.\"). NO \"Heading: body\" colon split here · these are slide bullets, one line each.",
+  "",
+  "7. **talkingPoints** · MANDATORY · the 'Recommendations / Talking points' slide · 3-5 entries · each ≤ 80 chars · imperative single-line bullets a presenter could read aloud (\"Lock pricing for Q1.\" / \"Move release to two-track plan.\").",
+  "",
+  "8. **conclusion** · the closing 'Takeaway' slide · ≤ 100 chars · ONE sentence · the deck's big walk-away line · rendered at 40-60px display type.",
+  "",
+  "9. **directorBlock** · MANDATORY when the room has ≥ 2 active directors. Set `null` only when there is exactly one director. Renders as 1-3 dedicated slides: director voices · where we agreed · where we split. The single most-valuable section in the deck — the room's social map. Shape:",
+  "    · `perspectives` · EVERY active director gets one entry. Each has:",
+  "        · `directorName` (display name, ≤ 32 chars · e.g. \"Socrates\"),",
+  "        · `directorRole` (their tag, ≤ 48 chars · e.g. \"Devil's advocate\"),",
+  "        · `stance` (≤ 60 chars · short label of their angle · \"Sees this as a moat play\"),",
+  "        · `position` (1-2 sentences ≤ 240 chars · their load-bearing argument in their voice),",
+  "        · `quote` (verbatim phrase ≤ 160 chars · empty when no memorable verbatim).",
+  "    · `alignment` · 0-3 cross-cutting agreements. Each: `pointOfAgreement` (≤ 120 chars), `directorNames` (≥ 2 names), `note` (why this convergence matters · ≤ 200 chars).",
+  "    · `divergence` · 0-2 hinges the room split on. Each: `hinge` (≤ 140 chars · the question they split on), `sides` (2-3 entries · each has `label`, `directorNames` ≥ 1, `stance` ≤ 160 chars), `resolution` (what would settle it · ≤ 200 chars · empty if unresolved).",
+  "    · `chairSynthesis` · 1-2 sentences ≤ 240 chars · what the chair takes from comparing the views. Moderator-neutral — observation, not advocacy.",
+  "    Source from the SIGNALS block — `tensions` populate divergence rows; agreed-on claims populate alignment groups; each director's strongest claim populates their `position`; quotes from the SIGNALS block (when verbatim) populate `quote`.",
+  "",
+  "Plus optional **flow** · usually `null` in PPT mode · only fill when the room argued a clean transformation arc · would render as a 2-4 node arrow chain on the data slide.",
+  "",
+  "Plus auto **footerTag** · slide-footer caption · auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into slide slots",
+  "",
+  "  · **title** ← the strongest claim · phrased as a deck cover headline.",
+  "  · **kicker** ← the supporting sub-title · what the deck is about in 1 sentence.",
+  "  · **milestones** ← the 3 most load-bearing pieces · each becomes ONE slide · prefer claims with numeric anchors so the slide gets a visible callout.",
+  "  · **verification** ← 3-5 watch-list bullets · single-line each.",
+  "  · **talkingPoints** ← 3-5 imperative recommendations · single-line each.",
+  "  · **conclusion** ← compressed walk-away takeaway in 1 sentence.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block.",
+  "",
+  "```json",
+  "{",
+  '  "title": "Short claim-form deck title.",',
+  '  "kicker": "1-sentence sub-title explaining the angle.",',
+  '  "source": "From the desk of {chair name} · {date}",',
+  '  "milestones": [',
+  '    { "period": "PHASE 1", "title": "Anchor the next quarter", "body": "Three forces converge: pricing pressure, regulatory shift, talent gap.", "callout": "Q1 2026", "tags": [] },',
+  '    { "period": "PHASE 2", "title": "Commit two-track release", "body": "Pilot lane survives. Production lane gets a tighter cap.", "callout": "-10×", "tags": [] },',
+  '    { "period": "PHASE 3", "title": "Open the senior bench", "body": "Two roles before next board · compliance review remains the gate.", "callout": "+2 hires", "tags": [] }',
+  "  ],",
+  '  "rankedBars": null,',
+  '  "verification": {',
+  '    "title": "What to watch",',
+  '    "bullets": [',
+  '      "Compliance review remains the gating constraint.",',
+  '      "Pricing pilot survives but caps are tightening.",',
+  '      "Two new senior roles open by next board meeting.",',
+  '      "Q4 outlook anchors three commitments."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "Recommendations",',
+  '    "bullets": [',
+  '      "Lock pricing for Q1.",',
+  '      "Commit to a two-track release plan.",',
+  '      "Open two senior roles before the next board.",',
+  '      "Schedule a compliance review check-in for week 4."',
+  "    ]",
+  "  },",
+  '  "conclusion": "Three commitments anchor the next quarter; ship Q1 with pricing locked.",',
+  '  "flow": null,',
+  '  "footerTag": "Boardroom Slides · {date}",',
+  '  "directorBlock": {',
+  '    "perspectives": [',
+  '      { "directorName": "Socrates", "directorRole": "Devil\'s advocate", "stance": "Frames it as a regulatory-window question.", "position": "The compliance gate is binding before the pricing question matters. Until that closes, two-track is overkill.", "quote": "We are spending capital on a problem that is not our binding constraint." },',
+  '      { "directorName": "Drucker", "directorRole": "Operator\'s lens", "stance": "Reads it as a distribution-leverage play.", "position": "Two-track buys negotiating room with the channel — without it, Q1 pricing locks become impossible to reverse.", "quote": "" }',
+  "    ],",
+  '    "alignment": [',
+  '      { "pointOfAgreement": "Q1 pricing must be locked before any release commitment.", "directorNames": ["Socrates", "Drucker"], "note": "Independent paths · Socrates from regulatory exposure, Drucker from channel leverage." }',
+  "    ],",
+  '    "divergence": [',
+  '      { "hinge": "Whether two-track release is necessary now or premature.", "sides": [',
+  '        { "label": "Necessary now", "directorNames": ["Drucker"], "stance": "Without two-track, the pricing lock is reversed by channel pressure inside 90 days." },',
+  '        { "label": "Premature", "directorNames": ["Socrates"], "stance": "Compliance review, not channel pressure, is the binding gate; two-track defers the real question." }',
+  '      ], "resolution": "Resolves once we know whether the compliance review will close before the pricing lock takes effect." }',
+  "    ],",
+  '    "chairSynthesis": "Both directors agree on the pricing lock; they split on whether to also commit to two-track. The compliance-review timing is the variable that settles the split."',
+  "  }",
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title ≤ 80 chars · slide-renderable at 60px without overflow.",
+  "· Milestone body 2-3 sentences ≤ 280 chars · TIGHTER than newspaper / magazine modes.",
+  "· Verification bullets ≤ 100 chars each · single-line slide-bullets · NO colon split.",
+  "· Talking-point bullets ≤ 80 chars each · imperative voice.",
+  "· Conclusion ≤ 100 chars · the deck's walk-away line.",
+  "· directorBlock — when there are ≥ 2 active directors, you MUST populate it with one entry per director. Do not skip it; the deck loses its core differentiator without these slides.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+export function buildPptMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the deck. Surface it in the most fitting slot (most often as one of the 3 milestone slides or as a watch-list bullet).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [PPT_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the slide deck now. JSON only.`,
       ].join("\n"),
     },
   ];
@@ -5094,6 +5200,7 @@ export function parseBento(
   const conclusion = clipString(stringField(parsed.conclusion), 100);
   const flow = parseBentoFlow(parsed.flow);
   const footerTag = clipString(stringField(parsed.footerTag) || fallbackFooterTag, 80);
+  const directorBlock = parsePptDirectorBlock(parsed.directorBlock);
 
   return {
     title,
@@ -5106,7 +5213,80 @@ export function parseBento(
     conclusion,
     flow,
     footerTag,
+    directorBlock,
   };
+}
+
+function parsePptDirectorBlock(raw: unknown): PptDirectorBlock | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+
+  const perspectives: PptDirectorPerspective[] = [];
+  if (Array.isArray(o.perspectives)) {
+    for (const p of o.perspectives) {
+      if (!p || typeof p !== "object") continue;
+      const po = p as Record<string, unknown>;
+      const directorName = clipString(stringField(po.directorName), 32);
+      const directorRole = clipString(stringField(po.directorRole), 48);
+      const stance = clipString(stringField(po.stance), 60);
+      const position = clipString(stringField(po.position), 240);
+      if (!directorName || !position) continue;
+      const quote = clipString(stringField(po.quote), 160);
+      perspectives.push({ directorName, directorRole, stance, position, quote });
+    }
+  }
+  if (perspectives.length < 2) return null;
+
+  const alignment: PptAlignment[] = [];
+  if (Array.isArray(o.alignment)) {
+    for (const a of o.alignment) {
+      if (!a || typeof a !== "object") continue;
+      const ao = a as Record<string, unknown>;
+      const pointOfAgreement = clipString(stringField(ao.pointOfAgreement), 120);
+      const note = clipString(stringField(ao.note), 200);
+      const namesRaw = Array.isArray(ao.directorNames) ? ao.directorNames : [];
+      const directorNames = namesRaw
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+        .map((s) => clipString(s.trim(), 32))
+        .slice(0, 6);
+      if (!pointOfAgreement || directorNames.length < 2) continue;
+      alignment.push({ pointOfAgreement, directorNames, note });
+      if (alignment.length >= 3) break;
+    }
+  }
+
+  const divergence: PptDivergence[] = [];
+  if (Array.isArray(o.divergence)) {
+    for (const d of o.divergence) {
+      if (!d || typeof d !== "object") continue;
+      const dgo = d as Record<string, unknown>;
+      const hinge = clipString(stringField(dgo.hinge), 140);
+      const resolution = clipString(stringField(dgo.resolution), 200);
+      const sides: PptDivergenceSide[] = [];
+      if (Array.isArray(dgo.sides)) {
+        for (const s of dgo.sides) {
+          if (!s || typeof s !== "object") continue;
+          const so = s as Record<string, unknown>;
+          const label = clipString(stringField(so.label), 40);
+          const stance = clipString(stringField(so.stance), 160);
+          const namesRaw = Array.isArray(so.directorNames) ? so.directorNames : [];
+          const names = namesRaw
+            .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+            .map((x) => clipString(x.trim(), 32))
+            .slice(0, 4);
+          if (!label || !stance || names.length === 0) continue;
+          sides.push({ label, directorNames: names, stance });
+        }
+      }
+      if (!hinge || sides.length < 2) continue;
+      divergence.push({ hinge, sides, resolution });
+      if (divergence.length >= 2) break;
+    }
+  }
+
+  const chairSynthesis = clipString(stringField(o.chairSynthesis), 240);
+
+  return { perspectives, alignment, divergence, chairSynthesis };
 }
 
 function stringField(v: unknown): string {

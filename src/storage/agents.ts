@@ -594,6 +594,11 @@ export function updateAgent(
     instruction?: string;
     webSearchEnabled?: boolean;
     ability?: Record<string, number> | null;
+    /** Toggle the sidebar's pin status for this director. Pinned
+     *  agents float to the top "Pinned" bucket above Custom and Core
+     *  in `renderSidebarAgents`. Surface-level UX only — no
+     *  orchestrator behaviour depends on this flag. */
+    isPinned?: boolean;
   },
 ): Agent | null {
   const fields: string[] = [];
@@ -628,6 +633,10 @@ export function updateAgent(
       ? JSON.stringify(patch.ability)
       : null;
     values.push(json);
+  }
+  if (typeof patch.isPinned === "boolean") {
+    fields.push("is_pinned = ?");
+    values.push(patch.isPinned ? 1 : 0);
   }
   if (fields.length === 0) return getAgent(id);
   fields.push("updated_at = ?");

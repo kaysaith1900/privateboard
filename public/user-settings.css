@@ -69,33 +69,36 @@
 }
 .us-classification .right { color: var(--text-faint, #3A382F); letter-spacing: 0.12em; }
 
-.us-head {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 14px;
-  align-items: center;
-  padding: 14px 18px;
-  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
-  flex: 0 0 auto;
-}
-.us-head .us-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text, #C8C5BE);
-  letter-spacing: -0.01em;
-}
-.us-head .us-title::before { content: "▸ "; color: var(--lime, #6FB572); }
-.us-head .us-close {
-  width: 28px; height: 28px;
+/* Close button · absolute-positioned in the modal's top-right
+   corner, pinned BELOW the classification strip so it doesn't
+   overlap "// LOCAL" at the right edge of that strip. The strip is
+   ~22-24px tall (6px + 9px font + 6px + 0.5px border). The button
+   sits at 48px from the modal top — roughly aligned with the
+   first pane's `padding-top: 18px` baseline, so it visually
+   anchors to the section content rather than crowding the strip
+   below. The previous header strip (`.us-head`) that hosted this
+   button has been retired — first the "Preference" title, then
+   the surrounding bar with its dashed divider. */
+.us-close {
+  position: absolute;
+  top: 38px;
+  right: 14px;
+  z-index: 1;
+  width: 24px; height: 24px;
   background: transparent;
   border: 0.5px solid var(--line-bright, #2A2A26);
   color: var(--text-dim, #5C5A52);
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
   font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   transition: all 0.12s;
 }
-.us-head .us-close:hover {
+.us-close:hover {
   border-color: var(--lime, #6FB572);
   color: var(--lime, #6FB572);
 }
@@ -803,7 +806,6 @@
 
 @media (max-width: 600px) {
   .user-settings-overlay { padding: 12px; }
-  .us-head { padding-left: 14px; padding-right: 14px; }
   .us-pane { padding: 14px; }
   .us-foot { padding: 10px 14px; }
 }

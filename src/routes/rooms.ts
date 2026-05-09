@@ -1137,10 +1137,13 @@ export function roomsRouter(): Hono {
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
-    // Mode · 'research-note' (default), 'bento', or 'magazine'. The
-    // picker UI sets this on the adjourn / regenerate request; legacy
-    // callers without the field land on the default research-note path.
-    const mode = b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper"
+    // Mode · 'research-note' (default), 'magazine', or 'newspaper'.
+    // The picker UI sets this on the adjourn / regenerate request;
+    // legacy callers without the field land on the default
+    // research-note path. (The previously-supported 'bento' mode
+    // has been retired; legacy bento rows in the DB are normalized
+    // to 'magazine' on read by `mapRow` in storage/briefs.ts.)
+    const mode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
       ? b.mode
       : "research-note";
 
@@ -1262,7 +1265,7 @@ export function roomsRouter(): Hono {
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
-    const mode = b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper"
+    const mode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
       ? b.mode
       : "research-note";
     try {

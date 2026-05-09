@@ -1198,6 +1198,68 @@
     }
     return r.json();
   }
+  /** Spawn the dream-cycle modal overlay · returns the overlay
+   *  element so the caller can mount its body content. Idempotent
+   *  on re-entry (the user double-clicked) — closes any prior
+   *  overlay first so we never stack them. ESC + backdrop click
+   *  + ✕ button all funnel into closeDreamOverlay. */
+  function openDreamOverlay() {
+    closeDreamOverlay();
+    const overlay = document.createElement("div");
+    overlay.className = "dream-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.dataset.dreamOverlay = "1";
+    overlay.innerHTML = `
+      <div class="dream-backdrop" data-dream-close></div>
+      <div class="dream-modal" role="document">
+        <div class="dream-modal-head">
+          <span class="dream-modal-kicker"><span class="dream-modal-glyph">☾</span> memory · sleep mode</span>
+          <button type="button" class="dream-modal-close" data-dream-close aria-label="Close">✕</button>
+        </div>
+        <div class="dream-modal-body" data-dream-body></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    document.body.style.overflow = "hidden";
+    // Backdrop / ✕ click → close. Listener bound on the overlay
+    // root, delegated to anything carrying [data-dream-close].
+    overlay.addEventListener("click", (ev) => {
+      if (ev.target.closest && ev.target.closest("[data-dream-close]")) {
+        ev.preventDefault();
+        closeDreamOverlay();
+      }
+    });
+    // ESC closes too. Detached on close so we don't accumulate
+    // listeners across opens.
+    overlay.__dreamEsc = (ev) => {
+      if (ev.key === "Escape") {
+        ev.stopImmediatePropagation();
+        closeDreamOverlay();
+      }
+    };
+    document.addEventListener("keydown", overlay.__dreamEsc, true);
+    return overlay;
+  }
+  function closeDreamOverlay() {
+    const overlay = document.querySelector('[data-dream-overlay="1"]');
+    if (!overlay) return;
+    if (overlay.__dreamPhaseTimer) {
+      clearInterval(overlay.__dreamPhaseTimer);
+      overlay.__dreamPhaseTimer = null;
+    }
+    if (overlay.__dreamAutoClose) {
+      clearTimeout(overlay.__dreamAutoClose);
+      overlay.__dreamAutoClose = null;
+    }
+    if (overlay.__dreamEsc) {
+      document.removeEventListener("keydown", overlay.__dreamEsc, true);
+      overlay.__dreamEsc = null;
+    }
+    overlay.remove();
+    document.body.style.overflow = "";
+  }
+
   /** DELETE /api/agents/:slug/memories/:id */
   async function deleteMemoryFor(slug, id) {
     const r = await fetch(
@@ -2300,7 +2362,10 @@
             <section class="ap-block">
               <header class="ap-block-h">
                 <span class="ap-block-h-title">Memory</span>
-                <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">+ add note</button>
+                <div class="ap-block-h-actions">
+                  <button type="button" class="ap-block-h-action ap-dream-trigger" data-ap-dream-trigger data-slug="${escape(slug)}" title="Consolidate · drop stale notes, keep stable patterns">☾ run consolidation</button>
+                  <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">+ add note</button>
+                </div>
               </header>
               ${renderMemoryBlock(slug)}
             </section>
@@ -2626,6 +2691,14 @@
     document.addEventListener("click", (e) => {
       const trigger = e.target.closest("[data-agent-profile]");
       if (!trigger) return;
+      // Per-row action buttons (pin toggle, future delete / overflow
+      // glyphs that live INSIDE the agent-row anchor) need their own
+      // click to land. Without this guard, the capture-phase
+      // stopPropagation below swallows the action's bubble path and
+      // opens the profile instead — making "click pin → nothing
+      // happens" the visible bug. Bail out here so the action's own
+      // delegated handler runs as intended.
+      if (e.target.closest("[data-pin-toggle], [data-row-action]")) return;
       const slug = trigger.dataset.agentProfile;
       if (!slug) return;
       // Accept either a hardcoded profile or any live agent the app
@@ -2852,6 +2925,210 @@
         deleteMemoryFor(slug, id)
           .then(() => loadMemoriesFor(slug))
           .catch((err) => alert("Couldn't delete: " + (err && err.message ? err.message : err)));
+        return;
+      }
+      // Memory · manual consolidation trigger (chair "⊘ run consolidation"
+      // button). Hits POST /api/agents/:id/dream, shows the before/after
+      // counts inline for a few seconds, refreshes the memory list. The
+      // button is disabled while the cycle runs to prevent double-click.
+      const dreamTrigger = e.target.closest("[data-ap-dream-trigger]");
+      if (dreamTrigger) {
+        e.preventDefault();
+        const slug = dreamTrigger.getAttribute("data-slug");
+        if (!slug || dreamTrigger.disabled) return;
+        const origLabel = dreamTrigger.textContent;
+        dreamTrigger.disabled = true;
+        dreamTrigger.textContent = "consolidating…";
+        // Spawn the overlay · running widget mounted inside.
+        // Earlier rev rendered the widget inline above the memory
+        // list which felt cramped and shifted the page layout.
+        // The overlay treatment matches the adjourn / supplement
+        // modals' chrome so the dream reads as a proper "agent is
+        // sleeping now" event with focused attention.
+        const overlay = openDreamOverlay();
+        const body = overlay.querySelector("[data-dream-body]");
+        body.innerHTML = `
+          <div class="dream-stage-pad">
+            <div class="dream-section-kicker">
+              <span class="dream-kicker-text">// running</span>
+              <span class="dream-step" data-dream-step>1 / 6</span>
+            </div>
+            <div class="dream-frame" data-dream-state="running">
+              <div class="dream-sky" aria-hidden="true">
+                <span class="dream-z z1">Z</span>
+                <span class="dream-z z2">z</span>
+                <span class="dream-z z3">z</span>
+                <span class="dream-z z4">Z</span>
+                <span class="dream-z z5">z</span>
+              </div>
+              <div class="dream-lanes" aria-hidden="true">
+                <div class="dream-lane lane-decay">
+                  <span class="dream-lane-label">decay</span>
+                  <span class="dream-lane-bar"><i></i></span>
+                </div>
+                <div class="dream-lane lane-merge">
+                  <span class="dream-lane-label">merge</span>
+                  <span class="dream-lane-bar"><i></i></span>
+                </div>
+                <div class="dream-lane lane-promote">
+                  <span class="dream-lane-label">promote</span>
+                  <span class="dream-lane-bar"><i></i></span>
+                </div>
+              </div>
+            </div>
+            <div class="dream-divider" aria-hidden="true"></div>
+            <div class="dream-caption">
+              <span class="dream-phase" data-dream-phase>scanning recent extractions…</span>
+            </div>
+          </div>
+        `;
+        // Rotate phase text every 1.6s · matches the actual
+        // pipeline stages so the user's mental model of "what's
+        // happening" tracks the backend.
+        const phases = [
+          "scanning recent extractions…",
+          "clustering near-duplicates…",
+          "merging clusters into canonical notes…",
+          "resolving contradictions…",
+          "promoting stable cross-room patterns…",
+          "settling memory…",
+        ];
+        let phaseIdx = 0;
+        const phaseTimer = setInterval(() => {
+          phaseIdx = (phaseIdx + 1) % phases.length;
+          const phaseEl = overlay.querySelector("[data-dream-phase]");
+          const stepEl = overlay.querySelector("[data-dream-step]");
+          if (phaseEl) phaseEl.textContent = phases[phaseIdx];
+          if (stepEl) stepEl.textContent = `${phaseIdx + 1} / ${phases.length}`;
+        }, 1600);
+        // Pin the timer on the overlay so closeDreamOverlay can
+        // also clear it (user can dismiss mid-run via ✕ / ESC /
+        // backdrop and we shouldn't keep the interval ticking).
+        overlay.__dreamPhaseTimer = phaseTimer;
+        fetch("/api/agents/" + encodeURIComponent(slug) + "/dream", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        })
+          .then(async (r) => {
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+            return j;
+          })
+          .then((j) => {
+            const s = j.summary || {};
+            const before = s.beforeCount ?? 0;
+            const after = s.afterCount ?? 0;
+            const decayed = s.decayed ?? 0;
+            const merged = s.merged ?? 0;
+            const promoted = s.promoted ?? 0;
+            const superseded = s.superseded ?? 0;
+            // Stop phase rotation now that we're swapping to result.
+            if (overlay.__dreamPhaseTimer) {
+              clearInterval(overlay.__dreamPhaseTimer);
+              overlay.__dreamPhaseTimer = null;
+            }
+            // Flip the modal class so the chrome (border / kicker
+            // tint) follows the resolved state, then swap body.
+            overlay.classList.add("is-done");
+            const allZero = decayed === 0 && merged === 0 && promoted === 0 && superseded === 0;
+            const delta = before - after;
+            if (allZero) {
+              // No-op result · still uses the full stage layout so
+              // the modal doesn't visually shrink between phases.
+              // Hero is the moon glyph + "settled" headline; the
+              // bottom half is a quiet caption acknowledging the
+              // already-tidy state.
+              body.innerHTML = `
+                <div class="dream-stage-pad is-quiet">
+                  <div class="dream-section-kicker">
+                    <span class="dream-kicker-text">// settled</span>
+                    <span class="dream-step is-quiet">no change</span>
+                  </div>
+                  <div class="dream-hero is-quiet">
+                    <span class="dream-hero-glyph">☾</span>
+                    <div class="dream-hero-text">
+                      <div class="dream-hero-title">Memory is already settled</div>
+                      <div class="dream-hero-sub">${after} note${after === 1 ? "" : "s"} · nothing to consolidate</div>
+                    </div>
+                  </div>
+                  <div class="dream-caption">
+                    <span class="dream-caption-foot">no duplicates · no contradictions · pile is clean.</span>
+                  </div>
+                </div>
+              `;
+            } else {
+              // Non-trivial result · hero shows the count delta
+              // (was → now framed) with a magnitude chip; tiles
+              // below break the change down per operation.
+              const tile = (n, label, cls) =>
+                `<div class="dream-tile ${cls}${n === 0 ? " is-empty" : ""}">
+                   <span class="dream-tile-n">${n}</span>
+                   <span class="dream-tile-l">${label}</span>
+                 </div>`;
+              const deltaLabel = delta > 0 ? `−${delta}` : delta < 0 ? `+${Math.abs(delta)}` : "±0";
+              const deltaTone = delta > 0 ? "is-shrink" : delta < 0 ? "is-grow" : "is-flat";
+              body.innerHTML = `
+                <div class="dream-stage-pad">
+                  <div class="dream-section-kicker">
+                    <span class="dream-kicker-text">// consolidated</span>
+                    <span class="dream-step ${deltaTone}">${deltaLabel}</span>
+                  </div>
+                  <div class="dream-hero">
+                    <div class="dream-hero-numerals">
+                      <span class="dream-num was">${before}</span>
+                      <span class="dream-num-arrow" aria-hidden="true">→</span>
+                      <span class="dream-num-frame">
+                        <span class="dream-num now">${after}</span>
+                      </span>
+                    </div>
+                    <span class="dream-hero-unit">note${after === 1 ? "" : "s"}</span>
+                  </div>
+                  <div class="dream-divider" aria-hidden="true"></div>
+                  <div class="dream-tiles">
+                    ${tile(decayed, "decayed", "is-decay")}
+                    ${tile(merged, "merged", "is-merge")}
+                    ${tile(superseded, "superseded", "is-supersede")}
+                    ${tile(promoted, "promoted", "is-promote")}
+                  </div>
+                </div>
+              `;
+            }
+            // Auto-dismiss after a longer beat so the user has
+            // time to read the tiles. Manual dismissal still
+            // works via ✕ / ESC / backdrop.
+            overlay.__dreamAutoClose = setTimeout(() => closeDreamOverlay(), 9000);
+            return loadMemoriesFor(slug);
+          })
+          .catch((err) => {
+            if (overlay.__dreamPhaseTimer) {
+              clearInterval(overlay.__dreamPhaseTimer);
+              overlay.__dreamPhaseTimer = null;
+            }
+            overlay.classList.add("is-error");
+            body.innerHTML = `
+              <div class="dream-stage-pad is-quiet">
+                <div class="dream-section-kicker">
+                  <span class="dream-kicker-text">// failed</span>
+                  <span class="dream-step is-error">error</span>
+                </div>
+                <div class="dream-hero is-quiet">
+                  <span class="dream-hero-glyph">✕</span>
+                  <div class="dream-hero-text">
+                    <div class="dream-hero-title">Consolidation failed</div>
+                    <div class="dream-hero-sub">${escape(err && err.message ? err.message : String(err))}</div>
+                  </div>
+                </div>
+                <div class="dream-caption">
+                  <span class="dream-caption-foot">memory pile unchanged · safe to retry.</span>
+                </div>
+              </div>
+            `;
+          })
+          .finally(() => {
+            dreamTrigger.disabled = false;
+            dreamTrigger.textContent = origLabel;
+          });
         return;
       }
       // Memory · toggle the add form (mirrors the Rules add pattern · the

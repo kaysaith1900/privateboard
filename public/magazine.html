@@ -5,75 +5,57 @@
   <meta name="viewport" content="width=900, initial-scale=1">
   <title>Magazine · PrivateBoard</title>
   <link rel="icon" href="/avatars/chair.svg" type="image/svg+xml">
+  <!-- Playfair Display for the Vogue-style high-contrast Didot
+       logotype + serif headlines. Free Google font · no fallback
+       drama since the system Tiempos / Bodoni stack picks up. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&display=swap" rel="stylesheet">
   <style>
   /* ═══════════════════════════════════════════════════════════════════
-     Magazine · editorial single-page spread.
-       · Masthead (creator byline · large display serif title · sub-deck
-         · issue/date stamp top-right · hairline rule below)
-       · Hero spread · LEFT outline numeral feature ("5" + section title
-         + body paragraph) · RIGHT 5-card pastel grid (numbered, mint /
-         pale-blue alternating, body + sub-label)
-       · 3-step setup band on white · serif heading + small-caps subtitle
-         · 3-column numbered steps with monoline glyphs
-       · Dark closer band · "Why this matters" pull-list with 4 bullets
-         · accent-coloured small glyph per row · brand stamp bottom-right
-     Reads BentoScaffold JSON from body_json. The data shape is the same
-     as bento mode · the renderer just maps the same fields into a
-     magazine layout instead of an infographic.
-     ─────────────────────────────────────────────────────────────────── */
+     Magazine · two distinct templates picked deterministically from
+     the brief id (so refresh always renders the same look). Both
+     ship at LEAST 2 pages (Cover + Inside Feature) so the report
+     reads as a magazine rather than a single sheet.
+
+       · GQ    · The Boardroom · GQ register · bold condensed sans
+         logo · black + red accent · cover lines / featured-quote
+         portrait · inside spread with red drop cap + vertical-bar
+         pull quote.
+       · VOGUE · BOARDROOM · Vogue register · spaced-out high-
+         contrast Didot logo · cream paper + deep red accent ·
+         italic register throughout · ★ ornaments between sections.
+     ═══════════════════════════════════════════════════════════════════ */
   :root {
-    /* Surfaces · cream paper for the spread, dark navy for closer */
-    --paper:        #FBF8EE;
-    --paper-warm:   #F6F1DF;
-    --surface:      #FFFFFF;
-    --closer-bg:    #1B202C;
-    --closer-soft:  #232938;
+    /* Default · GQ register */
+    --bg:           #1A1A1A;
+    --paper:        #F5F0E8;
+    --paper-soft:   #FAF6EE;
+    --paper-edge:   #E8E0CE;
+    --ink:          #0F0F0F;
+    --ink-soft:     #2C2C2C;
+    --ink-mid:      #5C5C5C;
+    --ink-faint:    #8A8A8A;
+    --ink-muted:    #B0B0B0;
+    --inv-bg:       #0F0F0F;
+    --inv-ink:      #F5F0E8;
+    --inv-ink-soft: #C0BBB0;
+    --rule:         #C8C2B6;
+    --rule-soft:    #D8D2C6;
+    --rule-strong:  #6E665A;
+    --accent:       #D71920;
+    --accent-deep:  #A41218;
+    --accent-soft:  #E96B70;
 
-    /* Ink · paper register */
-    --ink:          #14110B;
-    --ink-soft:     #3D362C;
-    --ink-mid:      #6B6359;
-    --ink-faint:    #8E8B83;
-    --ink-muted:    #B8B0A0;
+    --shadow-page:  0 2px 8px rgba(0, 0, 0, 0.18),
+                    0 16px 48px rgba(0, 0, 0, 0.22);
 
-    /* Ink · closer register (light type on dark) */
-    --ink-inv:      #FFFFFF;
-    --ink-inv-soft: #C5C0B5;
-    --ink-inv-faint:#7E8290;
-
-    /* Rules */
-    --rule:         #E2DDD0;
-    --rule-strong:  #C5BEAE;
-    --rule-inv:     #2E3441;
-
-    /* Pastel card tints · alternating across the 5 hero cards */
-    --tint-mint:        #DCE9D1;
-    --tint-mint-deep:   #C0D6B1;
-    --tint-mint-grad:   linear-gradient(135deg, #E2EDDA 0%, #C4D5B7 100%);
-    --tint-blue:        #DCE3EC;
-    --tint-blue-deep:   #BCC8D9;
-    --tint-blue-grad:   linear-gradient(135deg, #E0E6EE 0%, #C0CCDE 100%);
-
-    /* Accent · forest green for the closer-band glyphs */
-    --accent:       #6FB572;
-    --accent-deep:  #4F8E54;
-    --accent-soft:  #B8DDB6;
-
-    /* Radii */
-    --r-xs: 6px;
-    --r-sm: 10px;
-    --r-md: 14px;
-    --r-lg: 22px;
-    --r-pill: 999px;
-
-    /* Shadows · soft warm, used sparingly */
-    --shadow-card:  0 1px 2px rgba(60, 45, 20, 0.04),
-                    0 4px 12px rgba(60, 45, 20, 0.05);
-    --shadow-stamp: 0 2px 6px rgba(0, 0, 0, 0.18);
-
+    --serif-display: "Playfair Display", "Tiempos Headline",
+                     "Bodoni 72", "Didot", "Source Serif Pro",
+                     "Charter", Georgia, "Source Han Serif SC",
+                     "Songti SC", "STSong", serif;
     --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
-             "Tiempos Headline", "Source Han Serif SC", Georgia,
-             "Songti SC", "STSong", serif;
+             "Source Han Serif SC", Georgia, "Songti SC", "STSong", serif;
     --sans:  "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont,
              "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
              "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
@@ -81,11 +63,25 @@
              "PingFang SC", "Source Han Sans CN", monospace;
   }
 
+  /* Vogue variant · cream paper · deep red · serif throughout */
+  body[data-mag-variant="vogue"] {
+    --paper:        #FAF5E6;
+    --paper-soft:   #FCF8EE;
+    --paper-edge:   #ECE4CD;
+    --ink:          #1A1A1A;
+    --rule:         #BDB39E;
+    --rule-soft:    #CFC6B2;
+    --rule-strong:  #6E654A;
+    --accent:       #8C1922;
+    --accent-deep:  #6B1018;
+    --accent-soft:  #C9909A;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    background: #ECE6D5;
+    background: var(--bg);
     color: var(--ink);
-    font-family: var(--sans);
+    font-family: var(--serif);
     font-size: 14px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
@@ -93,484 +89,1046 @@
     min-height: 100vh;
   }
 
-  /* ─── Top chrome · brand crumb + actions ────────────────────────── */
+  /* ─── Top chrome ───────────────────────────────────────────────── */
   .mag-top-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 14px;
-    padding: 18px 32px;
-    background: rgba(236, 230, 213, 0.85);
+    padding: 14px 28px;
+    background: rgba(26, 26, 26, 0.92);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--rule);
+    border-bottom: 1px solid rgba(245, 240, 232, 0.12);
     flex-wrap: wrap;
     position: sticky;
     top: 0;
     z-index: 10;
+    color: var(--paper);
   }
   .mag-crumb {
     display: inline-flex;
     align-items: center;
     gap: 12px;
-    font-family: var(--serif);
+    font-family: var(--serif-display);
     font-size: 16px;
-    font-weight: 500;
-    color: var(--ink);
+    font-weight: 700;
+    color: var(--paper);
     text-decoration: none;
   }
   .mag-crumb::before {
     content: "";
-    width: 10px;
-    height: 10px;
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
-    border-radius: 50%;
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
     flex: 0 0 auto;
-    box-shadow: 0 0 0 3px rgba(111, 181, 114, 0.22);
+    border-radius: 50%;
   }
   .mag-crumb-accent {
     color: var(--ink-faint);
     font-style: italic;
     font-weight: 400;
   }
-  .mag-actions { display: flex; gap: 8px; }
-  .mag-btn {
+  .mag-actions { display: flex; gap: 8px; align-items: center; }
+  .mag-page-nav {
+    display: inline-flex;
+    gap: 4px;
+    margin-right: 12px;
     font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    padding: 8px 14px;
-    background: var(--surface);
-    border: 1px solid var(--rule);
-    border-radius: var(--r-pill);
-    color: var(--ink-mid);
-    cursor: pointer;
-    text-decoration: none;
-    box-shadow: 0 1px 2px rgba(60, 45, 20, 0.05);
-    transition: color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-  }
-  .mag-btn:hover {
-    color: var(--accent-deep);
-    border-color: var(--accent);
-    transform: translateY(-1px);
-    box-shadow: 0 1px 2px rgba(60, 45, 20, 0.05),
-                0 0 0 3px rgba(111, 181, 114, 0.22);
-  }
-  .mag-btn:active { transform: translateY(0); }
-  .mag-btn .glyph { color: var(--ink-faint); margin-right: 4px; transition: color 0.15s; }
-  .mag-btn:hover .glyph { color: var(--accent-deep); }
-
-  /* ─── Doc · the magazine sheet ─────────────────────────────────── */
-  .mag-doc {
-    max-width: 880px;
-    margin: 28px auto;
-    background: var(--paper);
-    box-shadow: var(--shadow-card);
-    overflow: hidden;
-  }
-
-  /* ─── Masthead band · creator + display title + deck + issue ──── */
-  .mag-masthead {
-    padding: 32px 44px 24px;
-    background: var(--paper);
-    position: relative;
-  }
-  .mag-masthead-top {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 24px;
-    margin-bottom: 14px;
-  }
-  .mag-byline {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.18em;
+    font-size: 10px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--ink-mid);
-    font-weight: 600;
   }
-  .mag-issue {
+  .mag-page-nav a {
+    color: var(--ink-muted);
+    padding: 4px 8px;
+    border: 1px solid rgba(245, 240, 232, 0.16);
+    text-decoration: none;
+    transition: all 0.12s;
+  }
+  .mag-page-nav a:hover {
+    background: rgba(245, 240, 232, 0.10);
+    color: var(--paper);
+  }
+  .mag-variant-badge {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: var(--ink-faint);
-    text-align: right;
-    line-height: 1.5;
-    white-space: pre-line;
+    color: var(--accent-soft);
+    margin-right: 12px;
+    padding: 4px 10px;
+    background: rgba(245, 240, 232, 0.06);
+    border: 1px solid rgba(245, 240, 232, 0.16);
   }
-  .mag-title {
-    font-family: var(--serif);
-    font-size: 48px;
-    font-weight: 700;
-    line-height: 1.05;
-    letter-spacing: -0.022em;
-    color: var(--ink);
-    margin: 0 0 12px;
-    /* Magazine cover lines need to feel printed · slight optical
-       tightening keeps the gravity. */
+  .mag-btn {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid rgba(245, 240, 232, 0.30);
+    color: var(--paper);
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
   }
-  .mag-deck {
+  .mag-btn:hover { background: var(--paper); color: var(--bg); }
+  .mag-btn .glyph { margin-right: 4px; }
+
+  /* ─── Doc · stack of magazine pages ─────────────────────────── */
+  .mag-doc {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 28px 12px 56px;
+  }
+  .mag-page {
+    background: var(--paper);
+    padding: 32px 38px 36px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-page);
+    position: relative;
+  }
+  .mag-page:last-child { margin-bottom: 0; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     GQ variant · The Boardroom · bold modern editorial
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Cover · top issue strip + huge logo + 2-col below */
+  .gq-cover-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ink);
     font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .gq-cover-logo {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: clamp(48px, 11vw, 92px);
+    line-height: 0.94;
+    letter-spacing: -0.045em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    margin: 14px 0 12px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .gq-cover-strip {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-top: 4px solid var(--accent);
+    border-bottom: 1px solid var(--ink);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin-bottom: 18px;
+  }
+  .gq-cover-strip em { color: var(--accent); font-style: normal; }
+
+  .gq-cover-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: 28px;
+    align-items: start;
+  }
+  .gq-cover-grid > * { min-width: 0; }
+  @media (max-width: 720px) {
+    .gq-cover-grid { grid-template-columns: 1fr; gap: 22px; }
+  }
+
+  /* GQ "portrait" · solid dark colored panel with editorial quote
+     (replaces a fake-photo image · honest typographic feature). */
+  .gq-cover-portrait {
+    background: var(--inv-bg);
+    color: var(--paper);
+    padding: 26px 22px 24px;
+    min-height: 360px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .gq-cover-portrait-eye {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent-soft);
+  }
+  .gq-cover-portrait-mark {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 56px;
+    line-height: 0.6;
+    color: var(--accent-soft);
+    margin-bottom: 4px;
+  }
+  .gq-cover-portrait-text {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    color: var(--paper);
+  }
+  .gq-cover-portrait-cite {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--inv-ink-soft);
+  }
+
+  /* GQ cover lines · stacked headlines + featured points */
+  .gq-cover-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .gq-cover-flag {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    align-self: flex-start;
+  }
+  .gq-cover-headline {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: clamp(28px, 5.2vw, 38px);
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+    text-transform: uppercase;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .gq-cover-headline em {
+    color: var(--accent);
+    font-style: normal;
+  }
+  .gq-cover-deck {
+    font-family: var(--serif);
+    font-style: italic;
     font-size: 16px;
     line-height: 1.45;
     color: var(--ink-soft);
-    font-weight: 400;
-    max-width: 720px;
-    letter-spacing: -0.005em;
   }
-  .mag-masthead-rule {
-    height: 1px;
-    background: var(--rule-strong);
-    margin: 22px 44px 0;
-  }
-  .mag-masthead + .mag-masthead-rule { /* selector parity in case of placement */ }
-
-  /* ─── Hero spread · left feature + right card grid ────────────── */
-  .mag-hero {
-    display: grid;
-    grid-template-columns: minmax(220px, 280px) 1fr;
-    gap: 36px;
-    padding: 36px 44px 40px;
-    background: var(--paper);
-  }
-  @media (max-width: 760px) {
-    .mag-hero { grid-template-columns: 1fr; gap: 24px; padding: 28px 28px 32px; }
-  }
-
-  /* Left feature · outline numeral + section title + body */
-  .mag-feature {
+  .gq-cover-points {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
     gap: 8px;
-    padding-top: 6px;
+    border-top: 2px solid var(--ink);
+    padding-top: 12px;
   }
-  .mag-feature-kicker {
-    font-family: var(--serif);
-    font-size: 14px;
-    color: var(--ink-soft);
-    margin-bottom: 4px;
-  }
-  .mag-feature-numeral {
-    font-family: var(--serif);
-    font-size: 168px;
-    line-height: 0.85;
-    font-weight: 700;
-    color: transparent;
-    -webkit-text-stroke: 1.4px var(--ink);
-    text-stroke: 1.4px var(--ink);
-    letter-spacing: -0.04em;
-    margin: 4px 0 8px;
-    user-select: none;
-  }
-  .mag-feature-title {
-    font-family: var(--serif);
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1.15;
-    color: var(--ink);
-    letter-spacing: -0.012em;
-  }
-  .mag-feature-sub {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--ink-mid);
-    margin-bottom: 12px;
-    font-weight: 600;
-  }
-  .mag-feature-body {
-    font-family: var(--sans);
-    font-size: 13px;
-    line-height: 1.65;
-    color: var(--ink-soft);
-    max-width: 240px;
-  }
-
-  /* Right card grid · 5 numbered pastel cards. The 5th card spans
-     two columns to fill the bottom row cleanly. Even-positioned
-     cards get the blue tint, odd-positioned the mint tint — matches
-     the diagonal alternation in the reference. */
-  .mag-cards {
+  .gq-cover-points li {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    align-content: start;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+    padding-bottom: 8px;
+    border-bottom: 1px dotted var(--rule-strong);
   }
-  @media (max-width: 760px) {
-    .mag-cards { grid-template-columns: 1fr; }
+  .gq-cover-points li:last-child { border-bottom: 0; }
+  .gq-cover-points li b {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
   }
-  .mag-card {
-    position: relative;
-    padding: 16px 18px 18px;
-    border-radius: var(--r-md);
-    min-height: 140px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    overflow: hidden;
-  }
-  .mag-card.tint-mint { background: var(--tint-mint-grad); }
-  .mag-card.tint-blue { background: var(--tint-blue-grad); }
-  .mag-card.tint-mint .mag-card-numeral { color: var(--tint-mint-deep); }
-  .mag-card.tint-blue .mag-card-numeral { color: var(--tint-blue-deep); }
-  .mag-card-numeral {
-    font-family: var(--serif);
-    font-size: 26px;
-    font-weight: 700;
-    font-style: italic;
-    line-height: 1;
-    margin-bottom: 2px;
-    letter-spacing: -0.02em;
-  }
-  .mag-card-title {
-    font-family: var(--serif);
-    font-size: 17px;
+  .gq-cover-points li span:nth-child(2) {
+    font-family: var(--serif-display);
+    font-size: 16px;
     font-weight: 700;
     line-height: 1.25;
     color: var(--ink);
-    letter-spacing: -0.01em;
   }
-  .mag-card-sub {
+  .gq-cover-points li .pg {
     font-family: var(--sans);
-    font-size: 12px;
-    line-height: 1.35;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
     color: var(--ink-mid);
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    margin-bottom: 4px;
-  }
-  .mag-card-body {
-    font-family: var(--sans);
-    font-size: 12.5px;
-    line-height: 1.55;
-    color: var(--ink-soft);
-    max-width: 240px;
-  }
-  .mag-card-glyph {
-    position: absolute;
-    bottom: 12px;
-    right: 14px;
-    width: 28px;
-    height: 28px;
-    opacity: 0.55;
-    color: var(--ink-soft);
-    pointer-events: none;
-  }
-  .mag-card.tint-mint .mag-card-glyph { color: #5C8A5F; }
-  .mag-card.tint-blue .mag-card-glyph { color: #5A6E92; }
-  /* The 5th card spans both columns to balance the bottom row. */
-  .mag-card.span-2 { grid-column: 1 / -1; }
-
-  /* ─── Setup band · 3-column step recipe on white ──────────────── */
-  .mag-setup {
-    background: var(--surface);
-    padding: 36px 44px 40px;
-    border-top: 1px solid var(--rule);
-    border-bottom: 1px solid var(--rule);
-  }
-  .mag-setup-head {
-    text-align: center;
-    margin-bottom: 28px;
-  }
-  .mag-setup-title {
-    font-family: var(--serif);
-    font-size: 26px;
     font-weight: 700;
-    line-height: 1.2;
-    color: var(--ink);
-    letter-spacing: -0.014em;
-    margin-bottom: 6px;
   }
-  .mag-setup-sub {
-    font-family: var(--mono);
+
+  /* GQ inside · running header + feature opener + body */
+  .gq-running {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--ink);
+    font-family: var(--sans);
     font-size: 11px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--ink-mid);
-    font-weight: 600;
+    color: var(--ink);
+    font-weight: 800;
   }
-  .mag-setup-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 28px;
-  }
-  @media (max-width: 720px) {
-    .mag-setup-grid { grid-template-columns: 1fr; gap: 20px; }
-  }
-  .mag-step {
-    display: flex;
-    flex-direction: column;
+  .gq-running-brand {
+    display: inline-flex;
+    align-items: center;
     gap: 8px;
   }
-  .mag-step-glyph {
-    width: 28px;
-    height: 28px;
-    color: var(--accent-deep);
-    margin-bottom: 6px;
+  .gq-running-brand::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
+    border-radius: 50%;
   }
-  .mag-step-title {
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--ink);
-    letter-spacing: -0.005em;
+  .gq-running-meta {
+    text-align: center;
+    font-weight: 600;
+    color: var(--ink-mid);
+    letter-spacing: 0.14em;
   }
-  .mag-step-body {
+  .gq-running-page {
     font-family: var(--sans);
-    font-size: 12.5px;
-    line-height: 1.6;
-    color: var(--ink-soft);
+    font-weight: 800;
+    color: var(--accent);
   }
 
-  /* ─── Dark closer band · why this matters ─────────────────────── */
-  .mag-closer {
-    background: var(--closer-bg);
-    color: var(--ink-inv);
-    padding: 40px 44px 48px;
-    position: relative;
+  .gq-feature-dept {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    margin: 18px 0 10px;
   }
-  .mag-closer-head {
-    text-align: center;
-    margin-bottom: 24px;
+  .gq-feature-title {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: 50px;
+    line-height: 0.98;
+    letter-spacing: -0.022em;
+    color: var(--ink);
+    margin-bottom: 12px;
+    max-width: 760px;
   }
-  .mag-closer-title {
+  @media (max-width: 720px) {
+    .gq-feature-title { font-size: 34px; }
+  }
+  .gq-feature-deck {
     font-family: var(--serif);
-    font-size: 30px;
-    font-weight: 700;
-    color: var(--ink-inv);
-    letter-spacing: -0.014em;
-    margin-bottom: 6px;
-    line-height: 1.2;
+    font-style: italic;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+    max-width: 720px;
   }
-  .mag-closer-sub {
-    font-family: var(--mono);
+  .gq-feature-byline {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .gq-feature-byline em {
+    font-style: italic;
+    color: var(--ink-soft);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .gq-feature-body {
+    column-count: 2;
+    column-gap: 28px;
+    column-rule: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 13.5px;
+    line-height: 1.62;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  @media (max-width: 540px) {
+    .gq-feature-body { column-count: 1; }
+  }
+  .gq-feature-body p + p { margin-top: 8px; }
+  .gq-feature-body.has-drop::first-letter {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: 64px;
+    line-height: 0.85;
+    color: var(--accent);
+    float: left;
+    margin: 6px 8px 0 0;
+  }
+
+  /* GQ pull-quote · vertical red bar + bold sans */
+  .gq-pull {
+    border-left: 6px solid var(--accent);
+    padding: 8px 22px;
+    margin: 22px 0;
+  }
+  .gq-pull-text {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1.28;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+  }
+  .gq-pull-cite {
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 800;
+    margin-top: 8px;
+  }
+
+  /* GQ stat tile · red top bar */
+  .gq-stat {
+    background: var(--paper-soft);
+    padding: 16px 18px;
+    border-top: 4px solid var(--accent);
+    margin: 14px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    break-inside: avoid;
+  }
+  .gq-stat-eye {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .gq-stat-num {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: 36px;
+    line-height: 1.0;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .gq-stat-cap {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+  }
+
+  /* GQ inside grid · article + sidebar */
+  .gq-inside-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(180px, 1fr);
+    gap: 28px;
+    margin-top: 4px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .gq-inside-grid { grid-template-columns: 1fr; gap: 22px; }
+  }
+  .gq-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-left: 24px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .gq-side { border-left: 0; padding-left: 0; padding-top: 18px; border-top: 1px solid var(--rule); }
+  }
+  .gq-side-flag {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+    align-self: flex-start;
+  }
+  .gq-side-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .gq-side-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .gq-side-list li:last-child { border-bottom: 0; }
+  .gq-side-list li b {
+    display: block;
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 12.5px;
+    color: var(--ink);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     VOGUE variant · BOARDROOM · refined Didot-elegance
+     ═══════════════════════════════════════════════════════════════ */
+
+  body[data-mag-variant="vogue"] .mag-page {
+    padding: 36px 44px 38px;
+  }
+
+  .vogue-cover-tagline {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink-mid);
+    text-align: center;
+    padding: 4px 0 10px;
+    letter-spacing: 0.04em;
+  }
+  .vogue-cover-logo {
+    font-family: "Playfair Display", "Bodoni 72", "Didot", serif;
+    font-weight: 900;
+    font-size: clamp(54px, 12vw, 100px);
+    line-height: 0.94;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    margin: 4px 0 10px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    /* Wide tracking + Playfair Display's high-stroke contrast
+       give the spaced-out Didot wordmark feel. Clamp keeps the
+       logo from blowing past the page edges on narrower viewports. */
+  }
+  .vogue-cover-strip {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    padding: 8px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink);
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .vogue-cover-strip .star { color: var(--accent); }
+
+  .vogue-cover-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 34px;
+    align-items: start;
+  }
+  .vogue-cover-content > * { min-width: 0; }
+  @media (max-width: 720px) {
+    .vogue-cover-content { grid-template-columns: 1fr; gap: 22px; }
+  }
+
+  .vogue-cover-left {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .vogue-cover-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--accent);
+    text-align: left;
+    letter-spacing: 0.04em;
+  }
+  .vogue-cover-eye::before { content: "★ "; }
+  .vogue-cover-eye::after { content: " ★"; }
+  .vogue-cover-title {
+    font-family: "Playfair Display", "Tiempos Headline", serif;
+    font-weight: 700;
+    font-size: clamp(28px, 5.6vw, 42px);
+    line-height: 1.06;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    margin-bottom: 8px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .vogue-cover-title em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .vogue-cover-deck {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    letter-spacing: -0.005em;
+  }
+  .vogue-cover-byline {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .vogue-cover-byline em {
+    color: var(--ink);
+    font-style: italic;
+  }
+  .vogue-cover-lines {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .vogue-cover-lines li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: "Playfair Display", serif;
+    font-size: 17px;
+    line-height: 1.32;
+    color: var(--ink);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+  }
+  .vogue-cover-lines li:last-child { border-bottom: 0; }
+  .vogue-cover-lines li em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .vogue-cover-lines li .pg {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--ink-mid);
+    text-transform: uppercase;
+  }
+
+  /* Vogue typographic "portrait" · cream block with elegant quote */
+  .vogue-cover-portrait {
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 26px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+    min-height: 320px;
+  }
+  .vogue-cover-portrait-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
     font-size: 11px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--accent);
-    font-weight: 600;
+    font-weight: 700;
   }
-  .mag-closer-list {
-    list-style: none;
-    margin: 0 auto;
-    padding: 0;
-    max-width: 600px;
-  }
-  .mag-closer-list li {
-    display: grid;
-    grid-template-columns: 22px 1fr;
-    gap: 14px;
-    align-items: baseline;
-    padding: 12px 0;
-    font-family: var(--sans);
-    font-size: 13.5px;
-    line-height: 1.55;
-    color: var(--ink-inv-soft);
-    border-bottom: 1px solid var(--rule-inv);
-  }
-  .mag-closer-list li:last-child { border-bottom: 0; }
-  .mag-closer-list li .mag-closer-glyph {
-    width: 20px;
-    height: 20px;
+  .vogue-cover-portrait-eye::before { content: "★ "; }
+  .vogue-cover-portrait-eye::after { content: " ★"; }
+  .vogue-cover-portrait-mark {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-weight: 900;
+    font-size: 78px;
+    line-height: 0.5;
     color: var(--accent);
-    align-self: center;
   }
-  .mag-closer-list li .mag-closer-glyph svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-  .mag-closer-list li b {
-    color: var(--ink-inv);
-    font-weight: 600;
-  }
-  .mag-closer-list li .mag-closer-sep {
-    color: var(--accent);
-    margin: 0 6px;
-    font-weight: 500;
-  }
-  .mag-closer-stamp {
-    position: absolute;
-    bottom: 16px;
-    right: 28px;
-    display: inline-flex;
+  .vogue-cover-portrait-text {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.42;
+    color: var(--ink);
+    letter-spacing: -0.003em;
+    flex: 1;
+    display: flex;
     align-items: center;
-    gap: 10px;
-    font-family: var(--mono);
-    font-size: 10.5px;
-    color: var(--ink-inv-faint);
-    letter-spacing: 0.06em;
+    justify-content: center;
   }
-  .mag-closer-stamp-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: var(--r-pill);
-    background: var(--ink-inv);
-    color: var(--closer-bg);
-    font-family: var(--sans);
+  .vogue-cover-portrait-cite {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: -0.005em;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
   }
 
-  /* ─── States · loading / error / empty ─────────────────────────── */
+  /* Vogue inside · refined feature spread */
+  .vogue-running {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--ink);
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink-mid);
+  }
+  .vogue-running-l {
+    font-family: "Playfair Display", serif;
+    font-weight: 700;
+    font-style: normal;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .vogue-running-c { text-align: center; }
+  .vogue-running-c::before { content: "★ "; color: var(--accent); }
+  .vogue-running-c::after { content: " ★"; color: var(--accent); }
+  .vogue-running-r {
+    text-align: right;
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  .vogue-feature-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    text-align: center;
+    margin: 22px 0 8px;
+  }
+  .vogue-feature-eye::before { content: "★ "; }
+  .vogue-feature-eye::after { content: " ★"; }
+  .vogue-feature-title {
+    font-family: "Playfair Display", "Tiempos Headline", serif;
+    font-weight: 900;
+    font-size: 56px;
+    line-height: 0.98;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    text-align: center;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 720px) {
+    .vogue-feature-title { font-size: 36px; }
+  }
+  .vogue-feature-title em {
+    font-style: italic;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .vogue-feature-deck {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    text-align: center;
+    margin-bottom: 12px;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .vogue-feature-byline {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    text-align: center;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .vogue-feature-byline em {
+    font-style: italic;
+    color: var(--ink);
+  }
+
+  .vogue-feature-body {
+    column-count: 2;
+    column-gap: 28px;
+    column-rule: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  @media (max-width: 540px) {
+    .vogue-feature-body { column-count: 1; }
+  }
+  .vogue-feature-body p + p { margin-top: 6px; text-indent: 1.2em; }
+  .vogue-feature-body.has-drop::first-letter {
+    font-family: "Playfair Display", "Tiempos Headline", serif;
+    font-weight: 900;
+    font-size: 72px;
+    line-height: 0.82;
+    color: var(--accent);
+    float: left;
+    margin: 6px 8px 0 0;
+  }
+
+  /* Vogue pull · centered italic with star ornaments */
+  .vogue-pull {
+    text-align: center;
+    margin: 28px auto;
+    padding: 14px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    max-width: 720px;
+  }
+  .vogue-pull-text {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1.32;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .vogue-pull-cite {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 8px;
+  }
+  .vogue-pull-cite::before { content: "★ "; color: var(--accent); }
+  .vogue-pull-cite::after { content: " ★"; color: var(--accent); }
+
+  /* Vogue stat / sidebar list */
+  .vogue-stat {
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 18px 18px;
+    text-align: center;
+    margin: 14px 0;
+  }
+  .vogue-stat-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 10px;
+  }
+  .vogue-stat-eye::before { content: "★ "; color: var(--ink); }
+  .vogue-stat-eye::after { content: " ★"; color: var(--ink); }
+  .vogue-stat-num {
+    font-family: "Playfair Display", serif;
+    font-weight: 900;
+    font-size: 38px;
+    line-height: 1.0;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .vogue-stat-cap {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+
+  .vogue-inside-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.4fr) minmax(180px, 1fr);
+    gap: 30px;
+    margin-top: 4px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .vogue-inside-grid { grid-template-columns: 1fr; gap: 22px; }
+  }
+  .vogue-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-left: 24px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .vogue-side { border-left: 0; padding-left: 0; padding-top: 18px; border-top: 1px solid var(--rule); }
+  }
+  .vogue-side-flag {
+    font-family: "Playfair Display", serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    padding: 6px 0;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+  }
+  .vogue-side-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .vogue-side-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .vogue-side-list li:last-child { border-bottom: 0; }
+  .vogue-side-list li b {
+    display: block;
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     Shared · page footer · states · print
+     ═══════════════════════════════════════════════════════════════ */
+
+  .mag-page-foot {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+    gap: 14px;
+    padding-top: 14px;
+    margin-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .mag-page-foot-l { text-align: left; }
+  .mag-page-foot-c { text-align: center; color: var(--ink-mid); font-weight: 700; }
+  .mag-page-foot-r { text-align: right; font-style: italic; text-transform: none; }
+
   .mag-state {
     max-width: 560px;
     margin: 80px auto;
     padding: 48px 36px;
     text-align: center;
-    background: var(--surface);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-card);
+    background: var(--paper);
+    box-shadow: var(--shadow-page);
   }
   .mag-state-mark {
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--accent-deep);
-    background: rgba(111, 181, 114, 0.14);
-    border-radius: var(--r-pill);
+    color: var(--ink);
+    border: 1px solid var(--ink);
     padding: 5px 14px;
     display: inline-block;
     margin-bottom: 16px;
-    font-weight: 600;
+    font-weight: 700;
   }
   .mag-state-title {
-    font-family: var(--serif);
+    font-family: var(--serif-display);
     font-size: 24px;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--ink);
     margin-bottom: 10px;
-    line-height: 1.3;
-    letter-spacing: -0.012em;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
   }
   .mag-state-body {
-    font-family: var(--sans);
+    font-family: var(--serif);
     font-size: 13.5px;
     color: var(--ink-soft);
     line-height: 1.6;
   }
 
-  /* ─── Print · drop top chrome, fit one page ───────────────────── */
   @media print {
     .mag-top-bar { display: none; }
     body, html { background: white; }
-    .mag-doc {
-      max-width: none;
-      margin: 0;
+    .mag-doc { max-width: none; padding: 0; margin: 0; }
+    .mag-page {
       box-shadow: none;
+      margin: 0;
+      padding: 16mm 18mm;
+      page-break-after: always;
     }
-    .mag-card,
-    .mag-step,
-    .mag-closer-list li {
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
+    .mag-page:last-child { page-break-after: auto; }
   }
   </style>
 </head>
@@ -579,6 +1137,11 @@
   <header class="mag-top-bar" data-mag-chrome>
     <a href="/" class="mag-crumb">PrivateBoard <span class="mag-crumb-accent">· magazine</span></a>
     <div class="mag-actions">
+      <span class="mag-variant-badge" data-mag-variant-badge>Loading…</span>
+      <nav class="mag-page-nav" aria-label="Pages">
+        <a href="#mag-page-1">Cover</a>
+        <a href="#mag-page-2">Inside</a>
+      </nav>
       <button type="button" class="mag-btn" data-mag-png>
         <span class="glyph">↓</span>PNG
       </button>
@@ -598,31 +1161,17 @@
 
   <script>
   /* ──────────────────────────────────────────────────────────────────
-     Magazine renderer · reads the same BentoScaffold JSON that bento
-     mode produces, but maps the slots into a magazine-spread layout.
-
-     Slot mapping (BentoScaffold field → magazine slot):
-       title         → masthead headline
-       kicker        → masthead deck
-       source        → masthead byline (top-left)
-       footerTag     → masthead issue/date (top-right)
-       talkingPoints → 5 numbered pastel cards (split each bullet on
-                       " · " into title + body)
-       milestones    → 3-step setup band
-       verification  → dark-closer "why this matters" pull-list
-       conclusion    → setup-band sub-heading reinforcement
-                       (decorative; the cover headline carries it too)
-
-     The 5 hero cards are derived from talkingPoints.bullets. Each
-     bullet is split on " · " (the magazine prompt asks for "Title · Body"
-     format); fall back to whole-bullet-as-title when no separator is
-     present.
+     Magazine renderer · two distinct templates (GQ / Vogue) picked
+     deterministically per brief id. Each renders 2 pages (Cover +
+     Inside Feature) so the report reads as a magazine, not a
+     single sheet.
      ────────────────────────────────────────────────────────────── */
   (function () {
     const params = new URLSearchParams(location.search);
     const briefId = (params.get("b") || "").trim();
     const roomId = (params.get("r") || "").trim();
     const root = document.querySelector("[data-mag-root]");
+    const variantBadge = document.querySelector("[data-mag-variant-badge]");
 
     function escape(s) {
       return String(s == null ? "" : s)
@@ -644,186 +1193,346 @@
 
     async function loadBrief() {
       let url;
-      if (briefId) {
-        url = `/api/briefs/${encodeURIComponent(briefId)}`;
-      } else if (roomId) {
-        url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
-      } else {
-        showState("Missing query", "No brief specified",
-          "Add ?b=<briefId> or ?r=<roomId> to the URL.");
-        return null;
-      }
+      if (briefId) url = `/api/briefs/${encodeURIComponent(briefId)}`;
+      else if (roomId) url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
+      else { showState("Missing query", "No brief specified", "Add ?b=<briefId> or ?r=<roomId> to the URL."); return null; }
       const res = await fetch(url);
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        showState("Not found", "Brief not found",
-          e.error || "The requested brief doesn't exist or is no longer available.");
+        showState("Not found", "Brief not found", e.error || "The requested brief doesn't exist or is no longer available.");
         return null;
       }
       return await res.json();
     }
 
-    /** Split a talkingPoints bullet into title + body. The magazine
-     *  prompt asks for "Title · Body" with a middle dot + spaces. We
-     *  also accept em-dash ("Title — Body") and colon (": ") as
-     *  separators since LLMs occasionally drift. If no separator is
-     *  found the whole string becomes the title and the body is
-     *  empty — the card still renders with just the headline. */
-    function splitCard(raw) {
+    /** Pick "gq" or "vogue" deterministically from the brief id ·
+     *  same brief id always renders the same template. The
+     *  `?v=gq|vogue` URL parameter forces a specific template. */
+    function pickVariant(id) {
+      const force = (params.get("v") || "").trim().toLowerCase();
+      if (force === "gq" || force === "vogue") return force;
+      const s = String(id || "");
+      if (!s) return "gq";
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h) + s.charCodeAt(i);
+        h |= 0;
+      }
+      return (Math.abs(h) % 2) === 0 ? "gq" : "vogue";
+    }
+
+    function formatDate(footerTag) {
+      const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+      const m = String(footerTag || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      const target = m ? new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`) : new Date();
+      const d = isNaN(target.getTime()) ? new Date() : target;
+      return {
+        weekday: days[d.getDay()],
+        long: `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
+        monthYear: `${months[d.getMonth()]} ${d.getFullYear()}`,
+        year: String(d.getFullYear()),
+      };
+    }
+
+    /** Split a "Heading: body." style verification bullet on the
+     *  first colon. Falls back to em-dash / middle-dot, then to
+     *  whole-bullet-as-heading. */
+    function splitHeading(raw) {
       const s = String(raw || "").trim();
-      if (!s) return { title: "", body: "" };
-      const seps = [" · ", " — ", " - ", ": "];
+      if (!s) return { heading: "", body: "" };
+      const seps = [": ", " · ", " — ", " - "];
       for (const sep of seps) {
         const idx = s.indexOf(sep);
-        if (idx > 0 && idx < 50) {
-          return {
-            title: s.slice(0, idx).trim(),
-            body: s.slice(idx + sep.length).trim(),
-          };
+        if (idx > 0 && idx < 60) {
+          return { heading: s.slice(0, idx).trim(), body: s.slice(idx + sep.length).trim() };
         }
       }
-      return { title: s, body: "" };
+      return { heading: s, body: "" };
     }
 
-    /** Inline SVG glyph picker for the closer-band bullets. The
-     *  reference uses 4 light monoline icons (hourglass / person /
-     *  lightbulb / infinity). We pick by index (1st = hourglass, 2nd
-     *  = person, etc.) so the visual rhythm matches the source even
-     *  when the LLM-generated bullets are about different topics. */
-    function closerGlyph(i) {
-      const ICONS = [
-        // hourglass
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12M6 22h12M7 2v5l5 5-5 5v5M17 2v5l-5 5 5 5v5"/></svg>',
-        // person
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>',
-        // lightbulb
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3 11c.6.6 1 1.5 1 2.4V18h4v-1.6c0-.9.4-1.8 1-2.4a6 6 0 0 0-3-11Z"/></svg>',
-        // infinity
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12c0-2.5 2-4 4-4s3 1 5 4 3 4 5 4 4-1.5 4-4-2-4-4-4-3 1-5 4-3 4-5 4-4-1.5-4-4Z"/></svg>',
-        // bookmark (5th — fallback when verification gives ≥5 bullets)
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
-      ];
-      return ICONS[i % ICONS.length];
-    }
-
-    /** Generic step glyph for the setup band. The reference uses
-     *  three different small icons (folder-plus, magic wand, gear);
-     *  we ship a flat 3 with the same flavor so the band reads
-     *  recognisably regardless of the room's actual step content. */
-    function stepGlyph(i) {
-      const ICONS = [
-        // folder-plus
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M12 11v6M9 14h6"/></svg>',
-        // magic wand
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4l2 2M19 8l2 2M5 19l11-11M4 12l1.5-1.5M20 14l1.5-1.5M14 5l-1.5 1.5"/></svg>',
-        // gear
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
-      ];
-      return ICONS[i % ICONS.length];
-    }
-
-    /** Glyph for the hero cards · soft monoline icons that suggest
-     *  the card's subject without committing to a literal match. */
-    function cardGlyph(i) {
-      const ICONS = [
-        // bar-chart (1st card · feels like a dashboard / metrics)
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16M7 20V10M12 20V4M17 20v-7"/></svg>',
-        // notebook (2nd card · journal / capture)
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18H6zM6 8h12M6 13h12M6 18h12"/></svg>',
-        // search (3rd card · research)
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.35-4.35"/></svg>',
-        // brain (4th card · analysis)
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6a3 3 0 0 1 3-3 3 3 0 0 1 3 3M6 9a3 3 0 0 0 3 3M18 9a3 3 0 0 1-3 3M9 12v3a3 3 0 0 0 3 3 3 3 0 0 0 3-3v-3M9 18a3 3 0 0 1-3-3M15 18a3 3 0 0 0 3-3"/></svg>',
-        // newspaper (5th card · daily brief)
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h14v16H4zM18 8h2v12h-2M8 8h6M8 12h6M8 16h6"/></svg>',
-      ];
-      return ICONS[i % ICONS.length];
-    }
-
-    function renderHeroCards(bullets) {
-      // Cap to 5 cards · the magazine layout is fixed at this density.
-      // Pad with empty slots when the LLM provided <5 so the grid
-      // doesn't collapse asymmetrically.
-      const cards = bullets.slice(0, 5).map(splitCard);
-      while (cards.length < 3) cards.push(null);
-      return cards.map((c, i) => {
-        const tint = i % 2 === 0 ? "tint-mint" : "tint-blue";
-        // 5th card spans both columns to balance the bottom row.
-        const span = i === 4 ? " span-2" : "";
-        if (!c) return "";
-        const subPart = c.body
-          ? `<div class="mag-card-sub">${escape(c.title.slice(0, 60))}</div>`
-          : "";
-        return `
-          <article class="mag-card ${tint}${span}">
-            <div class="mag-card-numeral">${i + 1}</div>
-            ${
-              c.body
-                ? `<div class="mag-card-title">${escape(c.title)}</div>
-                   <div class="mag-card-body">${escape(c.body)}</div>`
-                : `<div class="mag-card-title">${escape(c.title)}</div>`
-            }
-            <span class="mag-card-glyph" aria-hidden="true">${cardGlyph(i)}</span>
-          </article>`;
-      }).join("");
-    }
-
-    function renderSetup(milestones) {
-      const arr = (milestones || []).slice(0, 3);
-      if (arr.length === 0) return "";
-      const cells = arr.map((m, i) => {
-        const period = m.period || `Step ${i + 1}`;
-        const title = m.title || period;
-        // Render "1. {title}" style heading to match the reference.
-        const heading = `${i + 1}. ${title}`;
-        return `
-          <div class="mag-step">
-            <span class="mag-step-glyph" aria-hidden="true">${stepGlyph(i)}</span>
-            <div class="mag-step-title">${escape(heading)}</div>
-            <div class="mag-step-body">${escape(m.body || "")}</div>
-          </div>`;
-      }).join("");
-      return cells;
-    }
-
-    function renderCloser(verification) {
-      if (!verification || !Array.isArray(verification.bullets) || verification.bullets.length === 0) {
-        return "";
+    /** Strict stat picker · only short numeric callouts. */
+    function pickStat(m) {
+      const ms = m.milestones || [];
+      const hit = ms.find((x) => x && x.callout && String(x.callout).trim().length > 0 && String(x.callout).trim().length <= 14);
+      if (hit) {
+        return { num: String(hit.callout).trim(), cap: hit.title || hit.period || "" };
       }
-      const items = verification.bullets.slice(0, 5).map((b, i) => {
-        // Bold the leading title-fragment when the bullet has a
-        // separator. Mirrors the "**省时省力** · …" pattern in the
-        // reference where each bullet leads with a tight label
-        // followed by a middle-dot separator and the body.
-        const parts = splitCard(b);
-        const leading = parts.body
-          ? `<b>${escape(parts.title)}</b><span class="mag-closer-sep">·</span>${escape(parts.body)}`
-          : escape(parts.title);
-        const glyph = closerGlyph(i);
-        return `
-          <li>
-            <span class="mag-closer-glyph" aria-hidden="true">${glyph}</span>
-            <span>${leading}</span>
-          </li>`;
-      }).join("");
-      return items;
+      return null;
     }
+
+    function pageFoot(pageNum, totalPages, briefIdShort) {
+      return `
+        <div class="mag-page-foot">
+          <span class="mag-page-foot-l">${escape(briefIdShort)}</span>
+          <span class="mag-page-foot-c">Page ${pageNum} of ${totalPages}</span>
+          <span class="mag-page-foot-r">privateboard.ai</span>
+        </div>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       GQ · The Boardroom · bold modern editorial
+       ═════════════════════════════════════════════════════════════ */
+
+    function renderGqCover(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+
+      const coverPoints = [
+        { num: "01", title: ms0.title || "Top story", page: "P. 02" },
+        { num: "02", title: ms1.title || "On the markets", page: "P. 02" },
+        { num: "03", title: ms2.title || "Late dispatches", page: "P. 02" },
+      ].filter((p) => p.title).map((p) => `
+        <li>
+          <b>${escape(p.num)}</b>
+          <span>${escape(p.title)}</span>
+          <span class="pg">${escape(p.page)}</span>
+        </li>
+      `).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-1">
+          <div class="gq-cover-top">
+            <span>The Boardroom · Issue ${escape(briefIdShort.replace(/^#/, ""))}</span>
+            <span>${escape(dateInfo.monthYear)}</span>
+          </div>
+
+          <h1 class="gq-cover-logo">Boardroom</h1>
+
+          <div class="gq-cover-strip">
+            <span><em>★</em> Exclusive</span>
+            <span>Reported, written &amp; edited by the chair</span>
+            <span><em>★</em> ${escape(dateInfo.year)} edition</span>
+          </div>
+
+          <div class="gq-cover-grid">
+            <!-- Typographic "portrait" panel · solid dark, editorial quote -->
+            <aside class="gq-cover-portrait">
+              <div class="gq-cover-portrait-eye">— Featured</div>
+              <div>
+                <div class="gq-cover-portrait-mark">"</div>
+                <div class="gq-cover-portrait-text">${escape(m.conclusion || m.kicker || m.title || "")}</div>
+              </div>
+              <div class="gq-cover-portrait-cite">— By the chair</div>
+            </aside>
+
+            <!-- Cover lines stacked · main headline + featured items -->
+            <div class="gq-cover-lines">
+              <span class="gq-cover-flag">The big read</span>
+              <h2 class="gq-cover-headline">${escape(m.title || "")}</h2>
+              ${m.kicker ? `<p class="gq-cover-deck">${escape(m.kicker)}</p>` : ""}
+              ${coverPoints ? `<ul class="gq-cover-points">${coverPoints}</ul>` : ""}
+            </div>
+          </div>
+
+          ${pageFoot(1, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    function renderGqInside(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const stat = pickStat(m);
+      const verifs = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+
+      // Body cell · pack with kicker lead + 3 milestone bodies +
+      // mid pull-quote + closing conclusion line so the body cell
+      // matches the sidebar's height instead of trailing off short.
+      const bodyHead = m.kicker ? `<p style="font-style:italic;color:var(--ink-mid);font-size:14.5px;margin-bottom:10px;">${escape(m.kicker)}</p>` : "";
+      const bodyParas = [];
+      if (ms0.body) bodyParas.push(`<p>${escape(ms0.body)}</p>`);
+      if (ms1.body) bodyParas.push(`<p>${escape(ms1.body)}</p>`);
+      if (ms2.body) bodyParas.push(`<p>${escape(ms2.body)}</p>`);
+      const bodyClose = m.conclusion ? `<p style="font-weight:700;color:var(--ink);margin-top:6px;">${escape(m.conclusion)}</p>` : "";
+
+      const verifsHtml = verifs.slice(0, 5).map((b) => {
+        const p = splitHeading(b);
+        return `<li>${p.body
+          ? `<b>${escape(p.heading)}</b>${escape(p.body)}`
+          : escape(p.heading)}</li>`;
+      }).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-2">
+          <div class="gq-running">
+            <span class="gq-running-brand">Boardroom</span>
+            <span class="gq-running-meta">${escape(dateInfo.monthYear)} · The big read</span>
+            <span class="gq-running-page">P. 02</span>
+          </div>
+
+          <span class="gq-feature-dept">Feature · ${escape(ms0.period || "Strategy")}</span>
+          <h2 class="gq-feature-title">${escape(m.title || "")}</h2>
+          ${m.kicker ? `<p class="gq-feature-deck">${escape(m.kicker)}</p>` : ""}
+          <div class="gq-feature-byline">By <em>The Chair</em> · Edited from the boardroom</div>
+
+          <div class="gq-inside-grid">
+            <div>
+              ${bodyParas.length ? `<div class="gq-feature-body has-drop">${bodyParas.join("")}${bodyClose}</div>` : ""}
+              ${tpAll[0] ? `
+              <blockquote class="gq-pull">
+                <div class="gq-pull-text">"${escape(tpAll[0])}"</div>
+                <div class="gq-pull-cite">— From the editorial</div>
+              </blockquote>` : ""}
+              ${tpAll[2] ? `
+              <p style="font-family:var(--serif);font-size:13.5px;line-height:1.62;color:var(--ink-soft);margin-top:10px;text-align:justify;">${escape(tpAll[2])}</p>` : ""}
+            </div>
+
+            <aside class="gq-side">
+              <span class="gq-side-flag">More from the room</span>
+              ${verifsHtml ? `<ul class="gq-side-list">${verifsHtml}</ul>` : ""}
+              ${stat ? `
+              <div class="gq-stat">
+                <div class="gq-stat-eye">By the numbers</div>
+                <div class="gq-stat-num">${escape(stat.num)}</div>
+                <div class="gq-stat-cap">${escape(stat.cap)}</div>
+              </div>` : ""}
+              ${tpAll[1] ? `
+              <blockquote class="gq-pull" style="margin: 0;">
+                <div class="gq-pull-text">"${escape(tpAll[1])}"</div>
+                <div class="gq-pull-cite">— Boardroom note</div>
+              </blockquote>` : ""}
+            </aside>
+          </div>
+
+          ${pageFoot(2, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       VOGUE · BOARDROOM · refined Didot-elegance
+       ═════════════════════════════════════════════════════════════ */
+
+    function renderVogueCover(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+
+      const coverLines = [
+        { text: ms0.title, page: "P. II" },
+        { text: ms1.title, page: "P. II" },
+        { text: ms2.title, page: "P. II" },
+      ].filter((it) => it.text).map((it, i) => `
+        <li>
+          <span>${i === 0 ? `<em>${escape(it.text)}</em>` : escape(it.text)}</span>
+          <span class="pg">${escape(it.page)}</span>
+        </li>`).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-1">
+          <div class="vogue-cover-tagline">"Intelligence from the boardroom"</div>
+          <h1 class="vogue-cover-logo">Boardroom</h1>
+          <div class="vogue-cover-strip">
+            <span>VOL. XII</span>
+            <span class="star">★</span>
+            <span><em>Issue</em> ${escape(briefIdShort.replace(/^#/, ""))}</span>
+            <span class="star">★</span>
+            <span>${escape(dateInfo.monthYear)}</span>
+            <span class="star">★</span>
+            <span>$14.00</span>
+          </div>
+
+          <div class="vogue-cover-content">
+            <div class="vogue-cover-left">
+              <div class="vogue-cover-eye">Featured in this issue</div>
+              <h2 class="vogue-cover-title">${escape(m.title || "")}</h2>
+              ${m.kicker ? `<p class="vogue-cover-deck">${escape(m.kicker)}</p>` : ""}
+              <div class="vogue-cover-byline">Reported by <em>The Chair</em></div>
+              ${coverLines ? `<ul class="vogue-cover-lines">${coverLines}</ul>` : ""}
+            </div>
+
+            <aside class="vogue-cover-portrait">
+              <div class="vogue-cover-portrait-eye">The Editorial</div>
+              <div class="vogue-cover-portrait-mark">"</div>
+              <div class="vogue-cover-portrait-text">${escape(m.conclusion || m.kicker || m.title || "")}</div>
+              <div class="vogue-cover-portrait-cite">— Bottom line</div>
+            </aside>
+          </div>
+
+          ${pageFoot(1, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    function renderVogueInside(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const stat = pickStat(m);
+      const verifs = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+
+      // Body cell · pack with milestone bodies + closing conclusion
+      // line so the body matches the sidebar's height. The kicker
+      // already shows above the body as the deck · so don't repeat
+      // it inside (would feel like a stutter).
+      const bodyParas = [];
+      if (ms0.body) bodyParas.push(`<p>${escape(ms0.body)}</p>`);
+      if (ms1.body) bodyParas.push(`<p>${escape(ms1.body)}</p>`);
+      if (ms2.body) bodyParas.push(`<p>${escape(ms2.body)}</p>`);
+      const bodyClose = m.conclusion ? `<p style="font-style:italic;font-weight:700;color:var(--ink);margin-top:8px;">${escape(m.conclusion)}</p>` : "";
+
+      const verifsHtml = verifs.slice(0, 5).map((b) => {
+        const p = splitHeading(b);
+        return `<li>${p.body
+          ? `<b>${escape(p.heading)}</b>${escape(p.body)}`
+          : escape(p.heading)}</li>`;
+      }).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-2">
+          <div class="vogue-running">
+            <span class="vogue-running-l">Boardroom</span>
+            <span class="vogue-running-c">${escape(dateInfo.monthYear)}</span>
+            <span class="vogue-running-r">Page II</span>
+          </div>
+
+          <div class="vogue-feature-eye">The Feature</div>
+          <h2 class="vogue-feature-title">${escape(m.title || "")}</h2>
+          ${m.kicker ? `<p class="vogue-feature-deck">${escape(m.kicker)}</p>` : ""}
+          <div class="vogue-feature-byline">Reported by <em>The Chair</em> · Edited from the boardroom</div>
+
+          <div class="vogue-inside-grid">
+            <div>
+              ${bodyParas.length ? `<div class="vogue-feature-body has-drop">${bodyParas.join("")}${bodyClose}</div>` : ""}
+              ${tpAll[0] ? `
+              <div class="vogue-pull">
+                <div class="vogue-pull-text">"${escape(tpAll[0])}"</div>
+                <div class="vogue-pull-cite">From the editorial</div>
+              </div>` : ""}
+              ${tpAll[2] ? `
+              <p style="font-family:var(--serif);font-size:13.5px;line-height:1.65;color:var(--ink-soft);margin-top:8px;text-align:justify;text-indent:1.2em;">${escape(tpAll[2])}</p>` : ""}
+            </div>
+
+            <aside class="vogue-side">
+              <span class="vogue-side-flag">More from the room</span>
+              ${verifsHtml ? `<ul class="vogue-side-list">${verifsHtml}</ul>` : ""}
+              ${stat ? `
+              <div class="vogue-stat">
+                <div class="vogue-stat-eye">By the numbers</div>
+                <div class="vogue-stat-num">${escape(stat.num)}</div>
+                <div class="vogue-stat-cap">${escape(stat.cap)}</div>
+              </div>` : ""}
+              ${tpAll[1] ? `
+              <div class="vogue-pull" style="margin: 0; max-width: none;">
+                <div class="vogue-pull-text" style="font-size: 18px;">"${escape(tpAll[1])}"</div>
+                <div class="vogue-pull-cite">Boardroom note</div>
+              </div>` : ""}
+            </aside>
+          </div>
+
+          ${pageFoot(2, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════ */
 
     function render(brief) {
       if (brief.mode !== "magazine") {
         showState("Wrong mode", "This brief isn't a magazine",
-          "Open it in the matching viewer instead. Magazine, bento, and research-note are separate output modes.");
+          "Open it in the matching viewer instead. Magazine, newspaper, and research-note are separate output modes.");
         return;
       }
       const m = brief.bodyJson;
       if (!m || typeof m !== "object") {
         if (brief.isGenerating) {
-          showState("Generating",
-            "Magazine is still being prepared",
-            "The chair is currently composing the spread. Refresh in a few seconds.");
+          showState("Generating", "Magazine is still being prepared",
+            "The chair is currently composing the issue. Refresh in a few seconds.");
         } else {
-          showState("Empty",
-            "This brief has no magazine data",
+          showState("Empty", "This brief has no magazine data",
             "It may have failed to generate. Try regenerating from the room view.");
         }
         return;
@@ -831,78 +1540,30 @@
 
       if (m.title) document.title = `${m.title} · Magazine`;
 
-      const heroCards = renderHeroCards((m.talkingPoints && m.talkingPoints.bullets) || []);
-      const featureCount = Math.min(5, ((m.talkingPoints && m.talkingPoints.bullets) || []).length || 0);
-      const featureTitle = (m.talkingPoints && m.talkingPoints.title) || (featureCount ? `${featureCount} tactics` : "Tactics");
-      const setupCells = renderSetup(m.milestones);
-      const setupHasItems = setupCells.length > 0;
-      const closerItems = renderCloser(m.verification);
-      const closerTitle = (m.verification && m.verification.title) || "Why this matters";
+      const variant = pickVariant(brief.id);
+      document.body.setAttribute("data-mag-variant", variant);
+      if (variantBadge) {
+        variantBadge.textContent = variant === "vogue" ? "Vogue Edition" : "GQ Edition";
+      }
 
-      // Source text · masthead byline · prefer source, fall back to
-      // footerTag, then "Boardroom".
-      const byline = m.source || "Boardroom presents";
-      // Issue / date · split the footerTag on a delimiter into 2
-      // lines so the top-right reads like an issue stamp ("Issue 01
-      // / July 2024" in the reference). When the tag has no obvious
-      // split, just show it as one line.
-      const issueParts = (m.footerTag || "").split(" · ").filter(Boolean);
-      const issueLines = issueParts.length >= 2
-        ? `${issueParts[0]}\n${issueParts.slice(1).join(" · ")}`
-        : (m.footerTag || "");
+      const milestones = (m.milestones || []).slice(0, 3);
+      const ms0 = milestones[0] || {};
+      const ms1 = milestones[1] || {};
+      const ms2 = milestones[2] || {};
+      const dateInfo = formatDate(m.footerTag);
+      const briefIdShort = brief.id ? `#${String(brief.id).slice(0, 10).toUpperCase()}` : "";
+      const totalPages = 2;
 
-      // Setup band heading · default text falls back to the brief's
-      // conclusion when no specific subject heading exists, so the
-      // band always has a real label.
-      const setupHeading = m.conclusion || "Set up your system";
+      const parts = { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages };
 
-      root.innerHTML = `
-        <article class="mag-doc" data-mag-paper>
-          <header class="mag-masthead">
-            <div class="mag-masthead-top">
-              <div class="mag-byline">${escape(byline.toUpperCase())}</div>
-              ${issueLines ? `<div class="mag-issue">${escape(issueLines)}</div>` : ""}
-            </div>
-            <h1 class="mag-title">${escape(m.title || "")}</h1>
-            ${m.kicker ? `<div class="mag-deck">${escape(m.kicker)}</div>` : ""}
-          </header>
-          <div class="mag-masthead-rule"></div>
+      const pages = variant === "vogue"
+        ? [renderVogueCover(brief, parts), renderVogueInside(brief, parts)]
+        : [renderGqCover(brief, parts), renderGqInside(brief, parts)];
 
-          <section class="mag-hero">
-            <aside class="mag-feature">
-              ${featureCount ? `<div class="mag-feature-numeral">${featureCount}</div>` : ""}
-              <div class="mag-feature-title">${escape(featureTitle)}</div>
-              <div class="mag-feature-sub">${escape((featureTitle || "").toUpperCase())}</div>
-              ${m.kicker ? `<div class="mag-feature-body">${escape(m.kicker)}</div>` : ""}
-            </aside>
-            <div class="mag-cards">${heroCards}</div>
-          </section>
-
-          ${setupHasItems ? `
-          <section class="mag-setup">
-            <div class="mag-setup-head">
-              <div class="mag-setup-title">${escape(setupHeading)}</div>
-              <div class="mag-setup-sub">SETUP GUIDE</div>
-            </div>
-            <div class="mag-setup-grid">${setupCells}</div>
-          </section>` : ""}
-
-          ${closerItems ? `
-          <section class="mag-closer">
-            <div class="mag-closer-head">
-              <div class="mag-closer-title">${escape(closerTitle)}</div>
-              <div class="mag-closer-sub">${escape((closerTitle || "").toUpperCase())}</div>
-            </div>
-            <ul class="mag-closer-list">${closerItems}</ul>
-            <div class="mag-closer-stamp">
-              <span class="mag-closer-stamp-pill">PrivateBoard</span>
-              <span>boardroom · ${escape(brief.id || "")}</span>
-            </div>
-          </section>` : ""}
-        </article>`;
+      root.innerHTML = `<article class="mag-doc" data-mag-paper>${pages.join("")}</article>`;
     }
 
-    /* ─── Export wiring · same PNG-as-PDF strategy as bento ──────── */
+    /* ─── Export wiring · same PNG-as-PDF strategy ─────────── */
     let _h2iLoaded = null;
     async function ensureHtmlToImage() {
       if (window.htmlToImage) return;
@@ -929,17 +1590,11 @@
       const height = Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight);
       return window.htmlToImage.toPng(el, {
         pixelRatio: 2,
-        backgroundColor: "#FBF8EE",
+        backgroundColor: "#1A1A1A",
         cacheBust: true,
-        width,
-        height,
-        canvasWidth: width,
-        canvasHeight: height,
-        style: {
-          margin: "0",
-          width: `${width}px`,
-          height: `${height}px`,
-        },
+        width, height,
+        canvasWidth: width, canvasHeight: height,
+        style: { margin: "0", width: `${width}px`, height: `${height}px` },
       });
     }
 
@@ -977,33 +1632,17 @@
             @page { size: auto; margin: 10mm; }
             * { box-sizing: border-box; margin: 0; padding: 0; }
             html, body { background: #FFFFFF; }
-            body {
-              display: flex;
-              align-items: flex-start;
-              justify-content: center;
-              padding: 20px;
-              min-height: 100vh;
-            }
-            img {
-              display: block;
-              width: 100%;
-              max-width: 880px;
-              height: auto;
-              box-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
-            }
+            body { display: flex; align-items: flex-start; justify-content: center; padding: 20px; min-height: 100vh; }
+            img { display: block; width: 100%; max-width: 880px; height: auto; box-shadow: 0 0 24px rgba(0, 0, 0, 0.08); }
             @media print {
               body { padding: 0; }
               img { box-shadow: none; max-width: none; width: 100%; }
             }
             .hint {
-              position: fixed;
-              top: 12px;
-              left: 12px;
+              position: fixed; top: 12px; left: 12px;
               font-family: ui-monospace, "SF Mono", Menlo, monospace;
-              font-size: 11px;
-              color: #8E8B83;
-              background: rgba(255,255,255,0.9);
-              padding: 6px 10px;
+              font-size: 11px; color: #8E8B83;
+              background: rgba(255,255,255,0.9); padding: 6px 10px;
               border: 1px solid #E5E2DA;
             }
             @media print { .hint { display: none; } }
@@ -1028,16 +1667,8 @@
     }
 
     document.addEventListener("click", (e) => {
-      if (e.target.closest("[data-mag-png]")) {
-        e.preventDefault();
-        exportPng();
-        return;
-      }
-      if (e.target.closest("[data-mag-print]")) {
-        e.preventDefault();
-        exportPdf();
-        return;
-      }
+      if (e.target.closest("[data-mag-png]")) { e.preventDefault(); exportPng(); return; }
+      if (e.target.closest("[data-mag-print]")) { e.preventDefault(); exportPdf(); return; }
     });
 
     /* ─── Boot ──────────────────────────────────────────────────── */
@@ -1045,8 +1676,7 @@
       if (brief) render(brief);
     }).catch((e) => {
       console.error("[magazine] load failed:", e);
-      showState("Error", "Couldn't load this brief",
-        e instanceof Error ? e.message : String(e));
+      showState("Error", "Couldn't load this brief", e instanceof Error ? e.message : String(e));
     });
   })();
   </script>

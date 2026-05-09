@@ -16,6 +16,7 @@ import { insertMemory, type MemoryKind } from "../storage/memories.js";
 import { listRecentMessages } from "../storage/messages.js";
 import { getPrefs } from "../storage/prefs.js";
 import { getRoom, listRoomMembers } from "../storage/rooms.js";
+import { bumpAdjournCounter, runDreamCycle } from "./dream.js";
 
 const ALLOWED_KINDS: ReadonlySet<MemoryKind> = new Set(["fact", "observation", "preference", "goal"]);
 
@@ -95,6 +96,23 @@ export async function extractMemoriesAfterAdjourn(roomId: string): Promise<void>
       }
     }),
   );
+
+  // Memory metabolism · bump each agent's per-room counter, fire
+  // a dream cycle for any agent that crossed the threshold. Async
+  // so the user-visible adjourn path doesn't wait on the dream
+  // (which is read-only on the user, write-only on agent_memories).
+  // Role-aware threshold: chair K=3, director K=5 — chair sees every
+  // room and accumulates memory roughly twice as fast. Errors are
+  // swallowed per-agent — a failed dream is a quality issue, not a
+  // correctness one.
+  for (const agent of agents) {
+    if (!bumpAdjournCounter(agent.id, agent.roleKind)) continue;
+    runDreamCycle(agent.id).catch((e) => {
+      process.stderr.write(
+        `[dream] ${agent.name} cycle failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    });
+  }
 }
 
 /** Run one agent's extraction · single non-streaming call returning

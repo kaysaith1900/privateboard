@@ -47,20 +47,22 @@ export interface Brief {
   /** Output mode · drives which renderer + which Stage 2/3 path runs.
    *  · 'research-note' (default · the existing markdown report rendered
    *    by report.html through the spine system)
-   *  · 'bento' (single-page infographic · BentoScaffold lives in
-   *    body_json, rendered by bento.html · spine / components / house
-   *    style are unused for this mode)
-   *  · 'magazine' (editorial magazine spread · same BentoScaffold JSON
-   *    in body_json but rendered by magazine.html with a magazine
-   *    layout · masthead + numbered card grid + dark closer band)
+   *  · 'magazine' (editorial magazine spread · BentoScaffold JSON in
+   *    body_json, rendered by magazine.html · masthead + numbered card
+   *    grid + dark closer band)
    *  · 'newspaper' (broadsheet front page · same BentoScaffold JSON
    *    rendered by newspaper.html · banner nameplate + meta strip +
-   *    3-column editorial grid with inverted callouts) */
+   *    3-column editorial grid with inverted callouts)
+   *
+   *  Legacy 'bento' rows (the prior single-page-infographic mode
+   *  that has been retired) are normalized to 'magazine' on read ·
+   *  the body_json shape is identical so they render correctly
+   *  under the magazine viewer. */
   mode: BriefMode;
   createdAt: number;
 }
 
-export type BriefMode = "research-note" | "bento" | "magazine" | "newspaper";
+export type BriefMode = "research-note" | "magazine" | "newspaper" | "ppt";
 
 /** Per-director asset bundle persisted alongside a brief · mirrors
  *  the `DirectorAssets` shape Stage 1 produces. Storing it lets a
@@ -303,9 +305,13 @@ function mapRow(row: Row): Brief {
     subjectType: row.subject_type,
     houseStyle: row.house_style || "boardroom-default",
     assets: parseAssets(row.assets_json),
-    mode: row.mode === "bento" || row.mode === "magazine" || row.mode === "newspaper"
+    // Legacy 'bento' rows are mapped to 'magazine' · the body_json
+    // shape is identical (BentoScaffold) and the magazine renderer
+    // handles the data correctly. Unknown modes fall back to the
+    // default research-note path.
+    mode: row.mode === "magazine" || row.mode === "newspaper" || row.mode === "ppt"
       ? row.mode
-      : "research-note",
+      : (row.mode === "bento" ? "magazine" : "research-note"),
     createdAt: row.created_at,
   };
 }
@@ -407,8 +413,8 @@ export interface BriefInsert {
    *  omitted (no section-label overrides, neutral voice). */
   houseStyle?: string;
   /** Output mode · 'research-note' (default · markdown report rendered
-   *  by report.html) or 'bento' (single-page infographic rendered by
-   *  bento.html with BentoScaffold persisted in body_json). */
+   *  by report.html) or 'magazine' / 'newspaper' (structured BentoScaffold
+   *  JSON persisted in body_json, rendered by magazine.html / newspaper.html). */
   mode?: BriefMode;
 }
 
@@ -432,7 +438,7 @@ export function insertBrief(b: BriefInsert): Brief {
     b.composerRationale && b.composerRationale.trim() ? b.composerRationale.trim() : null;
   const subjectType = b.subjectType && b.subjectType.trim() ? b.subjectType.trim() : null;
   const houseStyle = b.houseStyle && b.houseStyle.trim() ? b.houseStyle.trim() : "boardroom-default";
-  const mode: BriefMode = b.mode === "bento" || b.mode === "magazine" || b.mode === "newspaper"
+  const mode: BriefMode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
     ? b.mode
     : "research-note";
   db.prepare(

@@ -909,6 +909,531 @@
   color: var(--text);
   background: var(--panel);
 }
+
+/* Multiple actions in one section header (e.g. chair Memory's
+   "⊘ run consolidation" + "+ add note"). Sits flush right with a
+   tight gap so the buttons read as a paired toolbar. */
+.ap-block-h-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Run consolidation pill · accent-leaning border on hover so it
+   reads as the slightly-heavier action vs the neutral "add note". */
+.ap-dream-trigger:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+.ap-dream-trigger:disabled {
+  opacity: 0.5;
+  cursor: progress;
+  pointer-events: none;
+}
+
+/* ─── Dream-cycle overlay · centered modal "memory sleep" stage ──
+   Replaces the prior inline ap-dream-status. The whole consolidation
+   flow (running animation + result tiles) lives inside a focused
+   centered modal so the widget gets the visual real estate it
+   needs and the user's attention is correctly directed at "the
+   agent is sleeping now."
+   Dark backdrop with light blur · click backdrop, ✕ button, or
+   ESC to close. State transitions (running → done / error) flip
+   classes on the overlay root so border + kicker tint follow.   */
+.dream-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: var(--mono);
+  animation: dream-overlay-in 0.16s ease-out;
+}
+@keyframes dream-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.dream-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+.dream-modal {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 540px;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime-dim, #2D5532);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  /* Subtle "breathing" glow during the sleep cycle so the modal
+     itself feels alive · 5s slow pulse to match a calm respiratory
+     rhythm. Removed when the dream resolves. */
+  animation: dream-modal-rise 0.24s ease-out, dream-breathe 5s ease-in-out 0.24s infinite;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+}
+.dream-overlay.is-done .dream-modal,
+.dream-overlay.is-error .dream-modal {
+  /* Stop the breathing once we land on a result · keep the
+     entrance rise but drop the infinite pulse. */
+  animation: dream-modal-rise 0.24s ease-out;
+}
+.dream-overlay.is-done .dream-modal {
+  border-color: var(--lime, #6FB572);
+}
+.dream-overlay.is-error .dream-modal {
+  border-color: var(--red, #B5706A);
+}
+@keyframes dream-modal-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+@keyframes dream-breathe {
+  0%, 100% { box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5), inset 0 0 0 0 rgba(111, 181, 114, 0);    }
+  50%      { box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5), inset 0 0 22px 0 rgba(111, 181, 114, 0.10); }
+}
+
+/* Modal head · classification-style strip with the moon glyph
+   kicker on the left + ✕ close on the right. Same vocabulary as
+   the adjourn / supplement modals so they all read as one family. */
+.dream-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--line);
+  background: var(--panel-2);
+}
+.dream-modal-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+}
+.dream-modal-glyph {
+  font-family: var(--font-human);
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+.dream-modal-close {
+  width: 22px; height: 22px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s, color 0.12s;
+}
+.dream-modal-close:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+/* Body · pinned min-height so the modal doesn't visibly resize
+   between running ↔ done states. Both states use `.dream-stage-pad`
+   as their root grid which fills the body cleanly. */
+.dream-modal-body {
+  position: relative;
+  overflow: hidden;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Shared stage layout · 4 stacked zones with explicit gaps so
+   running and done both occupy the same visual real estate:
+     1. section kicker  (24px · top label + step / delta chip)
+     2. hero / sky      (flex 1 · primary visualization area)
+     3. divider hairline
+     4. caption / tiles (auto · footer / breakdown row)
+   Quiet variants (`.is-quiet`) drop the divider — there's no
+   tile row to introduce, so the dashed hairline + the modal's
+   own bottom border were reading as two stacked lines below the
+   short footnote caption. */
+.dream-stage-pad {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 14px;
+  padding: 18px 22px 20px;
+  flex: 1;
+  min-height: 0;
+}
+.dream-stage-pad.is-quiet {
+  grid-template-rows: auto 1fr auto;
+}
+
+.dream-section-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dream-kicker-text {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.dream-step {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  padding: 2px 8px;
+  border: 0.5px solid var(--line-bright);
+  background: var(--panel-2);
+}
+.dream-step.is-quiet  { color: var(--text-dim); border-color: var(--line); }
+.dream-step.is-shrink { color: var(--lime, #6FB572); border-color: var(--lime, #6FB572); }
+.dream-step.is-grow   { color: var(--cyan, #6A9B97); border-color: var(--cyan, #6A9B97); }
+.dream-step.is-flat   { color: var(--text-soft); border-color: var(--line-bright); }
+.dream-step.is-error  { color: var(--red, #B5706A); border-color: var(--red, #B5706A); }
+
+/* Hairline divider between hero and footer. Mirrors the dotted
+   separator style the chair Memory section uses in the agent
+   profile panes. */
+.dream-divider {
+  height: 0;
+  border-top: 0.5px dashed var(--line-bright);
+}
+
+/* Caption row · used by running (rotating phase) and quiet result
+   variants (no-op / error footnotes). */
+.dream-caption {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.dream-caption-foot {
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+  font-style: italic;
+}
+
+/* Frame · the running-state's visualization · sky (Z characters)
+   on top, lanes (sweeping bars) on the bottom. Slots into the
+   `.dream-stage-pad` 1fr zone, so it grows to fill whatever
+   vertical room the modal allocates between kicker and divider. */
+.dream-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  min-height: 0;
+}
+
+/* Sky · 60px band where Z characters drift. Each Z is absolutely
+   positioned and animates `translateY` from bottom to top with a
+   fade, then loops with a stagger so the animation doesn't look
+   mechanical. Drift stays inside the band so the Z never bleeds
+   into the lanes below. */
+.dream-sky {
+  position: relative;
+  height: 60px;
+  overflow: hidden;
+}
+.dream-z {
+  position: absolute;
+  bottom: 0;
+  font-family: var(--font-human);
+  font-weight: 700;
+  color: var(--lime, #6FB572);
+  opacity: 0;
+  animation: dream-z-float 3.4s ease-out infinite;
+  text-shadow: 0 0 6px rgba(111, 181, 114, 0.3);
+  pointer-events: none;
+  line-height: 1;
+}
+.dream-z.z1 { left: 14%;  font-size: 18px; animation-delay: 0s;    }
+.dream-z.z2 { left: 30%;  font-size: 13px; animation-delay: 0.6s;  }
+.dream-z.z3 { left: 50%;  font-size: 11px; animation-delay: 1.2s;  }
+.dream-z.z4 { left: 70%;  font-size: 16px; animation-delay: 1.7s;  }
+.dream-z.z5 { left: 86%;  font-size: 12px; animation-delay: 2.4s;  }
+
+@keyframes dream-z-float {
+  0%   { transform: translateY(10px)  rotate(-4deg); opacity: 0; }
+  25%  { transform: translateY(0)     rotate(-2deg); opacity: 1; }
+  100% { transform: translateY(-44px) rotate(8deg);  opacity: 0; }
+}
+
+/* Lanes · 3 rows, one per pipeline operation. Each lane has:
+     · a 64px mono label on the left
+     · a thin track that contains a moving "head" bar that sweeps
+       left→right and loops with a stagger across the three lanes
+   so they read as a moving processing pipeline rather than
+   three independent loaders. */
+.dream-lanes {
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr;
+  height: 56px;
+  gap: 6px;
+}
+.dream-lane {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  min-width: 0;
+}
+.dream-lane-label {
+  color: var(--text-faint);
+  text-align: right;
+  white-space: nowrap;
+}
+.dream-lane-bar {
+  position: relative;
+  height: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.dream-lane-bar i {
+  position: absolute;
+  top: 0;
+  left: -30%;
+  width: 30%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--lime, #6FB572) 50%,
+    transparent
+  );
+  animation: dream-sweep 1.8s ease-in-out infinite;
+}
+.dream-lane.lane-decay   .dream-lane-bar i { animation-delay: 0s;    }
+.dream-lane.lane-merge   .dream-lane-bar i { animation-delay: 0.3s;  }
+.dream-lane.lane-promote .dream-lane-bar i { animation-delay: 0.6s;  }
+
+@keyframes dream-sweep {
+  0%   { left: -30%; }
+  100% { left: 100%; }
+}
+
+/* Caption · kicker + rotating phase text. Sits below the lanes
+   with explicit padding-top so the phase line has visual room to
+   breathe (earlier this collided into the bottom lane bar when
+   long phrases like "merging clusters into canonical notes…"
+   wrapped). `min-height` reserves 2 lines of phase room without
+   forcing the height when the text is short. */
+.dream-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 0.5px dashed var(--line);
+  min-height: 38px;
+}
+.dream-caption-kicker {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.dream-phase {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--lime, #6FB572);
+  line-height: 1.4;
+  /* Subtle flicker so the static word doesn't feel dead between
+     the 1.6s text rotations. Low amplitude · doesn't compete with
+     the lane sweeps. */
+  animation: dream-phase-flicker 2.4s ease-in-out infinite;
+}
+@keyframes dream-phase-flicker {
+  0%, 100% { opacity: 0.9; }
+  50%      { opacity: 1;   }
+}
+
+/* ─── Hero · primary visualization in the done state ────────────
+   Two layouts share this class:
+     · `.dream-hero` (default)         · big numerals · the
+       "consolidated" celebration when something actually changed.
+     · `.dream-hero.is-quiet`          · text-forward variant for
+       no-op / error states · glyph + headline + sub-line stacked
+       to the right of the moon glyph, reads more like a settled
+       statement than a stat display.
+   Both are flex-centered inside the `.dream-stage-pad` 1fr zone
+   so the running and done states occupy the same visual height. */
+.dream-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 8px;
+  animation: dream-settle 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes dream-settle {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+.dream-hero.is-quiet {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 8px 4px;
+}
+
+/* Quiet variant · moon / failure glyph sits in a 40px box on the
+   left, paired with stacked title + sub on the right. */
+.dream-hero-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px; height: 44px;
+  font-size: 22px;
+  line-height: 1;
+  border: 0.5px solid var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+  background: var(--panel-2);
+  flex-shrink: 0;
+}
+.dream-overlay.is-error .dream-hero-glyph {
+  border-color: var(--red, #B5706A);
+  color: var(--red, #B5706A);
+}
+.dream-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dream-hero-title {
+  font-family: var(--font-human);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--text);
+}
+.dream-hero-sub {
+  font-family: var(--font-human);
+  font-size: 11.5px;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+}
+
+/* Default hero · big numerals row centered above the unit caption.
+   `was → frame[now]` · the framed numeral is what catches the
+   eye, the bare "before" sits one weight quieter to its left. */
+.dream-hero-numerals {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.dream-num {
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.dream-num.was {
+  font-size: 32px;
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-bright);
+  text-decoration-thickness: 1px;
+}
+.dream-num-arrow {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0;
+}
+.dream-num-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border: 1px solid var(--lime, #6FB572);
+  background: var(--panel-2);
+  box-shadow: 0 0 24px rgba(111, 181, 114, 0.12);
+}
+.dream-num.now {
+  font-size: 38px;
+  color: var(--lime, #6FB572);
+}
+.dream-hero-unit {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+/* Tile row · one block per operation. Empty operations render
+   `.is-empty` (count 0) so the row stays a stable 4-up grid
+   instead of jumping width when only some ops fired. */
+.dream-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.dream-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--line-bright);
+  background: var(--panel-2);
+  min-height: 56px;
+}
+.dream-tile.is-empty {
+  opacity: 0.35;
+}
+.dream-tile-n {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.dream-tile-l {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.dream-tile.is-decay     { border-color: var(--text-faint, #3A382F); }
+.dream-tile.is-decay     .dream-tile-n { color: var(--text-soft); }
+.dream-tile.is-merge     { border-color: var(--cyan, #6A9B97); }
+.dream-tile.is-merge     .dream-tile-n { color: var(--cyan, #6A9B97); }
+.dream-tile.is-supersede { border-color: var(--amber, #B59560); }
+.dream-tile.is-supersede .dream-tile-n { color: var(--amber, #B59560); }
+.dream-tile.is-promote   { border-color: var(--lime, #6FB572); }
+.dream-tile.is-promote   .dream-tile-n { color: var(--lime, #6FB572); }
 .ap-sec-hint {
   font-family: var(--mono);
   font-size: 9px;

@@ -120,6 +120,40 @@
   content: "▸ ";
   color: var(--lime, #6FB572);
 }
+
+/* ─── Title clamp ──────────────────────────────────────────────
+   Long room titles get clamped to 2 lines. The Show more / less
+   toggle is rendered `hidden` and unhidden by room-settings.js's
+   post-mount measurement only when the title actually overflows. */
+.rs-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rs-head .title.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rs-title-toggle {
+  align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.12s;
+}
+.rs-title-toggle:hover { color: var(--lime, #6FB572); }
+.rs-title-toggle::before { content: "[ "; color: var(--text-faint, #3A382F); }
+.rs-title-toggle::after  { content: " ]"; color: var(--text-faint, #3A382F); }
 .rs-head .close-btn {
   width: 24px; height: 24px;
   background: transparent;
@@ -863,11 +897,13 @@
 .rs-action.danger { color: var(--red, #B5706A); border-color: rgba(181, 112, 106, 0.4); }
 .rs-action.danger:hover { background: var(--red, #B5706A); color: var(--bg, #0A0A0A); border-color: var(--red, #B5706A); }
 
-/* Icon-only buttons in the room-head action bar */
+/* Icon-only buttons in the room-head action bar · sized to match
+   the avatar / cast-count tile (22px tall) so the whole right-side
+   toolbar lands on a single line at the new compact header height. */
 .head-icon-btn,
 .room-settings-trigger {
-  width: 28px;
-  height: 26px;
+  width: 24px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -876,7 +912,7 @@
   border: 0.5px solid var(--line-strong, #3A3A35);
   color: var(--text-soft, #8E8B83);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
   text-decoration: none;

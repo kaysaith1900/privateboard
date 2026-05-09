@@ -11,7 +11,7 @@
 import type { LLMMessage } from "../ai/adapter.js";
 import type { Agent } from "../storage/agents.js";
 import type { KeyPoint } from "../storage/key_points.js";
-import { memoriesForContext, type AgentMemory } from "../storage/memories.js";
+import { memoriesForContext, bumpUsage, type AgentMemory } from "../storage/memories.js";
 import type { Message } from "../storage/messages.js";
 import type { Prefs } from "../storage/prefs.js";
 import type { Room } from "../storage/rooms.js";
@@ -159,14 +159,25 @@ export function buildFollowUpPriorContext(opts: PriorContextOpts): string {
 function renderLongTermMemoryBlock(agentId: string, userName: string): string {
   const memories: AgentMemory[] = memoriesForContext(agentId);
   if (memories.length === 0) return "";
+  // Tier-aware tagging · pinned wins over tier (pinned is the user's
+  // explicit override). `[stable]` flags the dream-promoted set so
+  // the model treats them with more weight than the recency-windowed
+  // `[recent]` slice. Pre-Phase-1 every memory is tier='short' so
+  // they all render as `[recent]` until the first dream promotes
+  // anything to long-tier — backwards compatible.
   const lines = memories.map((m) => {
-    const flag = m.pinned ? " · pinned" : "";
-    return `  · [${m.kind}${flag}] ${m.content}`;
+    const tag = m.pinned ? "pinned" : m.tier === "long" ? "stable" : "recent";
+    return `  · [${tag}] [${m.kind}] ${m.content}`;
   });
+  // Bump usage on every memory we just injected · feeds the next
+  // dream's decay heuristic (memories that ARE used escape culling).
+  // Fire-and-forget by way of being synchronous and cheap; the SQL
+  // is a single transaction over up-to-6 IDs.
+  bumpUsage(memories.map((m) => m.id));
   return [
     "",
     `─── WHAT YOU REMEMBER ABOUT ${userName} (cross-room, your own observations) ───`,
-    `These are notes you've accumulated across previous rooms with this user — your lens, not other directors'. Treat them as priors, not facts. If something contradicts the current room, name it explicitly.`,
+    `These are notes you've accumulated across previous rooms with this user — your lens, not other directors'. Treat them as priors, not facts. \`[stable]\` items have shown up across multiple rooms and are likely durable; \`[recent]\` items are still provisional. If something contradicts the current room, name it explicitly.`,
     ...lines,
     "",
   ].join("\n");
