@@ -265,10 +265,11 @@
         <div class="us-row">
           <div class="us-row-label">${tr("us_locale_label")}</div>
           <div class="us-row-field">
-            <div class="locale-switch" role="group" data-i18n-aria="aria_language" aria-label="">
-              <button type="button" class="locale-btn" data-locale="en" aria-pressed="false" data-i18n="locale_en">EN</button>
-              <button type="button" class="locale-btn" data-locale="zh" aria-pressed="false" data-i18n="locale_zh">中文</button>
-            </div>
+            <button type="button" class="cmp-dd" data-cmp-dropdown="locale" title="${escape(tr("us_locale_label"))}" data-i18n-aria="aria_language" aria-label="">
+              <span class="cmp-dd-label" data-i18n="us_locale_label">${escape(tr("us_locale_label"))}</span>
+              <span class="cmp-dd-value" data-cmp-dd-value="locale">${escape(tr(window.I18n && window.I18n.getLocale && window.I18n.getLocale() === "zh" ? "locale_zh" : "locale_en"))}</span>
+              <span class="cmp-dd-chevron">▾</span>
+            </button>
             <p class="us-locale-deck">${escape(tr("us_locale_deck"))}</p>
           </div>
         </div>
@@ -712,7 +713,23 @@
         <div class="us-key-head">
           <div class="us-key-label">${escape(p.label)}</div>
           <div class="us-key-status ${has ? "on" : "off"}" data-status>${has ? "● configured" : "○ not set"}</div>
-          ${removable ? `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>` : ""}
+          ${(() => {
+            if (!removable) return "";
+            // Last-LLM guardrail · matches the server's DELETE check.
+            // Block removal of the ONE configured LLM key so the boardroom
+            // never lands in "no usable carrier" state. Unconfigured rows
+            // (or non-LLM providers) bypass the lock — removing them
+            // doesn't reduce working-key count.
+            const isLLM = p.group === "llm";
+            const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
+            const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
+              (id) => _keysMeta[id] && _keysMeta[id].configured,
+            ).length;
+            const lock = isLLM && isConfigured && llmConfiguredCount <= 1;
+            return lock
+              ? `<button type="button" class="us-key-remove is-locked" disabled title="Add another LLM key first — at least one must remain configured.">✕</button>`
+              : `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>`;
+          })()}
         </div>
         <div class="us-key-hint">${escape(p.hint)}</div>
         <div class="us-input-wrap">
@@ -1439,21 +1456,33 @@
       }
     } catch { /* swallow · the foot just stays at "·" if offline */ }
   }
-  function close() {
+  async function close() {
     if (!overlay) return;
     overlay.classList.remove("open");
     overlay.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
-    // Sync app.keys with whatever the user just configured · the
-    // requireModelKey gate reads from app.keys and would otherwise
-    // see stale state until the next page reload.
+    // Sync app.keys + app.agentsById with whatever the user just
+    // configured · the requireModelKey gate, hasAnyVoiceKey, and the
+    // agent profile's voice block all read from these caches. Both
+    // refreshes must complete BEFORE we fire refreshAgentProfileSkills
+    // — otherwise the re-render reads stale state and the locked
+    // voice card persists until the next page reload, and any voices
+    // auto-assigned server-side on a 0→1 voice-key transition won't
+    // surface until then either. Run the two fetches in parallel.
+    const ops = [];
     if (window.app && typeof window.app.refreshKeys === "function") {
-      window.app.refreshKeys();
+      ops.push(window.app.refreshKeys());
     }
+    if (window.app && typeof window.app.refreshAgents === "function") {
+      ops.push(window.app.refreshAgents());
+    }
+    try { await Promise.all(ops); } catch { /* swallow · stale state is recoverable */ }
+
     // If an agent profile is open, its skill rows have data-key-
-    // configured cached from first paint. Re-fetch so the web-search
-    // toggle no longer shows the "configure key" prompt after the
-    // user added the Brave key here.
+    // configured cached from first paint and the voice section may
+    // be showing the locked card. Re-fetch / re-render so both the
+    // web-search toggle and the voice picker reflect the new state
+    // immediately, no manual refresh required.
     if (typeof window.refreshAgentProfileSkills === "function") {
       window.refreshAgentProfileSkills();
     }

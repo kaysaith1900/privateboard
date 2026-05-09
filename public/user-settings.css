@@ -676,6 +676,20 @@
   border-color: var(--red, #B5706A);
   color: var(--red, #B5706A);
 }
+/* Locked variant · the only configured LLM key cannot be removed —
+   the boardroom would land in a "no usable carrier" state and every
+   director / chair / brief writer would fail. Renders dimmed and
+   non-interactive; the title attribute carries the explanation
+   ("Add another LLM key first — at least one must remain
+   configured."). The user-facing path to "delete this key" is to
+   add another LLM provider first, then come back to this row. */
+.us-key-remove.is-locked,
+.us-key-remove.is-locked:hover {
+  cursor: not-allowed;
+  opacity: 0.45;
+  border-color: var(--line-bright, #2A2A26);
+  color: var(--text-faint, #3A382F);
+}
 
 /* "Set as default" CTA · sits next to the remove button on configured
    non-default LLM rows. Quiet outline by default, flips to lime on

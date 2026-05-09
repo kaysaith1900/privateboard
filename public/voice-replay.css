@@ -1,0 +1,607 @@
+/* ═══════════════════════════════════════════
+   Voice Replay overlay
+   ═══════════════════════════════════════════
+   Floating playback card pinned to the bottom-right while replay
+   is in progress. Shares the dark / lime / mono register of the
+   rest of the app — reads as the same family as the dream-cycle
+   modal and the room-settings overlay.
+
+   States rendered into [data-vr-body]:
+     · Loading (vr-spinner-row)        · while the key check + first
+       audio fetch are in flight
+     · Key prompt (vr-key-prompt)      · no TTS provider configured
+     · Empty (vr-key-prompt variant)   · room has no playable msgs
+     · Player (vr-speaker / vr-progress / vr-controls) · normal play
+     · Done (vr-key-prompt with ✓)     · all messages played
+   ═══════════════════════════════════════════ */
+.voice-replay-overlay {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 9300;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime-dim, #2D5532);
+  color: var(--text);
+  font-family: var(--mono);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  animation: vr-rise 0.24s ease-out;
+}
+@keyframes vr-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.vr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--panel-2, #1A1A18);
+  border-bottom: 0.5px solid var(--line);
+}
+.vr-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+}
+.vr-kicker-glyph {
+  font-family: var(--font-human);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.vr-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.vr-close:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+
+.vr-body {
+  padding: 14px 14px 14px;
+}
+
+/* ─── Loading row ───
+   Centered both axes so the loading state reads as a focused
+   placeholder, not a left-pinned debug log. The dots row sits
+   above the label with a small gap so the label has its own
+   visual weight, and the whole block is padded vertically to
+   approximate the height of the player view it'll be replaced
+   by — minimises the visual jump on transition. */
+.vr-spinner-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px 0 32px;
+  text-align: center;
+}
+.vr-spinner-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.vr-spinner-dot {
+  width: 7px; height: 7px;
+  background: var(--lime, #6FB572);
+  border-radius: 50%;
+  opacity: 0.35;
+  animation: vr-spinner 1.2s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(111, 181, 114, 0);
+}
+.vr-spinner-dots .vr-spinner-dot:nth-child(2) { animation-delay: 0.2s; }
+.vr-spinner-dots .vr-spinner-dot:nth-child(3) { animation-delay: 0.4s; }
+.vr-spinner-text {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--text-soft);
+  text-transform: uppercase;
+}
+@keyframes vr-spinner {
+  0%, 80%, 100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+    box-shadow: 0 0 0 0 rgba(111, 181, 114, 0);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.1);
+    box-shadow: 0 0 6px 1px rgba(111, 181, 114, 0.5);
+  }
+}
+
+/* ─── Speaker card ─── */
+.vr-speaker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.vr-avatar {
+  width: 32px; height: 32px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.vr-avatar-placeholder {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+.vr-speaker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.vr-speaker-name {
+  font-family: var(--font-human, var(--mono));
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vr-author-role {
+  color: var(--text-soft);
+  font-weight: 500;
+}
+.vr-speaker-kind {
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ─── Message preview · 2-line clamp ─── */
+.vr-preview {
+  font-family: var(--font-human, var(--mono));
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Subtle quote feel · italic, faint left border accent. */
+  font-style: italic;
+  border-left: 0.5px solid var(--lime-dim, #2D5532);
+  padding-left: 8px;
+}
+
+/* ─── Progress strip ─── */
+.vr-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.vr-progress-counter {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.vr-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--line);
+  position: relative;
+  overflow: hidden;
+}
+.vr-progress-fill {
+  height: 100%;
+  background: var(--lime, #6FB572);
+  transition: width 0.24s ease-out;
+}
+.vr-progress-pct {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  min-width: 28px;
+  text-align: right;
+}
+
+/* ─── Controls row ─── */
+.vr-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.vr-btn {
+  appearance: none;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.vr-btn:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+.vr-btn-speed {
+  min-width: 38px;
+  text-align: center;
+}
+.vr-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.vr-toggle input[type="checkbox"] {
+  accent-color: var(--lime, #6FB572);
+}
+
+/* ─── Key prompt / empty / done ─── */
+.vr-key-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 4px 0;
+}
+.vr-key-icon {
+  width: 32px; height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.5px solid var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+  font-size: 16px;
+  line-height: 1;
+  align-self: flex-start;
+}
+.vr-key-icon-done {
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+}
+.vr-key-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vr-key-title {
+  font-family: var(--font-human, var(--mono));
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.vr-key-deck {
+  font-family: var(--font-human, var(--mono));
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-soft);
+  letter-spacing: -0.003em;
+}
+.vr-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vr-cta {
+  appearance: none;
+  background: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--lime, #6FB572);
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.vr-cta:hover {
+  background: var(--bg, #0A0A0A);
+  color: var(--lime, #6FB572);
+}
+.vr-ghost {
+  appearance: none;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.vr-ghost:hover { border-color: var(--text); color: var(--text); }
+
+/* ─── Inline error inside player body ─── */
+.vr-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-family: var(--font-human, var(--mono));
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--red, #B5706A);
+  border: 0.5px solid var(--red, #B5706A);
+  background: var(--panel-2);
+}
+
+/* ═══════════════════════════════════════════
+   Currently-playing message highlight (in chat)
+   ═══════════════════════════════════════════
+   Applied to any message DOM node by
+   voice-replay.js while it's the active speaker.
+
+   Game-y · RTS-unit-selection inspired:
+     · 4 L-shaped corner brackets at the 4 corners,
+       drawn via 2 pseudo-elements with multi-
+       gradient backgrounds (each pseudo paints 2
+       opposing corners). Brackets pulse with a
+       2s ease-in-out cycle that mirrors the
+       audio's breathing rhythm.
+     · Subtle lime tint + breathing inner glow on
+       the bubble itself so the message feels "lit
+       up" instead of just outlined.
+     · Floating `▶ SPEAKING` chip at top-right,
+       absolute-positioned with a pulsing dot.
+
+   Everything is non-blocking · pointer-events:
+   none on the decorations so the underlying
+   message stays clickable / hoverable. */
+/* Same frame treatment is shared by THREE states · the only
+   difference is which class triggers it:
+     · `.is-replay-active`  · adjourned-room voice replay (the
+                              user clicked Voice Replay; the
+                              JS handler adds + removes this).
+     · `.streaming`         · live director / chair message
+                              that's currently streaming text
+                              (added by updateMessageBodyDom).
+     · `.is-streaming`      · same as above but on chair
+                              custom cards (chair-direct,
+                              chair-intervention) which use a
+                              different class machinery.
+   Bundling them under one rule means the live experience
+   inherits the replay decoration automatically — when a
+   director starts speaking in a live voice room (or just
+   streaming text in a normal text room), the same corner
+   brackets + breathing tint frame their bubble, then drop
+   the moment they go to "final." */
+.is-replay-active,
+[data-message-id].streaming,
+[data-message-id].is-streaming {
+  position: relative;
+  /* Background uses the warm text token at very low alpha so
+     the bubble feels "lit" without leaning chartreuse —
+     earlier rev's lime tint + lime ring stacked into a
+     yellow-green halo on bright displays. The ring itself is
+     gone now; framing comes from the corner brackets, which
+     sit OUTSIDE the bubble so there's real breathing room
+     between the decoration and content. */
+  background: rgba(200, 197, 190, 0.05);
+  box-shadow: 0 0 36px rgba(200, 197, 190, 0.08);
+  animation: replay-active-breathe 2.4s ease-in-out infinite;
+  transition: background 0.24s, box-shadow 0.24s;
+}
+
+@keyframes replay-active-breathe {
+  0%, 100% {
+    background: rgba(200, 197, 190, 0.04);
+    box-shadow: 0 0 28px rgba(200, 197, 190, 0.06);
+  }
+  50% {
+    background: rgba(200, 197, 190, 0.08);
+    box-shadow: 0 0 44px rgba(200, 197, 190, 0.14);
+  }
+}
+
+/* Corner brackets · 4 corners painted by 2 pseudo-elements.
+   Each pseudo uses 4 linear-gradient backgrounds (one per
+   bracket arm) anchored to the corner.
+   `inset: -12px` pulls the brackets well outside the bubble
+   so there's clear visual breathing room between the bubble's
+   text padding and the bracket arms — a tight `-6px` made
+   the brackets feel glued to the bubble edge.
+   Color is the warm text token, not lime · the brackets are
+   FRAME chrome (passive), the SPEAKING chip is the ACTION
+   accent (lime). Splitting the duties keeps the visual
+   register cohesive with the rest of the theme.
+   Pulse uses transform + opacity so layout doesn't reflow. */
+.is-replay-active::before,
+.is-replay-active::after,
+[data-message-id].streaming::before,
+[data-message-id].streaming::after,
+[data-message-id].is-streaming::before,
+[data-message-id].is-streaming::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  pointer-events: none;
+  animation: replay-bracket-pulse 1.8s ease-in-out infinite;
+}
+.is-replay-active::before,
+[data-message-id].streaming::before,
+[data-message-id].is-streaming::before {
+  /* Top-left + top-right corners. */
+  background-image:
+    linear-gradient(to right,  var(--text-soft, #8E8B83) 16px, transparent 16px),
+    linear-gradient(to bottom, var(--text-soft, #8E8B83) 16px, transparent 16px),
+    linear-gradient(to left,   var(--text-soft, #8E8B83) 16px, transparent 16px),
+    linear-gradient(to bottom, var(--text-soft, #8E8B83) 16px, transparent 16px);
+  background-position:
+    top    left,   /* TL horizontal */
+    top    left,   /* TL vertical   */
+    top    right,  /* TR horizontal */
+    top    right;  /* TR vertical   */
+  background-size:
+    16px 1.5px,
+    1.5px 16px,
+    16px 1.5px,
+    1.5px 16px;
+  background-repeat: no-repeat;
+}
+.is-replay-active::after,
+[data-message-id].streaming::after,
+[data-message-id].is-streaming::after {
+  /* Bottom-left + bottom-right corners. */
+  background-image:
+    linear-gradient(to right, var(--text-soft, #8E8B83) 16px, transparent 16px),
+    linear-gradient(to top,   var(--text-soft, #8E8B83) 16px, transparent 16px),
+    linear-gradient(to left,  var(--text-soft, #8E8B83) 16px, transparent 16px),
+    linear-gradient(to top,   var(--text-soft, #8E8B83) 16px, transparent 16px);
+  background-position:
+    bottom left,
+    bottom left,
+    bottom right,
+    bottom right;
+  background-size:
+    16px 1.5px,
+    1.5px 16px,
+    16px 1.5px,
+    1.5px 16px;
+  background-repeat: no-repeat;
+  /* Stagger the pulse so the four corners breathe in pairs
+     (TL+TR together, BL+BR together) for a more alive feel
+     than a single synced pulse across all four. */
+  animation-delay: 0.9s;
+}
+
+@keyframes replay-bracket-pulse {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.012);
+  }
+}
+
+/* "▶ SPEAKING" chip · floating tag pinned just-above-right of
+   the active bubble. Injected by voice-replay.js when a
+   message becomes active, removed on advance. Pulsing dot
+   beside the label signals that audio is actively flowing;
+   the chip itself reads "speaker" before "animation". */
+.vr-now-playing {
+  position: absolute;
+  top: -10px;
+  right: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 7px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--lime, #6FB572);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  pointer-events: none;
+  box-shadow: 0 2px 12px rgba(111, 181, 114, 0.25);
+  animation: vr-np-rise 0.18s ease-out;
+}
+.vr-np-mark {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0;
+}
+.vr-np-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--lime, #6FB572);
+  border-radius: 50%;
+  animation: vr-np-dot-pulse 1.1s ease-in-out infinite;
+}
+.vr-np-text {
+  line-height: 1;
+}
+@keyframes vr-np-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes vr-np-dot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(111, 181, 114, 0); }
+  50%      { opacity: 1;   transform: scale(1.1);  box-shadow: 0 0 6px 1px rgba(111, 181, 114, 0.7); }
+}
+
+/* Reduced-motion fallback · users with prefers-reduced-motion
+   get a solid lime ring + static brackets + static chip dot,
+   no pulsing / breathing. */
+@media (prefers-reduced-motion: reduce) {
+  .is-replay-active,
+  .is-replay-active::before,
+  .is-replay-active::after,
+  [data-message-id].streaming,
+  [data-message-id].streaming::before,
+  [data-message-id].streaming::after,
+  [data-message-id].is-streaming,
+  [data-message-id].is-streaming::before,
+  [data-message-id].is-streaming::after,
+  .vr-now-playing,
+  .vr-np-dot {
+    animation: none !important;
+  }
+  .is-replay-active,
+  [data-message-id].streaming,
+  [data-message-id].is-streaming {
+    background: rgba(200, 197, 190, 0.06);
+    box-shadow: 0 0 22px rgba(200, 197, 190, 0.10);
+  }
+  .is-replay-active::before,
+  .is-replay-active::after,
+  [data-message-id].streaming::before,
+  [data-message-id].streaming::after,
+  [data-message-id].is-streaming::before,
+  [data-message-id].is-streaming::after { opacity: 0.7; }
+  .vr-np-dot { opacity: 1; transform: none; }
+}
+
+/* Sidebar collapsed · the overlay should never overlap with the
+   floating sidebar-expand button · push it left a touch when the
+   page has the no-room flag (which gates the expand button's
+   visibility too). */
+html.no-room .voice-replay-overlay {
+  bottom: 56px;
+}

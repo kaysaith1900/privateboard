@@ -177,6 +177,22 @@
                   <span class="na-avatar-regen-mark">◆</span>
                   <span class="na-avatar-regen-label" data-i18n-na="na_avatar_regen"></span>
                 </button>
+                <!-- Model picker · reuses the cmp-dd chip + dropdown
+                     machinery from the AI agent composer's model
+                     dropdown. Reads + writes app.loadAgentComposerModel
+                     so the user's last-picked model is shared across
+                     both flows. Sized up via .na-avatar-model in
+                     new-agent.css to match the regen button's visual
+                     weight (the toolbar-sized chip is too small to
+                     notice in a full-screen modal). The popover is
+                     opened by app.openComposerDropdown via the
+                     document-level [data-cmp-dropdown] click delegate
+                     in app.js. -->
+                <button type="button" class="cmp-dd na-avatar-model" data-cmp-dropdown="agent-model" data-i18n-na-title="na_field_model">
+                  <span class="cmp-dd-label" data-i18n-na="na_field_model"></span>
+                  <span class="cmp-dd-value" data-cmp-dd-value="agent-model"></span>
+                  <span class="cmp-dd-chevron">▾</span>
+                </button>
                 <div class="na-avatar-vibe" data-na-vibe></div>
               </div>
 
@@ -416,12 +432,37 @@
     paintAvatar();
     refreshAll();
 
+    // Paint the model dropdown's current label · the chip uses the
+    // same agent-model state as the AI composer (loadAgentComposerModel),
+    // so re-opening the overlay reflects the user's last pick.
+    paintModelLabel();
+
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
     setTimeout(() => modal.querySelector(".na-name-input").focus(), 80);
     applyNewAgentI18n();
     refreshProviderStatus();
+  }
+
+  /** Read the user's current agent-model selection (shared with the
+   *  AI composer) and paint it into the overlay's `cmp-dd-value` span.
+   *  Falls back to a dash when app or its model resolver isn't ready. */
+  function paintModelLabel() {
+    const span = modal && modal.querySelector('[data-cmp-dd-value="agent-model"]');
+    if (!span) return;
+    let label = "—";
+    try {
+      if (window.app && typeof window.app.loadAgentComposerModel === "function") {
+        const v = window.app.loadAgentComposerModel();
+        if (v) {
+          label = (typeof window.app.modelLabel === "function")
+            ? (window.app.modelLabel(v) || v)
+            : v;
+        }
+      }
+    } catch (_) { /* keep dash */ }
+    span.textContent = label;
   }
 
   function close() {
@@ -633,20 +674,16 @@
       const name = modal.querySelector(".na-name-input").value.trim();
       const bio = modal.querySelector(".na-desc-input").value.trim();
       const instruction = modal.querySelector(".na-instr-input").value.trim();
-      // Default model · resolved from the user's current key set via
-      // the shared /api/models cache (`defaultModelV` field). Without
-      // this, new agents were always born with `opus-4-7` even when
-      // the user only had a direct OpenAI key — the agent would then
-      // hit `NoKeyError` on every turn until the user manually
-      // changed its model. The cache may not have loaded yet (very
-      // first interaction); we fall back to `opus-4-7` only as a
-      // last resort and leave the runtime resolver to fix it up.
+      // Model · the foot dropdown writes the user's pick to the shared
+      // agent-composer model state (loadAgentComposerModel). It
+      // already does the reachability + default-resolver fallback
+      // chain (server defaultModelV → first reachable → DEFAULT_AGENT_MODEL),
+      // so this just reads it back. Hard fallback to "opus-4-7" only
+      // covers the edge case where window.app isn't initialized.
       let modelV = "opus-4-7";
-      const cache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
-      if (cache && typeof cache.defaultModelV === "string" && cache.defaultModelV) {
-        modelV = cache.defaultModelV;
-      } else if (cache && Array.isArray(cache.reachable) && cache.reachable.length > 0) {
-        modelV = cache.reachable[0].modelV;
+      if (window.app && typeof window.app.loadAgentComposerModel === "function") {
+        const picked = window.app.loadAgentComposerModel();
+        if (picked) modelV = picked;
       }
 
       // Avatar → data URL. If the user never clicked "regenerate", we

@@ -2332,7 +2332,80 @@
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     return live && live.voice ? live.voice : null;
   }
+  /** Format a voice-tune slider value for display. Speed gets an
+   *  `×` suffix; centered ranges (pitch / modify-*) prefix non-zero
+   *  values with `+` so the sign is unambiguous. Tabular numerals
+   *  in CSS keep the value's box width stable as the user drags. */
+  function formatVoiceVal(param, val) {
+    if (param === "speed") return `${Number(val).toFixed(1)}×`;
+    const n = Number(val);
+    if (n > 0) return `+${n}`;
+    return String(n);
+  }
+
+  /** Compute the lime-fill segment for a given range as two
+   *  percentages (`lo` and `hi`) that the CSS gradient consumes.
+   *  Non-centered ranges fill from 0 to value%; centered ranges
+   *  (min < 0 < max) fill the band between zero and value, so a
+   *  positive value lights up the right half and a negative value
+   *  the left half. */
+  function rangeFillPositions(min, max, value) {
+    const span = max - min;
+    if (span <= 0) return { lo: "0%", hi: "0%" };
+    const pct = ((value - min) / span) * 100;
+    if (min < 0 && max > 0) {
+      const zero = ((0 - min) / span) * 100;
+      return {
+        lo: `${Math.min(pct, zero)}%`,
+        hi: `${Math.max(pct, zero)}%`,
+      };
+    }
+    return { lo: "0%", hi: `${pct}%` };
+  }
+
+  /** One slider row inside Advanced tuning · header (label left,
+   *  value right) on top, hairline track + square thumb beneath.
+   *  `centered` ranges (pitch / modify-*) get a mid-point tick
+   *  AND a band-style lime fill (zero ↔ value); non-centered
+   *  ranges (speed) get a "left-of-thumb" lime fill. */
+  function renderVoiceTuneRow(slug, param, label, value, min, max, step) {
+    const centered = min < 0 && max > 0;
+    const { lo, hi } = rangeFillPositions(min, max, value);
+    return `
+      <div class="ap-voice-tune${centered ? " ap-voice-tune-centered" : ""}">
+        <div class="ap-voice-tune-head">
+          <span class="ap-voice-tune-label">${escape(label)}</span>
+          <span class="ap-voice-tune-value" data-ap-voice-val="${escape(param)}">${escape(formatVoiceVal(param, value))}</span>
+        </div>
+        <input type="range" class="ap-voice-tune-range" min="${min}" max="${max}" step="${step}" value="${value}" data-ap-voice-range="${escape(param)}" data-slug="${escape(slug)}" style="--fill-lo: ${lo}; --fill-hi: ${hi};">
+      </div>`;
+  }
+
   function renderVoiceBlock(slug) {
+    // No voice provider configured · render the gamified "locked"
+    // card instead of the picker + sliders. Removing the chrome
+    // makes the missing-key state read as a feature gate ("set
+    // this up to unlock") rather than a broken control panel.
+    const hasVoiceKey = !!(window.app && typeof window.app.hasAnyVoiceKey === "function" && window.app.hasAnyVoiceKey());
+    if (!hasVoiceKey) {
+      return `
+        <div class="ap-voice-locked" data-ap-voice-row data-slug="${escape(slug)}">
+          <div class="ap-voice-locked-glyph" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="ap-voice-locked-title">${uiT("ap_voice_locked_title")}</div>
+          <button type="button" class="ap-voice-locked-cta" data-ap-voice-unlock>
+            <span>${escape(uiT("ap_voice_locked_cta"))}</span>
+            <span class="ap-voice-locked-cta-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+      `;
+    }
+    // Fire-and-forget prefetch · warms voiceOptionsCache so the picker
+    // pops instantly when the user clicks. Without it the first click
+    // pays the /api/voices round-trip (hundreds of voices on MiniMax)
+    // and the dropdown lags visibly. Idempotent · cache-hit no-ops.
+    ensureVoiceOptions();
     const v = voiceForAgent(slug);
     const label = v ? `${v.provider} · ${v.voiceId}` : uiT("ap_voice_browser_default");
     const deck = v ? v.model : uiT("ap_voice_engine_browser");
@@ -2355,47 +2428,66 @@
             </span>
             <span class="ap-model-trigger-caret">▾</span>
           </button>
-          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="${escape(uiT("ap_voice_preview_btn_title"))}" aria-label="${escape(uiT("ap_voice_preview_btn_title"))}">▶</button>
+          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="${escape(uiT("ap_voice_preview_btn_title"))}" aria-label="${escape(uiT("ap_voice_preview_btn_title"))}"><span class="ap-voice-preview-glyph">▶</span><span class="ap-voice-preview-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>
         </div>
-        <div class="ap-voice-sliders">
-          <label class="ap-voice-slider">
-            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_speed"))} <span data-ap-voice-val="speed">${speed.toFixed(1)}</span></span>
-            <input type="range" min="0.5" max="2" step="0.1" value="${speed}" data-ap-voice-range="speed" data-slug="${escape(slug)}">
-          </label>
-          <label class="ap-voice-slider">
-            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_pitch"))} <span data-ap-voice-val="pitch">${pitch}</span></span>
-            <input type="range" min="-12" max="12" step="1" value="${pitch}" data-ap-voice-range="pitch" data-slug="${escape(slug)}">
-          </label>
-          <label class="ap-voice-slider">
-            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_emotion_label"))}</span>
-            <button type="button" class="ap-model-trigger ap-voice-emotion-trigger" data-ap-emotion-trigger data-slug="${escape(slug)}">
-              <span class="ap-model-trigger-text">
-                <span class="ap-model-trigger-name" data-ap-voice-emotion-label>${escape(emotionLabel)}</span>
-              </span>
-              <span class="ap-model-trigger-caret">▾</span>
-            </button>
-          </label>
+        <div class="ap-voice-emotion-row">
+          <button type="button" class="ap-model-trigger ap-voice-emotion-trigger" data-ap-emotion-trigger data-slug="${escape(slug)}">
+            <span class="ap-model-trigger-text">
+              <span class="ap-model-trigger-name" data-ap-voice-emotion-label>${escape(emotionLabel)}</span>
+            </span>
+            <span class="ap-model-trigger-caret">▾</span>
+          </button>
+          <div class="ap-voice-emotion-hint">${escape(uiT("ap_voice_emotion_hint"))}</div>
         </div>
         <details class="ap-voice-advanced">
           <summary>${escape(uiT("ap_voice_advanced"))}</summary>
-          <div class="ap-voice-sliders">
-            <label class="ap-voice-slider">
-              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_pitch"))} <span data-ap-voice-val="modifyPitch">${modPitch}</span></span>
-              <input type="range" min="-100" max="100" step="5" value="${modPitch}" data-ap-voice-range="modifyPitch" data-slug="${escape(slug)}">
-            </label>
-            <label class="ap-voice-slider">
-              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_intensity"))} <span data-ap-voice-val="modifyIntensity">${modIntensity}</span></span>
-              <input type="range" min="-100" max="100" step="5" value="${modIntensity}" data-ap-voice-range="modifyIntensity" data-slug="${escape(slug)}">
-            </label>
-            <label class="ap-voice-slider">
-              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_timbre"))} <span data-ap-voice-val="modifyTimbre">${modTimbre}</span></span>
-              <input type="range" min="-100" max="100" step="5" value="${modTimbre}" data-ap-voice-range="modifyTimbre" data-slug="${escape(slug)}">
-            </label>
+          <div class="ap-voice-tune-grid">
+            ${renderVoiceTuneRow(slug, "speed",           uiT("ap_voice_speed"),           speed,        0.5, 2,   0.1)}
+            ${renderVoiceTuneRow(slug, "pitch",           uiT("ap_voice_pitch"),           pitch,       -12, 12,   1)}
+            ${renderVoiceTuneRow(slug, "modifyPitch",     uiT("ap_voice_modify_pitch"),    modPitch,   -100, 100,  5)}
+            ${renderVoiceTuneRow(slug, "modifyIntensity", uiT("ap_voice_modify_intensity"), modIntensity, -100, 100,  5)}
+            ${renderVoiceTuneRow(slug, "modifyTimbre",    uiT("ap_voice_modify_timbre"),    modTimbre,   -100, 100,  5)}
           </div>
         </details>
       </div>
     `;
   }
+  /** Position a `.ap-model-picker` popover under (or above, if there
+   *  isn't enough room below) a trigger element, clamping the height
+   *  to fit the available viewport. The picker uses `position: fixed`
+   *  so we work in viewport coords throughout. Returns nothing —
+   *  mutates `pop.style` in place.
+   *
+   *  Preference: open BELOW the trigger. Flip ABOVE only when the
+   *  below-space is < 180px AND the above-space is bigger. Either
+   *  way, set `max-height` to whatever fits, so a long voice list
+   *  scrolls inside the picker rather than disappearing off-screen. */
+  function placePickerNearTrigger(pop, triggerEl, popW) {
+    const margin = 8;
+    const minBelow = 180; // below this many px, prefer flipping above
+    const rect = triggerEl.getBoundingClientRect();
+    const left = Math.round(Math.min(rect.left, window.innerWidth - popW - margin));
+    pop.style.left = `${left}px`;
+    pop.style.width = `${popW}px`;
+
+    const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - margin);
+    const spaceAbove = Math.max(0, rect.top - margin);
+
+    const flipAbove = spaceBelow < minBelow && spaceAbove > spaceBelow;
+    if (flipAbove) {
+      // Anchor the bottom edge of the picker just above the trigger.
+      // The picker grows upward · we use `bottom` rather than `top +
+      // translateY` so max-height clipping stays predictable.
+      pop.style.top = "auto";
+      pop.style.bottom = `${Math.round(window.innerHeight - rect.top + 4)}px`;
+      pop.style.maxHeight = `${Math.round(spaceAbove - 4)}px`;
+    } else {
+      pop.style.top = `${Math.round(rect.bottom + 4)}px`;
+      pop.style.bottom = "auto";
+      pop.style.maxHeight = `${Math.round(spaceBelow - 4)}px`;
+    }
+  }
+
   async function openVoicePicker(triggerEl) {
     closeVoicePicker();
     closeEmotionPicker();
@@ -2403,39 +2495,54 @@
     const slug = row?.getAttribute("data-slug");
     if (!slug) return;
     const current = voiceForAgent(slug);
-    const voices = await ensureVoiceOptions();
+
+    // Mount the popover shell IMMEDIATELY · the user gets visual
+    // confirmation of their click in the same frame. If the cache
+    // is cold, the skeleton holds the place while /api/voices
+    // round-trips; once it lands we swap content in. Without this,
+    // a cold cache produced "click → nothing → eventually picker"
+    // which felt unresponsive on the first open of every session.
     const pop = document.createElement("div");
     pop.id = "ap-voice-picker";
     pop.className = "ap-model-picker";
     pop.dataset.slug = slug;
+    // Loading row · animated dot trio + label. Visible feedback so
+    // users don't read a static "loading" line as a frozen popover.
+    pop.innerHTML = `
+      <div class="ap-model-picker-loading">
+        <span class="ap-loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>${escape(uiT("ap_voice_loading"))}</span>
+      </div>`;
+    document.body.appendChild(pop);
+    placePickerNearTrigger(pop, triggerEl, 280);
+
+    const voices = await ensureVoiceOptions();
+    // The user (or a sibling open) may have closed this picker
+    // during the await · don't write into a detached node.
+    if (!document.body.contains(pop)) return;
+
     if (voices.length === 0) {
       pop.innerHTML = `<div class="ap-model-group">${escape(uiT("ap_voice_no_provider"))}</div>`;
-    } else {
-      const groups = [];
-      let last = null;
-      for (const v of voices) {
-        const provider = String(v.provider || "browser");
-        if (provider !== last) {
-          groups.push(`<div class="ap-model-group">${escape(provider)}</div>`);
-          last = provider;
-        }
-        const id = [provider, v.model || "", v.voiceId || ""].join("|");
-        const active = current && current.provider === provider && current.model === v.model && current.voiceId === v.voiceId;
-        groups.push(`
-          <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-voice-pick="${escape(id)}">
-            <span class="ap-model-opt-label">${escape(v.label || v.voiceId || uiT("ap_voice_fallback_voice"))}</span>
-            <span class="ap-model-opt-hint">${escape((v.model || "") + (v.language ? " · " + v.language : ""))}</span>
-          </button>
-        `);
-      }
-      pop.innerHTML = groups.join("");
+      return;
     }
-    document.body.appendChild(pop);
-    const r = triggerEl.getBoundingClientRect();
-    const popW = 280;
-    pop.style.top = `${Math.round(r.bottom + 4)}px`;
-    pop.style.left = `${Math.round(Math.min(r.left, window.innerWidth - popW - 8))}px`;
-    pop.style.width = `${popW}px`;
+    const groups = [];
+    let last = null;
+    for (const v of voices) {
+      const provider = String(v.provider || "browser");
+      if (provider !== last) {
+        groups.push(`<div class="ap-model-group">${escape(provider)}</div>`);
+        last = provider;
+      }
+      const id = [provider, v.model || "", v.voiceId || ""].join("|");
+      const active = current && current.provider === provider && current.model === v.model && current.voiceId === v.voiceId;
+      groups.push(`
+        <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-voice-pick="${escape(id)}">
+          <span class="ap-model-opt-label">${escape(v.label || v.voiceId || uiT("ap_voice_fallback_voice"))}</span>
+          <span class="ap-model-opt-hint">${escape((v.model || "") + (v.language ? " · " + v.language : ""))}</span>
+        </button>
+      `);
+    }
+    pop.innerHTML = groups.join("");
   }
   function closeVoicePicker() {
     const el = document.getElementById("ap-voice-picker");
@@ -2471,12 +2578,10 @@
     pop.dataset.slug = slug;
     pop.innerHTML = parts.join("");
     document.body.appendChild(pop);
-    const r = triggerEl.getBoundingClientRect();
-    const popW = Math.min(280, Math.max(220, r.width));
-    let left = Math.round(Math.min(r.left, window.innerWidth - popW - 8));
-    pop.style.top = `${Math.round(r.bottom + 4)}px`;
-    pop.style.left = `${left}px`;
-    pop.style.width = `${Math.round(popW)}px`;
+    // Width tracks the trigger so the popover hugs whichever
+    // emotion-picker variant is in use (compact vs full row).
+    const triggerWidth = triggerEl.getBoundingClientRect().width;
+    placePickerNearTrigger(pop, triggerEl, Math.round(Math.min(280, Math.max(220, triggerWidth))));
   }
   function setVoiceFor(slug, voice) {
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
@@ -2508,7 +2613,11 @@
       return;
     }
     const btn = document.querySelector(`[data-ap-voice-preview][data-slug="${slug}"]`);
-    if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+    // Loading state · class-toggle so the inner glyph hides and the
+    // animated 3-dot indicator takes its place. Avoids the previous
+    // `⏳` emoji which renders inconsistently across platforms and
+    // doesn't match the system's mono register.
+    if (btn) { btn.disabled = true; btn.classList.add("is-loading"); }
     try {
       const r = await fetch("/api/voices/preview", {
         method: "POST",
@@ -2535,7 +2644,7 @@
     } catch (e) {
       alert(uiT("ap_voice_preview_err", { msg: e.message || String(e) }));
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = "▶"; }
+      if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
     }
   }
 
@@ -2642,7 +2751,6 @@
               </header>
               <div class="ap-block-body">
                 ${renderModelBlock(slug, liveModel)}
-                ${renderVoiceBlock(slug)}
                 <div class="ap-stats-grid" data-ap-stats data-slug="${escape(slug)}">
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-rooms>—</div>
@@ -2670,14 +2778,11 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">${escape(uiT("ap_equipment"))}</span>
-                <span class="ap-block-h-tag">${escape(uiT("ap_equipment_soon"))}</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_voice_section"))}</span>
+                <span class="ap-block-h-tag">${escape(uiT("ap_voice_section_tag"))}</span>
               </header>
-              <div class="ap-coming-soon">
-                <div class="ap-coming-soon-mark">◆</div>
-                <div class="ap-coming-soon-title">${escape(uiT("ap_equipment_knowledge_title"))}</div>
-                <p class="ap-coming-soon-body">${escape(uiT("ap_equipment_knowledge_deck"))}</p>
-                <div class="ap-coming-soon-tag">${escape(uiT("ap_equipment_dev"))}</div>
+              <div class="ap-block-body">
+                ${renderVoiceBlock(slug)}
               </div>
             </section>
 
@@ -3819,6 +3924,21 @@
         else openVoicePicker(voiceTrigger);
         return;
       }
+      // Locked card CTA · deep-links to user-settings keys panel
+      // and scrolls the MiniMax row into view (the same deep-link
+      // the composer's voice toggle uses when no key is set).
+      // After the user closes the modal, refreshAgentProfileSkills
+      // already fires (window-level wrapper); we also refresh the
+      // visible voice block so a configured key flips the locked
+      // card into the picker without a page reload.
+      const unlockBtn = e.target.closest("[data-ap-voice-unlock]");
+      if (unlockBtn) {
+        e.preventDefault();
+        if (typeof window.openUserSettings === "function") {
+          window.openUserSettings({ section: "keys", focusProvider: "minimax" });
+        }
+        return;
+      }
       const emoTrig = e.target.closest("[data-ap-emotion-trigger]");
       if (emoTrig) {
         e.preventDefault();
@@ -3891,12 +4011,16 @@
       const range = e.target.closest("[data-ap-voice-range]");
       if (range) {
         const param = range.getAttribute("data-ap-voice-range");
-        const slug = range.getAttribute("data-slug");
         const val = parseFloat(range.value);
-        // Update display value
+        // Update display value · same formatter that initial render
+        // uses, so dragging matches the static "1.0×" / "+5" reading.
         const container = range.closest(".ap-voice-config");
         const display = container?.querySelector(`[data-ap-voice-val="${param}"]`);
-        if (display) display.textContent = Number.isInteger(val) ? String(val) : val.toFixed(1);
+        if (display) display.textContent = formatVoiceVal(param, val);
+        // Repaint the lime-fill segment as the thumb moves.
+        const { lo, hi } = rangeFillPositions(parseFloat(range.min), parseFloat(range.max), val);
+        range.style.setProperty("--fill-lo", lo);
+        range.style.setProperty("--fill-hi", hi);
         return;
       }
     });
@@ -3990,10 +4114,20 @@
   window.closeAgentProfile = showRoom;
   // Re-fetch the open profile's skills (incl. per-skill keyConfigured
   // flags) so the web-search toggle row's cached `data-key-configured`
-  // refreshes after the user adds a key in Preferences. No-op when no
-  // profile is currently open.
+  // refreshes after the user adds a key in Preferences. Also re-renders
+  // the Voice Setup block so the gamified locked card flips into the
+  // picker the moment the user adds a MiniMax / ElevenLabs key without
+  // forcing a page reload. No-op when no profile is currently open.
   window.refreshAgentProfileSkills = function () {
-    if (currentlyOpenSlug) loadSkillsForV2(currentlyOpenSlug);
+    if (!currentlyOpenSlug) return;
+    loadSkillsForV2(currentlyOpenSlug);
+    const voiceRow = document.querySelector(`[data-ap-voice-row][data-slug="${currentlyOpenSlug}"]`);
+    if (voiceRow) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = renderVoiceBlock(currentlyOpenSlug).trim();
+      const fresh = wrap.firstElementChild;
+      if (fresh) voiceRow.replaceWith(fresh);
+    }
   };
 
   document.addEventListener("boardroom:locale", () => {

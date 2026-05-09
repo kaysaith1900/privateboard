@@ -26,6 +26,68 @@ export interface TtsChunk {
   audioBase64?: string;
 }
 
+/**
+ * Strip markdown / code / urls / table syntax from a message body so
+ * TTS doesn't read the formatting characters out loud. Used by both
+ * the live voice flow (sentence-by-sentence streaming) and the
+ * post-adjourn replay (per-message buffered synthesis).
+ *
+ * Conservative: only strips formatting noise that's purely visual.
+ * Keeps the actual content + sentence structure intact so the
+ * sentence-splitter / TTS get a clean stream of natural language.
+ *
+ * Order matters · fences and inline code first (they may carry
+ * other markdown chars inside that we shouldn't mistake for prose).
+ */
+export function cleanForSpeech(md: string): string {
+  if (!md) return "";
+  let out = md;
+  // Fenced code blocks · drop entirely (TTS shouldn't read code aloud).
+  out = out.replace(/```[\s\S]*?```/g, " ");
+  // Inline code · strip ticks, keep content.
+  out = out.replace(/`([^`\n]+)`/g, "$1");
+  // Images · drop entirely (alt text is rarely useful aurally).
+  out = out.replace(/!\[[^\]]*\]\([^)]+\)/g, " ");
+  // Markdown links · keep the label text, drop the URL.
+  out = out.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  // Bare URLs · replace with the word "link" so the cadence isn't
+  // a long stream of letters being spelled out.
+  out = out.replace(/https?:\/\/\S+/gi, "link");
+  // Headings · drop the leading hashes, keep the heading text.
+  out = out.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  // Blockquote markers · drop ">" prefix.
+  out = out.replace(/^\s{0,3}>\s?/gm, "");
+  // Unordered + ordered list markers · drop bullet, keep content.
+  out = out.replace(/^\s*[-*+]\s+/gm, "");
+  out = out.replace(/^\s*\d+[.)]\s+/gm, "");
+  // Table rows · pipes become commas so columns read as clauses.
+  // Skip the |---| separator lines entirely.
+  out = out.replace(/^\s*\|[\s:|-]+\|\s*$/gm, " ");
+  out = out.replace(/\|/g, ", ");
+  // Emphasis decoration · `**bold**`, `__bold__`, `*italic*`, `_em_`,
+  // `~~strike~~`. Keep the content.
+  out = out.replace(/(\*\*|__)(.+?)\1/g, "$2");
+  out = out.replace(/(?<!\w)([*_])([^*_\n]+)\1(?!\w)/g, "$2");
+  out = out.replace(/~~(.+?)~~/g, "$1");
+  // Raw HTML tags · drop. (Brief content shouldn't have any but
+  // belt-and-braces.)
+  out = out.replace(/<[^>]+>/g, " ");
+  // Common HTML entities · resolve a small set, leave the rest.
+  out = out
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ");
+  // Collapse runs of whitespace · keep newlines so the sentence-
+  // splitter still sees paragraph breaks.
+  out = out.replace(/[ \t]+/g, " ");
+  out = out.replace(/\n[ \t]+/g, "\n");
+  out = out.replace(/\n{3,}/g, "\n\n");
+  return out.trim();
+}
+
 export function voiceProfileForAgent(agent: Agent): AgentVoiceProfile {
   if (agent.voice) return agent.voice;
   const fallback = defaultVoiceForProvider(

@@ -2812,6 +2812,11 @@
     text-transform: uppercase;
     margin-bottom: 4px;
   }
+  .brief-kicker-sep {
+    color: var(--text-faint);
+    opacity: 0.5;
+    margin: 0 2px;
+  }
   .brief-title {
     font-family: var(--font-human);
     font-size: 15px;
@@ -2866,6 +2871,25 @@
   .brief-meta-words.is-dense    { color: var(--amber); }
   .brief-meta-words.is-long     { color: var(--red); opacity: 0.85; }
   .brief-meta-words.is-too-long { color: var(--red); font-weight: 700; }
+
+  /* Mode chip · folded into the brief-meta-row alongside the
+     authors / word-count pieces. The standalone .brief-banner
+     strip that used to host this was retired (too tall for the
+     info it carried). Renders as a tiny mono pill so the report
+     type ("REPORT" / "MAGAZINE" / "NEWSPAPER" / "SLIDES") is
+     visible at a glance without competing for emphasis with the
+     title or kicker. */
+  .brief-meta-type {
+    font-family: var(--mono);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    border: 0.5px solid var(--line-bright, var(--line));
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
 
   /* Signatures · folded into the meta line, no top border */
   .brief-signed {
@@ -7621,46 +7645,11 @@
     border-color: var(--lime-dim);
   }
 
-  /* Voice mode switch in composer toolbar */
-  .cmp-voice-switch {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    cursor: pointer;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-soft);
-    user-select: none;
-  }
-  .cmp-voice-switch input { display: none; }
-  .cmp-voice-switch-track {
-    position: relative;
-    width: 28px; height: 14px;
-    background: var(--line-bright);
-    border-radius: 7px;
-    transition: background 0.15s;
-  }
-  .cmp-voice-switch-track::after {
-    content: "";
-    position: absolute;
-    top: 2px; left: 2px;
-    width: 10px; height: 10px;
-    background: var(--bg);
-    border-radius: 50%;
-    transition: transform 0.15s;
-  }
-  .cmp-voice-switch input:checked ~ .cmp-voice-switch-track {
-    background: var(--lime);
-  }
-  .cmp-voice-switch input:checked ~ .cmp-voice-switch-track::after {
-    transform: translateX(14px);
-  }
-  .cmp-voice-switch input:checked ~ .cmp-voice-switch-label {
-    color: var(--lime);
-  }
+  /* Voice mode toggle now reuses `.ap-skill-row-toggle .cmp-ws-toggle`
+     vocabulary (see agent-profile.css). The previous `.cmp-voice-
+     switch` rules are gone — the toolbar fitting in `.cmp-toolbar
+     .cmp-ws-toggle` above already covers the voice toggle since
+     they share the same class set. */
 
   .cmp-go {
     flex-shrink: 0;
@@ -7679,6 +7668,17 @@
     transform: translateX(1px);
   }
   .cmp-go.busy { opacity: 0.55; pointer-events: none; }
+  /* SVG icon · both the room composer's "Convene" button and the
+     agent composer's "Generate director" button use the same
+     Lucide `arrow-right` (clean stroke, consistent across fonts).
+     Stroke colour inherits from the button's `color` (var(--bg)),
+     so the icon reads as ink on the lime fill. The legacy
+     `.cmp-go-arrow` text-glyph rule below stays for the `…` busy
+     state and any other text fallbacks. */
+  .cmp-go-icon {
+    display: block;
+    flex-shrink: 0;
+  }
   .cmp-go-arrow {
     font-size: 16px;
     line-height: 1;
@@ -8223,6 +8223,25 @@
     text-transform: uppercase;
     color: var(--text-faint);
   }
+  /* Stop button · sits at the right edge of the generating header.
+     Shares the bracketed mono register the rest of the composer
+     uses ([ Generate ] / [ Cancel ]) so it reads as a peer action.
+     Clicking aborts the in-flight controller via discardAgentSpec. */
+  .ag-gen-stop {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    cursor: pointer;
+    align-self: center;
+    transition: color 0.12s;
+  }
+  .ag-gen-stop:hover { color: var(--red, #C85A5A); }
+  .ag-gen-stop:active { color: var(--red, #C85A5A); }
   .ag-gen-stages {
     list-style: none;
     margin: 0;
@@ -9410,6 +9429,8 @@
 <link rel="stylesheet" href="user-settings.css">
 <script type="module" src="keys-store.js"></script>
 <script src="user-settings.js" defer></script>
+<link rel="stylesheet" href="voice-replay.css">
+<script src="voice-replay.js" defer></script>
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
 <script src="onboarding.js" defer></script>
@@ -9618,6 +9639,7 @@
             </div>
             <div class="adjourned-bar-actions">
               <a href="#" class="ghost-btn" data-room-export>[↓] Export</a>
+              <a href="#" class="ghost-btn" data-room-replay>[♪] Voice Replay</a>
               <a href="#" class="ghost-btn" data-room-followup>[→] Convene Follow-up</a>
             </div>
           </footer>
@@ -9901,17 +9923,37 @@
     const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
 
-    /* Fall back to the first session row in the sidebar when we have
-       no explicit user choice. Ordering matches DOM order (live first,
-       then paused, then adjourned), which is the same ordering the user
-       sees — picking [0] always means "the one at the top." Returns null
-       when the sidebar has no rooms at all. */
-    function firstRoomId() {
-      const row = document.querySelector(".session-row-shell[data-room-id]");
-      return row ? row.dataset.roomId : null;
+    /* Truth source for "does this room exist?" is `window.app.rooms`,
+       not the DOM. The sidebar may not have rendered yet on first
+       restore (app.init's loadInitial is async and runs concurrently
+       with our DOMContentLoaded restore), and a DOM-empty sidebar
+       does NOT mean "user has no rooms." Querying the in-memory
+       array avoids the race entirely. Returns null until app data is
+       loaded, in which case the caller defers. */
+    function appRoomsLoaded() {
+      return !!(window.app && Array.isArray(window.app.rooms));
+    }
+    function appRoomExists(id) {
+      return appRoomsLoaded() && window.app.rooms.some((r) => r && r.id === id);
+    }
+    function appFirstRoomId() {
+      if (!appRoomsLoaded()) return null;
+      const live   = window.app.rooms.filter((r) => r.status === "live");
+      const paused = window.app.rooms.filter((r) => r.status === "paused");
+      const adj    = window.app.rooms.filter((r) => r.status === "adjourned");
+      const ordered = [...live, ...paused, ...adj];
+      return ordered.length > 0 ? ordered[0].id : null;
     }
 
+    /* applyRoomsSubState may run BEFORE app.init's loadInitial fetch
+       completes — in that case window.app.rooms is undefined and any
+       existence check is a lie. Defer with a short retry until data
+       lands; only then apply the sub-state. The retry is gated by a
+       generation token so a later applyRoomsSubState call cancels
+       any in-flight retry from an earlier one. */
+    let _applyGen = 0;
     function applyRoomsSubState(sub) {
+      const gen = ++_applyGen;
       // Make sure the room main view is visible (in case the agent
       // profile main view was up). setComposerMode also does this when
       // sub === "new"; doing it here covers the roomId branch too.
@@ -9939,22 +9981,30 @@
         }
         return;
       }
-      // Navigate to the saved room — but only if it still exists in
-      // the sidebar list. A stale id (deleted room, never-existed)
-      // falls back to the most-recently-viewed room, then the first
-      // row, before resorting to the composer. Without the fallback,
-      // a deleted-room id would land the user on a blank composer
-      // every tab-switch even when other rooms are available.
-      let exists = !!document.querySelector(`.session-row-shell[data-room-id="${sub}"]`);
-      if (!exists) {
+      // Saved sub is a roomId. We must consult the in-memory data
+      // (not DOM); if it isn't loaded yet, defer rather than blow
+      // away ROOMS_KEY with "new" — that's the bug that was eating
+      // the user's last selection on every refresh.
+      if (!appRoomsLoaded()) {
+        let attempts = 0;
+        const tick = () => {
+          if (gen !== _applyGen) return; // a newer call superseded us
+          if (appRoomsLoaded()) { applyRoomsSubState(sub); return; }
+          if (++attempts < 40) setTimeout(tick, 100); // up to ~4s
+        };
+        setTimeout(tick, 100);
+        return;
+      }
+      // Data loaded · resolve existence against window.app.rooms.
+      // Stale id (deleted, never-existed) falls back to last-opened,
+      // then first row, before resorting to the composer.
+      let resolved = sub;
+      if (!appRoomExists(resolved)) {
         const last = lsGet(ROOMS_LAST_KEY);
-        const candidate = (last && document.querySelector(`.session-row-shell[data-room-id="${last}"]`))
-          ? last
-          : firstRoomId();
+        const candidate = (last && appRoomExists(last)) ? last : appFirstRoomId();
         if (candidate) {
-          sub = candidate;
+          resolved = candidate;
           lsSet(ROOMS_KEY, candidate);
-          exists = true;
         } else {
           lsSet(ROOMS_KEY, "new");
           if (window.app && typeof window.app.setComposerMode === "function") {
@@ -9963,17 +10013,17 @@
           return;
         }
       }
-      const want = "#/r/" + sub;
+      const want = "#/r/" + resolved;
       if (location.hash !== want) {
         location.hash = want;
-      } else if (window.app && window.app.currentRoomId !== sub && typeof window.app.openRoom === "function") {
-        window.app.openRoom(sub);
+      } else if (window.app && window.app.currentRoomId !== resolved && typeof window.app.openRoom === "function") {
+        window.app.openRoom(resolved);
       } else if (window.app && typeof window.app.markActiveRoom === "function") {
         // Both hash and currentRoomId already match — but the sidebar
         // session-row .active highlight may have been cleared by an
         // intervening agent-profile open (markActiveAgent wipes it).
         // Re-apply so the row reads as selected on tab return.
-        window.app.markActiveRoom(sub);
+        window.app.markActiveRoom(resolved);
       }
     }
 
@@ -10034,12 +10084,13 @@
         } else if (fromTabClick) {
           // No saved sub-state · fresh user clicking the tab. Prefer
           // the last actually-opened room so the tab feels populated
-          // instead of bouncing them to a blank composer.
+          // instead of bouncing them to a blank composer. Truth source
+          // is window.app.rooms (DOM may not have rendered yet).
           const last = lsGet(ROOMS_LAST_KEY);
-          if (last && document.querySelector(`.session-row-shell[data-room-id="${last}"]`)) {
+          if (last && appRoomExists(last)) {
             target = last;
           } else {
-            target = firstRoomId() || "new";
+            target = appFirstRoomId() || "new";
           }
         } else {
           target = "new"; // initial load with no history → composer
