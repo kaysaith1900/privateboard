@@ -474,25 +474,17 @@ export interface Recommendation {
   expectedBenefit?: string;
 }
 
-/** Section 10 · Pre-mortem. How the recommendations could fail, with
- *  leading indicators that would warn us early. 2-3 failure modes. */
-export interface FailureMode {
-  /** How the recommendation could fail. 1 sentence. */
-  scenario: string;
-  /** Earliest observable warning sign. */
-  leadingIndicator: string;
-  /** What to do if the leading indicator fires. */
-  mitigation: string;
-}
-
-/** Risk-register item · structurally distinct from pre-mortem.
- *  pre-mortem catalogs ways the *recommendation* fails ("if we ship
- *  this, here are the leading indicators of failure"). risk-register
- *  catalogs the *operating-environment* / *team* / *product* / *market*
- *  risks the room raised — risks that exist whether or not we act on
- *  the recommendations. severity + likelihood are independent axes;
+/** Risk-register item · 3-7 standing risks the operating environment
+ *  poses. Includes both environmental risks (whether or not we act)
+ *  and concrete recommendation-failure modes when the room surfaced
+ *  them as load-bearing. severity + likelihood are independent axes;
  *  owner is who watches it (functional / role, not a person name);
- *  mitigation is the playbook if the risk materialises. 3-7 items. */
+ *  mitigation is the playbook if the risk materialises.
+ *
+ *  (Replaced the older `FailureMode` / `pre-mortem` section · its
+ *  scenario / leading-indicator / mitigation shape collapses cleanly
+ *  into a risk-register row when the room's failure-mode signals
+ *  warrant a Risk Register at all.) */
 export type RiskCategory =
   | "market"      // demand / competition / regulation / macro
   | "execution"   // build / launch / scale / hiring
@@ -909,12 +901,13 @@ export interface MetricStrip {
 export type ThreatSeverity = "low" | "medium" | "high";
 
 /** Threats to validity · Stanford-style critical examination of how
- *  the brief itself could be wrong. Distinct from `pre-mortem` (how
- *  the *recommended action* could fail) and from `critical-assumptions`
- *  (the foundational assumptions the brief rests on, which carry
- *  confidence + falsifier). A threat-to-validity names a way the
- *  *analysis* could be misleading: selection bias, sample of N, lens
- *  blind spot, generalizability ceiling, confounding factor. Each has
+ *  the brief itself could be wrong. Distinct from `risk-register`
+ *  (operating-environment risks the room raised) and from
+ *  `critical-assumptions` (the foundational assumptions the brief
+ *  rests on, which carry confidence + falsifier). A threat-to-validity
+ *  names a way the *analysis* could be misleading: selection bias,
+ *  sample of N, lens blind spot, generalizability ceiling, confounding
+ *  factor. Each has
  *  a category, the threat itself, an observable that would prove it
  *  realized, severity, and an optional mitigation. The room's
  *  intellectual honesty becomes structural — these are not appendix
@@ -969,6 +962,181 @@ export interface TwoPaths {
   pathB: TwoPathPanel;
 }
 
+/* ──────────────────────── Bento scaffold ───────────────────────────
+ * Single-page infographic alternative to the markdown research note.
+ * Fixed shape (no composer · no substitute groups) so the renderer can
+ * lay out a deterministic 8-slot grid:
+ *   · header band     (title · kicker · source line)
+ *   · 3 milestones    (left column · vertical timeline · period · title
+ *                      · 2-3 sentence body · big-number callout · tags)
+ *   · ranked bars     (right column top · 3-5 named entries with ratios)
+ *   · verification    (right column mid · 3-5 single-sentence bullets)
+ *   · talking points  (right column bottom · 3-5 elevator-pitch lines)
+ *   · conclusion      (bottom band · one-line takeaway)
+ *   · flow diagram    (optional inline arrow chain · "before → after"
+ *                      or "10× → 10×" · 2-4 nodes)
+ *   · footer tag      (mono caption right-aligned at the bottom)
+ *
+ * The bento writer fills these slots in a SINGLE chair-LLM call (Stage
+ * 2 produces the structured JSON; Stage 3 is deterministic templating).
+ * The bento body is intentionally lossy — the room's full discussion
+ * compresses into the highest-signal claims, big numbers, and the one
+ * thing that actually changes a reader's call. This is by design: the
+ * research-note path remains for users who want the full memo. */
+export interface BentoScaffold {
+  /** Hero headline · serif, 1 line · the room's takeaway in claim form. */
+  title: string;
+  /** Italic deck under the title · 1 sentence · the angle / what's new. */
+  kicker: string;
+  /** Mono small-caps source line · "from {chair name} · {date}" or
+   *  similar. Auto-filled from room metadata when the LLM doesn't set
+   *  one. */
+  source: string;
+  /** EXACTLY 3 milestones, ordered chronologically or by importance.
+   *  Vertical-timeline cards on the left side of the bento. */
+  milestones: BentoMilestone[];
+  /** Optional · top-right · 3-5 ranked entries with ratio bars.
+   *  Renders only when the room produced quantifiable comparisons. */
+  rankedBars: BentoRankedBars | null;
+  /** Optional · mid-right · 3-5 verification bullets · the validation
+   *  signals that, if observed, would confirm the takeaway. Maps from
+   *  convergence + leading indicators material. */
+  verification: BentoVerification | null;
+  /** ALWAYS rendered · bottom-right · 3-5 talking-point bullets · the
+   *  elevator-pitch sentences a reader could use to brief a colleague.
+   *  Maps from recommendations and bottom-line, collapsed to single
+   *  declarative sentences. */
+  talkingPoints: BentoTalkingPoints;
+  /** Bottom band · one-line conclusion · ≤ 80 chars · the takeaway
+   *  collapsed to a single sentence the reader walks away with. */
+  conclusion: string;
+  /** Optional flow diagram inline next to the conclusion · 2-4 nodes
+   *  joined by arrows · "before → after" or "step 1 → step 2 → step 3".
+   *  Skipped when no clean transformation arc exists. */
+  flow: BentoFlow | null;
+  /** Footer mono tag · "{room subject short} · {time horizon}" or
+   *  similar. Auto-filled from room metadata when the LLM doesn't
+   *  set one. */
+  footerTag: string;
+  /** PPT-mode only · multi-director comparison block. Populated only
+   *  when generating PPT briefs with ≥ 2 active directors. Null in
+   *  every other case. Magazine / newspaper renderers ignore it; the
+   *  PPT renderer surfaces it as 1-3 dedicated slides (director
+   *  voices · where we agreed · where we split). */
+  directorBlock?: PptDirectorBlock | null;
+}
+
+/** PPT-only multi-director block · uses resolved names + roles
+ *  inline so the slide renderer doesn't need a member-id resolver
+ *  at render time. Different shape from BriefScaffold's
+ *  DirectorPerspectivesBlock (which uses ids). */
+export interface PptDirectorBlock {
+  /** EVERY active director gets one entry. ≥ 2 entries required, else
+   *  the parent populator returns null. */
+  perspectives: PptDirectorPerspective[];
+  /** 0-3 cross-cutting agreements · each ≥ 2 directors. */
+  alignment: PptAlignment[];
+  /** 0-2 hinge points the room split on. */
+  divergence: PptDivergence[];
+  /** Chair's synthesis · 1-2 sentences (≤ 240 chars). What the chair
+   *  takes from comparing the views. Moderator-neutral. */
+  chairSynthesis: string;
+}
+
+export interface PptDirectorPerspective {
+  /** Display name · "Socrates" / "Drucker". ≤ 32 chars. */
+  directorName: string;
+  /** Display role · "Devil's advocate" / "Operator's lens". ≤ 48 chars. */
+  directorRole: string;
+  /** Short stance label · ≤ 60 chars · "Sees this as a moat play". */
+  stance: string;
+  /** Their load-bearing position · 1-2 sentences ≤ 240 chars. */
+  position: string;
+  /** Optional verbatim phrase · ≤ 160 chars. Empty when no memorable
+   *  verbatim available. Rendered as italic pull-quote. */
+  quote: string;
+}
+
+export interface PptAlignment {
+  /** What the directors agreed on · 1 sentence ≤ 120 chars. */
+  pointOfAgreement: string;
+  /** Display names of the directors who converged. ≥ 2. */
+  directorNames: string[];
+  /** Why this convergence is structurally meaningful · ≤ 200 chars. */
+  note: string;
+}
+
+export interface PptDivergence {
+  /** The hinge that separated the directors · ≤ 140 chars. */
+  hinge: string;
+  /** 2-3 sides · each side has a label, the directors on it, and a
+   *  1-sentence stance. */
+  sides: PptDivergenceSide[];
+  /** What would resolve the split · ≤ 200 chars. Empty when
+   *  unresolved. */
+  resolution: string;
+}
+
+export interface PptDivergenceSide {
+  label: string;
+  directorNames: string[];
+  stance: string;
+}
+
+export interface BentoMilestone {
+  /** Time / phase tag · "2025H2" · "Q1 2026" · "Phase 2" · ≤ 24 chars. */
+  period: string;
+  /** Card headline · ≤ 60 chars · the milestone's name. */
+  title: string;
+  /** 2-3 sentence body explaining what happened / will happen. ≤ 220 chars. */
+  body: string;
+  /** Big-number callout · ≤ 12 chars · the metric / multiplier / count
+   *  that anchors the milestone visually. e.g. "-10×", "2000万颗",
+   *  "$120M ARR", "T+90". Empty string when no clean numeric anchor
+   *  exists — the card renders without the gold-callout slot. */
+  callout: string;
+  /** Optional 0-4 short tags rendered as chips (entity names, owners,
+   *  domains). ≤ 16 chars each. */
+  tags: string[];
+}
+
+export interface BentoRankedBars {
+  /** Card title · ≤ 40 chars. */
+  title: string;
+  /** 3-5 entries, sorted in render order. Each ratio is normalized
+   *  0-1 by the writer (e.g. "1.0 / 0.1 / 0.01"). The renderer paints
+   *  bars proportional to ratio. */
+  entries: Array<{
+    /** Bar label · ≤ 40 chars. */
+    label: string;
+    /** Display value · ≤ 20 chars · "1.0×" / "$45M" / "23%". */
+    value: string;
+    /** Normalized 0-1 for bar width. */
+    ratio: number;
+  }>;
+}
+
+export interface BentoVerification {
+  /** Card title · ≤ 40 chars. */
+  title: string;
+  /** 3-5 single-sentence bullets · ≤ 140 chars each. */
+  bullets: string[];
+}
+
+export interface BentoTalkingPoints {
+  /** Card title · default "How to say this" / "口播提纲" · spine-style. */
+  title: string;
+  /** 3-5 elevator-pitch sentences · ≤ 120 chars each. */
+  bullets: string[];
+}
+
+export interface BentoFlow {
+  /** Inline arrow chain · 2-4 nodes joined by "→" at render time. */
+  nodes: string[];
+  /** Optional caption under the arrow chain · ≤ 60 chars. */
+  caption?: string;
+}
+
 /** Top-level scaffold. Composer-driven · only the picked component
  *  fields are filled by Stage 2; the rest are left at their zero values
  *  (empty array, null) so the existing renderer's "skip if empty" rules
@@ -1011,7 +1179,6 @@ export interface BriefScaffold {
    *  recommendations but rendered with hedged voice. */
   considerations?: Recommendation[] | null;
   // ── Forward (optional · cont.) ──
-  preMortem: FailureMode[];
   newQuestions: NewQuestion[];
   planningAssumption: PlanningAssumption | null;
   // ── Gartner-density blocks (optional, composer-picked) ──
@@ -1027,16 +1194,15 @@ export interface BriefScaffold {
   leadingIndicators?: LeadingIndicator[] | null;
   /** 3-5 threats to validity · how the analysis itself could be wrong.
    *  Stanford-research-grade self-criticism that's distinct from
-   *  pre-mortem (how the *action* could fail) and critical-assumptions
+   *  risk-register (operating-environment risks) and critical-assumptions
    *  (the foundations the brief rests on). Set when the composer picks
    *  the `threats-to-validity` component. */
   threatsToValidity?: ThreatToValidity[] | null;
-  /** 3-7 environmental / product / team risks the room surfaced ·
-   *  distinct from pre-mortem (which catalogs recommendation-failure
-   *  modes). risk-register exists whether or not we act on the
-   *  recommendations — surfaces the standing risk landscape with
-   *  severity × likelihood × owner × mitigation. Set when the
-   *  composer picks the `risk-register` component. */
+  /** 3-7 standing risks the room surfaced · operating environment +
+   *  recommendation-failure modes (the latter folded in here after
+   *  the older `pre-mortem` slot was retired). Surfaces the risk
+   *  landscape with severity × likelihood × owner × mitigation. Set
+   *  when the composer picks the `risk-register` component. */
   riskRegister?: RiskItem[] | null;
   /** Structured N-option comparison · used when the room weighed 2-5
    *  named options and recommended one. Distinct from `comparison-table`
@@ -1241,7 +1407,7 @@ const SCAFFOLD_SYSTEM = [
   "",
   "## Signal kind tags",
   "",
-  "Each signal in the SIGNALS block carries a bracket prefix that names the KIND of material the director extracted: `[claim]`, `[evidence·data|case|quote]`, `[tension]`, `[assumption]`, `[risk·high|medium|low]`, `[opportunity]`, `[action·owner·horizon]`, `[quote]`, `[open-q·P0|P1|P2]`. **Use these tags to place each signal in the right scaffold section** — `[risk]` material belongs in `pre-mortem` or `threats-to-validity`, NOT in headline-findings; `[action]` belongs in `recommendations` or `the-bet`; `[tension]` belongs in `divergence` or as a tension on a finding; `[open-q]` belongs in `open-questions` or `new-questions`. Treat the tag as a routing hint — the writer who placed it there already classified it.",
+  "Each signal in the SIGNALS block carries a bracket prefix that names the KIND of material the director extracted: `[claim]`, `[evidence·data|case|quote]`, `[tension]`, `[assumption]`, `[risk·high|medium|low]`, `[opportunity]`, `[action·owner·horizon]`, `[quote]`, `[open-q·P0|P1|P2]`. **Use these tags to place each signal in the right scaffold section** — `[risk]` material belongs in `risk-register` or `threats-to-validity`, NOT in headline-findings; `[action]` belongs in `recommendations` or `the-bet`; `[tension]` belongs in `divergence` or as a tension on a finding; `[open-q]` belongs in `open-questions` or `new-questions`. Treat the tag as a routing hint — the writer who placed it there already classified it.",
   "",
   "## Design philosophy",
   "",
@@ -1296,9 +1462,7 @@ const SCAFFOLD_SYSTEM = [
   "",
   "9. **Recommendations** · 3–5 concrete actions, each with: `priority` (P0/P1/P2), `action` (imperative), `rationale`, `ownerType`, `horizon` (e.g. \"next 30 days\"), `successMetric` (observable proof of execution), `riskIfSkipped`, `expectedBenefit` (the upside if you act — stated as a concrete payoff, NOT a metric to watch). Recommendations are imperatives — \"Do X\" not \"X should happen\". The `expectedBenefit` is what gets a stakeholder to actually approve the action — it answers \"if I do this, what do I get?\" in one short sentence.",
   "",
-  "10. **Pre-mortem** · 2–3 ways the recommendations could fail. Each: `scenario`, `leadingIndicator` (earliest observable warning), `mitigation`. McKinsey-grade risk thinking.",
-  "",
-  "10b. **Risk Register** (`riskRegister`) · ONLY emit when the composer picked `risk-register`; otherwise return null. 3–7 standing risks the operating environment poses, distinct from pre-mortem (which catalogs how the recommendation fails). Each entry: `risk` (≤180 chars), `category` (one of: market / execution / product / team / financial / compliance / technical), `severity` (high / medium / low), `likelihood` (high / medium / low), `owner` (functional role label · \"product\", \"ops\", \"legal\" — NOT a person), `mitigation` (≤220 chars · concrete playbook OR \"monitor only\"). Pick categories that match the actual risk; default to `execution` only when no other category fits.",
+  "10. **Risk Register** (`riskRegister`) · ONLY emit when the composer picked `risk-register`; otherwise return null. 3–7 standing risks the operating environment poses — or specific failure modes of the recommendation when the room raised them concretely. Each entry: `risk` (≤180 chars), `category` (one of: market / execution / product / team / financial / compliance / technical), `severity` (high / medium / low), `likelihood` (high / medium / low), `owner` (functional role label · \"product\", \"ops\", \"legal\" — NOT a person), `mitigation` (≤220 chars · concrete playbook OR \"monitor only\"). Pick categories that match the actual risk; default to `execution` only when no other category fits.",
   "",
   "10c. **Decision Options** (`decisionOptions`) · ONLY emit when the composer picked `decision-options`; otherwise return null. 2–5 named candidate options the room weighed, with shared pros/cons. Object shape: `{ intro, options: [...], rationale }`. Each option: `label` (≤32 chars), `summary` (≤200 chars), `pros` (2–4 short clauses ≤80 chars each), `cons` (2–4 short clauses ≤80 chars each), `effort` (low / medium / high), `confidence` (high / medium / low), `recommended` (boolean). EXACTLY ONE option must have `recommended: true` — the room's pick. The `rationale` (≤280 chars) explains why the recommended option wins and connects back to the recommendations section.",
   "",
@@ -1388,9 +1552,6 @@ const SCAFFOLD_SYSTEM = [
   '  ],',
   '  "recommendations": [',
   '    { "priority": "P0", "action": "Imperative concrete action.", "rationale": "Why this works.", "ownerType": "platform team", "horizon": "next 30 days", "successMetric": "Observable proof.", "riskIfSkipped": "What goes wrong.", "criticalDependency": "What MUST be true for this to work — the load-bearing pre-condition. Forces stress-testing.", "expectedBenefit": "The concrete upside if you act — stated as the payoff a stakeholder cares about (revenue captured / risk avoided / position locked in)." }',
-  '  ],',
-  '  "preMortem": [',
-  '    { "scenario": "How it fails.", "leadingIndicator": "Earliest warning.", "mitigation": "What to do." }',
   '  ],',
   '  "newQuestions": [',
   '    { "question": "Question?", "whyItMatters": "Why this is generative.", "surfacedByDirectorId": "dirId-b" }',
@@ -1489,7 +1650,7 @@ const SCAFFOLD_SYSTEM = [
   "  · `the-bet`                    → fill `theBet: { ifBacked, conditions[3-5], killCriteria }`. Leave others.",
   "  · `considerations`             → fill `considerations` with the SAME shape as `recommendations` (3-5 items, P0/P1/P2, owner, horizon, success metric, risk-if-skipped). Voice should be hedged in the prose (we'll worry about voice at write time; the data shape is identical).",
   "",
-  "Optional kinds (`frame-shift`, `convergence`, `divergence`, `positions`, `visuals`, `two-paths`, `why-now`, `pre-mortem`, `new-questions`, `planning-assumption`, `open-questions`, `strategic-outlook`, `critical-assumptions`, `scenario-tree`, `leading-indicators`, `threats-to-validity`, `metric-strip`): when listed in the picked set, fill them as the spec above describes. When NOT listed, set them to the empty value (`[]` for arrays, `null` for nullable objects, `{shifted:false, original:'', reframed:'', trigger:''}` for frameShift).",
+  "Optional kinds (`frame-shift`, `convergence`, `divergence`, `positions`, `visuals`, `two-paths`, `why-now`, `new-questions`, `planning-assumption`, `open-questions`, `strategic-outlook`, `critical-assumptions`, `scenario-tree`, `leading-indicators`, `threats-to-validity`, `risk-register`, `metric-strip`): when listed in the picked set, fill them as the spec above describes. When NOT listed, set them to the empty value (`[]` for arrays, `null` for nullable objects, `{shifted:false, original:'', reframed:'', trigger:''}` for frameShift).",
   "",
   "## Substitute schemas (when picked)",
   "",
@@ -1590,14 +1751,14 @@ const SCAFFOLD_SYSTEM = [
   "[",
   '  {',
   '    "category": "≤ 50 chars · concrete category name (e.g. \\"Selection bias\\", \\"Generalizability ceiling\\", \\"Construct validity\\", \\"Confounding factor\\", \\"Sample of N=1\\", \\"Lens blind spot\\", \\"Survivorship\\", \\"Anchoring on the loudest director\\"). Pick a NAMED category — not a free-form essay.",',
-  '    "threat": "1-2 sentences (≤ 280 chars) naming WHAT about the *analysis itself* could mislead. Distinct from pre-mortem (how the recommended action could fail) and from critical-assumptions (the assumptions the brief rests on).",',
+  '    "threat": "1-2 sentences (≤ 280 chars) naming WHAT about the *analysis itself* could mislead. Distinct from risk-register (operating-environment risks) and from critical-assumptions (the assumptions the brief rests on).",',
   '    "observable": "What you would see if this threat is realized (≤ 200 chars). Without an observable, a threat is just a hedge — it must be falsifiable.",',
   '    "severity": "low | medium | high",',
   '    "mitigation": "What would address or defuse this threat (≤ 200 chars). Set null when the room had no concrete mitigation."',
   "  }",
   "]",
   "```",
-  "Threats name limits of the analysis, not limits of the conclusion. \"The recommendation might fail if X\" is pre-mortem material; \"our analysis only consulted Western strategy directors so the conclusion may not generalize\" is a threat to validity. Pick at most 5; below 3 reads as token effort, above 5 turns into noise.",
+  "Threats name limits of the analysis, not limits of the conclusion. \"The recommendation might fail if X\" is risk-register material; \"our analysis only consulted Western strategy directors so the conclusion may not generalize\" is a threat to validity. Pick at most 5; below 3 reads as token effort, above 5 turns into noise.",
   "",
   "`metricStrip` (3–5 dashboard-style KPI cards · the room's quantitative reads side-by-side):",
   "```json",
@@ -1643,7 +1804,7 @@ function pickedBlock(picked: readonly string[] | undefined): string {
     "convergence", "divergence", "positions",
     "visuals", "two-paths", "why-now",
     "recommendations", "the-bet", "considerations",
-    "pre-mortem", "new-questions", "planning-assumption",
+    "new-questions", "planning-assumption",
     "open-questions",
     // Gartner-density blocks
     "strategic-outlook", "critical-assumptions", "scenario-tree", "leading-indicators",
@@ -1738,6 +1899,554 @@ export function buildScaffoldMessages(opts: ScaffoldOpts): LLMMessage[] {
   ];
 }
 
+/* ─────────────────────── Structured-mode shared scaffold ──────────────
+ *
+ * Magazine + newspaper modes both produce the same structured JSON
+ * (BentoScaffold · the name is historical · originally introduced for
+ * the retired bento mode). The chair runs a SINGLE chair-LLM call
+ * per mode (no separate Stage 3 streaming — the structured JSON IS
+ * the deliverable; the renderer is deterministic client-side
+ * templating). The two prompts below (MAGAZINE_SYSTEM ·
+ * NEWSPAPER_SYSTEM) bias the writer for each renderer's specific
+ * slot density / register; both share the BentoOpts input type +
+ * the BentoScaffold output schema. */
+
+interface BentoOpts extends Omit<ScaffoldOpts, "picked"> {
+  /** Optional auto-filled fallbacks · used when the LLM omits the
+   *  source / footerTag fields. The orchestrator fills these from the
+   *  chair's display name + the room subject. */
+  fallbackSource?: string;
+  fallbackFooterTag?: string;
+}
+
+/* ─────────────────────────── Magazine mode · same JSON ──────────────────
+ *
+ * Magazine reuses the BentoScaffold JSON shape but routes the content
+ * to a different layout (magazine.html). The system prompt biases the
+ * writer toward magazine-spread content density:
+ *   · 5 numbered talking points (the right-side card grid in the
+ *     magazine layout) · each is a self-contained "tip" or "tactic"
+ *     paired with a body sentence
+ *   · 3 setup-step milestones (the middle band's 3-column step row)
+ *   · 4 verification bullets ("why it matters" closer band)
+ *   · A hero takeaway as the conclusion
+ *
+ * Same parser (parseBento) reads the output · the only client-side
+ * difference is which page renders the JSON.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const MAGAZINE_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a MAGAZINE-SPREAD report — an editorial single-page layout that opens like a magazine cover, lays out a numbered card grid of takeaways, walks through a 3-step setup band, and closes with a high-contrast \"why this matters\" pull-list. Not a memo. Not a research note. A magazine.",
+  "",
+  "## What a magazine spread is for",
+  "",
+  "Magazine is for the moment when the user wants to share the takeaway as a *piece of editorial content* — something a reader could scroll on a feed. Not the analysis itself · the cover line + the numbered tactics + the setup recipe. Not the room's debate · the published version a stranger could understand cold.",
+  "",
+  "Editorial register · magazines lead with personality, not with hedging. Headlines are claim-style, decks have voice, talking points read like \"5 tactics that actually work\" rather than \"considerations\". You are writing the cover spread, not the white paper.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the cover headline · serif display · ≤ 110 chars · ONE sentence in claim form. Magazine covers state the takeaway with confidence — quantified or named (\"How {chair} {verb} {object}\" / \"X is the operating system for Y\" / \"Three commitments that change the trajectory\").",
+  "",
+  "2. **kicker** · the cover deck · ≤ 200 chars · 1 sentence under the headline. Non-italic register · subtitle voice. Names the angle / what's new.",
+  "",
+  "3. **source** · ≤ 80 chars · the masthead byline · \"From {chair name} · {date}\" / \"Issue 01 · {date}\" / \"{chair name} presents\". Mono small caps register; auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 cards · these become the magazine's middle band — a \"how to set this up in 10 minutes\" 3-step recipe. Each card has:",
+  "   · `period` · short step label · ≤ 24 chars · \"Step 1\" / \"准备\" / \"Phase 2\" / \"First\". Imperative or sequential.",
+  "   · `title` · ≤ 60 chars · what to do at this step. Imperative voice (\"Set up environment\" / \"准备环境\").",
+  "   · `body` · 2 sentences · ≤ 220 chars · the concrete instruction · how a reader actually does this step.",
+  "   · `callout` · ≤ 12 chars · optional anchor numeric · usually empty in magazine mode (the layout doesn't lean on big numbers in this band).",
+  "   · `tags` · empty array (`[]`) · the magazine layout doesn't render tags on the setup band.",
+  "",
+  "5. **rankedBars** · OPTIONAL · 3-5 ranked entries. Renders only when the room produced a clean ranking. Set to `null` when there's no real ranked-numeric material.",
+  "",
+  "6. **verification** · MANDATORY for magazine · these become the dark closing band's \"why this matters\" pull-list. Provide 4 bullets · ≤ 140 chars each · each bullet is a SHORT REASON the takeaway matters · phrased as a stand-alone declaration (\"Saves time · routine work compresses to minutes\" / \"Highly personalized · tailored to your context\"). Title is your call (default \"Why this matters\" / \"为什么这很强大\").",
+  "",
+  "7. **talkingPoints** · MANDATORY · 5 numbered cards · ≤ 120 chars each · these become the magazine's hero card grid · the \"5 tactics\" feature. EACH BULLET MUST BEGIN WITH A SHORT PHRASE (the card's title — what the renderer extracts as the card headline) FOLLOWED BY \" · \" (a middle-dot with spaces) AND THEN THE BODY SENTENCE. Example format: \"Weekly check-in · Run /weekly check-in to track key metrics across a personal dashboard.\" The renderer splits on \" · \" to extract title + body. If you can't fit 5, output as many as you have ≥3.",
+  "",
+  "   Title side ≤ 24 chars · body side ≤ 100 chars. Imperative voice in the body (\"Run X\" / \"使用 X\"). Imperative for English magazine voice; in Chinese, lead the body with the verb (\"使用…\" / \"运行…\" / \"通过…\").",
+  "",
+  "   Default talkingPoints title · \"5 tactics\" / \"5 个例子看明白\" / \"5 ways to use this\" · the LARGE outline numeral on the magazine cover is derived from this section's count.",
+  "",
+  "8. **conclusion** · ≤ 100 chars · ONE sentence · the cover-line reinforcement. The reader walks away with this single line · usually a short imperative or claim restatement.",
+  "",
+  "Plus optional **flow** · usually `null` in magazine mode · only fill when the room argued a clean transformation arc.",
+  "",
+  "Plus auto **footerTag** · ≤ 80 chars · masthead-style caption · auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into magazine slots",
+  "",
+  "  · **title** ← the strongest claim · phrased as a magazine cover headline.",
+  "  · **kicker** ← the supporting deck · ≤ 1 sentence · what's new about this conclusion.",
+  "  · **milestones** ← if the room argued a setup / how-to flow, route the 3 most important steps. If the room didn't produce a clean recipe, distill the 3 most actionable items into imperative steps.",
+  "  · **talkingPoints** ← the 5 strongest action / claim entries · each rewritten in \"Title · Body\" form (split with the middle dot + spaces).",
+  "  · **verification** ← 4 reasons the takeaway matters · drawn from the room's evidence + bottom-line material · phrased as standalone declarations.",
+  "  · **conclusion** ← compressed restatement of the room's anchor.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed:",
+  "",
+  "```json",
+  "{",
+  '  "title": "Cover-line takeaway in claim form.",',
+  '  "kicker": "1-sentence deck explaining the angle.",',
+  '  "source": "From {chair name} · {date}",',
+  '  "milestones": [',
+  '    { "period": "Step 1", "title": "Set up environment", "body": "Install the tooling and create the workspace folder.", "callout": "", "tags": [] },',
+  '    { "period": "Step 2", "title": "Initialize and configure", "body": "Run the init command and follow the prompts to wire up your slash commands.", "callout": "", "tags": [] },',
+  '    { "period": "Step 3", "title": "Run and customize", "body": "Run weekly or daily, customize prompts to your context.", "callout": "", "tags": [] }',
+  "  ],",
+  '  "rankedBars": null,',
+  '  "verification": {',
+  '    "title": "Why this matters",',
+  '    "bullets": [',
+  '      "Saves time · routine work compresses to minutes a week.",',
+  '      "Highly personalized · tailored to the context you provide.",',
+  '      "Beyond coding · use cases extend well past development tasks.",',
+  '      "Infinite extensibility · spin up more agents to fit any new need."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "5 tactics",',
+  '    "bullets": [',
+  '      "Weekly check-in · Run /weekly check-in to track key metrics on a personal dashboard.",',
+  '      "Daily journal · Run /daily check-in to journal accomplishments and feelings.",',
+  '      "Content research · Use /newsletter researcher to draft your own briefs in your voice.",',
+  '      "Brain-dump analyzer · Run /brain dump analysis on raw notes to surface a mind-map.",',
+  '      "Daily brief · Use /daily brief for a tailored news round-up by your interests."',
+  "    ]",
+  "  },",
+  '  "conclusion": "One-line takeaway · ≤ 100 chars.",',
+  '  "flow": null,',
+  '  "footerTag": "Issue 01 · {date}"',
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title MUST be cover-style (a magazine wouldn't run \"Analysis of strategic options\" — it would run \"How X built the operating system for Y\"). State the takeaway, not the topic.",
+  "· talkingPoints bullets MUST follow \"Title · Body\" with the middle dot + spaces · the renderer's split is exact.",
+  "· Provide 4 verification bullets when the room has the material; 3 acceptable as a floor.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+export function buildMagazineMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the magazine. Surface it in the most fitting slot (most often as one of the talking points or verification bullets).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [MAGAZINE_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the magazine spread now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
+/* ─────────────────────────── Newspaper mode · same JSON ─────────────────
+ *
+ * Newspaper reuses the BentoScaffold JSON shape but drives a broadsheet
+ * front-page layout (newspaper.html). The writer's tonal register is
+ * front-page journalism: declarative claim-form headlines, lead-
+ * paragraph editorial body, longer prose per milestone (each fills a
+ * full newspaper column).
+ *
+ * Same parser (parseBento) reads the output · only the system prompt
+ * and renderer differ.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const NEWSPAPER_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a MULTI-PAGE NEWSPAPER report — a broadsheet that spreads across 3 distinct pages (front cover · inside spread · back / Best Of). The reader scrolls through them like flipping a real paper. Not a memo. Not a magazine. A NEWSPAPER.",
+  "",
+  "## Voice",
+  "",
+  "Front-page journalism. Headlines are declarative, present-tense, claim-form (\"BOARD COMMITS TO TWO-TRACK RELEASE\" — not \"An analysis of release strategy\" or \"What the board decided\"). Body prose is lead-paragraph editorial: each paragraph carries one claim with its supporting evidence, sentences are short, transitions are crisp, hedging is minimal.",
+  "",
+  "Newspaper voice is more formal than magazine voice and more confident than research-note voice. Imagine the front page of a serious broadsheet · The Wall Street Journal, The Financial Times, The Economist if it ran a daily.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the front-page banner headline · ≤ 110 chars · ALL-CAPS-ABLE claim (the renderer applies uppercase) · NOT a question, NOT a label, a CLAIM. Examples: \"BOARD COMMITS TO TWO-TRACK RELEASE\", \"MARKETS BRACE FOR Q4 RESET\", \"REGULATORS MOVE AGAINST DARK PATTERNS\".",
+  "",
+  "2. **kicker** · the subheading deck · ≤ 200 chars · 1 sentence under the headline · expands the claim with the angle / what's new.",
+  "",
+  "3. **source** · masthead byline · ≤ 80 chars · \"From the desk of {chair name} · {date}\" or similar. Mono small caps register; auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 column-stories · they distribute across the 3 pages. Each card has:",
+  "   · `period` · column section label · ≤ 24 chars · \"TOP STORY\" / \"MARKETS\" / \"POLICY\" / \"OPS\" / \"OPINION\". Section-banner register. ALL-CAPS-ABLE.",
+  "   · `title` · column subheading · ≤ 60 chars · the column's hook. Question or claim form OK.",
+  "   · `body` · 4-7 sentences · ≤ 480 chars · LONGER than other modes since this fills an editorial column. Lead-paragraph style: open with the claim, support with evidence, close with the so-what. Present tense, declarative.",
+  "   · `callout` · short numeric / metric · ≤ 12 chars · used as the front-page sidebar's big number when present (\"124,000\" / \"-10×\" / \"$120M\"). Empty when the milestone has no clean numeric anchor.",
+  "   · `tags` · empty array.",
+  "",
+  "   Page distribution · ms[0] = the LEAD STORY on page 1's front (drop-cap body) · ms[1] = the ECONOMY band on page 1 (chart-paired short article) AND continued on page 2 · ms[2] = the BREAKING NEWS sidebar on page 1 (short headline + body + numeric callout) AND extends on page 2.",
+  "",
+  "5. **rankedBars** · OPTIONAL · ECONOMY-band chart on page 1 · 3-5 ranked entries painted as a teal-bar chart. Set null when the room has no clean ranked-numeric material.",
+  "",
+  "6. **verification** · MANDATORY · stacked \"MORE HEADINGS\" sidebar on page 2 · 3-5 entries · each ≤ 180 chars · phrased as \"Heading: body sentence.\" — use a colon as separator (the renderer splits on it for typography). Each entry is a SHORT NEWS ITEM that supports or qualifies the front-page claim.",
+  "",
+  "7. **talkingPoints** · MANDATORY · 3-6 entries · these distribute across the document: talking[0] becomes the front-page portrait pull-quote AND the page-2 inset quote; the full list reappears on page 3 as a 2-col grid of feature articles (Best of the Best). Each entry: ≤ 160 chars · self-contained quotable line · imperative or declarative.",
+  "",
+  "8. **conclusion** · the front-page inverted PULL-QUOTE band · ≤ 100 chars · ONE sentence · the takeaway compressed to a quote. The reader walks away with this single line.",
+  "",
+  "Plus optional **flow** · 2-4 short nodes · transformation arc · renders as a strip on page 3 when present.",
+  "",
+  "Plus auto **footerTag** · ≤ 80 chars · masthead-style date caption · auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into newspaper slots",
+  "",
+  "  · **title** ← the strongest claim · phrased as a front-page banner headline (declarative, claim-form).",
+  "  · **kicker** ← the supporting deck · ≤ 1 sentence · what's new about this conclusion.",
+  "  · **milestones** ← the 3 most load-bearing pieces · ms[0] is the lead story (longest body), ms[1] feeds the economy band on page 1, ms[2] feeds the breaking-news sidebar.",
+  "  · **verification** ← the room's secondary findings · each phrased as \"Heading: body.\" with a colon separator.",
+  "  · **talkingPoints** ← 3-6 quotable lines · the page-3 \"Best of the Best\" features.",
+  "  · **conclusion** ← the front-page pull-quote band · the room's bottom line in claim form.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block. The shape is fixed:",
+  "",
+  "```json",
+  "{",
+  '  "title": "Banner headline in claim form",',
+  '  "kicker": "1-sentence subdeck explaining the angle.",',
+  '  "source": "From the desk of {chair name} · {date}",',
+  '  "milestones": [',
+  '    { "period": "TOP STORY", "title": "What the board decided", "body": "4-7 sentence editorial column body explaining the lead story with evidence and so-what.", "callout": "", "tags": [] },',
+  '    { "period": "MARKETS", "title": "Why the market is reading this", "body": "4-7 sentence editorial column body covering the second angle.", "callout": "", "tags": [] },',
+  '    { "period": "POLICY", "title": "Open questions for the regulator", "body": "4-7 sentence editorial column body covering the third angle.", "callout": "", "tags": [] }',
+  "  ],",
+  '  "rankedBars": null,',
+  '  "verification": {',
+  '    "title": "More headings",',
+  '    "bullets": [',
+  '      "Q4 outlook: Three commitments anchor the next quarter\'s plan.",',
+  '      "Pricing: The pilot programme survives, but caps are tightening.",',
+  '      "Hiring: Two new senior roles open by next board meeting.",',
+  '      "Risk: Compliance review remains the gating constraint."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "From the editorial",',
+  '    "bullets": [',
+  '      "First quotable editorial line that names the takeaway.",',
+  '      "Second quotable line that addresses the obvious objection.",',
+  '      "Third quotable line that sets the next-step expectation."',
+  "    ]",
+  "  },",
+  '  "conclusion": "One-sentence bottom-line takeaway · ≤ 100 chars.",',
+  '  "flow": null,',
+  '  "footerTag": "{date} · Edition 01"',
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title MUST be declarative claim-form (newspaper headlines DO NOT ask questions on the front page · they STATE).",
+  "· Milestones bodies are LONGER than other modes (4-7 sentences) · this is a column, not a card.",
+  "· Verification bullets MUST follow \"Heading: body.\" with a colon separator · the renderer splits on it.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+export function buildNewspaperMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the newspaper. Surface it in the most fitting slot (most often as one of the 3 milestone columns or as a verification headline).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [NEWSPAPER_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the newspaper front page now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
+/* ─────────────────────────── PPT mode · same JSON ───────────────────────
+ *
+ * PPT reuses the BentoScaffold JSON shape but routes the content to a
+ * slide-deck layout (ppt.html). The writer's tonal register is
+ * presentation-grade · short sharp claims, slide-friendly bullet
+ * lengths, one big takeaway per slide. The renderer decomposes the
+ * scaffold into 7-9 slides:
+ *   1. cover (title + kicker)
+ *   2. agenda (milestone periods + verification labels)
+ *   3-5. milestones (one per slide)
+ *   6. by the numbers (rankedBars, optional)
+ *   7. talking points
+ *   8. what to watch (verification)
+ *   9. takeaway (conclusion)
+ *
+ * Same parser (parseBento) reads the output · only the system prompt
+ * and renderer differ.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const PPT_SYSTEM = [
+  "You are the chair of a boardroom session. You produce a SLIDE DECK report — a presentation that decomposes into 7-9 slides the reader scrolls through with arrow keys: cover · agenda · 3 milestone slides · optional data slide · talking-points slide · what-to-watch slide · takeaway slide. Not a memo. Not a magazine. A DECK.",
+  "",
+  "## Voice",
+  "",
+  "Slide voice is COMPRESSED. Every line is a slide-line · short, claim-form, declarative. No essays inside slot bodies · the renderer paints each milestone body as bullets / a single short paragraph. If a sentence wouldn't fit on a slide line at 32px, cut it.",
+  "",
+  "Each milestone fills exactly ONE slide · each talking point is one slide-line · each verification entry is one slide-line · the conclusion is the closing slide's hero quote.",
+  "",
+  "## The 8 slots you fill (output is JSON only)",
+  "",
+  "1. **title** · the deck's cover title · ≤ 80 chars · one short claim-form sentence. Slide-friendly: short enough to render at 60px display type without wrapping more than 2 lines.",
+  "",
+  "2. **kicker** · cover deck / sub-title · 1 sentence ≤ 160 chars. Sits below the cover title in italic register.",
+  "",
+  "3. **source** · cover byline · ≤ 80 chars · \"From the desk of {chair name} · {date}\" or similar. Auto-filled if you skip.",
+  "",
+  "4. **milestones** · EXACTLY 3 slide-stories · each fills ONE content slide. Each card has:",
+  "   · `period` · slide-section label · ≤ 24 chars · \"PHASE 1\" / \"Q4 OUTLOOK\" / \"NEXT STEP\". Slide-banner register · ALL-CAPS-ABLE.",
+  "   · `title` · slide headline · ≤ 60 chars · the slide's one-line claim.",
+  "   · `body` · 2-3 sentences · ≤ 280 chars · short-form for slide rendering. The renderer may break this into 2-3 bullets at the colon / semicolon, so you can write \"Three forces line up: pricing pressure, regulatory shift, talent gap.\" and the renderer will visualise it.",
+  "   · `callout` · short numeric · ≤ 12 chars · \"-10×\" / \"$120M\" / \"Q1 2026\" · used as the slide's stat callout when present. Empty when no clean numeric anchor.",
+  "   · `tags` · empty array · the slide layout doesn't render tags.",
+  "",
+  "5. **rankedBars** · OPTIONAL · the 'By the numbers' slide · 3-5 ranked entries with normalised ratio bars. Set null when the room has no clean ranked-numeric material.",
+  "",
+  "6. **verification** · MANDATORY · the 'What to watch' slide · 3-5 entries · each ≤ 100 chars · phrased as a SINGLE-LINE bullet (\"Compliance review remains gating constraint.\"). NO \"Heading: body\" colon split here · these are slide bullets, one line each.",
+  "",
+  "7. **talkingPoints** · MANDATORY · the 'Recommendations / Talking points' slide · 3-5 entries · each ≤ 80 chars · imperative single-line bullets a presenter could read aloud (\"Lock pricing for Q1.\" / \"Move release to two-track plan.\").",
+  "",
+  "8. **conclusion** · the closing 'Takeaway' slide · ≤ 100 chars · ONE sentence · the deck's big walk-away line · rendered at 40-60px display type.",
+  "",
+  "9. **directorBlock** · MANDATORY when the room has ≥ 2 active directors. Set `null` only when there is exactly one director. Renders as 1-3 dedicated slides: director voices · where we agreed · where we split. The single most-valuable section in the deck — the room's social map. Shape:",
+  "    · `perspectives` · EVERY active director gets one entry. Each has:",
+  "        · `directorName` (display name, ≤ 32 chars · e.g. \"Socrates\"),",
+  "        · `directorRole` (their tag, ≤ 48 chars · e.g. \"Devil's advocate\"),",
+  "        · `stance` (≤ 60 chars · short label of their angle · \"Sees this as a moat play\"),",
+  "        · `position` (1-2 sentences ≤ 240 chars · their load-bearing argument in their voice),",
+  "        · `quote` (verbatim phrase ≤ 160 chars · empty when no memorable verbatim).",
+  "    · `alignment` · 0-3 cross-cutting agreements. Each: `pointOfAgreement` (≤ 120 chars), `directorNames` (≥ 2 names), `note` (why this convergence matters · ≤ 200 chars).",
+  "    · `divergence` · 0-2 hinges the room split on. Each: `hinge` (≤ 140 chars · the question they split on), `sides` (2-3 entries · each has `label`, `directorNames` ≥ 1, `stance` ≤ 160 chars), `resolution` (what would settle it · ≤ 200 chars · empty if unresolved).",
+  "    · `chairSynthesis` · 1-2 sentences ≤ 240 chars · what the chair takes from comparing the views. Moderator-neutral — observation, not advocacy.",
+  "    Source from the SIGNALS block — `tensions` populate divergence rows; agreed-on claims populate alignment groups; each director's strongest claim populates their `position`; quotes from the SIGNALS block (when verbatim) populate `quote`.",
+  "",
+  "Plus optional **flow** · usually `null` in PPT mode · only fill when the room argued a clean transformation arc · would render as a 2-4 node arrow chain on the data slide.",
+  "",
+  "Plus auto **footerTag** · slide-footer caption · auto-filled if you skip.",
+  "",
+  "## Routing the SIGNALS block into slide slots",
+  "",
+  "  · **title** ← the strongest claim · phrased as a deck cover headline.",
+  "  · **kicker** ← the supporting sub-title · what the deck is about in 1 sentence.",
+  "  · **milestones** ← the 3 most load-bearing pieces · each becomes ONE slide · prefer claims with numeric anchors so the slide gets a visible callout.",
+  "  · **verification** ← 3-5 watch-list bullets · single-line each.",
+  "  · **talkingPoints** ← 3-5 imperative recommendations · single-line each.",
+  "  · **conclusion** ← compressed walk-away takeaway in 1 sentence.",
+  "",
+  "## Output format",
+  "",
+  "Strict JSON inside a fenced ```json code block. No prose outside the block.",
+  "",
+  "```json",
+  "{",
+  '  "title": "Short claim-form deck title.",',
+  '  "kicker": "1-sentence sub-title explaining the angle.",',
+  '  "source": "From the desk of {chair name} · {date}",',
+  '  "milestones": [',
+  '    { "period": "PHASE 1", "title": "Anchor the next quarter", "body": "Three forces converge: pricing pressure, regulatory shift, talent gap.", "callout": "Q1 2026", "tags": [] },',
+  '    { "period": "PHASE 2", "title": "Commit two-track release", "body": "Pilot lane survives. Production lane gets a tighter cap.", "callout": "-10×", "tags": [] },',
+  '    { "period": "PHASE 3", "title": "Open the senior bench", "body": "Two roles before next board · compliance review remains the gate.", "callout": "+2 hires", "tags": [] }',
+  "  ],",
+  '  "rankedBars": null,',
+  '  "verification": {',
+  '    "title": "What to watch",',
+  '    "bullets": [',
+  '      "Compliance review remains the gating constraint.",',
+  '      "Pricing pilot survives but caps are tightening.",',
+  '      "Two new senior roles open by next board meeting.",',
+  '      "Q4 outlook anchors three commitments."',
+  "    ]",
+  "  },",
+  '  "talkingPoints": {',
+  '    "title": "Recommendations",',
+  '    "bullets": [',
+  '      "Lock pricing for Q1.",',
+  '      "Commit to a two-track release plan.",',
+  '      "Open two senior roles before the next board.",',
+  '      "Schedule a compliance review check-in for week 4."',
+  "    ]",
+  "  },",
+  '  "conclusion": "Three commitments anchor the next quarter; ship Q1 with pricing locked.",',
+  '  "flow": null,',
+  '  "footerTag": "Boardroom Slides · {date}",',
+  '  "directorBlock": {',
+  '    "perspectives": [',
+  '      { "directorName": "Socrates", "directorRole": "Devil\'s advocate", "stance": "Frames it as a regulatory-window question.", "position": "The compliance gate is binding before the pricing question matters. Until that closes, two-track is overkill.", "quote": "We are spending capital on a problem that is not our binding constraint." },',
+  '      { "directorName": "Drucker", "directorRole": "Operator\'s lens", "stance": "Reads it as a distribution-leverage play.", "position": "Two-track buys negotiating room with the channel — without it, Q1 pricing locks become impossible to reverse.", "quote": "" }',
+  "    ],",
+  '    "alignment": [',
+  '      { "pointOfAgreement": "Q1 pricing must be locked before any release commitment.", "directorNames": ["Socrates", "Drucker"], "note": "Independent paths · Socrates from regulatory exposure, Drucker from channel leverage." }',
+  "    ],",
+  '    "divergence": [',
+  '      { "hinge": "Whether two-track release is necessary now or premature.", "sides": [',
+  '        { "label": "Necessary now", "directorNames": ["Drucker"], "stance": "Without two-track, the pricing lock is reversed by channel pressure inside 90 days." },',
+  '        { "label": "Premature", "directorNames": ["Socrates"], "stance": "Compliance review, not channel pressure, is the binding gate; two-track defers the real question." }',
+  '      ], "resolution": "Resolves once we know whether the compliance review will close before the pricing lock takes effect." }',
+  "    ],",
+  '    "chairSynthesis": "Both directors agree on the pricing lock; they split on whether to also commit to two-track. The compliance-review timing is the variable that settles the split."',
+  "  }",
+  "}",
+  "```",
+  "",
+  "Constraints:",
+  "· Title ≤ 80 chars · slide-renderable at 60px without overflow.",
+  "· Milestone body 2-3 sentences ≤ 280 chars · TIGHTER than newspaper / magazine modes.",
+  "· Verification bullets ≤ 100 chars each · single-line slide-bullets · NO colon split.",
+  "· Talking-point bullets ≤ 80 chars each · imperative voice.",
+  "· Conclusion ≤ 100 chars · the deck's walk-away line.",
+  "· directorBlock — when there are ≥ 2 active directors, you MUST populate it with one entry per director. Do not skip it; the deck loses its core differentiator without these slides.",
+  "· No markdown formatting inside string fields. No bullet characters. No headings. Plain prose only — the renderer adds visual structure.",
+].join("\n");
+
+export function buildPptMessages(opts: BentoOpts): LLMMessage[] {
+  const { room, members, perDirectorSignals, language } = opts;
+
+  const memberList = members
+    .map((a) => `${a.id} · ${a.name} (${a.handle}) — ${a.roleTag}`)
+    .join("\n  · ");
+
+  const signalsBlock = perDirectorSignals
+    .map((d) => {
+      if (!d.signals.length) return `[${d.directorId}] ${d.directorName} — (no signals)`;
+      const lines = d.signals
+        .map((s, i) => `  · ${d.directorId}#${i} [${s.lens}] ${s.text}`)
+        .join("\n");
+      return `[${d.directorId}] ${d.directorName}\n${lines}`;
+    })
+    .join("\n\n");
+
+  const supplementBlock = opts.supplement && opts.supplement.trim()
+    ? [
+        ``,
+        `─── SUPPLEMENTARY PERSPECTIVE FROM USER ───`,
+        ``,
+        `The user has asked you to additionally consider this angle when building the deck. Surface it in the most fitting slot (most often as one of the 3 milestone slides or as a watch-list bullet).`,
+        ``,
+        opts.supplement.trim(),
+        ``,
+        `─── END SUPPLEMENT ───`,
+      ].join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content: [PPT_SYSTEM, "", languageInstruction(language)].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `ROOM #${room.number} · ${room.name}`,
+        `Subject: ${room.subject}`,
+        ``,
+        `Directors:`,
+        `  · ${memberList}`,
+        ``,
+        `─── SIGNALS ───`,
+        ``,
+        signalsBlock || "(no signals extracted)",
+        ``,
+        `─── END SIGNALS ───`,
+        supplementBlock,
+        ``,
+        `Produce the slide deck now. JSON only.`,
+      ].join("\n"),
+    },
+  ];
+}
+
 /* ─────────────────────── Stage 3 · chair final write ──────────────────── */
 
 interface WriteOpts {
@@ -1762,7 +2471,7 @@ interface WriteOpts {
    *  briefId. Same seed + same kind always selects the same variant,
    *  so regeneration of a brief renders identically; different briefs
    *  in the same house style land on different variants for high-
-   *  rotation kinds (anchor / findings / action / pre-mortem / etc.).
+   *  rotation kinds (anchor / findings / action / risk-register / etc.).
    *  Optional — omitted callers pin to variant 0 of every entry. */
   briefId?: string;
 }
@@ -1990,7 +2699,7 @@ const WRITE_SYSTEM = [
   "  · `Threats to Validity` → ◇ `flowchart TD` ONLY when threats compound (sample bias → selection bias → generalizability ceiling) with branching, 5+ nodes.",
   "  · `Recommendations` → ✓ `gantt` for multi-phase rollouts (≥ 2 sections AND ≥ 4 tasks). For sequenced action chains under 4 tasks, use prose / numbered list — NOT a linear flowchart.",
   "  · `Leading Indicators` → ◇ `stateDiagram-v2` when indicators map to ≥ 4 scenario states with at least one feedback loop / back-transition.",
-  "  · `Pre-mortem` → ✓ `flowchart TD` when there are ≥ 3 failure modes EACH with its own leading-indicator + mitigation as sub-nodes (root + 3 modes + 6+ children = 10 nodes). With 2 failure modes, the typed table alone reads cleanly.",
+  "  · `Risk Register` → ✓ `flowchart TD` when there are ≥ 5 risks AND multiple risks share a category cluster (root → category nodes → individual risks as leaves = ≥ 10 nodes). The typed risk table is enough on its own when the register is < 5 entries.",
   "  · `Risk Register` → ✓ `quadrantChart` of severity × likelihood (always — the quadrant chart is a 2-axis plot, not subject to the flowchart-complexity floor).",
   "  · `New Questions This Surfaced` → ◇ `mindmap` when there are ≥ 4 new questions clustering into ≥ 3 themes.",
   "  · `Strategic Planning Assumption` → ◇ rarely.",
@@ -1999,14 +2708,14 @@ const WRITE_SYSTEM = [
   "**Reading the trigger map**: ✓ does NOT mean \"always emit\". It means \"emit when the material is non-trivial AND the complexity floor is met\". When in doubt about whether content has enough structure, render prose / a typed table — those don't have a complexity floor and never read as naive.",
   "",
   "**Routing constraints** (avoid double-rendering the same content):",
-  "  · Pre-mortem flowchart + Pre-mortem table = ✓ both, complementary.",
+  "  · Risk Register flowchart + Risk Register table = ✓ both, complementary.",
   "  · Risk Register quadrantChart + Risk Register table = ✓ both, complementary.",
   "  · A single section gets at MOST one inline mermaid (plus the typed visual if any). Never stack 2+ inline charts in one section.",
   "  · A `gantt` and a `flowchart` covering the SAME recommendation rollout = pick one (gantt if dates matter, flowchart if branching matters).",
   "  · If a typed `visuals` block already covers a content shape (e.g. `bar-chart` for ranked options), don't add an inline `flowchart` for the same options.",
   "",
   "  ### flowchart · decision tree / process branches",
-  "  Use when a section argues a decision sequence (\"if X then Y else Z\") or a process where order + branching matters. Natural fits: pre-mortem branches (\"if leading-indicator A fires, do P; else hold\"), the divergence section when there are 3+ positions, scenario trees with named effects.",
+  "  Use when a section argues a decision sequence (\"if X then Y else Z\") or a process where order + branching matters. Natural fits: risk-register branches (\"if risk A materialises, do P; else monitor\"), the divergence section when there are 3+ positions, scenario trees with named effects.",
   "    ```",
   "    flowchart TD",
   "        A[Starting state] --> B{Decision point}",
@@ -2140,9 +2849,6 @@ const WRITE_SYSTEM = [
   "    The _What this earns_ line is the upside payoff in a stakeholder's language (revenue captured / risk avoided / position locked in / time saved). Render it whenever `expectedBenefit` is non-empty; skip the line only when the field is absent or empty. This is the line that gets the action approved — without it, the recommendation reads as cost without payoff.",
   "    Length budget · the WHOLE Recommendations section should land between 1,500 and 2,500 characters total. Per item: ~400–600 chars including all the labelled lines. The Rationale field is the only one that benefits from elaboration (1–2 sentences); every other labelled line is a single phrase or clause. Keep the action / metric / risk / dependency / benefit lines tight — verbose action items get skipped.",
   "",
-  "  ## Pre-mortem",
-  "  Skip if `preMortem` is empty. Otherwise a markdown table with columns `Failure mode | Leading indicator | Mitigation`. One row per failure mode. Leave a BLANK LINE between the section heading / any intro prose and the table's header row — without that gap markdown parsers concatenate the prose with the table and the pipe syntax leaks as text.",
-  "",
   "  ## Risk Register",
   "  Skip if `riskRegister` is empty / null. Otherwise render TWO complementary blocks (in this order):",
   "",
@@ -2164,7 +2870,7 @@ const WRITE_SYSTEM = [
   "       ```",
   "       Leave a BLANK LINE between the H2 heading and the fenced ```mermaid block.",
   "",
-  "    2. **Risk table** — markdown table with columns `Risk | Category | Severity | Likelihood | Owner | Mitigation`. One row per `RiskItem`. Sort rows: severity high before medium before low; within the same severity, likelihood high before medium before low. Render category and severity / likelihood as **bold inline tags** (`**Market**`, `**High**`). Leave a BLANK LINE between the quadrant chart and the table header row · same gluing rule as Pre-mortem.",
+  "    2. **Risk table** — markdown table with columns `Risk | Category | Severity | Likelihood | Owner | Mitigation`. One row per `RiskItem`. Sort rows: severity high before medium before low; within the same severity, likelihood high before medium before low. Render category and severity / likelihood as **bold inline tags** (`**Market**`, `**High**`). Leave a BLANK LINE between the quadrant chart and the table header row · without that gap markdown parsers concatenate the prose with the table and pipe syntax leaks.",
   "       When `mitigation` is the literal string `\"monitor only\"`, render the cell as italic: `_monitor only_` so the reader sees this row as a watch-list rather than a closeable risk.",
   "",
   "  Section title alternatives — pick one that matches the brief's voice: \"Risk Register\" (default · McKinsey/Gartner), \"Standing Risks\" (a16z), \"Risks We're Carrying\" (Anthropic-essay).",
@@ -2211,7 +2917,7 @@ const WRITE_SYSTEM = [
   "       Body line under the table (mono caps for the tags): `**Effort:** {effort} · **Confidence:** {confidence}`. Use the literal title-cased values (Low / Medium / High).",
   "    3. Final paragraph: `**Why {recommended.label}:** {rationale}` — the takeaway anchored to the recommended option.",
   "  Section title alternatives: \"Decision Options\" (default), \"Options We Weighed\" (Anthropic-essay), \"The Path We're Recommending\" (a16z).",
-  "  Leave a BLANK LINE between the section H2 and the first H3 option, AND between each option's table and the next H3 — without those gaps the table syntax leaks. SAME gluing rule as Pre-mortem and Risk Register above.",
+  "  Leave a BLANK LINE between the section H2 and the first H3 option, AND between each option's table and the next H3 — without those gaps the table syntax leaks. SAME gluing rule as Risk Register above.",
   "",
   "  ## New Questions This Surfaced",
   "  Skip if `newQuestions` is empty. Otherwise:",
@@ -2232,6 +2938,23 @@ const WRITE_SYSTEM = [
   "",
   "  ## Open Questions",
   "  Skip if `openQuestions` is empty. Otherwise a bulleted list. Each bullet: priority badge `**\\`P0\\`**` or `\\`P1\\`` followed by the question text.",
+  "",
+  "  ## Where This Leaves You",
+  "  ALWAYS render — this is the report's narrative close. Without it the body ends on a list (Recommendations / Leading Indicators / Open Questions) and the reader experiences \"戛然而止\" — abrupt drop-out. The Closing reorients the reader before the methodology footer.",
+  "",
+  "  Tight prose paragraph — 3 to 4 sentences, ≤ 360 chars total. NO bullets, NO tables, NO labels (\"Echo:\" / \"Action:\"), NO sub-headings. The structure is internal to the prose:",
+  "    1. **ECHO** · paraphrase the bottom line / thesis / working hypothesis in collapsed form. Don't quote it; render its essence in tighter language than the opening did. ≤ 1 sentence.",
+  "    2. **ACKNOWLEDGE** · name the unresolved unknown that would change the call. Pull from highest-priority `openQuestions` (P0 first), or the most fragile entry in `criticalAssumptions`, or a load-bearing `riskRegister` row, or the SPA falsifier. Skip this beat ONLY when the room genuinely surfaced no real uncertainty. ≤ 1 sentence.",
+  "    3. **POINT FORWARD** · one specific next move. From `recommendations[0].action` collapsed to ≤ 16 words, or `theBet.commitment`, or for considerations: \"the next thing worth testing is X\". Imperative, concrete, not a meta-instruction. ≤ 1 sentence.",
+  "",
+  "  House style alternatives for the section title (override the default \"Where This Leaves You\"):",
+  "    · mckinsey-deck → \"Next Steps\"",
+  "    · a16z-thesis → \"If This Holds\"",
+  "    · gartner-research → \"What to Watch\"",
+  "    · anthropic-essay → \"Where We Are Left\"",
+  "    · boardroom-default / 8bit / others → \"Where This Leaves You\"",
+  "",
+  "  Voice register applies (mckinsey is imperative, anthropic is reflective, a16z is implicational), but the 3-sentence Echo→Acknowledge→Point-Forward structure is INVARIANT across styles. If you find yourself writing a 4th paragraph or > 360 chars or adding bullets, you've over-built it — the Closing's whole job is the felt close, a tight prose moment.",
   "",
   "## Substitute components (composer-driven · render only when filled)",
   "",
@@ -2330,7 +3053,7 @@ const WRITE_SYSTEM = [
   "      | Category | Threat | Observable | Severity | Mitigation |",
   "      | --- | --- | --- | --- | --- |",
   "      | {category} | {threat} | {observable} | **`Severity`** | {mitigation or —} |",
-  "    Don't pad the section with prose — the table IS the section. The voice register from the picked house style applies, but the table structure stays identical across styles. Threats here name the limits of the *analysis*, not the limits of the *recommendation* (that's pre-mortem).",
+  "    Don't pad the section with prose — the table IS the section. The voice register from the picked house style applies, but the table structure stays identical across styles. Threats here name the limits of the *analysis*, not the limits of the *recommendation* (recommendation-failure goes in risk-register when picked).",
   "",
   "  ### metricStrip (dashboard · the room's numbers as a row of KPI cards)",
   "  When `scaffold.metricStrip` is non-null AND was picked, render it as the report's first quantitative beat — natural slot is RIGHT AFTER the anchor (Bottom Line / Thesis / Working Hypothesis), so a reader skimming the top of the report sees the headline judgement followed immediately by the numbers behind it. Acceptable alternative slot: right before Recommendations, when the numbers frame the action rather than the judgement.",
@@ -2484,10 +3207,14 @@ const DEFAULT_KIND_LABELS: Partial<Record<ComponentKind, string>> = {
   "leading-indicators":    "Leading Indicators",
   "threats-to-validity":   "Threats to Validity",
   "metric-strip":          "By the Numbers",
-  "pre-mortem":            "Pre-mortem",
   "new-questions":         "New Questions This Surfaced",
   "planning-assumption":   "Strategic Planning Assumption",
   "open-questions":        "Open Questions",
+  // Note · the always-rendered "Where This Leaves You" closing
+  // section is NOT in this dictionary — it's not a composer-picked
+  // component, just a structural close. Its heading + house-style
+  // alternatives ("Next Steps" / "If This Holds" / "What to Watch")
+  // are described directly in the WRITE_SYSTEM section render rule.
 };
 
 /** Build the house-style addendum to WRITE_SYSTEM · two blocks:
@@ -2815,19 +3542,6 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         .join("\n\n")
     : "  (no recommendations — skip the section)";
 
-  // ── Pre-mortem ──
-  const preMortemBlock = scaffold.preMortem.length
-    ? scaffold.preMortem
-        .map((f, i) =>
-          [
-            `  Failure ${i + 1}: ${f.scenario}`,
-            `    Leading indicator: ${f.leadingIndicator}`,
-            `    Mitigation: ${f.mitigation}`,
-          ].join("\n"),
-        )
-        .join("\n\n")
-    : "  (no pre-mortem — skip the section)";
-
   // ── New Questions ──
   const newQuestionsBlock = scaffold.newQuestions.length
     ? scaffold.newQuestions
@@ -3128,9 +3842,6 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
         `## Recommendations`,
         recsBlock,
         ``,
-        `## Pre-mortem`,
-        preMortemBlock,
-        ``,
         `## New Questions`,
         newQuestionsBlock,
         ``,
@@ -3203,7 +3914,7 @@ export function buildWriteMessages(opts: WriteOpts): LLMMessage[] {
               ``,
             ]
           : []),
-        `Write the final report now. Markdown only (the metricStrip / path-comparison / views-compared fenced blocks are embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Views Compared (MANDATORY when ≥ 2 active directors) → A Comparison (when picked · path-comparison) → Options Analysis / Two Paths → Decision Options (when picked) → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Pre-mortem → Risk Register (when picked) → New Questions This Surfaced → Strategic Planning Assumption → Open Questions.`,
+        `Write the final report now. Markdown only (the metricStrip / path-comparison / views-compared fenced blocks are embedded HTML — every other section is markdown). Start with the H2 title — no preamble. Replace director ids with display names from the directors list above. Follow the section order: Bottom Line / Thesis / Working Hypothesis (anchor) → Metric Strip (when picked) → Strategic Outlook (when picked) → Frame Shift → Headline Findings (or Big Ideas) → Where We Converged → Where We Diverged → Positions → Views Compared (MANDATORY when ≥ 2 active directors) → A Comparison (when picked · path-comparison) → Options Analysis / Two Paths → Decision Options (when picked) → Critical Assumptions (when picked) → Threats to Validity (when picked) → Scenario Tree (when picked) → Why Now (when picked) → Risk Register (when picked) → New Questions This Surfaced → Strategic Planning Assumption → Open Questions → Recommendations / The Bet / Considerations (action) → Leading Indicators (when picked) → Where This Leaves You (ALWAYS — narrative close that reorients the reader). The Closing is the report's last body section before the methodology footer; without it the report ends on a list and feels truncated. Render order is now uncertainty-then-action: lay out what's true / what's still open BEFORE telling the user what to do, so the action sits at the end where it lands hardest.`,
       ].join("\n"),
     },
   ];
@@ -3834,24 +4545,6 @@ function parseRecommendations(raw: unknown): Recommendation[] {
   return out;
 }
 
-function parsePreMortem(raw: unknown): FailureMode[] {
-  if (!Array.isArray(raw)) return [];
-  const out: FailureMode[] = [];
-  for (const f of raw) {
-    if (!f || typeof f !== "object") continue;
-    const o = f as Record<string, unknown>;
-    const scenario = typeof o.scenario === "string" ? o.scenario.trim() : "";
-    if (!scenario) continue;
-    out.push({
-      scenario,
-      leadingIndicator: typeof o.leadingIndicator === "string" ? o.leadingIndicator.trim() : "",
-      mitigation: typeof o.mitigation === "string" ? o.mitigation.trim() : "",
-    });
-    if (out.length >= 4) break;
-  }
-  return out;
-}
-
 const RISK_CATEGORIES: readonly RiskCategory[] = [
   "market", "execution", "product", "team", "financial", "compliance", "technical",
 ];
@@ -4447,7 +5140,6 @@ export function parseScaffold(
     recommendations: parseRecommendations(parsed.recommendations),
     theBet,
     considerations: considerationsField,
-    preMortem: parsePreMortem(parsed.preMortem),
     newQuestions: parseNewQuestions(parsed.newQuestions),
     planningAssumption: parsePlanningAssumption(parsed.planningAssumption),
     strategicOutlook: parseStrategicOutlook(parsed.strategicOutlook),
@@ -4463,6 +5155,240 @@ export function parseScaffold(
     appendices: parseAppendices(parsed.appendices),
     openQuestions: parseOpenQuestions(parsed.openQuestions),
   };
+}
+
+/* ──────────────────────── Bento parser ─────────────────────────────
+ * Tolerant JSON parser for the bento-mode scaffold. Returns null when
+ * the LLM produced an unusable shape (no parseable JSON, no milestones,
+ * no title — any of these is a fail). The orchestrator surfaces a
+ * clear error to the user rather than rendering a half-empty bento.
+ *
+ * Field-level tolerance: each slot's parser clamps strings to the
+ * declared char limits, drops malformed array entries, and falls back
+ * to safe defaults. The bento body is shorter than the research-note
+ * scaffold, so parser leniency is less important — but the same
+ * "best-effort, never throw" pattern keeps the pipeline resilient. */
+export function parseBento(
+  raw: string,
+  fallbackTitle: string,
+  fallbackSource: string,
+  fallbackFooterTag: string,
+): BentoScaffold | null {
+  const parsed = extractJson<Record<string, unknown>>(raw);
+  if (!parsed) return null;
+
+  const title = clipString(stringField(parsed.title) || fallbackTitle, 110);
+  if (!title) return null;
+  const kicker = clipString(stringField(parsed.kicker), 200);
+  const source = clipString(stringField(parsed.source) || fallbackSource, 80);
+
+  const milestones = parseBentoMilestones(parsed.milestones);
+  if (milestones.length === 0) return null;
+  // Pad / trim to exactly 3 milestones · the bento layout reserves 3
+  // slots in the left timeline. Fewer leaves the column ragged; more
+  // overflows. Pad with placeholder cards built from openQuestions or
+  // empty strings; trim to the first 3 by render order.
+  while (milestones.length < 3) {
+    milestones.push({ period: "", title: "", body: "", callout: "", tags: [] });
+  }
+  if (milestones.length > 3) milestones.length = 3;
+
+  const rankedBars = parseBentoRankedBars(parsed.rankedBars);
+  const verification = parseBentoVerification(parsed.verification);
+  const talkingPoints = parseBentoTalkingPoints(parsed.talkingPoints);
+
+  const conclusion = clipString(stringField(parsed.conclusion), 100);
+  const flow = parseBentoFlow(parsed.flow);
+  const footerTag = clipString(stringField(parsed.footerTag) || fallbackFooterTag, 80);
+  const directorBlock = parsePptDirectorBlock(parsed.directorBlock);
+
+  return {
+    title,
+    kicker,
+    source,
+    milestones,
+    rankedBars,
+    verification,
+    talkingPoints,
+    conclusion,
+    flow,
+    footerTag,
+    directorBlock,
+  };
+}
+
+function parsePptDirectorBlock(raw: unknown): PptDirectorBlock | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+
+  const perspectives: PptDirectorPerspective[] = [];
+  if (Array.isArray(o.perspectives)) {
+    for (const p of o.perspectives) {
+      if (!p || typeof p !== "object") continue;
+      const po = p as Record<string, unknown>;
+      const directorName = clipString(stringField(po.directorName), 32);
+      const directorRole = clipString(stringField(po.directorRole), 48);
+      const stance = clipString(stringField(po.stance), 60);
+      const position = clipString(stringField(po.position), 240);
+      if (!directorName || !position) continue;
+      const quote = clipString(stringField(po.quote), 160);
+      perspectives.push({ directorName, directorRole, stance, position, quote });
+    }
+  }
+  if (perspectives.length < 2) return null;
+
+  const alignment: PptAlignment[] = [];
+  if (Array.isArray(o.alignment)) {
+    for (const a of o.alignment) {
+      if (!a || typeof a !== "object") continue;
+      const ao = a as Record<string, unknown>;
+      const pointOfAgreement = clipString(stringField(ao.pointOfAgreement), 120);
+      const note = clipString(stringField(ao.note), 200);
+      const namesRaw = Array.isArray(ao.directorNames) ? ao.directorNames : [];
+      const directorNames = namesRaw
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+        .map((s) => clipString(s.trim(), 32))
+        .slice(0, 6);
+      if (!pointOfAgreement || directorNames.length < 2) continue;
+      alignment.push({ pointOfAgreement, directorNames, note });
+      if (alignment.length >= 3) break;
+    }
+  }
+
+  const divergence: PptDivergence[] = [];
+  if (Array.isArray(o.divergence)) {
+    for (const d of o.divergence) {
+      if (!d || typeof d !== "object") continue;
+      const dgo = d as Record<string, unknown>;
+      const hinge = clipString(stringField(dgo.hinge), 140);
+      const resolution = clipString(stringField(dgo.resolution), 200);
+      const sides: PptDivergenceSide[] = [];
+      if (Array.isArray(dgo.sides)) {
+        for (const s of dgo.sides) {
+          if (!s || typeof s !== "object") continue;
+          const so = s as Record<string, unknown>;
+          const label = clipString(stringField(so.label), 40);
+          const stance = clipString(stringField(so.stance), 160);
+          const namesRaw = Array.isArray(so.directorNames) ? so.directorNames : [];
+          const names = namesRaw
+            .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+            .map((x) => clipString(x.trim(), 32))
+            .slice(0, 4);
+          if (!label || !stance || names.length === 0) continue;
+          sides.push({ label, directorNames: names, stance });
+        }
+      }
+      if (!hinge || sides.length < 2) continue;
+      divergence.push({ hinge, sides, resolution });
+      if (divergence.length >= 2) break;
+    }
+  }
+
+  const chairSynthesis = clipString(stringField(o.chairSynthesis), 240);
+
+  return { perspectives, alignment, divergence, chairSynthesis };
+}
+
+function stringField(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function clipString(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function parseBentoMilestones(raw: unknown): BentoMilestone[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BentoMilestone[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object") continue;
+    const o = m as Record<string, unknown>;
+    const title = clipString(stringField(o.title), 60);
+    const body = clipString(stringField(o.body), 220);
+    if (!title || !body) continue;
+    const period = clipString(stringField(o.period), 24);
+    const callout = clipString(stringField(o.callout), 12);
+    const tagsRaw = Array.isArray(o.tags) ? o.tags : [];
+    const tags = tagsRaw
+      .map((t) => (typeof t === "string" ? clipString(t.trim(), 16) : ""))
+      .filter(Boolean)
+      .slice(0, 4);
+    out.push({ period, title, body, callout, tags });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+function parseBentoRankedBars(raw: unknown): BentoRankedBars | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const title = clipString(stringField(o.title), 40);
+  if (!title) return null;
+  const entriesRaw = Array.isArray(o.entries) ? o.entries : [];
+  const entries: BentoRankedBars["entries"] = [];
+  for (const e of entriesRaw) {
+    if (!e || typeof e !== "object") continue;
+    const eo = e as Record<string, unknown>;
+    const label = clipString(stringField(eo.label), 40);
+    const value = clipString(stringField(eo.value), 20);
+    if (!label || !value) continue;
+    const ratioRaw = typeof eo.ratio === "number" ? eo.ratio : 0;
+    const ratio = Math.max(0, Math.min(1, Number.isFinite(ratioRaw) ? ratioRaw : 0));
+    entries.push({ label, value, ratio });
+    if (entries.length >= 5) break;
+  }
+  if (entries.length < 2) return null;
+  return { title, entries };
+}
+
+function parseBentoVerification(raw: unknown): BentoVerification | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const title = clipString(stringField(o.title), 40);
+  if (!title) return null;
+  const bullets = parseBentoBullets(o.bullets, 140, 5);
+  if (bullets.length === 0) return null;
+  return { title, bullets };
+}
+
+function parseBentoTalkingPoints(raw: unknown): BentoTalkingPoints {
+  // ALWAYS rendered · falls back to a default title + empty bullets
+  // when the LLM omits this slot. The renderer treats an empty bullets
+  // array gracefully (single placeholder line).
+  if (!raw || typeof raw !== "object") {
+    return { title: "How to say this", bullets: [] };
+  }
+  const o = raw as Record<string, unknown>;
+  const title = clipString(stringField(o.title), 40) || "How to say this";
+  const bullets = parseBentoBullets(o.bullets, 120, 5);
+  return { title, bullets };
+}
+
+function parseBentoBullets(raw: unknown, maxChars: number, maxCount: number): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const b of raw) {
+    const s = typeof b === "string" ? clipString(b.trim(), maxChars) : "";
+    if (s) out.push(s);
+    if (out.length >= maxCount) break;
+  }
+  return out;
+}
+
+function parseBentoFlow(raw: unknown): BentoFlow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const nodesRaw = Array.isArray(o.nodes) ? o.nodes : [];
+  const nodes: string[] = [];
+  for (const n of nodesRaw) {
+    const s = typeof n === "string" ? clipString(n.trim(), 24) : "";
+    if (s) nodes.push(s);
+    if (nodes.length >= 4) break;
+  }
+  if (nodes.length < 2) return null;
+  const caption = clipString(stringField(o.caption), 60);
+  return caption ? { nodes, caption } : { nodes };
 }
 
 function parseAppendices(raw: unknown): AppendixItem[] | null {

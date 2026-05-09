@@ -1,0 +1,1892 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=900, initial-scale=1">
+  <title>Newspaper · PrivateBoard</title>
+  <link rel="icon" href="/avatars/chair.svg" type="image/svg+xml">
+  <!-- NYT blackletter nameplate · UnifrakturMaguntia is the free
+       open-source font that reads as "Old English / Fraktur" the way
+       the iconic NYT mast does. Loaded from Google Fonts; system
+       fallback to Old English Text MT when offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&display=swap" rel="stylesheet">
+  <style>
+  /* ═══════════════════════════════════════════════════════════════════
+     Newspaper · two distinct broadsheet templates picked deterministi-
+     cally from the brief id (so a refresh always shows the same look
+     for the same brief). Both render at LEAST 2 pages so the report
+     reads as a paper rather than a single sheet.
+
+       · POST  · The Boardroom Post · Washington-Post register · clean
+         modern broadsheet · cream paper · deep ink · RED section
+         accents · sans-y kickers · big hero photo zone.
+       · TIMES · The Boardroom · New York Times register · classical
+         broadsheet · BLACKLETTER nameplate · "All the news that's
+         fit to print" tagline · star-ornament dividers · NAVY accent
+         · italic decks · 6-col grid front page.
+
+     Both variants share base typography and helpers; the masthead +
+     section system + accent palette differ to give each its own feel.
+     ═══════════════════════════════════════════════════════════════════ */
+  :root {
+    /* Page bg + paper + ink palette · shared across variants */
+    --bg:           #1F1E1A;
+    --paper:        #F4EFDF;
+    --paper-soft:   #FAF6E8;
+    --paper-edge:   #E8DFC4;
+    --ink:          #14110B;
+    --ink-soft:     #3A2F1E;
+    --ink-mid:      #5E5238;
+    --ink-faint:    #8E8160;
+    --ink-muted:    #B0A380;
+
+    --inv-bg:       #1A2734;
+    --inv-ink:      #F4EFDF;
+    --inv-ink-soft: #B7C0CB;
+
+    --rule:         #C3B891;
+    --rule-soft:    #D2C7A0;
+    --rule-strong:  #8C7A56;
+
+    /* Default accents · POST variant (Washington Post · red) */
+    --accent:        #C42126;
+    --accent-deep:   #951C1F;
+    --accent-soft:   #E6BFC1;
+    --accent-blue:   #2C5282;
+
+    /* Shadow for paper stacks */
+    --shadow-page:  0 2px 8px rgba(20, 17, 11, 0.18),
+                    0 16px 48px rgba(20, 17, 11, 0.20);
+
+    --serif-display: "Tiempos Headline", "Playfair Display", "Bodoni 72",
+                     "Didot", "Source Serif Pro", "Charter", Georgia,
+                     "Source Han Serif SC", "Songti SC", "STSong", serif;
+    --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
+             "Tiempos Text", "Source Han Serif SC", Georgia,
+             "Songti SC", "STSong", serif;
+    --sans:  "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont,
+             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+             "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
+    --mono:  "SF Mono", "JetBrains Mono", "Menlo",
+             "PingFang SC", "Source Han Sans CN", monospace;
+    --blackletter: "UnifrakturMaguntia", "Old English Text MT",
+                   "Cloister Black", "Goudy Old Style",
+                   "Tiempos Headline", Georgia, serif;
+  }
+
+  /* TIMES variant · accent shifts from red to navy, paper goes very
+     slightly cooler (NYT pages have a less yellowed tint than WaPo's). */
+  body[data-np-variant="times"] {
+    --paper:       #F8F5E8;
+    --paper-soft:  #FCF9EE;
+    --paper-edge:  #ECE5CE;
+    --rule:        #BCB29A;
+    --rule-soft:   #C9C0AA;
+    --rule-strong: #6E6549;
+    --accent:      #14366A;
+    --accent-deep: #0A2148;
+    --accent-soft: #B8C5D9;
+    --accent-blue: #14366A;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+  }
+
+  /* ─── Top chrome ───────────────────────────────────────────────── */
+  .np-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 28px;
+    background: rgba(31, 30, 26, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(244, 239, 223, 0.12);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    color: var(--paper);
+  }
+  .np-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--paper);
+    text-decoration: none;
+  }
+  .np-crumb::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
+    flex: 0 0 auto;
+    border-radius: 50%;
+  }
+  .np-crumb-accent {
+    color: var(--ink-faint);
+    font-style: italic;
+    font-weight: 400;
+  }
+  .np-actions { display: flex; gap: 8px; align-items: center; }
+  .np-page-nav {
+    display: inline-flex;
+    gap: 4px;
+    margin-right: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .np-page-nav a {
+    color: var(--ink-muted);
+    padding: 4px 8px;
+    border: 1px solid rgba(244, 239, 223, 0.16);
+    text-decoration: none;
+    transition: all 0.12s;
+  }
+  .np-page-nav a:hover {
+    background: rgba(244, 239, 223, 0.10);
+    color: var(--paper);
+  }
+  .np-variant-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent-soft);
+    margin-right: 12px;
+    padding: 4px 10px;
+    background: rgba(244, 239, 223, 0.06);
+    border: 1px solid rgba(244, 239, 223, 0.16);
+  }
+  .np-btn {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid rgba(244, 239, 223, 0.30);
+    color: var(--paper);
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
+  }
+  .np-btn:hover {
+    background: var(--paper);
+    color: var(--bg);
+  }
+  .np-btn .glyph { margin-right: 4px; }
+
+  /* ─── Doc · paper-stack frame ──────────────────────────────────── */
+  .np-doc {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 28px 12px 56px;
+  }
+  .np-page {
+    background: var(--paper);
+    padding: 26px 32px 30px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-page);
+    position: relative;
+  }
+  .np-page:last-child { margin-bottom: 0; }
+  body[data-np-variant="times"] .np-page {
+    padding: 28px 36px 30px;
+  }
+
+  /* ─── Rules · single + double · used as section dividers ─────── */
+  .np-rule { height: 1px; background: var(--ink); margin: 12px 0; }
+  .np-rule-thin { height: 1px; background: var(--rule); margin: 8px 0; }
+  .np-rule-double {
+    height: 5px;
+    background:
+      linear-gradient(to bottom,
+        var(--ink) 0,
+        var(--ink) 1px,
+        transparent 1px,
+        transparent 4px,
+        var(--ink) 4px,
+        var(--ink) 5px);
+    margin: 12px 0;
+  }
+  .np-rule-thick { height: 2px; background: var(--ink); margin: 14px 0; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     POST variant · The Boardroom Post · Washington-Post register
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Section dots row · small accent dots above the masthead, each
+     paired with a section name. WaPo uses a colorful section nav
+     above the mast as a navigation aid. */
+  .post-sect-row {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    padding: 2px 0 8px;
+    border-bottom: 1px solid var(--rule-soft);
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .post-sect-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+  }
+  .post-sect-item::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .post-sect-item.is-blue::before { background: var(--accent-blue); }
+  .post-sect-item.is-gold::before { background: #C8A36F; }
+  .post-sect-item.is-teal::before { background: #2C7B7A; }
+
+  /* Tagline + masthead (POST) · smaller / cleaner than NYT */
+  .post-tagline {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink-mid);
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .post-mast-name {
+    font-family: var(--serif-display);
+    font-size: 50px;
+    font-weight: 800;
+    line-height: 0.96;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    text-align: center;
+    margin: 2px 0 6px;
+  }
+  @media (max-width: 720px) {
+    .post-mast-name { font-size: 36px; }
+  }
+
+  /* WaPo meta strip · 3-cell with date/edition/copy */
+  .post-meta {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 0;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    font-family: var(--sans);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 600;
+  }
+  .post-meta-l { text-align: left; }
+  .post-meta-c { text-align: center; }
+  .post-meta-r { text-align: right; }
+
+  /* Hero zone · big headline with deck + lead body + standfirst */
+  .post-hero {
+    padding: 14px 0 8px;
+  }
+  .post-hero-flag {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    margin-bottom: 8px;
+  }
+  .post-hero-title {
+    font-family: var(--serif-display);
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1.04;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    margin-bottom: 8px;
+    max-width: 760px;
+  }
+  @media (max-width: 720px) {
+    .post-hero-title { font-size: 30px; }
+  }
+  .post-hero-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 16px;
+    line-height: 1.45;
+    color: var(--ink-mid);
+    max-width: 720px;
+    margin-bottom: 8px;
+  }
+  .post-hero-byline {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .post-hero-byline em {
+    font-style: italic;
+    text-transform: none;
+    color: var(--ink-soft);
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  /* Standfirst panel · solid colored block carrying a pull-quote
+     (replaces the prior gradient portrait fake-photo). */
+  .post-stand {
+    background: var(--inv-bg);
+    color: var(--paper);
+    padding: 18px 22px;
+    margin: 10px 0;
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 14px;
+    align-items: center;
+  }
+  .post-stand-mark {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 54px;
+    line-height: 0.6;
+    color: var(--accent-soft);
+  }
+  .post-stand-text {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.32;
+    color: var(--paper);
+    letter-spacing: -0.005em;
+  }
+  .post-stand-cite {
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--inv-ink-soft);
+    margin-top: 8px;
+    display: block;
+  }
+  @media (max-width: 720px) {
+    .post-stand { grid-template-columns: 1fr; }
+    .post-stand-mark { display: none; }
+    .post-stand-text { font-size: 18px; }
+  }
+
+  /* 2-col body grid (POST) · single-column main story (no internal
+     multi-column · the brief data isn't dense enough to fill a
+     2-col body without leaving gaps) · sidebar with stacked tiles. */
+  .post-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(180px, 1fr);
+    gap: 22px;
+    margin-top: 4px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .post-grid { grid-template-columns: 1fr; gap: 18px; }
+  }
+  .post-body {
+    font-family: var(--serif);
+    font-size: 13.5px;
+    line-height: 1.62;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  .post-body p + p { margin-top: 8px; }
+  .post-body.has-drop::first-letter {
+    font-family: var(--serif-display);
+    font-size: 56px;
+    line-height: 0.85;
+    font-weight: 800;
+    color: var(--accent);
+    float: left;
+    margin: 6px 8px 0 0;
+  }
+
+  .post-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-left: 22px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .post-side { border-left: 0; padding-left: 0; padding-top: 16px; border-top: 1px solid var(--rule); }
+  }
+  .post-side-flag {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: 6px;
+    align-self: flex-start;
+  }
+  .post-side-head {
+    font-family: var(--serif-display);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.008em;
+    color: var(--ink);
+  }
+  .post-side-body {
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+
+  /* Stat tile (POST register) · cream box with hairline border +
+     red bar accent. Numeric size sits at 36px to fit the narrow
+     sidebar (~200px) without wrapping awkwardly. word-break
+     ensures any 12-char callout still fits cleanly. */
+  .post-stat {
+    background: var(--paper-soft);
+    padding: 16px 16px 16px;
+    border-top: 4px solid var(--accent);
+    margin-top: 6px;
+  }
+  .post-stat-eye {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .post-stat-num {
+    font-family: var(--serif-display);
+    font-size: 36px;
+    font-weight: 800;
+    line-height: 1.0;
+    letter-spacing: -0.022em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .post-stat-cap {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+
+  /* Index strip at bottom of front page · "Inside this issue" */
+  .post-index {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: start;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 2px solid var(--ink);
+  }
+  .post-index-flag {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    padding: 4px 10px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    align-self: flex-start;
+  }
+  .post-index-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 22px;
+  }
+  .post-index-list li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    align-items: baseline;
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--ink-soft);
+    border-bottom: 1px dotted var(--rule-strong);
+    padding-bottom: 4px;
+  }
+  .post-index-list li b {
+    font-family: var(--serif-display);
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .post-index-list li .pg {
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* POST inside running header · running mast + page indicator */
+  .post-running {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 18px;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .post-running-mast {
+    font-family: var(--serif-display);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .post-running-mast::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    margin-right: 8px;
+    vertical-align: middle;
+    border-radius: 50%;
+  }
+  .post-running-meta {
+    text-align: center;
+    font-family: var(--sans);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+  }
+  .post-running-page {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 800;
+  }
+
+  /* Inside section banner */
+  .post-sect-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 14px 0 12px;
+  }
+  .post-sect-banner-tag {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--paper);
+    background: var(--accent);
+    padding: 5px 12px;
+  }
+  .post-sect-banner-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink-mid);
+  }
+
+  /* Inside article (POST) · headline + body */
+  .post-article {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(180px, 1fr);
+    gap: 28px;
+    margin-top: 6px;
+  }
+  @media (max-width: 720px) {
+    .post-article { grid-template-columns: 1fr; gap: 20px; }
+  }
+  .post-article-head {
+    font-family: var(--serif-display);
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1.08;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .post-article-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-mid);
+    margin-bottom: 8px;
+  }
+  .post-article-byline {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 12px;
+  }
+
+  /* Pull-quote inline (POST) · vertical red bar + italic */
+  .post-pull {
+    border-left: 4px solid var(--accent);
+    padding: 8px 18px;
+    margin: 14px 0;
+  }
+  .post-pull-text {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.35;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .post-pull-cite {
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin-top: 6px;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     TIMES variant · The Boardroom · New York Times register
+     ═══════════════════════════════════════════════════════════════ */
+
+  .times-tagline {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 11.5px;
+    color: var(--ink-mid);
+    text-align: center;
+    padding: 2px 0 6px;
+  }
+  .times-mast-name {
+    font-family: var(--blackletter);
+    font-weight: 400;
+    font-size: 72px;
+    line-height: 1;
+    letter-spacing: 0.005em;
+    color: var(--ink);
+    text-align: center;
+    margin: 4px 0 8px;
+  }
+  @media (max-width: 720px) {
+    .times-mast-name { font-size: 46px; }
+  }
+
+  /* TIMES volume strip · "VOL. CXC...No 12,345  ★  Late Edition  ★
+     {Date}  ★  $4.00" */
+  .times-vol-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 6px 0;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    font-family: var(--serif);
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    flex-wrap: wrap;
+  }
+  .times-vol-strip .star {
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1;
+  }
+  .times-vol-strip em {
+    font-style: italic;
+    color: var(--ink);
+  }
+
+  /* TIMES front · 4-col grid (1+2+1 spans) · packs better than the
+     classical 6-col when content is brief-sized; the lead is the
+     visual center, sidebars stay narrow but full of content. */
+  .times-front {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 22px;
+    margin-top: 14px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .times-front { grid-template-columns: 1fr; }
+  }
+  .times-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .times-col + .times-col {
+    padding-left: 22px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .times-col + .times-col {
+      padding-left: 0;
+      border-left: 0;
+      padding-top: 16px;
+      border-top: 1px solid var(--rule);
+    }
+  }
+  .times-col-1 { grid-column: span 1; }
+  .times-col-2 { grid-column: span 1; }
+  .times-col-3 { grid-column: span 2; }
+
+  .times-section-eye {
+    font-family: var(--serif);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    text-align: center;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--ink);
+    margin-bottom: 8px;
+  }
+  .times-section-eye::before { content: "★ "; color: var(--ink); margin-right: 4px; }
+  .times-section-eye::after { content: " ★"; color: var(--ink); margin-left: 4px; }
+
+  .times-head-large {
+    font-family: var(--serif-display);
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.014em;
+    color: var(--ink);
+    text-align: center;
+  }
+  @media (max-width: 720px) {
+    .times-head-large { font-size: 26px; }
+  }
+  .times-head-medium {
+    font-family: var(--serif-display);
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -0.008em;
+    color: var(--ink);
+  }
+  .times-head-small {
+    font-family: var(--serif-display);
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+  }
+  .times-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 14.5px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+    text-align: center;
+    margin: 6px 0 10px;
+  }
+  .times-byline {
+    font-family: var(--serif);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .times-byline em {
+    font-style: italic;
+    color: var(--ink);
+  }
+  .times-body {
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  .times-body p + p { margin-top: 6px; text-indent: 1.2em; }
+  .times-body.has-drop::first-letter {
+    font-family: var(--serif-display);
+    font-size: 48px;
+    line-height: 0.85;
+    font-weight: 700;
+    color: var(--ink);
+    float: left;
+    margin: 4px 6px 0 0;
+  }
+
+  /* TIMES standfirst · solid block with serif italic quote · used
+     in the centered hero column */
+  .times-stand {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 16px 20px;
+    margin: 10px 0;
+    text-align: center;
+  }
+  .times-stand-mark {
+    font-family: var(--blackletter);
+    font-size: 32px;
+    color: var(--paper);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .times-stand-text {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.35;
+    color: var(--paper);
+    letter-spacing: -0.005em;
+  }
+  .times-stand-cite {
+    font-family: var(--serif);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--inv-ink-soft);
+    margin-top: 10px;
+  }
+
+  /* TIMES stat tile · serif numeric on cream · narrow sidebar
+     constraint forces 30px max for the numeric so 5-char strings
+     ("$120M" / "2,000") fit cleanly without breaking. */
+  .times-stat {
+    background: var(--paper-soft);
+    padding: 14px 14px;
+    border: 1px solid var(--ink);
+    text-align: center;
+    margin: 8px 0;
+  }
+  .times-stat-eye {
+    font-family: var(--serif);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 8px;
+  }
+  .times-stat-eye::before { content: "★ "; color: var(--ink); }
+  .times-stat-eye::after { content: " ★"; color: var(--ink); }
+  .times-stat-num {
+    font-family: var(--serif-display);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.0;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .times-stat-cap {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+
+  /* TIMES inside running header · plain minimal */
+  .times-running {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--ink);
+    font-family: var(--serif);
+    font-size: 11px;
+    color: var(--ink);
+  }
+  .times-running-l {
+    font-family: var(--serif-display);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.005em;
+  }
+  .times-running-c {
+    text-align: center;
+    font-style: italic;
+    color: var(--ink-mid);
+  }
+  .times-running-r {
+    font-family: var(--serif);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  /* TIMES inside section banner · centered with rules + caps */
+  .times-section-banner {
+    text-align: center;
+    margin: 18px 0 14px;
+  }
+  .times-section-banner-rule {
+    height: 1px;
+    background: var(--ink);
+    margin: 6px 0;
+  }
+  .times-section-banner-name {
+    font-family: var(--serif-display);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+    padding: 0 4px;
+  }
+  .times-section-banner-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12.5px;
+    color: var(--ink-mid);
+    margin-top: 4px;
+  }
+
+  /* TIMES inside · 4-col article spread */
+  .times-inside {
+    display: grid;
+    grid-template-columns: minmax(0, 2.6fr) minmax(180px, 1fr);
+    gap: 28px;
+    margin-top: 4px;
+  }
+  @media (max-width: 720px) {
+    .times-inside { grid-template-columns: 1fr; }
+  }
+  .times-inside-main {
+    column-count: 2;
+    column-gap: 22px;
+    column-rule: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  @media (max-width: 540px) {
+    .times-inside-main { column-count: 1; }
+  }
+  .times-inside-main p + p { margin-top: 6px; text-indent: 1.2em; }
+  .times-inside-main.has-drop::first-letter {
+    font-family: var(--serif-display);
+    font-size: 52px;
+    line-height: 0.85;
+    font-weight: 700;
+    color: var(--ink);
+    float: left;
+    margin: 4px 6px 0 0;
+  }
+  .times-inside-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-left: 22px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .times-inside-side { border-left: 0; padding-left: 0; padding-top: 18px; border-top: 1px solid var(--rule); }
+  }
+
+  /* TIMES "Continued from page A1" tag */
+  .times-continued {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .times-continued::before { content: "→ "; font-style: normal; color: var(--ink); }
+
+  /* TIMES pull-quote inline · star ornaments */
+  .times-pull {
+    text-align: center;
+    margin: 14px 0;
+    padding: 10px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+  }
+  .times-pull-text {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.4;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .times-pull-cite {
+    font-family: var(--serif);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+  .times-pull-cite::before { content: "★ "; color: var(--accent); }
+  .times-pull-cite::after { content: " ★"; color: var(--accent); }
+
+  /* TIMES sidebar · "What's inside" + verification list */
+  .times-side-flag {
+    font-family: var(--serif-display);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    text-align: center;
+    padding: 4px 0;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+  }
+  .times-side-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .times-side-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .times-side-list li:last-child { border-bottom: 0; }
+  .times-side-list li b {
+    display: block;
+    font-family: var(--serif-display);
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.004em;
+    margin-bottom: 4px;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     Shared · page footer + states + print
+     ═══════════════════════════════════════════════════════════════ */
+
+  .np-page-foot {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+    gap: 14px;
+    padding-top: 14px;
+    margin-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .np-page-foot-left  { text-align: left; }
+  .np-page-foot-mid   { text-align: center; color: var(--ink-mid); font-weight: 700; }
+  .np-page-foot-right { text-align: right; font-style: italic; text-transform: none; }
+
+  .np-state {
+    max-width: 560px;
+    margin: 80px auto;
+    padding: 48px 36px;
+    text-align: center;
+    background: var(--paper);
+    box-shadow: var(--shadow-page);
+  }
+  .np-state-mark {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    padding: 5px 14px;
+    display: inline-block;
+    margin-bottom: 16px;
+    font-weight: 700;
+  }
+  .np-state-title {
+    font-family: var(--serif-display);
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .np-state-body {
+    font-family: var(--serif);
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.6;
+  }
+
+  @media print {
+    .np-top-bar { display: none; }
+    body, html { background: white; }
+    .np-doc { max-width: none; padding: 0; margin: 0; }
+    .np-page {
+      box-shadow: none;
+      margin: 0;
+      padding: 16mm 18mm 18mm;
+      page-break-after: always;
+    }
+    .np-page:last-child { page-break-after: auto; }
+  }
+  </style>
+</head>
+<body>
+
+  <header class="np-top-bar" data-np-chrome>
+    <a href="/" class="np-crumb">PrivateBoard <span class="np-crumb-accent">· newspaper</span></a>
+    <div class="np-actions">
+      <span class="np-variant-badge" data-np-variant-badge>Loading…</span>
+      <nav class="np-page-nav" aria-label="Pages">
+        <a href="#np-page-1">P. 1</a>
+        <a href="#np-page-2">P. 2</a>
+      </nav>
+      <button type="button" class="np-btn" data-np-png>
+        <span class="glyph">↓</span>PNG
+      </button>
+      <button type="button" class="np-btn" data-np-print>
+        <span class="glyph">↓</span>PDF
+      </button>
+    </div>
+  </header>
+
+  <main data-np-root>
+    <div class="np-state">
+      <div class="np-state-mark">Loading</div>
+      <div class="np-state-title">Loading newspaper…</div>
+      <div class="np-state-body">Fetching the broadsheet for this brief.</div>
+    </div>
+  </main>
+
+  <script>
+  /* ──────────────────────────────────────────────────────────────────
+     Newspaper renderer · two distinct templates picked deterministi-
+     cally from the brief id:
+       · POST  · Washington-Post register (red accents · sans kickers ·
+         display-serif nameplate · 3-col body grid)
+       · TIMES · New York Times register (blackletter nameplate ·
+         "All the news that's fit to print" tagline · navy accent ·
+         star ornaments · 6-col grid front + 2-col inside)
+
+     Each variant renders 2 pages (front + inside) so the report
+     reads as a paper, not a single sheet. The variant + page count
+     are stable across refreshes (hash of brief id).
+     ────────────────────────────────────────────────────────────── */
+  (function () {
+    const params = new URLSearchParams(location.search);
+    const briefId = (params.get("b") || "").trim();
+    const roomId = (params.get("r") || "").trim();
+    const root = document.querySelector("[data-np-root]");
+    const variantBadge = document.querySelector("[data-np-variant-badge]");
+
+    function escape(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showState(mark, title, body) {
+      root.innerHTML = `
+        <div class="np-state">
+          <div class="np-state-mark">${escape(mark)}</div>
+          <div class="np-state-title">${escape(title)}</div>
+          <div class="np-state-body">${escape(body)}</div>
+        </div>`;
+    }
+
+    async function loadBrief() {
+      let url;
+      if (briefId) url = `/api/briefs/${encodeURIComponent(briefId)}`;
+      else if (roomId) url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
+      else { showState("Missing query", "No brief specified", "Add ?b=<briefId> or ?r=<roomId> to the URL."); return null; }
+      const res = await fetch(url);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        showState("Not found", "Brief not found", e.error || "The requested brief doesn't exist or is no longer available.");
+        return null;
+      }
+      return await res.json();
+    }
+
+    /** Pick "post" or "times" deterministically from the brief id ·
+     *  same brief id always renders the same template so refreshes /
+     *  share-links / PNG exports stay stable. The `?v=post|times`
+     *  URL parameter forces a specific template (debug / preview). */
+    function pickVariant(id) {
+      const force = (params.get("v") || "").trim().toLowerCase();
+      if (force === "post" || force === "times") return force;
+      const s = String(id || "");
+      if (!s) return "post";
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h) + s.charCodeAt(i);
+        h |= 0;
+      }
+      return (Math.abs(h) % 2) === 0 ? "post" : "times";
+    }
+
+    /** Format date for masthead · returns formatted strings used by
+     *  both variants but in slightly different shapes. */
+    function formatDate(footerTag) {
+      const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const monthsShort = ["Jan.","Feb.","March","April","May","June","July","Aug.","Sept.","Oct.","Nov.","Dec."];
+      const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+      const m = String(footerTag || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      const target = m ? new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`) : new Date();
+      const d = isNaN(target.getTime()) ? new Date() : target;
+      return {
+        weekday: days[d.getDay()],
+        weekdayShort: days[d.getDay()].toUpperCase().slice(0, 3),
+        long: `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
+        short: `${monthsShort[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
+        year: String(d.getFullYear()),
+        nytDate: `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
+      };
+    }
+
+    function splitHeading(raw) {
+      const s = String(raw || "").trim();
+      if (!s) return { heading: "", body: "" };
+      const seps = [": ", " · ", " — ", " - "];
+      for (const sep of seps) {
+        const idx = s.indexOf(sep);
+        if (idx > 0 && idx < 60) {
+          return { heading: s.slice(0, idx).trim(), body: s.slice(idx + sep.length).trim() };
+        }
+      }
+      return { heading: s, body: "" };
+    }
+
+    /** Pick a stat tile's numeric + caption from the brief data.
+     *  Strict: only returns a tile when a milestone has a SHORT
+     *  numeric-y callout (≤ 14 chars, the "$120M" / "10×" / "Q4"
+     *  shape). The previous version fell back to verification
+     *  headings as the "num" slot, which rendered long phrases
+     *  ("Compliance review remains the gating constraint") at
+     *  38-48px display-serif in a 200px-wide column · severely
+     *  cramped. Skipping is honest. */
+    function pickStat(m) {
+      const ms = m.milestones || [];
+      const milestoneWithCallout = ms.find((x) => x && x.callout && String(x.callout).trim().length > 0 && String(x.callout).trim().length <= 14);
+      if (milestoneWithCallout) {
+        return {
+          num: String(milestoneWithCallout.callout).trim(),
+          cap: milestoneWithCallout.title || milestoneWithCallout.period || "",
+        };
+      }
+      return null;
+    }
+
+    function pageFoot(pageNum, totalPages, briefIdShort) {
+      return `
+        <div class="np-page-foot">
+          <span class="np-page-foot-left">${escape(briefIdShort)}</span>
+          <span class="np-page-foot-mid">Page ${pageNum} of ${totalPages}</span>
+          <span class="np-page-foot-right">privateboard.ai</span>
+        </div>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       POST · The Boardroom Post · Washington Post register
+       ═════════════════════════════════════════════════════════════ */
+
+    function renderPostPage1(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const tpFirst = tpAll[0] || "";
+      const tpSecond = tpAll[1] || "";
+      const stat = pickStat(m);
+      const indexItems = [
+        { name: ms1.title || ms1.period || "Inside the room", page: "A2" },
+        { name: ms2.title || ms2.period || "More from the desk", page: "A2" },
+      ];
+      if (m.verification && m.verification.title) {
+        indexItems.push({ name: m.verification.title, page: "A2" });
+      }
+      const indexHtml = indexItems.map((it) => `
+        <li><b>${escape(it.name)}</b><span class="pg">Page ${escape(it.page)}</span></li>
+      `).join("");
+
+      // Pack the body cell with extra content so it doesn't end
+      // short relative to the sidebar (which has flag + head +
+      // body + stat + pull = 4-5 stacked items). Mid-article
+      // sub-headline + tail talking-point keeps body height in
+      // reach of the sidebar.
+      const bodySubHead = ms2.title || ms2.period || "";
+      const bodySubBody = ms2.body || "";
+
+      return `
+        <section class="np-page" id="np-page-1">
+          <!-- Section dots row · WaPo nav strip above the mast -->
+          <div class="post-sect-row">
+            <span class="post-sect-item">Top Story</span>
+            <span class="post-sect-item is-blue">Markets</span>
+            <span class="post-sect-item is-gold">Opinion</span>
+            <span class="post-sect-item is-teal">Inside</span>
+          </div>
+
+          <div class="post-tagline">From the boardroom — insights, every issue.</div>
+          <h1 class="post-mast-name">The Boardroom Post</h1>
+
+          <div class="post-meta">
+            <span class="post-meta-l">${escape(dateInfo.weekday)}, ${escape(dateInfo.long)}</span>
+            <span class="post-meta-c">privateboard.ai</span>
+            <span class="post-meta-r">${escape(briefIdShort)}</span>
+          </div>
+
+          <div class="post-hero">
+            <span class="post-hero-flag">Top Story</span>
+            <h2 class="post-hero-title">${escape(m.title || "")}</h2>
+            ${m.kicker ? `<div class="post-hero-deck">${escape(m.kicker)}</div>` : ""}
+            <div class="post-hero-byline">By the chair · <em>From the boardroom</em></div>
+          </div>
+
+          ${m.conclusion ? `
+          <aside class="post-stand">
+            <div class="post-stand-mark">"</div>
+            <div>
+              <div class="post-stand-text">${escape(m.conclusion)}</div>
+              <span class="post-stand-cite">— Bottom line · ${escape(m.title || "")}</span>
+            </div>
+          </aside>` : ""}
+
+          <div class="post-grid">
+            <div>
+              ${ms0.body ? `
+              <div class="post-body has-drop">
+                <p>${escape(ms0.body)}</p>
+                ${ms1.body ? `<p>${escape(ms1.body)}</p>` : ""}
+              </div>` : ""}
+              ${tpSecond ? `
+              <div class="post-pull" style="margin: 14px 0 8px;">
+                <div class="post-pull-text">"${escape(tpSecond)}"</div>
+                <div class="post-pull-cite">Editorial · second take</div>
+              </div>` : ""}
+              ${bodySubHead || bodySubBody ? `
+              <div style="margin-top: 12px;">
+                ${bodySubHead ? `<h4 style="font-family: var(--serif-display); font-size: 18px; font-weight: 700; line-height: 1.2; color: var(--ink); margin-bottom: 6px; padding-top: 10px; border-top: 1px solid var(--rule);">${escape(bodySubHead)}</h4>` : ""}
+                ${bodySubBody ? `<p class="post-body" style="margin: 0;">${escape(bodySubBody)}</p>` : ""}
+              </div>` : ""}
+            </div>
+            <aside class="post-side">
+              <span class="post-side-flag">Breaking</span>
+              <h3 class="post-side-head">${escape(ms1.title || ms1.period || "Late dispatches")}</h3>
+              ${ms1.body ? `<p class="post-side-body">${escape(ms1.body)}</p>` : ""}
+              ${stat ? `
+              <div class="post-stat">
+                <div class="post-stat-eye">By the numbers</div>
+                <div class="post-stat-num">${escape(stat.num)}</div>
+                <div class="post-stat-cap">${escape(stat.cap)}</div>
+              </div>` : ""}
+              ${tpFirst ? `
+              <div class="post-pull">
+                <div class="post-pull-text">"${escape(tpFirst)}"</div>
+                <div class="post-pull-cite">From the editorial</div>
+              </div>` : ""}
+            </aside>
+          </div>
+
+          ${indexHtml ? `
+          <div class="post-index">
+            <span class="post-index-flag">Inside this issue</span>
+            <ul class="post-index-list">${indexHtml}</ul>
+          </div>` : ""}
+
+          ${pageFoot(1, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    function renderPostPage2(brief, parts) {
+      const { m, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const pullQuote = tpAll[1] || tpAll[0] || "";
+      const verifs = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+      const verifsHtml = verifs.slice(0, 4).map((b) => {
+        const parts = splitHeading(b);
+        const inner = parts.body
+          ? `<b>${escape(parts.heading)}</b>${escape(parts.body)}`
+          : escape(parts.heading);
+        return `<li>${inner}</li>`;
+      }).join("");
+      const sideHtml = verifsHtml ? `
+        <span class="post-side-flag">More headings</span>
+        <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;">
+          ${verifs.slice(0, 5).map((b) => {
+            const p = splitHeading(b);
+            return `
+              <li style="font-family:var(--serif);font-size:12.5px;line-height:1.55;color:var(--ink-soft);padding:10px 0;border-bottom:1px solid var(--rule);">
+                ${p.body
+                  ? `<b style="display:block;font-family:var(--serif-display);font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:4px;">${escape(p.heading)}</b>${escape(p.body)}`
+                  : escape(p.heading)}
+              </li>`;
+          }).join("")}
+        </ul>` : "";
+
+      const bodyParts = [];
+      if (ms1.body) bodyParts.push(`<p>${escape(ms1.body)}</p>`);
+      if (ms2.body) bodyParts.push(`<p>${escape(ms2.body)}</p>`);
+      const bodyHtml = bodyParts.join("");
+
+      const headline = ms1.title || ms2.title || "Inside the room";
+      const deck = m.kicker || "";
+
+      return `
+        <section class="np-page" id="np-page-2">
+          <div class="post-running">
+            <span class="post-running-mast">The Boardroom Post</span>
+            <span class="post-running-meta">${escape(dateInfo.weekday)}, ${escape(dateInfo.long)} · privateboard.ai</span>
+            <span class="post-running-page">A2</span>
+          </div>
+
+          <div class="post-sect-banner">
+            <span class="post-sect-banner-tag">${escape(ms1.period || ms2.period || "Continued")}</span>
+            <span class="post-sect-banner-deck">From the room · continued from the front page</span>
+          </div>
+
+          <div class="post-article">
+            <div>
+              <h2 class="post-article-head">${escape(headline)}</h2>
+              ${deck ? `<div class="post-article-deck">${escape(deck)}</div>` : ""}
+              <div class="post-article-byline">By the chair · Continued from A1</div>
+              ${bodyHtml ? `<div class="post-body has-drop">${bodyHtml}</div>` : ""}
+              ${pullQuote ? `
+              <div class="post-pull">
+                <div class="post-pull-text">"${escape(pullQuote)}"</div>
+                <div class="post-pull-cite">Editorial</div>
+              </div>` : ""}
+            </div>
+            <aside class="post-side">
+              ${sideHtml}
+              ${m.flow && Array.isArray(m.flow.nodes) && m.flow.nodes.length >= 2 ? `
+              <div class="post-stat">
+                <div class="post-stat-eye">Transformation</div>
+                <div style="font-family: var(--serif-display); font-size: 17px; font-weight: 700; color: var(--ink); line-height: 1.25;">
+                  ${m.flow.nodes.map(escape).join('<span style="color: var(--accent); margin: 0 6px;">→</span>')}
+                </div>
+                ${m.flow.caption ? `<div class="post-stat-cap">${escape(m.flow.caption)}</div>` : ""}
+              </div>` : ""}
+            </aside>
+          </div>
+
+          ${pageFoot(2, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       TIMES · The Boardroom · New York Times register
+       ═════════════════════════════════════════════════════════════ */
+
+    function renderTimesPage1(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const tpFirst = tpAll[0] || "";
+      const tpSecond = tpAll[1] || "";
+      const stat = pickStat(m);
+
+      // Verification preview · 2 short bullets at the bottom of the
+      // lead column so the lead extends to roughly match the side
+      // cols' height (the lead is twice as wide so its body wraps
+      // half as tall · packing more content here keeps the columns
+      // visually balanced).
+      const vArr = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+      const vPreview = vArr.slice(0, 2).map((b) => {
+        const p = splitHeading(b);
+        return `<li>${p.body
+          ? `<b>${escape(p.heading)}</b> ${escape(p.body)}`
+          : escape(p.heading)}</li>`;
+      }).join("");
+
+      // Volume info · classic NYT pattern · "VOL. CXC..No. {n} ★ Late
+      // City Edition ★ {date} ★ {price/id}". We use the brief id
+      // as a serial number and "Late City Edition" as the standard
+      // copy.
+      const volStrip = `
+        <div class="times-vol-strip">
+          <span><em>VOL. CXC . . No.</em> ${escape(briefIdShort.replace(/^#/, ""))}</span>
+          <span class="star">★</span>
+          <span>Late City Edition</span>
+          <span class="star">★</span>
+          <span>${escape(dateInfo.nytDate)}</span>
+          <span class="star">★</span>
+          <span><em>${escape(briefIdShort)}</em></span>
+        </div>`;
+
+      return `
+        <section class="np-page" id="np-page-1">
+          <div class="times-tagline">"All the analysis that's fit to print"</div>
+          <h1 class="times-mast-name">The Boardroom</h1>
+          ${volStrip}
+
+          <div class="times-front">
+            <!-- Col 1 · sidebar story (ms2) -->
+            <div class="times-col times-col-1">
+              <div class="times-section-eye">Inside</div>
+              <h3 class="times-head-small">${escape(ms2.title || ms2.period || "Late Dispatches")}</h3>
+              ${ms2.body ? `<div class="times-body">${escape(ms2.body)}</div>` : ""}
+              ${stat ? `
+              <div class="times-stat">
+                <div class="times-stat-eye">By the numbers</div>
+                <div class="times-stat-num">${escape(stat.num)}</div>
+                <div class="times-stat-cap">${escape(stat.cap)}</div>
+              </div>` : ""}
+            </div>
+
+            <!-- Col 2-3 · the lead story · centered headline + body
+                 + standfirst + verification preview · packed so the
+                 lead matches the side cols' height -->
+            <div class="times-col times-col-3">
+              <div class="times-section-eye">The Boardroom</div>
+              <h2 class="times-head-large">${escape(m.title || "")}</h2>
+              ${m.kicker ? `<div class="times-deck">${escape(m.kicker)}</div>` : ""}
+              <div class="times-byline">By <em>The Chair</em></div>
+              ${ms0.body ? `<div class="times-body has-drop">${escape(ms0.body)}</div>` : ""}
+              ${m.conclusion ? `
+              <aside class="times-stand">
+                <div class="times-stand-mark">¶</div>
+                <div class="times-stand-text">${escape(m.conclusion)}</div>
+                <div class="times-stand-cite">Bottom line</div>
+              </aside>` : ""}
+              ${tpSecond ? `
+              <div class="times-pull">
+                <div class="times-pull-text">"${escape(tpSecond)}"</div>
+                <div class="times-pull-cite">Editorial · second take</div>
+              </div>` : ""}
+              ${vPreview ? `
+              <div style="margin-top:6px;">
+                <div class="times-section-eye" style="text-align:left;border:0;padding-bottom:0;margin-bottom:6px;">More headings</div>
+                <ul class="times-side-list" style="font-size:12px;">${vPreview}</ul>
+              </div>` : ""}
+            </div>
+
+            <!-- Col 5-6 · secondary stories stacked -->
+            <div class="times-col times-col-2">
+              <div class="times-section-eye">Markets</div>
+              <h3 class="times-head-medium">${escape(ms1.title || ms1.period || "On the markets")}</h3>
+              ${ms1.body ? `<div class="times-body">${escape(ms1.body)}</div>` : ""}
+              ${tpFirst ? `
+              <div class="times-pull">
+                <div class="times-pull-text">"${escape(tpFirst)}"</div>
+                <div class="times-pull-cite">From the editorial</div>
+              </div>` : ""}
+              <div class="times-continued">Continued on Page A2</div>
+            </div>
+          </div>
+
+          ${pageFoot(1, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    function renderTimesPage2(brief, parts) {
+      const { m, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const pullQuote = tpAll[1] || tpAll[0] || "";
+      const verifs = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+      const verifsHtml = verifs.slice(0, 5).map((b) => {
+        const p = splitHeading(b);
+        return `<li>${p.body
+          ? `<b>${escape(p.heading)}</b>${escape(p.body)}`
+          : escape(p.heading)}</li>`;
+      }).join("");
+
+      const bodyParts = [];
+      if (ms1.body) bodyParts.push(`<p>${escape(ms1.body)}</p>`);
+      if (ms2.body) bodyParts.push(`<p>${escape(ms2.body)}</p>`);
+      const bodyHtml = bodyParts.join("");
+
+      const headline = ms1.title || ms2.title || "Continued from the front page";
+      const deck = m.kicker || "";
+      const sectionName = (ms1.period || ms2.period || "International").toUpperCase();
+
+      const flowHtml = (m.flow && Array.isArray(m.flow.nodes) && m.flow.nodes.length >= 2)
+        ? `<div class="times-stat">
+            <div class="times-stat-eye">Transformation</div>
+            <div style="font-family: var(--serif-display); font-size: 17px; font-weight: 700; color: var(--ink); line-height: 1.3; padding: 6px 0;">
+              ${m.flow.nodes.map(escape).join('<span style="color: var(--accent); margin: 0 8px;">→</span>')}
+            </div>
+            ${m.flow.caption ? `<div class="times-stat-cap">${escape(m.flow.caption)}</div>` : ""}
+          </div>` : "";
+
+      return `
+        <section class="np-page" id="np-page-2">
+          <div class="times-running">
+            <span class="times-running-l">The Boardroom</span>
+            <span class="times-running-c">${escape(dateInfo.long)}</span>
+            <span class="times-running-r">A2</span>
+          </div>
+
+          <!-- Section banner · drops the rule ABOVE the section
+               name because the running header already provides a
+               horizontal line right above this block (its
+               border-bottom). Two close-together rules read as a
+               doubled border. -->
+          <div class="times-section-banner">
+            <div class="times-section-banner-name">${escape(sectionName)}</div>
+            <div class="times-section-banner-rule"></div>
+            <div class="times-section-banner-deck">Continued from the front page</div>
+          </div>
+
+          <div class="times-inside">
+            <div>
+              <h2 class="times-head-medium" style="text-align:left;">${escape(headline)}</h2>
+              ${deck ? `<div class="times-deck" style="text-align:left;">${escape(deck)}</div>` : ""}
+              <div class="times-byline" style="text-align:left;">By <em>The Chair</em> · Continued from A1</div>
+              <div class="times-continued">Continued from Page A1</div>
+              ${bodyHtml ? `<div class="times-inside-main has-drop">${bodyHtml}</div>` : ""}
+              ${pullQuote ? `
+              <div class="times-pull">
+                <div class="times-pull-text">"${escape(pullQuote)}"</div>
+                <div class="times-pull-cite">From the editorial</div>
+              </div>` : ""}
+            </div>
+
+            <aside class="times-inside-side">
+              <div class="times-side-flag">★ More Headings ★</div>
+              ${verifsHtml ? `<ul class="times-side-list">${verifsHtml}</ul>` : ""}
+              ${flowHtml}
+            </aside>
+          </div>
+
+          ${pageFoot(2, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════ */
+
+    function render(brief) {
+      if (brief.mode !== "newspaper") {
+        showState("Wrong mode", "This brief isn't a newspaper",
+          "Open it in the matching viewer instead. Newspaper, magazine, and research-note are separate output modes.");
+        return;
+      }
+      const m = brief.bodyJson;
+      if (!m || typeof m !== "object") {
+        if (brief.isGenerating) {
+          showState("Generating", "Newspaper is still being prepared",
+            "The chair is currently composing the front page. Refresh in a few seconds.");
+        } else {
+          showState("Empty", "This brief has no newspaper data",
+            "It may have failed to generate. Try regenerating from the room view.");
+        }
+        return;
+      }
+
+      if (m.title) document.title = `${m.title} · Newspaper`;
+
+      const variant = pickVariant(brief.id);
+      document.body.setAttribute("data-np-variant", variant);
+      if (variantBadge) {
+        variantBadge.textContent = variant === "times" ? "Times Edition" : "Post Edition";
+      }
+
+      const milestones = (m.milestones || []).slice(0, 3);
+      const ms0 = milestones[0] || {};
+      const ms1 = milestones[1] || {};
+      const ms2 = milestones[2] || {};
+      const dateInfo = formatDate(m.footerTag);
+      const briefIdShort = brief.id ? `#${String(brief.id).slice(0, 10).toUpperCase()}` : "";
+      const totalPages = 2;
+
+      const parts = { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages };
+
+      const pages = variant === "times"
+        ? [renderTimesPage1(brief, parts), renderTimesPage2(brief, parts)]
+        : [renderPostPage1(brief, parts), renderPostPage2(brief, parts)];
+
+      root.innerHTML = `<article class="np-doc" data-np-paper>${pages.join("")}</article>`;
+    }
+
+    /* ─── Export wiring · same PNG-as-PDF strategy ─────────── */
+    let _h2iLoaded = null;
+    async function ensureHtmlToImage() {
+      if (window.htmlToImage) return;
+      if (!_h2iLoaded) {
+        _h2iLoaded = new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      await _h2iLoaded;
+    }
+
+    async function captureNpPng() {
+      const el = document.querySelector("[data-np-paper]");
+      if (!el) throw new Error("newspaper doc not found");
+      await ensureHtmlToImage();
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch { /* best-effort */ }
+      }
+      const width = Math.max(el.scrollWidth, el.offsetWidth, el.clientWidth);
+      const height = Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight);
+      return window.htmlToImage.toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: "#1F1E1A",
+        cacheBust: true,
+        width,
+        height,
+        canvasWidth: width,
+        canvasHeight: height,
+        style: { margin: "0", width: `${width}px`, height: `${height}px` },
+      });
+    }
+
+    function slugTitle() {
+      return (document.title || "newspaper").replace(/[^a-z0-9]+/gi, "-").slice(0, 60) || "newspaper";
+    }
+
+    async function exportPng() {
+      try {
+        const dataUrl = await captureNpPng();
+        const a = document.createElement("a");
+        a.download = `${slugTitle()}.png`;
+        a.href = dataUrl;
+        a.click();
+      } catch (e) {
+        console.warn("[newspaper] PNG export failed:", e);
+        alert("PNG export failed · see browser console.");
+      }
+    }
+
+    async function exportPdf() {
+      try {
+        const dataUrl = await captureNpPng();
+        const win = window.open("", "_blank", "width=1024,height=720");
+        if (!win) {
+          alert("PDF export needs to open a new window — please allow popups for this site.");
+          return;
+        }
+        const slug = slugTitle();
+        win.document.open();
+        win.document.write(`<!doctype html><html lang="en"><head>
+          <meta charset="utf-8">
+          <title>${slug}</title>
+          <style>
+            @page { size: auto; margin: 10mm; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body { background: #FFFFFF; }
+            body { display: flex; align-items: flex-start; justify-content: center; padding: 20px; min-height: 100vh; }
+            img { display: block; width: 100%; max-width: 880px; height: auto; box-shadow: 0 0 24px rgba(0, 0, 0, 0.08); }
+            @media print {
+              body { padding: 0; }
+              img { box-shadow: none; max-width: none; width: 100%; }
+            }
+            .hint {
+              position: fixed; top: 12px; left: 12px;
+              font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              font-size: 11px; color: #8E8B83;
+              background: rgba(255,255,255,0.9); padding: 6px 10px;
+              border: 1px solid #E5E2DA;
+            }
+            @media print { .hint { display: none; } }
+          </style>
+        </head><body>
+          <div class="hint">// press <kbd>⌘P</kbd> / <kbd>Ctrl+P</kbd> · save as PDF</div>
+          <img alt="${slug}" src="${dataUrl}">
+          <script>
+            (function () {
+              var img = document.querySelector("img");
+              function go() { setTimeout(function () { window.print(); }, 200); }
+              if (img && img.complete) { go(); }
+              else if (img) { img.addEventListener("load", go, { once: true }); }
+            })();
+          <\/script>
+        </body></html>`);
+        win.document.close();
+      } catch (e) {
+        console.warn("[newspaper] PDF export failed:", e);
+        alert("PDF export failed · see browser console.");
+      }
+    }
+
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("[data-np-png]")) { e.preventDefault(); exportPng(); return; }
+      if (e.target.closest("[data-np-print]")) { e.preventDefault(); exportPdf(); return; }
+    });
+
+    /* ─── Boot ──────────────────────────────────────────────────── */
+    loadBrief().then((brief) => {
+      if (brief) render(brief);
+    }).catch((e) => {
+      console.error("[newspaper] load failed:", e);
+      showState("Error", "Couldn't load this brief", e instanceof Error ? e.message : String(e));
+    });
+  })();
+  </script>
+
+</body>
+</html>

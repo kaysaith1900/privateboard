@@ -8,10 +8,11 @@
 (function () {
   const MODEL_GROUPS = [
     { provider: "anthropic", models: [
-      { v: "sonnet-4-6", name: "Sonnet 4.6", deck: "balanced · default" },
-      { v: "opus-4-7",   name: "Opus 4.7",   deck: "deep reasoning" },
-      { v: "opus-4-6",   name: "Opus 4.6",   deck: "deep reasoning · 1M ctx" },
-      { v: "haiku-4-5",  name: "Haiku 4.5",  deck: "fast · low-cost" }
+      { v: "sonnet-4-6",    name: "Sonnet 4.6",    deck: "balanced · default" },
+      { v: "opus-4-7",      name: "Opus 4.7",      deck: "deep reasoning" },
+      { v: "opus-4-6",      name: "Opus 4.6",      deck: "prior-gen flagship" },
+      { v: "opus-4-6-fast", name: "Opus 4.6 Fast", deck: "faster 4.6 · same intelligence" },
+      { v: "haiku-4-5",     name: "Haiku 4.5",     deck: "fast · low-cost" }
     ]},
     { provider: "openai", models: [
       { v: "gpt-5-5",      name: "GPT-5.5",      deck: "flagship · 1M ctx" },

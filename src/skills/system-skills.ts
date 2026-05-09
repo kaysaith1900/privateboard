@@ -68,7 +68,7 @@ The pipeline runs in **four** stages:
   · \`visuals\`             0–4 exhibits (comparison-table / quadrant-chart / force-field / strengths-cautions).
   · \`two-paths\`           Side-by-side trajectory panels (Path A vs Path B).
   · \`why-now\`             Window opened · window closes · what to bet on.
-  · \`pre-mortem\`          Failure modes with leading indicators + mitigations.
+  · \`risk-register\`       Standing risks (severity × likelihood × owner × mitigation).
   · \`new-questions\`       Questions that emerged in the room.
   · \`planning-assumption\` Forward-looking probabilistic statement with falsification test.
   · \`open-questions\`      Residual unresolved questions tagged P0/P1.

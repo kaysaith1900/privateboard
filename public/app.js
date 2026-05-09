@@ -18,8 +18,9 @@
    *  of src/ai/registry.ts's displayName field. */
   const MODEL_LABELS = {
     "sonnet-4-6":       "Sonnet 4.6",
-    "opus-4-6":         "Opus 4.6",
     "opus-4-7":         "Opus 4.7",
+    "opus-4-6":         "Opus 4.6",
+    "opus-4-6-fast":    "Opus 4.6 Fast",
     "haiku-4-5":        "Haiku 4.5",
     "gpt-5-5":          "GPT-5.5",
     "gpt-5-4":          "GPT-5.4",
@@ -43,11 +44,11 @@
    *  enough context (label · provider · short deck) to choose at a
    *  glance. */
   const AGENT_COMPOSER_MODELS = [
-    { v: "opus-4-7",         label: "Claude Opus 4.7",   provider: "Anthropic", deck: "deep reasoning" },
-    { v: "opus-4-6",         label: "Claude Opus 4.6",   provider: "Anthropic", deck: "deep reasoning · 1M ctx" },
-    { v: "sonnet-4-6",       label: "Claude Sonnet 4.6", provider: "Anthropic", deck: "balanced · default" },
-    { v: "haiku-4-5",        label: "Claude Haiku 4.5",  provider: "Anthropic", deck: "fast · low-cost" },
-    { v: "gpt-5-5-pro",      label: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
+    { v: "opus-4-7",         label: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning" },
+    { v: "sonnet-4-6",       label: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · default" },
+    { v: "opus-4-6",         label: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
+    { v: "opus-4-6-fast",    label: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
+    { v: "haiku-4-5",        label: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },    { v: "gpt-5-5-pro",      label: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
     { v: "gpt-5-5",          label: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },
     { v: "gpt-5-4",          label: "GPT-5.4",           provider: "OpenAI",    deck: "general · 1M ctx" },
     { v: "gpt-5-4-mini",     label: "GPT-5.4 Mini",      provider: "OpenAI",    deck: "fast · 400k ctx" },
@@ -303,14 +304,12 @@
         return;
       }
 
-      const lang = (this.composerLanguage && this.composerLanguage()) || "en";
       const count = fresh.length;
       const names = fresh.map((m) => m.name).join(", ");
       const bodyKey = count === 1 ? "migrate_body_one" : "migrate_body";
       const copy = {
         head: this._t("migrate_head"),
-        body: this._t(bodyKey, { count }),
-        tooltip: names,
+        body: this._t(bodyKey, { count }),        tooltip: names,
       };
       textEl.innerHTML =
         `<span class="sys-notice-strong">${this.escape(copy.head)}</span> · ${this.escape(copy.body)}`;
@@ -434,22 +433,12 @@
       // No explicit room in the hash — land on the new-room composer
       // (ChatGPT / Claude style: default = fresh, existing rooms live
       // in the sidebar). The composer renders inside closeRoom →
-      // renderEmptyState. Previously we auto-opened the first selectable
-      // room; that's been retired so users always start on the composer
-      // unless they explicitly navigate to a room.
+      // renderEmptyState. The sidebar persistence layer in index.html
+      // (boardroom.sidebar.* keys + restore() on DOMContentLoaded)
+      // takes over from here · if the user's last sidebar selection
+      // was a specific room / reports / notes, that fires AFTER
+      // app.init and overrides this composer landing.
       this.closeRoom();
-    },
-
-    /** Choose a sensible default room when none is in the URL hash. */
-    firstSelectableRoom() {
-      if (!this.rooms || !this.rooms.length) return null;
-      const rank = (status) => (status === "live" ? 0 : status === "paused" ? 1 : 2);
-      const sorted = this.rooms.slice().sort((a, b) => {
-        const dr = rank(a.status) - rank(b.status);
-        if (dr !== 0) return dr;
-        return (b.createdAt || 0) - (a.createdAt || 0);
-      });
-      return sorted[0] || null;
     },
 
     navigateToRoom(roomId) {
@@ -660,7 +649,15 @@
       this.currentRoom = null;
       this.currentMessages = [];
       this.currentMembers = [];
-      this.currentChair = null;
+      // `currentChair` is NOT reset · the chair is a structural
+      // singleton (one moderator agent in the catalog, same across
+      // every room), and the sidebar's Chair section keys off it
+      // whether or not a room is loaded. Earlier this line read
+      // `this.currentChair = null;`, which dropped the Chair row
+      // from the Agents tab any time the user landed on the no-
+      // room state — the chair would re-appear the moment a room
+      // re-opened (since `openRoom` re-sets it from data.chair),
+      // but the empty + composer states looked broken.
       this.currentQueue = [];
       this.currentRound = { spoken: 0, total: 0 };
       this.currentKeyPoints = [];
@@ -789,6 +786,10 @@
         msg.body += data.delta;
         this.updateMessageBodyDom(data.messageId, msg.body, true);
         this.scrollChatToBottom();
+        // Typing-SFX presence cue · the module throttles internally,
+        // mutes when the tab is backgrounded, and respects the user's
+        // toggle in Preference → User. Safe to call on every chunk.
+        window.boardroomTypingSfx && window.boardroomTypingSfx.tick();
       });
 
       this.sse.addEventListener("message-final", (e) => {
@@ -945,11 +946,37 @@
           }
         } else if (kind === "brief-started") {
           this.markBriefEvent();
+          // Mode determines BOTH the seeded stage map and which pip
+          // rail renderBriefStages picks. Bento, magazine, and
+          // newspaper modes each emit only 2 stage events (extract
+          // + write), so seeding the 7-stage layout for a
+          // structured-mode brief leaves the 5 middle pips forever
+          // pending — the rail then renders with a row of dead
+          // black pips between extract and write. Read mode from
+          // the payload (server includes it on brief-started for
+          // exactly this reason) and seed accordingly.
+          const isStructured = this.isStructuredBriefMode(payload.mode);
+          const briefMode = isStructured ? payload.mode : "research-note";
+          const seededStages = isStructured
+            ? {
+                extract: { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                write:   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              }
+            : {
+                extract:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                compose:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+                write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
+              };
           const newBrief = {
             id: payload.briefId,
             title: "Generating…",
             bodyMd: "",
             style: payload.style || "mckinsey",
+            mode: briefMode,
             // Carry the supplement so the tab strip can render the
             // in-progress brief with its supplement label ("xxx 视角")
             // immediately, instead of waiting for brief-final to
@@ -964,21 +991,7 @@
             language: payload.language === "zh" ? "zh" : "en",
             pipelineStartedAt: Date.now(),
             createdAt: Date.now(),
-            // Stage checklist · seeded with all seven stages in pending
-            // state (extract / compose / 4 scaffold sub-stages / write).
-            // brief-stage events flip them active → done as the pipeline
-            // progresses. startedAt is captured when each stage first
-            // becomes active so the UI can display elapsed time
-            // alongside the ETA range.
-            stages: {
-              extract:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              compose:             { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-anchor":   { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-findings": { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-cluster":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-              write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
-            },
+            stages: seededStages,
             llmLogs: [],
             llmLogOpen: false,
           };
@@ -1156,6 +1169,14 @@
               }
             }
           }
+          // No typing-SFX during the brief writer's Stage 3 stream.
+          // The write phase is a long, off-screen streaming pass (the
+          // user is usually reading prior content or doing something
+          // else while the report builds) — a continuous click track
+          // for tens of seconds reads as background noise, not a
+          // presence cue. Director / chair turns still tick because
+          // those land in the active conversation the user is
+          // following.
         } else if (kind === "brief-final") {
           this.markBriefEvent();
           const target = this._briefById(payload.briefId);
@@ -1562,6 +1583,196 @@
       return false;
     },
 
+    /** Has the brief got its body content yet? Mode-aware check ·
+     *  research-note briefs land their content in `bodyMd`; bento
+     *  briefs land theirs in `bodyJson` and leave bodyMd empty. The
+     *  card-rendering / placeholder-detection / generating-check
+     *  logic uses this everywhere so a bento brief doesn't stay
+     *  stuck in "generating…" state after the BentoScaffold has
+     *  actually been persisted.
+     *
+     *  Without this helper, a successful bento generation followed
+     *  by a page refresh hid the View Report button forever (the
+     *  card thought it was still generating because bodyMd was empty
+     *  — which is the steady-state shape for bento, not an
+     *  in-flight signal). */
+    /** True for any structured-output mode — magazine, newspaper,
+     *  ppt — that persists to body_json instead of body_md and
+     *  runs the single-pass chair-LLM pipeline (extract + write
+     *  only, no Stage 2/3 scaffold/write). Centralised so future
+     *  modes touch one place. */
+    isStructuredBriefMode(mode) {
+      return mode === "magazine" || mode === "newspaper" || mode === "ppt";
+    },
+
+    briefHasBody(b) {
+      if (!b) return false;
+      if (this.isStructuredBriefMode(b.mode)) {
+        // Magazine, newspaper + ppt all populate bodyJson with the
+        // structured scaffold. An empty object isn't a body; check
+        // for at least a title field.
+        const j = b.bodyJson;
+        return !!(j && typeof j === "object" && (j.title || j.milestones));
+      }
+      // Default research-note · body lives in markdown.
+      return !!(b.bodyMd && b.bodyMd.trim());
+    },
+
+    /** Build the right viewer URL for a brief based on its mode.
+     *  · 'research-note' (default · or unknown) → `/report.html?r=R&b=B`
+     *  · 'magazine' → `/magazine.html?b=B`
+     *  · 'newspaper' → `/newspaper.html?b=B`
+     *  · 'ppt' → `/ppt.html?b=B`
+     *
+     *  Structured renderers don't need the room context · the brief
+     *  is self-contained. Used by the View Report button, the
+     *  brief-picker popover, the open-report link in the brief card,
+     *  and the All Reports page — one helper so a future renderer
+     *  route change touches one place. */
+    briefViewerHref(b, roomId) {
+      if (!b || !b.id) return null;
+      const id = encodeURIComponent(b.id);
+      if (b.mode === "magazine") return `/magazine.html?b=${id}`;
+      if (b.mode === "newspaper") return `/newspaper.html?b=${id}`;
+      if (b.mode === "ppt") return `/ppt.html?b=${id}`;
+      const r = roomId ? encodeURIComponent(roomId) : "";
+      return r ? `/report.html?r=${r}&b=${id}` : `/report.html?b=${id}`;
+    },
+
+    /** Human-readable label for a brief's mode · used in the brief-card
+     *  banner so the user sees which renderer the report will use
+     *  before they open it.
+     *
+     *  IMPORTANT · the user-facing label for `research-note` is
+     *  "Report", NOT "Research Note". The internal mode key stays as
+     *  `research-note` (storage column, API value, picker option id),
+     *  but every user-facing surface — the mode picker (`renderBrief-
+     *  ModePicker` line ~1662 in this file), the report viewer's
+     *  header, etc. — calls it "Report". Keep this map in sync with
+     *  the picker labels rather than inventing a fresh user-facing
+     *  vocabulary.
+     *
+     *  Legacy rows without an explicit `mode` default to "Report" by
+     *  the same backfill the storage layer applies. */
+    briefModeLabel(b) {
+      const mode = (b && b.mode) || "research-note";
+      switch (mode) {
+        case "magazine":  return "Magazine";
+        case "newspaper": return "Newspaper";
+        case "ppt":       return "Slides";
+        default:          return "Report";
+      }
+    },
+
+    /** Render the report-mode picker · four icon-tile cards that let
+     *  the user pick between research-note, magazine, newspaper, and
+     *  ppt (slides). Each tile shows a custom monoline SVG that
+     *  visually mirrors that mode's layout — research-note as a memo,
+     *  magazine as a masthead + numeral block + small cards,
+     *  newspaper as a banner + 3-column text grid, ppt as a slide
+     *  rectangle with bullet lines. The native radio is visually
+     *  hidden (kept in the DOM for a11y / keyboard nav).
+     *
+     *  Used by both the adjourn overlay (filing the report at
+     *  adjourn-time / generate-brief flow) AND the supplement
+     *  overlay (regenerating with an extra perspective). The picker
+     *  reads its selected option via `input[name="brief-mode"]:checked`
+     *  from inside whatever overlay it lives in · the click-to-toggle
+     *  handler scopes to the `.adjourn-mode-options` container so it
+     *  works for any overlay embedding the picker. */
+    renderBriefModePicker(defaultMode) {
+      const safe = this.isStructuredBriefMode(defaultMode) ? defaultMode : "research-note";
+      // Icon SVGs · `currentColor` lets each tile pick up its hover /
+      // selected accent from the parent `.adjourn-mode-icon { color }`
+      // rule. Stroke hierarchy is deliberate · main outlines at 1.0,
+      // a single emphasis rule at 1.2 (newspaper headline + magazine
+      // masthead bar), body details at 0.8. Filled blocks soften to
+      // currentColor at 0.5 opacity so the lime selected-state reads
+      // as a tint rather than a slab. The 24-unit viewBox renders at
+      // 36px on screen → 1.5× scale, so stroke-1.0 is a clean 1.5px.
+      const ICONS = {
+        "research-note": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 3h9l4 4v14H6z"/>
+            <path d="M15 3v4h4"/>
+            <line x1="9" y1="12" x2="16" y2="12"/>
+            <line x1="9" y1="15" x2="16" y2="15"/>
+            <line x1="9" y1="18" x2="14" y2="18"/>
+          </svg>`,
+        "magazine": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="4" x2="21" y2="4" stroke-width="1.2"/>
+            <rect x="3" y="7" width="6" height="9" rx="1.2"/>
+            <rect x="11" y="7" width="4.5" height="4" rx="1.2"/>
+            <rect x="16.5" y="7" width="4.5" height="4" rx="1.2"/>
+            <rect x="11" y="12" width="4.5" height="4" rx="1.2"/>
+            <rect x="16.5" y="12" width="4.5" height="4" rx="1.2"/>
+            <rect x="3" y="18" width="18" height="3" rx="1" fill="currentColor" fill-opacity="0.45" stroke="none"/>
+          </svg>`,
+        "newspaper": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="2.5" fill="currentColor" fill-opacity="0.85" stroke="none"/>
+            <line x1="7" y1="8" x2="17" y2="8" stroke-width="1.2"/>
+            <line x1="4" y1="11.5" x2="8" y2="11.5" stroke-width="0.8"/>
+            <line x1="4" y1="13.5" x2="8" y2="13.5" stroke-width="0.8"/>
+            <line x1="4" y1="15.5" x2="6.5" y2="15.5" stroke-width="0.8"/>
+            <line x1="10" y1="11.5" x2="14" y2="11.5" stroke-width="0.8"/>
+            <line x1="10" y1="13.5" x2="14" y2="13.5" stroke-width="0.8"/>
+            <line x1="10" y1="15.5" x2="12.5" y2="15.5" stroke-width="0.8"/>
+            <line x1="16" y1="11.5" x2="20" y2="11.5" stroke-width="0.8"/>
+            <line x1="16" y1="13.5" x2="20" y2="13.5" stroke-width="0.8"/>
+            <line x1="16" y1="15.5" x2="18.5" y2="15.5" stroke-width="0.8"/>
+            <line x1="3" y1="18.5" x2="21" y2="18.5" stroke-width="0.9"/>
+          </svg>`,
+        "ppt": `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="1"/>
+            <line x1="7" y1="9" x2="14" y2="9" stroke-width="1.2"/>
+            <line x1="7" y1="12" x2="17" y2="12" stroke-width="0.8"/>
+            <line x1="7" y1="14" x2="15" y2="14" stroke-width="0.8"/>
+            <circle cx="5.5" cy="12" r="0.6" fill="currentColor" stroke="none"/>
+            <circle cx="5.5" cy="14" r="0.6" fill="currentColor" stroke="none"/>
+            <line x1="10" y1="20" x2="14" y2="20" stroke-width="1"/>
+            <line x1="12" y1="17" x2="12" y2="20" stroke-width="0.6"/>
+          </svg>`,
+      };
+      const opt = (value, title, deck, primary) => `
+            <label class="adjourn-mode-option${primary ? " adjourn-mode-option-primary" : ""}${safe === value ? " on" : ""}">
+              <input type="radio" name="brief-mode" value="${value}"${safe === value ? " checked" : ""}>
+              <div class="adjourn-mode-icon">${ICONS[value] || ""}</div>
+              <div class="adjourn-mode-body">
+                <div class="adjourn-mode-title">${title}</div>
+                <div class="adjourn-mode-deck">${deck}</div>
+              </div>
+            </label>`;
+      return `
+        <div class="adjourn-mode-picker" data-mode-picker>
+          <div class="adjourn-mode-label">// report format</div>
+          <div class="adjourn-mode-options adjourn-mode-options-4">
+            ${opt("research-note", "Report", "Long-form markdown · bottom line, findings, recommendations.", true)}
+            ${opt("magazine", "Magazine", "Editorial spread · cover line, 5 cards, dark closer.")}
+            ${opt("newspaper", "Newspaper", "Broadsheet · banner masthead, 3-column editorial.")}
+            ${opt("ppt", "Slides", "Slide deck · 7-9 slides, arrow-key navigation, present mode.")}
+          </div>
+        </div>`;
+    },
+
+    /** Read the user's last-picked report mode from localStorage so the
+     *  picker defaults to their previous choice. Falls back to
+     *  'research-note' on first run / private mode. */
+    lastBriefMode() {
+      try {
+        const v = localStorage.getItem("pb.briefMode");
+        return this.isStructuredBriefMode(v) ? v : "research-note";
+      } catch { return "research-note"; }
+    },
+    saveLastBriefMode(mode) {
+      try {
+        const safe = this.isStructuredBriefMode(mode) ? mode : "research-note";
+        localStorage.setItem("pb.briefMode", safe);
+      } catch { /* private-mode etc. — silently ignore */ }
+    },
+
     /** Pure cache read · returns true when the local app.keys map
      *  reports any model provider as configured. Used by the gate
      *  and (via wrappers) anywhere downstream UI needs the answer
@@ -1603,8 +1814,7 @@
         classification: this._t("nk_classification"),
         tag: this._t("nk_tag"),
         primaryDeck: this._t("nk_primary_deck"),
-        gate: this._t("nk_frontend_gate"),
-      };
+        gate: this._t("nk_frontend_gate"),      };
       const html = `
         <div id="no-key-overlay" class="pc-overlay" data-no-key-overlay>
           <div class="pc-modal">
@@ -1620,8 +1830,7 @@
             <div class="pc-body">
               <button type="button" class="pc-choice primary" data-no-key-open-settings>
                 <div class="pc-choice-mark">${this.escape(t.primary)}</div>
-                <div class="pc-choice-deck">${this.escape(t.primaryDeck)}</div>
-              </button>
+                <div class="pc-choice-deck">${this.escape(t.primaryDeck)}</div>              </button>
               <button type="button" class="pc-choice ghost" data-no-key-dismiss>
                 <div class="pc-choice-mark">${this.escape(t.dismiss)}</div>
               </button>
@@ -1744,6 +1953,9 @@
     async adjournRoom(opts) {
       if (!this.currentRoomId) return;
       const skipBrief = !!(opts && opts.skipBrief);
+      const mode = opts && this.isStructuredBriefMode(opts.mode)
+        ? opts.mode
+        : "research-note";
       // Pre-flight · adjourn-with-brief triggers the brief writer
       // pipeline (3 LLM stages). When skipBrief=true the chair just
       // posts the no-brief marker without LLM calls, so we let it
@@ -1754,7 +1966,7 @@
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(skipBrief ? { skipBrief: true } : {}),
+          body: JSON.stringify(skipBrief ? { skipBrief: true } : { mode }),
         },
       );
       if (!r.ok) {
@@ -1797,6 +2009,7 @@
       const metaSep = this._t("adj_meta_sep");
       const metaTurns = this._t("adj_meta_turns", { n: turns });
       const noteTxt = isGen ? this._t("adj_note_generate") : this._t("adj_note_adjourn");
+      const defaultMode = this.lastBriefMode();
       const html = `
         <div class="adjourn-overlay" id="adjourn-overlay" role="dialog" aria-modal="true" data-adjourn-mode="${this.escape(mode)}">
           <div class="adjourn-backdrop" data-adjourn-close></div>
@@ -1817,9 +2030,12 @@
 
             <div class="adjourn-body">
               <div class="adjourn-summary">
-                <div class="adjourn-summary-row">
+<div class="adjourn-summary-row adjourn-summary-row-subject">
                   <span class="adjourn-summary-key">${this.escape(this._t("adj_key_subject"))}</span>
-                  <span class="adjourn-summary-val">${this.escape(subjectTxt)}</span>
+                  <div class="adjourn-summary-val adjourn-subject-wrap">
+                    <span class="adjourn-subject-text is-clamped" data-adjourn-subject>${this.escape(subjectTxt)}</span>
+                    <button type="button" class="adjourn-subject-toggle" data-adjourn-subject-toggle hidden>Show more</button>
+                  </div>
                 </div>
                 <div class="adjourn-summary-row">
                   <span class="adjourn-summary-key">${this.escape(this._t("adj_key_authors"))}</span>
@@ -1833,6 +2049,8 @@
               <p class="adjourn-summary-note">
                 ${this.escape(noteTxt)}
               </p>
+
+              ${this.renderBriefModePicker(defaultMode)}
             </div>
 
             <footer class="adjourn-foot">
@@ -1853,6 +2071,19 @@
       wrap.innerHTML = html.trim();
       document.body.appendChild(wrap.firstChild);
       document.body.style.overflow = "hidden";
+      // Subject clamp · the subject value is clamped to 3 lines by
+      // default (a long room title shouldn't crowd the rest of the
+      // overlay). After mount, measure whether the text actually
+      // overflows the clamp — only then reveal the Show more / less
+      // toggle. rAF lets the browser settle the initial layout so
+      // scrollHeight is meaningful.
+      requestAnimationFrame(() => {
+        const subjEl = document.querySelector("[data-adjourn-subject]");
+        const subjBtn = document.querySelector("[data-adjourn-subject-toggle]");
+        if (subjEl && subjBtn && subjEl.scrollHeight > subjEl.clientHeight + 1) {
+          subjBtn.hidden = false;
+        }
+      });
       // Esc closes the overlay. Listener auto-detaches on close so
       // we don't accumulate handlers across opens.
       this._adjournEsc = (ev) => {
@@ -1880,30 +2111,24 @@
     openSupplementOverlay() {
       if (!this.currentRoomId || !this.currentBrief) return;
       this.closeSupplementOverlay();
-      const lang = this.currentBrief?.language === "zh" ? "zh" : "en";
-      const t = lang === "zh"
-        ? {
-            classify: "report · 补充视角再生成",
-            classifyRight: "// regenerate",
-            title: "补充一个视角",
-            metaPrefix: "// 当前报告",
-            placeholder: "请描述这次想让 chair 额外考虑的角度。例如：\n· 加入一个商业可行性的视角\n· 重点关注女性用户的体验\n· 把时间窗口拉长到 5 年看",
-            hint: "这个视角会被织入现有的 Findings、Recommendations、New Questions 等段落，不会单独成节。",
-            cancel: "[ Cancel ]",
-            confirm: "[ Regenerate ]",
-            confirmBusy: "[ Regenerating… ]",
-          }
-        : {
-            classify: "report · regenerate with supplement",
-            classifyRight: "// regenerate",
-            title: "Add a perspective",
-            metaPrefix: "// Current report",
-            placeholder: "Describe an angle you want the chair to additionally consider. For example:\n· Bring in a commercial-viability lens\n· Center the experience of women users\n· Stretch the time window to 5 years",
-            hint: "The new perspective will be woven through the existing Findings, Recommendations, and New Questions sections — not added as a separate section.",
-            cancel: "[ Cancel ]",
-            confirm: "[ Regenerate ]",
-            confirmBusy: "[ Regenerating… ]",
-          };
+      // System UI · always English. Supplement-overlay chrome.
+      const t = {
+        classify: "report · regenerate with supplement",
+        classifyRight: "// regenerate",
+        title: "Add a perspective",
+        metaPrefix: "// Current report",
+        placeholder: "Describe an angle you want the chair to additionally consider. For example:\n· Bring in a commercial-viability lens\n· Center the experience of women users\n· Stretch the time window to 5 years",
+        hint: "The new perspective will be woven through the existing Findings, Recommendations, and New Questions sections — not added as a separate section.",
+        cancel: "[ Cancel ]",
+        confirm: "[ Regenerate ]",
+        confirmBusy: "[ Regenerating… ]",
+      };
+      // Default the picker to the user's last picked mode — same
+      // behaviour as the adjourn (Generate) flow, so the picker reads
+      // consistently across both surfaces. The parent brief's mode is
+      // available if needed, but the user's most recent explicit
+      // choice wins.
+      const defaultMode = this.lastBriefMode();
       const html = `
         <div class="supplement-overlay" id="supplement-overlay" role="dialog" aria-modal="true">
           <div class="supplement-backdrop" data-supplement-close></div>
@@ -1922,6 +2147,7 @@
             <div class="supplement-body">
               <textarea class="supplement-input" data-supplement-input rows="6" placeholder="${this.escape(t.placeholder)}"></textarea>
               <p class="supplement-hint">${this.escape(t.hint)}</p>
+              ${this.renderBriefModePicker(defaultMode)}
             </div>
             <footer class="supplement-foot">
               <button type="button" class="supplement-cancel" data-supplement-close>${this.escape(t.cancel)}</button>
@@ -1972,31 +2198,19 @@
       if (!this.currentRoomId || !this.currentRoom) return;
       if (this.currentRoom.status !== "paused") return;
       this.closePausedSupplementOverlay();
-      const lang = this.composerLanguage();
-      const t = lang === "zh"
-        ? {
-            classify: "room · 暂停时补充",
-            classifyRight: "// queued first",
-            title: "补充一个观点",
-            metaPrefix: "// 当前房间",
-            placeholder: "想补一个观点 · 一个想再追问的细节 · 一个让董事们重新考虑的角度。\n\n会立即作为你的发言进入对话；点击 [ Resume ] 后，董事们会先看到这条再继续。",
-            hint: "暂停期间的补充会以你的身份立即出现在对话里，原本的发言队列不变；恢复后队首董事将带着这条补充开口。",
-            cancel: "[ Cancel ]",
-            confirm: "[ Add to chat ]",
-            confirmBusy: "[ Posting… ]",
-          }
-        : {
-            classify: "room · paused supplement",
-            classifyRight: "// queued first",
-            title: "Add a supplemental input",
-            metaPrefix: "// Current room",
-            placeholder: "Drop in an extra thought, a follow-up question, or an angle you'd like the board to take into account.\n\nIt lands in the chat as your message right now; when you hit [ Resume ], the next director picks up with this in front of them.",
-            hint: "Posted while paused, the supplement lands as your message immediately; the saved speaker queue is untouched. After resume, the next director responds with the supplement first.",
-            cancel: "[ Cancel ]",
-            confirm: "[ Add to chat ]",
-            confirmBusy: "[ Posting… ]",
-          };
-      const subject = (this.currentRoom.subject || "").trim() || (lang === "zh" ? "(无主题)" : "(no subject)");
+      // System UI · always English. Paused-supplement overlay chrome.
+      const t = {
+        classify: "room · paused supplement",
+        classifyRight: "// queued first",
+        title: "Add a supplemental input",
+        metaPrefix: "// Current room",
+        placeholder: "Drop in an extra thought, a follow-up question, or an angle you'd like the board to take into account.\n\nIt lands in the chat as your message right now; when you hit [ Resume ], the next director picks up with this in front of them.",
+        hint: "Posted while paused, the supplement lands as your message immediately; the saved speaker queue is untouched. After resume, the next director responds with the supplement first.",
+        cancel: "[ Cancel ]",
+        confirm: "[ Add to chat ]",
+        confirmBusy: "[ Posting… ]",
+      };
+      const subject = (this.currentRoom.subject || "").trim() || "(no subject)";
       const html = `
         <div class="supplement-overlay" id="paused-supplement-overlay" role="dialog" aria-modal="true">
           <div class="supplement-backdrop" data-paused-supplement-close></div>
@@ -2160,14 +2374,13 @@
             briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
             noBrief: "no brief filed",
           };
-
       const room = this.currentRoom;
       const briefCount = Array.isArray(this.currentBriefs) ? this.currentBriefs.length : 0;
       const briefLine = briefCount > 0 ? t.briefsCount(briefCount) : t.noBrief;
       const adjournedLine = room.adjournedAt
         ? `${t.adjournedAtPrefix} ${this.timeFmt(room.adjournedAt)}`
         : "";
-      const subjectShort = (room.subject || "(no subject)").slice(0, 140);
+      const subjectFull = room.subject || "(no subject)";
 
       // Tone + intensity inherit from parent. Trigger uses the same
       // `.cmp-dd` markup as the new-room composer's toolbar buttons —
@@ -2198,7 +2411,6 @@
         directorIds: [],
         autoPick: true,
         parentDirectorIds: parentDirectorIds.slice(),
-        lang,
       };
 
       const html = `
@@ -2218,8 +2430,11 @@
             </header>
             <div class="supplement-body">
               <div class="followup-parent-card">
-                <div class="followup-parent-subject">${this.escape(subjectShort)}</div>
-                <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
+                <div class="followup-parent-subject is-clamped" data-followup-subject-text>${this.escape(subjectFull)}</div>
+                <div class="followup-parent-meta-row">
+                  <button type="button" class="followup-parent-subject-toggle" data-followup-subject-toggle hidden>Show more</button>
+                  <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
+                </div>
                 <div class="followup-parent-note">${this.escape(t.contextNote)}</div>
               </div>
 
@@ -2293,6 +2508,24 @@
       // so listeners are GC'd when the modal is removed.
       const overlayEl = document.getElementById("followup-overlay");
       if (overlayEl) {
+        // Subject clamp · long parent-room subjects clamp to 2 lines
+        // by default. Post-mount measurement reveals the Show more /
+        // less toggle only when the text actually overflows. rAF
+        // settles initial layout so scrollHeight is meaningful.
+        const subjEl = overlayEl.querySelector("[data-followup-subject-text]");
+        const subjBtn = overlayEl.querySelector("[data-followup-subject-toggle]");
+        if (subjEl && subjBtn) {
+          requestAnimationFrame(() => {
+            if (subjEl.scrollHeight > subjEl.clientHeight + 1) {
+              subjBtn.hidden = false;
+            }
+          });
+          subjBtn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            const expanded = subjEl.classList.toggle("is-clamped") === false;
+            subjBtn.textContent = expanded ? "Show less" : "Show more";
+          });
+        }
         const sameCheckbox = overlayEl.querySelector("[data-followup-same-cast]");
         const castBtn = overlayEl.querySelector("[data-followup-cast-btn]");
         if (sameCheckbox && castBtn) {
@@ -2362,7 +2595,6 @@
       const btn = document.querySelector("[data-followup-cast-btn]");
       if (!btn || !this._followupCastState) return;
       const state = this._followupCastState;
-      const lang = state.lang || "en";
 
       btn.classList.remove("cmp-cast-btn-auto");
       btn.removeAttribute("data-cast-mode");
@@ -2379,9 +2611,8 @@
         const avatars = visible.map((a) =>
           `<img class="cmp-cast-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}" title="${this.escape(a.name || "")}">`,
         ).join("");
-        const count = lang === "zh"
-          ? `${parents.length} 位 · 沿用上一场`
-          : `${parents.length} · same as last`;
+        // System UI · always English (cast button chrome).
+        const count = `${parents.length} · same as last`;
         btn.innerHTML =
           `<span class="cmp-cast-stack">${avatars}${overflow > 0 ? `<span class="cmp-cast-more">+${overflow}</span>` : ""}</span>` +
           `<span class="cmp-cast-count">${this.escape(count)}</span>`;
@@ -2397,8 +2628,9 @@
         // Auto-pick · default
         btn.classList.add("cmp-cast-btn-auto");
         btn.setAttribute("data-cast-mode", "auto");
-        const autoKey = lang === "zh" ? "directors" : "directors";
-        const autoVal = lang === "zh" ? "自动挑选" : "auto-pick";
+        // System UI · always English (cast button chrome).
+        const autoKey = "directors";
+        const autoVal = "auto-pick";
         btn.innerHTML =
           `<span class="cmp-cast-stack cmp-cast-stack-auto"><span class="cmp-cast-auto-mark">✦</span></span>` +
           `<span class="cmp-cast-count cmp-cast-auto-label">` +
@@ -2413,9 +2645,8 @@
       const avatars = visible.map((a) =>
         `<img class="cmp-cast-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}" title="${this.escape(a.name || "")}">`,
       ).join("");
-      const countText = lang === "zh"
-        ? `${picked.length} 位董事`
-        : `${picked.length} director${picked.length === 1 ? "" : "s"}`;
+      // System UI · always English (cast button chrome count).
+      const countText = `${picked.length} director${picked.length === 1 ? "" : "s"}`;
       btn.setAttribute("data-cast-mode", "manual");
       btn.innerHTML =
         `<span class="cmp-cast-stack">${avatars}${overflow > 0 ? `<span class="cmp-cast-more">+${overflow}</span>` : ""}<span class="cmp-cast-add" aria-hidden="true">+</span></span>` +
@@ -2431,14 +2662,12 @@
       if (!anchorBtn || !this._followupCastState) return;
       if (this._followupCastState.sameAsLast) return;   // disabled when "same cast" is on
       const state = this._followupCastState;
-      const lang = state.lang || "en";
       const dirs = (this.agents || [])
         .filter((a) => a.roleKind !== "moderator")
         .slice()
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      const t = lang === "zh"
-        ? { title: "选择董事", hint: "建议 2-4 位", info: "查看资料" }
-        : { title: "Pick directors", hint: "2-4 recommended", info: "View profile" };
+      // System UI · always English (director picker chrome).
+      const t = { title: "Pick directors", hint: "2-4 recommended", info: "View profile" };
       const rows = dirs.map((a) => {
         const checked = state.directorIds.includes(a.id);
         return `
@@ -2608,6 +2837,17 @@
         if (input) input.focus();
         return;
       }
+      // Read the report-mode picker (research-note / bento). The
+      // overlay defaults the picker to the existing brief's mode, so a
+      // plain "regenerate with this perspective" keeps the same
+      // format. Persisting the choice keeps the picker stable next
+      // time. Server-side the same `/api/rooms/:id/brief` route reads
+      // `mode` regardless of whether the call came from supplement or
+      // generate-brief, so no backend change is needed.
+      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      const v = briefModeInput && briefModeInput.value;
+      const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
+      this.saveLastBriefMode(briefMode);
       // Frontend in-flight guard · without this, a slow server roundtrip
       // gives the user time to click confirm twice (or to close+reopen
       // the overlay and click again). Each click was firing its own POST,
@@ -2626,7 +2866,7 @@
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ supplement: text }),
+            body: JSON.stringify({ supplement: text, mode: briefMode }),
           },
         );
         if (!r.ok) {
@@ -2657,7 +2897,7 @@
      *  whether streaming is actually in flight. */
     isBriefPlaceholder(brief, room) {
       if (!brief) return false;
-      if (brief.bodyMd && brief.bodyMd.trim()) return false;
+      if (this.briefHasBody(brief)) return false;
       if (!room) return true;
       // Title matches the seed (room subject) → never got an updated title.
       // Or title is the literal "Generating…" placeholder.
@@ -2786,23 +3026,14 @@
     async deleteBriefAt(briefId) {
       if (!briefId) return;
       const target = (this.currentBriefs || []).find((b) => b.id === briefId);
-      const lang = (this.currentBrief?.language === "zh" || (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject))) ? "zh" : "en";
-      // If the target brief is still being generated, the confirmation
-      // copy is sharper · the user is also cancelling an in-flight
-      // pipeline (LLM calls actively burning tokens), not just removing
-      // a finished row. Server aborts the upstream fetches when we DELETE.
-      const isStillGenerating = !!(target && (!target.bodyMd || !target.bodyMd.trim()));
-      const confirmText = lang === "zh"
-        ? (isStillGenerating
-            ? "这份报告还在生成中。删除会立即停止生成并删除这份报告，此操作不可恢复。"
-            : (target?.supplement
-                ? `删除这份"${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}"补充视角的报告？此操作不可恢复。`
-                : "删除这份报告？此操作不可恢复。"))
-        : (isStillGenerating
-            ? "This report is still generating. Deleting will stop the generation and remove the report. This can't be undone."
-            : (target?.supplement
-                ? `Delete the "${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}" version? This can't be undone.`
-                : "Delete this report? This can't be undone."));
+      // System UI · always English. Confirm + alert dialogs are app
+      // chrome and stay fixed-string regardless of brief language.
+      const isStillGenerating = !!(target && !this.briefHasBody(target));
+      const confirmText = isStillGenerating
+        ? "This report is still generating. Deleting will stop the generation and remove the report. This can't be undone."
+        : (target?.supplement
+            ? `Delete the "${target.supplement.trim().slice(0, 20)}${target.supplement.length > 20 ? "…" : ""}" version? This can't be undone.`
+            : "Delete this report? This can't be undone.");
       if (!confirm(confirmText)) return;
       try {
         const r = await fetch("/api/briefs/" + encodeURIComponent(briefId), { method: "DELETE" });
@@ -2811,7 +3042,7 @@
           throw new Error(e.error || ("HTTP " + r.status));
         }
       } catch (e) {
-        alert((lang === "zh" ? "删除失败：" : "Delete failed: ") + (e && e.message ? e.message : e));
+        alert("Delete failed: " + (e && e.message ? e.message : e));
         return;
       }
       // Patch local state · remove the deleted brief, refresh active.
@@ -2899,17 +3130,23 @@
       const mode = overlay.getAttribute("data-adjourn-mode") || "adjourn";
       const isGen = mode === "generate-brief";
       const skipPicked = overlay.querySelector(".adjourn-skip-btn.picked") !== null;
+      // Read the report-mode picker (research-note / bento). Persist the
+      // choice so the picker defaults to the same option next time.
+      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      const v = briefModeInput && briefModeInput.value;
+      const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
+      this.saveLastBriefMode(briefMode);
       const btn = overlay.querySelector("[data-adjourn-confirm]");
       const origLabel = isGen ? this._t("adj_confirm_generate") : this._t("adj_confirm_file");
       const busyLabel = isGen ? this._t("adj_busy_generate") : this._t("adj_busy_adjourn");
       if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
       try {
         if (isGen) {
-          await this.generateBriefForAdjournedRoom();
+          await this.generateBriefForAdjournedRoom(briefMode);
         } else if (skipPicked) {
           await this.adjournRoom({ skipBrief: true });
         } else {
-          await this.adjournRoom({});
+          await this.adjournRoom({ mode: briefMode });
         }
         this.closeAdjournOverlay();
       } catch (e) {
@@ -2922,8 +3159,9 @@
      *  whose user originally skipped the brief. Server emits the same
      *  brief-started / brief-token / brief-final SSE events as a normal
      *  adjourn, so the existing handlers in connectSSE handle the rest. */
-    async generateBriefForAdjournedRoom() {
+    async generateBriefForAdjournedRoom(mode) {
       if (!this.currentRoomId) return;
+      const briefMode = this.isStructuredBriefMode(mode) ? mode : "research-note";
       // Pre-flight · the brief writer is a 3-stage LLM pipeline (per-
       // director extract → composer → final write). All require a key.
       if (!(await this.requireModelKey())) return;
@@ -2932,7 +3170,7 @@
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: "{}",
+          body: JSON.stringify({ mode: briefMode }),
         },
       );
       if (!r.ok) {
@@ -3176,7 +3414,7 @@
     /** Spin up the countdown if conditions are met; otherwise cancel. */
     maybeStartContinueCountdown() {
       if (!this.canAutoContinue()) {
-        this.cancelContinueCountdown("not-idle");
+        this.cancelContinueCountdown();
         this.refreshContinueButton();
         return;
       }
@@ -3717,7 +3955,6 @@
               <div class="row-content">
                 <div class="row-top-line">
                   <span class="row-title">${this.escape(fullTitle)}</span>
-                  <span class="row-time">${this.escape(time)}</span>
                 </div>
                 <div class="row-subtitle">${status}${this.escape(r.subject || "")}</div>
               </div>
@@ -3826,6 +4063,47 @@
       this.composerMode = "room";
     },
 
+    /** Toggle the `isPinned` flag for an agent · the sidebar pin
+     *  button calls this. Persists to the server (PATCH /api/agents/:id
+     *  { isPinned }), updates local state in place, then re-renders
+     *  the sidebar so the row moves between the Pinned / Custom /
+     *  Core buckets. Optimistic with rollback on failure: we flip the
+     *  flag locally + repaint immediately, then revert if the PATCH
+     *  fails — no waiting on the round-trip for visible feedback. */
+    async togglePinAgent(agentId) {
+      if (!agentId) return;
+      const idx = (this.agents || []).findIndex((a) => a && a.id === agentId);
+      if (idx < 0) return;
+      const agent = this.agents[idx];
+      const prev = !!agent.isPinned;
+      const next = !prev;
+      // Optimistic flip · render immediately so the click feels instant.
+      agent.isPinned = next;
+      this.agentsById[agent.id] = agent;
+      this.renderSidebarAgents();
+      try {
+        const r = await fetch("/api/agents/" + encodeURIComponent(agentId), {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ isPinned: next }),
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        // Server returns the updated row · merge the canonical fields
+        // back in so any side-effect updates (updated_at, etc.) land.
+        const updated = await r.json();
+        if (updated && updated.id) {
+          this.agents[idx] = updated;
+          this.agentsById[updated.id] = updated;
+        }
+      } catch (e) {
+        // Rollback · keep the UI honest about persistence failure.
+        agent.isPinned = prev;
+        this.agentsById[agent.id] = agent;
+        this.renderSidebarAgents();
+        alert((e && e.message ? e.message : "pin failed") + " — try again.");
+      }
+    },
+
     /** Render the sidebar's Agents panel from the live agent catalog.
      *  Three buckets so the seeded directors keep their familiar
      *  groupings while user-created ones stack into a Custom section
@@ -3858,7 +4136,6 @@
               <div class="agent-row-content">
                 <div class="agent-row-top-line">
                   <span class="agent-row-title">${this.escape(a.name)}</span>
-                  <span class="agent-row-time">${this.escape(time)}</span>
                   ${pinBtn}
                 </div>
                 <div class="agent-row-subtitle">
@@ -3974,15 +4251,13 @@
     renderSidebarCounts() {
       const roomsCount = this.rooms.length;
       const agentsCount = this.agents.length;
-      const liveCount = this.rooms.filter((r) => r.status === "live").length;
 
       const r = document.querySelector('[data-sidebar-tab-count="rooms"]');
       if (r) r.textContent = String(roomsCount);
       const a = document.querySelector('[data-sidebar-tab-count="agents"]');
       if (a) a.textContent = String(agentsCount);
       const sum = document.querySelector("[data-sidebar-summary]");
-      if (sum) sum.textContent = this._t("sidebar_summary", { live: liveCount, agents: agentsCount });
-    },
+      if (sum) sum.textContent = this._t("sidebar_summary", { live: liveCount, agents: agentsCount });    },
 
     // ── Rendering · main view ─────────────────────────────────
     renderRoom() {
@@ -4016,7 +4291,8 @@
       if (existingBanner) existingBanner.remove();
       const parent = this.currentParentRef;
       if (chat && parent && parent.id) {
-        const labelText = lang === "zh" ? "// 跟进自" : "// following up";
+        // System UI · always English (banner chrome on the follow-up parent link).
+        const labelText = "// following up";
         const subject = (parent.subject || "(no subject)").trim();
         const banner = document.createElement("a");
         banner.href = "#";
@@ -4036,9 +4312,8 @@
       if (existingChildren) existingChildren.remove();
       const kids = Array.isArray(this.currentFollowUps) ? this.currentFollowUps : [];
       if (briefCard && kids.length > 0) {
-        const headLabel = lang === "zh"
-          ? `跟进会议 · ${kids.length}`
-          : `Follow-up rooms · ${kids.length}`;
+        // System UI · always English (sidebar / brief-card chrome head).
+        const headLabel = `Follow-up rooms · ${kids.length}`;
         const block = document.createElement("div");
         block.className = "followup-children";
         block.innerHTML = [
@@ -4173,8 +4448,7 @@
         valueEmpty: this._t("sa_value_empty"),
         voted: this._t("sa_voted"),
         seconded: this._t("sa_seconded"),
-        probed: this._t("sa_probed"),
-      };
+        probed: this._t("sa_probed"),      };
 
       const fmtTokens = (n) => {
         if (!Number.isFinite(n) || n <= 0) return "0";
@@ -4273,10 +4547,27 @@
         stats.probeCount > 0   ? `<span class="sa-chip"><span class="sa-chip-mark">✎</span>${stats.probeCount} ${this.escape(t.probed)}</span>` : "",
       ].filter(Boolean).join("");
 
+      // Cap default-visible upvoted points at 2 · the rest collapse
+      // behind a [+ N more] toggle. Long lists were dominating the
+      // analytics tile; capping keeps the section as a tight strip
+      // and lets the user opt in.
+      const VALUE_PREVIEW_CAP = 2;
+      // System UI · always English (the surrounding tile content can
+      // still localize via `t`, but toggle chrome is fixed-string).
+      const moreLabel = (n) => `[ + show ${n} more ]`;
+      const lessLabel = "[ collapse ]";
       const upvotedHtml = stats.upvotedPoints.length > 0
-        ? `<ul class="sa-points">${stats.upvotedPoints.map((p) =>
-            `<li class="sa-point"><span class="sa-point-mark">▲</span><span class="sa-point-body">${this.escape(p.body)}</span></li>`
-          ).join("")}</ul>`
+        ? (() => {
+            const items = stats.upvotedPoints.map((p, i) => {
+              const cls = i >= VALUE_PREVIEW_CAP ? "sa-point sa-point-extra" : "sa-point";
+              return `<li class="${cls}"><span class="sa-point-mark">▲</span><span class="sa-point-body">${this.escape(p.body)}</span></li>`;
+            }).join("");
+            const overflow = stats.upvotedPoints.length - VALUE_PREVIEW_CAP;
+            const toggle = overflow > 0
+              ? `<button type="button" class="sa-points-toggle" data-sa-toggle aria-expanded="false" data-more-label="${this.escape(moreLabel(overflow))}" data-less-label="${this.escape(lessLabel)}">${this.escape(moreLabel(overflow))}</button>`
+              : "";
+            return `<ul class="sa-points" data-sa-points>${items}</ul>${toggle}`;
+          })()
         : "";
       const valueBlock = (valueChips || upvotedHtml)
         ? `
@@ -4348,6 +4639,21 @@
         briefCard.insertBefore(block, briefInner);
       } else {
         briefCard.parentNode.insertBefore(block, briefCard);
+      }
+
+      // Wire the [+ show N more] toggle for the upvoted points list.
+      const toggleBtn = block.querySelector("[data-sa-toggle]");
+      if (toggleBtn) {
+        const list = block.querySelector("[data-sa-points]");
+        toggleBtn.addEventListener("click", () => {
+          const expanded = toggleBtn.getAttribute("aria-expanded") === "true";
+          const next = !expanded;
+          toggleBtn.setAttribute("aria-expanded", String(next));
+          if (list) list.classList.toggle("sa-points-expanded", next);
+          toggleBtn.textContent = next
+            ? toggleBtn.dataset.lessLabel
+            : toggleBtn.dataset.moreLabel;
+        });
       }
     },
 
@@ -4512,7 +4818,44 @@
       if (brief) brief.innerHTML = "";
 
       const chatScroller = document.querySelector(".chat");
-      if (chatScroller) chatScroller.scrollTop = 0;
+      if (chatScroller) {
+        chatScroller.scrollTop = 0;
+        // Mark the chat as hosting a composer so the CSS rule
+        // `.chat.chat--composer` flips it to a grid with
+        // `align-content: center` — vertically centring the
+        // composer when it fits the viewport. When .cmp's natural
+        // height > .chat height we also add `.chat--composer-overflow`
+        // (via updateComposerOverflow) which switches to a layout
+        // where the .cmp-fold (hero + input) is min-height: 100% of
+        // the chat with content centred inside, and .cmp-starters
+        // flow below as scrollable extras. Removed in renderChat()
+        // when real chat messages take over.
+        chatScroller.classList.add("chat--composer");
+        this.updateComposerOverflow();
+      }
+    },
+
+    /** Toggle `.chat--composer-overflow` on the chat scroller based on
+     *  whether the composer's natural height exceeds the visible chat
+     *  area. In overflow mode the hero (`.cmp-fold`) anchors at the
+     *  viewport centre and `.cmp-starters` flow below the fold;
+     *  without overflow, the parent's `align-content: center` keeps
+     *  the whole composer block centred. Called after composer render
+     *  and on window resize. */
+    updateComposerOverflow() {
+      const chat = document.querySelector(".chat.chat--composer");
+      if (!chat) return;
+      const cmp = chat.querySelector(".cmp");
+      if (!cmp) return;
+      requestAnimationFrame(() => {
+        chat.classList.remove("chat--composer-overflow");
+        const overflows = cmp.scrollHeight > chat.clientHeight + 1;
+        chat.classList.toggle("chat--composer-overflow", overflows);
+      });
+      if (!this._composerResizeAttached) {
+        this._composerResizeAttached = true;
+        window.addEventListener("resize", () => this.updateComposerOverflow());
+      }
     },
 
     /** Open the All Reports page · cross-room brief index in a card
@@ -4529,6 +4872,12 @@
         try { this._reportsLoadObserver.disconnect(); } catch { /* noop */ }
         this._reportsLoadObserver = null;
       }
+      // The floating sidebar-expand button is gated on `html.no-room`.
+      // Without setting it here, a user who collapses the sidebar
+      // while on All Reports loses access to the expand control —
+      // they have to navigate back to a room view to recover. Same
+      // reasoning for openAllNotes / openAgentProfile.
+      document.documentElement.classList.add("no-room");
       // If we're inside a room or on the agent profile, leave them.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -4769,8 +5118,7 @@
         earlier: this._t("rep_filter_earlier"),
       };
       const filterCopyTitle = filterLabels[activeFilter] || filterLabels.all;
-      const groupsHtml = groups.length === 0
-        ? `
+      const groupsHtml = groups.length === 0        ? `
           <div class="reports-list-empty">
             <!-- Notice text · explains the empty window. -->
             <div class="reports-list-empty-text">
@@ -4794,14 +5142,11 @@
             ` : ""}
           </div>
         `
-        : groups.map((g) => `
-            <div class="reports-group">
-              <div class="reports-group-label">${this.escape(g.label)}</div>
-              <ul class="reports-list">
-                ${g.items.map((b) => this.renderReportItemHtml(b)).join("")}
-              </ul>
-            </div>
-          `).join("");
+        : `
+            <ul class="reports-list">
+              ${visibleFiltered.map((b) => this.renderReportItemHtml(b)).join("")}
+            </ul>
+          `;
 
       // Bottom sentinel · IntersectionObserver target. Renders only
       // when there's more to load. The "+ N more" hint doubles as a
@@ -4891,11 +5236,16 @@
       }
 
       // Scroll path · IntersectionObserver fires when the sentinel
-      // crosses the viewport. `rootMargin: 200px` triggers slightly
-      // before the actual edge so the next batch is rendered before
-      // the user reaches the bottom — feels seamless rather than
-      // chunked.
+      // crosses the viewport. The All Reports view uses an inner
+      // scroll container (`.main-view[data-main-view="reports"]` has
+      // `overflow-y: auto`), so the document viewport itself never
+      // scrolls. The observer's `root` MUST point at the inner
+      // scroller — otherwise the sentinel never intersects and
+      // infinite scroll silently does nothing. `rootMargin: 200px`
+      // triggers slightly before the actual edge so the next batch
+      // is rendered before the user reaches the bottom.
       try {
+        const scrollRoot = document.querySelector('.main-view[data-main-view="reports"]') || null;
         this._reportsLoadObserver = new IntersectionObserver(
           (entries) => {
             for (const entry of entries) {
@@ -4905,7 +5255,7 @@
               }
             }
           },
-          { rootMargin: "200px 0px 200px 0px", threshold: 0.01 },
+          { root: scrollRoot, rootMargin: "200px 0px 200px 0px", threshold: 0.01 },
         );
         this._reportsLoadObserver.observe(sentinel);
       } catch { /* IntersectionObserver unavailable · click path remains */ }
@@ -4923,16 +5273,34 @@
       }
     },
 
-    /** Single reading-list row · room kicker, title, judgement excerpt,
+    /** Single reading-list row · room kicker, title, subtitle excerpt,
      *  meta tail. No card chrome — entries are separated by a hairline
-     *  inside the list. */
+     *  inside the list.
+     *
+     *  Subtitle source by mode:
+     *    · Report     → bodyJson.bottomLine.judgement
+     *    · Magazine   → bodyJson.kicker
+     *    · Newspaper  → bodyJson.kicker
+     *  All three fall back to a cleaned-up first content paragraph
+     *  from bodyMd if the structured field is missing. */
     renderReportItemHtml(b) {
       const json = b.bodyJson || {};
       const bottomLine = json.bottomLine || {};
-      const judgement = (bottomLine.judgement || "").trim() || (b.bodyMd || "").slice(0, 240);
+      // Pull the right subtitle for this mode. Magazine / newspaper
+      // carry their deck/lede text in `kicker`; Report carries it
+      // in `bottomLine.judgement`. Either may be missing on legacy
+      // / partial briefs — fall back to the first prose paragraph
+      // from bodyMd.
+      const subtitle = (
+        (bottomLine.judgement || "").trim() ||
+        (json.kicker || "").trim() ||
+        this._extractBriefExcerpt(b.bodyMd) ||
+        ""
+      );
       const time = this.relTime(b.createdAt) || "";
       const roomLabel = b.roomName || b.roomSubject || "—";
       const roomNumLabel = b.roomNumber != null ? `#${String(b.roomNumber).padStart(3, "0")}` : "";
+      const typeLabel = this.briefModeLabel(b);
       const findingsCount = Array.isArray(json.headlineFindings) ? json.headlineFindings.length : 0;
       const positionsCount = Array.isArray(json.positions) ? json.positions.length : 0;
       const metaParts = [];
@@ -4949,14 +5317,43 @@
               <span class="reports-item-num">${this.escape(roomNumLabel)}</span>
               <span class="reports-item-sep">·</span>
               <span class="reports-item-room">${this.escape(roomLabel)}</span>
+              <span class="reports-item-sep">·</span>
+              <span class="reports-item-type" data-mode="${this.escape(((b && b.mode) || "research-note").toLowerCase())}">${this.escape(typeLabel)}</span>
               <span class="reports-item-time">${this.escape(time)}</span>
             </div>
             <h3 class="reports-item-title">${this.escape(b.title || "Untitled brief")}</h3>
-            ${judgement ? `<p class="reports-item-judgement">${this.escape(judgement)}</p>` : ""}
+            ${subtitle ? `<p class="reports-item-judgement">${this.escape(subtitle)}</p>` : ""}
             ${metaHtml}
           </a>
         </li>
       `;
+    },
+
+    /** Pull the first prose paragraph from a brief's bodyMd as a
+     *  subtitle fallback. Skips markdown headers, code fences, table
+     *  rows, list markers, blockquotes — finds the first content line
+     *  that reads as prose. Strips inline markdown (bold/italic/code/
+     *  link syntax) so the excerpt reads as plain text. */
+    _extractBriefExcerpt(md) {
+      if (!md || typeof md !== "string") return "";
+      const lines = md.split("\n");
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        if (t.startsWith("#")) continue;       // markdown heading
+        if (t.startsWith("```")) continue;     // code fence
+        if (t.startsWith("|") || /^[-=]{3,}$/.test(t)) continue; // table / hr
+        if (t.startsWith("> ")) continue;      // blockquote
+        if (/^[-*+]\s/.test(t)) continue;      // list item
+        if (/^\d+\.\s/.test(t)) continue;      // ordered list item
+        const cleaned = t
+          .replace(/\*\*([^*]+)\*\*/g, "$1")
+          .replace(/\*([^*]+)\*/g, "$1")
+          .replace(/`([^`]+)`/g, "$1")
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+        if (cleaned.length >= 12) return cleaned.slice(0, 240);
+      }
+      return md.slice(0, 240).replace(/\s+/g, " ").trim();
     },
 
     // ── All Notes view · chairman's notes index ───────────────
@@ -4965,6 +5362,9 @@
      *  Pulls the live list and renders three time-bucket sections
      *  (Today / This Week / Earlier). */
     async openAllNotes() {
+      // Set the no-room flag for the same reason openAllReports does
+      // — the floating sidebar-expand button is gated on this class.
+      document.documentElement.classList.add("no-room");
       // Same view-leaving routine as openAllReports.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -5093,8 +5493,7 @@
             <div class="notes-empty-mark">○</div>
             <div class="notes-empty-title">${this.escape(this._t("notes_empty_title"))}</div>
             <div class="notes-empty-deck">
-              ${this._t("notes_empty_deck")}
-            </div>
+              ${this._t("notes_empty_deck")}            </div>
           </div>
         `;
         return;
@@ -5133,8 +5532,7 @@
         week: this._t("rep_filter_week"),
         earlier: this._t("rep_filter_earlier"),
       };
-      const groupsHtml = groups.length === 0
-        ? `
+      const groupsHtml = groups.length === 0        ? `
           <div class="notes-list-empty">
             <div class="notes-empty-mark">○</div>
             <div class="notes-empty-title">${this.escape(this._t("notes_empty_window", { window: filterLabels[activeFilter] || filterLabels.all }))}</div>
@@ -5147,17 +5545,11 @@
             ` : ""}
           </div>
         `
-        : groups.map((g) => `
-          <section class="notes-group">
-            <div class="notes-group-head">
-              <span class="notes-group-label">${this.escape(g.label)}</span>
-              <span class="notes-group-count">${g.items.length}</span>
-            </div>
-            <ul class="notes-list">
-              ${g.items.map((n) => this.renderNoteItemHtml(n)).join("")}
-            </ul>
-          </section>
-        `).join("");
+        : `
+          <ul class="notes-list">
+            ${filtered.map((n) => this.renderNoteItemHtml(n)).join("")}
+          </ul>
+        `;
 
       const totalLabel =
         total === 1 ? this._t("notes_one") : this._t("notes_many", { n: total });
@@ -5198,9 +5590,12 @@
       const author = n.authorName || this._t("notes_director_fallback");
       // The jump link uses the room's hash route + the note id as a
       // fragment-style query so openRoom can scroll to + flash the
-      // matching span (Step 5 wires the receiver). For now the link
-      // just navigates · the in-room overlay step adds the scroll.
+      // matching span. The delete button sits as a SIBLING of the
+      // anchor (inside the .notes-item) so its click never bubbles
+      // through the navigation link — same pattern as session-row
+      // delete in the rooms sidebar.
       const href = `#/r/${this.escape(n.roomId)}?note=${this.escape(n.id)}`;
+      const deleteTitle = "Delete this note";
       return `
         <li class="notes-item" data-note-id="${this.escape(n.id)}">
           <a class="notes-item-link" href="${href}" data-note-jump="${this.escape(n.id)}" data-note-room="${this.escape(n.roomId)}">
@@ -5217,8 +5612,37 @@
               n.contextAfter ? `<span class="note-context note-context-after">${this.escape(n.contextAfter)}</span>` : ""
             }</p>
           </a>
+          <button type="button" class="notes-item-delete" data-note-delete title="${this.escape(deleteTitle)}" aria-label="${this.escape(deleteTitle)}">✕</button>
         </li>
       `;
+    },
+
+    /** DELETE /api/notes/:id · drops a saved excerpt from the index.
+     *  Confirmation is light because the action is reversible only by
+     *  re-saving the same passage; we keep the prompt as a single
+     *  click-confirm rather than a full overlay. */
+    async deleteNoteAt(id) {
+      if (!id) return;
+      if (!confirm("Delete this note? You can save it again from the room.")) return;
+      try {
+        const r = await fetch("/api/notes/" + encodeURIComponent(id), { method: "DELETE" });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          alert("Delete failed: " + (j.error || r.statusText));
+          return;
+        }
+      } catch (e) {
+        alert("Delete failed: " + (e && e.message ? e.message : e));
+        return;
+      }
+      // Patch local cache so the immediate re-render reflects the
+      // delete without a refetch round-trip. The sidebar count badge
+      // re-fetches via the /count endpoint.
+      if (Array.isArray(this._notesCache)) {
+        this._notesCache = this._notesCache.filter((n) => n && n.id !== id);
+        this.renderNotesPage(this._notesCache);
+      }
+      this.refreshNotesCount();
     },
 
     /** Refresh the sidebar count badge · called on boot, after
@@ -5606,10 +6030,12 @@
       // of which composer we're switching to.
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
-      // If the URL still carries the All-Reports hash from a prior
-      // navigation, drop it — otherwise refresh would bounce the user
-      // back to the reports view.
-      if (/^#\/reports$/i.test(location.hash || "")) {
+      // If the URL still carries an All-Reports / All-Notes hash from
+      // a prior navigation, drop it — otherwise refresh would bounce
+      // the user back to that view (handleRoute matches the hash on
+      // boot and beats the sidebar-restore path that would otherwise
+      // honour ROOMS_KEY="new").
+      if (/^#\/(reports|notes)$/i.test(location.hash || "")) {
         try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
       }
 
@@ -5642,31 +6068,23 @@
       const userName = (this.prefs?.name || "you").trim() || "you";
       const lang = this.composerLanguage();
       const greeting = this.composerGreeting(lang, userName);
-      const t = lang === "zh"
-        ? {
-            greet: greeting,
-            prompt: "今天想和董事会聊点什么？",
-            placeholder: "一个还没把握的想法 · 一个一直绕开的决定 · 一个想被压力测试的判断",
-            convene: "Convene",
-            tuneLabel: "tune",
-            starterLabel: "starter",
-            starterCaption: "或者试一个起手式",
-            pickerLabel: "选择董事",
-            directorsLabel: (n) => `${n} 位董事`,
-            directorsAdd: "添加",
-          }
-        : {
-            greet: greeting,
-            prompt: "What's on your mind today?",
-            placeholder: "an idea you're not sure about · a decision you keep avoiding · a thesis you want stress-tested",
-            convene: "Convene",
-            tuneLabel: "tune",
-            starterLabel: "starter",
-            starterCaption: "or try a starter",
-            pickerLabel: "Pick directors",
-            directorsLabel: (n) => `${n} director${n === 1 ? "" : "s"}`,
-            directorsAdd: "add",
-          };
+      // System UI · always English. Composer chrome (prompt /
+      // placeholder / button labels) doesn't follow the brief
+      // language. The brief content + chair/director output still
+      // honours the user's input language; only the app shell is
+      // fixed-string.
+      const t = {
+        greet: greeting,
+        prompt: "What's on your mind today?",
+        placeholder: "An idea you're not sure about, a decision you keep avoiding, or a thesis you want stress-tested. e.g. Should we lean into mid-market or stay enterprise-only? Or: What's the strongest argument against shipping the self-serve tier next quarter?",
+        convene: "Convene",
+        tuneLabel: "tune",
+        starterLabel: "starter",
+        starterCaption: "or try a starter",
+        pickerLabel: "Pick directors",
+        directorsLabel: (n) => `${n} director${n === 1 ? "" : "s"}`,
+        directorsAdd: "add",
+      };
 
       // Cast slot · two visual modes:
       //   1. Auto-pick (default · empty manual selection): chip
@@ -5685,16 +6103,15 @@
         // Label uses "directors" (not "cast") so the chip's purpose
         // is unambiguous: it's the slot that picks the boardroom's
         // director agents. Tooltip carries the long-form explanation.
-        const autoTip = lang === "zh"
-          ? "Convene 时由 chair 根据主题挑选 3 位董事 · 点击手动选择"
-          : "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
+        // System UI · always English (auto-pick chip tooltip).
+        const autoTip = "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
         castInner = `
           <span class="cmp-cast-stack cmp-cast-stack-auto" data-cast-auto title="${this.escape(autoTip)}">
             <span class="cmp-cast-auto-mark">✦</span>
           </span>
           <span class="cmp-cast-count cmp-cast-auto-label" title="${this.escape(autoTip)}">
-            <span class="cmp-cast-auto-key">${lang === "zh" ? "董事" : "directors"}</span>
-            <span class="cmp-cast-auto-val">${lang === "zh" ? "自动挑选" : "auto-pick"}</span>
+            <span class="cmp-cast-auto-key">directors</span>
+            <span class="cmp-cast-auto-val">auto-pick</span>
           </span>
         `;
       } else {
@@ -5705,7 +6122,7 @@
         `).join("");
         const dirCount = dirObjs.length
           ? `<span class="cmp-cast-count">${this.escape(t.directorsLabel(dirObjs.length))}</span>`
-          : `<span class="cmp-cast-count cmp-cast-empty">${lang === "zh" ? "未选董事" : "no directors"}</span>`;
+          : `<span class="cmp-cast-count cmp-cast-empty">no directors</span>`;
         castInner = `
           <span class="cmp-cast-stack">
             ${dirAvatars}
@@ -5721,7 +6138,6 @@
       // unmistakeably a select) without taking up visual real estate.
       const toneLbl = this._t("cmp_tone_label");
       const intensityLbl = this._t("cmp_intensity_label");
-
       // Starter grid · 2-col responsive cards.
       const starters = Array.isArray(window.BOARDROOM_STARTERS) ? window.BOARDROOM_STARTERS : [];
       const starterCards = starters.map((q, idx) => {
@@ -5791,7 +6207,9 @@
     },
 
     /** Time-of-day greeting like "// good evening, Kay" / "// 晚上好，Kay". */
-    composerGreeting(lang, name) {
+    composerGreeting(_lang, name) {
+      // System UI · always English. Greeting is part of the composer
+      // chrome; the brief language doesn't change the app's voice.
       const h = new Date().getHours();
       const isZh = lang === "zh";
       let key;
@@ -5806,8 +6224,7 @@
       else if (h < 12) key = "greet_en_1";
       else if (h < 18) key = "greet_en_2";
       else key = "greet_en_3";
-      return this._t(key, { name });
-    },
+      return this._t(key, { name });    },
 
     composerLanguage() {
       try {
@@ -5980,7 +6397,7 @@
      *  user can edit before submitting. */
     applyAgentStarter(idx) {
       const lang = this.composerLanguage();
-      const list = lang === "zh" ? this.AGENT_STARTERS_ZH : this.AGENT_STARTERS_EN;
+      const list = this.AGENT_STARTERS_EN;
       const item = list[idx];
       if (!item) return;
       const ta = document.querySelector("[data-agent-composer-desc]");
@@ -6007,39 +6424,27 @@
       { key: "voice",       label: "Picking the model voice",           startSec: 28, sub: ["matching depth to role"] },
       { key: "polish",      label: "Polishing",                         startSec: 31, sub: ["clamping lengths", "final tightening"] },
     ],
-    AGENT_GEN_STAGES_ZH_BASE: [
-      { key: "lineage",     label: "勾画智识画像",   startSec: 0,  sub: ["梳理思想脉络", "标记反对的传统", "挑出具体引用"] },
-      { key: "imagine",     label: "构思角色",       startSec: 8,  sub: ["勾画语气", "拟定立场", "确定视角"] },
-      { key: "name",        label: "起名 + handle",  startSec: 11, sub: ["试几个短名", "排查 handle 重名"] },
-      { key: "bio",         label: "起草 bio",       startSec: 14, sub: ["一两句话", "点明方法"] },
-      { key: "quote",       label: "写一句开场问",   startSec: 17, sub: ["这位董事每次会议会先问什么"] },
-      { key: "instruction", label: "撰写 instruction", startSec: 20, sub: ["脉络 + 概念", "method + 引用集", "语气 + 边界", "失效模式"] },
-      { key: "voice",       label: "挑选模型嗓音",   startSec: 28, sub: ["按角色深度匹配 model"] },
-      { key: "polish",      label: "收尾打磨",       startSec: 31, sub: ["长度修剪", "最后一遍"] },
-    ],
     /** Web-search prefix · prepended to the base list when the user
      *  opted into web search this run. Adds ~5s to the perceived
-     *  pipeline; downstream startSecs are shifted in agentGenStagesFor. */
+     *  pipeline; downstream startSecs are shifted in agentGenStagesFor.
+     *  System UI · English-only. */
     AGENT_GEN_STAGES_WS_EN: { key: "search", label: "Searching the web for context", startSec: 0, sub: ["refining the query", "scanning Brave results", "distilling 5–6 named sources"] },
-    AGENT_GEN_STAGES_WS_ZH: { key: "search", label: "联网检索领域上下文",         startSec: 0, sub: ["精炼查询", "扫描 Brave 结果", "提炼 5–6 条具名来源"] },
 
     /** Build the active stage list for THIS generation. When web search
-     *  is on, prepend the search stage and shift everything else later. */
-    agentGenStagesFor(lang) {
-      const base = lang === "zh" ? this.AGENT_GEN_STAGES_ZH_BASE : this.AGENT_GEN_STAGES_EN_BASE;
+     *  is on, prepend the search stage and shift everything else later.
+     *  System UI · English-only regardless of `lang`. */
+    agentGenStagesFor(_lang) {
+      const base = this.AGENT_GEN_STAGES_EN_BASE;
       const useWs = !!this._agentGenUsingWebSearch;
       if (!useWs) return base;
-      const wsEntry = lang === "zh" ? this.AGENT_GEN_STAGES_WS_ZH : this.AGENT_GEN_STAGES_WS_EN;
       const SHIFT = 5;
       const shifted = base.map((s) => ({ ...s, startSec: s.startSec + SHIFT }));
-      return [wsEntry, ...shifted];
+      return [this.AGENT_GEN_STAGES_WS_EN, ...shifted];
     },
 
-    /** Back-compat shims · existing references read these names directly.
-     *  Resolved at call-time so the web-search variant is picked when
-     *  the flag is set. */
+    /** Back-compat shims · existing references read these names directly. */
     get AGENT_GEN_STAGES_EN() { return this.agentGenStagesFor("en"); },
-    get AGENT_GEN_STAGES_ZH() { return this.agentGenStagesFor("zh"); },
+    get AGENT_GEN_STAGES_ZH() { return this.agentGenStagesFor("en"); },
 
     /** Start the stage tick. Called when /generate-spec request fires.
      *  Idempotent — calling twice is safe. */
@@ -6054,8 +6459,7 @@
           return;
         }
         const elapsed = (Date.now() - this.agentGenStartedAt) / 1000;
-        const lang = this.composerLanguage();
-        const stages = lang === "zh" ? this.AGENT_GEN_STAGES_ZH : this.AGENT_GEN_STAGES_EN;
+        const stages = this.AGENT_GEN_STAGES_EN;
         // Find current stage index by elapsed time.
         let idx = 0;
         for (let i = 0; i < stages.length; i++) {
@@ -6086,8 +6490,9 @@
     },
 
     renderAgentGenStagesInner() {
-      const lang = this.composerLanguage();
-      const stages = lang === "zh" ? this.AGENT_GEN_STAGES_ZH : this.AGENT_GEN_STAGES_EN;
+      // System UI · always English. Agent-generation stage panel is
+      // app chrome around the LLM call.
+      const stages = this.AGENT_GEN_STAGES_EN;
       const active = this.agentGenStageIndex;
       const elapsed = Math.max(0, (Date.now() - this.agentGenStartedAt) / 1000);
       const elapsedLabel = this._t("ag_gen_elapsed", { n: Math.round(elapsed) });
@@ -6225,14 +6630,11 @@
       { tag: "critique-reviewer", text: "A senior critic who audits any deliverable systematically — labels each flaw blocker / major / minor, points at the load-bearing piece, names the mechanism. Won't praise without finding at least one major issue." },
       { tag: "phenomenologist", text: "An observer who notices what the room ISN'T saying. Tracks tone, what got skipped, who agreed too fast." },
     ],
-    AGENT_STARTERS_ZH: [
-      { tag: "long-horizon", text: "一位向前看四步的战略家，区分『此刻』和『真正起作用的时间点』，逼问决策落到哪个 horizon 上。" },
-      { tag: "user-empathy", text: "一位从用户摩擦时刻反推的产品老兵，反对任何不说清『用户那一刻在干嘛』的论点。" },
-      { tag: "first-principles", text: "一位把问题拆到可观测、因果链上的物理学家，拒绝从类比里搬假设。" },
-      { tag: "value-investor", text: "一位用三十年品类史做底的长周期读者，新点子要先和三个老案例对照才相信。" },
-      { tag: "critique-reviewer", text: "一位资深评审，对任何交付物做系统性审稿——每个瑕疵打 blocker / major / minor 严重度，指向具体段落、说出失败机制。不挑出至少一条 major 不会放过。" },
-      { tag: "phenomenologist", text: "一位观察者，捕捉房间里没说出来的东西：语气、被跳过的话题、太快达成的一致。" },
-    ],
+    /** Legacy ZH list · kept as an alias of EN so any external caller
+     *  reading the property still resolves. System UI is English-only
+     *  per the global rule (the brief language doesn't change app
+     *  chrome). New code should reference AGENT_STARTERS_EN directly. */
+    get AGENT_STARTERS_ZH() { return this.AGENT_STARTERS_EN; },
 
     renderAgentComposerHtml() {
       const userName = (this.prefs?.name || "you").trim() || "you";
@@ -6247,8 +6649,7 @@
         manual: this._t("ag_cmp_manual"),
         generating: this._t("ag_cmp_generating"),
         modelLabel: this._t("ag_cmp_model_label"),
-        starterCaption: this._t("ag_cmp_starter_caption"),
-      };
+        starterCaption: this._t("ag_cmp_starter_caption"),      };
       // If we already have a spec preview, render that instead of the input.
       if (this.agentSpec) {
         return this.renderAgentSpecPreviewHtml(this.agentSpec);
@@ -6262,7 +6663,7 @@
       const generating = this.agentSpecGenerating;
       const currentModel = this.loadAgentComposerModel();
       const modelDisplay = MODEL_LABELS[currentModel] || currentModel;
-      const starters = lang === "zh" ? this.AGENT_STARTERS_ZH : this.AGENT_STARTERS_EN;
+      const starters = this.AGENT_STARTERS_EN;
       const starterCards = starters.map((q, idx) => `
         <button type="button" class="cmp-starter" data-agent-starter="${idx}">
           <div class="cmp-starter-tag">${this.escape(q.tag)}</div>
@@ -6354,8 +6755,7 @@
     },
 
     /** Preview card · all generated fields editable inline. */
-    renderAgentSpecPreviewHtml(spec) {
-      const seed = this.agentSpecAvatarSeed;
+    renderAgentSpecPreviewHtml(spec) {      const seed = this.agentSpecAvatarSeed;
       const avatarSvg = (window.AvatarSkill && seed)
         ? window.AvatarSkill.generate(seed, { size: 96 })
         : `<div class="ag-prev-av-empty">—</div>`;
@@ -6615,13 +7015,11 @@
         this.agentSpecError = null;
       } catch (e) {
         const isAbort = (e && (e.name === "AbortError" || /aborted/i.test(String(e.message))));
-        const lang = this.composerLanguage();
         if (timedOut || isAbort) {
+          // System UI · always English (error message text).
           this.agentSpecError = {
             kind: "timeout",
-            message: lang === "zh"
-              ? "生成超过 5 分钟仍未完成 · 模型回应慢、网络波动，或后端流水线卡住了。"
-              : "Generation took longer than 5 minutes · the model may be slow, the network flaky, or the backend stuck.",
+            message: "Generation took longer than 5 minutes · the model may be slow, the network flaky, or the backend stuck.",
           };
         } else {
           this.agentSpecError = {
@@ -6785,10 +7183,9 @@
       // Sort newest-first · the most recently filed brief is the one a
       // returning user most likely wants to re-open.
       briefs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      const lang = (this.currentRoom?.subject && /[一-鿿]/.test(this.currentRoom.subject)) ? "zh" : "en";
-      const t = lang === "zh"
-        ? { title: "选择一份报告打开", supplementPrefix: "补充视角：", initial: "初版", filed: "已归档" }
-        : { title: "Open a report", supplementPrefix: "Supplement: ", initial: "Initial", filed: "filed" };
+      // System UI · always English. Brief picker chrome (popover
+      // title, row labels) doesn't follow the brief language.
+      const t = { title: "Open a report", supplementPrefix: "Supplement: ", initial: "Initial", filed: "filed" };
       const initialIdx = briefs.length - 1; // oldest is "Initial"
       const rows = briefs.map((b, i) => {
         // The numbering is stable across renders: oldest = 01, newest
@@ -6803,11 +7200,11 @@
           : "";
         const subtitle = isInitial ? t.initial : (supplementSnippet ? `${t.supplementPrefix}${supplementSnippet}` : "");
         const filedLabel = b.createdAt
-          ? new Date(b.createdAt).toLocaleString(lang === "zh" ? "zh-CN" : undefined, {
+          ? new Date(b.createdAt).toLocaleString(undefined, {
               year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
             })
           : "";
-        const href = `/report.html?r=${encodeURIComponent(roomId)}&b=${encodeURIComponent(b.id)}`;
+        const href = this.briefViewerHref(b, roomId);
         return `
           <a class="brief-picker-row" href="${this.escape(href)}" target="_blank" rel="noopener" data-brief-picker-row data-brief-id="${this.escape(b.id)}">
             <span class="brief-picker-num">${this.escape(num)}</span>
@@ -6897,10 +7294,8 @@
       const dirs = (this.agents || [])
         .filter((a) => a.roleKind !== "moderator")
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      const lang = this.composerLanguage();
-      const t = lang === "zh"
-        ? { title: "选择董事", hint: "建议 2-4 位", done: "完成", info: "查看资料" }
-        : { title: "Pick directors", hint: "2-4 recommended", done: "Done", info: "View profile" };
+      // System UI · always English (composer director picker chrome).
+      const t = { title: "Pick directors", hint: "2-4 recommended", done: "Done", info: "View profile" };
       const rows = dirs.map((a) => {
         const checked = state.directorIds.includes(a.id);
         const modelLabel = MODEL_LABELS[a.modelV] || a.modelV || "";
@@ -7037,17 +7432,16 @@
       const isAutoPick = state.autoPickDirectors === true && dirObjs.length === 0;
       btn.classList.toggle("cmp-cast-btn-auto", isAutoPick);
       if (isAutoPick) {
-        const autoTip = lang === "zh"
-          ? "Convene 时由 chair 根据主题挑选 3 位董事 · 点击手动选择"
-          : "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
+        // System UI · always English (auto-pick chip tooltip).
+        const autoTip = "Chair picks 3 directors based on your subject when you Convene · click to pick manually";
         btn.title = autoTip;
         btn.innerHTML = `
           <span class="cmp-cast-stack cmp-cast-stack-auto" data-cast-auto>
             <span class="cmp-cast-auto-mark">✦</span>
           </span>
           <span class="cmp-cast-count cmp-cast-auto-label">
-            <span class="cmp-cast-auto-key">${lang === "zh" ? "董事" : "directors"}</span>
-            <span class="cmp-cast-auto-val">${lang === "zh" ? "自动挑选" : "auto-pick"}</span>
+            <span class="cmp-cast-auto-key">directors</span>
+            <span class="cmp-cast-auto-val">auto-pick</span>
           </span>
         `;
         return;
@@ -7055,9 +7449,10 @@
       const visible = dirObjs.slice(0, 4);
       const overflow = Math.max(0, dirObjs.length - 4);
       const avs = visible.map((a) => `<img class="cmp-cast-av" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`).join("");
+      // System UI · always English (cast button count chrome).
       const countText = dirObjs.length
-        ? (lang === "zh" ? `${dirObjs.length} 位董事` : `${dirObjs.length} director${dirObjs.length === 1 ? "" : "s"}`)
-        : (lang === "zh" ? "未选董事" : "no directors");
+        ? `${dirObjs.length} director${dirObjs.length === 1 ? "" : "s"}`
+        : "no directors";
       const countCls = dirObjs.length ? "cmp-cast-count" : "cmp-cast-count cmp-cast-empty";
       btn.innerHTML = `
         <span class="cmp-cast-stack">
@@ -7113,21 +7508,14 @@
       let opts;
       let current;
       if (kind === "tone") {
-        opts = lang === "zh"
-          ? [
-              { v: "brainstorm",   label: "Brainstorm",   hint: "共同发散" },
-              { v: "constructive", label: "Constructive", hint: "推一把" },
-              { v: "research",     label: "Research",     hint: "梳理材料找洞察" },
-              { v: "debate",       label: "Debate",       hint: "找漏洞" },
-              { v: "critique",     label: "Critique",     hint: "系统性挑毛病" },
-            ]
-          : [
-              { v: "brainstorm",   label: "Brainstorm",   hint: "yes-and" },
-              { v: "constructive", label: "Constructive", hint: "push & sharpen" },
-              { v: "research",     label: "Research",     hint: "mine the material" },
-              { v: "debate",       label: "Debate",       hint: "find the holes" },
-              { v: "critique",     label: "Critique",     hint: "audit the deliverable" },
-            ];
+        // System UI · always English (tune dropdown options).
+        opts = [
+          { v: "brainstorm",   label: "Brainstorm",   hint: "yes-and" },
+          { v: "constructive", label: "Constructive", hint: "push & sharpen" },
+          { v: "research",     label: "Research",     hint: "mine the material" },
+          { v: "debate",       label: "Debate",       hint: "find the holes" },
+          { v: "critique",     label: "Critique",     hint: "audit the deliverable" },
+        ];
         if (followUpScope) {
           const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
           current = valSpan ? (valSpan.textContent || "").trim().toLowerCase() : "";
@@ -7139,17 +7527,12 @@
         // the third value (terse) is a cadence dial, not a harshness
         // dial. The earlier "no prisoners" / "直击痛点" copy pulled
         // users into thinking it controlled tone.
-        opts = lang === "zh"
-          ? [
-              { v: "calm",  label: "Calm",  hint: "慢慢说" },
-              { v: "sharp", label: "Sharp", hint: "不绕弯" },
-              { v: "terse", label: "Terse", hint: "一句话" },
-            ]
-          : [
-              { v: "calm",  label: "Calm",  hint: "let them think" },
-              { v: "sharp", label: "Sharp", hint: "no hedging" },
-              { v: "terse", label: "Terse", hint: "telegraphic" },
-            ];
+        // System UI · always English (intensity dropdown options).
+        opts = [
+          { v: "calm",  label: "Calm",  hint: "let them think" },
+          { v: "sharp", label: "Sharp", hint: "no hedging" },
+          { v: "terse", label: "Terse", hint: "telegraphic" },
+        ];
         if (followUpScope) {
           const valSpan = triggerBtn.querySelector("[data-cmp-dd-value]");
           current = valSpan ? (valSpan.textContent || "").trim().toLowerCase() : "";
@@ -7308,7 +7691,7 @@
       const useAutoPick = state.autoPickDirectors === true && state.directorIds.length === 0;
       if (!useAutoPick && !state.directorIds.length) {
         const lang = this.composerLanguage();
-        alert(lang === "zh" ? "请至少选择一位董事再 convene" : "Pick at least one director before convening");
+        alert("Pick at least one director before convening");
         return;
       }
       const btn = document.querySelector("[data-composer-go]");
@@ -7475,7 +7858,6 @@
 
       const tone = r.mode || "constructive";
       const intensity = r.intensity || "sharp";
-      const style = r.briefStyle || "auto";
 
       // Status timestamp — what was on the right (paused-stamp / stamp) now
       // lives inline in the meta row.
@@ -7487,7 +7869,6 @@
       } else if (r.status === "live" && r.createdAt) {
         stamp = this._t("room_stamp_opened", { ago: this.relTime(r.createdAt) });
       }
-
       const toneTip = this.toneTipFor(tone);
 
       // Three primary actions, one per state — CSS hides the wrong ones based
@@ -7501,6 +7882,12 @@
       // the DOM stays stable; the collapsed state flips room-head's
       // grid template to a 3-track layout so this button takes the
       // leading auto-track slot.
+      //
+      // Compact two-row layout: kicker (mono, all the meta) + subject.
+      // Replaces the prior three-row stack (badge+id / subject /
+      // tagged-meta-pills) — net height reduction ~150 → ~85px.
+      // Tone / intensity / brief-style remain editable in the room
+      // settings overlay; only their on-header surface is collapsed.
       head.innerHTML = `
         <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}"></button>
         <div class="room-info">
@@ -7514,8 +7901,7 @@
             <span class="meta-tag tag-intensity"><span class="k">${this.escape(this._t("room_meta_intensity"))}</span><span class="v">${this.escape(intensity)}</span></span>
             <span class="meta-tag tag-report"><span class="k">${this.escape(this._t("room_meta_report"))}</span><span class="v">${this.escape(style)}</span></span>
             ${stamp ? `<span class="meta-stamp">${this.escape(stamp)}</span>` : ""}
-          </div>
-        </div>
+          </div>        </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
           <a href="#" class="room-settings-trigger" data-room-settings-trigger title="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}">⚙</a>
@@ -7531,15 +7917,14 @@
                 // opens the picker.
                 const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
                 const multi = briefs.length > 1;
-                const directHref = `/report.html?r=${this.escape(r.id)}${this.currentBrief.id ? `&b=${this.escape(this.currentBrief.id)}` : ""}`;
+                const directHref = this.briefViewerHref(this.currentBrief, r.id) || `/report.html?r=${this.escape(r.id)}`;
                 if (!multi) {
                   return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>${this.escape(this._t("room_view_report"))}</a>`;
                 }
                 return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this._t("room_view_report_title_multi", { n: briefs.length }))}">${this.escape(this._t("room_view_report_multi", { n: briefs.length }))}</a>`;
               })()
             : (r.status === "adjourned"
-              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this._t("room_generate_report_title"))}"><span class="vr-mark">▸</span> ${this.escape(this._t("room_generate_report"))}</a>`
-              : "")}
+              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this._t("room_generate_report_title"))}"><span class="vr-mark">▸</span> ${this.escape(this._t("room_generate_report"))}</a>`              : "")}
         </div>
       `;
       // Wire the tone-tag hover tip. Pure-CSS ::after tooltips were
@@ -7547,8 +7932,9 @@
       // overflow:hidden chain (.main / .main-view both clip absolutely-
       // positioned descendants and CAN'T be relaxed without breaking
       // chat scroll). Body-attached fixed-position tooltip is the only
-      // reliable approach.
-      const toneTag = head.querySelector(".meta-tag.tag-tone[data-tone-tip]");
+      // reliable approach. Anchor moved from the old .meta-tag pill to
+      // .kicker-tone in the compact two-row header.
+      const toneTag = head.querySelector(".kicker-tone[data-tone-tip]");
       if (toneTag) {
         toneTag.addEventListener("mouseenter", () => this.showToneTip(toneTag));
         toneTag.addEventListener("mouseleave", () => this.hideToneTip());
@@ -7593,6 +7979,14 @@
     renderChat() {
       const chat = document.querySelector("[data-chat-messages]");
       if (!chat) return;
+      // Strip the composer-centring class · real chat messages take
+      // over `[data-chat-messages]` here, and chat-message mode wants
+      // the default top-flow scroll (messages stack from the top).
+      const chatScroller = chat.closest(".chat");
+      if (chatScroller) {
+        chatScroller.classList.remove("chat--composer");
+        chatScroller.classList.remove("chat--composer-overflow");
+      }
       const messages = this.currentMessages.slice();
       const r = this.currentRoom;
       const tBanner = this._t("chat_banner", {
@@ -7624,7 +8018,8 @@
     conveningCardHtml() {
       const s = this.conveneState;
       if (!s) return "";
-
+      // System UI · always English. Convening overlay (analyzing /
+      // seating / preparing labels + decks) is app chrome.
       // Stages · auto-picked rooms run all three; manually-cast rooms
       // skip "analyzing" + "seating" because the cast is pre-set.
       const stageOrder = s.autoPicked
@@ -7674,8 +8069,7 @@
       // already in currentMembers; rendering it here would be redundant).
       const seatedRow = (s.autoPicked && s.seated.length > 0) ? `
         <div class="conv-seated">
-          <div class="conv-seated-label">${this.escape(this._t("conv_seated_label"))} · ${s.seated.length}</div>
-          <div class="conv-seated-list">
+          <div class="conv-seated-label">${this.escape(this._t("conv_seated_label"))} · ${s.seated.length}</div>          <div class="conv-seated-list">
             ${s.seated.map((a) => `
               <div class="conv-seated-item" data-agent-id="${this.escape(a.id)}">
                 <img class="conv-seated-av" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}">
@@ -7691,8 +8085,7 @@
 
       return `
         <article class="convening-card" data-convene-card>
-          <div class="conv-eyebrow">${this.escape(this._t("conv_banner_convening"))}</div>
-          ${s.subject ? `<blockquote class="conv-subject">${this.escape(s.subject)}</blockquote>` : ""}
+          <div class="conv-eyebrow">${this.escape(this._t("conv_banner_convening"))}</div>          ${s.subject ? `<blockquote class="conv-subject">${this.escape(s.subject)}</blockquote>` : ""}
           <ul class="conv-stages">${stagesHtml}</ul>
           ${seatedRow}
         </article>
@@ -8276,7 +8669,7 @@
         // tight (~4 lines of body text) so even mid-length openers
         // collapse — the user can always one-click to read the full
         // text. Toggle handler lives at doc level (see init).
-        const isLongOpener = (m.body || "").length > 100;
+        const isLongOpener = (m.body || "").length > 80;
         // Follow-up rooms get an "origin" row above the question that
         // names the parent room (number + subject) and links back to
         // it via the hash route. Without this, a follow-up looks
@@ -8547,7 +8940,7 @@
       // as a historical marker only.
       if (isChair && metaKind === "no-brief") {
         const ts = this.timeFmt(m.createdAt);
-        const hasBrief = !!this.currentBrief;
+        // System UI · always English (no-brief card chrome).        const hasBrief = !!this.currentBrief;
         const chairName = (this.prefs?.name || "").trim() || this._t("nb_chair_fallback");
         const cta = hasBrief
           ? ""
@@ -8555,8 +8948,7 @@
             <div class="nb-actions">
               <button type="button" class="nb-cta" data-generate-brief>
                 <span class="nb-cta-mark">▸</span>
-                <span class="nb-cta-text">${this.escape(this._t("nb_cta"))}</span>
-              </button>
+                <span class="nb-cta-text">${this.escape(this._t("nb_cta"))}</span>              </button>
             </div>
           `;
         return `
@@ -8566,8 +8958,7 @@
               <span class="nb-eyebrow">${this.escape(this._t("nb_eyebrow"))}</span>
             </span>
             <div class="nb-body">
-              <strong>${this.escape(chairName)}</strong> ${this.escape(this._t("nb_body"))}
-            </div>
+              <strong>${this.escape(chairName)}</strong> ${this.escape(this._t("nb_body"))}            </div>
             ${cta}
             <div class="nb-meta">${this.escape(ts)}</div>
           </div>
@@ -8994,6 +9385,7 @@
       const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
       if (briefs.length < 2) return "";
       const sortedBriefs = briefs.slice().sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+      // System UI · always English (brief-version tab strip chrome).
       return `
         <div class="brief-versions">
           ${sortedBriefs.map((bf, i) => {
@@ -9083,7 +9475,7 @@
         // a failed-brief tab becomes unreachable — clicking it just
         // re-renders whichever good brief the salvage path picks.
         const goodBrief = bypassSalvage ? null : (this.currentBriefs || []).find(
-          (x) => x && x.id !== b.id && !x.error && x.bodyMd && x.bodyMd.trim().length > 0,
+          (x) => x && x.id !== b.id && !x.error && this.briefHasBody(x),
         );
         if (goodBrief) {
           const failed = b;
@@ -9163,7 +9555,7 @@
         return;
       }
 
-      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
       const signed = this.currentMembers
         .map((a) => `<img src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`)
         .join("");
@@ -9174,12 +9566,13 @@
           when: b.createdAt ? this.timeFmt(b.createdAt) : this.timeFmt(Date.now()),
         });
 
-      // Open Report links to /report.html with both r (room) and b
-      // (brief id) — the viewer uses b when present so refining
-      // shows the right version.
-      const reportHref = this.currentRoomId && b.id
-        ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}&b=${encodeURIComponent(b.id)}`
-        : (this.currentRoomId ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}` : null);
+      // Open Report URL · routes to /magazine.html or /newspaper.html
+      // for the structured modes and /report.html for research-note
+      // briefs (default). The structured renderers don't need the
+      // room id so the URL is shorter for those modes. See
+      // briefViewerHref for the routing table.
+      const reportHref = this.briefViewerHref(b, this.currentRoomId)
+        || (this.currentRoomId ? `/report.html?r=${encodeURIComponent(this.currentRoomId)}` : null);
 
       // Tab strip — already computed at the top of renderBrief as
       // `tabsStripHtml` so both error and success paths can mount it.
@@ -9197,8 +9590,7 @@
         <div class="brief-card">
           ${tabsHtml}
           <div class="brief-banner">
-            <span class="brief-banner-tag">${this.escape(this._t("brief_report_tag"))}</span>
-            <span class="brief-banner-stamp">${filedLabel}</span>
+            <span class="brief-banner-tag">${this.escape(this._t("brief_report_tag"))}</span>            <span class="brief-banner-stamp">${filedLabel}</span>
           </div>
 
           <div class="brief-body">
@@ -9206,6 +9598,7 @@
               ? `<div class="brief-info brief-info-generating">${this.renderBriefStages(b)}</div>`
               : (() => {
                   const wc = this._briefWordCount(b);
+                  const tip = this._briefWordCountTip(wc);
                   return `<div class="brief-info">
                     <div class="brief-kicker">${this._t("brief_filed_by", {
                       name: this.currentChair?.name ? this.escape(this.currentChair.name) : this._t("brief_chair_fallback"),
@@ -9213,8 +9606,7 @@
                     <h2 class="brief-title" data-brief-title>${this.escape(b.title || this._t("brief_untitled"))}</h2>
                     <div class="brief-meta-row">
                       <span class="brief-meta-line">${this.escape(this._t("brief_meta_authors", { n: this.currentMembers.length }))}</span>
-                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}
-                      <div class="brief-signed">
+                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}                      <div class="brief-signed">
                         <div class="brief-signed-avatars">${signed}</div>
                       </div>
                     </div>
@@ -9239,8 +9631,7 @@
               </button>
               <button type="button" class="brief-delete-btn" data-brief-delete data-brief-id="${this.escape(b.id)}" title="${this.escape(this._t("brief_tab_delete_title"))}">
                 <span class="brief-delete-mark">⌫</span>
-                <span class="brief-delete-label">${this.escape(this._t("brief_delete_label"))}</span>
-              </button>
+                <span class="brief-delete-label">${this.escape(this._t("brief_delete_label"))}</span>              </button>
             </div>
           ` : ""}
         </div>
@@ -9278,6 +9669,91 @@
       "scaffold-cluster":  { eta: [3, 8] },
       "scaffold-actions":  { eta: [4, 12] },
       write:               { eta: [30, 90] },
+    },
+    BRIEF_SUBSTAGES: {
+      en: {
+        extract: [
+          "Re-reading each director's contributions",
+          "Tagging signals by lens (data / dissent / narrative / structural / first-principle)",
+          "Tightening to 2–4 signals per director",
+        ],
+        compose: [
+          "Picking the spine for this brief",
+          "Choosing which component blocks fit",
+          "Sizing density and rhythm",
+        ],
+        "scaffold-anchor": [
+          "Reading the takeaway",
+          "Sizing the confidence call",
+          "Setting the working hypothesis",
+        ],
+        "scaffold-findings": [
+          "Pulling out the headline findings",
+          "Cross-checking each finding to the anchor",
+          "Tightening 3 → 2 if a finding wobbles",
+        ],
+        "scaffold-cluster": [
+          "Mapping where the directors converged",
+          "Surfacing the central tension",
+          "Spotting positions that didn't quite resolve",
+        ],
+        "scaffold-actions": [
+          "Drafting recommendations",
+          "Mapping the pre-mortem",
+          "Surfacing the new questions the room opened",
+        ],
+        write: [
+          "Writing the Bottom Line",
+          "Composing the Frame Shift section",
+          "Writing the 3 Headline Findings",
+          "Drafting Convergence + Divergence sections",
+          "Composing Recommendations",
+          "Surfacing New Questions",
+          "Drafting the Strategic Planning Assumption",
+          "Polishing the final pass",
+        ],
+        // Magazine mode · same single-pass chair-LLM call but the
+        // emphasis is on editorial cover-line composition rather
+        // than infographic compression. Keyed under `magazine-write`
+        // and selected at render time when the brief's mode is
+        // magazine.
+        "magazine-write": [
+          "Drafting the cover headline",
+          "Writing the subdeck",
+          "Picking the 5 numbered cards",
+          "Sequencing the 3 setup steps",
+          "Selecting why-this-matters reasons",
+          "Stamping the masthead byline",
+        ],
+        // Newspaper mode · same single-pass chair-LLM call but voice
+        // shifts to broadsheet front-page journalism. Keyed under
+        // `newspaper-write` and selected at render time when the
+        // brief's mode is newspaper.
+        "newspaper-write": [
+          "Setting the banner headline",
+          "Writing the subdeck",
+          "Filing the three column stories",
+          "Drafting the bottom-line callout",
+          "Stacking the more-headings sidebar",
+          "Stamping the masthead date",
+        ],
+        // PPT mode · same single-pass chair-LLM call · biases toward
+        // slide-friendly short claims and one-idea-per-slide content.
+        // Keyed under `ppt-write` and selected at render time when
+        // the brief's mode is ppt.
+        "ppt-write": [
+          "Drafting the cover slide",
+          "Sketching the agenda",
+          "Writing milestone slides",
+          "Compressing recommendations to bullets",
+          "Sizing the data callouts",
+          "Stamping the closing takeaway",
+        ],
+      },
+      // System UI · always English. The `zh` key is kept as an alias
+      // of `en` so any caller indexing BRIEF_SUBSTAGES["zh"] still
+      // resolves; brief language no longer changes the substage copy.
+      get zh() { return this.en; },
     },
 
     renderBriefLlmTrace(b) {
@@ -9354,7 +9830,7 @@
         }
         const stages = b.stages || {};
         const anyActive = Object.values(stages).some((s) => s && s.status === "active");
-        const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+        const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
         if (!anyActive && !generating) {
           this.stopBriefStageTick();
           return;
@@ -9405,7 +9881,7 @@
       if (this._briefStallWatchTimer) return;
       const b = this.currentBrief;
       if (!b || !b.id || b.error) return;
-      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
       if (!generating) return;
       if (!this._lastBriefEventAt) this._lastBriefEventAt = Date.now();
       this._lastBriefHealthPollAt = 0;
@@ -9425,7 +9901,7 @@
     async tickBriefStallWatch() {
       const b = this.currentBrief;
       if (!b || b.error) { this.stopBriefStallWatch(); return; }
-      const generating = b.isGenerating === true || !b.bodyMd || b.title === "Generating…";
+      const generating = b.isGenerating === true || !this.briefHasBody(b) || b.title === "Generating…";
       if (!generating) { this.stopBriefStallWatch(); return; }
 
       const now = Date.now();
@@ -9487,7 +9963,6 @@
           pipShort: this._t(`brief_stage_${sk}_pip`),
         };
       });
-
       const wordCount = b.bodyMd
         ? (b.bodyMd.trim().match(/\S+/g) || []).length
         : 0;
@@ -9495,7 +9970,6 @@
       const chairDisp = (b.chairName || this.currentChair?.name)
         ? this.escape(b.chairName || this.currentChair.name)
         : this._t("brief_chair_fallback");
-
       const meta = this.BRIEF_STAGE_META;
       const stageEta = (key) => {
         const st = stages[key];
@@ -9545,11 +10019,15 @@
       }
 
       // Rotating sub-line · advances every 3s within the active stage.
+      // Structured-mode write stages get their own rotator copy
+      // (`magazine-write` / `newspaper-write`) since the work is
+      // different from research-note's chapter-by-chapter write.
+      // Falls through to the regular stage key for every other
+      // stage / mode.
       let substageText = "";
       if (activeStatus === "active") {
         const list = this._briefSubList(activeDef.key);
-        if (list.length) substageText = list[Math.floor(activeElapsed / 3) % list.length];
-      }
+        if (list.length) substageText = list[Math.floor(activeElapsed / 3) % list.length];      }
 
       // Detail · cur/total directors during extract, word count during
       // write, otherwise the server-supplied detail string.
@@ -9557,13 +10035,11 @@
       if (activeDef.key === "extract" && activeStage.progress?.total) {
         const cur = activeStage.progress.current;
         const tot = activeStage.progress.total;
-        detailParts.push(this._t(tot === 1 ? "brief_prog_directors_one" : "brief_prog_directors", { cur, tot }));
-      } else if (activeStage.detail) {
+        detailParts.push(this._t(tot === 1 ? "brief_prog_directors_one" : "brief_prog_directors", { cur, tot }));      } else if (activeStage.detail) {
         detailParts.push(activeStage.detail);
       }
       if (activeDef.key === "write" && activeStatus === "active" && wordCount > 0) {
-        detailParts.push(this._t(wordCount === 1 ? "brief_prog_words_one" : "brief_prog_words", { n: wordCount }));
-      }
+        detailParts.push(this._t(wordCount === 1 ? "brief_prog_words_one" : "brief_prog_words", { n: wordCount }));      }
       const detailLine = detailParts.join(" · ");
 
       // Timing for active stage · ETA range while in-band, elapsed once over.
@@ -9574,8 +10050,7 @@
             ? this._t("brief_timing_inband", { e: activeElapsed, lo: activeEta[0], hi: activeEta[1] })
             : this._t("brief_timing_eta", { lo: activeEta[0], hi: activeEta[1] });
         } else {
-          timing = this._t("brief_timing_over", { n: activeElapsed });
-        }
+          timing = this._t("brief_timing_over", { n: activeElapsed });        }
       }
 
       // Active-card progress line · in-band 0→95% linear, then a Zeno
@@ -9642,7 +10117,6 @@
       });
 
       const kickerCore = this._t("brief_stage_kicker", { chair: chairDisp, total: totalText });
-
       const metaHtml = (detailLine || timing)
         ? `<span class="brief-active-meta">` +
             (detailLine ? `<span class="meta-detail">${this.escape(detailLine)}</span>` : "") +
@@ -9968,16 +10442,14 @@
       }
       return;
     }
-    // Follow-up picker · row click toggles the director
-    const followupPickRow = e.target.closest("[data-followup-pick-id]");
-    if (followupPickRow) {
-      // Suppress default checkbox toggle so we drive state via our
-      // single source of truth (_followupCastState).
-      e.preventDefault();
-      const id = followupPickRow.getAttribute("data-followup-pick-id");
-      if (id) app.toggleFollowUpCastDirector(id);
-      return;
-    }
+    // Follow-up picker · row click is handled via the `change` event
+    // on the inner checkbox (registered separately below), mirroring
+    // the inline composer's pattern. The earlier `preventDefault` +
+    // direct toggle approach left the checkbox's visual state stuck:
+    // preventDefault cancelled the native toggle but the programmatic
+    // `cb.checked = on` raced with the bubble in a way that didn't
+    // visually re-mark the checkbox. The change-event flow lets the
+    // browser draw the check, then syncs state from the new cb state.
     // Click on a follow-up tile in the parent room's "Follow-up rooms"
     // strip · navigate to the child. Click on the parent banner of a
     // follow-up room · navigate up.
@@ -10028,8 +10500,8 @@
       genBriefBtn.setAttribute("data-pending", "1");
       if ("disabled" in genBriefBtn) genBriefBtn.disabled = true;
 
-      const isZh = app.composerLanguage() === "zh";
-      const generatingText = isZh ? "正在生成…" : "generating…";
+      // System UI · always English (generating-button chrome).
+      const generatingText = "generating…";
       const originalHtml = genBriefBtn.innerHTML;
 
       // Swap to a "generating…" state. The two button shapes both
@@ -10052,9 +10524,30 @@
         genBriefBtn.removeAttribute("data-pending");
         if ("disabled" in genBriefBtn) genBriefBtn.disabled = false;
         genBriefBtn.innerHTML = originalHtml;
-        alert((isZh ? "生成失败：" : "Brief generation failed: ") + (err && err.message ? err.message : err));
+        alert("Brief generation failed: " + (err && err.message ? err.message : err));
       });
       return;
+    }
+    // Brief-mode picker · clicking a label (or its radio) toggles the
+    // .on class on that option AND off on the siblings. Used by both
+    // the adjourn overlay and the supplement overlay. We scope to the
+    // picker's `.adjourn-mode-options` container (set in
+    // renderBriefModePicker) instead of a specific overlay id, so the
+    // same handler works wherever the picker is embedded. The native
+    // radio behaviour handles `:checked` state but we use a manual
+    // class for visual styling (left accent stripe + tint) since we
+    // can't `:has()` reliably on older browsers.
+    const modeOpt = e.target.closest(".adjourn-mode-option");
+    if (modeOpt) {
+      const group = modeOpt.closest(".adjourn-mode-options");
+      if (group) {
+        group.querySelectorAll(".adjourn-mode-option").forEach((el) => el.classList.remove("on"));
+        modeOpt.classList.add("on");
+        const radio = modeOpt.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+      }
+      // Don't preventDefault · let the label's native click behaviour
+      // also tick the radio for keyboard / a11y users.
     }
     // Adjourn overlay · "skip report" footer button — clicking commits
     // immediately (mark picked + dispatch + close).
@@ -10077,6 +10570,18 @@
     if (e.target.closest("[data-adjourn-close]")) {
       e.preventDefault();
       app.closeAdjournOverlay();
+      return;
+    }
+    // Adjourn overlay · subject Show more / less toggle. Flips the
+    // `is-clamped` class on the value span and swaps the button label.
+    const subjToggle = e.target.closest("[data-adjourn-subject-toggle]");
+    if (subjToggle) {
+      e.preventDefault();
+      const subjEl = document.querySelector("[data-adjourn-subject]");
+      if (subjEl) {
+        const expanded = subjEl.classList.toggle("is-clamped") === false;
+        subjToggle.textContent = expanded ? "Show less" : "Show more";
+      }
       return;
     }
     // Brief card · "Add a perspective" → opens the supplement overlay.
@@ -10351,19 +10856,14 @@
       wsToggle.setAttribute("aria-pressed", next ? "true" : "false");
       const txt = wsToggle.querySelector(".ap-skill-row-toggle-text");
       if (txt) {
-        const wsLabel = isZh ? "联网搜索" : "web search";
-        const stateLabel = next
-          ? (isZh ? "已开启" : "enabled")
-          : (isZh ? "已关闭" : "disabled");
+        // System UI · always English (web-search toggle chrome).
+        const wsLabel = "web search";
+        const stateLabel = next ? "enabled" : "disabled";
         txt.textContent = `${wsLabel} · ${stateLabel}`;
       }
       wsToggle.title = next
-        ? (isZh
-          ? "生成时联网检索领域真实案例 · 点击关闭"
-          : "Search the web for real domain references during generation · click to disable")
-        : (isZh
-          ? "生成时不联网 · 点击开启"
-          : "Generation runs offline · click to enable web search");
+        ? "Search the web for real domain references during generation · click to disable"
+        : "Generation runs offline · click to enable web search";
       return;
     }
     // ─── Agent spec preview · field actions
@@ -10500,6 +11000,20 @@
       if (id) app.deleteRoom(id);
       return;
     }
+    // Delete a saved note from the All Notes list. The button is a
+    // sibling of the note's anchor (inside .notes-item) so its click
+    // never bubbles through the navigation link — but we still
+    // preventDefault + stopPropagation defensively to keep the row's
+    // hover/focus state quiet.
+    const noteDel = e.target.closest("[data-note-delete]");
+    if (noteDel) {
+      e.preventDefault();
+      e.stopPropagation();
+      const item = noteDel.closest("[data-note-id]");
+      const id = item?.dataset.noteId;
+      if (id) app.deleteNoteAt(id);
+      return;
+    }
     // Delete a custom agent · this used to live as an inline X button
     // on the sidebar row. It's been moved into the agent profile's
     // ⋯ overflow menu (see agent-profile.js → "delete" menu action),
@@ -10604,6 +11118,18 @@
     const row = cb.closest("[data-composer-pick-id]");
     const id = row && row.getAttribute("data-composer-pick-id");
     if (id) app.toggleComposerDirector(id);
+  });
+  // Follow-up overlay's director picker · same pattern as the inline
+  // composer above. Listen for `change` on the inner checkbox so the
+  // browser draws the check first, then sync `_followupCastState`
+  // from the post-toggle state. Was previously click + preventDefault,
+  // which left the checkbox visually unticked.
+  document.addEventListener("change", (e) => {
+    const cb = e.target;
+    if (!cb || !cb.matches || !cb.matches('[data-followup-pick-id] input[type="checkbox"]')) return;
+    const row = cb.closest("[data-followup-pick-id]");
+    const id = row && row.getAttribute("data-followup-pick-id");
+    if (id) app.toggleFollowUpCastDirector(id);
   });
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-send-button]");

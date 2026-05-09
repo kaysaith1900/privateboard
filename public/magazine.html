@@ -1,0 +1,1685 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=900, initial-scale=1">
+  <title>Magazine · PrivateBoard</title>
+  <link rel="icon" href="/avatars/chair.svg" type="image/svg+xml">
+  <!-- Playfair Display for the Vogue-style high-contrast Didot
+       logotype + serif headlines. Free Google font · no fallback
+       drama since the system Tiempos / Bodoni stack picks up. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&display=swap" rel="stylesheet">
+  <style>
+  /* ═══════════════════════════════════════════════════════════════════
+     Magazine · two distinct templates picked deterministically from
+     the brief id (so refresh always renders the same look). Both
+     ship at LEAST 2 pages (Cover + Inside Feature) so the report
+     reads as a magazine rather than a single sheet.
+
+       · GQ    · The Boardroom · GQ register · bold condensed sans
+         logo · black + red accent · cover lines / featured-quote
+         portrait · inside spread with red drop cap + vertical-bar
+         pull quote.
+       · VOGUE · BOARDROOM · Vogue register · spaced-out high-
+         contrast Didot logo · cream paper + deep red accent ·
+         italic register throughout · ★ ornaments between sections.
+     ═══════════════════════════════════════════════════════════════════ */
+  :root {
+    /* Default · GQ register */
+    --bg:           #1A1A1A;
+    --paper:        #F5F0E8;
+    --paper-soft:   #FAF6EE;
+    --paper-edge:   #E8E0CE;
+    --ink:          #0F0F0F;
+    --ink-soft:     #2C2C2C;
+    --ink-mid:      #5C5C5C;
+    --ink-faint:    #8A8A8A;
+    --ink-muted:    #B0B0B0;
+    --inv-bg:       #0F0F0F;
+    --inv-ink:      #F5F0E8;
+    --inv-ink-soft: #C0BBB0;
+    --rule:         #C8C2B6;
+    --rule-soft:    #D8D2C6;
+    --rule-strong:  #6E665A;
+    --accent:       #D71920;
+    --accent-deep:  #A41218;
+    --accent-soft:  #E96B70;
+
+    --shadow-page:  0 2px 8px rgba(0, 0, 0, 0.18),
+                    0 16px 48px rgba(0, 0, 0, 0.22);
+
+    --serif-display: "Playfair Display", "Tiempos Headline",
+                     "Bodoni 72", "Didot", "Source Serif Pro",
+                     "Charter", Georgia, "Source Han Serif SC",
+                     "Songti SC", "STSong", serif;
+    --serif: "Charter", "Source Serif Pro", "Iowan Old Style",
+             "Source Han Serif SC", Georgia, "Songti SC", "STSong", serif;
+    --sans:  "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont,
+             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+             "Source Han Sans CN", "Noto Sans CJK SC", sans-serif;
+    --mono:  "SF Mono", "JetBrains Mono", "Menlo",
+             "PingFang SC", "Source Han Sans CN", monospace;
+  }
+
+  /* Vogue variant · cream paper · deep red · serif throughout */
+  body[data-mag-variant="vogue"] {
+    --paper:        #FAF5E6;
+    --paper-soft:   #FCF8EE;
+    --paper-edge:   #ECE4CD;
+    --ink:          #1A1A1A;
+    --rule:         #BDB39E;
+    --rule-soft:    #CFC6B2;
+    --rule-strong:  #6E654A;
+    --accent:       #8C1922;
+    --accent-deep:  #6B1018;
+    --accent-soft:  #C9909A;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+  }
+
+  /* ─── Top chrome ───────────────────────────────────────────────── */
+  .mag-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 28px;
+    background: rgba(26, 26, 26, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(245, 240, 232, 0.12);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    color: var(--paper);
+  }
+  .mag-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--paper);
+    text-decoration: none;
+  }
+  .mag-crumb::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
+    flex: 0 0 auto;
+    border-radius: 50%;
+  }
+  .mag-crumb-accent {
+    color: var(--ink-faint);
+    font-style: italic;
+    font-weight: 400;
+  }
+  .mag-actions { display: flex; gap: 8px; align-items: center; }
+  .mag-page-nav {
+    display: inline-flex;
+    gap: 4px;
+    margin-right: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .mag-page-nav a {
+    color: var(--ink-muted);
+    padding: 4px 8px;
+    border: 1px solid rgba(245, 240, 232, 0.16);
+    text-decoration: none;
+    transition: all 0.12s;
+  }
+  .mag-page-nav a:hover {
+    background: rgba(245, 240, 232, 0.10);
+    color: var(--paper);
+  }
+  .mag-variant-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent-soft);
+    margin-right: 12px;
+    padding: 4px 10px;
+    background: rgba(245, 240, 232, 0.06);
+    border: 1px solid rgba(245, 240, 232, 0.16);
+  }
+  .mag-btn {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid rgba(245, 240, 232, 0.30);
+    color: var(--paper);
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
+  }
+  .mag-btn:hover { background: var(--paper); color: var(--bg); }
+  .mag-btn .glyph { margin-right: 4px; }
+
+  /* ─── Doc · stack of magazine pages ─────────────────────────── */
+  .mag-doc {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 28px 12px 56px;
+  }
+  .mag-page {
+    background: var(--paper);
+    padding: 32px 38px 36px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-page);
+    position: relative;
+  }
+  .mag-page:last-child { margin-bottom: 0; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     GQ variant · The Boardroom · bold modern editorial
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Cover · top issue strip + huge logo + 2-col below */
+  .gq-cover-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ink);
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .gq-cover-logo {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: clamp(48px, 11vw, 92px);
+    line-height: 0.94;
+    letter-spacing: -0.045em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    margin: 14px 0 12px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .gq-cover-strip {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-top: 4px solid var(--accent);
+    border-bottom: 1px solid var(--ink);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin-bottom: 18px;
+  }
+  .gq-cover-strip em { color: var(--accent); font-style: normal; }
+
+  .gq-cover-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: 28px;
+    align-items: start;
+  }
+  .gq-cover-grid > * { min-width: 0; }
+  @media (max-width: 720px) {
+    .gq-cover-grid { grid-template-columns: 1fr; gap: 22px; }
+  }
+
+  /* GQ "portrait" · solid dark colored panel with editorial quote
+     (replaces a fake-photo image · honest typographic feature). */
+  .gq-cover-portrait {
+    background: var(--inv-bg);
+    color: var(--paper);
+    padding: 26px 22px 24px;
+    min-height: 360px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .gq-cover-portrait-eye {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent-soft);
+  }
+  .gq-cover-portrait-mark {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-size: 56px;
+    line-height: 0.6;
+    color: var(--accent-soft);
+    margin-bottom: 4px;
+  }
+  .gq-cover-portrait-text {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    color: var(--paper);
+  }
+  .gq-cover-portrait-cite {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--inv-ink-soft);
+  }
+
+  /* GQ cover lines · stacked headlines + featured points */
+  .gq-cover-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .gq-cover-flag {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    align-self: flex-start;
+  }
+  .gq-cover-headline {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: clamp(28px, 5.2vw, 38px);
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+    text-transform: uppercase;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .gq-cover-headline em {
+    color: var(--accent);
+    font-style: normal;
+  }
+  .gq-cover-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 16px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+  }
+  .gq-cover-points {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 2px solid var(--ink);
+    padding-top: 12px;
+  }
+  .gq-cover-points li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+    padding-bottom: 8px;
+    border-bottom: 1px dotted var(--rule-strong);
+  }
+  .gq-cover-points li:last-child { border-bottom: 0; }
+  .gq-cover-points li b {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  .gq-cover-points li span:nth-child(2) {
+    font-family: var(--serif-display);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--ink);
+  }
+  .gq-cover-points li .pg {
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+  }
+
+  /* GQ inside · running header + feature opener + body */
+  .gq-running {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--ink);
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    font-weight: 800;
+  }
+  .gq-running-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .gq-running-brand::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .gq-running-meta {
+    text-align: center;
+    font-weight: 600;
+    color: var(--ink-mid);
+    letter-spacing: 0.14em;
+  }
+  .gq-running-page {
+    font-family: var(--sans);
+    font-weight: 800;
+    color: var(--accent);
+  }
+
+  .gq-feature-dept {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    margin: 18px 0 10px;
+  }
+  .gq-feature-title {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: 50px;
+    line-height: 0.98;
+    letter-spacing: -0.022em;
+    color: var(--ink);
+    margin-bottom: 12px;
+    max-width: 760px;
+  }
+  @media (max-width: 720px) {
+    .gq-feature-title { font-size: 34px; }
+  }
+  .gq-feature-deck {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+    max-width: 720px;
+  }
+  .gq-feature-byline {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .gq-feature-byline em {
+    font-style: italic;
+    color: var(--ink-soft);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .gq-feature-body {
+    column-count: 2;
+    column-gap: 28px;
+    column-rule: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 13.5px;
+    line-height: 1.62;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  @media (max-width: 540px) {
+    .gq-feature-body { column-count: 1; }
+  }
+  .gq-feature-body p + p { margin-top: 8px; }
+  .gq-feature-body.has-drop::first-letter {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: 64px;
+    line-height: 0.85;
+    color: var(--accent);
+    float: left;
+    margin: 6px 8px 0 0;
+  }
+
+  /* GQ pull-quote · vertical red bar + bold sans */
+  .gq-pull {
+    border-left: 6px solid var(--accent);
+    padding: 8px 22px;
+    margin: 22px 0;
+  }
+  .gq-pull-text {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1.28;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+  }
+  .gq-pull-cite {
+    font-family: var(--sans);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 800;
+    margin-top: 8px;
+  }
+
+  /* GQ stat tile · red top bar */
+  .gq-stat {
+    background: var(--paper-soft);
+    padding: 16px 18px;
+    border-top: 4px solid var(--accent);
+    margin: 14px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    break-inside: avoid;
+  }
+  .gq-stat-eye {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .gq-stat-num {
+    font-family: var(--sans);
+    font-weight: 900;
+    font-size: 36px;
+    line-height: 1.0;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .gq-stat-cap {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+  }
+
+  /* GQ inside grid · article + sidebar */
+  .gq-inside-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(180px, 1fr);
+    gap: 28px;
+    margin-top: 4px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .gq-inside-grid { grid-template-columns: 1fr; gap: 22px; }
+  }
+  .gq-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-left: 24px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .gq-side { border-left: 0; padding-left: 0; padding-top: 18px; border-top: 1px solid var(--rule); }
+  }
+  .gq-side-flag {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+    align-self: flex-start;
+  }
+  .gq-side-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .gq-side-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .gq-side-list li:last-child { border-bottom: 0; }
+  .gq-side-list li b {
+    display: block;
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 12.5px;
+    color: var(--ink);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     VOGUE variant · BOARDROOM · refined Didot-elegance
+     ═══════════════════════════════════════════════════════════════ */
+
+  body[data-mag-variant="vogue"] .mag-page {
+    padding: 36px 44px 38px;
+  }
+
+  .vogue-cover-tagline {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink-mid);
+    text-align: center;
+    padding: 4px 0 10px;
+    letter-spacing: 0.04em;
+  }
+  .vogue-cover-logo {
+    font-family: "Playfair Display", "Bodoni 72", "Didot", serif;
+    font-weight: 900;
+    font-size: clamp(54px, 12vw, 100px);
+    line-height: 0.94;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    margin: 4px 0 10px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    /* Wide tracking + Playfair Display's high-stroke contrast
+       give the spaced-out Didot wordmark feel. Clamp keeps the
+       logo from blowing past the page edges on narrower viewports. */
+  }
+  .vogue-cover-strip {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    padding: 8px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink);
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .vogue-cover-strip .star { color: var(--accent); }
+
+  .vogue-cover-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 34px;
+    align-items: start;
+  }
+  .vogue-cover-content > * { min-width: 0; }
+  @media (max-width: 720px) {
+    .vogue-cover-content { grid-template-columns: 1fr; gap: 22px; }
+  }
+
+  .vogue-cover-left {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .vogue-cover-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--accent);
+    text-align: left;
+    letter-spacing: 0.04em;
+  }
+  .vogue-cover-eye::before { content: "★ "; }
+  .vogue-cover-eye::after { content: " ★"; }
+  .vogue-cover-title {
+    font-family: "Playfair Display", "Tiempos Headline", serif;
+    font-weight: 700;
+    font-size: clamp(28px, 5.6vw, 42px);
+    line-height: 1.06;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    margin-bottom: 8px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .vogue-cover-title em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .vogue-cover-deck {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    letter-spacing: -0.005em;
+  }
+  .vogue-cover-byline {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .vogue-cover-byline em {
+    color: var(--ink);
+    font-style: italic;
+  }
+  .vogue-cover-lines {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .vogue-cover-lines li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: "Playfair Display", serif;
+    font-size: 17px;
+    line-height: 1.32;
+    color: var(--ink);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+  }
+  .vogue-cover-lines li:last-child { border-bottom: 0; }
+  .vogue-cover-lines li em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .vogue-cover-lines li .pg {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--ink-mid);
+    text-transform: uppercase;
+  }
+
+  /* Vogue typographic "portrait" · cream block with elegant quote */
+  .vogue-cover-portrait {
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 26px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+    min-height: 320px;
+  }
+  .vogue-cover-portrait-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .vogue-cover-portrait-eye::before { content: "★ "; }
+  .vogue-cover-portrait-eye::after { content: " ★"; }
+  .vogue-cover-portrait-mark {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-weight: 900;
+    font-size: 78px;
+    line-height: 0.5;
+    color: var(--accent);
+  }
+  .vogue-cover-portrait-text {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.42;
+    color: var(--ink);
+    letter-spacing: -0.003em;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .vogue-cover-portrait-cite {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+  }
+
+  /* Vogue inside · refined feature spread */
+  .vogue-running {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--ink);
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink-mid);
+  }
+  .vogue-running-l {
+    font-family: "Playfair Display", serif;
+    font-weight: 700;
+    font-style: normal;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .vogue-running-c { text-align: center; }
+  .vogue-running-c::before { content: "★ "; color: var(--accent); }
+  .vogue-running-c::after { content: " ★"; color: var(--accent); }
+  .vogue-running-r {
+    text-align: right;
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  .vogue-feature-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    text-align: center;
+    margin: 22px 0 8px;
+  }
+  .vogue-feature-eye::before { content: "★ "; }
+  .vogue-feature-eye::after { content: " ★"; }
+  .vogue-feature-title {
+    font-family: "Playfair Display", "Tiempos Headline", serif;
+    font-weight: 900;
+    font-size: 56px;
+    line-height: 0.98;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    text-align: center;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 720px) {
+    .vogue-feature-title { font-size: 36px; }
+  }
+  .vogue-feature-title em {
+    font-style: italic;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .vogue-feature-deck {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    text-align: center;
+    margin-bottom: 12px;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .vogue-feature-byline {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    text-align: center;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .vogue-feature-byline em {
+    font-style: italic;
+    color: var(--ink);
+  }
+
+  .vogue-feature-body {
+    column-count: 2;
+    column-gap: 28px;
+    column-rule: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  @media (max-width: 540px) {
+    .vogue-feature-body { column-count: 1; }
+  }
+  .vogue-feature-body p + p { margin-top: 6px; text-indent: 1.2em; }
+  .vogue-feature-body.has-drop::first-letter {
+    font-family: "Playfair Display", "Tiempos Headline", serif;
+    font-weight: 900;
+    font-size: 72px;
+    line-height: 0.82;
+    color: var(--accent);
+    float: left;
+    margin: 6px 8px 0 0;
+  }
+
+  /* Vogue pull · centered italic with star ornaments */
+  .vogue-pull {
+    text-align: center;
+    margin: 28px auto;
+    padding: 14px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    max-width: 720px;
+  }
+  .vogue-pull-text {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1.32;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .vogue-pull-cite {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    margin-top: 8px;
+  }
+  .vogue-pull-cite::before { content: "★ "; color: var(--accent); }
+  .vogue-pull-cite::after { content: " ★"; color: var(--accent); }
+
+  /* Vogue stat / sidebar list */
+  .vogue-stat {
+    background: var(--paper-soft);
+    border: 1px solid var(--ink);
+    padding: 18px 18px;
+    text-align: center;
+    margin: 14px 0;
+  }
+  .vogue-stat-eye {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mid);
+    font-weight: 700;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 10px;
+  }
+  .vogue-stat-eye::before { content: "★ "; color: var(--ink); }
+  .vogue-stat-eye::after { content: " ★"; color: var(--ink); }
+  .vogue-stat-num {
+    font-family: "Playfair Display", serif;
+    font-weight: 900;
+    font-size: 38px;
+    line-height: 1.0;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .vogue-stat-cap {
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+
+  .vogue-inside-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.4fr) minmax(180px, 1fr);
+    gap: 30px;
+    margin-top: 4px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .vogue-inside-grid { grid-template-columns: 1fr; gap: 22px; }
+  }
+  .vogue-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-left: 24px;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 720px) {
+    .vogue-side { border-left: 0; padding-left: 0; padding-top: 18px; border-top: 1px solid var(--rule); }
+  }
+  .vogue-side-flag {
+    font-family: "Playfair Display", serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+    padding: 6px 0;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+  }
+  .vogue-side-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .vogue-side-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .vogue-side-list li:last-child { border-bottom: 0; }
+  .vogue-side-list li b {
+    display: block;
+    font-family: "Playfair Display", serif;
+    font-style: italic;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     Shared · page footer · states · print
+     ═══════════════════════════════════════════════════════════════ */
+
+  .mag-page-foot {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+    gap: 14px;
+    padding-top: 14px;
+    margin-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .mag-page-foot-l { text-align: left; }
+  .mag-page-foot-c { text-align: center; color: var(--ink-mid); font-weight: 700; }
+  .mag-page-foot-r { text-align: right; font-style: italic; text-transform: none; }
+
+  .mag-state {
+    max-width: 560px;
+    margin: 80px auto;
+    padding: 48px 36px;
+    text-align: center;
+    background: var(--paper);
+    box-shadow: var(--shadow-page);
+  }
+  .mag-state-mark {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    padding: 5px 14px;
+    display: inline-block;
+    margin-bottom: 16px;
+    font-weight: 700;
+  }
+  .mag-state-title {
+    font-family: var(--serif-display);
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .mag-state-body {
+    font-family: var(--serif);
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.6;
+  }
+
+  @media print {
+    .mag-top-bar { display: none; }
+    body, html { background: white; }
+    .mag-doc { max-width: none; padding: 0; margin: 0; }
+    .mag-page {
+      box-shadow: none;
+      margin: 0;
+      padding: 16mm 18mm;
+      page-break-after: always;
+    }
+    .mag-page:last-child { page-break-after: auto; }
+  }
+  </style>
+</head>
+<body>
+
+  <header class="mag-top-bar" data-mag-chrome>
+    <a href="/" class="mag-crumb">PrivateBoard <span class="mag-crumb-accent">· magazine</span></a>
+    <div class="mag-actions">
+      <span class="mag-variant-badge" data-mag-variant-badge>Loading…</span>
+      <nav class="mag-page-nav" aria-label="Pages">
+        <a href="#mag-page-1">Cover</a>
+        <a href="#mag-page-2">Inside</a>
+      </nav>
+      <button type="button" class="mag-btn" data-mag-png>
+        <span class="glyph">↓</span>PNG
+      </button>
+      <button type="button" class="mag-btn" data-mag-print>
+        <span class="glyph">↓</span>PDF
+      </button>
+    </div>
+  </header>
+
+  <main data-mag-root>
+    <div class="mag-state">
+      <div class="mag-state-mark">Loading</div>
+      <div class="mag-state-title">Loading magazine…</div>
+      <div class="mag-state-body">Fetching the editorial spread for this brief.</div>
+    </div>
+  </main>
+
+  <script>
+  /* ──────────────────────────────────────────────────────────────────
+     Magazine renderer · two distinct templates (GQ / Vogue) picked
+     deterministically per brief id. Each renders 2 pages (Cover +
+     Inside Feature) so the report reads as a magazine, not a
+     single sheet.
+     ────────────────────────────────────────────────────────────── */
+  (function () {
+    const params = new URLSearchParams(location.search);
+    const briefId = (params.get("b") || "").trim();
+    const roomId = (params.get("r") || "").trim();
+    const root = document.querySelector("[data-mag-root]");
+    const variantBadge = document.querySelector("[data-mag-variant-badge]");
+
+    function escape(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showState(mark, title, body) {
+      root.innerHTML = `
+        <div class="mag-state">
+          <div class="mag-state-mark">${escape(mark)}</div>
+          <div class="mag-state-title">${escape(title)}</div>
+          <div class="mag-state-body">${escape(body)}</div>
+        </div>`;
+    }
+
+    async function loadBrief() {
+      let url;
+      if (briefId) url = `/api/briefs/${encodeURIComponent(briefId)}`;
+      else if (roomId) url = `/api/rooms/${encodeURIComponent(roomId)}/brief`;
+      else { showState("Missing query", "No brief specified", "Add ?b=<briefId> or ?r=<roomId> to the URL."); return null; }
+      const res = await fetch(url);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        showState("Not found", "Brief not found", e.error || "The requested brief doesn't exist or is no longer available.");
+        return null;
+      }
+      return await res.json();
+    }
+
+    /** Pick "gq" or "vogue" deterministically from the brief id ·
+     *  same brief id always renders the same template. The
+     *  `?v=gq|vogue` URL parameter forces a specific template. */
+    function pickVariant(id) {
+      const force = (params.get("v") || "").trim().toLowerCase();
+      if (force === "gq" || force === "vogue") return force;
+      const s = String(id || "");
+      if (!s) return "gq";
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h) + s.charCodeAt(i);
+        h |= 0;
+      }
+      return (Math.abs(h) % 2) === 0 ? "gq" : "vogue";
+    }
+
+    function formatDate(footerTag) {
+      const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+      const m = String(footerTag || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      const target = m ? new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`) : new Date();
+      const d = isNaN(target.getTime()) ? new Date() : target;
+      return {
+        weekday: days[d.getDay()],
+        long: `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
+        monthYear: `${months[d.getMonth()]} ${d.getFullYear()}`,
+        year: String(d.getFullYear()),
+      };
+    }
+
+    /** Split a "Heading: body." style verification bullet on the
+     *  first colon. Falls back to em-dash / middle-dot, then to
+     *  whole-bullet-as-heading. */
+    function splitHeading(raw) {
+      const s = String(raw || "").trim();
+      if (!s) return { heading: "", body: "" };
+      const seps = [": ", " · ", " — ", " - "];
+      for (const sep of seps) {
+        const idx = s.indexOf(sep);
+        if (idx > 0 && idx < 60) {
+          return { heading: s.slice(0, idx).trim(), body: s.slice(idx + sep.length).trim() };
+        }
+      }
+      return { heading: s, body: "" };
+    }
+
+    /** Strict stat picker · only short numeric callouts. */
+    function pickStat(m) {
+      const ms = m.milestones || [];
+      const hit = ms.find((x) => x && x.callout && String(x.callout).trim().length > 0 && String(x.callout).trim().length <= 14);
+      if (hit) {
+        return { num: String(hit.callout).trim(), cap: hit.title || hit.period || "" };
+      }
+      return null;
+    }
+
+    function pageFoot(pageNum, totalPages, briefIdShort) {
+      return `
+        <div class="mag-page-foot">
+          <span class="mag-page-foot-l">${escape(briefIdShort)}</span>
+          <span class="mag-page-foot-c">Page ${pageNum} of ${totalPages}</span>
+          <span class="mag-page-foot-r">privateboard.ai</span>
+        </div>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       GQ · The Boardroom · bold modern editorial
+       ═════════════════════════════════════════════════════════════ */
+
+    function renderGqCover(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+
+      const coverPoints = [
+        { num: "01", title: ms0.title || "Top story", page: "P. 02" },
+        { num: "02", title: ms1.title || "On the markets", page: "P. 02" },
+        { num: "03", title: ms2.title || "Late dispatches", page: "P. 02" },
+      ].filter((p) => p.title).map((p) => `
+        <li>
+          <b>${escape(p.num)}</b>
+          <span>${escape(p.title)}</span>
+          <span class="pg">${escape(p.page)}</span>
+        </li>
+      `).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-1">
+          <div class="gq-cover-top">
+            <span>The Boardroom · Issue ${escape(briefIdShort.replace(/^#/, ""))}</span>
+            <span>${escape(dateInfo.monthYear)}</span>
+          </div>
+
+          <h1 class="gq-cover-logo">Boardroom</h1>
+
+          <div class="gq-cover-strip">
+            <span><em>★</em> Exclusive</span>
+            <span>Reported, written &amp; edited by the chair</span>
+            <span><em>★</em> ${escape(dateInfo.year)} edition</span>
+          </div>
+
+          <div class="gq-cover-grid">
+            <!-- Typographic "portrait" panel · solid dark, editorial quote -->
+            <aside class="gq-cover-portrait">
+              <div class="gq-cover-portrait-eye">— Featured</div>
+              <div>
+                <div class="gq-cover-portrait-mark">"</div>
+                <div class="gq-cover-portrait-text">${escape(m.conclusion || m.kicker || m.title || "")}</div>
+              </div>
+              <div class="gq-cover-portrait-cite">— By the chair</div>
+            </aside>
+
+            <!-- Cover lines stacked · main headline + featured items -->
+            <div class="gq-cover-lines">
+              <span class="gq-cover-flag">The big read</span>
+              <h2 class="gq-cover-headline">${escape(m.title || "")}</h2>
+              ${m.kicker ? `<p class="gq-cover-deck">${escape(m.kicker)}</p>` : ""}
+              ${coverPoints ? `<ul class="gq-cover-points">${coverPoints}</ul>` : ""}
+            </div>
+          </div>
+
+          ${pageFoot(1, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    function renderGqInside(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const stat = pickStat(m);
+      const verifs = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+
+      // Body cell · pack with kicker lead + 3 milestone bodies +
+      // mid pull-quote + closing conclusion line so the body cell
+      // matches the sidebar's height instead of trailing off short.
+      const bodyHead = m.kicker ? `<p style="font-style:italic;color:var(--ink-mid);font-size:14.5px;margin-bottom:10px;">${escape(m.kicker)}</p>` : "";
+      const bodyParas = [];
+      if (ms0.body) bodyParas.push(`<p>${escape(ms0.body)}</p>`);
+      if (ms1.body) bodyParas.push(`<p>${escape(ms1.body)}</p>`);
+      if (ms2.body) bodyParas.push(`<p>${escape(ms2.body)}</p>`);
+      const bodyClose = m.conclusion ? `<p style="font-weight:700;color:var(--ink);margin-top:6px;">${escape(m.conclusion)}</p>` : "";
+
+      const verifsHtml = verifs.slice(0, 5).map((b) => {
+        const p = splitHeading(b);
+        return `<li>${p.body
+          ? `<b>${escape(p.heading)}</b>${escape(p.body)}`
+          : escape(p.heading)}</li>`;
+      }).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-2">
+          <div class="gq-running">
+            <span class="gq-running-brand">Boardroom</span>
+            <span class="gq-running-meta">${escape(dateInfo.monthYear)} · The big read</span>
+            <span class="gq-running-page">P. 02</span>
+          </div>
+
+          <span class="gq-feature-dept">Feature · ${escape(ms0.period || "Strategy")}</span>
+          <h2 class="gq-feature-title">${escape(m.title || "")}</h2>
+          ${m.kicker ? `<p class="gq-feature-deck">${escape(m.kicker)}</p>` : ""}
+          <div class="gq-feature-byline">By <em>The Chair</em> · Edited from the boardroom</div>
+
+          <div class="gq-inside-grid">
+            <div>
+              ${bodyParas.length ? `<div class="gq-feature-body has-drop">${bodyParas.join("")}${bodyClose}</div>` : ""}
+              ${tpAll[0] ? `
+              <blockquote class="gq-pull">
+                <div class="gq-pull-text">"${escape(tpAll[0])}"</div>
+                <div class="gq-pull-cite">— From the editorial</div>
+              </blockquote>` : ""}
+              ${tpAll[2] ? `
+              <p style="font-family:var(--serif);font-size:13.5px;line-height:1.62;color:var(--ink-soft);margin-top:10px;text-align:justify;">${escape(tpAll[2])}</p>` : ""}
+            </div>
+
+            <aside class="gq-side">
+              <span class="gq-side-flag">More from the room</span>
+              ${verifsHtml ? `<ul class="gq-side-list">${verifsHtml}</ul>` : ""}
+              ${stat ? `
+              <div class="gq-stat">
+                <div class="gq-stat-eye">By the numbers</div>
+                <div class="gq-stat-num">${escape(stat.num)}</div>
+                <div class="gq-stat-cap">${escape(stat.cap)}</div>
+              </div>` : ""}
+              ${tpAll[1] ? `
+              <blockquote class="gq-pull" style="margin: 0;">
+                <div class="gq-pull-text">"${escape(tpAll[1])}"</div>
+                <div class="gq-pull-cite">— Boardroom note</div>
+              </blockquote>` : ""}
+            </aside>
+          </div>
+
+          ${pageFoot(2, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       VOGUE · BOARDROOM · refined Didot-elegance
+       ═════════════════════════════════════════════════════════════ */
+
+    function renderVogueCover(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+
+      const coverLines = [
+        { text: ms0.title, page: "P. II" },
+        { text: ms1.title, page: "P. II" },
+        { text: ms2.title, page: "P. II" },
+      ].filter((it) => it.text).map((it, i) => `
+        <li>
+          <span>${i === 0 ? `<em>${escape(it.text)}</em>` : escape(it.text)}</span>
+          <span class="pg">${escape(it.page)}</span>
+        </li>`).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-1">
+          <div class="vogue-cover-tagline">"Intelligence from the boardroom"</div>
+          <h1 class="vogue-cover-logo">Boardroom</h1>
+          <div class="vogue-cover-strip">
+            <span>VOL. XII</span>
+            <span class="star">★</span>
+            <span><em>Issue</em> ${escape(briefIdShort.replace(/^#/, ""))}</span>
+            <span class="star">★</span>
+            <span>${escape(dateInfo.monthYear)}</span>
+            <span class="star">★</span>
+            <span>$14.00</span>
+          </div>
+
+          <div class="vogue-cover-content">
+            <div class="vogue-cover-left">
+              <div class="vogue-cover-eye">Featured in this issue</div>
+              <h2 class="vogue-cover-title">${escape(m.title || "")}</h2>
+              ${m.kicker ? `<p class="vogue-cover-deck">${escape(m.kicker)}</p>` : ""}
+              <div class="vogue-cover-byline">Reported by <em>The Chair</em></div>
+              ${coverLines ? `<ul class="vogue-cover-lines">${coverLines}</ul>` : ""}
+            </div>
+
+            <aside class="vogue-cover-portrait">
+              <div class="vogue-cover-portrait-eye">The Editorial</div>
+              <div class="vogue-cover-portrait-mark">"</div>
+              <div class="vogue-cover-portrait-text">${escape(m.conclusion || m.kicker || m.title || "")}</div>
+              <div class="vogue-cover-portrait-cite">— Bottom line</div>
+            </aside>
+          </div>
+
+          ${pageFoot(1, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    function renderVogueInside(brief, parts) {
+      const { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages } = parts;
+      const tpAll = (m.talkingPoints && Array.isArray(m.talkingPoints.bullets)) ? m.talkingPoints.bullets : [];
+      const stat = pickStat(m);
+      const verifs = (m.verification && Array.isArray(m.verification.bullets)) ? m.verification.bullets : [];
+
+      // Body cell · pack with milestone bodies + closing conclusion
+      // line so the body matches the sidebar's height. The kicker
+      // already shows above the body as the deck · so don't repeat
+      // it inside (would feel like a stutter).
+      const bodyParas = [];
+      if (ms0.body) bodyParas.push(`<p>${escape(ms0.body)}</p>`);
+      if (ms1.body) bodyParas.push(`<p>${escape(ms1.body)}</p>`);
+      if (ms2.body) bodyParas.push(`<p>${escape(ms2.body)}</p>`);
+      const bodyClose = m.conclusion ? `<p style="font-style:italic;font-weight:700;color:var(--ink);margin-top:8px;">${escape(m.conclusion)}</p>` : "";
+
+      const verifsHtml = verifs.slice(0, 5).map((b) => {
+        const p = splitHeading(b);
+        return `<li>${p.body
+          ? `<b>${escape(p.heading)}</b>${escape(p.body)}`
+          : escape(p.heading)}</li>`;
+      }).join("");
+
+      return `
+        <section class="mag-page" id="mag-page-2">
+          <div class="vogue-running">
+            <span class="vogue-running-l">Boardroom</span>
+            <span class="vogue-running-c">${escape(dateInfo.monthYear)}</span>
+            <span class="vogue-running-r">Page II</span>
+          </div>
+
+          <div class="vogue-feature-eye">The Feature</div>
+          <h2 class="vogue-feature-title">${escape(m.title || "")}</h2>
+          ${m.kicker ? `<p class="vogue-feature-deck">${escape(m.kicker)}</p>` : ""}
+          <div class="vogue-feature-byline">Reported by <em>The Chair</em> · Edited from the boardroom</div>
+
+          <div class="vogue-inside-grid">
+            <div>
+              ${bodyParas.length ? `<div class="vogue-feature-body has-drop">${bodyParas.join("")}${bodyClose}</div>` : ""}
+              ${tpAll[0] ? `
+              <div class="vogue-pull">
+                <div class="vogue-pull-text">"${escape(tpAll[0])}"</div>
+                <div class="vogue-pull-cite">From the editorial</div>
+              </div>` : ""}
+              ${tpAll[2] ? `
+              <p style="font-family:var(--serif);font-size:13.5px;line-height:1.65;color:var(--ink-soft);margin-top:8px;text-align:justify;text-indent:1.2em;">${escape(tpAll[2])}</p>` : ""}
+            </div>
+
+            <aside class="vogue-side">
+              <span class="vogue-side-flag">More from the room</span>
+              ${verifsHtml ? `<ul class="vogue-side-list">${verifsHtml}</ul>` : ""}
+              ${stat ? `
+              <div class="vogue-stat">
+                <div class="vogue-stat-eye">By the numbers</div>
+                <div class="vogue-stat-num">${escape(stat.num)}</div>
+                <div class="vogue-stat-cap">${escape(stat.cap)}</div>
+              </div>` : ""}
+              ${tpAll[1] ? `
+              <div class="vogue-pull" style="margin: 0; max-width: none;">
+                <div class="vogue-pull-text" style="font-size: 18px;">"${escape(tpAll[1])}"</div>
+                <div class="vogue-pull-cite">Boardroom note</div>
+              </div>` : ""}
+            </aside>
+          </div>
+
+          ${pageFoot(2, totalPages, briefIdShort)}
+        </section>`;
+    }
+
+    /* ═════════════════════════════════════════════════════════════ */
+
+    function render(brief) {
+      if (brief.mode !== "magazine") {
+        showState("Wrong mode", "This brief isn't a magazine",
+          "Open it in the matching viewer instead. Magazine, newspaper, and research-note are separate output modes.");
+        return;
+      }
+      const m = brief.bodyJson;
+      if (!m || typeof m !== "object") {
+        if (brief.isGenerating) {
+          showState("Generating", "Magazine is still being prepared",
+            "The chair is currently composing the issue. Refresh in a few seconds.");
+        } else {
+          showState("Empty", "This brief has no magazine data",
+            "It may have failed to generate. Try regenerating from the room view.");
+        }
+        return;
+      }
+
+      if (m.title) document.title = `${m.title} · Magazine`;
+
+      const variant = pickVariant(brief.id);
+      document.body.setAttribute("data-mag-variant", variant);
+      if (variantBadge) {
+        variantBadge.textContent = variant === "vogue" ? "Vogue Edition" : "GQ Edition";
+      }
+
+      const milestones = (m.milestones || []).slice(0, 3);
+      const ms0 = milestones[0] || {};
+      const ms1 = milestones[1] || {};
+      const ms2 = milestones[2] || {};
+      const dateInfo = formatDate(m.footerTag);
+      const briefIdShort = brief.id ? `#${String(brief.id).slice(0, 10).toUpperCase()}` : "";
+      const totalPages = 2;
+
+      const parts = { m, ms0, ms1, ms2, dateInfo, briefIdShort, totalPages };
+
+      const pages = variant === "vogue"
+        ? [renderVogueCover(brief, parts), renderVogueInside(brief, parts)]
+        : [renderGqCover(brief, parts), renderGqInside(brief, parts)];
+
+      root.innerHTML = `<article class="mag-doc" data-mag-paper>${pages.join("")}</article>`;
+    }
+
+    /* ─── Export wiring · same PNG-as-PDF strategy ─────────── */
+    let _h2iLoaded = null;
+    async function ensureHtmlToImage() {
+      if (window.htmlToImage) return;
+      if (!_h2iLoaded) {
+        _h2iLoaded = new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      await _h2iLoaded;
+    }
+
+    async function captureMagPng() {
+      const el = document.querySelector("[data-mag-paper]");
+      if (!el) throw new Error("magazine doc not found");
+      await ensureHtmlToImage();
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch { /* best-effort */ }
+      }
+      const width = Math.max(el.scrollWidth, el.offsetWidth, el.clientWidth);
+      const height = Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight);
+      return window.htmlToImage.toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: "#1A1A1A",
+        cacheBust: true,
+        width, height,
+        canvasWidth: width, canvasHeight: height,
+        style: { margin: "0", width: `${width}px`, height: `${height}px` },
+      });
+    }
+
+    function slugTitle() {
+      return (document.title || "magazine").replace(/[^a-z0-9]+/gi, "-").slice(0, 60) || "magazine";
+    }
+
+    async function exportPng() {
+      try {
+        const dataUrl = await captureMagPng();
+        const a = document.createElement("a");
+        a.download = `${slugTitle()}.png`;
+        a.href = dataUrl;
+        a.click();
+      } catch (e) {
+        console.warn("[magazine] PNG export failed:", e);
+        alert("PNG export failed · see browser console.");
+      }
+    }
+
+    async function exportPdf() {
+      try {
+        const dataUrl = await captureMagPng();
+        const win = window.open("", "_blank", "width=1024,height=720");
+        if (!win) {
+          alert("PDF export needs to open a new window — please allow popups for this site.");
+          return;
+        }
+        const slug = slugTitle();
+        win.document.open();
+        win.document.write(`<!doctype html><html lang="en"><head>
+          <meta charset="utf-8">
+          <title>${slug}</title>
+          <style>
+            @page { size: auto; margin: 10mm; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body { background: #FFFFFF; }
+            body { display: flex; align-items: flex-start; justify-content: center; padding: 20px; min-height: 100vh; }
+            img { display: block; width: 100%; max-width: 880px; height: auto; box-shadow: 0 0 24px rgba(0, 0, 0, 0.08); }
+            @media print {
+              body { padding: 0; }
+              img { box-shadow: none; max-width: none; width: 100%; }
+            }
+            .hint {
+              position: fixed; top: 12px; left: 12px;
+              font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              font-size: 11px; color: #8E8B83;
+              background: rgba(255,255,255,0.9); padding: 6px 10px;
+              border: 1px solid #E5E2DA;
+            }
+            @media print { .hint { display: none; } }
+          </style>
+        </head><body>
+          <div class="hint">// press <kbd>⌘P</kbd> / <kbd>Ctrl+P</kbd> · save as PDF</div>
+          <img alt="${slug}" src="${dataUrl}">
+          <script>
+            (function () {
+              var img = document.querySelector("img");
+              function go() { setTimeout(function () { window.print(); }, 200); }
+              if (img && img.complete) { go(); }
+              else if (img) { img.addEventListener("load", go, { once: true }); }
+            })();
+          <\/script>
+        </body></html>`);
+        win.document.close();
+      } catch (e) {
+        console.warn("[magazine] PDF export failed:", e);
+        alert("PDF export failed · see browser console.");
+      }
+    }
+
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("[data-mag-png]")) { e.preventDefault(); exportPng(); return; }
+      if (e.target.closest("[data-mag-print]")) { e.preventDefault(); exportPdf(); return; }
+    });
+
+    /* ─── Boot ──────────────────────────────────────────────────── */
+    loadBrief().then((brief) => {
+      if (brief) render(brief);
+    }).catch((e) => {
+      console.error("[magazine] load failed:", e);
+      showState("Error", "Couldn't load this brief", e instanceof Error ? e.message : String(e));
+    });
+  })();
+  </script>
+
+</body>
+</html>

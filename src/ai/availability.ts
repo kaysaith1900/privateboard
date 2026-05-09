@@ -140,6 +140,29 @@ const PROVIDER_FLAGSHIP: Record<Provider, ModelV | null> = {
   elevenlabs: null,
 };
 
+/** Flagship-tier model pool · superset of PROVIDER_FLAGSHIP. Each
+ *  provider's primary flagship plus any comparable peers (e.g.
+ *  sonnet-4-6 alongside opus-4-7) so callers that need a fallback
+ *  still have one when the user's pick isn't reachable.
+ *
+ *  Single source of truth · imported by
+ *  `routes/agents.ts:agentSpecModelCandidates()`. Was previously a
+ *  separate hardcoded Set in that file, which silently drifted from
+ *  PROVIDER_FLAGSHIP — the gap surfaced as DeepSeek-only users
+ *  having no flagship-tier fallbacks during agent-spec generation. */
+export const FLAGSHIP_TIER: ReadonlySet<ModelV> = new Set<ModelV>([
+  // Anthropic
+  "opus-4-7", "sonnet-4-6",
+  // OpenAI
+  "gpt-5-5", "gpt-5-4",
+  // Google
+  "gemini-3-1", "gemini-3-flash",
+  // xAI
+  "grok-4-3",
+  // DeepSeek
+  "deepseek-v4-pro",
+]);
+
 /** Resolve the default model the user should see RIGHT NOW, with
  *  prefs persistence:
  *
@@ -210,8 +233,14 @@ export function defaultModelFor(keys: ProviderKeyState = getProviderKeyState()):
  *  utility list toward whichever carrier the user is currently routing
  *  through, so a user who switched their default to Gemini doesn't
  *  silently keep getting OpenAI background calls. Carriers without
- *  a cheap-tier entry fall through to the static UTILITY_PREFERENCE. */
-const CHEAP_BY_CARRIER: Partial<Record<Provider | "openrouter", ModelV>> = {
+ *  a cheap-tier entry fall through to the static UTILITY_PREFERENCE.
+ *
+ *  Single source of truth · imported by both `utilityModelFor()` (this
+ *  file) and `skill-picker.ts:pickRouterModel()` so adding a new
+ *  carrier or swapping a carrier's cheap model only edits this map.
+ *  Previously skill-picker carried its own copy and the two could
+ *  silently drift on any update. */
+export const CHEAP_BY_CARRIER: Partial<Record<Provider | "openrouter", ModelV>> = {
   openrouter: "haiku-4-5",
   anthropic:  "sonnet-4-6",     // only direct-routable Claude
   openai:     "gpt-5-4-mini",
@@ -229,6 +258,27 @@ const UTILITY_PREFERENCE: ModelV[] = [
 
 export function utilityModelFor(fallback: ModelV | null = null): ModelV | null {
   const reachable = new Set(reachableModels().map((m) => m.modelV));
+
+  // User-default-first · if the user explicitly picked a utility-class
+  // model as their default (Gemini Flash, GPT-mini, Haiku, Grok Fast),
+  // use it directly. The earlier carrier-aware path forced OpenRouter
+  // users onto haiku-4-5 even when they'd switched their default to
+  // a different family's small-fast model — the user reported this as
+  // "I changed default to Gemini 3.1 Flash but report generation still
+  // shows haiku in the terminal". That detour wasted both fidelity to
+  // the user's explicit choice AND the chance to keep the whole
+  // pipeline on a single model family. When the default is itself
+  // small-fast, just use it.
+  const prefs = getPrefs();
+  const userDefault = prefs.defaultModelV as ModelV | null;
+  if (
+    userDefault &&
+    (UTILITY_PREFERENCE as readonly ModelV[]).includes(userDefault) &&
+    reachable.has(userDefault)
+  ) {
+    return userDefault;
+  }
+
   // Active-carrier-first · whichever carrier serves the user's current
   // default model gets first dibs on the utility slot. Prevents the
   // "I switched to Gemini but background calls still hit OpenAI" trap

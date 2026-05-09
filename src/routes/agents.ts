@@ -31,7 +31,7 @@ import { parseSkillMd } from "../skills/parse.js";
 import { analyzeSkillAbility } from "../skills/analyze.js";
 import { getSystemSkillsForAgent, isSystemSkillSlug } from "../skills/system-skills.js";
 import { callLLM } from "../ai/adapter.js";
-import { effectiveDefaultModel, reachableModels, utilityModelFor } from "../ai/availability.js";
+import { effectiveDefaultModel, FLAGSHIP_TIER, reachableModels, utilityModelFor } from "../ai/availability.js";
 import {
   buildAgentProfileMessages,
   buildAgentSpecMessages,
@@ -42,6 +42,7 @@ import {
 import { runWebSearch } from "../ai/skills/web-search.js";
 import { getActiveWebSearchCredentials, hasWebSearchKey } from "../storage/keys.js";
 import { newId } from "../utils/id.js";
+import { runDreamCycle, resetAdjournCounter } from "../orchestrator/dream.js";
 
 /** Pick the model list to try for agent-spec generation. The previous
  *  hardcoded picks failed for users who only had
@@ -58,14 +59,10 @@ function agentSpecModelCandidates(): readonly string[] {
   const flagship = effectiveDefaultModel();
   if (flagship) out.push(flagship);
   // Reachable flagship-tier models the user has keys for · order
-  // doesn't matter much beyond "user's pick first".
+  // doesn't matter much beyond "user's pick first". Tier set lives
+  // in availability.ts next to PROVIDER_FLAGSHIP — single source of
+  // truth so the two flagship surfaces can't drift.
   const reachable = reachableModels();
-  const FLAGSHIP_TIER = new Set([
-    "opus-4-7", "opus-4-6", "sonnet-4-6",
-    "gpt-5-5", "gpt-5-4",
-    "gemini-3-1", "gemini-3-flash",
-    "grok-4-3",
-  ]);
   for (const m of reachable) {
     if (FLAGSHIP_TIER.has(m.modelV) && !out.includes(m.modelV)) {
       out.push(m.modelV);
@@ -503,6 +500,7 @@ export function agentsRouter(): Hono {
         volume?: number;
         instructions?: string;
       } | null;
+      isPinned?: boolean;
     } = {};
 
     if (typeof b.avatarPath === "string") {
@@ -580,6 +578,9 @@ export function agentsRouter(): Hono {
           ...(typeof v.instructions === "string" ? { instructions: v.instructions } : {}),
         };
       }
+    }
+    if (typeof b.isPinned === "boolean") {
+      patch.isPinned = b.isPinned;
     }
 
     const updated = updateAgent(id, patch);
@@ -684,6 +685,38 @@ export function agentsRouter(): Hono {
     const ok = deleteMemory(memId);
     if (!ok) return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
+  });
+
+  // ── Manual dream / consolidation trigger ──────────────────────────
+  // Forces a dream cycle for one agent regardless of its adjourn
+  // counter. Useful when the user notices stale memories piling up
+  // (chair especially, since it accumulates fastest) and wants to
+  // run cleanup on demand. Resets the counter on success so the
+  // next automatic dream is K adjourns later.
+  //
+  // Body fields (all optional):
+  //   { aggressive?: boolean }
+  //     · `aggressive: true` lowers decay thresholds for this run
+  //       (15 days old + < 0.7 confidence) so a manual sweep clears
+  //       more aggressively than the default automatic cycle.
+  //
+  // Returns the DreamSummary so the UI can show before/after counts.
+  r.post("/:id/dream", async (c) => {
+    const id = c.req.param("id");
+    if (!getAgent(id)) return c.json({ error: "not found" }, 404);
+    let body: unknown = {};
+    try { body = await c.req.json(); } catch { /* empty body OK */ }
+    const aggressive = !!(body && typeof body === "object" && (body as { aggressive?: unknown }).aggressive);
+    try {
+      const summary = await runDreamCycle(id, aggressive
+        ? { decay: { minAgeMs: 15 * 24 * 60 * 60 * 1000, maxConfidence: 0.7 } }
+        : undefined);
+      resetAdjournCounter(id);
+      return c.json({ ok: true, summary });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ error: msg }, 500);
+    }
   });
 
   // ── Skills · per-agent .md uploads. PRD-skills §5. ──────────────────

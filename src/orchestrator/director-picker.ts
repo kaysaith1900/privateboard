@@ -17,10 +17,27 @@
  * silently to a canonical triple. Callers always get 3 directors.
  */
 import { callLLM, NoKeyError, type LLMMessage } from "../ai/adapter.js";
+import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import type { ModelV } from "../ai/registry.js";
 import type { Agent } from "../storage/agents.js";
 
-const PICKER_MODEL: ModelV = "haiku-4-5" as ModelV;
+/** Auto-pick is one of the most consequential routing decisions in
+ *  the room (which 3 directors get seated determines the room's whole
+ *  character), so we use the user's configured DEFAULT model — not
+ *  the cheap utility tier. The previous hardcoded `haiku-4-5` ignored
+ *  the user's preference entirely AND silently failed when haiku
+ *  wasn't reachable on their carrier (OpenAI / Google / xAI direct
+ *  with no OR or Anthropic key) — falling back to the canonical
+ *  triple every time. Resolved per-call so a key change mid-session
+ *  is honoured immediately. */
+function resolvePickerModel(): ModelV | null {
+  const def = effectiveDefaultModel();
+  if (def) return def;
+  // Fallback when the user has no default model set (rare — the
+  // reconcile sweep usually back-fills one). Try the cheap tier so
+  // we still pick SOMETHING reachable rather than throwing.
+  return utilityModelFor();
+}
 const TARGET_CAST_SIZE = 3;
 /** The 4 lens types the cast must cover at least 2 of. Tied to the
  *  ability axes a director scores well on; "high" means ≥ 7 of 10. */
@@ -235,16 +252,35 @@ export async function pickDirectors(opts: {
   };
 
   let raw = "";
+  const pickerModel = resolvePickerModel();
+  if (!pickerModel) {
+    // No model reachable at all (no keys configured) · fall back to
+    // the canonical triple immediately rather than entering the
+    // try/catch and burning a wasted call.
+    const cast = enforceDiversity(fallbackCast(candidates), candidates);
+    return {
+      picks: cast.map((a) => ({ agentId: a.id, reason: "default cast" })),
+      rationale: "no model reachable · default cast seated",
+      fromLlm: false,
+    };
+  }
   try {
     raw = await callLLM({
-      modelV: PICKER_MODEL,
+      modelV: pickerModel,
       messages: [sys, user],
       // 0.7 (was 0.3) gives the picker enough variation to actually
       // honor the recency bias when topical fit is comparable; 0.3 was
       // too deterministic and locked the picker into the same trio
       // across similar topics.
       temperature: 0.7,
-      maxTokens: 360,
+      // 1500 (was 360) · the picker is one of the most consequential
+      // routing calls in the pipeline, and now runs on the user's
+      // chosen default model (often a flagship). 360 was tight enough
+      // that a model with a "reasoning trace" (Gemini 3, GPT-5
+      // thinking modes) could exhaust the budget on private reasoning
+      // and return a truncated / empty JSON. 1500 leaves 1k+ headroom
+      // even when reasoning eats 500 tokens.
+      maxTokens: 1500,
     });
   } catch (e) {
     if (!(e instanceof NoKeyError)) {

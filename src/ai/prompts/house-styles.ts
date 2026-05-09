@@ -191,10 +191,6 @@ export const HOUSE_STYLES: HouseStyle[] = [
         { en: "How We'd Move",                     zh: "我们会怎么做" },
       ],
       "considerations":       { en: "Things We'd Stress-Test",   zh: "需要压力测试的点" },
-      "pre-mortem": [
-        { en: "Where It Could Break",              zh: "可能崩盘之处" },
-        { en: "How This Goes Wrong",               zh: "这事会怎么搞砸" },
-      ],
       "critical-assumptions": { en: "What We're Assuming",       zh: "我们的假设" },
       "threats-to-validity": [
         { en: "What Could Be Wrong With This Read", zh: "这套判断可能错在哪" },
@@ -267,10 +263,6 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "leading-indicators": [
         { en: "What We're Watching",               zh: "我们盯着什么" },
         { en: "The Signals That Tell Us We're Right", zh: "证明我们对了的信号" },
-      ],
-      "pre-mortem": [
-        { en: "How This Goes Wrong",               zh: "这事会怎么搞砸" },
-        { en: "The Failure Modes We're Underwriting", zh: "我们在替谁兜底的失败模式" },
       ],
       "convergence":          { en: "What We Agreed On",         zh: "我们达成的共识" },
       "divergence":           { en: "The Open Question Inside",  zh: "我们之间的分歧" },
@@ -349,10 +341,6 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "metric-strip": [
         { en: "Numbers worth sitting with",                                zh: "值得停留的几个数字" },
         { en: "Empirical anchors",                                         zh: "实证锚点" },
-      ],
-      "pre-mortem": [
-        { en: "How this could unravel",                                    zh: "这套判断会怎样松开" },
-        { en: "Failure modes we take seriously",                           zh: "我们认真对待的失败方式" },
       ],
       "considerations": [
         { en: "Considerations, in no particular order",                    zh: "若干考量（不分先后）" },
@@ -438,10 +426,6 @@ export const HOUSE_STYLES: HouseStyle[] = [
       ],
       "the-bet":              { en: "Conditions for Commitment", zh: "做出承诺的前提条件" },
       "considerations":       { en: "Trade-offs to Weigh",       zh: "需要权衡的取舍" },
-      "pre-mortem": [
-        { en: "Risks to Manage",                   zh: "需管理的风险" },
-        { en: "Where Execution Could Fail",        zh: "执行可能崩盘之处" },
-      ],
       "two-paths":            { en: "Strategic Options",         zh: "战略选项对照" },
       "why-now":              { en: "Why the Window Is Open",    zh: "为何窗口现在打开" },
       "new-questions": [
@@ -505,10 +489,6 @@ export const HOUSE_STYLES: HouseStyle[] = [
         { en: "How We'd Carry This Out",           zh: "我们会怎么把这事落下来" },
       ],
       "the-bet":              { en: "What We'd Need to Believe to Move", zh: "要行动需要相信什么" },
-      "pre-mortem": [
-        { en: "Where We'd Get Stuck",              zh: "我们大概会卡在哪" },
-        { en: "Where Things Tend to Fall Apart",   zh: "通常会崩在哪" },
-      ],
       "new-questions": [
         { en: "Questions We Walked Out With",      zh: "走出会议室时带着的新问题" },
         { en: "What We're Going Home With",        zh: "我们打包带回家的问题" },
@@ -567,10 +547,6 @@ export const HOUSE_STYLES: HouseStyle[] = [
       "convergence":          { en: "Areas of Analyst Agreement", zh: "分析共识所在" },
       "divergence":           { en: "Analyst Disagreement",       zh: "分析师分歧" },
       "positions":            { en: "Vendor / Camp Positions",    zh: "厂商 / 阵营立场" },
-      "pre-mortem": [
-        { en: "Failure Modes",                     zh: "失败模式" },
-        { en: "Downside Scenarios",                zh: "下行情景" },
-      ],
       "recommendations": [
         { en: "Strategic Imperatives",             zh: "战略要务" },
         { en: "Recommended Actions",               zh: "建议行动" },

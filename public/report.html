@@ -54,6 +54,83 @@
          checkbox and produces a PDF that's universally readable on
          screen and on physical paper. Other spines are already light
          and pass through unchanged. */
+
+  /* ─── CJK font dispatch · GLOBAL (screen AND print) ───────────
+     Chrome does NOT do per-glyph cascade walking reliably in the
+     print pipeline: it picks the first font that "looks right for
+     the script" and stays there. With a cascade of
+     "Helvetica Neue, Inter, Arial, PingFang SC, ..." Chrome lands
+     on Arial (advertises minimal CJK coverage), renders every
+     Chinese ideograph as `.notdef` (invisible / tofu), and the
+     PingFang SC entry NEVER gets tried. Result: empty Chinese
+     text in the saved PDF, even on a Mac with PingFang installed
+     system-wide.
+
+     Fix: register three named handles — `cjk-sans`, `cjk-serif`,
+     `cjk-mono` — each scoped to the CJK Unicode ranges via
+     `unicode-range`. When a CJK code point hits the cascade,
+     Chrome is FORCED to dispatch to the CJK handle (only that
+     handle covers the range), which uses `local()` to pick
+     PingFang / Hiragino / Songti / STSong from the OS. Latin
+     code points fall through to the next font as before, so
+     Latin display still renders in Helvetica / Charter / Menlo.
+
+     OUTSIDE @media print so it applies on both screen + print.
+     Some CJK selectors live outside @media print (e.g.
+     body.is-cjk .cover-title) and need the same dispatch. */
+  /* Why STSong leads each src list:
+     - macOS regular Chrome resolves PingFang SC fine — but headless
+       Chrome (and the same user-action Save-as-PDF on some configs)
+       walks `local()` and gives up after the first miss instead of
+       trying the rest. Putting a guaranteed-available font (STSong
+       ships with macOS since 10.0) first means we always have at
+       least ONE working dispatcher; the more aesthetic faces sit
+       behind it for environments that DO resolve them.
+     - Empirically: cjk-serif (Songti SC/STSong leading) worked while
+       cjk-sans (PingFang SC leading) didn't — same chain otherwise,
+       only the lead changed. So the FIRST local() is what matters
+       most; later entries are best-effort improvements. */
+  @font-face {
+    font-family: "cjk-sans";
+    src: local("STSong"),
+         local("PingFang SC"), local("PingFangSC-Regular"),
+         local("Hiragino Sans GB"), local("HiraginoSansGB-W3"),
+         local("Source Han Sans CN"), local("Noto Sans CJK SC"),
+         local("Songti SC"), local("STHeiti");
+    unicode-range: U+1100-11FF, U+2E80-2FFF, U+3000-303F,
+                   U+3040-309F, U+30A0-30FF, U+3100-312F,
+                   U+3130-318F, U+3190-319F, U+31F0-31FF,
+                   U+3200-32FF, U+3300-33FF, U+3400-4DBF,
+                   U+4E00-9FFF, U+A000-A4CF, U+A960-A97F,
+                   U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+                   U+FF00-FFEF;
+  }
+  @font-face {
+    font-family: "cjk-serif";
+    src: local("STSong"), local("Songti SC"),
+         local("Source Han Serif CN"), local("Noto Serif CJK SC"),
+         local("PingFang SC"), local("Hiragino Sans GB");
+    unicode-range: U+1100-11FF, U+2E80-2FFF, U+3000-303F,
+                   U+3040-309F, U+30A0-30FF, U+3100-312F,
+                   U+3130-318F, U+3190-319F, U+31F0-31FF,
+                   U+3200-32FF, U+3300-33FF, U+3400-4DBF,
+                   U+4E00-9FFF, U+A000-A4CF, U+A960-A97F,
+                   U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+                   U+FF00-FFEF;
+  }
+  @font-face {
+    font-family: "cjk-mono";
+    src: local("STSong"), local("PingFang SC"),
+         local("Hiragino Sans GB"), local("Songti SC");
+    unicode-range: U+1100-11FF, U+2E80-2FFF, U+3000-303F,
+                   U+3040-309F, U+30A0-30FF, U+3100-312F,
+                   U+3130-318F, U+3190-319F, U+31F0-31FF,
+                   U+3200-32FF, U+3300-33FF, U+3400-4DBF,
+                   U+4E00-9FFF, U+A000-A4CF, U+A960-A97F,
+                   U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+                   U+FF00-FFEF;
+  }
+
   @media print {
     *, *::before, *::after {
       print-color-adjust: exact !important;
@@ -179,28 +256,26 @@
       border-color: #DDD5C8 !important;
     }
 
-    /* ─── CJK font fallback for print ────────────────────────────
-       PingFang SC anchors every cascade so Chinese glyphs render as
-       PingFang globally (user preference). Songti SC sits deep as
-       a last-resort fallback for the rare headless Chrome PDF
-       contexts where PingFang's font directory isn't reachable —
-       the browser falls through to it automatically when PingFang
-       can't be loaded. Latin text still renders in the spine's
-       preferred face; only CJK falls through to PingFang. */
+    /* CJK dispatch handles (cjk-sans / cjk-serif / cjk-mono) are
+       declared OUTSIDE this @media block — see the @font-face
+       trio at the top of <style>. Per-element font-family rules
+       below reference those handles so CJK glyphs route to
+       PingFang / Songti / etc. via `local()`. */
 
-    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK in PingFang SC. */
+    /* Sans-anchored body text · Latin in Helvetica/Inter, CJK
+       routed through cjk-sans (which `local()`s to PingFang SC). */
     body, .body, .body p, .body li,
     .body td, .body th,
     .rec-rationale, .rec-risk, .rec-risk-text, .rec-meta-value, .rec-action,
     .nq-why, .cover-deck {
-      font-family: "Helvetica Neue", "Inter", "Arial",
-                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                   "Source Han Sans CN", "Noto Sans CJK SC",
-                   "Songti SC", "STSong",
+      font-family: "cjk-sans",
+                   "Helvetica Neue", "Inter", "Arial",
                    sans-serif !important;
     }
     /* Serif-anchored display copy · headlines, italic claims, big-idea
-       kickers — the typographic moments worth preserving in serif. */
+       kickers — the typographic moments worth preserving in serif.
+       CJK ranges route to cjk-serif (which prefers Songti for the
+       serif voice, falling back to PingFang). */
     .body h1, .body h2, .body h3, .body h4,
     .body section.section-bottom-line p,
     .body section.section-thesis p,
@@ -208,15 +283,15 @@
     .body section.section-headline-findings .pillar h3,
     .body section.section-big-ideas ol > li p:first-child strong,
     .nq-question, .cover-title {
-      font-family: "Charter", "Source Serif Pro", "Iowan Old Style",
+      font-family: "cjk-serif",
+                   "Charter", "Source Serif Pro", "Iowan Old Style",
                    "Georgia",
-                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                   "Source Han Sans CN", "Noto Sans CJK SC",
-                   "Songti SC", "STSong",
-                   "Source Han Serif CN", "Noto Serif CJK SC",
                    serif !important;
     }
-    /* Mono kickers / labels stay mono with PingFang SC as CJK fallback. */
+    /* Mono kickers / labels · CJK chars in mono context don't really
+       have a mono face, so cjk-mono falls back to PingFang SC. The
+       result is mono-styled Latin labels with PingFang Han for the
+       rare CJK character that lands in a kicker. */
     .top-rule .crumb,
     .body .chapter-num,
     .cover-tag, .cover-tag .secondary,
@@ -231,10 +306,9 @@
     .body section.section-methodology strong,
     .body code,
     .body table.md-table th {
-      font-family: "SF Mono", "JetBrains Mono", "Menlo",
+      font-family: "cjk-mono",
+                   "SF Mono", "JetBrains Mono", "Menlo",
                    "Helvetica Neue", "Arial",
-                   "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                   "Source Han Sans CN", "Songti SC", "STSong",
                    monospace !important;
     }
 
@@ -512,6 +586,168 @@
   }
   .body table.md-table + pre.mermaid {
     border-top-width: 0;
+  }
+
+  /* ─── Hide mermaid's internal render scratchpad ──────────────
+     During `mermaid.render(id, src)`, mermaid 10 briefly appends a
+     `<div id="dmermaid-...">` to document.body to measure layout +
+     produce the SVG. The div is removed once render() resolves,
+     but in the meantime it can flash visibly. Force it offscreen
+     so the user never sees mermaid's pre-takeover render at all.
+     The element still has natural dimensions for mermaid's layout
+     measurement — only its position + visibility is constrained. */
+  body > [id^="dmermaid-"] {
+    position: absolute !important;
+    left: -99999px !important;
+    top: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  /* ─── Hide mermaid SVG until spine palette is applied ─────────
+     Pattern from user reports: "first time wrong, refresh OK" /
+     strict alternation (1st wrong, 2nd right, 3rd wrong, 4th
+     right). Cause: even with our continuous post-render takeover
+     (see report.html post-mermaid.run block), mermaid paints at
+     least once with its default palette BEFORE our takeover lands
+     — and the user sees that first paint. The takeover then
+     corrects it, but the user's already perceived "wrong colors."
+     On refresh, cached rendering may finish faster and the first
+     paint happens AFTER our takeover, which they perceive as
+     correct.
+     Defense: hide the SVG inside each pre.mermaid until we add
+     the `is-painted` class. The post-render takeover adds the
+     class as its last step. Until then, the user sees the frame
+     (matching the spine) with no SVG inside — no off-brand
+     colors flash at any point. */
+  .body pre.mermaid svg {
+    visibility: hidden;
+  }
+  .body pre.mermaid.is-painted svg {
+    visibility: visible;
+  }
+
+  /* ─── CSS-variable mermaid palette · timing-race-immune ──────
+     Final defense layer for the recurring "first time wrong,
+     refresh OK" bug. JS takeover fights timing with mermaid's
+     deferred render work; CSS doesn't have that problem — as
+     soon as the SVG is in the DOM, these rules apply. The
+     spine-specific colours are injected as CSS variables on
+     `:root` from JS in the swapSpine flow (see swapSpine /
+     mermaid.initialize block). Variables update when the spine
+     changes; CSS rules are static.
+
+     Specificity: each rule uses a 3-class+ chain plus
+     !important, beating mermaid's `.quadrant-fill { fill: ... }`
+     and any `fill="..."` presentation attribute. The element
+     selectors target every mermaid 10 chart-type's known
+     visual elements. */
+
+  /* Quadrant chart · 4 quadrant rects + data points */
+  .body pre.mermaid svg .quadrants .quadrant rect,
+  .body pre.mermaid svg g.quadrant > rect,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] g.quadrant rect {
+    fill: var(--mm-q-fill, #1A1A18) !important;
+  }
+  .body pre.mermaid svg .data-points circle,
+  .body pre.mermaid svg circle.data-point,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .data-points circle {
+    fill: var(--mm-q-point, #C9A46B) !important;
+    stroke: var(--mm-q-bg, #1A1A18) !important;
+  }
+  .body pre.mermaid svg .quadrants line,
+  .body pre.mermaid svg .axis-line,
+  .body pre.mermaid svg .axisl-line,
+  .body pre.mermaid svg g.border line,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] line,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] g.border line {
+    stroke: var(--mm-q-border, #3A3934) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] text {
+    fill: var(--mm-q-text, #C8C5BE) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .bottom-axis text,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .left-axis text,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .top-axis text,
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .right-axis text {
+    fill: var(--mm-q-axis-text, #5C5A4D) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="quadrantChart"] .quadrant text {
+    fill: var(--mm-q-quad-text, #8E8B83) !important;
+  }
+
+  /* xychart-beta · bars cycle through palette via :nth-child */
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect,
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect {
+    fill: var(--mm-pal-0, #C9A46B) !important;
+    stroke: none !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect:nth-child(2),
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect:nth-child(2) {
+    fill: var(--mm-pal-1, #B6B0A2) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect:nth-child(3),
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect:nth-child(3) {
+    fill: var(--mm-pal-2, #8E8B83) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] g[class*="bar-plot"] rect:nth-child(n+4),
+  .body pre.mermaid svg [aria-roledescription="xychart"] g.plot rect:nth-child(n+4) {
+    fill: var(--mm-pal-3, #5C5A52) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] text {
+    fill: var(--mm-axis-text, #5C5A4D) !important;
+  }
+  .body pre.mermaid svg [aria-roledescription="xychart"] .background,
+  .body pre.mermaid svg [aria-roledescription="xychart"] rect.background {
+    fill: transparent !important;
+  }
+
+  /* Pie · slice palette */
+  .body pre.mermaid svg path.pieCircle:nth-of-type(1) { fill: var(--mm-pal-0, #C9A46B) !important; stroke: var(--mm-q-bg, #1A1A18) !important; }
+  .body pre.mermaid svg path.pieCircle:nth-of-type(2) { fill: var(--mm-pal-1, #B6B0A2) !important; }
+  .body pre.mermaid svg path.pieCircle:nth-of-type(3) { fill: var(--mm-pal-2, #8E8B83) !important; }
+  .body pre.mermaid svg path.pieCircle:nth-of-type(n+4) { fill: var(--mm-pal-3, #5C5A52) !important; }
+  .body pre.mermaid svg circle.pieOuterCircle {
+    stroke: var(--mm-q-border, #3A3934) !important;
+    fill: none !important;
+  }
+
+  /* Universal text safety net inside any mermaid SVG · titleFill
+     for anything that escaped the per-type rules above. Lower
+     specificity than the type-specific rules so they still win. */
+  .body pre.mermaid svg text {
+    fill: var(--mm-text, #C8C5BE);  /* no !important · type-specific rules above WIN */
+  }
+
+  /* ─── Chart display sizes · CSS-enforced ─────────────────────
+     Mermaid 10.9.5's chartWidth/chartHeight config keys for
+     quadrantChart and xychart are silently ignored by the
+     bundled CDN build (verified via DOM dump showing default
+     500×500 viewBox even when chartWidth: 460 is configured).
+     CSS-enforced sizes via `max-width` on the rendered SVG let
+     us get refined-compact dimensions regardless of what
+     mermaid's config validator does. The viewBox stays at
+     mermaid's internal coordinate space (500×500 etc.) but the
+     displayed SVG scales down to our target size. Centered with
+     margin: 0 auto so the chart sits flush in the article column
+     instead of stretching to full width. */
+  .body pre.mermaid svg[aria-roledescription="quadrantChart"] {
+    max-width: 460px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
+  }
+  .body pre.mermaid svg[aria-roledescription="xychart"] {
+    max-width: 560px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
+  }
+  .body pre.mermaid svg[aria-roledescription="pie"] {
+    max-width: 420px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
   }
 
   /* ─── Metric-strip · spine-agnostic baseline ─────────────────────
@@ -1450,15 +1686,16 @@
   }
   .colophon-cta-url {
     display: inline-block;
-    color: var(--text, #1A1A1A);
+    color: var(--text-soft, #6B6B6B);
     font-family: var(--mono);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
     text-decoration: none;
     margin-top: 2px;
+    opacity: 0.78;
   }
-  .colophon-cta-url:hover { text-decoration: underline; }
+  .colophon-cta-url:hover { text-decoration: underline; opacity: 1; }
   /* Backwards-compat · the "·" separator from the prior horizontal
      layout no longer renders meaningfully in a vertical stack. Keep
      the selector defined so old markup doesn't error if rendered. */
@@ -2229,9 +2466,14 @@
   body.is-cjk .nq-why,
   body.is-cjk .cover-deck,
   body.is-cjk .cover-title {
-    font-family: "Söhne", "Inter", "Helvetica Neue", "Arial",
-                 "PingFang SC", "PingFang TC", "Hiragino Sans GB",
-                 "Source Han Sans CN", "Noto Sans CJK SC",
+    /* cjk-sans handle dispatches CJK ranges to PingFang/Songti via
+       local(). Listing it FIRST guarantees Chrome consults it for
+       any CJK code point — without that, Chrome lands on Arial
+       (next in the cascade, partial CJK), renders ideographs as
+       .notdef, and the PingFang entries below NEVER get tried.
+       That's the empty-cover-title-in-PDF bug. */
+    font-family: "cjk-sans",
+                 "Söhne", "Inter", "Helvetica Neue", "Arial",
                  sans-serif !important;
   }
 
@@ -3172,7 +3414,8 @@
         // ```metric-strip / ```chart-block style fences regularly.
         const fence = /^```([\w-]*)\s*$/.exec(lines[i]);
         if (fence) {
-          const lang = (fence[1] || "").toLowerCase();
+          const langRaw = fence[1] || "";
+          const lang = langRaw.toLowerCase();
           const start = i + 1;
           let end = lines.length;
           for (let j = start; j < lines.length; j++) {
@@ -3180,8 +3423,48 @@
           }
           const body = lines.slice(start, end).join("\n");
           const idx = placeholders.length;
-          if (lang === "mermaid") {
-            placeholders.push(`<pre class="mermaid">${escape(sanitizeMermaid(body))}</pre>`);
+          // Mermaid acceptance · the canonical fence is ```mermaid,
+          // but writers regularly emit ```quadrantChart /
+          // ```xychart-beta / ```flowchart / ```sequenceDiagram /
+          // etc. directly (the chart-type IS the lang in their head).
+          // Accept those bare type tags as mermaid too — otherwise
+          // they fall through to a plain `<pre class="codeblock">`
+          // and ship to the user as raw mermaid source. Catalog
+          // matches mermaid 10's diagram registry. The fenced body's
+          // first non-empty line is the actual mermaid type, so
+          // sanitizeMermaid handles the rest as before.
+          const MERMAID_TYPES = new Set([
+            "mermaid",
+            "quadrantchart", "xychart", "xychart-beta",
+            "flowchart", "graph",
+            "sequencediagram", "sequence",
+            "classdiagram", "class",
+            "statediagram", "statediagram-v2", "state",
+            "erdiagram", "er",
+            "journey", "userjourney",
+            "gantt",
+            "pie",
+            "mindmap",
+            "timeline",
+            "gitgraph",
+            "requirementdiagram", "requirement",
+            "c4context", "c4container", "c4component", "c4dynamic",
+            // newer / -beta types in mermaid 10+
+            "sankey-beta", "sankey",
+            "block-beta", "block",
+            "info",
+            "packet-beta", "packet",
+            "architecture-beta", "architecture",
+          ]);
+          if (MERMAID_TYPES.has(lang)) {
+            // For non-"mermaid" lang tags, the fence didn't include
+            // the type-as-first-line — prepend the ORIGINAL-cased
+            // lang token so mermaid's case-sensitive parser accepts
+            // it (e.g. "quadrantChart", not "quadrantchart").
+            const mermaidBody = (lang === "mermaid")
+              ? body
+              : `${langRaw}\n${body}`;
+            placeholders.push(`<pre class="mermaid">${escape(sanitizeMermaid(mermaidBody))}</pre>`);
           } else if (lang === "metric-strip") {
             placeholders.push(renderMetricStrip(body));
           } else if (lang === "path-comparison") {
@@ -4511,117 +4794,199 @@
           // backgrounds) so flowchart / mindmap / gantt / sequence /
           // state diagrams pick up spine-coherent colours instead of
           // mermaid's rainbow defaults.
+          // Per-spine mermaid theme · every value here is taken from
+          // the spine's :root tokens (boardroom-dark.css / a16z-thesis.css /
+          // etc.) so charts feel like a native exhibit of the spine
+          // rather than a foreign visualization with its own palette.
+          // Audit cadence: when a spine adds / renames a token, mirror
+          // it here in the same change. Drift between spine tokens and
+          // these `vars` is what makes charts read as "off-brand".
+          //
+          // Mapping rules (consistent across spines):
+          //   background  → spine main bg                    (so chart canvas blends with frame)
+          //   quadrantFill→ spine paper-soft / panel / bg-soft (slight contrast for inner zones)
+          //   pointFill   → primary brand/accent              (data dots = load-bearing)
+          //   titleFill   → --ink / --text                    (max-contrast text)
+          //   axisText    → --ink-faint / --text-faint        (subdued axis labels)
+          //   border      → --rule (NOT rule-strong)          (matches body hairlines)
+          //   inner       → --rule-soft                       (lightest separator)
+          //   accent      → spine accent token                (general fill)
+          //   accentSoft  → spine pale variant                (washed accent for backgrounds)
+          //   palette     → 4-step monochrome ramp from accent (cycled across pie/journey/git slices)
           const themes = {
             "boardroom-dark": {
-              base: "dark",
+              // theme: "base" + darkMode flag, NOT "dark". Mermaid 10's
+              // built-in "dark" preset injects a violet-tinged primary
+              // colour that bleeds into quadrant1Fill / quadrantPointFill
+              // and ALSO overrides our themeVariables in some code paths
+              // (the "Platform Strategy chart on boardroom-dark renders
+              // purple" bug). "base" uses minimal defaults so our
+              // explicit `vars` below are the only colour source.
+              base: "base",
+              darkMode: true,
+              // Frame bg: pre.mermaid uses --panel-2 (#1A1A18). Match it
+              // for the canvas so the SVG doesn't sit "inside" a darker
+              // tray. Quadrant inner boxes go to --bg (#0A0A0A) so the
+              // four boxes read as cut-outs against the canvas.
               vars: {
-                background: "#131312",
-                quadrantFill: "#1A1A18",
-                quadrantText: "#B6B0A2",
-                pointFill: "#C8C5BE",
-                pointText: "#8E8B83",
-                titleFill: "#C8C5BE",
-                axisText: "#8E8B83",
-                border: "#3A3A35",
-                inner: "#2A2A26",
-                accent: "#C9A46B",
-                accentSoft: "#3A3025",
-                accentText: "#131312",
+                background: "#1A1A18",   // --panel-2 (matches pre.mermaid frame)
+                quadrantFill: "#0A0A0A", // --bg (cut-out zones inside chart)
+                quadrantText: "#8E8B83", // --text-soft
+                pointFill: "#C9A46B",    // --em / --lime · load-bearing gold for data
+                pointText: "#C8C5BE",    // --text
+                titleFill: "#C8C5BE",    // --text
+                axisText: "#5C5A4D",     // --text-faint (was too bright before)
+                border: "#3A3934",       // --line-bright
+                inner: "#21211E",        // --panel-3
+                accent: "#C9A46B",       // --em (load-bearing gold)
+                accentSoft: "#5C4422",   // --lime-dim
+                accentText: "#0A0A0A",   // --bg for contrast on accent fills
               },
+              // Gold for the lead, then beige-neutrals — multi-bar
+              // charts get one bold lead + 3 supporting tones rather
+              // than 4 competing golds.
+              palette: ["#C9A46B", "#B6B0A2", "#8E8B83", "#5C5A52"],
               fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
             },
             "a16z-thesis": {
               base: "default",
               vars: {
-                background: "#F7F3E8",
-                quadrantFill: "#F2EAD8",
-                quadrantText: "#57503F",
-                pointFill: "#876C2A",
-                pointText: "#14110C",
-                titleFill: "#14110C",
-                axisText: "#847B65",
-                border: "#BCB39A",
-                inner: "#DCD3BD",
-                accent: "#876C2A",
-                accentSoft: "#E8D9B5",
+                background: "#F7F3E8",   // --bg / --paper
+                quadrantFill: "#F2EAD8", // soft panel tone (between paper and rule-soft)
+                quadrantText: "#57503F", // --ink-mid
+                pointFill: "#8B6A2E",    // --gold (precise spine value, was #876C2A)
+                pointText: "#14110C",    // --ink
+                titleFill: "#14110C",    // --ink
+                axisText: "#847B65",     // --ink-faint
+                border: "#DCD3BD",       // --rule (not --rule-strong)
+                inner: "#E5DECC",        // --rule-soft
+                accent: "#8B6A2E",       // --gold
+                accentSoft: "#C4A865",   // --gold-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#8B6A2E", "#A8843A", "#C4A865", "#E2CFA0"],
               fontFamily: '"Inter", "Helvetica Neue", -apple-system, system-ui, sans-serif',
             },
             "anthropic-essay": {
               base: "default",
               vars: {
-                background: "#FAF7F0",
-                quadrantFill: "#F4F0E8",
-                quadrantText: "#6B6359",
-                pointFill: "#A85A41",
-                pointText: "#4A4338",
-                titleFill: "#1A1814",
-                axisText: "#978C7E",
-                border: "#DDD5C8",
-                inner: "#E8E1D2",
-                accent: "#A85A41",
-                accentSoft: "#F2E0D5",
+                background: "#F4F0E8",   // --paper (was --surface, slight off)
+                quadrantFill: "#EDE6D6", // --paper-soft
+                quadrantText: "#6B6359", // --ink-mid
+                pointFill: "#A85A41",    // --clay-deep · stronger contrast for data
+                pointText: "#1A1814",    // --ink (was --ink-soft, low contrast)
+                titleFill: "#1A1814",    // --ink
+                axisText: "#978C7E",     // --ink-faint
+                border: "#DDD5C8",       // --rule
+                inner: "#E8E1D2",        // --rule-soft
+                accent: "#CC785C",       // --clay (spine's --accent resolves here, NOT clay-deep)
+                accentSoft: "#F2E0D5",   // --clay-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#CC785C", "#A85A41", "#B65A3A", "#F2E0D5"],
               fontFamily: '"Charter", "Source Serif Pro", "Iowan Old Style", Georgia, serif',
             },
             "gartner-note": {
               base: "default",
               vars: {
-                background: "#FFFFFF",
-                quadrantFill: "#FAFBFC",
-                quadrantText: "#455364",
-                pointFill: "#0A4DA1",
-                pointText: "#1A2332",
-                titleFill: "#1A2332",
-                axisText: "#6B7785",
-                border: "#BFC8D3",
-                inner: "#DDE2E8",
-                accent: "#0A4DA1",
-                accentSoft: "#E8EFF8",
+                background: "#FFFFFF",   // --bg
+                quadrantFill: "#F5F7FA", // --bg-soft (was --bg-emphasis #FAFBFC)
+                quadrantText: "#455364", // --ink-soft
+                pointFill: "#0A4DA1",    // --brand
+                pointText: "#1A2332",    // --ink
+                titleFill: "#1A2332",    // --ink
+                axisText: "#6B7785",     // --ink-faint
+                border: "#DDE2E8",       // --rule (was --rule-strong, too heavy)
+                inner: "#E8ECF1",        // --rule-soft
+                accent: "#0A4DA1",       // --brand
+                accentSoft: "#E8F1FB",   // --brand-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#0A4DA1", "#1A65BD", "#3F73B8", "#7AA0CF"],
               fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
             },
             "mckinsey-deck": {
               base: "default",
               vars: {
-                background: "#FFFFFF",
-                quadrantFill: "#FBFCFD",
-                quadrantText: "#4A5870",
-                pointFill: "#2251FF",
-                pointText: "#051C2C",
-                titleFill: "#051C2C",
-                axisText: "#758296",
-                border: "#B8C2D0",
-                inner: "#D5DCE4",
-                accent: "#2251FF",
-                accentSoft: "#E6ECFB",
+                background: "#FFFFFF",   // --bg
+                quadrantFill: "#F8FAFD", // soft panel (slightly tinted)
+                quadrantText: "#4A5870", // --ink-soft
+                pointFill: "#2251FF",    // --blue
+                pointText: "#051C2C",    // --ink / --navy
+                titleFill: "#051C2C",    // --navy
+                axisText: "#758296",     // --ink-faint
+                border: "#D5DCE4",       // --rule (was --rule-strong)
+                inner: "#E5EAF1",        // --rule-soft
+                accent: "#2251FF",       // --blue
+                accentSoft: "#E5EDFA",   // --blue-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#2251FF", "#1A3FBD", "#6285FF", "#B8C2D0"],
               fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
             },
             "openai-paper": {
               base: "default",
               vars: {
-                background: "#FFFFFF",
-                quadrantFill: "#FAFAFA",
-                quadrantText: "#404040",
-                pointFill: "#10A37F",
-                pointText: "#0D0D0D",
-                titleFill: "#0D0D0D",
-                axisText: "#6E6E80",
-                border: "#E5E5E5",
-                inner: "#EFEFEF",
-                accent: "#10A37F",
-                accentSoft: "#E6F6F0",
+                background: "#FFFFFF",   // --bg
+                quadrantFill: "#FAFAFA", // --paper
+                quadrantText: "#404040", // --ink-soft
+                pointFill: "#10A37F",    // --teal
+                pointText: "#0D0D0D",    // --ink
+                titleFill: "#0D0D0D",    // --ink
+                axisText: "#6E6E80",     // --ink-faint
+                border: "#E5E5E5",       // --rule
+                inner: "#EFEFEF",        // --rule-soft
+                accent: "#10A37F",       // --teal
+                accentSoft: "#E6F6F0",   // --teal-pale
                 accentText: "#FFFFFF",
               },
+              palette: ["#10A37F", "#0E8C6D", "#52B89A", "#8FCDB7"],
               fontFamily: '"Söhne", "Inter", -apple-system, system-ui, sans-serif',
             },
           };
           const t = themes[spineKey];
+
+          // Inject spine palette as CSS variables on :root so the
+          // CSS rules in the global <style> block (mermaid spine
+          // CSS) resolve to the right colours. This is the
+          // PRIMARY mechanism — CSS applies on every paint, no JS
+          // timing race possible. The JS takeover below stays as
+          // belt-and-suspenders for chart elements not covered by
+          // the CSS rules.
+          try {
+            const root = document.documentElement.style;
+            root.setProperty('--mm-q-fill',     t.vars.quadrantFill);
+            root.setProperty('--mm-q-bg',       t.vars.background);
+            root.setProperty('--mm-q-point',    t.vars.pointFill);
+            root.setProperty('--mm-q-border',   t.vars.border);
+            root.setProperty('--mm-q-text',     t.vars.titleFill);
+            root.setProperty('--mm-q-axis-text', t.vars.axisText);
+            root.setProperty('--mm-q-quad-text', t.vars.quadrantText);
+            root.setProperty('--mm-text',       t.vars.titleFill);
+            root.setProperty('--mm-axis-text',  t.vars.axisText);
+            root.setProperty('--mm-pal-0', t.palette[0]);
+            root.setProperty('--mm-pal-1', t.palette[1]);
+            root.setProperty('--mm-pal-2', t.palette[2]);
+            root.setProperty('--mm-pal-3', t.palette[3]);
+          } catch (_) {}
+
+          // Build pie / journey / state / git slice-color overrides
+          // by cycling through the spine's monochrome `palette`.
+          // Without these, mermaid 11+ paints pie1..pie12 +
+          // fillType0..7 + git0..7 with its built-in rainbow set
+          // (violet / teal / orange) — that's the source of the
+          // "white + purple" charts on the dark spine.
+          const sliceColors = {};
+          for (let i = 0; i < 12; i++) {
+            const c = t.palette[i % t.palette.length];
+            sliceColors[`pie${i + 1}`] = c;
+          }
+          for (let i = 0; i < 8; i++) {
+            const c = t.palette[i % t.palette.length];
+            sliceColors[`fillType${i}`] = c;
+            sliceColors[`git${i}`] = c;
+            sliceColors[`gitInv${i}`] = c;
+          }
           // themeCSS shapes the rendered SVG beyond what themeVariables
           // expose. The chart title is hidden because the markdown
           // already renders an H3 caption directly above each chart —
@@ -4631,6 +4996,13 @@
           // showing it twice is mermaid's single ugliest default. Apply
           // across quadrant / xychart / pie / timeline.
           const themeCSS = `
+            /* ── SVG canvas · paint the theme bg explicitly. Without
+               this, mermaid leaves the SVG transparent and the parent
+               <pre>'s background bleeds through inconsistently across
+               diagram types — most visibly on dark spines where the
+               browser default white shows through pie/journey gaps. */
+            svg { background: ${t.vars.background}; }
+            .pieOuterCircle { stroke: ${t.vars.border} !important; }
             /* ── Quadrant chart ── */
             g.quadrant-chart text { font-family: ${t.fontFamily}; }
             g.quadrant-point > circle, .quadrant-point circle {
@@ -4643,8 +5015,73 @@
             .timeline .title-text,
             .timeline-title { display: none !important; }
 
-            /* ── xychart-beta · bars ── */
-            .xy-chart .bar { stroke: ${t.vars.background}; stroke-width: 1px; }
+            /* ── xychart-beta · refined bars ──
+               Bar WIDTH is slimmed by the post-render JS mutation
+               (see "xychart bar slimming" block after mermaid.run) --
+               CSS scaleX on SVG rects is unreliable across browsers,
+               so we mutate the rect attributes directly. Here we
+               only handle the COLOUR pass: solid accent fill, no
+               stroke, with per-position cycling through the spine's
+               4-shade monochrome palette so multi-bar charts stagger
+               tones rather than reading as one flat block. */
+            .xy-chart .bar,
+            g.bar-plot .bar,
+            g.bar-plot rect,
+            g.plot > rect {
+              fill: ${t.vars.accent} !important;
+              stroke: none !important;
+            }
+            .xy-chart .bar:nth-child(2n),
+            g.bar-plot .bar:nth-child(2n),
+            g.bar-plot rect:nth-child(2n),
+            g.plot > rect:nth-child(2n)   { fill: ${t.palette[1]} !important; }
+            .xy-chart .bar:nth-child(3n),
+            g.bar-plot .bar:nth-child(3n),
+            g.bar-plot rect:nth-child(3n),
+            g.plot > rect:nth-child(3n)   { fill: ${t.palette[2]} !important; }
+            .xy-chart .bar:nth-child(4n),
+            g.bar-plot .bar:nth-child(4n),
+            g.bar-plot rect:nth-child(4n),
+            g.plot > rect:nth-child(4n)   { fill: ${t.palette[3]} !important; }
+            /* Axis / grid refinement · 0.5px-feel hairlines, label
+               typography in the mono kicker register so the chart's
+               typography aligns with the rest of the doc. */
+            .xy-chart .background { fill: transparent !important; }
+            .xy-chart .x-axis line,
+            .xy-chart .y-axis line,
+            .xy-chart line.tick {
+              stroke: ${t.vars.border} !important;
+              stroke-width: 1px !important;
+            }
+            .xy-chart .x-axis path,
+            .xy-chart .y-axis path,
+            .xy-chart path.domain {
+              stroke: ${t.vars.titleFill} !important;
+              stroke-width: 1px !important;
+              fill: none !important;
+            }
+            .xy-chart .grid line,
+            .xy-chart .gridline,
+            .xy-chart line.grid {
+              stroke: ${t.vars.inner} !important;
+              stroke-width: 1px !important;
+              stroke-dasharray: 2 3 !important;
+            }
+            .xy-chart text,
+            .xy-chart .x-axis text,
+            .xy-chart .y-axis text {
+              font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace !important;
+              font-size: 10px !important;
+              fill: ${t.vars.axisText} !important;
+              letter-spacing: 0.06em !important;
+            }
+            /* Data labels (showDataLabel) in the kicker register too. */
+            .xy-chart .data-label,
+            .xy-chart text.data-label {
+              font-family: "SF Mono", "JetBrains Mono", Menlo, monospace !important;
+              font-size: 10px !important;
+              fill: ${t.vars.titleFill} !important;
+            }
 
             /* ── Pie ── */
             .pieCircle { stroke: ${t.vars.background}; stroke-width: 2px; }
@@ -4878,8 +5315,11 @@
             fontFamily: t.fontFamily,
             themeCSS,
             quadrantChart: {
-              chartWidth: 640,
-              chartHeight: 480,
+              // Refined-compact · was 640×480; the chart fits inside a
+              // 740–880px article column, and 480px tall reads as a
+              // presentation slide rather than an inline exhibit.
+              chartWidth: 460,
+              chartHeight: 320,
               // Hide mermaid's own title slot — the H3 above the chart
               // is the caption. Setting padding/size to 0 keeps the
               // layout from leaving an empty band at the top.
@@ -4889,15 +5329,15 @@
               quadrantPadding: 8,
               quadrantInternalBorderStrokeWidth: 0.5,
               quadrantExternalBorderStrokeWidth: 1,
-              quadrantLabelFontSize: 12,
-              quadrantTextTopPadding: 12,
-              pointRadius: 6,
-              pointLabelFontSize: 12,
-              pointTextPadding: 8,
-              xAxisLabelFontSize: 13,
-              xAxisLabelPadding: 8,
-              yAxisLabelFontSize: 13,
-              yAxisLabelPadding: 8,
+              quadrantLabelFontSize: 11,
+              quadrantTextTopPadding: 10,
+              pointRadius: 5,
+              pointLabelFontSize: 11,
+              pointTextPadding: 6,
+              xAxisLabelFontSize: 11,
+              xAxisLabelPadding: 6,
+              yAxisLabelFontSize: 11,
+              yAxisLabelPadding: 6,
               xAxisPosition: "bottom",
               yAxisPosition: "left",
             },
@@ -4910,13 +5350,25 @@
               // when the CSS forced 12px after mermaid measured at
               // its 16px default).
               fontSize: "12.5px",
+              // darkMode flag tells mermaid whether to invert
+              // computed contrast pairs — required when we feed it
+              // dark surface colors via the "base" theme. Without
+              // this, mermaid computes text colors assuming a light
+              // canvas and ends up with low-contrast labels.
+              darkMode: t.darkMode === true,
               background: t.vars.background,
-              primaryColor: t.vars.quadrantFill,
+              // primaryColor MUST NOT be the quadrantFill (which is
+              // very dark on dark spines). Mermaid uses primaryColor
+              // as the seed for many derived colours (cScale shades,
+              // pie defaults, accent variations) — when it's near-
+              // black the derivations come out muddy. Use the spine's
+              // accent so derivations land in the brand family.
+              primaryColor: t.vars.accent,
               primaryTextColor: t.vars.titleFill,
               primaryBorderColor: t.vars.border,
               lineColor: t.vars.border,
-              secondaryColor: t.vars.quadrantFill,
-              tertiaryColor: t.vars.background,
+              secondaryColor: t.vars.accentSoft,
+              tertiaryColor: t.vars.quadrantFill,
               // All 4 quadrants share the same fill — clean matrix.
               quadrant1Fill: t.vars.quadrantFill,
               quadrant2Fill: t.vars.quadrantFill,
@@ -4987,6 +5439,42 @@
               altSectionBkgColor: t.vars.quadrantFill,
               sectionBkgColor2: t.vars.background,
               todayLineColor: t.vars.accent,
+              // ── Pie / journey / state / git · monochrome palette
+              // Cycles t.palette across mermaid's per-slice color
+              // slots so these chart types stop falling back to
+              // mermaid's built-in violet/teal rainbow defaults
+              // (the white+purple leak on dark spines).
+              ...sliceColors,
+              // ── xychart-beta · single-accent bars + matched chrome.
+              // Mermaid generates xychart SVG using these tokens BEFORE
+              // our themeCSS overrides apply, so they have to be set
+              // here to get the right fill at render time (not just
+              // post-paint via CSS). Palette joined as comma-separated
+              // string per mermaid's plotColorPalette contract.
+              xyChart: {
+                backgroundColor: "transparent",
+                titleColor: t.vars.titleFill,
+                xAxisLabelColor: t.vars.axisText,
+                xAxisTitleColor: t.vars.titleFill,
+                xAxisTickColor: t.vars.border,
+                xAxisLineColor: t.vars.titleFill,
+                yAxisLabelColor: t.vars.axisText,
+                yAxisTitleColor: t.vars.titleFill,
+                yAxisTickColor: t.vars.border,
+                yAxisLineColor: t.vars.titleFill,
+                plotColorPalette: t.palette.join(","),
+              },
+              pieTitleTextSize: "0px",
+              pieTitleTextColor: t.vars.titleFill,
+              pieSectionTextColor: t.vars.titleFill,
+              pieSectionTextSize: "11px",
+              pieLegendTextColor: t.vars.titleFill,
+              pieLegendTextSize: "11px",
+              pieStrokeColor: t.vars.background,
+              pieStrokeWidth: "1px",
+              pieOuterStrokeColor: t.vars.border,
+              pieOuterStrokeWidth: "1px",
+              pieOpacity: "1",
             },
             flowchart: {
               useMaxWidth: true,
@@ -5004,30 +5492,30 @@
             },
             sequence: {
               useMaxWidth: true,
-              diagramMarginX: 16,
-              diagramMarginY: 8,
-              actorMargin: 32,
-              boxMargin: 6,
-              boxTextMargin: 4,
-              noteMargin: 8,
-              messageMargin: 22,
+              diagramMarginX: 12,
+              diagramMarginY: 6,
+              actorMargin: 24,
+              boxMargin: 5,
+              boxTextMargin: 3,
+              noteMargin: 6,
+              messageMargin: 18,
               mirrorActors: false,
               bottomMarginAdj: 0,
-              actorFontSize: 12,
-              messageFontSize: 11,
-              noteFontSize: 11,
+              actorFontSize: 11,
+              messageFontSize: 10,
+              noteFontSize: 10,
             },
             gantt: {
               useMaxWidth: true,
-              fontSize: 11,
-              sectionFontSize: 11,
+              fontSize: 10,
+              sectionFontSize: 10,
               numberSectionStyles: 3,
-              leftPadding: 80,
-              topPadding: 24,
-              rightPadding: 24,
-              barGap: 4,
-              barHeight: 18,
-              gridLineStartPadding: 36,
+              leftPadding: 64,
+              topPadding: 18,
+              rightPadding: 18,
+              barGap: 3,
+              barHeight: 14,
+              gridLineStartPadding: 28,
             },
             mindmap: {
               useMaxWidth: true,
@@ -5058,15 +5546,28 @@
             // `xychart` — keep BOTH so the config isn't fragile across
             // CDN bumps).
             xyChart: {
-              width: 720,
-              height: 360,
+              // Was 720×360 · oversized for an inline exhibit. 560×260
+              // sits comfortably inside a 740px article column without
+              // pretending to be a presentation slide. Slightly shorter
+              // than the 320px we tried first — squat-ish proportions
+              // read as "data exhibit" while taller bars look like a
+              // pitch slide.
+              width: 560,
+              height: 260,
               titlePadding: 0,
               titleFontSize: 0,
               showTitle: false,
               showDataLabel: true,
-              plotReservedSpacePercent: 50,
-              xAxis: { labelFontSize: 12, titleFontSize: 0, showTitle: false },
-              yAxis: { labelFontSize: 12, titleFontSize: 13 },
+              // Refined bars · 50 → 32 → 20. mermaid xychart's bar
+              // width is `slotWidth × reservedPercent / 100`, where
+              // slotWidth scales inversely with bar count — so a value
+              // tuned for 8 bars looks chunky on 3 bars (each slot
+              // is ~3× wider). 20 keeps 8-12-bar charts legible while
+              // 3-bar charts come out as ~36px-wide thin bars rather
+              // than 60-90px filler blocks.
+              plotReservedSpacePercent: 20,
+              xAxis: { labelFontSize: 10, titleFontSize: 0, showTitle: false },
+              yAxis: { labelFontSize: 10, titleFontSize: 10 },
             },
             // Pie · legend on the right, slice labels disabled so wide
             // labels don't push the chart off-screen. The legend
@@ -5081,7 +5582,546 @@
               useMaxWidth: true,
             },
           });
-          await mermaid.run({ querySelector: ".mermaid" });
+          // ── Off-screen render + paint-then-insert ────────────────
+          // DEFINITIVE fix for "first time wrong, refresh OK" /
+          // strict alternation pattern. Earlier strategies all let
+          // mermaid render in-place, then patched colors after —
+          // which gave the user a visible window of mermaid-default
+          // colors before our takeover landed.
+          //
+          // The only race-free approach: render OFFSCREEN, paint our
+          // spine palette onto the SVG while it's still detached,
+          // THEN insert into the visible DOM. The user's first paint
+          // sees the spine-colored SVG; there is no intermediate
+          // mermaid-default state to perceive.
+          //
+          // mermaid 10's `render(id, src)` returns the SVG as a
+          // string (not in-DOM) — perfect for this flow. We loop
+          // through every `pre.mermaid`, render its source via
+          // `mermaid.render`, parse the resulting string, apply the
+          // takeover to the parsed (still-detached) SVG, then swap
+          // the corrected SVG into the visible container.
+          // Belt-and-suspenders fill setter · sets BOTH the inline
+          // `style="fill: X !important"` AND the SVG `fill="X"`
+          // presentation attribute. With mermaid's embedded <style>
+          // already wiped, either layer is sufficient — but setting
+          // both means even if one is somehow stripped/overridden
+          // (browser quirk, late mermaid post-processing, CSS
+          // cascade edge case), the chart still renders in the
+          // spine palette.
+          const setFill = (el, c) => {
+            if (!c) return;
+            try { el.style.setProperty('fill', c, 'important'); } catch (_) {}
+            try { if (el.setAttribute) el.setAttribute('fill', c); } catch (_) {}
+          };
+          const setStroke = (el, c) => {
+            if (c === undefined || c === null) return;
+            try { el.style.setProperty('stroke', c, 'important'); } catch (_) {}
+            try { if (el.setAttribute) el.setAttribute('stroke', c); } catch (_) {}
+          };
+          const setColor = (el, c) => { if (c) el.style.setProperty('color', c, 'important'); };
+          const cyclePalette = (i) => t.palette[i % t.palette.length];
+
+          // Apply the spine palette to ONE SVG element (offscreen or
+          // onscreen — works either way since every fill/stroke is
+          // forced via inline `!important`). Pure function: no
+          // global queries, only operates on the passed element.
+          const applySpineToSvg = (svg) => {
+            try {
+              // ── 0. Pin the SVG max-width per chart type ──
+              // Mermaid 10's chartWidth/chartHeight config is silently
+              // ignored by the bundled CDN build, so the SVG ships at
+              // its default size with `style="max-width: 500px"`
+              // inline. CSS in <style> overrides it at paint time, but
+              // there's a one-frame race on cold loads where the
+              // user can perceive the unconstrained size before CSS
+              // applies. Pin via inline style with !important here
+              // for refined-compact dimensions on every first paint.
+              const role = svg.getAttribute('aria-roledescription') || '';
+              const chartMaxWidth = (
+                role === 'quadrantChart' ? '460px' :
+                role === 'xychart' ? '560px' :
+                role === 'pie' ? '420px' :
+                ''
+              );
+              if (chartMaxWidth) {
+                svg.style.setProperty('max-width', chartMaxWidth, 'important');
+                svg.style.setProperty('height', 'auto', 'important');
+                svg.style.setProperty('margin', '0 auto', 'important');
+                svg.style.setProperty('display', 'block', 'important');
+              }
+              // ── 1. Wipe mermaid's embedded <style> block ──
+              // Mermaid generates `<style>.quadrant-chart > .quadrant-
+              // point > circle { fill: #...; }` etc. inside each SVG;
+              // those CSS rules beat our setAttribute-set fills. After
+              // removal, our inline-style fills below have no rivals.
+              svg.querySelectorAll(':scope > style, defs > style').forEach((s) => s.remove());
+
+              // ── 2. SVG canvas / background ──
+              // Any rect that fills the whole SVG is the chart canvas;
+              // pin to t.vars.background so the chart blends with its
+              // spine frame instead of showing mermaid's default white.
+              const sw = parseFloat(svg.getAttribute('width') || '0');
+              svg.querySelectorAll(':scope > rect, :scope > g > rect.background, rect.main-bkg').forEach((el) => {
+                const w = parseFloat(el.getAttribute('width') || '0');
+                if (w > 0 && sw > 0 && w >= sw * 0.95) setFill(el, t.vars.background);
+              });
+
+              // ── 3. Quadrant chart ──
+              // Mermaid 10's actual class names (verified against rendered DOM):
+              //   `<g class="quadrant">` — group; each contains a child <rect>
+              //   `.quadrants` — outer parent group
+              //   `<circle class="data-point">` — each data circle
+              //   `.data-points` — parent group
+              //   `.axis-line` / `.axisl-line` — axis lines
+              //   `.bottom-axis`, `.left-axis` — axis text containers
+              // CRITICAL: the `.quadrant` class is on a <g>, but the
+              // actual fillable rect is INSIDE the group. Selecting
+              // `.quadrants > .quadrant` matches the <g> only;
+              // setting style.fill on a <g> does NOT override the
+              // child <rect>'s `fill="..."` attribute in SVG. We
+              // must select the inner rect directly.
+              //
+              // Belt-and-suspenders: also match ALL <rect> inside
+              // any quadrantChart SVG (excluding the canvas-bg rect
+              // we already handled via dimensions). Catches any
+              // mermaid version variation in class naming.
+              svg.querySelectorAll('.quadrants .quadrant rect, g.quadrant > rect, rect.quadrant, rect.quadrant-fill, .quadrant-fill').forEach((el) => setFill(el, t.vars.quadrantFill));
+              if (svg.getAttribute('aria-roledescription') === 'quadrantChart') {
+                const qsw = parseFloat(svg.getAttribute('width') || '0');
+                svg.querySelectorAll('rect').forEach((el) => {
+                  // Skip the canvas-bg rect (full-width).
+                  const w = parseFloat(el.getAttribute('width') || '0');
+                  if (qsw > 0 && w >= qsw * 0.95) return;
+                  setFill(el, t.vars.quadrantFill);
+                });
+              }
+              // Quadrant border lines · mermaid 10 puts the outer
+              // rectangle + cross-divider lines inside `<g class="border">`,
+              // a sibling of `.quadrants` (NOT a descendant). Catch
+              // both the inside-quadrants axis-line case AND the
+              // border group case.
+              svg.querySelectorAll('.axis-line, .axisl-line, .quadrants line, g.border line, .border line').forEach((el) => setStroke(el, t.vars.border));
+              svg.querySelectorAll('.quadrant-internal-border, line.quadrant-internal-border').forEach((el) => setStroke(el, t.vars.inner));
+              svg.querySelectorAll('.quadrant-external-border, rect.quadrant-external-border').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('text.quadrant-title, .quadrant-title, .chart-title').forEach((el) => setFill(el, t.vars.titleFill));
+              // Quadrant labels (the 4 corner labels). Mermaid 10
+              // doesn't put them in a class; they're plain `<text>` inside
+              // each `.quadrant` group. Walk children of `.quadrant` text.
+              svg.querySelectorAll('.quadrant text, .quadrants text:not(.chart-title)').forEach((el) => setFill(el, t.vars.quadrantText));
+              svg.querySelectorAll('text.quadrant-text, text.quadrant-quadrant-1-text-fill, text.quadrant-quadrant-2-text-fill, text.quadrant-quadrant-3-text-fill, text.quadrant-quadrant-4-text-fill').forEach((el) => setFill(el, t.vars.quadrantText));
+              // Axis labels · "Low likelihood / High likelihood" etc.
+              svg.querySelectorAll('.bottom-axis text, .left-axis text, .top-axis text, .right-axis text, text.x-axis-text-label, text.y-axis-text-label, .quadrant-x-axis-label, .quadrant-y-axis-label').forEach((el) => setFill(el, t.vars.axisText));
+              // Data points · the load-bearing accent.
+              svg.querySelectorAll('.data-point, .data-points circle, circle.data-point, .quadrant-point > circle, g.quadrant-point > circle, circle.quadrant-point').forEach((el) => {
+                setFill(el, t.vars.pointFill);
+                setStroke(el, t.vars.background);
+              });
+              svg.querySelectorAll('.data-point text, .data-points text, text.point-text, .quadrant-point text').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 4. Pie chart ──
+              svg.querySelectorAll('path.pieCircle, g.pieCircle path, .slice').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.background);
+              });
+              svg.querySelectorAll('.pieOuterCircle, circle.pieOuterCircle').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('text.slice, text.pieLegendText, .legend text, g.legend text').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.pieTitleText').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 5. xychart-beta ──
+              // Bars cycle through palette; axes + grid + labels match
+              // the spine's neutrals.
+              svg.querySelectorAll('g.plot rect, g.bar-plot rect, g[class*="-plot"] rect, rect.bar').forEach((el, i) => {
+                // Skip the plot-background rect (full plot width).
+                const w = parseFloat(el.getAttribute('width') || '0');
+                if (w >= 200) return;
+                setFill(el, cyclePalette(i));
+                setStroke(el, 'none');
+              });
+              svg.querySelectorAll('.xy-chart .background, rect.background').forEach((el) => setFill(el, 'transparent'));
+              svg.querySelectorAll('.xy-chart text, g.xy-chart text, .xy-chart .x-axis text, .xy-chart .y-axis text').forEach((el) => setFill(el, t.vars.axisText));
+              svg.querySelectorAll('.xy-chart .x-axis path.domain, .xy-chart .y-axis path.domain, .xy-chart .x-axis line, .xy-chart .y-axis line').forEach((el) => setStroke(el, t.vars.titleFill));
+              svg.querySelectorAll('.xy-chart .grid line, .xy-chart line.grid').forEach((el) => setStroke(el, t.vars.inner));
+
+              // ── 6. Flowchart ──
+              svg.querySelectorAll('.flowchart .node rect, .flowchart .node circle, .flowchart .node ellipse, .flowchart .node polygon, .node rect, .node circle, .node polygon, .node ellipse').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.flowchart-link, .edgePath path, .edgePath .path, path.flowchart-link').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('marker path, #arrowhead path, marker#arrowhead path').forEach((el) => {
+                setFill(el, t.vars.border);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.cluster rect').forEach((el) => {
+                setFill(el, t.vars.background);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.cluster text, .nodeLabel, .label foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('.edgeLabel, .edgeLabel foreignObject *').forEach((el) => {
+                setFill(el, t.vars.axisText);
+                setColor(el, t.vars.axisText);
+                el.style.setProperty('background-color', t.vars.background, 'important');
+              });
+
+              // ── 7. Mindmap ──
+              svg.querySelectorAll('.mindmap g.section circle, .mindmap-node circle, g.mindmap-node circle').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.mindmap g.section rect, .mindmap-node rect, g.mindmap-node rect').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.mindmap g.section polygon, .mindmap-node polygon, g.mindmap-node polygon').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.mindmap-edges path, .mindmap path.edge').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('.mindmap text, .mindmap-node text, g.mindmap-node text, .mindmap foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+
+              // ── 8. Sequence diagram ──
+              svg.querySelectorAll('rect.actor, .actor').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('line.actor-line, .actor-line').forEach((el) => setStroke(el, t.vars.border));
+              svg.querySelectorAll('text.actor, text.actor tspan, .actor-box-text, .messageText, text.messageText, .noteText, text.noteText, .note text').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.messageLine0, .messageLine1, line.messageLine0, line.messageLine1').forEach((el) => setStroke(el, t.vars.titleFill));
+              svg.querySelectorAll('rect.note, .note').forEach((el) => {
+                setFill(el, t.vars.accentSoft);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.activation0, .activation1, .activation2, rect.activation0, rect.activation1, rect.activation2').forEach((el) => {
+                setFill(el, t.vars.inner);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.labelBox, rect.labelBox').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+
+              // ── 9. State diagram ──
+              svg.querySelectorAll('.stateGroup rect, g.stateGroup rect, rect.state').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.stateGroup circle, g.stateGroup circle').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setStroke(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('.stateGroup line, line.transition, path.transition').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('.stateLabel, .state-description, .stateGroup text').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.compositeBackground, rect.compositeBackground').forEach((el) => {
+                setFill(el, t.vars.background);
+                setStroke(el, t.vars.border);
+              });
+
+              // ── 10. Journey ──
+              svg.querySelectorAll('.face-circle, circle.face-circle, .journey-section .face').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.background);
+              });
+              svg.querySelectorAll('.journey-section text, .section text, .journey-section foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('rect.journey, .journey-section rect').forEach((el) => {
+                setFill(el, t.vars.quadrantFill);
+                setStroke(el, t.vars.border);
+              });
+
+              // ── 11. Gantt ──
+              svg.querySelectorAll('rect.task, rect.task0, rect.task1, rect.task2, rect.task3, rect.activeTask0, rect.activeTask1, rect.activeTask2, rect.activeTask3').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, 'none');
+              });
+              svg.querySelectorAll('rect.done, rect.done0, rect.done1, rect.done2, rect.done3, rect.doneTask').forEach((el) => {
+                setFill(el, t.vars.inner);
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('rect.crit, rect.crit0, rect.crit1, rect.crit2, rect.crit3').forEach((el) => {
+                setFill(el, t.vars.accent);
+                setStroke(el, t.vars.accent);
+              });
+              svg.querySelectorAll('.taskText, .taskTextOutsideRight, .taskTextOutsideLeft, text.taskText').forEach((el) => setFill(el, t.vars.titleFill));
+              svg.querySelectorAll('.tick text, g.tick text').forEach((el) => setFill(el, t.vars.axisText));
+              svg.querySelectorAll('.tick line, .grid line, g.tick line, g.grid line').forEach((el) => setStroke(el, t.vars.inner));
+              svg.querySelectorAll('.section0 text, .section1 text, .section2 text, .section3 text, .sectionTitle0, .sectionTitle1, .sectionTitle2, .sectionTitle3').forEach((el) => setFill(el, t.vars.axisText));
+              svg.querySelectorAll('line.today, .today').forEach((el) => setStroke(el, t.vars.accent));
+
+              // ── 12. Timeline ──
+              svg.querySelectorAll('.timeline rect, .timeline-section rect').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.timeline text, .timeline foreignObject *').forEach((el) => {
+                setFill(el, t.vars.titleFill);
+                setColor(el, t.vars.titleFill);
+              });
+              svg.querySelectorAll('.timeline path, .timeline-line').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+
+              // ── 13. Git graph ──
+              svg.querySelectorAll('.commit-bullets circle, circle.commit, .commit').forEach((el, i) => {
+                setFill(el, cyclePalette(i));
+                setStroke(el, t.vars.border);
+              });
+              svg.querySelectorAll('.commit-arrows path, path.commit-arrow, .commit-arrow').forEach((el) => {
+                setStroke(el, t.vars.border);
+                setFill(el, 'none');
+              });
+              svg.querySelectorAll('text.commit-label, .commit-label, .branch-label').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 14. Generic title (every chart type) ──
+              svg.querySelectorAll('text.titleText, .titleText, text.chart-title').forEach((el) => setFill(el, t.vars.titleFill));
+
+              // ── 15. Universal text safety net ──
+              // Any text element that survived the per-type passes
+              // without an inline style fill — pin to titleFill so no
+              // text leaks the mermaid-default purple/blue.
+              svg.querySelectorAll('text').forEach((el) => {
+                if (!el.style.fill) setFill(el, t.vars.titleFill);
+              });
+
+              // ── 16. Mark the parent pre.mermaid as painted ──
+              // CSS hides `.body pre.mermaid svg` until `.is-painted`
+              // is added on the parent. We add it here so that even
+              // when the SVG is later inserted into the live DOM, the
+              // CSS-based hide is already lifted (no flash).
+              const host = svg.closest('pre.mermaid');
+              if (host && !host.classList.contains('is-painted')) {
+                host.classList.add('is-painted');
+              }
+            } catch (forceColorErr) {
+              console.warn('[mermaid] palette takeover failed for svg:', forceColorErr);
+            }
+          };  // applySpineToSvg
+
+          // Wrapper · walks every onscreen SVG and applies the
+          // takeover. Used by the safety polling + MutationObserver
+          // (defense-in-depth) for any SVGs that were already
+          // inserted before the offscreen-render loop took over.
+          const applySpinePaletteOnce = () => {
+            document.querySelectorAll('.mermaid svg').forEach(applySpineToSvg);
+          };
+
+          // ── Offscreen render via mermaid.run + DOM relocation ─
+          // DEFINITIVE fix for "first load wrong / strict
+          // alternation." Keep mermaid.run (it handles lazy module
+          // loading for diagram types correctly — mermaid.render's
+          // first call races with that loading on cold cache),
+          // but move every pre.mermaid INTO AN OFFSCREEN CONTAINER
+          // before running. mermaid renders inside the offscreen
+          // container (user can't see it), we apply the spine
+          // takeover to every resulting SVG, then move each
+          // pre.mermaid back to its original DOM position. The
+          // user's first paint of each chart shows the
+          // spine-coloured SVG; no race possible.
+          //
+          // Diagnostic logs (console.info) so the user can verify
+          // which path was taken and at what timing — open DevTools
+          // and refresh; the log narrates the flow.
+          const _mLog = (msg, ...rest) => {
+            try { console.info(`[mermaid-spine] ${msg}`, ...rest); } catch (_) {}
+          };
+          _mLog('flow start · spine =', spineKey);
+          const charts = Array.from(document.querySelectorAll('pre.mermaid'));
+          _mLog('charts found:', charts.length);
+          if (charts.length > 0) {
+            // Capture original DOM positions so we can restore each
+            // pre.mermaid exactly where it was.
+            const anchors = charts.map((el) => ({
+              el,
+              parent: el.parentNode,
+              nextSibling: el.nextSibling,
+            }));
+            // Build the offscreen host. Width matches a typical
+            // article column so mermaid sizes the SVG correctly
+            // (useMaxWidth: true uses the offscreen container's
+            // dimensions for layout). Height: 0 + overflow: visible
+            // so mermaid can compute proper SVG sizes.
+            const offscreen = document.createElement('div');
+            offscreen.id = 'mermaid-offscreen-host';
+            offscreen.style.cssText = [
+              'position: absolute',
+              'left: -99999px',
+              'top: 0',
+              'width: 880px',
+              'visibility: hidden',
+              'pointer-events: none',
+              'z-index: -1',
+            ].join('; ');
+            document.body.appendChild(offscreen);
+            // Move each pre.mermaid into the offscreen host.
+            anchors.forEach((a) => offscreen.appendChild(a.el));
+            _mLog('moved offscreen, calling mermaid.run');
+            // Run mermaid · scoped to the offscreen host so it only
+            // touches elements we just moved. mermaid handles lazy
+            // module registration internally.
+            try {
+              await mermaid.run({ querySelector: '#mermaid-offscreen-host pre.mermaid' });
+              _mLog('mermaid.run resolved');
+            } catch (runErr) {
+              console.warn('[mermaid-spine] offscreen run failed:', runErr);
+            }
+            // Wait for mermaid's deferred post-render work to land.
+            // Quadrant chart (specifically) does d3-based label
+            // positioning in a setTimeout(0) AFTER mermaid.run
+            // resolves — if we apply takeover before that fires,
+            // mermaid overwrites our fills. Two rAF + setTimeout(0)
+            // cycles guarantee deferred work has settled. Cheap
+            // (~32ms) and only runs once per page load.
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0))));
+            // Apply takeover to all SVGs while still offscreen.
+            const svgsOffscreen = offscreen.querySelectorAll('svg');
+            _mLog('SVGs rendered offscreen:', svgsOffscreen.length);
+            svgsOffscreen.forEach(applySpineToSvg);
+            _mLog('takeover applied offscreen');
+            // Move each pre.mermaid back to its original position
+            // and mark as painted (CSS reveal rule). Single DOM
+            // mutation per chart → single paint frame with the
+            // corrected SVG already in place.
+            anchors.forEach((a) => {
+              a.el.classList.add('is-painted');
+              if (a.parent) {
+                if (a.nextSibling && a.nextSibling.parentNode === a.parent) {
+                  a.parent.insertBefore(a.el, a.nextSibling);
+                } else {
+                  a.parent.appendChild(a.el);
+                }
+              }
+              // Re-apply takeover immediately after move · catches
+              // any post-attach mermaid behaviour (ResizeObserver
+              // re-renders, deferred rAF) that might restyle.
+              a.el.querySelectorAll('svg').forEach(applySpineToSvg);
+            });
+            _mLog('moved back onscreen + reapplied takeover');
+            // Cleanup offscreen host.
+            offscreen.remove();
+          }
+
+          // Safety net · if the takeover errors out for some reason
+          // (script bug, exotic chart type), make sure every chart
+          // becomes visible within 6s so the user at least sees the
+          // chart (even if colours leak) instead of an empty frame.
+          // Normal flow: each successful takeover pass marks its
+          // pre.mermaid as `.is-painted` immediately, so the chart
+          // appears as soon as the first pass succeeds (~16ms).
+          setTimeout(() => {
+            document.querySelectorAll('pre.mermaid:not(.is-painted)').forEach((el) => {
+              el.classList.add('is-painted');
+            });
+          }, 6000);
+
+          // ── Continuous re-apply for the first 5 seconds ──
+          // The user reported strict alternation ("1st wrong, 2nd
+          // right, 3rd wrong, 4th right…") which means a single
+          // setTimeout chain wasn't enough — mermaid's deferred
+          // work was landing in different timing windows on
+          // alternate loads, and my chain was missing odd-numbered
+          // ones.
+          //
+          // Defense in depth: re-apply EVERY 60ms for the first 5
+          // seconds. By the time the user perceives the chart, our
+          // styles have been pinned 80+ times across every possible
+          // mermaid post-render window. After 5s, switch to a pure
+          // MutationObserver (only fires on real DOM changes) so we
+          // keep up with future mutations without the polling cost.
+          //
+          // Each call is idempotent — same selectors set the same
+          // inline-style values, so re-running is a cheap no-op
+          // when nothing changed.
+          applySpinePaletteOnce();                                // sync, before next paint
+          let pollCount = 0;
+          const pollInterval = setInterval(() => {
+            applySpinePaletteOnce();
+            if (++pollCount > 80) clearInterval(pollInterval);    // 80 × 60ms ≈ 4.8s
+          }, 60);
+
+          // Persistent MutationObserver · catches any post-poll
+          // mutations (container resize, font swap, late SSE
+          // re-render). Watches structural changes only — our own
+          // setProperty calls modify the `style` attribute, which
+          // is excluded by `attributes: false` (default), so this
+          // can't loop on itself.
+          document.querySelectorAll('.mermaid svg').forEach((svg) => {
+            const obs = new MutationObserver(() => {
+              requestAnimationFrame(applySpinePaletteOnce);
+            });
+            obs.observe(svg, { childList: true, subtree: true });
+          });
+          // ── Post-render xychart bar slimming ─────────────────────
+          // mermaid xychart-beta renders bars at near-full slot width
+          // regardless of `plotReservedSpacePercent` in some 11.x
+          // versions, and CSS transform: scaleX(...) on the bar rects
+          // is unreliable across browsers (transform-box: fill-box
+          // has Chrome/Safari gaps for SVG rect). Direct attribute
+          // mutation is bulletproof: we walk every rendered xychart
+          // SVG, identify the bar rects via class + geometric
+          // heuristic (rect inside g.plot, height > width, not full-
+          // plot wide), and shrink each rect's `width` to ~50% with
+          // a matching `x` shift so it stays centered in its slot.
+          // Result: a 3-bar chart goes from 3 chunky filler blocks
+          // to 3 thin accents on a wide whitespace canvas — refined-
+          // exhibit, not slide. */
+          try {
+            const xyHosts = document.querySelectorAll('.mermaid');
+            xyHosts.forEach((host) => {
+              const svg = host.querySelector('svg');
+              if (!svg) return;
+              // Only xychart-beta SVGs · skip quadrant / pie / etc.
+              if (!svg.matches('[id^="xychart"], [aria-roledescription="xychart"]')
+                  && !svg.querySelector('g.plot, g.bar-plot, g[class*="-plot"], rect.bar')) {
+                return;
+              }
+              // Catch rects across mermaid 11.x naming conventions.
+              const candidates = svg.querySelectorAll(
+                'rect.bar, g.bar-plot rect, g.plot rect, g[class*="plot"] > rect'
+              );
+              candidates.forEach((rect) => {
+                const x = parseFloat(rect.getAttribute('x'));
+                const w = parseFloat(rect.getAttribute('width'));
+                const h = parseFloat(rect.getAttribute('height'));
+                if (!Number.isFinite(x) || !Number.isFinite(w) || !Number.isFinite(h)) return;
+                // Skip the plot-background rect (full plot width).
+                // Don't filter on h-vs-w ratio — that catches short
+                // bars (small data values) and leaves them at full
+                // width while their taller siblings shrink, giving
+                // a mismatched chart.
+                if (w >= 200) return;
+                const scale = 0.5;
+                const newW = w * scale;
+                rect.setAttribute('width', newW.toFixed(2));
+                rect.setAttribute('x', (x + (w - newW) / 2).toFixed(2));
+              });
+            });
+          } catch (slimErr) {
+            console.warn('[mermaid] xychart bar slimming failed:', slimErr);
+          }
         } catch (e) {
           // Per-diagram failures already render as inline error overlays —
           // log and move on.

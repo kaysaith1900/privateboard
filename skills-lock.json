@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "slidespeak": {
+      "source": "SlideSpeak/skills",
+      "sourceType": "github",
+      "skillPath": "skills/slidespeak/SKILL.md",
+      "computedHash": "54e1e2d1e6c3b0bbbeae5d7f39c9144d1f420ca83b9d7f8c3f98f2a7bfe0de71"
+    }
+  }
+}

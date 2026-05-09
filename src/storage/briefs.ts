@@ -44,8 +44,25 @@ export interface Brief {
    *  system prompts. NULL when the extract stage hasn't filled it
    *  yet (placeholder rows mid-pipeline) or when extract failed. */
   assets: BriefAssets[] | null;
+  /** Output mode · drives which renderer + which Stage 2/3 path runs.
+   *  · 'research-note' (default · the existing markdown report rendered
+   *    by report.html through the spine system)
+   *  · 'magazine' (editorial magazine spread · BentoScaffold JSON in
+   *    body_json, rendered by magazine.html · masthead + numbered card
+   *    grid + dark closer band)
+   *  · 'newspaper' (broadsheet front page · same BentoScaffold JSON
+   *    rendered by newspaper.html · banner nameplate + meta strip +
+   *    3-column editorial grid with inverted callouts)
+   *
+   *  Legacy 'bento' rows (the prior single-page-infographic mode
+   *  that has been retired) are normalized to 'magazine' on read ·
+   *  the body_json shape is identical so they render correctly
+   *  under the magazine viewer. */
+  mode: BriefMode;
   createdAt: number;
 }
+
+export type BriefMode = "research-note" | "magazine" | "newspaper" | "ppt";
 
 /** Per-director asset bundle persisted alongside a brief · mirrors
  *  the `DirectorAssets` shape Stage 1 produces. Storing it lets a
@@ -81,13 +98,14 @@ interface Row {
   subject_type: string | null;
   house_style: string;
   assets_json: string | null;
+  mode: string;
   created_at: number;
 }
 
 const COLS =
   "id, room_id, style, title, body_md, body_json, supplement, " +
   "spine, components_json, composer_rationale, subject_type, " +
-  "house_style, assets_json, created_at";
+  "house_style, assets_json, mode, created_at";
 
 /** Parse the persisted assets JSON into typed bundles. Tolerant: any
  *  malformed entry / field is dropped silently and falls through to
@@ -287,6 +305,13 @@ function mapRow(row: Row): Brief {
     subjectType: row.subject_type,
     houseStyle: row.house_style || "boardroom-default",
     assets: parseAssets(row.assets_json),
+    // Legacy 'bento' rows are mapped to 'magazine' · the body_json
+    // shape is identical (BentoScaffold) and the magazine renderer
+    // handles the data correctly. Unknown modes fall back to the
+    // default research-note path.
+    mode: row.mode === "magazine" || row.mode === "newspaper" || row.mode === "ppt"
+      ? row.mode
+      : (row.mode === "bento" ? "magazine" : "research-note"),
     createdAt: row.created_at,
   };
 }
@@ -350,7 +375,7 @@ export function listAllBriefs(): BriefWithRoom[] {
     .prepare(
       `SELECT b.id, b.room_id, b.style, b.title, b.body_md, b.body_json,
               b.supplement, b.spine, b.components_json,
-              b.composer_rationale, b.subject_type, b.house_style, b.assets_json, b.created_at,
+              b.composer_rationale, b.subject_type, b.house_style, b.assets_json, b.mode, b.created_at,
               r.name AS room_name, r.subject AS room_subject,
               r.number AS room_number, r.status AS room_status
          FROM briefs b
@@ -387,6 +412,10 @@ export interface BriefInsert {
   /** House-style preset slug. Defaults to `boardroom-default` when
    *  omitted (no section-label overrides, neutral voice). */
   houseStyle?: string;
+  /** Output mode · 'research-note' (default · markdown report rendered
+   *  by report.html) or 'magazine' / 'newspaper' (structured BentoScaffold
+   *  JSON persisted in body_json, rendered by magazine.html / newspaper.html). */
+  mode?: BriefMode;
 }
 
 /**
@@ -409,8 +438,11 @@ export function insertBrief(b: BriefInsert): Brief {
     b.composerRationale && b.composerRationale.trim() ? b.composerRationale.trim() : null;
   const subjectType = b.subjectType && b.subjectType.trim() ? b.subjectType.trim() : null;
   const houseStyle = b.houseStyle && b.houseStyle.trim() ? b.houseStyle.trim() : "boardroom-default";
+  const mode: BriefMode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
+    ? b.mode
+    : "research-note";
   db.prepare(
-    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.roomId,
@@ -425,6 +457,7 @@ export function insertBrief(b: BriefInsert): Brief {
     subjectType,
     houseStyle,
     null,            // assets_json · filled later by updateBriefAssets
+    mode,
     now,
   );
   return getBrief(id)!;
@@ -505,6 +538,24 @@ export function setBriefTitle(id: string, title: string): void {
 }
 
 /**
+ * Persist a structured JSON body on the brief row. Used by bento mode
+ * to save the BentoScaffold (the complete output for that mode lives
+ * here · body_md stays empty for bento briefs). The `title` is set
+ * atomically alongside, so the bento's headline becomes the brief's
+ * card title without a second roundtrip.
+ */
+export function updateBriefBodyJson(id: string, bodyJson: unknown, title?: string): void {
+  const json = JSON.stringify(bodyJson);
+  if (title !== undefined) {
+    getDb()
+      .prepare("UPDATE briefs SET body_json = ?, title = ? WHERE id = ?")
+      .run(json, title, id);
+  } else {
+    getDb().prepare("UPDATE briefs SET body_json = ? WHERE id = ?").run(json, id);
+  }
+}
+
+/**
  * Permanently delete a brief by id. Returns true if a row was removed.
  * The on-disk markdown export at ~/.boardroom/briefs/{id}.md is the
  * caller's concern (route-level cleanup); this only touches SQLite.
@@ -517,11 +568,20 @@ export function deleteBrief(id: string): boolean {
 /** Count of briefs that have a non-empty body · drives the All Reports
  *  sidebar badge. Mirrors `countNotes()` in storage/notes.ts: cheap
  *  SELECT COUNT(*), one row, no joins. Excludes empty placeholders so
- *  the count matches what the All Reports page actually renders (the
- *  list filters `b.bodyMd && b.bodyMd.trim()`). */
+ *  the count matches what the All Reports page actually renders.
+ *  Mode-aware · research-note briefs land their body in body_md
+ *  (markdown); bento briefs land theirs in body_json (BentoScaffold)
+ *  and leave body_md empty. The original count filtered on body_md
+ *  alone, which silently dropped bento briefs from the badge / list.
+ *  This version counts a brief as present when EITHER body channel
+ *  has content. */
 export function countBriefs(): number {
   const row = getDb()
-    .prepare("SELECT COUNT(*) AS c FROM briefs WHERE body_md IS NOT NULL AND TRIM(body_md) != ''")
+    .prepare(
+      "SELECT COUNT(*) AS c FROM briefs " +
+      "WHERE (body_md IS NOT NULL AND TRIM(body_md) != '') " +
+      "   OR (body_json IS NOT NULL AND TRIM(body_json) != '' AND TRIM(body_json) != 'null')",
+    )
     .get() as { c: number };
   return row.c ?? 0;
 }

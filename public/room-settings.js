@@ -126,6 +126,8 @@
     "sonnet-4-6":     "Sonnet 4.6",
     "opus-4-6":       "Opus 4.6",
     "opus-4-7":       "Opus 4.7",
+    "opus-4-6":       "Opus 4.6",
+    "opus-4-6-fast":  "Opus 4.6 Fast",
     "haiku-4-5":      "Haiku 4.5",
     "gpt-5-5":        "GPT-5.5",
     "gpt-5-4":        "GPT-5.4",
@@ -289,9 +291,12 @@
           </div>
 
           <header class="rs-head">
-            <div>
+            <div class="rs-head-text">
               <div class="meta">// room #<span class="rs-number">${ROOM_STATE.number}</span> · <span class="live">${ROOM_STATE.status}</span> · <span class="rs-turns">${ROOM_STATE.turns}</span> turns</div>
-              <div class="title rs-title">${escape(ROOM_STATE.title)}</div>
+              <div class="rs-title-wrap">
+                <div class="title rs-title is-clamped" data-rs-title>${escape(ROOM_STATE.title)}</div>
+                <button type="button" class="rs-title-toggle" data-rs-title-toggle hidden>Show more</button>
+              </div>
             </div>
             <button type="button" class="close-btn" aria-label="Close">✕</button>
           </header>
@@ -627,6 +632,29 @@
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Title clamp · run AFTER the overlay becomes visible so the
+    // title element has real dimensions to measure. Resets to clamped
+    // every open (a previously-expanded title shouldn't stick across
+    // close + reopen). Double-rAF gives layout + line-clamp a beat to
+    // settle on cold opens (Safari can return stale scrollHeight on a
+    // single rAF after a display switch).
+    applyTitleClamp();
+  }
+
+  function applyTitleClamp() {
+    const titleEl = modal.querySelector("[data-rs-title]");
+    const titleBtn = modal.querySelector("[data-rs-title-toggle]");
+    if (!titleEl || !titleBtn) return;
+    titleEl.classList.add("is-clamped");
+    titleBtn.textContent = "Show more";
+    titleBtn.hidden = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (titleEl.scrollHeight > titleEl.clientHeight + 1) {
+          titleBtn.hidden = false;
+        }
+      });
+    });
   }
   function close() {
     if (!overlay) return;
@@ -879,6 +907,22 @@
 
     // Close (X) — discards staged changes via close().
     overlay.querySelector(".close-btn").addEventListener("click", close);
+
+    // Title clamp · click handler attaches once at init and persists
+    // across opens (the toggle button DOM node is reused). The actual
+    // overflow measurement happens inside open() via applyTitleClamp,
+    // because at init time the overlay is `display: none` so the
+    // title element has 0×0 dimensions and scrollHeight is meaningless.
+    const titleBtn = modal.querySelector("[data-rs-title-toggle]");
+    if (titleBtn) {
+      titleBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const titleEl = modal.querySelector("[data-rs-title]");
+        if (!titleEl) return;
+        const expanded = titleEl.classList.toggle("is-clamped") === false;
+        titleBtn.textContent = expanded ? "Show less" : "Show more";
+      });
+    }
     // Confirm — push staged changes to the backend then close.
     modal.querySelector("[data-rs-confirm]").addEventListener("click", (e) => {
       e.preventDefault();

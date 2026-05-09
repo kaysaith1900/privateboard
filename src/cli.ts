@@ -18,10 +18,12 @@ import { closeDb, runMigrations } from "./storage/db.js";
 import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
 import { recoverStuckClarifyRooms } from "./storage/rooms.js";
+import { listAllAgents } from "./storage/agents.js";
+import { countMemoriesForAgent } from "./storage/memories.js";
+import { runDreamCycle, bootCeilingFor } from "./orchestrator/dream.js";
 import { ensureBoardroomDir } from "./utils/paths.js";
 import { findFreePort } from "./utils/port.js";
-
-const VERSION = "0.1.2";
+import { VERSION } from "./version.js";
 
 interface CliOptions {
   port?: string;
@@ -94,6 +96,32 @@ async function main(): Promise<void> {
   } catch (e) {
     process.stderr.write(`[boot] clarify recovery failed: ${e instanceof Error ? e.message : String(e)}\n`);
   }
+
+  // Memory metabolism · boot-time sweep. Per-agent counters live in
+  // process memory and reset on restart, so an agent whose pile
+  // overflowed mid-cycle (process crashed during a dream) never
+  // gets caught by the post-adjourn trigger. Force a dream for any
+  // agent whose memory count exceeds the safety ceiling — Phase 1
+  // is just heuristic decay, so this is cheap.
+  void (async () => {
+    try {
+      const agents = listAllAgents();
+      let triggered = 0;
+      for (const agent of agents) {
+        // Role-aware ceiling · chair tolerates a smaller pile before
+        // a forced sweep, since its memory churns more often.
+        if (countMemoriesForAgent(agent.id) > bootCeilingFor(agent.roleKind)) {
+          await runDreamCycle(agent.id);
+          triggered += 1;
+        }
+      }
+      if (triggered > 0) {
+        process.stderr.write(`[boot] dream sweep triggered for ${triggered} agent(s) over ceiling\n`);
+      }
+    } catch (e) {
+      process.stderr.write(`[boot] dream sweep failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  })();
 
   const portArg = opts.port ? Number.parseInt(opts.port, 10) : undefined;
   if (portArg !== undefined && (Number.isNaN(portArg) || portArg < 1 || portArg > 65535)) {

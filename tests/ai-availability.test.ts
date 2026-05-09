@@ -95,13 +95,11 @@ describe("ai/availability · model reachability per user state", () => {
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 
-  it("Anthropic-only · all current-gen Claude models reachable direct", () => {
-    // Opus 4.6 / 4.7, Sonnet 4.6, Haiku 4.5 — direct Anthropic API ids
-    // match registry (`claude-opus-4-6`, etc.).
+  it("Anthropic-only · all current-gen + prior-gen Claude models reachable direct", () => {
     setKey("anthropic", "sk-ant");
     const reachable = reachableModels();
     const slugs = reachable.map((m) => m.modelV).sort();
-    expect(slugs).toEqual(["haiku-4-5", "opus-4-6", "opus-4-7", "sonnet-4-6"]);
+    expect(slugs).toEqual(["haiku-4-5", "opus-4-6", "opus-4-6-fast", "opus-4-7", "sonnet-4-6"]);
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 

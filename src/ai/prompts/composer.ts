@@ -45,7 +45,6 @@ export const COMPONENT_KINDS = [
   "visuals",
   "two-paths",
   "why-now",
-  "pre-mortem",
   "new-questions",
   "planning-assumption",
   "open-questions",
@@ -61,11 +60,12 @@ export const COMPONENT_KINDS = [
 
   // Self-criticism block · names how the analysis itself could be
   // wrong (selection bias, generalizability ceiling, lens blind
-  // spots). Distinct from `pre-mortem` (how the recommendation could
-  // fail) and `critical-assumptions` (the foundations the brief rests
-  // on). Highest fit for `anthropic` / `gartner-research` styles, but
-  // a useful add to any brief that wants to surface intellectual
-  // honesty as a load-bearing section instead of an appendix caveat.
+  // spots). Distinct from `risk-register` (operating-environment
+  // risks) and `critical-assumptions` (the foundations the brief
+  // rests on). Highest fit for `anthropic` / `gartner-research`
+  // styles, but a useful add to any brief that wants to surface
+  // intellectual honesty as a load-bearing section instead of an
+  // appendix caveat.
   "threats-to-validity",
 
   // Dashboard-style indicator strip · 3-5 KPI cards (label / value /
@@ -78,11 +78,13 @@ export const COMPONENT_KINDS = [
 
   // Standing risk landscape · 3-7 environment / product / team /
   // market risks with severity × likelihood × owner × mitigation.
-  // Distinct from `pre-mortem` (which catalogs ways the
-  // RECOMMENDATION fails) — risk-register catalogs risks that exist
-  // whether or not we act. Strong fit for strategy / execution
-  // briefs and any room where the operating environment is the
-  // hinge.
+  // Carries both environmental risks (whether or not we act) AND
+  // concrete recommendation-failure modes when the room raised
+  // them. (Replaces the old `pre-mortem` slot · its scenario /
+  // leading-indicator / mitigation shape collapses cleanly into
+  // a risk-register row.) Strong fit for strategy / execution
+  // briefs and any room where the operating environment or
+  // recommendation-failure is the hinge.
   "risk-register",
 
   // Structured N-option comparison · 2-5 candidate options with
@@ -144,10 +146,10 @@ export const DEFAULT_PRESET: ComponentPick[] = [
   { kind: "divergence", order: 6 },
   { kind: "positions", order: 7 },
   { kind: "visuals", order: 8 },
-  { kind: "recommendations", order: 9 },
-  { kind: "pre-mortem", order: 10 },
-  { kind: "new-questions", order: 11 },
-  { kind: "open-questions", order: 12 },
+  { kind: "risk-register", order: 9 },
+  { kind: "new-questions", order: 10 },
+  { kind: "open-questions", order: 11 },
+  { kind: "recommendations", order: 12 },
 ];
 
 export interface ComponentPick {
@@ -233,8 +235,7 @@ const SYSTEM_PROMPT = [
   "  · `metric-strip`        3–5 KPI / indicator cards · the room's quantitative reads as a dashboard row. Pick whenever ≥ 3 numbers (percentages, time windows, ratios, counts, ranges) showed up worth surfacing side-by-side. Massively higher information density than the same numbers buried in prose — strongly favoured for investment / market-forecast / strategic-decision briefs.",
   "  · `two-paths`           Side-by-side trajectory comparison (Path A vs Path B). Pick when the room argued two distinct futures or routes — punchier than a comparison-table.",
   "  · `why-now`             Single panel: window opened by what · window closes when · the bet implied. For investment / opportunity rooms (a16z-thesis spine).",
-  "  · `pre-mortem`          2–3 failure modes with leading indicators + mitigations. Pair with `recommendations` or `the-bet` when the call is high-stakes. Distinct from `risk-register` — pre-mortem is action-failure, risk-register is environmental.",
-  "  · `risk-register`       3–7 standing risks (market / execution / product / team / financial / compliance / technical), each tagged with severity × likelihood × owner × mitigation. Distinct from `pre-mortem` — pre-mortem catalogs how the RECOMMENDATION fails, risk-register catalogs the risks that exist whether or not we act. Pick whenever the room had ≥ 3 risk signals and the operating environment is consequential. Strong fit for strategy_memo / execution_plan / risk_review archetypes.",
+  "  · `risk-register`       3–7 risks tagged with severity × likelihood × owner × mitigation. Carries BOTH operating-environment risks (whether or not we act) AND concrete recommendation-failure modes when the room raised them. Categories: market / execution / product / team / financial / compliance / technical. Pick whenever the room had ≥ 3 risk signals and the call is consequential. Strong fit for strategy_memo / execution_plan / risk_review archetypes.",
   "  · `decision-options`    2–5 named candidate options with shared pros/cons, effort + confidence tags, and ONE flagged as the recommended pick + a rationale anchor. Distinct from `comparison-table` (raw freeform matrix) and `two-paths` (binary). Pick whenever the room weighed ≥ 2 named options and the choice is the load-bearing output. Strong fit for decision_brief / debate_summary archetypes.",
   "  · `path-comparison`     EXACTLY 2 paths · verdict-tagged side-by-side structural comparison. Each path: short verdict (\"structurally fragile\" / \"plausibly defensible\"), serif name, 4-6 characteristic bullets. Stance (\"weak\" / \"strong\" / \"neutral\") drives accent colour — the verdict IS the recommendation, no separate flag. Highest fit when the room's hinge was ONE binary structural choice (replacement vs augmentation, vertical vs horizontal, build vs partner, replace vs augment) where one trajectory is structurally weaker. Distinct from `two-paths` (prose-only, no verdict) and `decision-options` (N options with matrix). Pair `path-comparison` with the binary view; pair `decision-options` with N>2 options; pair `two-paths` only when the comparison is narrative prose without bullet structure.",
   "  · `new-questions`       Questions that did NOT exist when the room opened but emerged. The most generative output of a multi-director session.",
@@ -246,7 +247,7 @@ const SYSTEM_PROMPT = [
   "  · `critical-assumptions`  4–6 load-bearing assumptions, each with confidence + falsifier + time horizon. Use when the brief's logic rests on assumptions that could shift — surfacing them lets the reader stress-test the conclusion.",
   "  · `scenario-tree`         2–4 named futures (typically Base / Upside / Downside) with probabilities, triggers, effects, decision implications. Use whenever the room argued multiple futures — richer than `two-paths` because it adds probability + trigger + decision implication per branch.",
   "  · `leading-indicators`    3–5 signals to monitor with thresholds + cadence + scenario each indicator confirms. Use when the brief tells the reader to wait-and-watch, or when scenarios diverge based on observable signals.",
-  "  · `threats-to-validity`   3–5 ways the *analysis itself* could be wrong (selection bias, generalizability ceiling, sample of N, lens blind spot, confounding). Each names a category, the threat in 1-2 sentences, an observable that would prove it realized, severity, and an optional mitigation. Distinct from `pre-mortem` (how the *recommendation* could fail) and from `critical-assumptions` (the foundations the brief rests on). Pull in for `anthropic` / `gartner-research` / any brief where the room had a real moment of intellectual honesty — surfacing how we could be wrong is a load-bearing section, not a caveat.",
+  "  · `threats-to-validity`   3–5 ways the *analysis itself* could be wrong (selection bias, generalizability ceiling, sample of N, lens blind spot, confounding). Each names a category, the threat in 1-2 sentences, an observable that would prove it realized, severity, and an optional mitigation. Distinct from `risk-register` (operating-environment risks) and from `critical-assumptions` (the foundations the brief rests on). Pull in for `anthropic` / `gartner-research` / any brief where the room had a real moment of intellectual honesty — surfacing how we could be wrong is a load-bearing section, not a caveat.",
   "",
   "## Composition rules · violations are rejected",
   "",
@@ -263,7 +264,7 @@ const SYSTEM_PROMPT = [
   "The user message's ASSET BUDGET prints `Coverage triggers` listing what the room produced material for. Each trigger names a component (or alternatives) that MUST appear in your pick. Ignoring a trigger is automatic rejection by validatePicks — the rationale being: if the room raised tensions / risks / open questions / concrete actions / data, the report MUST surface them in a structurally distinct component, not bury them in generic findings.",
   "",
   "· `tensions ≥ 1` → MUST include `divergence` OR `positions`.",
-  "· `risks ≥ 1` → MUST include `pre-mortem` OR `threats-to-validity`.",
+  "· `risks ≥ 1` → MUST include `risk-register` OR `threats-to-validity`.",
   "· `openQuestions ≥ 1` → MUST include `open-questions` OR `new-questions`.",
   "· `actions ≥ 2` (concrete imperatives) → action component must be `recommendations` or `the-bet`, NOT `considerations` (which softens imperatives into hedges).",
   "· `dataAvailable ≥ 3` (data-lens claims + data-kind evidence) → MUST include `metric-strip` OR `visuals`. Numbers buried in prose lose their force.",
@@ -272,7 +273,7 @@ const SYSTEM_PROMPT = [
   "",
   "## Visualisation discipline · prefer mermaid where it fits naturally",
   "",
-  "Reports benefit from diagrams when content has structure prose can't carry efficiently — but no fixed quota. Pick components that auto-fire mermaid (divergence / positions / decision-options / scenario-tree / pre-mortem / recommendations / risk-register / convergence) when their material is real in the room. Skip them when material is thin. Source of mermaid (either / both):",
+  "Reports benefit from diagrams when content has structure prose can't carry efficiently — but no fixed quota. Pick components that auto-fire mermaid (divergence / positions / decision-options / scenario-tree / risk-register / recommendations / convergence) when their material is real in the room. Skip them when material is thin. Source of mermaid (either / both):",
   "  1. Pick `visuals` with mermaid sub-types (`quadrant-chart` / `bar-chart` / `timeline` / `pie-chart`) — directly produces typed visuals.",
   "  2. Stage 3 writer auto-emits inline mermaid (`flowchart` / `mindmap` / `gantt` / `sequenceDiagram` / `stateDiagram` / `journey`) on a per-section basis when content fits — knowing this helps you avoid double-allocating the same content to a typed visual.",
   "",
@@ -285,19 +286,19 @@ const SYSTEM_PROMPT = [
   "  · Watch-and-wait stance with named signals to monitor → `leading-indicators`.",
   "  · ANY chronology of ≥ 3 dated events (history / phases / projected sequence) → `visuals.timeline` is the strongest pick — chronology MUST go to timeline, not prose.",
   "  · ANY distribution of weights that sums (vote counts, scenario probabilities, lens shares, market mix) → `visuals.pie-chart`.",
-  "  · ANY decision branch / if-then logic the room raised → the writer auto-emits an inline `flowchart`. You don't need to plan it, but ensure `pre-mortem` or `divergence` is picked so the writer has a section to attach it to.",
+  "  · ANY decision branch / if-then logic the room raised → the writer auto-emits an inline `flowchart`. You don't need to plan it, but ensure `risk-register` or `divergence` is picked so the writer has a section to attach it to.",
   "  · ANY brainstorm-style branching (radial framings / idea clusters off a central premise) → the writer auto-emits an inline `mindmap`. Pair with `big-ideas` or `new-questions` so it has a home.",
   "  · ANY multi-phase rollout with dependencies → the writer auto-emits an inline `gantt` inside `recommendations`. Ensure `recommendations` is picked (not `considerations`).",
   "  · ANY multi-party negotiation / approval-chain / system-call sequence → the writer auto-emits an inline `sequenceDiagram`. Surfaces under whichever section names the actors.",
-  "  · ANY lifecycle / state-machine / phase-gating story → the writer auto-emits an inline `stateDiagram-v2`. Attach to `recommendations` or a `pre-mortem` branch.",
+  "  · ANY lifecycle / state-machine / phase-gating story → the writer auto-emits an inline `stateDiagram-v2`. Attach to `recommendations` or a `risk-register` branch.",
   "",
   "Truly unvisualisable rooms (purely philosophical / definitional / no concrete entities) are allowed to skip — but they're rare. **When in doubt, pick `visuals` with a mermaid sub-type.** Reports without a mermaid chart in 2026 read as 2018-era memos.",
   "",
   "## Picking presets",
   "",
   "· If unsure → `boardroom-dark` spine and the safe set: `bottom-line` + `frame-shift` + `headline-findings` + `convergence` (or `divergence`) + `visuals` (or `metric-strip` when the room had numbers) + `recommendations` + `new-questions` + `open-questions`. Note the visual is in the safe set now — earlier presets that omitted visualisation produced flat reports.",
-  "· Strategic / market / forecast / impact-analysis subjects → `boardroom-dark` (or `gartner-note`) spine and the dense set: `bottom-line` + `metric-strip` + `strategic-outlook` + `headline-findings` + `critical-assumptions` + `scenario-tree` + `recommendations` + `leading-indicators` + `pre-mortem` + `new-questions`. ~10 components — feels like a research dashboard.",
-  "· Investment / market opportunity rooms → `a16z-thesis` spine and: `thesis` + `metric-strip` + `why-now` + `big-ideas` + `the-bet` + `pre-mortem` + `scenario-tree` + `new-questions`. The metric-strip carries the underwriting numbers.",
+  "· Strategic / market / forecast / impact-analysis subjects → `boardroom-dark` (or `gartner-note`) spine and the dense set: `bottom-line` + `metric-strip` + `strategic-outlook` + `headline-findings` + `critical-assumptions` + `scenario-tree` + `risk-register` + `leading-indicators` + `recommendations` + `new-questions`. ~10 components — feels like a research dashboard.",
+  "· Investment / market opportunity rooms → `a16z-thesis` spine and: `thesis` + `metric-strip` + `why-now` + `big-ideas` + `risk-register` + `scenario-tree` + `new-questions` + `the-bet`. The metric-strip carries the underwriting numbers; the-bet sits last as the action close.",
   "",
   "## Spine catalogue",
   "",
@@ -449,7 +450,7 @@ export function buildComposerMessages(opts: BuildOpts): LLMMessage[] {
     coverageTriggers.push(`· ${counts.tensions} tension${counts.tensions === 1 ? "" : "s"} surfaced → MUST include \`divergence\` OR \`positions\` (don't bury tensions inside generic findings).`);
   }
   if (counts.risks > 0) {
-    coverageTriggers.push(`· ${counts.risks} risk${counts.risks === 1 ? "" : "s"} surfaced → MUST include \`pre-mortem\` OR \`threats-to-validity\`.`);
+    coverageTriggers.push(`· ${counts.risks} risk${counts.risks === 1 ? "" : "s"} surfaced → MUST include \`risk-register\` OR \`threats-to-validity\`.`);
   }
   if (counts.openQuestions > 0) {
     coverageTriggers.push(`· ${counts.openQuestions} open question${counts.openQuestions === 1 ? "" : "s"} surfaced → MUST include \`open-questions\` OR \`new-questions\`.`);
@@ -597,7 +598,7 @@ export interface CoverageInputs {
  * The optional `coverage` argument injects asset counts so the
  * coverage matrix in `validatePicks` can reject picks that ignored
  * the available material (tensions surfaced but no divergence /
- * positions, risks surfaced but no pre-mortem / threats-to-validity,
+ * positions, risks surfaced but no risk-register / threats-to-validity,
  * etc.). Tests / callers without asset context can omit it; the
  * baseline structural validation (1 anchor + 1 findings + 1 action,
  * 5–12 components) still runs.
@@ -716,8 +717,8 @@ function validatePicks(
   if (tensions > 0 && !kinds.has("divergence" as ComponentKind) && !kinds.has("positions" as ComponentKind)) {
     return { reason: `${tensions} tension(s) surfaced; pick must include 'divergence' or 'positions'` };
   }
-  if (risks > 0 && !kinds.has("pre-mortem" as ComponentKind) && !kinds.has("threats-to-validity" as ComponentKind)) {
-    return { reason: `${risks} risk(s) surfaced; pick must include 'pre-mortem' or 'threats-to-validity'` };
+  if (risks > 0 && !kinds.has("risk-register" as ComponentKind) && !kinds.has("threats-to-validity" as ComponentKind)) {
+    return { reason: `${risks} risk(s) surfaced; pick must include 'risk-register' or 'threats-to-validity'` };
   }
   if (openQuestions > 0 && !kinds.has("open-questions" as ComponentKind) && !kinds.has("new-questions" as ComponentKind)) {
     return { reason: `${openQuestions} open question(s) surfaced; pick must include 'open-questions' or 'new-questions'` };

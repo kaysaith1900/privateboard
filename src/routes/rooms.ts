@@ -239,6 +239,52 @@ export function roomsRouter(): Hono {
       if (!getAgent(id)) return c.json({ error: `unknown agent: ${id}` }, 400);
     }
 
+    // Director-presence guard · the room's whole value comes from
+    // directors speaking; without ≥ 1 director-role agent the chair
+    // clarifies once and then tickRoom dispatches into an empty
+    // queue, leaving the room silent forever (no members to call,
+    // no error path to surface). Two paths to check:
+    //
+    //   · autoPick=true · the picker pulls from the global registry
+    //     of director-role agents. If that pool is empty (fresh
+    //     install / user deleted them all), the picker returns []
+    //     and the room is created with chair only.
+    //
+    //   · autoPick=false · agentIds passed validation for existence
+    //     and non-emptiness, but might still contain only the chair
+    //     (or other non-director agents). createRoom dedupes the
+    //     chair, so a chair-only agentIds list lands the room with
+    //     0 directors despite passing earlier checks.
+    //
+    // Refuse upfront with a clear `code` so the frontend can route
+    // the user to the agents tab to add a director.
+    if (autoPick) {
+      const directorPool = listAgents().filter((a) => a.roleKind === "director");
+      if (directorPool.length === 0) {
+        return c.json(
+          {
+            error: "No directors are configured. Add at least one director agent before convening a room.",
+            code: "no-directors",
+          },
+          400,
+        );
+      }
+    } else {
+      const hasDirector = agentIds.some((id) => {
+        const a = getAgent(id);
+        return !!a && a.roleKind === "director";
+      });
+      if (!hasDirector) {
+        return c.json(
+          {
+            error: "At least one director must be invited (the chair alone can't carry the room).",
+            code: "no-directors",
+          },
+          400,
+        );
+      }
+    }
+
     const name = typeof b.name === "string" && b.name.trim()
       ? b.name.trim().slice(0, 80)
       : subject.slice(0, 60);
@@ -355,8 +401,29 @@ export function roomsRouter(): Hono {
         if (autoPick) {
           await runAutoPickAndSeat(room.id, subject);
         }
-        // Bail if the room was paused/adjourned during auto-pick/convening
         if (getRoom(room.id)?.status !== "live") return;
+        const seated = listRoomMembers(room.id).filter((m) => {
+          const a = getAgent(m.agentId);
+          return !!a && a.roleKind === "director";
+        });
+        if (seated.length === 0) {
+          const pausedAt = Date.now();
+          setRoomStatus(room.id, "paused", { pausedAt });
+          setAwaitingClarify(room.id, false);
+          insertConfigEvent({
+            roomId: room.id,
+            kind: "room-paused",
+            payload: { pausedAt, mode: "hard", reason: "no-directors-seated" },
+            actorKind: "system",
+          });
+          roomBus.emit(room.id, {
+            type: "config-event",
+            kind: "room-paused",
+            payload: { pausedAt, mode: "hard", reason: "no-directors-seated" },
+            createdAt: pausedAt,
+          });
+          return;
+        }
         const result = await runChairClarify(room.id);
         // Bail again — room may have been paused during clarify
         if (getRoom(room.id)?.status !== "live") return;
@@ -1098,13 +1165,22 @@ export function roomsRouter(): Hono {
 
     let body: unknown = {};
     try { body = await c.req.json(); } catch { /* allow empty body */ }
-    const b = (body ?? {}) as { style?: unknown; skipBrief?: unknown };
+    const b = (body ?? {}) as { style?: unknown; skipBrief?: unknown; mode?: unknown };
     const skipBrief = b.skipBrief === true;
     // Style precedence: explicit body.style > room.briefStyle > "mckinsey".
     // "auto" means "let the room pick" — for v1 that resolves to mckinsey.
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
+    // Mode · 'research-note' (default), 'magazine', or 'newspaper'.
+    // The picker UI sets this on the adjourn / regenerate request;
+    // legacy callers without the field land on the default
+    // research-note path. (The previously-supported 'bento' mode
+    // has been retired; legacy bento rows in the DB are normalized
+    // to 'magazine' on read by `mapRow` in storage/briefs.ts.)
+    const mode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
+      ? b.mode
+      : "research-note";
 
     // Cancel any in-flight director turn before transitioning state.
     abortRoom(id);
@@ -1152,7 +1228,7 @@ export function roomsRouter(): Hono {
 
     let briefId: string | null = null;
     try {
-      const result = await generateBrief({ roomId: id, style: style as "mckinsey" });
+      const result = await generateBrief({ roomId: id, style: style as "mckinsey", mode });
       briefId = result.briefId;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1219,16 +1295,20 @@ export function roomsRouter(): Hono {
     }
     let body: unknown = {};
     try { body = await c.req.json(); } catch { /* allow empty body */ }
-    const b = (body ?? {}) as { style?: unknown; supplement?: unknown };
+    const b = (body ?? {}) as { style?: unknown; supplement?: unknown; mode?: unknown };
     const supplement = typeof b.supplement === "string" ? b.supplement.trim() : "";
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
+    const mode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
+      ? b.mode
+      : "research-note";
     try {
       const result = await generateBrief({
         roomId: id,
         style: style as "mckinsey",
         supplement: supplement || undefined,
+        mode,
       });
       return c.json({ briefId: result.briefId, status: "generating" });
     } catch (e) {

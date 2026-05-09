@@ -33,9 +33,13 @@ import roomFollowup020 from "./migrations/020_room_followup.sql";
 import notes021 from "./migrations/021_notes.sql";
 import intensityTerse022 from "./migrations/022_intensity_brutal_to_terse.sql";
 import briefAssets023 from "./migrations/023_brief_assets.sql";
-import voiceMode024 from "./migrations/024_voice_mode.sql";
-import webSearchProviderPref025 from "./migrations/025_web_search_provider_pref.sql";
-import minimaxRegion026 from "./migrations/026_minimax_region.sql";
+import usageDaily024 from "./migrations/024_usage_daily.sql";
+import briefMode025 from "./migrations/025_brief_mode.sql";
+import memoryMetabolism026 from "./migrations/026_memory_metabolism.sql";
+import memoryMetabolismP2_027 from "./migrations/027_memory_metabolism_p2.sql";
+import voiceMode028 from "./migrations/028_voice_mode.sql";
+import webSearchProviderPref029 from "./migrations/029_web_search_provider_pref.sql";
+import minimaxRegion030 from "./migrations/030_minimax_region.sql";
 
 interface Migration {
   name: string;
@@ -66,9 +70,13 @@ const MIGRATIONS: Migration[] = [
   { name: "021_notes.sql", sql: notes021 },
   { name: "022_intensity_brutal_to_terse.sql", sql: intensityTerse022 },
   { name: "023_brief_assets.sql", sql: briefAssets023 },
-  { name: "024_voice_mode.sql", sql: voiceMode024 },
-  { name: "025_web_search_provider_pref.sql", sql: webSearchProviderPref025 },
-  { name: "026_minimax_region.sql", sql: minimaxRegion026 },
+  { name: "024_usage_daily.sql", sql: usageDaily024 },
+  { name: "025_brief_mode.sql", sql: briefMode025 },
+  { name: "026_memory_metabolism.sql", sql: memoryMetabolism026 },
+  { name: "027_memory_metabolism_p2.sql", sql: memoryMetabolismP2_027 },
+  { name: "028_voice_mode.sql", sql: voiceMode028 },
+  { name: "029_web_search_provider_pref.sql", sql: webSearchProviderPref029 },
+  { name: "030_minimax_region.sql", sql: minimaxRegion030 },
 ];
 
 let _db: Database.Database | null = null;

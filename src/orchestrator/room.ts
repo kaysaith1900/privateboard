@@ -134,6 +134,34 @@ function rlog(roomId: string, label: string, fields?: Record<string, unknown>): 
   process.stderr.write(line + "\n");
 }
 
+/** Detect "meta-silence" responses · short LLM completions that just
+ *  narrate the model's abstention rather than carrying substance.
+ *  Common after long rooms (~14+ rounds): the model has nothing new
+ *  and outputs `（沉默）` / `(silent)` / `I have nothing to add` /
+ *  `pass this round` instead of returning empty. Those bubbles read
+ *  as bugs ("the director gave up") and pollute the transcript.
+ *  This helper returns true when the buf is short AND matches one of
+ *  the abstention patterns; the caller then drops the placeholder
+ *  the same way it handles a true empty completion.
+ *
+ *  Threshold: 60 chars · long enough to catch every observed
+ *  abstention phrase ("我没有更多要补充的了。" is 11; "I have
+ *  nothing further to add at this point." is 41) but short enough
+ *  not to flag a legitimate one-line zinger that happens to contain
+ *  one of the keywords. Real director turns are typically ≥ 200
+ *  chars even at the terse intensity. */
+function looksLikeMetaSilence(body: string): boolean {
+  const stripped = body.replace(/[\s\p{P}]/gu, "");
+  if (stripped.length === 0) return true;
+  if (body.length > 60) return false;
+  const SILENCE_PATTERNS: RegExp[] = [
+    /^[\s\p{P}]*[（(]\s*(?:沉默|silent|silence|skip|pass|abstain|abstention|noop|no\s*op|—)\s*[)）][\s\p{P}]*$/iu,
+    /(沉默|无新|无补充|无更多|没有(?:更多|新)的?(?:观点|要(?:补充|说|加))|跳过(?:这|本)?(?:轮|回合)|本轮(?:跳过|沉默)|这轮(?:跳过|沉默)|我(?:选择)?(?:沉默|跳过|不发言|不说话))/u,
+    /\b(?:I\s+(?:have\s+)?nothing\s+(?:more|further|to\s+add)|nothing\s+(?:more|new|to\s+add|further)|pass(?:ing)?\s+(?:this|on\s+this)\s+round|skip(?:ping)?\s+(?:this|my)\s+turn|abstain(?:ing)?(?:\s+this\s+(?:round|turn))?|no\s+(?:new\s+)?point\s+(?:to\s+add|here)|nothing\s+to\s+contribute)\b/i,
+  ];
+  return SILENCE_PATTERNS.some((re) => re.test(body));
+}
+
 function ensureState(roomId: string): RoomState {
   let s = _state.get(roomId);
   if (!s) {
@@ -1393,13 +1421,23 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
   // first token, provider returned no content, context-window refusal.
   // Errored turns are KEPT (with the `[error: …]` body) so the user can
   // see what went wrong rather than getting a silent disappearance.
-  const hasContent = buf.trim().length > 0;
+  //
+  // Meta-silence guard · after ~14 rounds the model often "abstains" by
+  // emitting a short narration of its silence — `（沉默）` / `I have
+  // nothing to add` / `pass this round` / etc. — instead of returning
+  // empty. Those bubbles read as bugs ("the director gave up") and
+  // pollute the transcript. Detect short responses that look like
+  // pure abstention text and treat them as empty: drop the placeholder,
+  // pump the queue forward. The director's NEXT turn (later round) gets
+  // a fresh chance once new material lands.
+  const trimmed = buf.trim();
+  const hasContent = trimmed.length > 0 && !looksLikeMetaSilence(trimmed);
   if (!hasContent && !errored) {
     deleteMessage(placeholder.id);
     roomBus.emit(roomId, {
       type: "message-removed",
       messageId: placeholder.id,
-      reason: finishReason || "empty",
+      reason: finishReason || (trimmed.length > 0 ? "meta-silence" : "empty"),
     });
     // Round-open retraction · if the user hard-paused this director
     // before any content streamed AND nobody else has spoken in this

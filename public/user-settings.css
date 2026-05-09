@@ -69,33 +69,36 @@
 }
 .us-classification .right { color: var(--text-faint, #3A382F); letter-spacing: 0.12em; }
 
-.us-head {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 14px;
-  align-items: center;
-  padding: 14px 18px;
-  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
-  flex: 0 0 auto;
-}
-.us-head .us-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text, #C8C5BE);
-  letter-spacing: -0.01em;
-}
-.us-head .us-title::before { content: "▸ "; color: var(--lime, #6FB572); }
-.us-head .us-close {
-  width: 28px; height: 28px;
+/* Close button · absolute-positioned in the modal's top-right
+   corner, pinned BELOW the classification strip so it doesn't
+   overlap "// LOCAL" at the right edge of that strip. The strip is
+   ~22-24px tall (6px + 9px font + 6px + 0.5px border). The button
+   sits at 48px from the modal top — roughly aligned with the
+   first pane's `padding-top: 18px` baseline, so it visually
+   anchors to the section content rather than crowding the strip
+   below. The previous header strip (`.us-head`) that hosted this
+   button has been retired — first the "Preference" title, then
+   the surrounding bar with its dashed divider. */
+.us-close {
+  position: absolute;
+  top: 38px;
+  right: 14px;
+  z-index: 1;
+  width: 24px; height: 24px;
   background: transparent;
   border: 0.5px solid var(--line-bright, #2A2A26);
   color: var(--text-dim, #5C5A52);
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
   font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   transition: all 0.12s;
 }
-.us-head .us-close:hover {
+.us-close:hover {
   border-color: var(--lime, #6FB572);
   color: var(--lime, #6FB572);
 }
@@ -162,6 +165,43 @@
 .us-nav-item.danger { color: var(--text-faint, #3A382F); }
 .us-nav-item.danger:hover { color: var(--red, #B5706A); }
 
+/* ─── Sidebar foot · app version stamp ───
+   Pinned to the bottom of the column flex via `margin-top: auto` so
+   it sits below every nav item even when the section list is short.
+   Tiny mono kicker · matches the section-tag typography elsewhere in
+   the overlay so it reads as quiet metadata, not a sixth nav item. */
+.us-nav-foot {
+  margin-top: auto;
+  padding: 12px 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  font-family: var(--mono);
+}
+.us-nav-foot-label {
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+}
+.us-nav-foot-value {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft, #8E8B83);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  /* On the horizontal-row mobile nav layout, the foot would steal a
+     slot in the scrollable tab strip — hide it there. The version
+     still surfaces via the running server's /api/version endpoint
+     for anyone who needs it. */
+  .us-nav-foot { display: none; }
+}
+
 /* Right pane (scrollable section content) */
 .us-pane {
   padding: 18px 22px 18px;
@@ -222,6 +262,85 @@
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
   margin-top: 5px;
+}
+
+/* ─── Toggle row · proper switch + supporting deck text ───
+   Switch shape (track + sliding thumb) instead of the prior pill
+   button: the affordance reads "on/off state" at a glance, not
+   "press me to do something." Track is a 32×18 rounded rect, thumb
+   is a 14×14 disc that slides 14px between rest positions. Lime
+   fill when on; panel-3 fill + hairline border when off. */
+.us-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.us-switch {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-family: var(--mono);
+  color: inherit;
+}
+.us-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  background: var(--panel-3, #21211E);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  border-radius: 9px;
+  flex-shrink: 0;
+  transition: background 0.18s, border-color 0.18s;
+}
+.us-switch-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-faint, #3A382F);
+  transition: transform 0.18s ease, background 0.18s;
+}
+.us-switch.on .us-switch-track {
+  background: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+}
+.us-switch.on .us-switch-thumb {
+  transform: translateX(14px);
+  background: var(--bg, #0A0A0A);
+}
+.us-switch:hover .us-switch-track { border-color: var(--text-faint, #3A382F); }
+.us-switch.on:hover .us-switch-track { border-color: var(--lime, #6FB572); }
+.us-switch:focus-visible { outline: none; }
+.us-switch:focus-visible .us-switch-track {
+  outline: 1.5px solid var(--lime, #6FB572);
+  outline-offset: 2px;
+}
+.us-switch-label {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-soft, #8E8B83);
+  transition: color 0.12s;
+}
+.us-switch.on .us-switch-label { color: var(--lime, #6FB572); }
+
+.us-toggle-deck {
+  font-size: 11px;
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 /* User avatar block */
@@ -687,7 +806,6 @@
 
 @media (max-width: 600px) {
   .user-settings-overlay { padding: 12px; }
-  .us-head { padding-left: 14px; padding-right: 14px; }
   .us-pane { padding: 14px; }
   .us-foot { padding: 10px 14px; }
 }
@@ -731,6 +849,205 @@
   text-align: center;
   max-width: 360px;
   line-height: 1.55;
+}
+
+/* ─── Day picker · pill toggle above the 14-day chart ───
+   Two pills max: "All · cumulative" is always present; a date pill
+   appears only when the user has clicked into a specific bar. The
+   active pill carries a hairline ring + subtle accent background so
+   the current scope is unambiguous. */
+.us-day-picker {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.us-day-pill {
+  appearance: none;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft, #8E8B83);
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.us-day-pill:hover {
+  color: var(--text, #C8C5BE);
+  border-color: var(--text-faint, #3A382F);
+}
+.us-day-pill.active {
+  color: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+
+/* ─── 14-day stacked bar chart ───
+   Layout: a header strip with the window's total, then a flex row
+   of 14 bar buttons. Each button is a vertical column wrapping a
+   `.us-chart-stack` (the actual coloured stack, height ∈ [0, 100%])
+   and a `.us-chart-tick` (M·D label below). The bar's parent flexes
+   to share width — bars stay clickable down to ~16px. */
+.us-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px 8px;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--panel-2, #1A1A18);
+}
+.us-chart-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.us-chart-meta-label {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+}
+.us-chart-meta-value {
+  font-size: 13px;
+  color: var(--text, #C8C5BE);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.us-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 180px;
+  /* The stack within each bar lives at the bottom (flex-end) so
+     bar height grows upward like a real chart axis. Bumped from
+     96px → 180px so the chart reads as a real exhibit instead of
+     a squashed sparkline. */
+}
+.us-chart-bar {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  flex: 1 1 0;
+  min-width: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  height: 100%;
+  cursor: pointer;
+  position: relative;
+}
+.us-chart-bar:hover .us-chart-stack { filter: brightness(1.15); }
+/* Hover tooltip · two-line custom tip rendered via ::before from the
+   bar's data-tip-day / data-tip-num attributes. Floats above the
+   column so it doesn't overlap the stack or get clipped by the bar's
+   contents. Native browser title= is replaced by aria-label= on the
+   button to keep a11y without the 500ms native-tooltip delay.
+   Suppressed on `.empty` bars · zero-usage days show no tooltip
+   (the row is already empty; a tooltip saying "no usage" is noise). */
+.us-chart-bar:not(.empty)::before {
+  content: attr(data-tip-day) "\A" attr(data-tip-num);
+  white-space: pre;
+  text-align: center;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg, #0A0A0A);
+  border: 1px solid var(--line-bright, #2A2A26);
+  padding: 6px 10px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: var(--text, #C8C5BE);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 10;
+}
+.us-chart-bar:not(.empty):hover::before { opacity: 1; }
+.us-chart-bar.empty .us-chart-stack {
+  height: 1px !important;
+  background: var(--line-bright, #2A2A26);
+}
+/* Today / active markers carry only on the tick label below
+   (color shift) — no perimeter border around the bar slot.
+   Earlier the today/active states drew an outline ring via
+   `::before` which read as an ugly box around an otherwise
+   clean stacked-bar; the tick-colour change carries enough
+   signal. See `.us-chart-bar.today .us-chart-tick` and
+   `.us-chart-bar.active .us-chart-tick` below. */
+.us-chart-stack {
+  display: flex;
+  flex-direction: column-reverse; /* first segment at the bottom */
+  width: 100%;
+  background: transparent;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+.us-chart-seg {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+}
+.us-chart-tick {
+  display: block;
+  margin-top: 4px;
+  height: 10px;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint, #3A382F);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.us-chart-bar.today .us-chart-tick { color: var(--text-soft, #8E8B83); }
+.us-chart-bar.active .us-chart-tick { color: var(--lime, #6FB572); }
+
+/* ─── Day-empty placeholder · shown in the drill-down area when the
+   user clicks a bar with zero tokens. Mirrors `.us-usage-empty`'s
+   restraint, but tighter — the chart itself already gives plenty of
+   context. */
+.us-day-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 12px;
+  border: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.us-day-empty-tag {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-soft, #8E8B83);
+  font-weight: 700;
+}
+.us-day-empty-text {
+  font-size: 11.5px;
+  color: var(--text-faint, #3A382F);
+}
+
+/* Optional scope tag above the big total · "Cumulative since install"
+   or the long-form date for the selected day. Sits as a tiny mono
+   kicker so the user knows what scope the head numbers describe. */
+.us-usage-total-scope {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+  font-weight: 600;
+  margin-bottom: 8px;
 }
 
 /* ─── Header strip · big total + meta column ─── */

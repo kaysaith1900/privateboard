@@ -220,6 +220,7 @@
             <div class="us-row-meta"><span data-us-intro-count>0</span><span>${tr("us_intro_meta_rest")}</span></div>
           </div>
         </div>
+
       </div>
     `;
   }
@@ -248,6 +249,66 @@
         </div>
       </div>
     `;
+  }
+
+  /* ── Other settings · misc per-user toggles that don't fit a
+        dedicated section. Currently just the typing-sound effect; a
+        natural home for future small ambient / UX preferences (sound
+        cues, animations, etc.) without growing the nav for each one. */
+  function otherSettingsSectionHTML() {
+    return `
+      <div class="us-pane-head">
+        <div class="us-pane-tag">▸ Other settings</div>
+        <div class="us-pane-deck">small UX preferences that don't fit elsewhere. All persisted locally.</div>
+      </div>
+
+      <div class="us-pane-body">
+        <div class="us-row">
+          <div class="us-row-label">Typing sound</div>
+          <div class="us-row-field">
+            <div class="us-toggle-row">
+              <button type="button" class="us-switch" data-us-sfx-typing role="switch" aria-checked="false">
+                <span class="us-switch-track" aria-hidden="true">
+                  <span class="us-switch-thumb"></span>
+                </span>
+                <span class="us-switch-label" data-us-sfx-typing-label>off</span>
+              </button>
+              <span class="us-toggle-deck">a soft keyboard click as directors stream their replies in chat. Brief generation stays silent regardless of this setting.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireOtherSettingsSection() {
+    if (!paneEl) return;
+    // Typing-sound toggle · the persistence + audio context lives in
+    // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
+    // the current state and proxies clicks. Reading inside wire-up
+    // (not at HTML build time) means the pill always reflects the
+    // LATEST stored state when the section re-mounts.
+    const sfxBtn = paneEl.querySelector("[data-us-sfx-typing]");
+    const sfxLabel = paneEl.querySelector("[data-us-sfx-typing-label]");
+    if (sfxBtn && sfxLabel && window.boardroomTypingSfx) {
+      const paint = () => {
+        const on = window.boardroomTypingSfx.isEnabled();
+        sfxBtn.classList.toggle("on", on);
+        // role="switch" wants `aria-checked`, not `aria-pressed`.
+        sfxBtn.setAttribute("aria-checked", on ? "true" : "false");
+        sfxLabel.textContent = on ? "on" : "off";
+      };
+      paint();
+      sfxBtn.addEventListener("click", () => {
+        const next = !window.boardroomTypingSfx.isEnabled();
+        window.boardroomTypingSfx.setEnabled(next);
+        paint();
+        // Audible confirmation when turning ON · the click that just
+        // toggled also serves as the gesture the AudioContext needs,
+        // so this tick is actually heard.
+        if (next) window.boardroomTypingSfx.tick();
+      });
+    }
   }
 
   /* ── Usage section ────────────────────────────────────────── */
@@ -285,9 +346,29 @@
     `;
   }
 
+  /* Usage-pane state · the cumulative summary fetched from /api/usage/summary
+   *  + the currently-selected day for the drill-down panel. `null` selection
+   *  means "All · cumulative" (the legacy view, default on open). */
+  let _usageSummary = null;
+  let _selectedDay = null;
+
+  function fmtDayLabel(dayStr) {
+    // 'YYYY-MM-DD' → 'M·D' for the bar's x-axis tick label.
+    const [, m, d] = dayStr.split("-");
+    return `${parseInt(m, 10)}·${parseInt(d, 10)}`;
+  }
+  function fmtDayLong(dayStr) {
+    // 'YYYY-MM-DD' → 'Apr 25' style for the drill-down header.
+    const d = new Date(dayStr + "T00:00:00");
+    if (isNaN(d.getTime())) return dayStr;
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+  }
+
   function renderUsagePane(s) {
     const pane = paneEl.querySelector("[data-usage-pane]");
     if (!pane) return;
+    _usageSummary = s;
     if (!s || s.totalTokens === 0) {
       pane.innerHTML = `
         <div class="us-usage-empty">
@@ -297,15 +378,147 @@
       `;
       return;
     }
+    pane.innerHTML = `
+      ${renderDayPicker(s)}
+      ${renderUsageChart(s)}
+      <div data-usage-detail>${renderUsageDetail(s, null)}</div>
+    `;
+  }
 
-    const total = s.totalTokens;
-    const segments = s.byModel.map((m) => {
+  /* ─── Day picker · pill toggle above the chart ────────────────
+     Two pills: [All · cumulative] always present; the second appears
+     only when a specific day is selected and shows "May 8" (or the
+     localised date). Clicking either pill or any chart bar swaps
+     the detail body below. */
+  function renderDayPicker(s) {
+    const day = _selectedDay;
+    const allActive = day === null ? " active" : "";
+    const dayActive = day !== null ? " active" : "";
+    const dayPill = day !== null
+      ? `<button type="button" class="us-day-pill${dayActive}" data-usage-day="${escape(day)}">${escape(fmtDayLong(day))}</button>`
+      : "";
+    return `
+      <div class="us-day-picker">
+        <button type="button" class="us-day-pill${allActive}" data-usage-day="all">All · cumulative</button>
+        ${dayPill}
+      </div>
+    `;
+  }
+
+  /* ─── 14-day stacked bar chart · provider-coloured ───────────
+     Each bar is a vertical column flexing to fill the available
+     width; segments inside it stack by provider colour, weighted by
+     each provider's share of THAT day's tokens. Bar heights are
+     linear-scaled to the 14-day window's max — empty days render
+     as a 1px baseline tick that's still clickable so the user can
+     drill into "no usage on this day" without a separate empty
+     state. Today's bar carries an outline marker. */
+  function renderUsageChart(s) {
+    const days = Array.isArray(s.daily) ? s.daily : [];
+    if (days.length === 0) return "";
+    const max = days.reduce((m, d) => Math.max(m, d.totalTokens || 0), 0);
+    const last14Total = days.reduce((sum, d) => sum + (d.totalTokens || 0), 0);
+    const todayKey = days[days.length - 1]?.day;
+    const bars = days.map((d) => {
+      const total = d.totalTokens || 0;
+      // Linear height scaled to 14-day max. Below 1% of max we still
+      // give a 1px tick so empty days are clickable.
+      const heightPct = max > 0 ? Math.max(total > 0 ? (total / max) * 100 : 0, total > 0 ? 2 : 0) : 0;
+      // Provider sub-segments inside the bar · stacked bottom → top.
+      const segs = (d.byModel || [])
+        .reduce((map, m) => {
+          // Collapse models within the same provider into one stack
+          // segment · bar resolution stays per-provider; per-model
+          // detail lives in the drill-down below.
+          const cur = map.get(m.provider) || { tokens: 0, names: [] };
+          cur.tokens += m.tokens;
+          cur.names.push(`${m.displayName} ${fmtTokens(m.tokens)}`);
+          map.set(m.provider, cur);
+          return map;
+        }, new Map());
+      const segHtml = Array.from(segs.entries()).map(([provider, v]) => {
+        const segPct = total > 0 ? (v.tokens / total) * 100 : 0;
+        const color = PROVIDER_COLOR_VAR[provider] || PROVIDER_COLOR_VAR.unknown;
+        return `<span class="us-chart-seg" style="height:${segPct.toFixed(2)}%;background:var(${color})" title="${escape(v.names.join(' · '))}"></span>`;
+      }).join("");
+      const isToday = d.day === todayKey;
+      const isSelected = _selectedDay === d.day;
+      const cls = ["us-chart-bar"];
+      if (isToday) cls.push("today");
+      if (isSelected) cls.push("active");
+      if (total === 0) cls.push("empty");
+      // Custom hover tooltip · two lines (day + token count) rendered
+      // via CSS `::before` from `data-tip-day` / `data-tip-num`. We
+      // use `aria-label` (not `title`) so screen readers still get
+      // the info but the native browser tooltip with its ~500ms
+      // delay doesn't fight with the instant custom one.
+      const dayLabel = fmtDayLong(d.day);
+      const numLabel = total > 0 ? `${fmtTokens(total)} tokens` : "no usage";
+      const aria = `${dayLabel} · ${numLabel}`;
+      return `
+        <button type="button" class="${cls.join(' ')}"
+          data-usage-day="${escape(d.day)}"
+          data-tip-day="${escape(dayLabel)}"
+          data-tip-num="${escape(numLabel)}"
+          aria-label="${escape(aria)}">
+          <span class="us-chart-stack" style="height:${heightPct.toFixed(2)}%">${segHtml}</span>
+          <span class="us-chart-tick">${escape(fmtDayLabel(d.day))}</span>
+        </button>
+      `;
+    }).join("");
+    return `
+      <div class="us-chart-wrap" aria-label="14-day token usage">
+        <div class="us-chart-meta">
+          <span class="us-chart-meta-label">Last 14 days</span>
+          <span class="us-chart-meta-value">${fmtTokens(last14Total)}</span>
+        </div>
+        <div class="us-chart-bars">${bars}</div>
+      </div>
+    `;
+  }
+
+  /* ─── Detail · the original "by model / top consumers" body,
+     parameterised on either the cumulative summary `s` (when
+     `dayKey === null`) or one day's rollup pulled from `s.daily`
+     (when `dayKey` matches a day). ────────────────────────────── */
+  function renderUsageDetail(s, dayKey) {
+    if (dayKey === null) {
+      return renderDetailBody({
+        total: s.totalTokens,
+        byModel: s.byModel,
+        byAgent: s.byAgent,
+        agentCount: s.agentCount,
+        retired: s.retired || { tokens: 0, agents: 0 },
+        scopeLabel: "Cumulative since install",
+      });
+    }
+    const d = (s.daily || []).find((x) => x.day === dayKey);
+    if (!d || d.totalTokens === 0) {
+      return `
+        <div class="us-day-empty">
+          <div class="us-day-empty-tag">${escape(fmtDayLong(dayKey))}</div>
+          <div class="us-day-empty-text">no usage on this day.</div>
+        </div>
+      `;
+    }
+    return renderDetailBody({
+      total: d.totalTokens,
+      byModel: d.byModel,
+      byAgent: d.byAgent,
+      agentCount: d.byAgent.length,
+      retired: { tokens: 0, agents: 0 },
+      scopeLabel: fmtDayLong(dayKey),
+    });
+  }
+
+  function renderDetailBody({ total, byModel, byAgent, agentCount, retired, scopeLabel }) {
+    const segments = byModel.map((m) => {
       const pct = (m.tokens / total) * 100;
       const color = PROVIDER_COLOR_VAR[m.provider] || PROVIDER_COLOR_VAR.unknown;
       return `<span class="us-usage-seg" style="width:${pct.toFixed(2)}%;background:var(${color})" title="${escape(m.displayName)} · ${fmtTokens(m.tokens)}"></span>`;
     }).join("");
 
-    const modelRows = s.byModel.map((m) => {
+    const modelRows = byModel.map((m) => {
       const pct = (m.tokens / total) * 100;
       const color = PROVIDER_COLOR_VAR[m.provider] || PROVIDER_COLOR_VAR.unknown;
       return `
@@ -327,8 +540,7 @@
       `;
     }).join("");
 
-    // Top consumers (top 6 by tokens, skip silent agents).
-    const topAgents = s.byAgent.filter((a) => a.tokens > 0).slice(0, 6);
+    const topAgents = byAgent.filter((a) => a.tokens > 0).slice(0, 6);
     const agentRows = topAgents.map((a) => {
       const pct = (a.tokens / total) * 100;
       const color = PROVIDER_COLOR_VAR[a.provider] || PROVIDER_COLOR_VAR.unknown;
@@ -348,17 +560,11 @@
       `;
     }).join("");
 
-    const silentCount = s.byAgent.length - topAgents.length;
+    const silentCount = byAgent.length - topAgents.length;
     const silentNote = silentCount > 0
       ? `<div class="us-agent-silent">${tr("us_usage_silent", { n: silentCount })}</div>`
       : "";
 
-    // Retired-agents footer · custom directors that the user has
-    // deleted. Their per-agent identity is gone but the tokens were
-    // real, so we surface a small footer note acknowledging that the
-    // model-level totals above include their share. Hidden when no
-    // agents have ever been deleted with consumed tokens.
-    const retired = s.retired || { tokens: 0, agents: 0 };
     const retiredNote = retired.tokens > 0
       ? `
         <div class="us-usage-retired">
@@ -372,24 +578,25 @@
       `
       : "";
 
-    pane.innerHTML = `
+    return `
       <div class="us-usage-head">
         <div class="us-usage-total">
+          <div class="us-usage-total-scope">${escape(scopeLabel)}</div>
           <div class="us-usage-total-num">${fmtTokens(total)}</div>
           <div class="us-usage-total-raw">${total.toLocaleString()} tokens</div>
         </div>
         <div class="us-usage-meta">
           <div class="us-usage-meta-row">
             <span class="us-usage-meta-label">Models</span>
-            <span class="us-usage-meta-value">${s.byModel.length}</span>
+            <span class="us-usage-meta-value">${byModel.length}</span>
           </div>
           <div class="us-usage-meta-row">
             <span class="us-usage-meta-label">Agents</span>
-            <span class="us-usage-meta-value">${s.agentCount}</span>
+            <span class="us-usage-meta-value">${agentCount}</span>
           </div>
           <div class="us-usage-meta-row">
             <span class="us-usage-meta-label">Active</span>
-            <span class="us-usage-meta-value">${s.byAgent.filter((a) => a.tokens > 0).length}</span>
+            <span class="us-usage-meta-value">${byAgent.filter((a) => a.tokens > 0).length}</span>
           </div>
         </div>
       </div>
@@ -413,14 +620,32 @@
     `;
   }
 
+  /** Click handler · delegated on the pane. Bar OR pill click flips
+   *  `_selectedDay` and re-renders chart + drill-down in place. We
+   *  re-render the WHOLE pane (cheap; it's a small DOM) so the active-
+   *  state classes on bars and pills both stay in sync. */
+  function onUsageClick(e) {
+    const trigger = e.target.closest("[data-usage-day]");
+    if (!trigger) return;
+    if (!_usageSummary) return;
+    const next = trigger.dataset.usageDay;
+    _selectedDay = (next === "all") ? null : next;
+    renderUsagePane(_usageSummary);
+  }
+
   async function wireUsageSection() {
+    const pane = paneEl.querySelector("[data-usage-pane]");
+    if (pane && !pane.dataset.usageBound) {
+      pane.addEventListener("click", onUsageClick);
+      pane.dataset.usageBound = "1";
+    }
     try {
       const r = await fetch("/api/usage/summary");
       if (!r.ok) throw new Error("HTTP " + r.status);
       const s = await r.json();
+      _selectedDay = null; // reset to "All" on each pane open
       renderUsagePane(s);
     } catch (e) {
-      const pane = paneEl.querySelector("[data-usage-pane]");
       if (pane) pane.innerHTML = `<div class="us-usage-empty"><div class="us-usage-empty-text">couldn't fetch usage stats. ${escape(String(e && e.message || e))}</div></div>`;
     }
   }
@@ -830,6 +1055,11 @@
               <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false" data-i18n="us_nav_usage"></a>
               <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false" data-i18n="us_nav_api_key"></a>
               <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false" data-i18n="us_default_model_title"></a>
+              <a href="#" class="us-nav-item"        data-section="other"   role="tab" aria-selected="false" data-i18n="us_nav_other_settings"></a>
+              <div class="us-nav-foot" data-us-version aria-label="App version">
+                <span class="us-nav-foot-label">version</span>
+                <span class="us-nav-foot-value" data-us-version-value>·</span>
+              </div>
             </nav>
 
             <div class="us-pane" data-us-pane></div>
@@ -858,12 +1088,14 @@
     else if (id === "usage")  paneEl.innerHTML = usageSectionHTML();
     else if (id === "keys")   paneEl.innerHTML = keysSectionHTML();
     else if (id === "default") paneEl.innerHTML = defaultModelSectionHTML();
+    else if (id === "other")  paneEl.innerHTML = otherSettingsSectionHTML();
 
     // Section-specific wiring
     if (id === "user")    wireUserSection();
     if (id === "keys")    wireKeysSection();
     if (id === "usage")   wireUsageSection();
     if (id === "default") wireDefaultModelSection();
+    if (id === "other")   wireOtherSettingsSection();
 
     // Active rail item
     modal.querySelectorAll(".us-nav-item").forEach((el) => {
@@ -1165,6 +1397,34 @@
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Lazy-fetch the version string on each open. Cheap (one tiny
+    // request, no DB hit) and the user expects the foot to reflect
+    // the running server, not a baked-in client constant — if they
+    // upgrade the npm package and a tab is still open, the next
+    // overlay open shows the new version.
+    fetchAppVersion();
+  }
+
+  let _versionCache = null;
+  async function fetchAppVersion() {
+    const slot = overlay && overlay.querySelector("[data-us-version-value]");
+    if (!slot) return;
+    // Use cache if we already have it · the version doesn't change
+    // mid-process. First open does the network round-trip; subsequent
+    // opens repaint from cache instantly.
+    if (_versionCache) {
+      slot.textContent = _versionCache;
+      return;
+    }
+    try {
+      const r = await fetch("/api/version");
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j && typeof j.version === "string") {
+        _versionCache = `v${j.version}`;
+        slot.textContent = _versionCache;
+      }
+    } catch { /* swallow · the foot just stays at "·" if offline */ }
   }
   function close() {
     if (!overlay) return;

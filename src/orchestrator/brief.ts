@@ -22,10 +22,14 @@ import { callLLMStream, type LLMMessage } from "../ai/adapter.js";
 import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
   assetsToSignals,
+  buildMagazineMessages,
+  buildNewspaperMessages,
+  buildPptMessages,
   buildExtractMessages,
   buildScaffoldMessages,
   buildWriteMessages,
   countAssets,
+  parseBento,
   parseDirectorAssets,
   parseScaffold,
   type BriefScaffold,
@@ -46,7 +50,7 @@ import { isModelV, type ModelV } from "../ai/registry.js";
 import { getAgent, getChairAgent, incrementAgentTokens, type Agent } from "../storage/agents.js";
 import { listMessages } from "../storage/messages.js";
 import { getRoom, listRoomMembers } from "../storage/rooms.js";
-import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateBriefCompose } from "../storage/briefs.js";
+import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateBriefBodyJson, updateBriefCompose, type BriefMode } from "../storage/briefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 import { estimateTokens } from "../utils/tokens.js";
 
@@ -148,6 +152,11 @@ interface GenerateOpts {
    *  weave into the regenerated report. Only stages 2 + 3 see it —
    *  stage 1's per-director extraction stays independent. */
   supplement?: string;
+  /** Output mode · 'research-note' (default · markdown report) or
+   *  'bento' (single-page infographic with structured BentoScaffold
+   *  JSON in body_json). The pipeline branches at Stage 2 based on
+   *  this; Stage 1 (per-director extract) is shared. */
+  mode?: BriefMode;
 }
 
 /** In-flight pipeline state, keyed by briefId. Lives for the duration
@@ -385,6 +394,9 @@ export function abortBriefGeneration(briefId: string): boolean {
 export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: string }> {
   const { roomId } = opts;
   const style: BriefStyle = opts.style ?? "mckinsey";
+  const mode: BriefMode = opts.mode === "magazine" || opts.mode === "newspaper" || opts.mode === "ppt"
+    ? opts.mode
+    : "research-note";
 
   const room = getRoom(roomId);
   if (!room) throw new Error(`room not found: ${roomId}`);
@@ -401,6 +413,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     title: room.subject,
     bodyMd: "",
     supplement: opts.supplement,
+    mode,
   });
 
   // Capture the chair + room language up front so the rehydration
@@ -429,6 +442,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     briefId: placeholder.id,
     roomId,
     style,
+    mode,
     members,
     transcript,
     room,
@@ -445,6 +459,10 @@ interface PipelineArgs {
   briefId: string;
   roomId: string;
   style: BriefStyle;
+  /** Output mode · 'research-note' (default · markdown report through
+   *  composer + scaffold + write) or 'bento' (single chair-LLM call
+   *  that produces BentoScaffold JSON for client-side templating). */
+  mode: BriefMode;
   members: Agent[];
   transcript: ReturnType<typeof listMessages>;
   room: NonNullable<ReturnType<typeof getRoom>>;
@@ -465,7 +483,7 @@ interface PipelineArgs {
  *  · `scaffold-anchor`   · bottomLine + thesis · "what's the takeaway"
  *  · `scaffold-findings` · headlineFindings   · "what supports it"
  *  · `scaffold-cluster`  · convergence/divergence/positions · "consensus + dissent"
- *  · `scaffold-actions`  · recommendations + preMortem + newQuestions
+ *  · `scaffold-actions`  · recommendations + newQuestions + planningAssumption
  *  · `write`    · final report streaming (opus)
  *
  *  The 4 scaffold sub-stages replace the older single `scaffold` event.
@@ -558,7 +576,7 @@ function emitStage(
  *   · Opus is similarly slowed when producing rich markdown with tables
  *     and mermaid blocks. Real-world ~25-30 tps.
  *   · Output token volumes grow super-linearly with section count once
- *     recommendations / pre-mortem / new questions all kick in.
+ *     recommendations / risk-register / new questions all kick in.
  *   · Stage 2 retries up to 3× on parse failure — half of slow runs
  *     have at least one retry, so the upper bound carries a × 1.8
  *     factor to absorb that without lying to the user.
@@ -693,7 +711,7 @@ function estimateStage2Eta(args: Stage2EtaArgs): StageEta {
   //   3 positions × ~120        = 360
   //   2 convergence × ~150      = 300
   //   1 divergence (4 rows)     = 250
-  //   3 pre-mortem × ~100       = 300
+  //   5 risk-register × ~120    = 600
   //   3 new questions × ~80     = 240
   //   1 planning assumption     = 120
   //   bottom line + frame shift = 160
@@ -738,10 +756,10 @@ function estimateStage3Eta(args: Stage3EtaArgs): StageEta {
     (args.scaffold.positions.length ? 1 : 0) +
     (args.scaffold.visuals.length ? 1 : 0) +
     (args.scaffold.recommendations.length ? 1 : 0) +
-    (args.scaffold.preMortem.length ? 1 : 0) +
     (args.scaffold.newQuestions.length ? 1 : 0) +
     (args.scaffold.planningAssumption ? 1 : 0) +
-    (args.scaffold.openQuestions.length ? 1 : 0);
+    (args.scaffold.openQuestions.length ? 1 : 0) +
+    1 /* closing · always rendered */;
   const outputTokens = Math.max(3500, sectionsPresent * 350 + 1500);
   // Opus is the primary writer (slower but stronger); fallback to sonnet.
   const t = llmTimeSec(inputTokens, outputTokens, "opus");
@@ -760,11 +778,16 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
   // Surface "started" immediately so the UI can render the placeholder
   // card. Includes chairName + language so the UI can show "{Chair} is
   // preparing the minutes…" in the right language. The model used in
-  // stage 3 is reported in brief-final.
+  // stage 3 is reported in brief-final. `mode` is critical for the
+  // pip-rail: the bento pipeline only emits 2 stage events (extract +
+  // write), while research-note emits 7 (extract → compose → 4 ×
+  // scaffold-* → write). Without `mode` on the brief object the
+  // client picks the 7-stage rail by default and bento jobs render
+  // with 5 forever-pending pips between extract and write.
   roomBus.emit(roomId, {
     type: "config-event",
     kind: "brief-started",
-    payload: { briefId, style, chairName, language },
+    payload: { briefId, style, chairName, language, mode: args.mode },
     createdAt: Date.now(),
   });
 
@@ -881,6 +904,38 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       process.stderr.write(
         `[brief.stage1] persist assets failed: ${e instanceof Error ? e.message : String(e)}\n`,
       );
+    }
+
+    // ── Structured modes · magazine / newspaper / ppt ───────────────
+    // All structured modes skip composer + Stage 2 scaffold + Stage 3
+    // write. They share the BentoScaffold JSON shape (kept under
+    // that name for historical reasons — it's the structured output
+    // schema) and run through the SAME chair-LLM single-pass stage ·
+    // only the prompt and the client-side renderer differ. The data
+    // lands in body_json; magazine.html / newspaper.html / ppt.html
+    // template the same fields into different layouts.
+    if (args.mode === "magazine" || args.mode === "newspaper" || args.mode === "ppt") {
+      const ok = await runBentoStage({
+        roomId,
+        briefId,
+        chair,
+        chairId,
+        room,
+        members,
+        perDirectorSignals,
+        language,
+        supplement,
+        mode: args.mode,
+        signal: args.signal,
+      });
+      if (!ok) {
+        const label = args.mode === "magazine" ? "Magazine"
+          : args.mode === "ppt" ? "Slide deck"
+          : "Newspaper";
+        pipelineError =
+          `${label} writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.`;
+      }
+      return;
     }
 
     // In-flight calibration · compare stage 1's measured time to its
@@ -1417,7 +1472,7 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
   // Coverage inputs · feed the validatePicks coverage matrix the
   // per-field totals so it can reject picks that ignored available
   // material (tensions surfaced but no divergence, risks surfaced but
-  // no pre-mortem, etc.).
+  // no risk-register, etc.).
   const coverage = {
     tensions: args.perDirectorAssets.reduce((n, d) => n + d.tensions.length, 0),
     risks: args.perDirectorAssets.reduce((n, d) => n + d.risks.length, 0),
@@ -1510,17 +1565,17 @@ const SCAFFOLD_SUB_STAGES = [
  *  flipped done and this one becomes active. The model's JSON-emit
  *  order matches the prompt's example template (title → bottomLine →
  *  frameShift → headlineFindings → convergence → divergence → ...
- *  → recommendations → preMortem → newQuestions), so these triggers
- *  reflect the real arrival sequence — not a synthetic timer. */
+ *  → recommendations → newQuestions → planningAssumption), so these
+ *  triggers reflect the real arrival sequence — not a synthetic timer. */
 const SCAFFOLD_TRIGGERS: Partial<Record<StageKey, RegExp>> = {
   "scaffold-findings": /"headlineFindings"\s*:/,
   "scaffold-cluster":  /"convergence"\s*:|"divergence"\s*:|"positions"\s*:/,
-  "scaffold-actions":  /"recommendations"\s*:|"theBet"\s*:|"considerations"\s*:|"preMortem"\s*:/,
+  "scaffold-actions":  /"recommendations"\s*:|"theBet"\s*:|"considerations"\s*:|"newQuestions"\s*:/,
 };
 
 /** Fractional ETA budgets across the 4 sub-stages. Sum to 1.0. The
  *  longest blocks are findings (the heart of the report) and actions
- *  (recommendations + pre-mortem + new questions all live there). */
+ *  (recommendations + new questions + risk-register all live there). */
 const SCAFFOLD_FRACTIONS: Record<typeof SCAFFOLD_SUB_STAGES[number], number> = {
   "scaffold-anchor":   0.20,
   "scaffold-findings": 0.30,
@@ -1618,6 +1673,41 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
     }
   };
 
+  // Active director count drives the "directorPerspectives is mandatory"
+  // gate · ≥ 2 active directors means the views-compared section MUST
+  // appear in the brief. If the LLM omits it (common on long rooms /
+  // dense scaffolds), we retry; on final attempt we synthesize a
+  // minimal backstop from existing signals so the section always
+  // ships rather than silently disappearing.
+  const activeDirectorCount = args.perDirectorSignals.filter(
+    (d) => d.signals.length > 0,
+  ).length;
+  const requiresPerspectives = activeDirectorCount >= 2;
+
+  // Track whether the most recent attempt was rejected for missing
+  // directorPerspectives · used to augment the next attempt's user
+  // message with a corrective note. Plumbed via a closure so we
+  // don't have to thread a flag through buildScaffoldMessages.
+  let priorAttemptMissedPerspectives = false;
+
+  // Build the messages once · prepend a corrective note when we're
+  // retrying because of a missing mandatory section. The base messages
+  // remain the same; we just push an additional user-side reminder
+  // before the LLM call so the previous attempt's failure mode is
+  // explicitly addressed.
+  const messagesForAttempt = (): typeof messages => {
+    if (!priorAttemptMissedPerspectives) return messages;
+    const correction: typeof messages[number] = {
+      role: "user",
+      content:
+        "RETRY · your previous JSON omitted `directorPerspectives` (or returned it as null). " +
+        `That field is MANDATORY for this room — there are ${activeDirectorCount} active directors with signals, so the views-compared block MUST be filled. ` +
+        "Include it this time: object with `intro`, `alignment` (≥0 groups), `divergence` (≥0 entries), `perspectives` (one entry per active director · directorId from the room's member list, stance ≤60 chars, position ≤300 chars, optional quote ≤40 words, lens), `chairSynthesis` (≤400 chars). " +
+        "Do NOT skip it again — every active director gets a row.",
+    };
+    return [...messages, correction];
+  };
+
   // Try each model up to STAGE_2_RETRIES times with rising temperature.
   for (const modelV of stageFlagshipList()) {
     if (!isModelV(modelV)) continue;
@@ -1630,7 +1720,7 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           stage: "scaffold-anchor",
           label: `Scaffold JSON attempt ${attempt + 1}`,
           modelV,
-          messages,
+          messages: messagesForAttempt(),
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
           maxTokens: 8000,
           signal: timeout.signal,
@@ -1644,6 +1734,38 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           args.room.subject,
         );
         if (scaffold) {
+          // Mandatory-section gate · the prompt marks
+          // `directorPerspectives` as MANDATORY for ≥ 2 active
+          // directors, but the LLM occasionally drops it on long /
+          // dense rooms. parseScaffold accepts the missing field
+          // (it's optional in the schema for single-director rooms);
+          // we enforce the requirement here at the orchestrator layer.
+          const missingPerspectives =
+            requiresPerspectives && !scaffold.directorPerspectives;
+          // We have one more attempt available · retry with a
+          // corrective note prepended.
+          const isLastAttempt =
+            attempt === STAGE_2_RETRIES - 1 &&
+            modelV === stageFlagshipList()[stageFlagshipList().length - 1];
+          if (missingPerspectives && !isLastAttempt) {
+            priorAttemptMissedPerspectives = true;
+            process.stderr.write(
+              `[brief.stage2] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} parsed OK but missed mandatory directorPerspectives — retrying with correction\n`,
+            );
+            continue;
+          }
+          // Last attempt · accept the scaffold. If perspectives are
+          // still missing, synthesize a minimal backstop from the
+          // signals we already have so the section always renders.
+          if (missingPerspectives && isLastAttempt) {
+            scaffold.directorPerspectives = synthesizeDirectorPerspectivesFallback(
+              args.perDirectorSignals,
+              args.members,
+            );
+            process.stderr.write(
+              `[brief.stage2] ${modelV} final attempt still missed directorPerspectives — synthesized minimal backstop from signals (${activeDirectorCount} active directors)\n`,
+            );
+          }
           if (attempt > 0) {
             process.stderr.write(
               `[brief.stage2] ${modelV} succeeded on retry ${attempt + 1}\n`,
@@ -1787,6 +1909,187 @@ function buildFallbackScaffold(args: Stage2Args): BriefScaffold {
       text: clean(s.text),
       priority: idx === 0 ? "P0" : "P1",
     })),
+  };
+}
+
+/* ─────────────────────────── Bento mode · single-stage ────────────────
+ *
+ * Bento collapses Stage 2 + Stage 3 into one chair-LLM call. The output
+ * is the BentoScaffold JSON · no separate "write" stage because the
+ * renderer is deterministic client-side templating. The function
+ * persists the scaffold on the brief row's body_json and fires the
+ * brief-final SSE event so the UI flips from "generating" to "filed".
+ *
+ * Returns true on success, false when all retries failed (caller sets
+ * pipelineError, the outer tail block fires brief-error). Throws only
+ * on abort / catastrophic LLM-adapter errors.
+ */
+interface BentoStageArgs {
+  roomId: string;
+  briefId: string;
+  chair: Agent | null;
+  chairId: string | null;
+  room: NonNullable<ReturnType<typeof getRoom>>;
+  members: Agent[];
+  perDirectorSignals: DirectorSignals[];
+  language: "zh" | "en";
+  supplement?: string;
+  /** 'magazine', 'newspaper', or 'ppt'. All three modes share the
+   *  BentoScaffold JSON output · only the system prompt differs.
+   *  Magazine biases toward 5-card editorial · newspaper toward
+   *  broadsheet front-page sectioning · ppt toward slide-friendly
+   *  short-line bullets and one-claim-per-slide content. */
+  mode: BriefMode;
+  signal?: AbortSignal;
+}
+
+async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
+  const totalSignals = args.perDirectorSignals.reduce(
+    (acc, d) => acc + d.signals.length,
+    0,
+  );
+  if (totalSignals === 0) return false;
+
+  // Auto-fill fallbacks · used when the LLM omits source / footerTag.
+  // Today's date is "{YYYY-MM-DD}" in the room's locale.
+  const today = new Date().toISOString().slice(0, 10);
+  const chairName = args.chair?.name || "Chair";
+  const fallbackSource = `From ${chairName} · ${today}`;
+  const subjectShort = (args.room.subject || "").slice(0, 60);
+  const fallbackFooterTag = subjectShort ? `${subjectShort} · ${today}` : today;
+
+  const buildMessages = args.mode === "newspaper" ? buildNewspaperMessages
+    : args.mode === "ppt" ? buildPptMessages
+    : buildMagazineMessages;
+  const messages = buildMessages({
+    chair: args.chair,
+    room: args.room,
+    members: args.members,
+    perDirectorSignals: args.perDirectorSignals,
+    language: args.language,
+    supplement: args.supplement,
+    fallbackSource,
+    fallbackFooterTag,
+  });
+
+  // Use the same flagship-first retry strategy as Stage 2 scaffold ·
+  // bento is structurally similar (chair LLM producing strict JSON
+  // from the same SIGNALS block). Same retry budget, same temperature
+  // ladder, same maxTokens (bento output is shorter — ≤ 8K is plenty).
+  emitStage(args.roomId, args.briefId, "write", "active", undefined, undefined, { lo: 8, hi: 24 });
+
+  for (const modelV of stageFlagshipList()) {
+    if (!isModelV(modelV)) continue;
+    for (let attempt = 0; attempt < STAGE_2_RETRIES; attempt++) {
+      try {
+        let buf = "";
+        let totalTokens = 0;
+        for await (const chunk of callLLMStream({
+          modelV,
+          messages,
+          temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
+          maxTokens: 8000,
+          signal: args.signal,
+        })) {
+          if (chunk.type === "text") {
+            buf += chunk.delta;
+            // Stream the buffer to the client as bento-token events ·
+            // lets the loading UI eventually preview the headline /
+            // milestones as they arrive (deferred · see bento.html).
+            roomBus.emit(args.roomId, {
+              type: "config-event",
+              kind: "brief-token",
+              payload: { briefId: args.briefId, delta: chunk.delta },
+              createdAt: Date.now(),
+            });
+          } else if (chunk.type === "usage") {
+            totalTokens = chunk.totalTokens;
+          } else if (chunk.type === "error") {
+            throw new Error(chunk.message);
+          }
+        }
+        if (totalTokens > 0) billChair(args.chairId, { totalTokens });
+
+        const bento = parseBento(buf, args.room.subject, fallbackSource, fallbackFooterTag);
+        if (bento) {
+          if (attempt > 0) {
+            process.stderr.write(
+              `[brief.${args.mode}] ${modelV} succeeded on retry ${attempt + 1}\n`,
+            );
+          }
+          updateBriefBodyJson(args.briefId, bento, bento.title);
+          emitStage(args.roomId, args.briefId, "write", "done");
+          roomBus.emit(args.roomId, {
+            type: "config-event",
+            kind: "brief-final",
+            payload: { briefId: args.briefId, title: bento.title, modelV },
+            createdAt: Date.now(),
+          });
+          return true;
+        }
+        process.stderr.write(
+          `[brief.${args.mode}] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} produced unparseable bento\n`,
+        );
+      } catch (e) {
+        if (args.signal?.aborted) throw e;
+        process.stderr.write(
+          `[brief.${args.mode}] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} failed: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      }
+    }
+  }
+  return false;
+}
+
+/** Backstop · synthesize a minimal `directorPerspectives` block when
+ *  the scaffold writer keeps omitting it. Uses each active director's
+ *  first signal (if any) as their position so every director still
+ *  shows up in the social-map view. Loses the alignment / divergence
+ *  groupings (those need cross-signal reasoning the LLM does well
+ *  but we don't replicate here) — those just render as empty groups,
+ *  which the views-compared renderer handles gracefully with
+ *  "No clear convergence" / "No central fork" placeholders. The
+ *  important thing is that EVERY ACTIVE DIRECTOR gets a row, which
+ *  is the section's load-bearing function. */
+function synthesizeDirectorPerspectivesFallback(
+  perDirectorSignals: DirectorSignals[],
+  members: Agent[],
+): NonNullable<BriefScaffold["directorPerspectives"]> {
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const VALID_LENSES: ReadonlySet<string> = new Set([
+    "data", "dissent", "narrative", "structural", "first-principle",
+  ]);
+  const perspectives = perDirectorSignals
+    .filter((d) => d.signals.length > 0)
+    .map((d) => {
+      const first = d.signals[0];
+      const lensRaw = String(first.lens || "structural");
+      const lens = (VALID_LENSES.has(lensRaw) ? lensRaw : "structural") as
+        | "data" | "dissent" | "narrative" | "structural" | "first-principle";
+      const text = String(first.text || "").trim();
+      // Trim the position to the schema's ≤300 char ceiling at the
+      // nearest sentence boundary so the backstop reads as a clean
+      // paraphrase rather than a mid-sentence cutoff.
+      const position = text.length <= 300
+        ? text
+        : text.slice(0, 300).replace(/[\s,，;。.!?！？]+\S*$/, "") + "…";
+      const member = memberById.get(d.directorId);
+      const stanceSeed = member?.roleTag || member?.bio || "Their angle on this room.";
+      const stance = stanceSeed.length <= 60 ? stanceSeed : stanceSeed.slice(0, 57) + "…";
+      return {
+        directorId: d.directorId,
+        stance,
+        position,
+        quote: "",
+        lens,
+      };
+    });
+  return {
+    intro: "Each active director's read on the room — drawn from the signals they surfaced.",
+    alignment: [],
+    divergence: [],
+    perspectives,
+    chairSynthesis: "",
   };
 }
 

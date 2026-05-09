@@ -18,6 +18,7 @@ import { roomsRouter } from "./routes/rooms.js";
 import { usageRouter } from "./routes/usage.js";
 import { voicesRouter } from "./routes/voices.js";
 import { publicDir } from "./utils/paths.js";
+import { VERSION } from "./version.js";
 
 interface StartOptions {
   port: number;
@@ -76,10 +77,17 @@ export function createApp() {
     }
   });
 
-  // /api · health check
+  // /api · health check + version surface for the frontend.
+  // /api/health   · "is the server up + which version is it" (used by
+  //                 the dashboard's connection-loss recovery banner).
+  // /api/version  · pure version string for any UI that wants to print
+  //                 it (e.g. user-settings sidebar foot). Kept tiny so
+  //                 the user-settings overlay doesn't have to parse a
+  //                 health payload it doesn't otherwise need.
   app.get("/api/health", (c) =>
-    c.json({ ok: true, version: "0.1.2", time: new Date().toISOString() }),
+    c.json({ ok: true, version: VERSION, time: new Date().toISOString() }),
   );
+  app.get("/api/version", (c) => c.json({ version: VERSION }));
 
   // /api/system/migrations · the canonical record of which schema
   // migrations have run against this user's DB. Frontend reads it on
