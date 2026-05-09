@@ -3799,7 +3799,6 @@
               <div class="row-content">
                 <div class="row-top-line">
                   <span class="row-title">${this.escape(fullTitle)}</span>
-                  <span class="row-time">${this.escape(time)}</span>
                 </div>
                 <div class="row-subtitle">${status}${this.escape(r.subject || "")}</div>
               </div>
@@ -3981,7 +3980,6 @@
               <div class="agent-row-content">
                 <div class="agent-row-top-line">
                   <span class="agent-row-title">${this.escape(a.name)}</span>
-                  <span class="agent-row-time">${this.escape(time)}</span>
                   ${pinBtn}
                 </div>
                 <div class="agent-row-subtitle">
@@ -5050,11 +5048,16 @@
       }
 
       // Scroll path · IntersectionObserver fires when the sentinel
-      // crosses the viewport. `rootMargin: 200px` triggers slightly
-      // before the actual edge so the next batch is rendered before
-      // the user reaches the bottom — feels seamless rather than
-      // chunked.
+      // crosses the viewport. The All Reports view uses an inner
+      // scroll container (`.main-view[data-main-view="reports"]` has
+      // `overflow-y: auto`), so the document viewport itself never
+      // scrolls. The observer's `root` MUST point at the inner
+      // scroller — otherwise the sentinel never intersects and
+      // infinite scroll silently does nothing. `rootMargin: 200px`
+      // triggers slightly before the actual edge so the next batch
+      // is rendered before the user reaches the bottom.
       try {
+        const scrollRoot = document.querySelector('.main-view[data-main-view="reports"]') || null;
         this._reportsLoadObserver = new IntersectionObserver(
           (entries) => {
             for (const entry of entries) {
@@ -5064,7 +5067,7 @@
               }
             }
           },
-          { rootMargin: "200px 0px 200px 0px", threshold: 0.01 },
+          { root: scrollRoot, rootMargin: "200px 0px 200px 0px", threshold: 0.01 },
         );
         this._reportsLoadObserver.observe(sentinel);
       } catch { /* IntersectionObserver unavailable · click path remains */ }

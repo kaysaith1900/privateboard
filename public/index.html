@@ -568,19 +568,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Time tag · same register as `.row-time` in the rooms list
-     (10.5px mono, text-dim) so both lists read as one consistent
-     "title · time" rhythm. Earlier this was 9px uppercase faint —
-     visually a different "kind of metadata" from the rooms time. */
-  .agent-row .agent-row-time {
-    color: var(--text-dim);
-    font-size: 10.5px;
-    font-family: var(--mono);
-    letter-spacing: 0;
-    text-transform: none;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+  /* Time tag removed · the agent-row no longer surfaces creation
+     time. The space is given back to the title (which can now use
+     the full row width minus the hover-revealed pin button). */
   .agent-row .agent-row-subtitle {
     font-family: var(--mono);
     font-size: 9.5px;
@@ -934,13 +924,10 @@
   .agents-section-header.pinned { color: var(--text-soft); }
 
   /* ─── Pin toggle (per-row · hover-revealed for non-pinned) ───
-     Positioned absolutely so the in-flow time tag (.agent-row-time /
-     .row-time) sits flush against the right edge — same as the rooms
-     list. Earlier the pin took 22px (18 + 4 margin) of in-flow width
-     even when invisible (opacity:0 still occupies space), which shoved
-     the agent's "7h" tag inward compared to the rooms list and made
-     the two columns of timestamps look mis-aligned. The row-shell
-     ancestor needs `position: relative` for this to anchor correctly. */
+     Positioned absolutely so it overlays the right edge of the row
+     without taking in-flow width (opacity:0 alone would still
+     reserve 22px and shrink the title). The row-shell ancestor
+     needs `position: relative` for this to anchor correctly. */
   .agent-row-shell, .session-row-shell { position: relative; }
   .row-top-line .pin-toggle,
   .agent-row-top-line .pin-toggle {
@@ -968,23 +955,12 @@
   }
   .session-row:hover .pin-toggle,
   .agent-row:hover .pin-toggle { opacity: 0.55; }
-  /* Hover · hide the in-flow time so the absolutely-positioned pin
-     button has the right edge to itself. Same pattern as the rooms
-     list (`.session-row-shell:hover .row-time { visibility: hidden }`). */
-  .agent-row-shell:hover .agent-row-time { visibility: hidden; }
   .pin-toggle:hover { opacity: 1 !important; color: var(--lime); }
   .session-row.pinned .pin-toggle,
   .agent-row.pinned .pin-toggle {
     opacity: 1;
     color: var(--lime);
   }
-  /* Pinned · the lime pin glyph stays visible permanently, so the
-     in-flow time tag has to hide too — otherwise the two stack on
-     the right edge (pin + "7h" overlapping in the same 18px slot).
-     The hover rule above only handles hover; pinned rows live in
-     "always visible" state and need their own hide. */
-  .agent-row.pinned .agent-row-time,
-  .session-row.pinned .row-time { visibility: hidden; }
 
   /* The shell wraps the link + delete button as siblings so the click on
      the X button doesn't get absorbed by the anchor's navigation.
@@ -1038,10 +1014,8 @@
     z-index: 2;
   }
   .session-row-shell:hover .row-delete { display: flex; }
-  /* On hover the timestamp hides so the delete button doesn't double
-     up. The subtitle reserves right padding so its ellipsis stops
-     before the X. */
-  .session-row-shell:hover .row-time { visibility: hidden; }
+  /* Subtitle reserves right padding so its ellipsis stops before
+     the absolutely-positioned X delete button on hover. */
   .session-row-shell .row-subtitle { padding-right: 26px; }
   .row-delete:hover {
     border-color: var(--red);
@@ -1130,17 +1104,14 @@
     font-family: var(--sans);
     letter-spacing: -0.005em;
   }
-  .row-time {
-    font-size: 10.5px;
-    color: var(--text-dim);
-    flex-shrink: 0;
-    font-family: var(--mono);
-  }
-  .session-row-shell[data-status="live"] .row-time {
+  /* Live indicator · was a `● ` prefix on the (now-removed) .row-time
+     tag. Migrated to a title prefix so live rooms still read at a
+     glance. The rest of the title stays its usual colour. */
+  .session-row-shell[data-status="live"] .row-title::before {
+    content: "● ";
     color: var(--lime);
     font-weight: 700;
   }
-  .session-row-shell[data-status="live"] .row-time::before { content: "● "; }
 
   .row-subtitle {
     font-size: 11.5px;
@@ -1845,8 +1816,7 @@
   .notes-item-passage { padding-right: 30px; }
   /* On hover · hide the trailing time tag so the delete button
      occupies the right-edge slot cleanly. visibility:hidden keeps
-     the layout box (the meta row doesn't reflow either). Same
-     pattern as `.session-row-shell:hover .row-time` in rooms. */
+     the layout box (the meta row doesn't reflow either). */
   .notes-item:hover .notes-item-time { visibility: hidden; }
   .notes-item-link {
     display: block;
