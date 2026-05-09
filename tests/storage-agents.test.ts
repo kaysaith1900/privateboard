@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { countAgents, getAgent, getAgentByHandle, insertAgent, listAgents } from "../src/storage/agents.js";
+import { countAgents, getAgent, getAgentByHandle, insertAgent, listAgents, updateAgent } from "../src/storage/agents.js";
 
 describe("agents DAO", () => {
   it("starts empty and counts inserts", () => {
@@ -63,5 +63,34 @@ describe("agents DAO", () => {
         id: "x2", name: "X2", handle: "/x", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/x2.svg",
       }),
     ).toThrow();
+  });
+
+  it("persists per-agent voice profile", () => {
+    insertAgent({
+      id: "voice-agent",
+      name: "Voice Agent",
+      handle: "/voice_agent",
+      roleTag: "operator",
+      bio: "speaks in short sentences",
+      instruction: "system prompt",
+      modelV: "sonnet-4-6",
+      avatarPath: "/avatars/socrates.svg",
+    });
+
+    const updated = updateAgent("voice-agent", {
+      voice: {
+        provider: "minimax",
+        model: "speech-2.8-turbo",
+        voiceId: "Chinese_Refreshing_Young_Man",
+        speed: 1.05,
+        pitch: 0,
+        volume: 1,
+        instructions: "Calm, concise boardroom voice.",
+      },
+    });
+
+    expect(updated?.voice?.provider).toBe("minimax");
+    expect(updated?.voice?.voiceId).toBe("Chinese_Refreshing_Young_Man");
+    expect(getAgent("voice-agent")?.voice?.model).toBe("speech-2.8-turbo");
   });
 });

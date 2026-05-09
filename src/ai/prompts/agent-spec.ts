@@ -171,7 +171,7 @@ const HOUSE_STYLE = [
   "## Constraints",
   "",
   "· The new director must be DISTINCT from the canonical six (Socrates, First Principles, Long Horizon, Phenomenologist, Critique Reviewer, Pattern-Match).",
-  "· Pick a model from: opus-4-7 (default for nuanced / contrarian roles), sonnet-4-6 (faster, fine for analytical roles), haiku-4-5 (only for very tight / rule-based roles). When in doubt, opus-4-7.",
+  "· Pick a model from: opus-4-7 (default for nuanced / contrarian roles), opus-4-6 (deep reasoning, 1M ctx), sonnet-4-6 (faster, fine for analytical roles), haiku-4-5 (only for very tight / rule-based roles). When in doubt, opus-4-7.",
   "· The instruction MUST contain ALL EIGHT sections in the order shown. Do NOT collapse or rename sections.",
   "· EVERY entry in 'load-bearing concepts' and 'referent set' must be NAMED — concrete people, cases, papers, events. No generic placeholders ('various studies', 'historical examples', 'modern frameworks').",
   "",
@@ -333,10 +333,11 @@ function parseAbility(raw: unknown): Record<string, number> {
 }
 
 const ALLOWED_MODELS = new Set([
-  "sonnet-4-6", "opus-4-7", "haiku-4-5",
+  "sonnet-4-6", "opus-4-6", "opus-4-7", "haiku-4-5",
   "gpt-5-5", "gpt-5-4", "gpt-5-4-mini",
   "gemini-3-1", "gemini-3-flash", "gemini-3-1-flash",
   "grok-4-3", "grok-4-1-fast",
+  "deepseek-v4-pro", "deepseek-v4-flash",
 ]);
 
 function clamp(s: string, max: number): string {

@@ -30,7 +30,7 @@ import {
   updateMessageBody,
   type Message,
 } from "../storage/messages.js";
-import { getKey, hasBraveKey } from "../storage/keys.js";
+import { getActiveWebSearchCredentials, hasWebSearchKey } from "../storage/keys.js";
 import { getPrefs } from "../storage/prefs.js";
 import {
   reachableModelVs,
@@ -39,7 +39,7 @@ import {
 import { getRoom, listRoomMembers, setAwaitingContinue, setRoomStatus, type Room } from "../storage/rooms.js";
 import { getBrief } from "../storage/briefs.js";
 
-import { formatSearchResults, runBraveSearch } from "../ai/skills/web-search.js";
+import { formatSearchResults, runWebSearch } from "../ai/skills/web-search.js";
 import { isBillingError, extractProviderHint } from "../ai/billing-error.js";
 import {
   announceBillingNotice,
@@ -54,6 +54,8 @@ import { buildDirectorMessages, buildFollowUpPriorContext } from "./prompt.js";
 import { pickNextSpeaker, pickRoundWrap, pickSkills } from "./skill-picker.js";
 import { roomBus, type RoomEvent } from "./stream.js";
 import { listSkillsForAgent } from "../storage/skills.js";
+import { SentenceChunker } from "../voice/sentence-splitter.js";
+import { synthesizeSpeechStream, voiceProfileForAgent } from "../voice/tts.js";
 
 type QueueStatus = "queued" | "speaking";
 
@@ -107,6 +109,7 @@ interface RoomState {
    *  next user-message tick (tickRoom resets state) so the user can try
    *  again after fixing the key. */
   billingHaltedThisTurn: boolean;
+  voiceWaiters: Map<string, () => void>;
 }
 
 const _state = new Map<string, RoomState>();
@@ -174,10 +177,34 @@ function ensureState(roomId: string): RoomState {
       savedOnPause: null,
       pendingChairPick: null,
       billingHaltedThisTurn: false,
+      voiceWaiters: new Map(),
     };
     _state.set(roomId, s);
   }
   return s;
+}
+
+export function markVoicePlaybackDone(roomId: string, messageId: string): boolean {
+  const s = _state.get(roomId);
+  const waiter = s?.voiceWaiters.get(messageId);
+  if (!waiter || !s) return false;
+  s.voiceWaiters.delete(messageId);
+  waiter();
+  return true;
+}
+
+export function waitForVoicePlayback(roomId: string, messageId: string, timeoutMs = 120_000): Promise<void> {
+  const s = ensureState(roomId);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      s.voiceWaiters.delete(messageId);
+      resolve();
+    }, timeoutMs);
+    s.voiceWaiters.set(messageId, () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /** True if a director is currently streaming a turn. */
@@ -396,6 +423,14 @@ export function abortRoom(roomId: string): void {
     s.inflight.abort();
     s.inflight = null;
   }
+  // Clear all pending voice waiters so waitForVoicePlayback resolves
+  // immediately instead of hanging for 120s. The frontend already
+  // stopped playback on hard-pause; these waiters will never be
+  // fulfilled by a voice-done POST.
+  for (const [id, waiter] of s.voiceWaiters) {
+    waiter();
+  }
+  s.voiceWaiters.clear();
   rlog(roomId, "abort", {
     snapshot: remaining.length,
     round: s.roundNum,
@@ -773,12 +808,17 @@ async function pumpQueue(roomId: string): Promise<void> {
       });
 
       try {
-        await streamSpeakerTurn({
+        const messageId = await streamSpeakerTurn({
           roomId,
           speaker,
           roundNum: state.roundNum,
           signal: ac.signal,
         });
+        // Voice mode: wait for the frontend to signal playback is complete
+        // before allowing the next director to speak.
+        if (messageId && getRoom(roomId)?.deliveryMode === "voice") {
+          await waitForVoicePlayback(roomId, messageId);
+        }
         state.speakersThisTurn++;
         rlog(roomId, "speaker-end", {
           agent: speaker.name,
@@ -969,11 +1009,11 @@ interface StreamArgs {
   signal: AbortSignal;
 }
 
-async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
+async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
   const { roomId, speaker, roundNum, signal } = args;
 
   const room = getRoom(roomId);
-  if (!room) return;
+  if (!room) return null;
 
   const memberRows = listRoomMembers(roomId);
   const cast: Agent[] = memberRows
@@ -992,29 +1032,28 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
 
   // Skills + Web Search · Pass-1 router. The same haiku call decides
   // (a) which installed .md skills apply, and (b) whether the turn
-  // would benefit from a Brave search query. Both are gated by the
+  // would benefit from a web-search query. Both are gated by the
   // user having configured the relevant key + the per-agent toggle.
   const installedSkills = listSkillsForAgent(speaker.id);
   // Research mode bypasses the per-agent web-search toggle · the
   // whole point of the room is mining external material, so we
   // assume every director can search by default. Other modes still
-  // honour the per-director opt-in. Either way, hasBraveKey() is
-  // the floor — without a Brave API key configured, web search
-  // can't run regardless of mode (the chair posts a one-time hint
-  // about this when a research room opens; see runChairConvening
-  // / announceResearchHint).
+  // honour the per-director opt-in. A search API key (Brave and/or
+  // Tavily) is still required — without one, web search cannot run
+  // regardless of mode (the chair posts a one-time hint when a
+  // research room opens; see runChairConvening / announceResearchHint).
   const isResearchMode = (room.mode || "").toLowerCase() === "research";
-  const braveAvailable = hasBraveKey() && (speaker.webSearchEnabled || isResearchMode);
+  const webSearchAvail = hasWebSearchKey() && (speaker.webSearchEnabled || isResearchMode);
   let activeSkills: ReturnType<typeof listSkillsForAgent> = [];
   let pickerReason = "";
   let webSearchQuery: string | null = null;
-  if (installedSkills.length > 0 || braveAvailable) {
+  if (installedSkills.length > 0 || webSearchAvail) {
     try {
       const picked = await pickSkills({
         speaker,
         skills: installedSkills,
         history,
-        webSearchAvailable: braveAvailable,
+        webSearchAvailable: webSearchAvail,
         signal,
       });
       activeSkills = picked.used;
@@ -1035,15 +1074,15 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     }
   }
 
-  // Run Brave Search when the router decided the turn needs fresh info.
+  // Run configured search backend when the router decided the turn needs fresh info.
   // Failure (timeout / network / 4xx) is non-fatal: the agent answers
   // without the SHARED MATERIALS block, never sees an error.
   let webSearchSources: Array<{ title: string; url: string; description: string }> = [];
   let sharedMaterialsBlock = "";
-  if (braveAvailable && webSearchQuery) {
-    const apiKey = getKey("brave");
-    if (apiKey) {
-      const results = await runBraveSearch({ apiKey, query: webSearchQuery });
+  if (webSearchAvail && webSearchQuery) {
+    const creds = getActiveWebSearchCredentials();
+    if (creds) {
+      const results = await runWebSearch(creds.backend, creds.apiKey, webSearchQuery);
       if (results && results.length > 0) {
         webSearchSources = results.map((r) => ({
           title: r.title,
@@ -1054,6 +1093,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
         rlog(roomId, "web-search", {
           agent: speaker.name,
           query: webSearchQuery,
+          backend: creds.backend,
           sources: results.length,
         });
       }
@@ -1146,6 +1186,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     chairBrief: chairBriefForTurn ?? undefined,
     summaryPreamble,
     priorContext,
+    deliveryMode: room.deliveryMode,
   });
 
   // Streaming placeholder so the UI has an id immediately.
@@ -1189,6 +1230,42 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
   let buf = "";
   let finishReason: string | undefined;
   let errored = false;
+  const voiceMode = room.deliveryMode === "voice";
+  process.stderr.write(`[voice-debug] room=${roomId} deliveryMode="${room.deliveryMode}" voiceMode=${voiceMode}\n`);
+  const voiceChunker = voiceMode ? new SentenceChunker({ maxChars: 120 }) : null;
+  const voiceProfile = voiceMode ? voiceProfileForAgent(speaker) : null;
+  let voiceSeq = 0;
+
+  /**
+   * Emit a single sentence as streaming TTS audio chunks.
+   * Uses MiniMax streaming API so each sentence is split into multiple
+   * small audio fragments that arrive and play with minimal latency.
+   */
+  async function emitVoiceText(text: string): Promise<void> {
+    if (!voiceMode || !voiceProfile || !text.trim()) return;
+    process.stderr.write(`[tts] emitVoiceText called: provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} textLen=${text.length} text="${text.slice(0, 50)}"\n`);
+    let chunkCount = 0;
+    try {
+      for await (const chunk of synthesizeSpeechStream(text, voiceProfile, signal)) {
+        if (signal.aborted) break;
+        chunkCount++;
+        roomBus.emit(roomId, {
+          type: "voice-chunk",
+          messageId: placeholder.id,
+          seq: voiceSeq++,
+          text: chunk.text,
+          provider: chunk.provider,
+          model: chunk.model,
+          voiceId: chunk.voiceId,
+          ...(chunk.mimeType ? { mimeType: chunk.mimeType } : {}),
+          ...(chunk.audioBase64 ? { audioBase64: chunk.audioBase64 } : {}),
+        });
+      }
+      process.stderr.write(`[tts] emitVoiceText done: ${chunkCount} chunks emitted\n`);
+    } catch (e) {
+      process.stderr.write(`[tts] ERROR room=${roomId} agent=${speaker.name} · ${e instanceof Error ? e.stack || e.message : String(e)}\n`);
+    }
+  }
 
   try {
   for await (const chunk of callLLMStream({
@@ -1224,6 +1301,11 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
         messageId: placeholder.id,
         delta: chunk.delta,
       });
+      if (voiceChunker) {
+        for (const spoken of voiceChunker.push(chunk.delta)) {
+          await emitVoiceText(spoken);
+        }
+      }
     } else if (chunk.type === "usage") {
       // Bump the per-agent cumulative token counter (surfaced on the
       // agent profile under "Track Record · Tokens"). Charged in full
@@ -1284,7 +1366,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
         }
         // Bail out of the streaming loop · further chunks (incl. usage /
         // done) are irrelevant for a turn we just disowned.
-        return;
+        return placeholder.id;
       }
 
       roomBus.emit(roomId, {
@@ -1365,10 +1447,16 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
     if (signal.aborted || finishReason === "aborted") {
       retractEmptyRoundOpen(roomId, roundNum, placeholder.id);
     }
-    return;
+    return null;
   }
 
   if (!errored) {
+    if (voiceChunker) {
+      const tail = voiceChunker.flush();
+      process.stderr.write(`[tts] flush tail="${(tail || "").slice(0, 50)}" tailLen=${(tail || "").length} totalSeq=${voiceSeq}\n`);
+      if (tail) await emitVoiceText(tail);
+      roomBus.emit(roomId, { type: "voice-final", messageId: placeholder.id });
+    }
     updateMessageBody(placeholder.id, buf, {
       ...placeholderMeta,
       speakerStatus: "final",
@@ -1381,6 +1469,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<void> {
       finishReason,
     });
   }
+  return placeholder.id;
 }
 
 /** Retract the chair's `round-open` marker for `roundNum` when nobody

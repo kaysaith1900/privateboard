@@ -12,8 +12,8 @@ export type Provider = "anthropic" | "openai" | "google" | "xai" | "deepseek";
 
 export type ModelV =
   | "sonnet-4-6"
-  | "opus-4-7"
   | "opus-4-6"
+  | "opus-4-7"
   | "opus-4-6-fast"
   | "haiku-4-5"
   | "gpt-5-4"
@@ -27,7 +27,8 @@ export type ModelV =
   | "grok-4-3"
   | "grok-4-1-fast"
   | "grok-4-20"
-  | "deepseek-v4-pro";
+  | "deepseek-v4-pro"
+  | "deepseek-v4-flash";
 
 export interface ModelMeta {
   v: ModelV;
@@ -49,12 +50,9 @@ export interface ModelMeta {
 }
 
 export const MODELS: Record<ModelV, ModelMeta> = {
-  // ── Anthropic · all three current-gen models direct-routable ──
-  // Per https://platform.claude.com/docs the current line-up is
-  // Opus 4.7, Sonnet 4.6, Haiku 4.5 — all available on the direct
-  // Anthropic SDK with the IDs below. Dropped the previous
-  // `openrouterOnly` flag on Opus + Haiku; users with an Anthropic
-  // direct key now reach all three without needing OpenRouter.
+  // ── Anthropic · Opus 4.6 / 4.7, Sonnet 4.6, Haiku 4.5 direct-routable ──
+  // Per Anthropic + OpenRouter catalog (`anthropic/claude-opus-4.6` etc.).
+  // Users with an Anthropic direct key reach these without OpenRouter.
   "sonnet-4-6": {
     v: "sonnet-4-6",
     provider: "anthropic",
@@ -64,6 +62,15 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     contextBudget: 200_000,
     deck: "balanced · default",
   },
+  "opus-4-6": {
+    v: "opus-4-6",
+    provider: "anthropic",
+    directApiId: "claude-opus-4-6",
+    openrouterId: "anthropic/claude-opus-4.6",
+    displayName: "Opus 4.6",
+    contextBudget: 1_000_000,
+    deck: "deep reasoning · 1M ctx",
+  },
   "opus-4-7": {
     v: "opus-4-7",
     provider: "anthropic",
@@ -72,15 +79,6 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Opus 4.7",
     contextBudget: 200_000,
     deck: "deep reasoning",
-  },
-  "opus-4-6": {
-    v: "opus-4-6",
-    provider: "anthropic",
-    directApiId: "claude-opus-4-6",
-    openrouterId: "anthropic/claude-opus-4.6",
-    displayName: "Opus 4.6",
-    contextBudget: 200_000,
-    deck: "prior-gen flagship",
   },
   "opus-4-6-fast": {
     v: "opus-4-6-fast",
@@ -229,6 +227,17 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "DeepSeek V4 Pro",
     contextBudget: 128_000,
     deck: "reasoning · open weights",
+    openrouterOnly: true,
+  },
+  // OpenRouter catalog id · deepseek/deepseek-v4-flash ("V4 Flash" — lite tier).
+  "deepseek-v4-flash": {
+    v: "deepseek-v4-flash",
+    provider: "deepseek",
+    directApiId: "deepseek-v4-flash",
+    openrouterId: "deepseek/deepseek-v4-flash",
+    displayName: "DeepSeek Lite",
+    contextBudget: 1_000_000,
+    deck: "V4 Flash · fast · 1M ctx",
     openrouterOnly: true,
   },
 };

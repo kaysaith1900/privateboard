@@ -11,7 +11,7 @@
  * orchestrator code paths (e.g. brief.ts).
  */
 import type { Agent } from "../storage/agents.js";
-import { hasBraveKey } from "../storage/keys.js";
+import { hasWebSearchKey } from "../storage/keys.js";
 import type { AgentSkill } from "../storage/skills.js";
 
 export const REPORT_WRITER_SLUG = "report-writer";
@@ -210,20 +210,21 @@ const WEB_SEARCH_BODY_MD = `# Web Search
 A live link to fresh information beyond the model's training cutoff.
 When a director (or the chair) is about to speak and the question
 hinges on something current — a price, a release, a recent news event,
-a published number — the orchestrator quietly runs a Brave Search,
-distills the top 3–5 results, and prepends them to the agent's
-context as a SHARED MATERIALS block. The agent then answers using
-those sources and cites them inline as \`[1] [2] [3]\`.
+a published number — the orchestrator quietly runs **web search** via
+your configured provider (Brave Search and/or Tavily), distills the top
+3–5 results, and prepends them to the agent's context as a SHARED
+MATERIALS block. The agent then answers using those sources and cites
+them inline as \`[1] [2] [3]\`.
 
 ## How it runs
 
 1. **Pass-1 router** (the same haiku call that already decides which
    installed .md skills to apply) is asked one extra question:
    *"Does this turn need fresh web info? If yes, give me one search
-   query."* When the answer is no, nothing happens — no Brave call,
+   query."* When the answer is no, nothing happens — no search call,
    no extra latency, no cost.
-2. When a query comes back, we hit Brave Search (~$0.005 per query
-   on the standard plan, ~$5 per 1000) with a 6 s timeout.
+2. When a query comes back, we call the active provider (Brave Search
+   or Tavily, per your preference when both keys exist) with a 6 s timeout.
 3. Top 5 results — title, url, short description — are formatted
    into the SHARED MATERIALS block.
 4. The agent's Pass-2 prompt receives the block. The director cites
@@ -236,7 +237,9 @@ those sources and cites them inline as \`[1] [2] [3]\`.
 This skill is **disabled by default**. Two switches in series:
 
 - **Global key**: User Settings → API Key → *Skill Services* →
-  *Brave Search*. Without this key, no agent can ever search.
+  *Brave Search* and/or *Tavily Search*. When both are configured,
+  User Settings lets you choose the **Web search backend**. Without
+  at least one key, no agent can ever search.
 - **Per-agent toggle**: each director's profile has a Web Search row
   that flips on/off independently. Useful when you want one director
   to stay strictly inside its training (a "first principles only"
@@ -264,10 +267,9 @@ unless the question genuinely needs an external fact.
 
 ## Cost & privacy
 
-Each search hits Brave's API directly with the user's own key. No
-queries pass through Boardroom infrastructure. Brave's privacy policy
-applies — Brave doesn't sell or profile users from API calls
-according to their published terms.
+Each search goes to the provider's API with your own key — no queries
+pass through Boardroom infrastructure. See that provider's billing and
+privacy policy for specifics.
 
 `;
 
@@ -280,13 +282,13 @@ function buildWebSearchSkill(agent: Agent): AgentSkill {
     name: "Web Search",
     version: "1.0.0",
     description:
-      "Live web search via the Brave Search API — used when a turn " +
+      "Live web search (Brave Search and/or Tavily) — used when a turn " +
       "hinges on information beyond the model's training cutoff. " +
       "The Pass-1 router decides whether to search; results are " +
       "injected into the agent's prompt as cited sources.",
     whenToUse:
       "Per-turn. The router asks the agent's draft prompt whether " +
-      "fresh web info would help, and only then does Brave get a query.",
+      "fresh web info would help, and only then hits the configured provider.",
     bodyMd: WEB_SEARCH_BODY_MD,
     ability: {
       pattern_recall: 2,
@@ -294,7 +296,8 @@ function buildWebSearchSkill(agent: Agent): AgentSkill {
       rigor: 1,
     },
     tips: [
-      "Disabled until you add a Brave Search API key in User Settings → API Key.",
+      "Needs a Brave Search and/or Tavily API key under User Settings → API Key.",
+      "When both keys exist, Preferences lets you choose which backs Web Search.",
       "Each agent has its own toggle on its profile page — useful for keeping a 'first-principles only' director out of search.",
       "The Pass-1 router is conservative: it skips search unless the question genuinely needs an external fact.",
       "Citations appear inline as bracketed numbers; the chat bubble shows a small 🔍 indicator when search ran.",
@@ -304,8 +307,8 @@ function buildWebSearchSkill(agent: Agent): AgentSkill {
     system: true,
     state: {
       enabled: agent.webSearchEnabled,
-      keyConfigured: hasBraveKey(),
-      requiresKey: { provider: "brave", label: "Brave Search" },
+      keyConfigured: hasWebSearchKey(),
+      requiresKey: { provider: "brave", label: "Web search (Brave or Tavily)" },
     },
   };
 }
@@ -316,8 +319,8 @@ function buildWebSearchSkill(agent: Agent): AgentSkill {
  * - directors get web-search
  *
  * The web-search skill is always *listed* (so the agent profile
- * surfaces it even when the user hasn't configured a Brave key yet);
- * the orchestrator checks the actual gates (key present + per-agent
+ * surfaces it even when the user hasn't configured a search key yet);
+ * the orchestrator checks the actual gates (keys present + per-agent
  * toggle) before running it.
  */
 export function getSystemSkillsForAgent(agent: Agent): AgentSkill[] {

@@ -14,10 +14,10 @@
  */
 import { callLLMStream } from "../ai/adapter.js";
 import { isModelV } from "../ai/registry.js";
-import { runBraveSearch, formatSearchResults } from "../ai/skills/web-search.js";
+import { runWebSearch, formatSearchResults } from "../ai/skills/web-search.js";
 import { getAgent, getChairAgent, incrementAgentTokens, type Agent } from "../storage/agents.js";
 import { insertKeyPoint } from "../storage/key_points.js";
-import { getKey, hasBraveKey } from "../storage/keys.js";
+import { getActiveWebSearchCredentials, hasWebSearchKey } from "../storage/keys.js";
 import {
   deleteMessage,
   getMessage,
@@ -48,6 +48,9 @@ import { pickChairClarifyDecision, pickChairWebSearch } from "./skill-picker.js"
 import { runRoundEndSummarization } from "./summarize.js";
 import { collectUrlsFromHistory, fetchOne, renderUrlContextBlock, type FetchAttemptHook, type UrlExtract } from "../skills/url-fetch.js";
 import { roomBus } from "./stream.js";
+import { waitForVoicePlayback } from "./room.js";
+import { SentenceChunker } from "../voice/sentence-splitter.js";
+import { synthesizeSpeechStream, voiceProfileForAgent } from "../voice/tts.js";
 
 /** Hard cap on chair clarification turns to prevent runaway loops. */
 const MAX_CLARIFY_TURNS = 3;
@@ -381,8 +384,8 @@ async function runChairWebSearchTool(
   // (e.g. a "first-principles only" voice). The chair's role is
   // moderation + grounding — disabling search for the chair would
   // make every time-sensitive question fail silently. Always allow
-  // when the key is configured.
-  if (!hasBraveKey()) return "";
+  // when a search API key is configured.
+  if (!hasWebSearchKey()) return "";
 
   // Find the latest user message; skip if none.
   let lastUserIdx = -1;
@@ -410,8 +413,8 @@ async function runChairWebSearchTool(
   const query = await pickChairWebSearch({ history, signal });
   if (!query) return "";
 
-  const apiKey = getKey("brave");
-  if (!apiKey) return ""; // race · key was wiped between gating and here
+  const creds = getActiveWebSearchCredentials();
+  if (!creds) return ""; // race · key was wiped between gating and here
 
   const lang = detectChairLang(history);
 
@@ -481,13 +484,12 @@ async function runChairWebSearchTool(
     createdAt: toolMsg.createdAt,
   });
 
-  // 3. Run Brave · timeout-bounded inside runBraveSearch. Floor the
-  //    visible "running" duration at 900ms so even a sub-200ms hot
-  //    cache hit registers as a deliberate step rather than a flash.
-  let results: Awaited<ReturnType<typeof runBraveSearch>> = null;
+  // 3. Run search · timeout-bounded. Floor the visible "running"
+  //    duration at 900ms so even a sub-200ms hot cache hit registers.
+  let results: Awaited<ReturnType<typeof runWebSearch>> = null;
   try {
     [results] = await Promise.all([
-      runBraveSearch({ apiKey, query }).catch((e) => {
+      runWebSearch(creds.backend, creds.apiKey, query).catch((e) => {
         process.stderr.write(`[chair-web-search] error: ${e instanceof Error ? e.message : String(e)}\n`);
         return null;
       }),
@@ -655,6 +657,33 @@ async function streamChairMessage(args: DispatchArgs & {
   let errored = false;
   let errorMessage = "";
 
+  // Voice mode support for chair messages
+  const voiceMode = room.deliveryMode === "voice";
+  const voiceChunker = voiceMode ? new SentenceChunker({ maxChars: 120 }) : null;
+  const voiceProfile = voiceMode ? voiceProfileForAgent(chair) : null;
+  let voiceSeq = 0;
+
+  async function emitChairVoice(text: string): Promise<void> {
+    if (!voiceMode || !voiceProfile || !text.trim()) return;
+    try {
+      for await (const chunk of synthesizeSpeechStream(text, voiceProfile)) {
+        roomBus.emit(roomId, {
+          type: "voice-chunk",
+          messageId: placeholder.id,
+          seq: voiceSeq++,
+          text: chunk.text,
+          provider: chunk.provider,
+          model: chunk.model,
+          voiceId: chunk.voiceId,
+          ...(chunk.mimeType ? { mimeType: chunk.mimeType } : {}),
+          ...(chunk.audioBase64 ? { audioBase64: chunk.audioBase64 } : {}),
+        });
+      }
+    } catch (e) {
+      process.stderr.write(`[tts-chair] ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  }
+
   try {
     for await (const chunk of callLLMStream({
       modelV: chair.modelV as never,
@@ -679,6 +708,11 @@ async function streamChairMessage(args: DispatchArgs & {
           messageId: placeholder.id,
           delta: chunk.delta,
         });
+        if (voiceChunker) {
+          for (const spoken of voiceChunker.push(chunk.delta)) {
+            await emitChairVoice(spoken);
+          }
+        }
       } else if (chunk.type === "usage") {
         // Chair turns are short but still bill tokens; track on the
         // chair agent so its profile reflects total spend, AND persist
@@ -761,6 +795,20 @@ async function streamChairMessage(args: DispatchArgs & {
     deleteMessage(placeholder.id);
     roomBus.emit(roomId, { type: "message-removed", messageId: placeholder.id, reason: "empty" });
     return;
+  }
+
+  // Flush remaining voice chunks and signal playback end.
+  // Skip voice playback for pure control tokens (READY/SKIP) — these are
+  // not real speech; they get deleted immediately after onComplete.
+  const bareToken = buf.trim().replace(/^[\s`*"'(\[{]+|[\s`*"'.)\]}]+$/g, "").toUpperCase();
+  const isControlToken = bareToken === "READY" || bareToken === "SKIP";
+  if (voiceChunker && !errored && !isControlToken) {
+    const tail = voiceChunker.flush();
+    if (tail) await emitChairVoice(tail);
+    roomBus.emit(roomId, { type: "voice-final", messageId: placeholder.id });
+    // Wait for the frontend to finish playing all audio before returning.
+    // This ensures the chair's speech finishes before directors start talking.
+    await waitForVoicePlayback(roomId, placeholder.id);
   }
 
   if (errored) {

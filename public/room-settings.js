@@ -124,6 +124,7 @@
    *  new model the catalog doesn't know about yet). */
   const MODEL_LABELS = {
     "sonnet-4-6":     "Sonnet 4.6",
+    "opus-4-6":       "Opus 4.6",
     "opus-4-7":       "Opus 4.7",
     "opus-4-6":       "Opus 4.6",
     "opus-4-6-fast":  "Opus 4.6 Fast",
@@ -138,9 +139,9 @@
     "gemini-3-1-flash": "Gemini 3.1 Flash Lite",
     "grok-4-3":       "Grok 4.3",
     "grok-4-1-fast":  "Grok 4.1 Fast",
-    "grok-4-3":       "Grok 4.3",
     "grok-4-20":      "Grok 4.20",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
+    "deepseek-v4-flash": "DeepSeek Lite",
   };
   function modelLabelFor(v) {
     if (!v) return "";

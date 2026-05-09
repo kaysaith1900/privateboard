@@ -158,6 +158,7 @@
   }
   .brand-mark .bg { fill: var(--lime); }
   .brand-mark .fg { fill: var(--bg); }
+
   @keyframes pulse { 0%, 60% { opacity: 1; } 80% { opacity: 0.4; } }
 
   /* ═══════════════════════════════════════════
@@ -3175,6 +3176,98 @@
     letter-spacing: 0.06em;
   }
   .brief-stat-fact.brief-stat-live { color: var(--lime); }
+
+  .brief-llm-trace {
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+  .brief-llm-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: left;
+    cursor: pointer;
+  }
+  .brief-llm-toggle:hover { color: var(--lime); }
+  .brief-llm-toggle-mark {
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .brief-llm-toggle-meta {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+  .brief-llm-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 8px;
+  }
+  .brief-llm-row {
+    padding: 10px 0;
+    border-top: 1px solid var(--line-bright);
+  }
+  .brief-llm-row:first-child { border-top: 0; }
+  .brief-llm-row-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 7px;
+  }
+  .brief-llm-row-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .brief-llm-row.is-running .brief-llm-row-title { color: var(--lime); }
+  .brief-llm-row.is-failed .brief-llm-row-title { color: var(--red); }
+  .brief-llm-row-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .brief-llm-error {
+    margin-bottom: 8px;
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  .brief-llm-output {
+    max-height: 220px;
+    overflow: auto;
+    margin: 0;
+    padding: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .brief-llm-empty {
+    color: var(--text-faint);
+    font-style: italic;
+  }
 
   /* Brief error / interrupted state · retry button matches the
      supplement-row treatment but uses red accent for "something went
@@ -7528,6 +7621,47 @@
     border-color: var(--lime-dim);
   }
 
+  /* Voice mode switch in composer toolbar */
+  .cmp-voice-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    user-select: none;
+  }
+  .cmp-voice-switch input { display: none; }
+  .cmp-voice-switch-track {
+    position: relative;
+    width: 28px; height: 14px;
+    background: var(--line-bright);
+    border-radius: 7px;
+    transition: background 0.15s;
+  }
+  .cmp-voice-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 10px; height: 10px;
+    background: var(--bg);
+    border-radius: 50%;
+    transition: transform 0.15s;
+  }
+  .cmp-voice-switch input:checked ~ .cmp-voice-switch-track {
+    background: var(--lime);
+  }
+  .cmp-voice-switch input:checked ~ .cmp-voice-switch-track::after {
+    transform: translateX(14px);
+  }
+  .cmp-voice-switch input:checked ~ .cmp-voice-switch-label {
+    color: var(--lime);
+  }
+
   .cmp-go {
     flex-shrink: 0;
     width: 36px; height: 36px;
@@ -9261,6 +9395,7 @@
 <link rel="stylesheet" href="agent-overlay.css">
 <!-- Shared /api/models cache · loads first so every picker reads the
      same source. See models-cache.js for the API surface. -->
+<script src="i18n.js" defer></script>
 <script src="models-cache.js" defer></script>
 <script src="agent-overlay.js" defer></script>
 <link rel="stylesheet" href="room-settings.css">
@@ -9273,6 +9408,7 @@
 <link rel="stylesheet" href="new-agent.css">
 <script src="new-agent.js" defer></script>
 <link rel="stylesheet" href="user-settings.css">
+<script type="module" src="keys-store.js"></script>
 <script src="user-settings.js" defer></script>
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
@@ -9306,7 +9442,7 @@
 <div class="sys-notice" data-sys-notice hidden>
   <span class="sys-notice-mark">▸</span>
   <span class="sys-notice-text" data-sys-notice-text></span>
-  <button type="button" class="sys-notice-close" data-sys-notice-close aria-label="Dismiss">✕</button>
+  <button type="button" class="sys-notice-close" data-sys-notice-close data-i18n-aria="sys_notice_dismiss" aria-label="Dismiss">✕</button>
 </div>
 
 <div class="control">
@@ -9334,20 +9470,20 @@
             <rect class="fg" x="2"  y="10" width="1"  height="4"/>
             <rect class="fg" x="13" y="10" width="1"  height="4"/>
           </svg>
-          <span class="sidebar-brand-name">PRIVATEBOARD</span>
+          <span class="sidebar-brand-name" data-i18n="brand_privateboard">PRIVATEBOARD</span>
         </a>
-        <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar"></button>
+        <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse data-i18n-title="sidebar_collapse" aria-label="Collapse sidebar" title="Collapse sidebar"></button>
       </div>
 
       <div class="sidebar-tabs" role="tablist">
         <a href="#" class="sidebar-tab active" data-sidebar-tab="rooms" role="tab" aria-selected="true">
           <i class="ic ic-rooms ico"></i>
-          <span>Rooms</span>
+          <span data-i18n="sidebar_tab_rooms">Rooms</span>
           <span class="count" data-sidebar-tab-count="rooms">0</span>
         </a>
         <a href="#" class="sidebar-tab" data-sidebar-tab="agents" role="tab" aria-selected="false">
           <i class="ic ic-agents ico"></i>
-          <span>Agents</span>
+          <span data-i18n="sidebar_tab_agents">Agents</span>
           <span class="count" data-sidebar-tab-count="agents">0</span>
         </a>
       </div>
@@ -9355,14 +9491,14 @@
       <!-- ─── ROOMS PANEL ─── -->
       <div class="sidebar-panel" data-sidebar-panel="rooms">
 
-      <a href="#convene" class="new-btn" data-convene-trigger>New room</a>
+      <a href="#convene" class="new-btn" data-convene-trigger data-i18n="sidebar_new_room">New room</a>
       <!-- "All Reports" cross-room index · opens a Perplexity-Discover-
            style grid of every brief any room has produced. Sits below
            "New room" so it reads as a peer destination, not a list
            item, with a square glyph echoing the dashboard glyphs
            elsewhere in the sidebar. -->
       <a href="#" class="new-btn nav-reports" data-reports-trigger>
-        <span class="nav-label">All Reports</span>
+        <span class="nav-label" data-i18n="sidebar_all_reports">All Reports</span>
         <span class="nav-count" data-reports-count hidden></span>
       </a>
       <!-- "All Notes" · chairman's-notes index. Sits directly below
@@ -9372,7 +9508,7 @@
            Reports' FileText glyph. The data-notes-count badge updates
            live as new notes are saved or deleted. -->
       <a href="#" class="new-btn nav-notes" data-notes-trigger>
-        <span class="nav-label">All Notes</span>
+        <span class="nav-label" data-i18n="sidebar_all_notes">All Notes</span>
         <span class="nav-count" data-notes-count hidden></span>
       </a>
 
@@ -9385,7 +9521,7 @@
       <!-- ─── AGENTS PANEL ─── -->
       <div class="sidebar-panel" data-sidebar-panel="agents" hidden>
 
-        <a href="#" class="new-btn" data-agent-composer-trigger>New agent</a>
+        <a href="#" class="new-btn" data-agent-composer-trigger data-i18n="sidebar_new_agent">New agent</a>
 
         <div class="agents-scroll">
           <!-- Rendered dynamically by app.renderSidebarAgents() from
@@ -9399,16 +9535,16 @@
           <div class="user-av" data-user-avatar>K</div>
           <div class="user-info">
             <div class="user-name" data-user-name>—</div>
-            <div class="user-meta" data-user-meta>// host</div>
+            <div class="user-meta" data-user-meta data-i18n="sidebar_host">// host</div>
           </div>
         </a>
-        <a href="#" class="icon-btn" title="Settings" data-user-settings-trigger>⚙</a>
+        <a href="#" class="icon-btn" data-i18n-title="settings_title" data-user-settings-trigger>⚙</a>
       </div>
 
     </aside>
 
     <!-- Resizable handle: sidebar | main -->
-    <div class="col-resizer" data-resize data-var="--sidebar-w" data-side="left" data-min="220" data-max="480" title="drag to resize"></div>
+    <div class="col-resizer" data-resize data-var="--sidebar-w" data-side="left" data-min="220" data-max="480" data-i18n-title="col_resize"></div>
 
     <!-- ═══════════════ MAIN: room view + agent profile view ═══════════════ -->
     <main class="main">
@@ -9431,20 +9567,20 @@
           <div class="speaking-queue" id="speaking-queue">
             <div class="queue-head">
               <div class="queue-head-expanded">
-                <span class="label">speaking queue</span>
-                <span class="mode-tag">mode: <span class="v">constructive</span></span>
+                <span class="label" data-i18n="queue_speaking_queue">speaking queue</span>
+                <span class="mode-tag"><span data-i18n="queue_mode">mode:</span> <span class="v">constructive</span></span>
               </div>
               <div class="queue-head-collapsed" data-queue-collapsed>
                 <!-- populated by app.renderQueue() · summary follows
                      the real queue: speaking, pending, or idle. -->
               </div>
-              <button type="button" class="queue-toggle" title="collapse / expand" aria-expanded="true">
+              <button type="button" class="queue-toggle" data-i18n-title="queue_toggle" aria-expanded="true">
                 <span class="chev">▼</span>
               </button>
             </div>
             <ul class="queue-list" data-queue-list></ul>
             <div class="queue-foot" data-queue-foot>
-              <span class="queue-foot-hint" data-queue-foot-hint>type to interject · <kbd>@</kbd> to direct · the chair files the round-end vote in chat</span>
+              <span class="queue-foot-hint" data-queue-foot-hint data-i18n-html="queue_foot_hint">type to interject · <kbd>@</kbd> to direct · the chair files the round-end vote in chat</span>
             </div>
           </div>
 
@@ -9457,12 +9593,12 @@
                  brackets) but at a tighter scale. Adjourn turns warn
                  on hover to flag its destructiveness. -->
             <div class="input-bar-actions">
-              <button type="button" class="ib-action ib-pause" data-pause aria-label="Pause discussion" data-tip="Pause · you can resume later"></button>
-              <button type="button" class="ib-action ib-adjourn" data-adjourn aria-label="Adjourn the room" data-tip="Adjourn · file the report and end"></button>
+              <button type="button" class="ib-action ib-pause" data-pause data-i18n-title="ib_pause_tip" data-i18n-aria="ib_pause_label" data-i18n-tip="ib_pause_tip"></button>
+              <button type="button" class="ib-action ib-adjourn" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label" data-i18n-tip="ib_adjourn_tip"></button>
             </div>
             <div class="input-wrap">
-              <input type="text" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
-              <button class="send-btn" data-send-button>[ Send ]</button>
+              <input type="text" data-i18n-placeholder="send_placeholder" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
+              <button class="send-btn" data-send-button data-i18n="send_button">[ Send ]</button>
             </div>
           </footer>
 
@@ -9516,7 +9652,7 @@
          below the topbar / brand logo, where the sidebar's own header
          sat before collapse. Frosted black glass with a 3-line
          hamburger glyph. -->
-    <button type="button" class="sidebar-expand-btn" data-sidebar-expand aria-label="Expand sidebar" title="Expand sidebar">
+    <button type="button" class="sidebar-expand-btn" data-sidebar-expand data-i18n-title="sidebar_expand">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
         <line x1="2.5" y1="4.25"  x2="13.5" y2="4.25"/>
         <line x1="2.5" y1="8"     x2="13.5" y2="8"/>

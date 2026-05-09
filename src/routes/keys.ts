@@ -31,7 +31,10 @@ const PROVIDERS = new Set<Provider>([
   "google",
   "xai",
   "deepseek",
+  "minimax",
+  "elevenlabs",
   "brave",
+  "tavily",
 ]);
 
 function isProvider(s: string): s is Provider {
@@ -81,7 +84,7 @@ export function keysRouter(): Hono {
     // / director routing). When an agent's model becomes unreachable
     // it switches to the active carrier's primary; brand-new key on
     // a clean install bulk-promotes all agents to that primary.
-    if (provider !== "brave") {
+    if (provider !== "brave" && provider !== "tavily" && provider !== "minimax" && provider !== "elevenlabs") {
       const willForce = makeDefault && key.trim().length > 0;
       if (willForce) {
         const flagship = PRIMARY_BY_CARRIER[provider];
@@ -108,7 +111,7 @@ export function keysRouter(): Hono {
     // Reconcile · agents whose model just lost its only carrier swap
     // to the new active primary, or get cleared if all carriers are
     // gone. Brave is skill-only and doesn't affect agent routing.
-    if (provider !== "brave") {
+    if (provider !== "brave" && provider !== "tavily" && provider !== "minimax" && provider !== "elevenlabs") {
       try { reconcileAgentModels(); }
       catch (e) { process.stderr.write(`[keys.delete] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`); }
     }

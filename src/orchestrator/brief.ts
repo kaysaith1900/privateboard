@@ -18,7 +18,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { callLLMStream, callLLMWithUsage, type LLMMessage } from "../ai/adapter.js";
+import { callLLMStream, type LLMMessage } from "../ai/adapter.js";
 import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import {
   assetsToSignals,
@@ -110,15 +110,38 @@ function stageFlagshipList(): ModelV[] {
   return out;
 }
 
-/** Stage 2 retry budget. Reduced from 3 → 2 with the relaxed
- *  `parseScaffold` contract — most "malformed" outputs now parse
- *  successfully (the parser accepts any non-empty content field), so
- *  burning 3+ retries × 2 models × 60-180s/attempt was the dominant
- *  cause of stage 2 hitting the front-end's 5-minute hard timeout.
- *  2 retries × 2 models = 4 attempts max, which fits comfortably
- *  under 5 minutes for normal-sized rooms. */
-const STAGE_2_RETRIES = 2;
-const STAGE_2_TEMPERATURES = [0.2, 0.5];
+/** Stage 2 retry budget. Keep this deliberately tight: the frontend has
+ *  a hard timeout, and a stalled provider stream must not hold the whole
+ *  report pipeline hostage. */
+const STAGE_2_RETRIES = 1;
+const STAGE_2_TEMPERATURES = [0.2];
+
+const STAGE_1_CALL_TIMEOUT_MS = 75_000;
+const STAGE_2_CALL_TIMEOUT_MS = 120_000;
+const STAGE_3_CALL_TIMEOUT_MS = 240_000;
+
+function signalWithTimeout(
+  parent: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void; timedOut: () => boolean } {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const onParentAbort = () => controller.abort();
+  if (parent?.aborted) controller.abort();
+  else parent?.addEventListener("abort", onParentAbort, { once: true });
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      parent?.removeEventListener("abort", onParentAbort);
+    },
+    timedOut: () => didTimeout,
+  };
+}
 
 interface GenerateOpts {
   roomId: string;
@@ -167,6 +190,7 @@ interface BriefGenerationState {
    *  stage first transitions to active. The frontend treats absent
    *  keys as "still pending". */
   stages: Partial<Record<StageKey, BriefStageSnapshot>>;
+  llmLogs: BriefLlmLog[];
   /** AbortController for in-flight cancellation. The pipeline plumbs
    *  `controller.signal` into every `callLLMStream` / `callLLMWithUsage`
    *  call so the underlying fetch dies the moment the user deletes
@@ -175,6 +199,153 @@ interface BriefGenerationState {
   controller: AbortController;
 }
 const inFlightBriefs = new Map<string, BriefGenerationState>();
+
+interface BriefLlmLog {
+  id: string;
+  stage: StageKey;
+  label: string;
+  modelV: string;
+  status: "running" | "done" | "failed";
+  startedAt: number;
+  finishedAt: number | null;
+  text: string;
+  totalTokens: number | null;
+  error: string | null;
+}
+
+const BRIEF_LLM_LOG_TEXT_LIMIT = 6000;
+
+class BriefLlmTextError extends Error {
+  partialText: string;
+
+  constructor(message: string, partialText: string) {
+    super(message);
+    this.name = "BriefLlmTextError";
+    this.partialText = partialText;
+  }
+}
+
+function emitBriefLlmStart(
+  roomId: string,
+  briefId: string,
+  log: BriefLlmLog,
+): void {
+  const state = inFlightBriefs.get(briefId);
+  if (state) state.llmLogs.push(log);
+  roomBus.emit(roomId, {
+    type: "config-event",
+    kind: "brief-llm-start",
+    payload: { briefId, log },
+    createdAt: Date.now(),
+  });
+}
+
+function emitBriefLlmToken(
+  roomId: string,
+  briefId: string,
+  logId: string,
+  delta: string,
+): void {
+  const state = inFlightBriefs.get(briefId);
+  if (state) {
+    const log = state.llmLogs.find((l) => l.id === logId);
+    if (log && log.text.length < BRIEF_LLM_LOG_TEXT_LIMIT) {
+      log.text = (log.text + delta).slice(0, BRIEF_LLM_LOG_TEXT_LIMIT);
+    }
+  }
+  roomBus.emit(roomId, {
+    type: "config-event",
+    kind: "brief-llm-token",
+    payload: { briefId, logId, delta },
+    createdAt: Date.now(),
+  });
+}
+
+function emitBriefLlmEnd(
+  roomId: string,
+  briefId: string,
+  logId: string,
+  patch: Partial<Pick<BriefLlmLog, "status" | "totalTokens" | "error">>,
+): void {
+  const finishedAt = Date.now();
+  const state = inFlightBriefs.get(briefId);
+  let log: BriefLlmLog | null = null;
+  if (state) {
+    log = state.llmLogs.find((l) => l.id === logId) ?? null;
+    if (log) {
+      log.finishedAt = finishedAt;
+      if (patch.status) log.status = patch.status;
+      if (typeof patch.totalTokens === "number") log.totalTokens = patch.totalTokens;
+      if (typeof patch.error === "string") log.error = patch.error;
+    }
+  }
+  roomBus.emit(roomId, {
+    type: "config-event",
+    kind: "brief-llm-end",
+    payload: { briefId, logId, finishedAt, ...patch },
+    createdAt: finishedAt,
+  });
+}
+
+async function callBriefLLMText(args: {
+  roomId: string;
+  briefId: string;
+  stage: StageKey;
+  label: string;
+  modelV: ModelV;
+  messages: LLMMessage[];
+  temperature: number;
+  maxTokens: number;
+  signal?: AbortSignal;
+  onText?: (delta: string, full: string) => void;
+}): Promise<{ text: string; usage: { totalTokens: number } | null }> {
+  const logId = `${args.stage}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  emitBriefLlmStart(args.roomId, args.briefId, {
+    id: logId,
+    stage: args.stage,
+    label: args.label,
+    modelV: args.modelV,
+    status: "running",
+    startedAt: Date.now(),
+    finishedAt: null,
+    text: "",
+    totalTokens: null,
+    error: null,
+  });
+  let text = "";
+  let usage: { totalTokens: number } | null = null;
+  try {
+    for await (const chunk of callLLMStream({
+      modelV: args.modelV,
+      messages: args.messages,
+      temperature: args.temperature,
+      maxTokens: args.maxTokens,
+      signal: args.signal,
+    })) {
+      if (chunk.type === "text") {
+        text += chunk.delta;
+        emitBriefLlmToken(args.roomId, args.briefId, logId, chunk.delta);
+        args.onText?.(chunk.delta, text);
+      } else if (chunk.type === "usage") {
+        usage = { totalTokens: chunk.totalTokens };
+      } else if (chunk.type === "error") {
+        throw new Error(chunk.message);
+      }
+    }
+    emitBriefLlmEnd(args.roomId, args.briefId, logId, {
+      status: "done",
+      totalTokens: usage?.totalTokens ?? null,
+    });
+    return { text, usage };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    emitBriefLlmEnd(args.roomId, args.briefId, logId, {
+      status: "failed",
+      error: message,
+    });
+    throw new BriefLlmTextError(message, text);
+  }
+}
 
 export function isBriefGenerating(briefId: string): boolean {
   return inFlightBriefs.has(briefId);
@@ -264,6 +435,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     language: inferredLang,
     pipelineStartedAt: Date.now(),
     stages: {},
+    llmLogs: [],
     controller,
   });
   void runPipeline({
@@ -647,6 +819,8 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       stage1Eta,
     );
     const perDirectorAssets = await runStage1(
+      roomId,
+      briefId,
       directors,
       transcript,
       room,
@@ -782,6 +956,8 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
     // signal count.
     emitStage(roomId, briefId, "compose", "active", undefined, undefined, { lo: 1, hi: 4 });
     const composition = await runComposer({
+      roomId,
+      briefId,
       chairId,
       room,
       members,
@@ -849,7 +1025,7 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
 
     if (!scaffold) {
       pipelineError =
-        "Report writer couldn't structure this room (3 retries failed). Try regenerating, or shorten the conversation.";
+        "Report writer couldn't structure this room — repeated attempts to build the JSON scaffold failed or produced invalid output. Try regenerating, or shorten the conversation. See server stderr for `[brief.stage2]` diagnostics.";
     } else {
       // ── Interim title update · use scaffold.bottomLine.judgement
       //    (or thesis.claim / workingHypothesis.hypothesis) as the
@@ -962,6 +1138,8 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
 /* ─────────────────────────── Stage 1 ──────────────────────────────────── */
 
 async function runStage1(
+  roomId: string,
+  briefId: string,
   directors: Agent[],
   transcript: ReturnType<typeof listMessages>,
   room: NonNullable<ReturnType<typeof getRoom>>,
@@ -994,39 +1172,71 @@ async function runStage1(
     const ownMessages = transcript.filter(
       (m) => m.authorKind === "agent" && m.authorId === director.id,
     );
-    if (!ownMessages.length) {
+    const extractionMessages = selectExtractionMessages(ownMessages);
+    if (!extractionMessages.length) {
       // Director didn't speak — don't count toward progress (the total
       // already excludes silent directors).
       return emptyAssets(director);
     }
-    const messages = buildExtractMessages({ director, ownMessages, room, language });
+    if (extractionMessages.length < ownMessages.length) {
+      process.stderr.write(
+        `[brief.stage1] ${director.handle} extraction input filtered ${ownMessages.length} -> ${extractionMessages.length} substantive messages\n`,
+      );
+    }
+    const messages = buildExtractMessages({ director, ownMessages: extractionMessages, room, language });
 
     for (const modelV of stageCheapList()) {
       if (!isModelV(modelV)) continue;
+      const timeout = signalWithTimeout(signal, STAGE_1_CALL_TIMEOUT_MS);
       try {
         // Asset extraction is structurally richer than the legacy 2-4
-        // signal output — bumped maxTokens 800 → 1600 to give the model
-        // room for the 9 fields without truncating mid-JSON.
-        const { text: raw, usage } = await callLLMWithUsage({
+        // signal output. Keep a wide enough budget for the 9-field JSON
+        // bundle; otherwise long rooms can truncate mid-object and parse
+        // as an empty bundle.
+        const { text: raw, usage } = await callBriefLLMText({
+          roomId,
+          briefId,
+          stage: "extract",
+          label: `${director.name} asset extraction`,
           modelV,
           messages,
           temperature: 0.2,
-          maxTokens: 1600,
-          signal,
+          maxTokens: 2200,
+          signal: timeout.signal,
         });
+        if (timeout.timedOut()) throw new Error(`timed out after ${STAGE_1_CALL_TIMEOUT_MS / 1000}s`);
         billChair(chairId, usage);
         const result = parseDirectorAssets(raw, director);
+        const harvested = countAssets(result);
+        if (harvested === 0 && extractionMessages.length > 0) {
+          process.stderr.write(
+            `[brief.stage1] ${director.handle} on ${modelV} produced empty assets; ${diagnoseStage1Extraction(raw)}; trying fallback model\n`,
+          );
+          continue;
+        }
         reportComplete(result);
         return result;
       } catch (e) {
         process.stderr.write(
           `[brief.stage1] ${director.handle} on ${modelV} failed: ${e instanceof Error ? e.message : String(e)}\n`,
         );
+      } finally {
+        timeout.cleanup();
       }
     }
     // All models failed for this director — count it complete so the
-    // bar still reaches its total, but emit empty assets.
-    reportComplete(null);
+    // bar still reaches its total. If the model kept returning empty
+    // bundles for a speaking director, salvage deterministic assets
+    // from the transcript so Stage 2 has material to structure.
+    const fallback = heuristicDirectorAssets(director, extractionMessages);
+    const harvested = countAssets(fallback);
+    reportComplete(harvested > 0 ? fallback : null);
+    if (harvested > 0) {
+      process.stderr.write(
+        `[brief.stage1] ${director.handle} salvaged ${harvested} heuristic assets\n`,
+      );
+      return fallback;
+    }
     return emptyAssets(director);
   });
 
@@ -1034,6 +1244,176 @@ async function runStage1(
   return settled
     .map((r) => (r.status === "fulfilled" ? r.value : null))
     .filter((x): x is DirectorAssets => x !== null);
+}
+
+function isLowSignalDirectorMessage(body: string): boolean {
+  const text = body.replace(/\s+/g, " ").trim();
+  if (!text) return true;
+  if (/^[.\-_\s。…]+$/.test(text)) return true;
+  if (/^(空席|缺席|无发言|沉默|pass|skip|n\/a)[。.!！\s]*$/i.test(text)) return true;
+  if (/^(结束|停止|不开第[一二三四五六七八九十\d]+轮|不再继续|桌子关了|本轮结束)[。.!！\s]*$/i.test(text)) return true;
+  return text.length < 12 && !/[?？]|BLOCKER|MAJOR|风险|建议|必须|应该/i.test(text);
+}
+
+function extractionMessageScore(body: string): number {
+  const text = body.replace(/\s+/g, " ").trim();
+  let score = Math.min(text.length, 1200);
+  if (/\*\*|BLOCKER|MAJOR|修复方向|建议|必须|应该|风险|反例|不同意|问题|结论|机会|假设/i.test(text)) score += 500;
+  if (/[?？]/.test(text)) score += 120;
+  if (/空席|不开第|本轮结束|不再继续/.test(text)) score -= 400;
+  return score;
+}
+
+function selectExtractionMessages(
+  ownMessages: ReturnType<typeof listMessages>,
+): ReturnType<typeof listMessages> {
+  const substantive = ownMessages.filter((m) => !isLowSignalDirectorMessage(m.body || ""));
+  if (substantive.length <= 12) return substantive;
+  return substantive
+    .map((m, idx) => ({ m, idx, score: extractionMessageScore(m.body || "") }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .slice(0, 12)
+    .sort((a, b) => a.idx - b.idx)
+    .map((x) => x.m);
+}
+
+function extractJsonObject(raw: string): unknown | null {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < candidate.length; i++) {
+    const ch = candidate[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === "\"") inString = false;
+      continue;
+    }
+    if (ch === "\"") inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(candidate.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function diagnoseStage1Extraction(raw: string): string {
+  const len = raw.length;
+  if (!raw.trim()) return "model returned empty text";
+  const parsed = extractJsonObject(raw);
+  if (!parsed || typeof parsed !== "object") {
+    const opens = (raw.match(/{/g) || []).length;
+    const closes = (raw.match(/}/g) || []).length;
+    const tail = raw.replace(/\s+/g, " ").trim().slice(-240);
+    return `no parseable JSON object (chars=${len}, braces=${opens}/${closes}, tail="${tail}")`;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const fields = [
+    "claims", "evidence", "tensions", "assumptions", "risks",
+    "opportunities", "actions", "quotes", "openQuestions",
+  ];
+  const counts = fields.map((k) => `${k}:${Array.isArray(obj[k]) ? obj[k].length : "missing"}`).join(",");
+  const sourceLike = fields.reduce((acc, k) => {
+    const arr = Array.isArray(obj[k]) ? obj[k] : [];
+    return acc + arr.filter((x) => x && typeof x === "object" && Array.isArray((x as Record<string, unknown>).sources)).length;
+  }, 0);
+  return `JSON parsed but parser kept 0 assets (chars=${len}, rawCounts=${counts}, entriesWithSources=${sourceLike})`;
+}
+
+function diagnoseStage2Scaffold(raw: string): string {
+  if (!raw.trim()) return "model returned empty text";
+  const opens = (raw.match(/{/g) || []).length;
+  const closes = (raw.match(/}/g) || []).length;
+  const keys = [
+    "bottomLine", "headlineFindings", "recommendations", "openQuestions",
+    "criticalAssumptions", "preMortem", "threatsToValidity",
+  ].filter((k) => new RegExp(`"${k}"\\s*:`).test(raw));
+  const parsed = extractJsonObject(raw);
+  const parseState = parsed ? "balanced JSON found but schema rejected" : "no balanced parseable JSON object";
+  const tail = raw.replace(/\s+/g, " ").trim().slice(-320);
+  return `${parseState} (chars=${raw.length}, braces=${opens}/${closes}, keys=${keys.join("|") || "none"}, tail="${tail}")`;
+}
+
+function cleanAssetText(s: string, max = 260): string {
+  return s
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function firstUsefulSentence(body: string): string {
+  const lines = body
+    .split(/\n+/)
+    .map((l) => cleanAssetText(l))
+    .filter((l) => l.length > 12 && !/^[-*]\s*$/.test(l));
+  const bold = /\*\*([^*]{12,260})\*\*/.exec(body);
+  return cleanAssetText(bold?.[1] || lines[0] || body, 240);
+}
+
+function heuristicDirectorAssets(
+  director: Agent,
+  ownMessages: ReturnType<typeof listMessages>,
+): DirectorAssets {
+  const out: DirectorAssets = {
+    directorId: director.id,
+    directorName: director.name,
+    claims: [],
+    evidence: [],
+    tensions: [],
+    assumptions: [],
+    risks: [],
+    opportunities: [],
+    actions: [],
+    quotes: [],
+    openQuestions: [],
+  };
+  for (let i = 0; i < ownMessages.length; i++) {
+    const body = ownMessages[i]?.body || "";
+    const text = firstUsefulSentence(body);
+    if (!text) continue;
+    if (out.claims.length < 6) {
+      out.claims.push({
+        text,
+        lens: /反例|不同意|错|BLOCKER|MAJOR|但|but/i.test(body) ? "dissent" : "structural",
+        sources: [i],
+        confidence: /BLOCKER|必须|第一性|硬约束/i.test(body) ? "high" : "medium",
+      });
+    }
+    const risk = /(?:BLOCKER|风险|失败|失控|不可逆|漏洞|wrong|fail)[^。.!?\n]{8,180}/i.exec(body);
+    if (risk && out.risks.length < 4) {
+      out.risks.push({ text: cleanAssetText(risk[0], 220), severity: "high", sources: [i] });
+    }
+    const action = /(?:修复方向|建议|必须|应该|下一步|去|加|写清)[：: ]?[^。.!?\n]{8,180}/i.exec(body);
+    if (action && out.actions.length < 4) {
+      out.actions.push({ text: cleanAssetText(action[0], 220), owner: "user", horizon: "next step", sources: [i] });
+    }
+    const question = /([^。.!?\n]{8,120}[?？])/.exec(body);
+    if (question && out.openQuestions.length < 4) {
+      out.openQuestions.push({ text: cleanAssetText(question[1], 180), priority: "P1", sources: [i] });
+    }
+    const quote = /[“"]([^”"]{16,140})[”"]/.exec(body);
+    if (quote && out.quotes.length < 3) {
+      out.quotes.push({ text: cleanAssetText(quote[1], 160), sources: [i] });
+    }
+    if (/@[a-zA-Z_/-]+/.test(body) && out.tensions.length < 4) {
+      out.tensions.push({ text, with: [], sources: [i] });
+    }
+  }
+  return out;
 }
 
 /* ─────────────────────────── Stage 1.5 · composer ───────────────────────
@@ -1057,6 +1437,8 @@ export interface PipelineProvenance {
 }
 
 interface ComposerArgs {
+  roomId: string;
+  briefId: string;
   chairId: string | null;
   room: NonNullable<ReturnType<typeof getRoom>>;
   members: Agent[];
@@ -1112,7 +1494,11 @@ async function runComposer(args: ComposerArgs): Promise<ComposerResult> {
       // new tone+budget+coverage block can grow rationale + components
       // beyond that envelope occasionally; bump to 800 to keep
       // truncation off the table.
-      const { text: raw, usage } = await callLLMWithUsage({
+      const { text: raw, usage } = await callBriefLLMText({
+        roomId: args.roomId,
+        briefId: args.briefId,
+        stage: "compose",
+        label: "Composer picks report spine",
         modelV,
         messages,
         temperature: 0.2,
@@ -1326,26 +1712,22 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
   for (const modelV of stageFlagshipList()) {
     if (!isModelV(modelV)) continue;
     for (let attempt = 0; attempt < STAGE_2_RETRIES; attempt++) {
+      const timeout = signalWithTimeout(args.signal, STAGE_2_CALL_TIMEOUT_MS);
       try {
-        let buf = "";
-        let totalTokens = 0;
-        for await (const chunk of callLLMStream({
+        const { text: buf, usage } = await callBriefLLMText({
+          roomId: args.roomId,
+          briefId: args.briefId,
+          stage: "scaffold-anchor",
+          label: `Scaffold JSON attempt ${attempt + 1}`,
           modelV,
           messages: messagesForAttempt(),
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
           maxTokens: 8000,
-          signal: args.signal,
-        })) {
-          if (chunk.type === "text") {
-            buf += chunk.delta;
-            advanceOnBuffer(buf);
-          } else if (chunk.type === "usage") {
-            totalTokens = chunk.totalTokens;
-          } else if (chunk.type === "error") {
-            throw new Error(chunk.message);
-          }
-        }
-        if (totalTokens > 0) billChair(args.chairId, { totalTokens });
+          signal: timeout.signal,
+          onText: (_delta, full) => advanceOnBuffer(full),
+        });
+        if (timeout.timedOut()) throw new Error(`timed out after ${STAGE_2_CALL_TIMEOUT_MS / 1000}s`);
+        if (usage?.totalTokens) billChair(args.chairId, { totalTokens: usage.totalTokens });
         const scaffold = parseScaffold(
           buf,
           args.room.subject,
@@ -1397,16 +1779,137 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           return scaffold;
         }
         process.stderr.write(
-          `[brief.stage2] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} produced unusable scaffold\n`,
+          `[brief.stage2] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} produced unusable scaffold: ${diagnoseStage2Scaffold(buf)}\n`,
         );
       } catch (e) {
+        const partial = e instanceof BriefLlmTextError ? e.partialText : "";
+        const suffix = partial ? `; partial: ${diagnoseStage2Scaffold(partial)}` : "";
         process.stderr.write(
-          `[brief.stage2] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          `[brief.stage2] ${modelV} attempt ${attempt + 1}/${STAGE_2_RETRIES} failed: ${e instanceof Error ? e.message : String(e)}${suffix}\n`,
         );
+      } finally {
+        timeout.cleanup();
       }
     }
   }
-  return null;
+  const fallback = buildFallbackScaffold(args);
+  process.stderr.write(
+    `[brief.stage2] falling back to deterministic scaffold (${fallback.headlineFindings.length} findings)\n`,
+  );
+  finishAllSubStages();
+  if (args.provenance) {
+    args.provenance.scaffoldModel = null;
+    args.provenance.scaffoldRetries = STAGE_2_RETRIES;
+  }
+  return fallback;
+}
+
+function buildFallbackScaffold(args: Stage2Args): BriefScaffold {
+  const allSignals = args.perDirectorSignals.flatMap((d) =>
+    d.signals.map((s, i) => ({ ...s, ref: `${d.directorId}#${i}`, directorId: d.directorId, directorName: d.directorName })),
+  );
+  const claims = allSignals.filter((s) => /\[claim\]/.test(s.text)).slice(0, 6);
+  const risks = allSignals.filter((s) => /\[risk/.test(s.text)).slice(0, 3);
+  const actions = allSignals.filter((s) => /\[action/.test(s.text)).slice(0, 3);
+  const questions = allSignals.filter((s) => /\[open-q/.test(s.text)).slice(0, 4);
+  const baseClaims = (claims.length ? claims : allSignals).slice(0, 3);
+  const clean = (s: string) =>
+    s
+      .replace(/^\[[^\]]+\]\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const title = args.language === "zh"
+    ? "Agent 产品矩阵不会通吃，而会按权限、反馈闭环与控制层分化"
+    : "Agent product matrices split by permissions, feedback loops, and control";
+  const headlineFindings = baseClaims.map((s, idx) => ({
+    title: clean(s.text).slice(0, 80) || `Finding ${idx + 1}`,
+    claim: clean(s.text) || title,
+    confidence: "medium" as const,
+    supporters: [s.directorId],
+    challengers: [],
+    supporting: [{
+      text: clean(s.text) || title,
+      evidenceRefs: [s.ref],
+    }],
+    lensesPresent: [s.lens],
+    strategicImplication: args.language === "zh"
+      ? "这条判断来自自动兜底骨架；应在最终报告中作为可复核假设，而不是定论。"
+      : "This came from the deterministic fallback scaffold and should be read as an auditable hypothesis.",
+  }));
+  while (headlineFindings.length < 1) {
+    headlineFindings.push({
+      title,
+      claim: title,
+      confidence: "low",
+      supporters: [],
+      challengers: [],
+      supporting: [{ text: args.room.subject, evidenceRefs: [] }],
+      lensesPresent: ["structural"],
+    });
+  }
+  return {
+    title,
+    bottomLine: {
+      judgement: title,
+      confidence: "medium",
+      rationale: args.language === "zh"
+        ? "模型结构化 JSON 未完成，系统改用已抽取 signals 生成最小骨架，保留可读报告而不丢失讨论材料。"
+        : "The JSON scaffold did not complete, so the system used extracted signals to preserve the report.",
+    },
+    thesis: null,
+    workingHypothesis: null,
+    frameShift: {
+      shifted: true,
+      original: args.room.subject,
+      reframed: args.language === "zh"
+        ? "问题从通用/垂直二分，转为哪些层拥有不可压缩差异。"
+        : "The question shifts from universal versus vertical to which layers hold irreducible differences.",
+      trigger: args.language === "zh"
+        ? "董事发言反复指向权限、反馈闭环、编辑回路与终止权。"
+        : "The directors repeatedly surfaced permissions, feedback loops, edit loops, and stop rights.",
+    },
+    headlineFindings,
+    bigIdeas: null,
+    convergence: [],
+    divergence: null,
+    positions: [],
+    directorPerspectives: null,
+    visuals: [],
+    twoPaths: null,
+    whyNow: null,
+    recommendations: (actions.length ? actions : risks).slice(0, 3).map((s, idx) => ({
+      priority: idx === 0 ? "P0" : "P1",
+      action: clean(s.text) || (args.language === "zh" ? "用具体产品案例压力测试框架。" : "Stress-test the framework against concrete product cases."),
+      rationale: args.language === "zh" ? "这是房间中被反复提出的下一步。" : "This was repeatedly raised as the next step.",
+      ownerType: "user",
+      horizon: "next step",
+      successMetric: args.language === "zh" ? "能筛掉或保留 2-3 个具体 agent 机会。" : "It keeps or rejects 2-3 concrete agent opportunities.",
+      riskIfSkipped: args.language === "zh" ? "理论继续扩张，无法落到产品判断。" : "The theory keeps expanding without product judgment.",
+    })),
+    theBet: null,
+    considerations: null,
+    preMortem: risks.map((s) => ({
+      scenario: clean(s.text),
+      leadingIndicator: args.language === "zh" ? "同类风险在具体案例中重复出现。" : "The same risk repeats in concrete cases.",
+      mitigation: args.language === "zh" ? "把风险转成可观测指标和停止条件。" : "Turn it into observable metrics and stop conditions.",
+    })),
+    newQuestions: [],
+    planningAssumption: null,
+    strategicOutlook: null,
+    criticalAssumptions: null,
+    scenarioTree: null,
+    leadingIndicators: null,
+    threatsToValidity: null,
+    riskRegister: null,
+    decisionOptions: null,
+    pathComparison: null,
+    metricStrip: null,
+    appendices: null,
+    openQuestions: questions.map((s, idx) => ({
+      text: clean(s.text),
+      priority: idx === 0 ? "P0" : "P1",
+    })),
+  };
 }
 
 /* ─────────────────────────── Bento mode · single-stage ────────────────
@@ -1679,16 +2182,32 @@ async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
     let finishReason: string | undefined;
     let errored = false;
     let error: string | undefined;
+    const timeout = signalWithTimeout(args.signal, STAGE_3_CALL_TIMEOUT_MS);
+    const logId = `write-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    let totalTokens: number | null = null;
+    emitBriefLlmStart(roomId, briefId, {
+      id: logId,
+      stage: "write",
+      label: initialBuf ? "Writer continuation" : "Final report writer",
+      modelV,
+      status: "running",
+      startedAt: Date.now(),
+      finishedAt: null,
+      text: "",
+      totalTokens: null,
+      error: null,
+    });
     try {
       for await (const chunk of callLLMStream({
         modelV,
         messages: msgs,
         temperature: 0.4,
         maxTokens: 20000,
-        signal: args.signal,
+        signal: timeout.signal,
       })) {
         if (chunk.type === "text") {
           buf += chunk.delta;
+          emitBriefLlmToken(roomId, briefId, logId, chunk.delta);
           updateBriefBody(briefId, buf);
           roomBus.emit(roomId, {
             type: "config-event",
@@ -1697,6 +2216,7 @@ async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
             createdAt: Date.now(),
           });
         } else if (chunk.type === "usage") {
+          totalTokens = chunk.totalTokens;
           billChair(chairId, { totalTokens: chunk.totalTokens });
         } else if (chunk.type === "done") {
           finishReason = chunk.finishReason;
@@ -1706,9 +2226,20 @@ async function runStage3Streaming(args: Stage3Args): Promise<Stage3Result> {
           break;
         }
       }
+      if (timeout.timedOut()) {
+        errored = true;
+        error = `timed out after ${STAGE_3_CALL_TIMEOUT_MS / 1000}s`;
+      }
     } catch (e) {
       errored = true;
       error = e instanceof Error ? e.message : String(e);
+    } finally {
+      timeout.cleanup();
+      emitBriefLlmEnd(roomId, briefId, logId, {
+        status: errored ? "failed" : "done",
+        totalTokens,
+        error: errored ? error ?? "writer failed" : null,
+      });
     }
     return { buf, finishReason, errored, error };
   }

@@ -37,6 +37,9 @@ import usageDaily024 from "./migrations/024_usage_daily.sql";
 import briefMode025 from "./migrations/025_brief_mode.sql";
 import memoryMetabolism026 from "./migrations/026_memory_metabolism.sql";
 import memoryMetabolismP2_027 from "./migrations/027_memory_metabolism_p2.sql";
+import voiceMode028 from "./migrations/028_voice_mode.sql";
+import webSearchProviderPref029 from "./migrations/029_web_search_provider_pref.sql";
+import minimaxRegion030 from "./migrations/030_minimax_region.sql";
 
 interface Migration {
   name: string;
@@ -71,6 +74,9 @@ const MIGRATIONS: Migration[] = [
   { name: "025_brief_mode.sql", sql: briefMode025 },
   { name: "026_memory_metabolism.sql", sql: memoryMetabolism026 },
   { name: "027_memory_metabolism_p2.sql", sql: memoryMetabolismP2_027 },
+  { name: "028_voice_mode.sql", sql: voiceMode028 },
+  { name: "029_web_search_provider_pref.sql", sql: webSearchProviderPref029 },
+  { name: "030_minimax_region.sql", sql: minimaxRegion030 },
 ];
 
 let _db: Database.Database | null = null;

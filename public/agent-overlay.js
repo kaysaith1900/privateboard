@@ -16,6 +16,7 @@
    *  a key isn't in the table (registry updates lag this map). */
   const MODEL_LABELS = {
     "opus-4-7":         { name: "Claude Opus 4.7",       provider: "Anthropic" },
+    "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "sonnet-4-6":       { name: "Claude Sonnet 4.6",     provider: "Anthropic" },
     "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "opus-4-6-fast":    { name: "Claude Opus 4.6 Fast",  provider: "Anthropic" },
@@ -30,9 +31,9 @@
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  provider: "Google"    },
     "grok-4-3":         { name: "Grok 4.3",                provider: "xAI"       },
     "grok-4-1-fast":    { name: "Grok 4.1 Fast",           provider: "xAI"       },
-    "grok-4-3":         { name: "Grok 4.3",                provider: "xAI"       },
     "grok-4-20":        { name: "Grok 4.20",               provider: "xAI"       },
     "deepseek-v4-pro":  { name: "DeepSeek V4 Pro",         provider: "DeepSeek"  },
+    "deepseek-v4-flash": { name: "DeepSeek Lite",          provider: "DeepSeek"  },
   };
 
   const AGENT_CATALOG = {
@@ -182,12 +183,22 @@
     }
   };
 
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function ovT(key, vars) {
+    return (window.I18n && window.I18n.t(key, vars)) || key;
+  }
+
   const OVERLAY_HTML = `
     <div class="agent-overlay" id="agent-overlay" role="dialog" aria-modal="true" aria-hidden="true">
       <div class="agent-card" role="document">
         <div class="agent-classification">
-          <span><span class="dot">●</span> agent · personnel file</span>
-          <span class="right">// classified</span>
+          <span><span class="dot">●</span> <span data-i18n="ao_personnel_kicker">agent · personnel file</span></span>
+          <span class="right" data-i18n="ao_classified_mark">// classified</span>
         </div>
         <header class="agent-card-head">
           <img class="agent-card-avatar" src="" alt="">
@@ -196,17 +207,17 @@
             <div class="role"></div>
             <div class="handle"></div>
           </div>
-          <button type="button" class="agent-card-close" aria-label="Close">✕</button>
+          <button type="button" class="agent-card-close" data-i18n-aria="us_close" aria-label="Close">✕</button>
         </header>
         <div class="agent-card-body">
 
           <div class="agent-block">
-            <div class="agent-block-label">Lens</div>
+            <div class="agent-block-label" data-i18n="ao_lens">Lens</div>
             <p class="agent-lens"></p>
           </div>
 
           <div class="agent-block agent-model-block">
-            <div class="agent-block-label">Model</div>
+            <div class="agent-block-label" data-i18n="ao_model">Model</div>
             <div class="agent-model-display">
               <span class="agent-model-name"></span>
               <span class="agent-model-provider"></span>
@@ -214,32 +225,31 @@
           </div>
 
           <div class="agent-block">
-            <div class="agent-block-label">Style</div>
+            <div class="agent-block-label" data-i18n="ao_style">Style</div>
             <div class="agent-traits"></div>
           </div>
 
           <div class="agent-block private-only">
             <div class="agent-block-label">
-              In-Room Memory
-              <span class="badge">this room</span>
+              <span data-i18n="ao_memory_room">In-Room Memory</span>
+              <span class="badge" data-i18n="ao_badge_this_room">this room</span>
             </div>
             <div class="agent-memory-list" data-agent-room-notes></div>
           </div>
 
           <div class="agent-block private-only">
-            <div class="agent-block-label">Track Record</div>
+            <div class="agent-block-label" data-i18n="ap_track_record">Track Record</div>
             <div class="agent-stats"></div>
           </div>
 
           <div class="agent-block public-only">
             <div class="agent-block-label">
-              In-Room Memory
-              <span class="badge locked-badge">⊘ classified</span>
+              <span data-i18n="ao_memory_room">In-Room Memory</span>
+              <span class="badge locked-badge" data-i18n="ao_badge_classified">⊘ classified</span>
             </div>
             <div class="agent-locked">
               <div class="lock-icon">▰</div>
-              <div class="lock-text">
-                in-room notes are private to each thinker.
+              <div class="lock-text" data-i18n-html="ao_lock_blurb_html">in-room notes are private to each thinker.
                 <a href="/" class="lock-link">sign in →</a>
                 to see what they have said and where their stance shifted.
               </div>
@@ -248,10 +258,10 @@
 
         </div>
         <footer class="agent-card-foot">
-          <div class="meta private-only">tenure · <span class="lime agent-tenure"></span></div>
-          <div class="meta public-only">first room · <span class="lime">free</span></div>
-          <a href="/#convene" class="agent-card-cta private-only">[ ◆ Convene with them ]</a>
-          <a href="/#convene" class="agent-card-cta public-only">[ → Sign in to convene ]</a>
+          <div class="meta private-only"><span data-i18n="ao_tenure_meta">tenure ·</span> <span class="lime agent-tenure"></span></div>
+          <div class="meta public-only"><span data-i18n="ao_first_room_meta">first room ·</span> <span class="lime" data-i18n="ao_free">free</span></div>
+          <a href="/#convene" class="agent-card-cta private-only" data-i18n="ao_convene_cta">[ ◆ Convene with them ]</a>
+          <a href="/#convene" class="agent-card-cta public-only" data-i18n="ao_signin_cta">[ → Sign in to convene ]</a>
         </footer>
       </div>
     </div>
@@ -285,16 +295,20 @@
     // Privacy mode: pages can opt-in via <body data-agent-mode="public">,
     // which hides personal memory/stats and swaps the CTA to a sign-in.
     const isPublic = document.body.dataset.agentMode === "public";
-    const overlayEl = document.getElementById("agent-overlay");
-    if (isPublic) overlayEl.classList.add("public");
+    const overlay = document.getElementById("agent-overlay");
+    if (isPublic) overlay.classList.add("public");
+    if (window.I18n && typeof window.I18n.applyDom === "function") {
+      window.I18n.applyDom(overlay);
+    }
 
     autoTagAvatars();
     // Re-run after short delay in case other scripts mutate the DOM
     setTimeout(autoTagAvatars, 50);
 
-    const overlay = document.getElementById("agent-overlay");
     const card = overlay.querySelector(".agent-card");
     const closeBtn = overlay.querySelector(".agent-card-close");
+
+    let overlayOpenSlug = null;
 
     /** Auto-hide scrollbar · adds `.is-scrolling` to a scroll container
      *  for ~700ms after each scroll event. The CSS uses that class
@@ -322,7 +336,7 @@
     function buildLiveAgentCard(live) {
       return {
         name: live.name,
-        role: live.roleTag || "Director",
+        role: live.roleTag || ovT("ap_live_agent_director"),
         handle: live.handle || ("/" + live.id),
         avatar: live.avatarPath || "",
         lens: live.bio || "",
@@ -345,6 +359,7 @@
         if (live) a = buildLiveAgentCard(live);
       }
       if (!a) return;
+      overlayOpenSlug = slug;
       // Avatar source-of-truth · the live agent record's avatarPath
       // (same field the agent profile renders). For seeds this is an
       // absolute path "/avatars/<slug>.svg"; for customs it's a data:
@@ -356,7 +371,11 @@
       av.src = (live && live.avatarPath) ? live.avatarPath : a.avatar;
       av.alt = a.name;
       card.querySelector(".agent-card-id .name").textContent = a.name;
-      card.querySelector(".agent-card-id .role").textContent = a.role;
+      let roleDisp = a.role;
+      if (live && live.roleKind === "moderator" && String(roleDisp).toLowerCase() === "moderator") {
+        roleDisp = ovT("agent_role_tag_moderator");
+      }
+      card.querySelector(".agent-card-id .role").textContent = roleDisp;
       card.querySelector(".agent-card-id .handle").textContent = a.handle;
       card.querySelector(".agent-lens").textContent = a.lens;
 
@@ -473,7 +492,7 @@
         list.innerHTML = `
           <div class="agent-memory-empty">
             <div class="lock-icon">○</div>
-            <div class="lock-text">no live room. open a room to see this director's in-room notes.</div>
+            <div class="lock-text">${escapeHtml(ovT("ao_room_notes_empty"))}</div>
           </div>
         `;
         return;
@@ -482,7 +501,7 @@
         list.innerHTML = `
           <div class="agent-memory-empty">
             <div class="lock-icon">○</div>
-            <div class="lock-text">no turns yet — once they speak, claims and stance shifts land here.</div>
+            <div class="lock-text">${escapeHtml(ovT("ao_room_notes_waiting"))}</div>
           </div>
         `;
         return;
@@ -494,10 +513,10 @@
           : n.tag;
         return `
           <div class="agent-note-entry ${cls}">
-            <div class="agent-note-time">${escape(formatTime(n.ts))}</div>
+            <div class="agent-note-time">${escapeHtml(formatTime(n.ts))}</div>
             <div class="agent-note-body">
-              <span class="agent-note-tag t-${escape(n.tag)}">${escape(tagLabel)}</span>
-              ${escape(n.body)}
+              <span class="agent-note-tag t-${escapeHtml(n.tag)}">${escapeHtml(tagLabel)}</span>
+              ${escapeHtml(n.body)}
             </div>
           </div>
         `;
@@ -510,9 +529,9 @@
       // Render placeholders immediately, then patch in real values
       // once the fetch resolves. Keeps the overlay snappy on open.
       stats.innerHTML = `
-        <div class="agent-stat"><div class="v" data-stat-v="rooms">—</div><div class="l">rooms</div></div>
-        <div class="agent-stat"><div class="v" data-stat-v="rounds">—</div><div class="l">rounds</div></div>
-        <div class="agent-stat"><div class="v" data-stat-v="tokens">—</div><div class="l">tokens</div></div>
+        <div class="agent-stat"><div class="v" data-stat-v="rooms">—</div><div class="l">${escapeHtml(ovT("ap_stat_rooms"))}</div></div>
+        <div class="agent-stat"><div class="v" data-stat-v="rounds">—</div><div class="l">${escapeHtml(ovT("ap_stat_rounds"))}</div></div>
+        <div class="agent-stat"><div class="v" data-stat-v="tokens">—</div><div class="l">${escapeHtml(ovT("ap_stat_tokens"))}</div></div>
       `;
       fetch("/api/agents/" + encodeURIComponent(slug) + "/stats")
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
@@ -544,16 +563,20 @@
     }
 
     function close() {
+      overlayOpenSlug = null;
       overlay.classList.remove("open");
       overlay.setAttribute("aria-hidden", "true");
       document.body.style.overflow = "";
     }
 
-    function escape(s) {
-      return String(s).replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-      }[c]));
-    }
+    document.addEventListener("boardroom:locale", () => {
+      if (!overlay.classList.contains("open") || !overlayOpenSlug) return;
+      if (window.I18n && typeof window.I18n.applyDom === "function") {
+        window.I18n.applyDom(overlay);
+      }
+      renderTrackRecord(overlayOpenSlug);
+      renderRoomNotes(overlayOpenSlug);
+    });
 
     document.addEventListener("click", (e) => {
       const trigger = e.target.closest("[data-agent]");

@@ -55,6 +55,7 @@ interface BuildOpts {
    *  (see `buildFollowUpPriorContext`). Empty / undefined for
    *  standalone rooms. */
   priorContext?: string;
+  deliveryMode?: "text" | "voice";
 }
 
 /** Format the parent room's brief + Stage-1 signals into the
@@ -615,6 +616,7 @@ const INTENSITY_GUIDANCE: Record<string, string> = {
 
 export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
   const { speaker, cast, room, prefs, history, keyPoints, activeSkills, sharedMaterials, chairBrief, summaryPreamble, priorContext } = opts;
+  const deliveryMode = opts.deliveryMode ?? room.deliveryMode ?? "text";
   const activeSkillsBlock = renderActiveSkillsBlock(activeSkills ?? []);
 
   // Chair's brief · the haiku next-speaker picker may have selected this
@@ -752,6 +754,21 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       ``,
       `─── LANGUAGE ───`,
       `Reply in the SAME LANGUAGE as the conversation. If the user wrote the room subject and their messages in Chinese, reply in Chinese. If English, reply in English. Match whatever language the most recent human message uses. Never switch languages mid-thread.`,
+      ...(deliveryMode === "voice" ? [
+        ``,
+        `─── DELIVERY · VOICE MODE ───`,
+        `This turn is read aloud by TTS while you stream. Sound like a sharp colleague at the table — NOT a consultant memo, NOT a podcast lecture, NOT slow forensic questioning.`,
+        `Register · Plainspoken colloquial talk (大白话). Tiny bursts; fillers only when they're one word ("对吧", "Look —").`,
+        `Chinese · short clauses + occasional particle OK — 「说白了」「你看」「我先说一句」「所以呢」— never stack setup paragraphs before the point.`,
+        `English · contractions OK; one-word pivots OK ("So —", "But —"). Avoid mini-speech framing that buys time: "The strongest read is…", "Here's what I need to push on…", "What I'd worry about is…", long throat-clearing before the punch.`,
+        `ONE MOVE PER TURN · Pick a single move: (a) one punchy counter-frame, OR (b) one concrete gap call-out, OR (c) one narrowing question — not all three. If several angles exist, voice THIS round picks ONE; the room's next turns handle the rest.`,
+        `Forbidden taxonomy tours · Do NOT run exhaustive "A vs B vs C vs something else" branches with full clauses each — that reads as a slide outline and kills listening attention. At most ONE quick fork ("tool-wrapper vs vertical — which one are you?") then STOP.`,
+        `Anti-patterns (voice mode) · stacked connectors (综上所述 / 换言之 / "Furthermore,"), nested em-dashes packing whole arguments, repeating the user's thesis before attacking it, moral-of-the-story recap paragraphs, rhetorical "that's not X that's Y" stacks.`,
+        `Shape · No markdown, lists, or enumerated ladders. If you need a second beat, it's ONE extra short sentence — not a second subsection.`,
+        `Hard budget · Aim ~10–20 seconds of speech (~55–95 spoken English words; zh roughly 70–140 characters of jaw-moving prose — tight). Ceiling · rarely exceed ~115 English words; past that you violated voice discipline — delete branches and end with one sharp question instead.`,
+        `Intensity · CALM/SHARP/TERSE above may invite paragraphs — IGNORE THAT FOR LENGTH IN VOICE. Keep stance (soft vs sharp) but default to TERSE-GRADE tightness; calm ≠ verbose here.`,
+        `Sound human · fragments and mid-stream corrections OK — boredom is the enemy.`,
+      ] : []),
       ``,
       `─── HOW THE ROOM WORKS ───`,
       `The conversation history below is the actual record of this discussion. Every turn — by ${prefs.name || "the user"} or by another director — is given verbatim, attributed by name and handle. You are not reading the topic for the first time.`,
@@ -762,7 +779,9 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `· Reply as ${speaker.name}, in your voice. Never roleplay another director.`,
       `· Engage directly with the most recent contributions. Reference specific points, name the speaker with their handle (e.g. "${others[0]?.handle ?? "/colleague"} — your moat point assumes…"). The shape of "engage" depends on the room's tone: ${houseEngageVerbs}.`,
       `· Build on prior turns by you (when you've spoken before). Don't repeat yourself; advance.`,
-      `· Markdown is allowed. *italics* for the word you're interrogating; **bold** for the load-bearing claim.`,
+      deliveryMode === "voice"
+        ? `· Voice mode: no markdown. Colloquial + SHORT — one move per turn, lecture-length turns are a failure mode — unless one plain emphasis word is truly useful.`
+        : `· Markdown is allowed. *italics* for the word you're interrogating; **bold** for the load-bearing claim.`,
       `· Do not preface ("Great question!"), do not summarize, do not introduce yourself. Just speak.`,
       `· When the user's most recent input is already in the room (visible above as a [${prefs.name || "You"}] turn), you may acknowledge it ONCE in the opening sweep — never again. On any later turn, do NOT open with "Since you asked …" / "As you requested …" / "既然你要求了 …" / "按你说的 …" / "既然你提出 …" / "你既然让我 …" or any rephrasing. The user's direction is absorbed context now; engage with the discussion, don't re-preface every turn — that loops. If you've already spoken once on this user input, your next turn must move PAST that acknowledgment.`,
       `· If you genuinely have NOTHING substantive to add this turn — the room has exhausted your angle, every point you'd make has already been made — return an EMPTY response (no text at all). Do NOT narrate your silence. Never output "（沉默）", "(silent)", "我没有更多要补充的", "I have nothing to add", "pass this round", "skip this turn", "abstain", or any variant. Those bubbles read as "the director gave up" and pollute the transcript; the system handles silent turns gracefully and moves the queue on. Return empty OR find one genuinely fresh angle (a different lens, a sharper edge case, a counter-frame, a missing trade-off) — never the meta-narration in between.`,
@@ -857,12 +876,19 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       role: "user",
       content:
         `Your turn, ${speaker.name} (${speaker.handle}). Engage with what was just said above — ` +
-        `name the speaker, pick up the live thread, push back or sharpen.`,
+        `name the speaker, pick up the live thread, push back or sharpen.` +
+        (deliveryMode === "voice"
+          ? ` One move only — tight — don't lecture the room.`
+          : ""),
     });
   } else if (collapsed.length === 1) {
     collapsed.push({
       role: "user",
-      content: `Your turn, ${speaker.name}. The room is just opening — set the angle you'll work from.`,
+      content:
+        `Your turn, ${speaker.name}. The room is just opening — set the angle you'll work from.` +
+        (deliveryMode === "voice"
+          ? ` Plain spoken opener — a few short beats max, not a thesis.`
+          : ""),
     });
   }
 
@@ -922,6 +948,14 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
       // skill. Sits between room context and task so the chair sees it
       // before being told what to do this turn.
       ...(sharedMaterials ? ["", sharedMaterials] : []),
+      ...(room.deliveryMode === "voice"
+        ? [
+            "",
+            `─── DELIVERY · VOICE MODE ───`,
+            `Replies in this room are read aloud via TTS. Keep every **required** structural token exactly as specified for your task (markdown labels where asked, READY on its own line, POINTS: headers, **bold** director names in convening when required).`,
+            `Inside those constraints, write **spoken table talk** — 大白话 / natural conversational English: very short clauses, everyday connectors, sparse fillers. Avoid written-report register (综上所述 / 鉴于此 / "It is worth noting…"). Host lines should sound awake — not chapter-length.`,
+          ]
+        : []),
       "",
       task,
     ].join("\n"),

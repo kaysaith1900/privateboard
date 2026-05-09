@@ -9,7 +9,7 @@
 import { Hono } from "hono";
 
 import { isModelV } from "../ai/registry.js";
-import { deleteAgent, getAgent, getAgentByHandle, getAgentStats, getChairAgent, insertAgent, listAgents, updateAgent } from "../storage/agents.js";
+import { deleteAgent, getAgent, getAgentByHandle, getAgentStats, getChairAgent, insertAgent, listAgents, updateAgent, type AgentVoiceProvider } from "../storage/agents.js";
 import {
   deleteMemory,
   getMemory,
@@ -39,13 +39,13 @@ import {
   parseAgentSpec,
   type AgentProfile,
 } from "../ai/prompts/agent-spec.js";
-import { runBraveSearch } from "../ai/skills/web-search.js";
-import { getKey, hasBraveKey } from "../storage/keys.js";
+import { runWebSearch } from "../ai/skills/web-search.js";
+import { getActiveWebSearchCredentials, hasWebSearchKey } from "../storage/keys.js";
 import { newId } from "../utils/id.js";
 import { runDreamCycle, resetAdjournCounter } from "../orchestrator/dream.js";
 
 /** Pick the model list to try for agent-spec generation. The previous
- *  hardcoded ["opus-4-7", "sonnet-4-6"] failed for users who only had
+ *  hardcoded picks failed for users who only had
  *  Gemini / OpenAI / xAI keys configured (no Anthropic) — every call
  *  fell through with no provider, eventually returning the generic
  *  "couldn't generate" 502.
@@ -307,14 +307,12 @@ export function agentsRouter(): Hono {
 
     // ── Step 1+2 · optional web context ─────────────────────────────
     let webContext: string | null = null;
-    if (wantsWebSearch && hasBraveKey()) {
+    if (wantsWebSearch && hasWebSearchKey()) {
       try {
         const refinedQuery = await refineSearchQuery(description, signal);
-        const apiKey = getKey("brave") || "";
-        if (apiKey && refinedQuery) {
-          const results = await runBraveSearch({
-            apiKey,
-            query: refinedQuery,
+        const creds = getActiveWebSearchCredentials();
+        if (creds && refinedQuery) {
+          const results = await runWebSearch(creds.backend, creds.apiKey, refinedQuery, {
             count: 6,
             timeoutMs: 6500,
           });
@@ -493,6 +491,15 @@ export function agentsRouter(): Hono {
       carrierPref?: "openrouter" | "anthropic" | "openai" | "google" | "xai" | null;
       bio?: string;
       webSearchEnabled?: boolean;
+      voice?: {
+        provider: AgentVoiceProvider;
+        model: string;
+        voiceId: string;
+        speed?: number;
+        pitch?: number;
+        volume?: number;
+        instructions?: string;
+      } | null;
       isPinned?: boolean;
     } = {};
 
@@ -550,6 +557,28 @@ export function agentsRouter(): Hono {
       patch.webSearchEnabled = b.webSearchEnabled;
     }
 
+    if ("voice" in b) {
+      if (b.voice === null) {
+        patch.voice = null;
+      } else if (b.voice && typeof b.voice === "object") {
+        const v = b.voice as Record<string, unknown>;
+        const provider = typeof v.provider === "string" ? v.provider.trim() : "";
+        const allowed = new Set(["openai", "minimax", "elevenlabs", "azure", "browser", "custom"]);
+        if (!allowed.has(provider)) return c.json({ error: `unknown voice provider: ${provider}` }, 400);
+        const model = typeof v.model === "string" ? v.model.trim() : "";
+        const voiceId = typeof v.voiceId === "string" ? v.voiceId.trim() : "";
+        if (!model || !voiceId) return c.json({ error: "voice requires model and voiceId" }, 400);
+        patch.voice = {
+          provider: provider as AgentVoiceProvider,
+          model,
+          voiceId,
+          ...(typeof v.speed === "number" ? { speed: v.speed } : {}),
+          ...(typeof v.pitch === "number" ? { pitch: v.pitch } : {}),
+          ...(typeof v.volume === "number" ? { volume: v.volume } : {}),
+          ...(typeof v.instructions === "string" ? { instructions: v.instructions } : {}),
+        };
+      }
+    }
     if (typeof b.isPinned === "boolean") {
       patch.isPinned = b.isPinned;
     }

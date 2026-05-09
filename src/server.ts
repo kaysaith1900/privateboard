@@ -16,6 +16,7 @@ import { notesRouter } from "./routes/notes.js";
 import { prefsRouter } from "./routes/prefs.js";
 import { roomsRouter } from "./routes/rooms.js";
 import { usageRouter } from "./routes/usage.js";
+import { voicesRouter } from "./routes/voices.js";
 import { publicDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
 
@@ -122,6 +123,7 @@ export function createApp() {
   app.route("/api/notes", notesRouter());
   app.route("/api/avatar", avatarRouter());
   app.route("/api/usage", usageRouter());
+  app.route("/api/voices", voicesRouter());
 
   // Static frontend · serveStatic auto-serves index.html for `/`, so no
   // rewrite is needed. Asset paths in the HTML stay relative.

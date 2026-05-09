@@ -24,6 +24,18 @@ export type RoomEvent =
   | { type: "message-removed"; messageId: string; reason?: string }
   | { type: "message-error"; messageId: string; message: string }
   | {
+      type: "voice-chunk";
+      messageId: string;
+      seq: number;
+      text: string;
+      provider: string;
+      model: string;
+      voiceId: string;
+      mimeType?: string;
+      audioBase64?: string;
+    }
+  | { type: "voice-final"; messageId: string }
+  | {
       /** Full body + meta replacement for an existing message · used
        *  by tool-use messages whose status flips running → done|failed
        *  after the side-effect (URL fetch) completes. Distinct from

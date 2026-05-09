@@ -11,6 +11,25 @@
 */
 (function () {
 
+  function uiT(key, vars) {
+    return (window.I18n && window.I18n.t(key, vars)) || key;
+  }
+
+  function profileRoleLabel(p) {
+    const r = (p.role || "").trim();
+    if (!r) return uiT("ap_role_director_upper");
+    const low = r.toLowerCase();
+    if (low === "moderator") return uiT("agent_role_tag_moderator");
+    if (low === "director") return uiT("ap_role_director_upper");
+    return r;
+  }
+
+  function profileStatusLabel(p) {
+    if (p.status === "intern") return uiT("ap_status_intern");
+    if (p.status === "active" || !p.status) return uiT("ap_status_active");
+    return String(p.status).toUpperCase();
+  }
+
   const PROFILES = {
 
     /* ════════════════════════════════════ SOCRATES ════════════════════════════════════ */
@@ -585,6 +604,7 @@
   // /api/agents record (via window.app.agentsById) and resolves it here.
   const MODEL_LABELS = {
     "sonnet-4-6":     { name: "Sonnet 4.6",      deck: "balanced · default" },
+    "opus-4-6":       { name: "Opus 4.6",        deck: "deep reasoning · 1M ctx" },
     "opus-4-7":       { name: "Opus 4.7",        deck: "deep reasoning" },
     "opus-4-6":       { name: "Opus 4.6",        deck: "prior-gen flagship" },
     "opus-4-6-fast":  { name: "Opus 4.6 Fast",   deck: "faster 4.6 · same intelligence" },
@@ -597,6 +617,11 @@
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  deck: "fast · 1M ctx" },
     "grok-4-3":       { name: "Grok 4.3",        deck: "flagship · 1M ctx" },
     "grok-4-1-fast":  { name: "Grok 4.1 Fast",   deck: "fast · 256k ctx" },
+    "grok-4-20":      { name: "Grok 4.20",       deck: "2M ctx · big context" },
+    "gpt-5-5-pro":    { name: "GPT-5.5 Pro",     deck: "deep reasoning · 1M ctx" },
+    "codex-5-4":      { name: "ChatGPT Codex 5.4", deck: "code · agents" },
+    "deepseek-v4-pro": { name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
+    "deepseek-v4-flash": { name: "DeepSeek Lite", deck: "V4 Flash · fast · 1M ctx" },
   };
 
   function liveModelFor(slug) {
@@ -901,7 +926,7 @@
     const bio = bioFor(slug, p);
     block.innerHTML = `
       <div class="ap-intel-view" data-ap-intel-view>${
-        escape(bio) || `<span class="ap-empty">no description yet · click <strong>edit</strong> to add one</span>`
+        escape(bio) || `<span class="ap-empty">${escape(uiT("ap_intel_empty"))}</span>`
       }</div>
     `;
   }
@@ -912,12 +937,12 @@
     const bio = bioFor(slug, p);
     block.innerHTML = `
       <div class="ap-intel-edit">
-        <textarea class="ap-intel-textarea" data-ap-intel-textarea spellcheck="false" maxlength="${BIO_MAX}" placeholder="One sentence on how this director thinks · ${BIO_MIN}–${BIO_MAX} chars">${escape(bio)}</textarea>
+        <textarea class="ap-intel-textarea" data-ap-intel-textarea spellcheck="false" maxlength="${BIO_MAX}" placeholder="${escape(uiT("ap_intel_placeholder", { min: BIO_MIN, max: BIO_MAX }))}">${escape(bio)}</textarea>
         <div class="ap-intel-edit-foot">
-          <span class="ap-intel-edit-hint" data-ap-intel-hint>${BIO_MIN}–${BIO_MAX} chars · esc to cancel</span>
+          <span class="ap-intel-edit-hint" data-ap-intel-hint>${escape(uiT("ap_intel_hint", { min: BIO_MIN, max: BIO_MAX }))}</span>
           <div class="ap-intel-edit-actions">
-            <button type="button" class="ap-instr-cancel" data-ap-intel-cancel>cancel</button>
-            <button type="button" class="ap-instr-save" data-ap-intel-save>save</button>
+            <button type="button" class="ap-instr-cancel" data-ap-intel-cancel>${escape(uiT("ap_cancel"))}</button>
+            <button type="button" class="ap-instr-save" data-ap-intel-save>${escape(uiT("ap_save"))}</button>
           </div>
         </div>
       </div>
@@ -965,9 +990,9 @@
     return `
       <div class="ap-instr" data-ap-instr data-slug="${escape(slug)}">
         <div class="ap-instr-view" data-ap-instr-view>
-          ${rendered || `<div class="ap-empty">no instruction yet · click <strong>edit</strong> to write one in markdown</div>`}
+          ${rendered || `<div class="ap-empty">${escape(uiT("ap_instr_empty"))}</div>`}
         </div>
-        <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">show more</button>
+        <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">${escape(uiT("ap_show_more"))}</button>
       </div>
     `;
   }
@@ -978,9 +1003,9 @@
     block.classList.remove("overflowing");
     block.innerHTML = `
       <div class="ap-instr-view" data-ap-instr-view>
-        ${renderMarkdown(instructionFor(slug, p)) || `<div class="ap-empty">no instruction yet · click <strong>edit</strong> to write one in markdown</div>`}
+        ${renderMarkdown(instructionFor(slug, p)) || `<div class="ap-empty">${escape(uiT("ap_instr_empty"))}</div>`}
       </div>
-      <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">show more</button>
+      <button type="button" class="ap-instr-toggle" data-ap-instr-toggle aria-expanded="false">${escape(uiT("ap_show_more"))}</button>
     `;
     evaluateInstructionOverflow(slug);
   }
@@ -1000,7 +1025,7 @@
     // 'expanded' state from a prior interaction shadowing the check.
     view.classList.remove("expanded");
     toggle.setAttribute("aria-expanded", "false");
-    toggle.textContent = "show more";
+    toggle.textContent = uiT("ap_show_more");
     // scrollHeight is the full content; clientHeight is the rendered
     // (capped) height. A few-pixel epsilon avoids flagging content
     // that fits exactly at the cap as "overflowing".
@@ -1029,12 +1054,12 @@
     const md = instructionFor(slug, p);
     block.innerHTML = `
       <div class="ap-instr-edit">
-        <textarea class="ap-instr-textarea" data-ap-instr-textarea spellcheck="false" placeholder="Use markdown · ### headings · **bold** · *italic* · - lists · \`code\`">${escape(md)}</textarea>
+        <textarea class="ap-instr-textarea" data-ap-instr-textarea spellcheck="false" placeholder="${escape(uiT("ap_instr_placeholder_editor"))}">${escape(md)}</textarea>
         <div class="ap-instr-edit-foot">
-          <span class="ap-instr-edit-hint">markdown supported · esc to cancel</span>
+          <span class="ap-instr-edit-hint">${escape(uiT("ap_instr_edit_hint"))}</span>
           <div class="ap-instr-edit-actions">
-            <button type="button" class="ap-instr-cancel" data-ap-instr-cancel>cancel</button>
-            <button type="button" class="ap-instr-save" data-ap-instr-save>save</button>
+            <button type="button" class="ap-instr-cancel" data-ap-instr-cancel>${escape(uiT("ap_cancel"))}</button>
+            <button type="button" class="ap-instr-save" data-ap-instr-save>${escape(uiT("ap_save"))}</button>
           </div>
         </div>
       </div>
@@ -1057,7 +1082,7 @@
   function renderRulesInner(slug) {
     const rules = rulesForAgent(slug);
     const list = rules.length === 0
-      ? `<li class="ap-rule-empty">no rules yet · use the <strong>+ add rule</strong> button above</li>`
+      ? `<li class="ap-rule-empty">${escape(uiT("ap_rules_empty_list"))}</li>`
       : rules.map((body, i) => `
           <li class="ap-rule" data-rule-idx="${i}">
             <span class="ap-rule-num">${i + 1}</span>
@@ -1477,7 +1502,7 @@
         .join(" ");
       const titleText = keyOk
         ? (enabled ? "Disable Web Search for this director" : "Enable Web Search for this director")
-        : "Web Search needs a Brave Search API key — click to configure";
+        : uiT("ag_ws_title_needs");
       // When the global key is missing, omit the text label entirely
       // so the row stays compact. The dotted toggle track + hover
       // tooltip communicate the state on its own; the just-in-time
@@ -1542,7 +1567,7 @@
       const r = await fetch("/api/agents/" + encodeURIComponent(slug) + "/skills");
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        list.innerHTML = `<div class="ap-empty">couldn't load skills · ${escape(j.error || ("HTTP " + r.status))}</div>`;
+        list.innerHTML = `<div class="ap-empty">${escape(uiT("ap_skills_load_fail", { detail: String(j.error || ("HTTP " + r.status)) }))}</div>`;
         return;
       }
       const { skills } = await r.json();
@@ -1553,7 +1578,7 @@
       // Header count tag (e.g. "3 / 5 installed").
       const card = block.closest(".ap-block");
       const countTag = card?.querySelector("[data-ap-skills-count]");
-      if (countTag) countTag.textContent = `${userCount} / ${cap} installed`;
+      if (countTag) countTag.textContent = uiT("ap_skills_installed", { current: userCount, cap });
       // Radar reflects user skills only — the system skill has no
       // turn-time ability deltas (it runs at brief time).
       if (radarWrap) radarWrap.innerHTML = renderRadar(slug, userSkills);
@@ -1569,16 +1594,16 @@
           drop.classList.add("disabled");
           drop.setAttribute("aria-disabled", "true");
           const txt = drop.querySelector(".ap-skills-drop-text");
-          if (txt) txt.innerHTML = `cap reached (${userCount}/${cap}) · uninstall to make room`;
+          if (txt) txt.textContent = uiT("ap_skills_cap_reached", { current: userCount, cap });
         } else {
           drop.classList.remove("disabled");
           drop.removeAttribute("aria-disabled");
           const txt = drop.querySelector(".ap-skills-drop-text");
-          if (txt) txt.innerHTML = `install skill · drop a <code>.md</code> file or click`;
+          if (txt) txt.innerHTML = uiT("ap_skills_drop_hint");
         }
       }
     } catch (e) {
-      list.innerHTML = `<div class="ap-empty">couldn't load skills · ${escape(e && e.message ? e.message : String(e))}</div>`;
+      list.innerHTML = `<div class="ap-empty">${escape(uiT("ap_skills_load_fail", { detail: String(e && e.message ? e.message : e) }))}</div>`;
     }
   }
 
@@ -1645,7 +1670,7 @@
           <div class="ap-skill-info-actions">
             <button type="button" class="ap-skill-info-configure" data-ap-ws-configure data-provider="${escape(wsProvider)}">
               <span class="ap-skill-info-configure-mark">↗</span>
-              <span>configure brave search api key</span>
+              <span>${escape(uiT("ag_ws_configure_key"))}</span>
             </button>
           </div>
         ` : ""}
@@ -1919,7 +1944,8 @@
     { v: "grok-4-3",        name: "Grok 4.3",          provider: "xAI",       deck: "1M ctx" },
     { v: "grok-4-20",       name: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     // DeepSeek
-    { v: "deepseek-v4-pro", name: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" }
+    { v: "deepseek-v4-pro", name: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
+    { v: "deepseek-v4-flash", name: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" }
   ];
   function modelKey(slug) { return "boardroom.agent.model." + slug; }
 
@@ -2176,9 +2202,9 @@
     // `effectiveDefaultModel()` does the actual fallback.
     const warning = reachable
       ? ""
-      : `<div class="ap-model-stale" title="This model is not reachable with your current API keys. Runtime calls fall back to the global default.">
+      : `<div class="ap-model-stale" title="${escape(uiT("ap_model_stale_title"))}">
           <span class="ap-model-stale-mark">⚠</span>
-          <span class="ap-model-stale-text">unreachable · falls back at runtime</span>
+          <span class="ap-model-stale-text">${escape(uiT("ap_model_stale_text"))}</span>
         </div>`;
     // Trigger meta line · show the route when present, fall back to
     // provider otherwise. We DROP the leading provider when the route
@@ -2204,6 +2230,7 @@
 
   function openModelPicker(triggerEl) {
     closeModelPicker();
+    closeEmotionPicker();
     const row = triggerEl.closest("[data-ap-model-row]");
     const slug = row?.getAttribute("data-slug");
     if (!slug) return;
@@ -2279,6 +2306,239 @@
     if (prov) prov.textContent = formatTriggerMeta(m);
   }
 
+  function voiceEmotionOptionLabel(emotionSlug) {
+    const s = emotionSlug === undefined || emotionSlug === null ? "" : String(emotionSlug);
+    const key = !s ? "ap_voice_emotion_auto" : `ap_voice_emotion_${s}`;
+    const txt = uiT(key);
+    return txt === key ? s || "auto" : txt;
+  }
+
+  /** API emotion slugs mirrored in PATCH body `voice.emotion`. */
+  const VOICE_EMOTION_VALUES = ["", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"];
+
+  let voiceOptionsCache = null;
+  async function ensureVoiceOptions() {
+    if (voiceOptionsCache) return voiceOptionsCache;
+    try {
+      const r = await fetch("/api/voices");
+      const j = r.ok ? await r.json() : {};
+      voiceOptionsCache = Array.isArray(j.voices) ? j.voices : [];
+    } catch {
+      voiceOptionsCache = [];
+    }
+    return voiceOptionsCache;
+  }
+  function voiceForAgent(slug) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    return live && live.voice ? live.voice : null;
+  }
+  function renderVoiceBlock(slug) {
+    const v = voiceForAgent(slug);
+    const label = v ? `${v.provider} · ${v.voiceId}` : uiT("ap_voice_browser_default");
+    const deck = v ? v.model : uiT("ap_voice_engine_browser");
+    const speed = v?.speed ?? 1;
+    const pitch = v?.pitch ?? 0;
+    const emotion = v?.emotion || "";
+    const modPitch = v?.modifyPitch ?? 0;
+    const modIntensity = v?.modifyIntensity ?? 0;
+    const modTimbre = v?.modifyTimbre ?? 0;
+
+    const emotionLabel = voiceEmotionOptionLabel(emotion);
+
+    return `
+      <div class="ap-voice-config" data-ap-voice-row data-slug="${escape(slug)}">
+        <div class="ap-voice-picker-row">
+          <button type="button" class="ap-model-trigger" data-ap-voice-trigger>
+            <span class="ap-model-trigger-text">
+              <span class="ap-model-trigger-name" data-ap-voice-name>${escape(label)}</span>
+              <span class="ap-model-trigger-provider" data-ap-voice-provider>${escape(deck)}</span>
+            </span>
+            <span class="ap-model-trigger-caret">▾</span>
+          </button>
+          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="${escape(uiT("ap_voice_preview_btn_title"))}" aria-label="${escape(uiT("ap_voice_preview_btn_title"))}">▶</button>
+        </div>
+        <div class="ap-voice-sliders">
+          <label class="ap-voice-slider">
+            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_speed"))} <span data-ap-voice-val="speed">${speed.toFixed(1)}</span></span>
+            <input type="range" min="0.5" max="2" step="0.1" value="${speed}" data-ap-voice-range="speed" data-slug="${escape(slug)}">
+          </label>
+          <label class="ap-voice-slider">
+            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_pitch"))} <span data-ap-voice-val="pitch">${pitch}</span></span>
+            <input type="range" min="-12" max="12" step="1" value="${pitch}" data-ap-voice-range="pitch" data-slug="${escape(slug)}">
+          </label>
+          <label class="ap-voice-slider">
+            <span class="ap-voice-slider-label">${escape(uiT("ap_voice_emotion_label"))}</span>
+            <button type="button" class="ap-model-trigger ap-voice-emotion-trigger" data-ap-emotion-trigger data-slug="${escape(slug)}">
+              <span class="ap-model-trigger-text">
+                <span class="ap-model-trigger-name" data-ap-voice-emotion-label>${escape(emotionLabel)}</span>
+              </span>
+              <span class="ap-model-trigger-caret">▾</span>
+            </button>
+          </label>
+        </div>
+        <details class="ap-voice-advanced">
+          <summary>${escape(uiT("ap_voice_advanced"))}</summary>
+          <div class="ap-voice-sliders">
+            <label class="ap-voice-slider">
+              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_pitch"))} <span data-ap-voice-val="modifyPitch">${modPitch}</span></span>
+              <input type="range" min="-100" max="100" step="5" value="${modPitch}" data-ap-voice-range="modifyPitch" data-slug="${escape(slug)}">
+            </label>
+            <label class="ap-voice-slider">
+              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_intensity"))} <span data-ap-voice-val="modifyIntensity">${modIntensity}</span></span>
+              <input type="range" min="-100" max="100" step="5" value="${modIntensity}" data-ap-voice-range="modifyIntensity" data-slug="${escape(slug)}">
+            </label>
+            <label class="ap-voice-slider">
+              <span class="ap-voice-slider-label">${escape(uiT("ap_voice_modify_timbre"))} <span data-ap-voice-val="modifyTimbre">${modTimbre}</span></span>
+              <input type="range" min="-100" max="100" step="5" value="${modTimbre}" data-ap-voice-range="modifyTimbre" data-slug="${escape(slug)}">
+            </label>
+          </div>
+        </details>
+      </div>
+    `;
+  }
+  async function openVoicePicker(triggerEl) {
+    closeVoicePicker();
+    closeEmotionPicker();
+    const row = triggerEl.closest("[data-ap-voice-row]");
+    const slug = row?.getAttribute("data-slug");
+    if (!slug) return;
+    const current = voiceForAgent(slug);
+    const voices = await ensureVoiceOptions();
+    const pop = document.createElement("div");
+    pop.id = "ap-voice-picker";
+    pop.className = "ap-model-picker";
+    pop.dataset.slug = slug;
+    if (voices.length === 0) {
+      pop.innerHTML = `<div class="ap-model-group">${escape(uiT("ap_voice_no_provider"))}</div>`;
+    } else {
+      const groups = [];
+      let last = null;
+      for (const v of voices) {
+        const provider = String(v.provider || "browser");
+        if (provider !== last) {
+          groups.push(`<div class="ap-model-group">${escape(provider)}</div>`);
+          last = provider;
+        }
+        const id = [provider, v.model || "", v.voiceId || ""].join("|");
+        const active = current && current.provider === provider && current.model === v.model && current.voiceId === v.voiceId;
+        groups.push(`
+          <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-voice-pick="${escape(id)}">
+            <span class="ap-model-opt-label">${escape(v.label || v.voiceId || uiT("ap_voice_fallback_voice"))}</span>
+            <span class="ap-model-opt-hint">${escape((v.model || "") + (v.language ? " · " + v.language : ""))}</span>
+          </button>
+        `);
+      }
+      pop.innerHTML = groups.join("");
+    }
+    document.body.appendChild(pop);
+    const r = triggerEl.getBoundingClientRect();
+    const popW = 280;
+    pop.style.top = `${Math.round(r.bottom + 4)}px`;
+    pop.style.left = `${Math.round(Math.min(r.left, window.innerWidth - popW - 8))}px`;
+    pop.style.width = `${popW}px`;
+  }
+  function closeVoicePicker() {
+    const el = document.getElementById("ap-voice-picker");
+    if (el) el.remove();
+  }
+  function closeEmotionPicker() {
+    const el = document.getElementById("ap-emotion-picker");
+    if (el) el.remove();
+  }
+  /** Custom popover for voice emotion · matches `.ap-model-picker` chrome (no native `<select>` menu). */
+  function openEmotionPicker(triggerEl) {
+    closeEmotionPicker();
+    closeVoicePicker();
+    closeModelPicker();
+    const row = triggerEl.closest("[data-ap-voice-row]");
+    const slug = row?.getAttribute("data-slug");
+    if (!slug) return;
+    const curVoice = voiceForAgent(slug);
+    const raw = curVoice && curVoice.emotion != null && curVoice.emotion !== ""
+      ? String(curVoice.emotion)
+      : "";
+    const parts = [`<div class="ap-model-group">${escape(uiT("ap_voice_emotion_label"))}</div>`];
+    for (const e of VOICE_EMOTION_VALUES) {
+      const active = raw === e;
+      parts.push(`
+        <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-emotion-pick="${escape(e)}">
+          <span class="ap-model-opt-label">${escape(voiceEmotionOptionLabel(e))}</span>
+        </button>`);
+    }
+    const pop = document.createElement("div");
+    pop.id = "ap-emotion-picker";
+    pop.className = "ap-model-picker";
+    pop.dataset.slug = slug;
+    pop.innerHTML = parts.join("");
+    document.body.appendChild(pop);
+    const r = triggerEl.getBoundingClientRect();
+    const popW = Math.min(280, Math.max(220, r.width));
+    let left = Math.round(Math.min(r.left, window.innerWidth - popW - 8));
+    pop.style.top = `${Math.round(r.bottom + 4)}px`;
+    pop.style.left = `${left}px`;
+    pop.style.width = `${Math.round(popW)}px`;
+  }
+  function setVoiceFor(slug, voice) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    if (!live) return;
+    fetch("/api/agents/" + encodeURIComponent(slug), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ voice }),
+    })
+      .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
+      .then((updated) => {
+        const nv = updated.voice != null ? updated.voice : voice;
+        live.voice = nv;
+        const row = document.querySelector(`[data-ap-voice-row][data-slug="${slug}"]`);
+        const name = row?.querySelector("[data-ap-voice-name]");
+        const prov = row?.querySelector("[data-ap-voice-provider]");
+        if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
+        if (prov && nv && nv.model != null) prov.textContent = nv.model;
+        const emLb = row?.querySelector("[data-ap-voice-emotion-label]");
+        if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
+      })
+      .catch((e) => alert(uiT("ap_voice_save_err", { msg: e && e.message ? e.message : String(e) })));
+  }
+
+  async function previewVoice(slug) {
+    const v = voiceForAgent(slug);
+    if (!v || !v.voiceId) {
+      alert(uiT("ap_voice_preview_need_voice"));
+      return;
+    }
+    const btn = document.querySelector(`[data-ap-voice-preview][data-slug="${slug}"]`);
+    if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+    try {
+      const r = await fetch("/api/voices/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: v.provider,
+          model: v.model,
+          voiceId: v.voiceId,
+          speed: v.speed,
+          pitch: v.pitch,
+          emotion: v.emotion,
+          modifyPitch: v.modifyPitch,
+          modifyIntensity: v.modifyIntensity,
+          modifyTimbre: v.modifyTimbre,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.audioBase64) {
+        alert(uiT("ap_voice_preview_failed", { msg: data.error || "no audio" }));
+        return;
+      }
+      const audio = new Audio(`data:${data.mimeType};base64,${data.audioBase64}`);
+      audio.play().catch((e) => alert(uiT("ap_voice_preview_playback_blocked", { msg: e.message || String(e) })));
+    } catch (e) {
+      alert(uiT("ap_voice_preview_err", { msg: e.message || String(e) }));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "▶"; }
+    }
+  }
+
   function pageHTML(p, slug) {
     const skills = skillsForAgent(slug);
     const liveModel = liveModelFor(slug) || (p.metrics && p.metrics.model) || { name: "—", deck: "" };
@@ -2302,7 +2562,7 @@
     }).join("");
 
     const bioBody = (Array.isArray(p.bio) ? p.bio.join("\n\n") : (p.bio || "")).trim();
-    const statusLabel = p.status === "intern" ? "INTERN · TRIAL" : (p.status || "ACTIVE").toUpperCase();
+    const statusLabel = profileStatusLabel(p);
 
     return `
       <section class="ap-profile-card ap-profile-card-full" data-ap-card-slug="${escape(slug)}">
@@ -2316,12 +2576,12 @@
           <div class="ap-id-text">
             <h1 class="ap-id-name">${escape(p.name)}</h1>
             <div class="ap-id-meta">
-              <span class="ap-id-role">${escape(p.role || "DIRECTOR")}</span>
+              <span class="ap-id-role">${escape(profileRoleLabel(p))}</span>
               ${p.handle ? `<span class="ap-id-dot">·</span><span class="ap-id-handle">${escape(p.handle)}</span>` : ""}
               <span class="ap-status-pill">${escape(statusLabel)}</span>
             </div>
           </div>
-          <button type="button" class="ap-id-menu" data-ap-id-menu data-slug="${escape(slug)}" aria-label="more">⋯</button>
+          <button type="button" class="ap-id-menu" data-ap-id-menu data-slug="${escape(slug)}" aria-label="${escape(uiT("ap_aria_id_menu"))}">⋯</button>
         </div>
       </section>
 
@@ -2332,27 +2592,27 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Intel</span>
-                <button type="button" class="ap-block-h-action" data-ap-intel-edit>edit</button>
+                <span class="ap-block-h-title">${escape(uiT("ap_intel"))}</span>
+                <button type="button" class="ap-block-h-action" data-ap-intel-edit>${escape(uiT("ap_edit"))}</button>
               </header>
               <div class="ap-intel" data-ap-intel data-slug="${escape(slug)}">
-                <div class="ap-intel-view" data-ap-intel-view>${escape(bioBody) || `<span class="ap-empty">no description yet · click <strong>edit</strong> to add one</span>`}</div>
+                <div class="ap-intel-view" data-ap-intel-view>${escape(bioBody) || `<span class="ap-empty">${escape(uiT("ap_intel_empty"))}</span>`}</div>
               </div>
             </section>
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Instruction</span>
-                <button type="button" class="ap-block-h-action" data-ap-instr-edit>edit</button>
+                <span class="ap-block-h-title">${escape(uiT("ap_instruction"))}</span>
+                <button type="button" class="ap-block-h-action" data-ap-instr-edit>${escape(uiT("ap_edit"))}</button>
               </header>
               ${renderInstructionBlock(p, slug)}
             </section>
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Rules</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_rules"))}</span>
                 <button type="button" class="ap-block-h-action" data-ap-rule-add data-slug="${escape(slug)}" ${rulesForAgent(slug).length >= RULES_MAX ? "disabled" : ""}>
-                  ${rulesForAgent(slug).length >= RULES_MAX ? `max ${RULES_MAX}` : "+ add rule"}
+                  ${rulesForAgent(slug).length >= RULES_MAX ? escape(uiT("ap_rules_max", { n: RULES_MAX })) : escape(uiT("ap_rules_add"))}
                 </button>
               </header>
               ${renderRulesBlock(slug)}
@@ -2361,10 +2621,10 @@
             ${isChair ? `
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Memory</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_memory"))}</span>
                 <div class="ap-block-h-actions">
-                  <button type="button" class="ap-block-h-action ap-dream-trigger" data-ap-dream-trigger data-slug="${escape(slug)}" title="Consolidate · drop stale notes, keep stable patterns">☾ run consolidation</button>
-                  <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">+ add note</button>
+                  <button type="button" class="ap-block-h-action ap-dream-trigger" data-ap-dream-trigger data-slug="${escape(slug)}" title="${escape(uiT("ap_dream_consolidate_title"))}">${escape(uiT("ap_dream_consolidate_btn"))}</button>
+                  <button type="button" class="ap-block-h-action" data-ap-memory-add-toggle data-slug="${escape(slug)}">${escape(uiT("ap_memory_add"))}</button>
                 </div>
               </header>
               ${renderMemoryBlock(slug)}
@@ -2377,23 +2637,24 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Track Record</span>
-                <span class="ap-block-h-tag">model · usage</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_track_record"))}</span>
+                <span class="ap-block-h-tag">${escape(uiT("ap_track_tag_model_usage"))}</span>
               </header>
               <div class="ap-block-body">
                 ${renderModelBlock(slug, liveModel)}
+                ${renderVoiceBlock(slug)}
                 <div class="ap-stats-grid" data-ap-stats data-slug="${escape(slug)}">
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-rooms>—</div>
-                    <div class="ap-stat-l">rooms</div>
+                    <div class="ap-stat-l">${escape(uiT("ap_stat_rooms"))}</div>
                   </div>
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-rounds>—</div>
-                    <div class="ap-stat-l">rounds</div>
+                    <div class="ap-stat-l">${escape(uiT("ap_stat_rounds"))}</div>
                   </div>
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-tokens>—</div>
-                    <div class="ap-stat-l">tokens</div>
+                    <div class="ap-stat-l">${escape(uiT("ap_stat_tokens"))}</div>
                   </div>
                 </div>
               </div>
@@ -2401,22 +2662,22 @@
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Skills</span>
-                <span class="ap-block-h-tag" data-ap-skills-count>0 / ${isChair ? SKILL_CAP.chair : SKILL_CAP.director} installed</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_skills"))}</span>
+                <span class="ap-block-h-tag" data-ap-skills-count>${escape(uiT("ap_skills_installed", { current: 0, cap: isChair ? SKILL_CAP.chair : SKILL_CAP.director }))}</span>
               </header>
               ${renderSkillsBlockV2(slug, isChair)}
             </section>
 
             <section class="ap-block">
               <header class="ap-block-h">
-                <span class="ap-block-h-title">Equipment</span>
-                <span class="ap-block-h-tag">coming soon</span>
+                <span class="ap-block-h-title">${escape(uiT("ap_equipment"))}</span>
+                <span class="ap-block-h-tag">${escape(uiT("ap_equipment_soon"))}</span>
               </header>
               <div class="ap-coming-soon">
                 <div class="ap-coming-soon-mark">◆</div>
-                <div class="ap-coming-soon-title">Knowledge docs</div>
-                <p class="ap-coming-soon-body">Attach PDFs, links, and reference notes to ground this agent's reasoning. They'll be cited inline during rooms and available for the agent to recall by name.</p>
-                <div class="ap-coming-soon-tag">in development</div>
+                <div class="ap-coming-soon-title">${escape(uiT("ap_equipment_knowledge_title"))}</div>
+                <p class="ap-coming-soon-body">${escape(uiT("ap_equipment_knowledge_deck"))}</p>
+                <div class="ap-coming-soon-tag">${escape(uiT("ap_equipment_dev"))}</div>
               </div>
             </section>
 
@@ -3242,9 +3503,10 @@
         const provider = wsToggle.getAttribute("data-provider") || "brave";
         if (!keyConfigured) {
           const ok = confirm(
-            "Web Search needs a Brave Search API key.\n\n" +
-            "Brave Search · ≈ $5 per 1000 queries · privacy-respecting\n\n" +
-            "Open Preferences to paste your key now?",
+            (window.I18n && typeof window.I18n.t === "function")
+              ? uiT("ag_ws_need_key_confirm")
+              :
+                ("Web Search needs Brave Search or Tavily API credentials.\n\nBrave Search · ≈ $5 per 1000 queries. Tavily · per Tavily API credits.\n\nOpen Preferences now?"),
           );
           if (ok && typeof window.openUserSettings === "function") {
             window.openUserSettings({ section: "keys", focusProvider: provider });
@@ -3394,7 +3656,7 @@
         if (!view) return;
         const expanded = view.classList.toggle("expanded");
         instrToggle.setAttribute("aria-expanded", String(expanded));
-        instrToggle.textContent = expanded ? "show less" : "show more";
+        instrToggle.textContent = expanded ? uiT("ap_show_less") : uiT("ap_show_more");
         return;
       }
 
@@ -3550,6 +3812,57 @@
         closeModelPicker();
         return;
       }
+      const voiceTrigger = e.target.closest("[data-ap-voice-trigger]");
+      if (voiceTrigger) {
+        e.preventDefault();
+        if (document.getElementById("ap-voice-picker")) closeVoicePicker();
+        else openVoicePicker(voiceTrigger);
+        return;
+      }
+      const emoTrig = e.target.closest("[data-ap-emotion-trigger]");
+      if (emoTrig) {
+        e.preventDefault();
+        if (document.getElementById("ap-emotion-picker")) closeEmotionPicker();
+        else openEmotionPicker(emoTrig);
+        return;
+      }
+      const emoOpt = e.target.closest("[data-ap-emotion-pick]");
+      if (emoOpt) {
+        e.preventDefault();
+        const pop = document.getElementById("ap-emotion-picker");
+        const slug = pop?.dataset.slug;
+        if (!slug) return;
+        let rawPick = emoOpt.getAttribute("data-ap-emotion-pick");
+        if (rawPick === null) rawPick = "";
+        const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        setVoiceFor(slug, {
+          ...existing,
+          emotion: rawPick === "" ? undefined : rawPick,
+        });
+        closeEmotionPicker();
+        return;
+      }
+      const voiceOpt = e.target.closest("[data-ap-voice-pick]");
+      if (voiceOpt) {
+        e.preventDefault();
+        const raw = voiceOpt.getAttribute("data-ap-voice-pick") || "";
+        const pop = document.getElementById("ap-voice-picker");
+        const slug = pop?.dataset.slug;
+        const [provider, model, voiceId] = raw.split("|");
+        if (!slug || !provider || !model || !voiceId) return;
+        const existing = voiceForAgent(slug) || {};
+        setVoiceFor(slug, { ...existing, provider, model, voiceId });
+        closeVoicePicker();
+        return;
+      }
+      // Preview button
+      const previewBtn = e.target.closest("[data-ap-voice-preview]");
+      if (previewBtn) {
+        e.preventDefault();
+        const slug = previewBtn.getAttribute("data-slug");
+        if (slug) previewVoice(slug);
+        return;
+      }
     });
     document.addEventListener("click", (e) => {
       const pop = document.getElementById("ap-model-picker");
@@ -3558,6 +3871,47 @@
       if (e.target.closest("[data-ap-model-trigger]")) return;
       closeModelPicker();
     }, true);
+    document.addEventListener("click", (e) => {
+      const pop = document.getElementById("ap-voice-picker");
+      if (!pop) return;
+      if (e.target.closest("#ap-voice-picker")) return;
+      if (e.target.closest("[data-ap-voice-trigger]")) return;
+      closeVoicePicker();
+    }, true);
+    document.addEventListener("click", (e) => {
+      const pop = document.getElementById("ap-emotion-picker");
+      if (!pop) return;
+      if (e.target.closest("#ap-emotion-picker")) return;
+      if (e.target.closest("[data-ap-emotion-trigger]")) return;
+      closeEmotionPicker();
+    }, true);
+
+    // Voice config sliders + emotion
+    document.addEventListener("input", (e) => {
+      const range = e.target.closest("[data-ap-voice-range]");
+      if (range) {
+        const param = range.getAttribute("data-ap-voice-range");
+        const slug = range.getAttribute("data-slug");
+        const val = parseFloat(range.value);
+        // Update display value
+        const container = range.closest(".ap-voice-config");
+        const display = container?.querySelector(`[data-ap-voice-val="${param}"]`);
+        if (display) display.textContent = Number.isInteger(val) ? String(val) : val.toFixed(1);
+        return;
+      }
+    });
+    document.addEventListener("change", (e) => {
+      const range = e.target.closest("[data-ap-voice-range]");
+      if (range) {
+        const param = range.getAttribute("data-ap-voice-range");
+        const slug = range.getAttribute("data-slug");
+        if (!param || !slug) return;
+        const val = parseFloat(range.value);
+        const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        setVoiceFor(slug, { ...existing, [param]: val });
+        return;
+      }
+    });
 
     // Back-to-room paths now that the explicit Back button is gone:
     //  • clicking any sidebar room row → switch back to room view
@@ -3641,6 +3995,10 @@
   window.refreshAgentProfileSkills = function () {
     if (currentlyOpenSlug) loadSkillsForV2(currentlyOpenSlug);
   };
+
+  document.addEventListener("boardroom:locale", () => {
+    if (currentlyOpenSlug && typeof open === "function") open(currentlyOpenSlug);
+  });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

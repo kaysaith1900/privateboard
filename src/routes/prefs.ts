@@ -4,7 +4,7 @@
  */
 import { Hono } from "hono";
 
-import { getPrefs, updatePrefs, type PrefsPatch } from "../storage/prefs.js";
+import { getPrefs, updatePrefs, type PrefsPatch, type WebSearchProviderPref, type MinimaxRegion } from "../storage/prefs.js";
 
 export function prefsRouter(): Hono {
   const r = new Hono();
@@ -34,6 +34,12 @@ export function prefsRouter(): Hono {
     }
     if (b.defaultModelV === null || typeof b.defaultModelV === "string") {
       patch.defaultModelV = b.defaultModelV as string | null;
+    }
+    if (b.webSearchProvider === "brave" || b.webSearchProvider === "tavily") {
+      patch.webSearchProvider = b.webSearchProvider as WebSearchProviderPref;
+    }
+    if (b.minimaxRegion === "cn" || b.minimaxRegion === "intl") {
+      patch.minimaxRegion = b.minimaxRegion as MinimaxRegion;
     }
 
     return c.json(updatePrefs(patch));

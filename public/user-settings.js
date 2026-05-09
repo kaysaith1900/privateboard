@@ -18,7 +18,7 @@
 
   // /api/prefs is async; cache the latest value at module bootstrap so the
   // synchronous render code below stays simple. saveUser writes through.
-  let _prefsCache = { name: "You", intro: "", avatarSeed: null };
+  let _prefsCache = { name: "You", intro: "", avatarSeed: null, webSearchProvider: "brave", minimaxRegion: "cn" };
 
   const THEMES = [
     { slug: "regent",      name: "Regent",      desc: "warm gold on dark · default · the boardroom premium",
@@ -49,15 +49,23 @@
     { id: "openai",     label: "OpenAI",      hint: "GPT · gpt-5, gpt-5 mini, gpt-4o",                placeholder: "sk-…",         group: "llm" },
     { id: "google",     label: "Google",      hint: "Gemini · 2.5 Pro, 2.5 Flash",                    placeholder: "AIza…",        group: "llm" },
     { id: "xai",        label: "xAI",         hint: "Grok · grok-4.3, grok-4.1 fast",                  placeholder: "xai-…",        group: "llm" },
+    { id: "minimax",    label: "MiniMax",     hint: "speech · T2A voices, cloning, streaming audio",   placeholder: "mm-…",         group: "voice" },
+    { id: "elevenlabs", label: "ElevenLabs",  hint: "text-to-speech · pricing & docs at elevenlabs.io",  placeholder: "xi-…",         group: "voice" },
     // ── Skill Services (not LLM providers, but the same encrypted key store) ──
     { id: "brave",      label: "Brave Search", hint: "powers the Web Search system skill · ≈ $5 / 1000 queries · privacy-respecting",
       placeholder: "BSA…",         group: "skill" },
+    { id: "tavily",     label: "Tavily Search", hint: "alternate Web Search backend · billed per Tavily credits · LLM-focused results",
+      placeholder: "tvly-…",        group: "skill" },
   ];
 
   function escape(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[c]));
+  }
+
+  function tr(key, vars) {
+    return (window.I18n && window.I18n.t(key, vars)) || key;
   }
 
   /* ── Storage helpers ───────────────────────────────────────── */
@@ -76,7 +84,9 @@
       _prefsCache = {
         name: typeof data.name === "string" ? data.name : "You",
         intro: typeof data.intro === "string" ? data.intro : "",
-        avatarSeed: data.avatarSeed ?? null
+        avatarSeed: data.avatarSeed ?? null,
+        webSearchProvider: data.webSearchProvider === "tavily" ? "tavily" : "brave",
+        minimaxRegion: data.minimaxRegion === "intl" ? "intl" : "cn",
       };
     } catch (e) {
       // Network or server hiccup — fall back to whatever's already cached.
@@ -101,31 +111,28 @@
     }).catch(() => { /* offline → cache stays, retry on next edit */ });
   }
 
-  // Provider keys live in the SQLite-backed /api/keys. Plaintext is never
-  // returned by the server — only meta. We cache the meta map locally so
-  // sync code (and window.boardroomKeys) keeps working.
-  //   _keysMeta: { openrouter: { configured: true, updatedAt }, anthropic: {...}, ... }
-  let _keysMeta = {};
+  // Provider keys · canonical state lives in keys-store.js (loaded as a
+  // module script before this file). All reads/writes go through that store;
+  // _keysMeta is a live accessor so the rest of this file needs no changes.
+  const _keysMeta = new Proxy({}, {
+    get(_, k) { return window.keysStore ? window.keysStore.keysMeta[k] : undefined; },
+    set(_, k, v) { if (window.keysStore) window.keysStore.keysMeta[k] = v; return true; },
+    ownKeys() { return window.keysStore ? Object.keys(window.keysStore.keysMeta) : []; },
+    has(_, k) { return window.keysStore ? k in window.keysStore.keysMeta : false; },
+    getOwnPropertyDescriptor(_, k) {
+      const v = window.keysStore ? window.keysStore.keysMeta[k] : undefined;
+      return v !== undefined ? { value: v, writable: true, enumerable: true, configurable: true } : undefined;
+    },
+  });
 
-  async function fetchKeyMeta() {
-    try {
-      const r = await fetch("/api/keys");
-      if (!r.ok) return;
-      const data = await r.json();
-      const next = {};
-      for (const row of (data.keys || [])) next[row.provider] = row;
-      _keysMeta = next;
-    } catch (e) { /* keep last cache on offline */ }
+  function fetchKeyMeta() {
+    return window.keysStore ? window.keysStore.fetchKeyMeta() : Promise.resolve();
   }
 
   // Sync read used by new-agent.js: returns a map { provider: truthy } where
   // 'truthy' is the meta object so existence-check (`if (keys[p])`) still works.
   function getKeys() {
-    const out = {};
-    for (const [p, m] of Object.entries(_keysMeta)) {
-      if (m && m.configured) out[p] = m;
-    }
-    return out;
+    return window.keysStore ? window.keysStore.getConfiguredKeys() : {};
   }
 
   // Available-models snapshot · shape from /api/models. We don't keep
@@ -163,21 +170,9 @@
   // were removed in favour of the dedicated "Default Model" sidebar
   // pane (single source of truth). Helpers deleted as dead code.
 
-  // Set / clear a single provider key. The server applies the trim+empty-=delete
-  // semantic; we mirror the resulting meta into our local cache.
-  async function setProviderKey(provider, value) {
-    try {
-      const trimmed = (value || "").trim();
-      const r = await fetch("/api/keys/" + encodeURIComponent(provider), {
-        method: trimmed ? "PUT" : "DELETE",
-        headers: trimmed ? { "content-type": "application/json" } : undefined,
-        body: trimmed ? JSON.stringify({ key: trimmed }) : undefined
-      });
-      if (!r.ok) return null;
-      const meta = await r.json();
-      _keysMeta[provider] = meta;
-      return meta;
-    } catch (e) { return null; }
+  // Set / clear a single provider key — delegated to keys-store.js.
+  function setProviderKey(provider, value) {
+    return window.keysStore ? window.keysStore.setProviderKey(provider, value) : Promise.resolve(null);
   }
 
   // Public — other modules read provider configuration via this
@@ -191,24 +186,24 @@
     const u = getUser();
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ User</div>
-        <div class="us-pane-deck">how the boardroom addresses you and what it knows about your context.</div>
+        <div class="us-pane-tag">${tr("us_user_tag")}</div>
+        <div class="us-pane-deck">${tr("us_user_deck")}</div>
       </div>
 
       <div class="us-pane-body">
         <div class="us-row">
-          <div class="us-row-label">Avatar</div>
+          <div class="us-row-label">${tr("us_avatar")}</div>
           <div class="us-row-field us-avatar-row">
             <div class="us-avatar-frame" data-us-avatar></div>
             <button type="button" class="us-mini-btn" data-us-regen-avatar>
               <span class="us-mini-btn-mark">◆</span>
-              <span>generate 8-bit avatar</span>
+              <span>${tr("us_regen_avatar")}</span>
             </button>
           </div>
         </div>
 
         <div class="us-row">
-          <div class="us-row-label">Name</div>
+          <div class="us-row-label">${tr("us_name")}</div>
           <div class="us-row-field">
             <div class="us-input-wrap">
               <input type="text" class="us-input" data-us-name placeholder="Kay" maxlength="32" value="${escape(u.name || "")}">
@@ -217,12 +212,12 @@
         </div>
 
         <div class="us-row">
-          <div class="us-row-label">About you</div>
+          <div class="us-row-label">${tr("us_about")}</div>
           <div class="us-row-field">
             <div class="us-input-wrap tall">
-              <textarea class="us-input" data-us-intro maxlength="320" placeholder="A line or two about your role, what you tend to think about, what you're working on. Directors will keep this in mind across rooms.">${escape(u.intro || "")}</textarea>
+              <textarea class="us-input" data-us-intro maxlength="320" placeholder="${escape(tr("us_intro_ph"))}">${escape(u.intro || "")}</textarea>
             </div>
-            <div class="us-row-meta"><span data-us-intro-count>0</span> / 320 chars</div>
+            <div class="us-row-meta"><span data-us-intro-count>0</span><span>${tr("us_intro_meta_rest")}</span></div>
           </div>
         </div>
 
@@ -235,8 +230,8 @@
     const swatchSpans = (cs) => cs.map((c) => `<span style="background:${c}"></span>`).join("");
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Theme</div>
-        <div class="us-pane-deck">global · zsh-inspired palettes. Applied instantly across all rooms.</div>
+        <div class="us-pane-tag">${tr("us_theme_tag")}</div>
+        <div class="us-pane-deck">${tr("us_theme_deck")}</div>
       </div>
 
       <div class="us-pane-body">
@@ -257,9 +252,8 @@
   }
 
   /* ── Other settings · misc per-user toggles that don't fit a
-        dedicated section. Currently just the typing-sound effect; a
-        natural home for future small ambient / UX preferences (sound
-        cues, animations, etc.) without growing the nav for each one. */
+        dedicated section. Interface language · typing-sound effect;
+        natural home for future small ambient / UX preferences. */
   function otherSettingsSectionHTML() {
     return `
       <div class="us-pane-head">
@@ -268,6 +262,17 @@
       </div>
 
       <div class="us-pane-body">
+        <div class="us-row">
+          <div class="us-row-label">${tr("us_locale_label")}</div>
+          <div class="us-row-field">
+            <div class="locale-switch" role="group" data-i18n-aria="aria_language" aria-label="">
+              <button type="button" class="locale-btn" data-locale="en" aria-pressed="false" data-i18n="locale_en">EN</button>
+              <button type="button" class="locale-btn" data-locale="zh" aria-pressed="false" data-i18n="locale_zh">中文</button>
+            </div>
+            <p class="us-locale-deck">${escape(tr("us_locale_deck"))}</p>
+          </div>
+        </div>
+
         <div class="us-row">
           <div class="us-row-label">Typing sound</div>
           <div class="us-row-field">
@@ -288,6 +293,12 @@
 
   function wireOtherSettingsSection() {
     if (!paneEl) return;
+    if (window.I18n && typeof window.I18n.applyDom === "function") {
+      window.I18n.applyDom(paneEl);
+    }
+    if (window.I18n && typeof window.I18n.syncLocaleControls === "function") {
+      window.I18n.syncLocaleControls();
+    }
     // Typing-sound toggle · the persistence + audio context lives in
     // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
     // the current state and proxies clicks. Reading inside wire-up
@@ -339,13 +350,13 @@
   function usageSectionHTML() {
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Usage</div>
-        <div class="us-pane-deck">cumulative LLM-call accounting · billed across every director / chair turn since this boardroom was opened.</div>
+        <div class="us-pane-tag">${tr("us_usage_tag")}</div>
+        <div class="us-pane-deck">${tr("us_usage_deck")}</div>
       </div>
 
       <div class="us-pane-body">
         <div class="us-usage" data-usage-pane>
-          <div class="us-usage-loading">measuring…</div>
+          <div class="us-usage-loading">${tr("us_usage_loading")}</div>
         </div>
       </div>
     `;
@@ -378,7 +389,7 @@
       pane.innerHTML = `
         <div class="us-usage-empty">
           <div class="us-usage-empty-num">0</div>
-          <div class="us-usage-empty-text">no LLM calls billed yet · open a room and let the directors speak.</div>
+          <div class="us-usage-empty-text">${tr("us_usage_empty")}</div>
         </div>
       `;
       return;
@@ -539,7 +550,7 @@
           <div class="us-model-stats">
             <span class="us-model-tokens">${fmtTokens(m.tokens)}</span>
             <span class="us-model-pct">${pct.toFixed(1)}%</span>
-            <span class="us-model-agents">${m.agents} agent${m.agents === 1 ? "" : "s"}</span>
+            <span class="us-model-agents">${tr("us_usage_agents", { n: m.agents })}</span>
           </div>
         </div>
       `;
@@ -549,7 +560,7 @@
     const agentRows = topAgents.map((a) => {
       const pct = (a.tokens / total) * 100;
       const color = PROVIDER_COLOR_VAR[a.provider] || PROVIDER_COLOR_VAR.unknown;
-      const role = a.roleKind === "moderator" ? "chair" : "director";
+      const role = a.roleKind === "moderator" ? tr("us_usage_chair") : tr("us_usage_director");
       return `
         <div class="us-agent-row">
           <div class="us-agent-name-col">
@@ -567,7 +578,7 @@
 
     const silentCount = byAgent.length - topAgents.length;
     const silentNote = silentCount > 0
-      ? `<div class="us-agent-silent">+ ${silentCount} agent${silentCount === 1 ? "" : "s"} not yet billed</div>`
+      ? `<div class="us-agent-silent">${tr("us_usage_silent", { n: silentCount })}</div>`
       : "";
 
     const retiredNote = retired.tokens > 0
@@ -660,6 +671,7 @@
   // "+ add provider" flow).
   const LLM_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "llm").map((p) => p.id);
   const SKILL_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "skill").map((p) => p.id);
+  const VOICE_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "voice").map((p) => p.id);
 
   function ensureActiveProviders() {
     if (activeProviders === null) {
@@ -722,6 +734,52 @@
     `;
   }
 
+  /** Shown only when BOTH Brave Search and Tavily keys are configured. */
+  function webSearchBackendPrefHTML() {
+    const braveOk = !!(_keysMeta.brave && _keysMeta.brave.configured);
+    const tavilyOk = !!(_keysMeta.tavily && _keysMeta.tavily.configured);
+    const visible = braveOk && tavilyOk;
+    const pref = _prefsCache.webSearchProvider === "tavily" ? "tavily" : "brave";
+    return `
+        <div class="us-key-group us-key-group-ws-backend" data-us-ws-backend-wrap ${visible ? "" : "hidden"}>
+          <div class="us-key-group-tag">${tr("us_ws_backend_tag")}</div>
+          <div class="us-key-group-deck">${tr("us_ws_backend_deck")}</div>
+          <div class="us-ws-backend-radios">
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-ws-backend" value="brave" ${pref === "brave" ? "checked" : ""}>
+              <span>${tr("us_ws_backend_brave")}</span>
+            </label>
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-ws-backend" value="tavily" ${pref === "tavily" ? "checked" : ""}>
+              <span>${tr("us_ws_backend_tavily")}</span>
+            </label>
+          </div>
+        </div>
+    `;
+  }
+
+  function minimaxRegionPrefHTML() {
+    const minimaxOk = !!(_keysMeta.minimax && _keysMeta.minimax.configured);
+    if (!minimaxOk) return "";
+    const region = (_prefsCache && _prefsCache.minimaxRegion) || "cn";
+    return `
+        <div class="us-key-group us-key-group-minimax-region" data-us-minimax-region-wrap>
+          <div class="us-key-group-tag">MiniMax API region</div>
+          <div class="us-key-group-deck">Select the region matching your API key source.</div>
+          <div class="us-ws-backend-radios">
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-minimax-region" value="cn" ${region === "cn" ? "checked" : ""}>
+              <span>China (api.minimaxi.com)</span>
+            </label>
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-minimax-region" value="intl" ${region === "intl" ? "checked" : ""}>
+              <span>International (api.minimax.io)</span>
+            </label>
+          </div>
+        </div>
+    `;
+  }
+
   function keysSectionHTML() {
     ensureActiveProviders();
     // Anthropic is temporarily excluded from the "+ add provider"
@@ -736,17 +794,18 @@
       (p) => p.group === "llm" && !HIDDEN_FROM_ADD.has(p.id) && !activeProviders.includes(p.id),
     );
     const skillProviders = PROVIDERS.filter((p) => p.group === "skill");
+    const voiceProviders = PROVIDERS.filter((p) => p.group === "voice");
 
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ API Key</div>
-        <div class="us-pane-deck">stored locally, never uploaded. add a key for any provider — a single key is enough to get started. Skill services power optional capabilities like web search.</div>
+        <div class="us-pane-tag">${tr("us_keys_tag")}</div>
+        <div class="us-pane-deck">${tr("us_keys_deck")}</div>
       </div>
 
       <div class="us-pane-body">
 
         <div class="us-key-group">
-          <div class="us-key-group-tag">LLM Providers</div>
+          <div class="us-key-group-tag">${tr("us_keys_group_llm")}</div>
           ${activeProviders.map((id) => {
             const p = PROVIDERS.find((x) => x.id === id);
             if (!p) return "";
@@ -754,7 +813,7 @@
           }).join("")}
           ${addable.length > 0 ? `
             <div class="us-key-add">
-              <span class="us-key-add-label">+ add provider:</span>
+              <span class="us-key-add-label">${tr("us_keys_add_label")}</span>
               <div class="us-key-add-chips">
                 ${addable.map((p) => `
                   <button type="button" class="us-key-add-chip" data-add-provider="${p.id}">${escape(p.label)}</button>
@@ -766,11 +825,23 @@
 
         ${skillProviders.length > 0 ? `
           <div class="us-key-group us-key-group-skill">
-            <div class="us-key-group-tag">Skill Services</div>
-            <div class="us-key-group-deck">enables system skills that need an outside service. Each agent can opt in or out per-profile.</div>
+            <div class="us-key-group-tag">${tr("us_keys_group_skill")}</div>
+            <div class="us-key-group-deck">${tr("us_keys_skill_deck")}</div>
             ${skillProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
           </div>
         ` : ""}
+
+        ${webSearchBackendPrefHTML()}
+
+        ${voiceProviders.length > 0 ? `
+          <div class="us-key-group us-key-group-voice">
+            <div class="us-key-group-tag">Voice providers</div>
+            <div class="us-key-group-deck">Used for voice meetings and per-director speech synthesis.</div>
+            ${voiceProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
+          </div>
+        ` : ""}
+
+        ${minimaxRegionPrefHTML()}
 
         <div data-models-summary>${modelsSummaryHTML()}</div>
 
@@ -922,8 +993,8 @@
 
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Default Model</div>
-        <div class="us-pane-deck">new agents inherit this. when an agent's saved model becomes unreachable (key removed / model retired), it falls back here too. brief flagship tier uses this as the deep-write model.</div>
+        <div class="us-pane-tag">${tr("us_default_tag")}</div>
+        <div class="us-pane-deck">${tr("us_default_deck_long")}</div>
       </div>
 
       <div class="us-pane-body">
@@ -984,20 +1055,20 @@
         <div class="user-settings-modal" role="document">
 
           <div class="us-classification">
-            <span><span class="dot">●</span> user · settings</span>
-            <span class="right">// local</span>
+            <span><span class="dot">●</span> <span data-i18n="us_modal_kicker_left"></span></span>
+            <span class="right" data-i18n="us_modal_kicker_right"></span>
           </div>
 
-          <button type="button" class="us-close" aria-label="Close">✕</button>
+          <button type="button" class="us-close" data-i18n-aria="us_close" aria-label="Close">✕</button>
 
           <div class="us-frame">
             <nav class="us-nav" role="tablist">
-              <a href="#" class="us-nav-item active" data-section="user"    role="tab" aria-selected="true">User</a>
-              <a href="#" class="us-nav-item"        data-section="theme"   role="tab" aria-selected="false">Theme</a>
-              <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false">Usage</a>
-              <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false">API Key</a>
-              <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false">Default Model</a>
-              <a href="#" class="us-nav-item"        data-section="other"   role="tab" aria-selected="false">Other settings</a>
+              <a href="#" class="us-nav-item active" data-section="user"    role="tab" aria-selected="true" data-i18n="us_nav_user"></a>
+              <a href="#" class="us-nav-item"        data-section="theme"   role="tab" aria-selected="false" data-i18n="us_nav_theme"></a>
+              <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false" data-i18n="us_nav_usage"></a>
+              <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false" data-i18n="us_nav_api_key"></a>
+              <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false" data-i18n="us_default_model_title"></a>
+              <a href="#" class="us-nav-item"        data-section="other"   role="tab" aria-selected="false" data-i18n="us_nav_other_settings"></a>
               <div class="us-nav-foot" data-us-version aria-label="App version">
                 <span class="us-nav-foot-label">version</span>
                 <span class="us-nav-foot-value" data-us-version-value>·</span>
@@ -1008,10 +1079,10 @@
           </div>
 
           <footer class="us-foot">
-            <span class="saved">changes save automatically</span>
+            <span class="saved" data-i18n="us_foot_saved"></span>
             <div class="us-foot-right">
-              <a class="us-website" href="/home.html" target="_blank" rel="noopener">website ↗</a>
-              <button type="button" class="us-done">[ Done ]</button>
+              <a class="us-website" href="/home.html" target="_blank" rel="noopener" data-i18n="us_foot_website"></a>
+              <button type="button" class="us-done" data-i18n="us_done"></button>
             </div>
           </footer>
 
@@ -1194,6 +1265,7 @@
         await setProviderKey(provider, v);
         await refreshModels();
         refreshModelsSummary();
+        syncWsBackendPicker();
       }, 220);
       debounceMap.set(row, timer);
     }
@@ -1209,6 +1281,50 @@
         setTimeout(() => persistRow(row), 0);
       });
     });
+
+    function syncWsBackendPicker() {
+      const wrap = paneEl.querySelector("[data-us-ws-backend-wrap]");
+      if (!wrap) return;
+      const braveOk = !!(_keysMeta.brave && _keysMeta.brave.configured);
+      const tavilyOk = !!(_keysMeta.tavily && _keysMeta.tavily.configured);
+      wrap.hidden = !(braveOk && tavilyOk);
+      const pref = _prefsCache.webSearchProvider === "tavily" ? "tavily" : "brave";
+      wrap.querySelectorAll("input[name=\"us-ws-backend\"]").forEach((inp) => {
+        inp.checked = inp.value === pref;
+      });
+    }
+
+    paneEl.querySelectorAll("input[name=us-ws-backend]").forEach((input) => {
+      input.addEventListener("change", async () => {
+        if (!input.checked) return;
+        const v = input.value === "tavily" ? "tavily" : "brave";
+        _prefsCache = { ..._prefsCache, webSearchProvider: v };
+        try {
+          await fetch("/api/prefs", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ webSearchProvider: v }),
+          });
+        } catch (_) { /* offline · prefs stay in _prefsCache */ }
+      });
+    });
+
+    paneEl.querySelectorAll("input[name=us-minimax-region]").forEach((input) => {
+      input.addEventListener("change", async () => {
+        if (!input.checked) return;
+        const v = input.value === "intl" ? "intl" : "cn";
+        _prefsCache = { ..._prefsCache, minimaxRegion: v };
+        try {
+          await fetch("/api/prefs", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ minimaxRegion: v }),
+          });
+        } catch (_) { /* offline */ }
+      });
+    });
+
+    syncWsBackendPicker();
 
     // First render of the section · the shared cache may already
     // have a snapshot (models-cache.js fetches at module load). If
@@ -1282,6 +1398,7 @@
           input.classList.toggle("has-preview", has);
         }
       });
+      syncWsBackendPicker();
     });
   }
 
@@ -1350,8 +1467,16 @@
     overlay = document.getElementById("user-settings-overlay");
     modal   = overlay.querySelector(".user-settings-modal");
     paneEl  = modal.querySelector("[data-us-pane]");
+    if (window.I18n && typeof window.I18n.applyDom === "function") {
+      window.I18n.applyDom(overlay);
+    }
 
-    // Close interactions
+    document.addEventListener("boardroom:locale", () => {
+      if (overlay && window.I18n && typeof window.I18n.applyDom === "function") {
+        window.I18n.applyDom(overlay);
+      }
+      if (overlay && overlay.classList.contains("open")) renderSection(currentSection);
+    });
     overlay.querySelector(".us-close").addEventListener("click", close);
     modal.querySelector(".us-done").addEventListener("click", (e) => { e.preventDefault(); close(); });
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });

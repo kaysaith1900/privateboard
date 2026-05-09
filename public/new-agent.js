@@ -27,6 +27,10 @@
     { provider: "xai", models: [
       { v: "grok-4-3",      name: "Grok 4.3",      deck: "flagship · 1M ctx" },
       { v: "grok-4-1-fast", name: "Grok 4.1 Fast", deck: "fast · 256k ctx" }
+    ]},
+    { provider: "deepseek", models: [
+      { v: "deepseek-v4-pro",   name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
+      { v: "deepseek-v4-flash", name: "DeepSeek Lite",   deck: "V4 Flash · fast · 1M ctx" }
     ]}
   ];
   const ALL_MODELS = MODEL_GROUPS.flatMap((g) => g.models);
@@ -53,6 +57,34 @@
     return String(s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[c]));
+  }
+
+  function t(k, vars) {
+    return (window.I18n && window.I18n.t(k, vars)) || k;
+  }
+
+  function applyNewAgentI18n() {
+    if (!modal) return;
+    modal.querySelectorAll("[data-i18n-na-html]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-na-html");
+      if (key) el.innerHTML = t(key);
+    });
+    modal.querySelectorAll("[data-i18n-na]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-na");
+      if (key && !el.hasAttribute("data-i18n-na-html")) el.textContent = t(key);
+    });
+    modal.querySelectorAll("[data-i18n-na-placeholder]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-na-placeholder");
+      if (key) el.setAttribute("placeholder", t(key));
+    });
+    modal.querySelectorAll("[data-i18n-na-title]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-na-title");
+      if (key) el.setAttribute("title", t(key));
+    });
+    modal.querySelectorAll("[data-i18n-na-aria]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-na-aria");
+      if (key) el.setAttribute("aria-label", t(key));
+    });
   }
 
   /* ───── 8-bit avatar generator ─────
@@ -122,16 +154,16 @@
       <div class="new-agent-overlay" id="new-agent-overlay" role="dialog" aria-modal="true" aria-hidden="true">
         <div class="new-agent-modal" role="document">
           <div class="na-classification">
-            <span><span class="dot">●</span> directors · new</span>
-            <span class="right">// shape the role</span>
+            <span><span class="dot">●</span> <span data-i18n-na="na_class_left"></span></span>
+            <span class="right" data-i18n-na="na_class_right"></span>
           </div>
 
           <header class="na-head">
             <div>
-              <div class="na-step-num">// new <span class="hl">director</span> · manual setup</div>
-              <div class="na-step-title">shape the role</div>
+              <div class="na-step-num" data-i18n-na-html="na_step_kicker_html"></div>
+              <div class="na-step-title" data-i18n-na="na_step_title"></div>
             </div>
-            <button type="button" class="na-close" aria-label="Close">✕</button>
+            <button type="button" class="na-close" data-i18n-na-aria="na_close_aria" aria-label="">✕</button>
           </header>
 
           <div class="na-body">
@@ -143,7 +175,7 @@
                 </div>
                 <button type="button" class="na-avatar-regen" data-na-regen>
                   <span class="na-avatar-regen-mark">◆</span>
-                  <span class="na-avatar-regen-label">generate 8-bit avatar</span>
+                  <span class="na-avatar-regen-label" data-i18n-na="na_avatar_regen"></span>
                 </button>
                 <div class="na-avatar-vibe" data-na-vibe></div>
               </div>
@@ -152,42 +184,35 @@
 
                 <div class="na-field">
                   <label class="na-field-label">
-                    <span>Name</span>
+                    <span data-i18n-na="na_field_name"></span>
                     <span class="na-field-meta"><span class="na-name-count">0</span>/32</span>
                   </label>
                   <div class="na-input-wrap na-name-wrap">
-                    <input type="text" class="na-name-input" placeholder="Aurelia · The Long-Cycle Strategist" maxlength="32">
+                    <input type="text" class="na-name-input" data-i18n-na-placeholder="na_name_ph" placeholder="" maxlength="32">
                   </div>
-                  <div class="na-field-hint">handle: <span class="na-handle-preview">/new_agent</span></div>
+                  <div class="na-field-hint"><span data-i18n-na="na_hint_handle"></span> <span class="na-handle-preview">/new_agent</span></div>
                 </div>
 
                 <div class="na-field">
                   <label class="na-field-label">
-                    <span>Intro</span>
+                    <span data-i18n-na="na_field_intro"></span>
                     <span class="na-field-meta"><span class="na-desc-count">0</span>/280</span>
                   </label>
                   <div class="na-textarea-wrap intro">
-                    <textarea class="na-desc-input" placeholder="One or two sentences · how this director shows up in a room. Reads everything on a hundred-year scale. Knows which patterns repeat and which never do." maxlength="280"></textarea>
+                    <textarea class="na-desc-input" data-i18n-na-placeholder="na_intro_ph" placeholder="" maxlength="280"></textarea>
                   </div>
-                  <div class="na-field-hint">becomes their public bio</div>
+                  <div class="na-field-hint" data-i18n-na="na_hint_bio"></div>
                 </div>
 
                 <div class="na-field">
                   <label class="na-field-label">
-                    <span>Instruction</span>
-                    <span class="na-field-meta"><span class="na-instr-count">0</span> chars · markdown</span>
+                    <span data-i18n-na="na_field_instruction"></span>
+                    <span class="na-field-meta"><span class="na-instr-count">0</span> · <span data-i18n-na="na_instr_meta"></span></span>
                   </label>
                   <div class="na-textarea-wrap tall">
-                    <textarea class="na-instr-input" spellcheck="false" placeholder="### Role
-You are __, the room's __. Your job is to ___.
-
-### Voice
-Demand ___. Don't ___. Cite ___ when ___.
-
-### Boundaries
-When the room ___, raise an objection."></textarea>
+                    <textarea class="na-instr-input" spellcheck="false" data-i18n-na-placeholder="na_instr_ph" placeholder=""></textarea>
                   </div>
-                  <div class="na-field-hint">applies to every room they join · skills, rules and model are configured later in the profile</div>
+                  <div class="na-field-hint" data-i18n-na="na_hint_instr"></div>
                 </div>
 
               </div>
@@ -195,12 +220,12 @@ When the room ___, raise an objection."></textarea>
           </div>
 
           <footer class="na-foot">
-            <div class="na-foot-meta">configure skills · rules · model after creation</div>
+            <div class="na-foot-meta" data-i18n-na="na_foot_meta"></div>
             <div class="na-foot-actions">
-              <button type="button" class="na-cancel">cancel</button>
+              <button type="button" class="na-cancel" data-i18n-na="na_cancel"></button>
               <button type="button" class="na-create" disabled>
                 <span class="na-create-mark">◆</span>
-                <span>create director</span>
+                <span data-i18n-na="na_create"></span>
               </button>
             </div>
           </footer>
@@ -229,13 +254,13 @@ When the room ___, raise an objection."></textarea>
     const addBtn = modal && modal.querySelector("[data-na-rule-add]");
     if (!list) return;
     if (rulesState.length === 0) {
-      list.innerHTML = `<li class="na-rule-empty">no rules yet · directors will follow only their instruction</li>`;
+      list.innerHTML = `<li class="na-rule-empty">${escape(t("na_rule_empty"))}</li>`;
     } else {
       list.innerHTML = rulesState.map((body, i) => `
         <li class="na-rule" data-rule-idx="${i}">
           <span class="na-rule-num">${i + 1}</span>
-          <input type="text" class="na-rule-input" placeholder="never preface · cite the load-bearing claim with **bold** · ..." maxlength="120" value="${escape(body)}">
-          <button type="button" class="na-rule-rm" data-na-rule-rm="${i}" title="Remove">✕</button>
+          <input type="text" class="na-rule-input" placeholder="${escape(t("na_rule_ph"))}" maxlength="120" value="${escape(body)}">
+          <button type="button" class="na-rule-rm" data-na-rule-rm="${i}" title="${escape(t("na_rule_rm"))}">✕</button>
         </li>
       `).join("");
     }
@@ -282,9 +307,9 @@ When the room ___, raise an objection."></textarea>
         `);
       } else {
         slots.push(`
-          <button type="button" class="na-skill-slot empty" data-na-skill-slot="${i}" title="Install ability">
+          <button type="button" class="na-skill-slot empty" data-na-skill-slot="${i}" title="${escape(t("na_skill_install"))}">
             <span class="na-skill-icon">+</span>
-            <span class="na-skill-name">empty</span>
+            <span class="na-skill-name">${escape(t("na_skill_empty"))}</span>
           </button>
         `);
       }
@@ -363,9 +388,9 @@ When the room ___, raise an objection."></textarea>
 
   function getProviderStatus(provider) {
     const keys = (typeof window.boardroomKeys === "function" ? window.boardroomKeys() : {}) || {};
-    if (keys[provider])    return { label: "direct",          cls: "direct" };
-    if (keys.openrouter)   return { label: "via openrouter",  cls: "via" };
-    return                       { label: "no key",            cls: "none" };
+    if (keys[provider])    return { label: t("na_key_direct"),         cls: "direct" };
+    if (keys.openrouter)   return { label: t("na_key_via"),            cls: "via" };
+    return                       { label: t("na_key_none"),           cls: "none" };
   }
 
   function refreshProviderStatus() {
@@ -395,6 +420,8 @@ When the room ___, raise an objection."></textarea>
     overlay.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
     setTimeout(() => modal.querySelector(".na-name-input").focus(), 80);
+    applyNewAgentI18n();
+    refreshProviderStatus();
   }
 
   function close() {
@@ -511,8 +538,8 @@ When the room ___, raise an objection."></textarea>
     }
 
     if (btn) btn.disabled = true;
-    const originalLabel = labelEl?.textContent || "generate 8-bit avatar";
-    if (labelEl) labelEl.textContent = "thinking…";
+    const originalLabel = labelEl?.textContent || t("na_avatar_regen");
+    if (labelEl) labelEl.textContent = t("na_avatar_thinking");
 
     try {
       const res = await fetch("/api/avatar/generate", {
@@ -595,6 +622,9 @@ When the room ___, raise an objection."></textarea>
     // Initial paint of placeholder
     paintAvatar();
 
+    document.addEventListener("boardroom:locale", applyNewAgentI18n);
+    applyNewAgentI18n();
+
     // Create — POST to /api/agents and refresh the sidebar's agents list.
     modal.querySelector(".na-create").addEventListener("click", async () => {
       const create = modal.querySelector(".na-create");
@@ -631,9 +661,8 @@ When the room ___, raise an objection."></textarea>
       const avatarPath = "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 
       // Lock the button while the request is in flight.
-      const orig = create.textContent;
       create.disabled = true;
-      create.textContent = "[ creating… ]";
+      create.innerHTML = `<span class="na-create-mark">◆</span><span>${escape(t("na_creating"))}</span>`;
 
       try {
         const res = await fetch("/api/agents", {
@@ -658,9 +687,11 @@ When the room ___, raise an objection."></textarea>
         } catch (_) { /* */ }
         close();
       } catch (e) {
-        alert("Couldn't create the director: " + (e && e.message ? e.message : e));
+        const msg = e && e.message ? e.message : String(e);
+        alert(t("na_create_fail", { msg }));
         create.disabled = false;
-        create.textContent = orig;
+        create.innerHTML = `<span class="na-create-mark">◆</span><span data-i18n-na="na_create"></span>`;
+        applyNewAgentI18n();
       }
     });
   }

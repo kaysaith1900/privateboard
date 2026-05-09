@@ -33,13 +33,14 @@ import {
   requestSoftPause,
   resumeRoom,
   setPendingUserAfterCurrent,
+  markVoicePlaybackDone,
   tickRoom,
 } from "../orchestrator/room.js";
 import { pickDirectors } from "../orchestrator/director-picker.js";
 import { roomBus, type RoomEvent } from "../orchestrator/stream.js";
 import { getAgent, getChairAgent, listAgents } from "../storage/agents.js";
 import { getBriefByRoom, listBriefsForRoom } from "../storage/briefs.js";
-import { hasBraveKey } from "../storage/keys.js";
+import { hasWebSearchKey } from "../storage/keys.js";
 import { insertConfigEvent, listConfigEvents } from "../storage/config-events.js";
 import {
   getKeyPoint,
@@ -180,6 +181,7 @@ export function roomsRouter(): Hono {
       mode?: unknown;
       intensity?: unknown;
       briefStyle?: unknown;
+      deliveryMode?: unknown;
       agentIds?: unknown;
       autoPick?: unknown;
       parentRoomId?: unknown;
@@ -314,6 +316,7 @@ export function roomsRouter(): Hono {
     const rawStyle = typeof b.briefStyle === "string" ? b.briefStyle.trim() : "";
     const styleResolved = STYLE_ALIAS[rawStyle] ?? rawStyle;
     const briefStyle = ALLOWED_STYLES.has(styleResolved) ? styleResolved : "auto";
+    const deliveryMode = b.deliveryMode === "voice" ? "voice" : "text";
 
     const { room, members } = createRoom({
       name,
@@ -321,6 +324,7 @@ export function roomsRouter(): Hono {
       mode,
       intensity,
       briefStyle,
+      deliveryMode,
       agentIds,
       parentRoomId,
       parentBriefId,
@@ -332,7 +336,7 @@ export function roomsRouter(): Hono {
     insertConfigEvent({
       roomId: room.id,
       kind: "room-opened",
-      payload: { mode, intensity, briefStyle, members: members.map((m) => m.agentId), autoPick },
+      payload: { mode, intensity, briefStyle, deliveryMode, members: members.map((m) => m.agentId), autoPick },
       actorKind: "user",
     });
 
@@ -368,11 +372,10 @@ export function roomsRouter(): Hono {
     setAwaitingClarify(room.id, true);
 
     // Research-mode hint · the room defaults web search ON, but it
-    // can only actually run when a Brave Search API key is configured.
-    // Post a one-time chair notice up front so the user knows what's
-    // missing without blocking the room. Inferred language matches the
-    // subject to keep the chair's voice consistent.
-    if (mode === "research" && !hasBraveKey()) {
+    // can only actually run when a search API key (Brave Search or Tavily)
+    // is configured. Post a one-time chair notice up front so the user
+    // knows what's missing without blocking the room.
+    if (mode === "research" && !hasWebSearchKey()) {
       const langGuess: "zh" | "en" = /[一-鿿]/.test(subject) ? "zh" : "en";
       announceResearchHint(room.id, langGuess);
     }
@@ -398,13 +401,7 @@ export function roomsRouter(): Hono {
         if (autoPick) {
           await runAutoPickAndSeat(room.id, subject);
         }
-        // Defensive · refuse to tick a room with 0 director-role
-        // members. Layer 1 (the route validation above) blocks this at
-        // creation time, but if a future regression or an
-        // addRoomMember failure leaves us here with 0 directors, we
-        // surface a clear pause rather than letting tickRoom dispatch
-        // into an empty queue (which produces a silent room with no
-        // error path · the symptom the user reported).
+        if (getRoom(room.id)?.status !== "live") return;
         const seated = listRoomMembers(room.id).filter((m) => {
           const a = getAgent(m.agentId);
           return !!a && a.roleKind === "director";
@@ -428,6 +425,8 @@ export function roomsRouter(): Hono {
           return;
         }
         const result = await runChairClarify(room.id);
+        // Bail again — room may have been paused during clarify
+        if (getRoom(room.id)?.status !== "live") return;
         if (result.ready) tickRoom(room.id, { roundNum: 1, kind: initialTickKind });
       } catch (e) {
         const isChairLLMError = e instanceof ChairStreamError;
@@ -665,9 +664,12 @@ export function roomsRouter(): Hono {
       void (async () => {
         try {
           const result = await runChairClarify(id);
+          // Bail if room was paused during clarify
+          if (getRoom(id)?.status !== "live") return;
           if (result.ready) tickRoom(id, { roundNum, forceSpeakerId: mentions[0] ?? null });
         } catch (e) {
           process.stderr.write(`[rooms] chair clarify failed: ${e instanceof Error ? e.message : String(e)}\n`);
+          if (getRoom(id)?.status !== "live") return;
           tickRoom(id, { roundNum, forceSpeakerId: mentions[0] ?? null });
         }
       })();
@@ -715,6 +717,13 @@ export function roomsRouter(): Hono {
     if (!getRoom(id)) return c.json({ error: "not found" }, 404);
     abortRoom(id);
     return c.json({ ok: true });
+  });
+
+  r.post("/:id/messages/:messageId/voice-done", (c) => {
+    const id = c.req.param("id");
+    const messageId = c.req.param("messageId");
+    if (!getRoom(id)) return c.json({ error: "not found" }, 404);
+    return c.json({ ok: markVoicePlaybackDone(id, messageId) });
   });
 
   // ── Pause the room — body { mode: "hard" | "soft" }.
@@ -786,8 +795,26 @@ export function roomsRouter(): Hono {
       createdAt: ts,
     });
 
-    // Restore the saved queue + re-engage the speaker pump.
-    resumeRoom(id);
+    // If the room is still in awaitingClarify (paused during convening
+    // before clarify completed), re-run the clarify→tick flow.
+    if (room.awaitingClarify) {
+      void (async () => {
+        try {
+          const result = await runChairClarify(id);
+          if (getRoom(id)?.status !== "live") return;
+          if (result.ready) tickRoom(id, { roundNum: 1 });
+        } catch (e) {
+          process.stderr.write(`[rooms] resume clarify failed: ${e instanceof Error ? e.message : String(e)}\n`);
+          if (getRoom(id)?.status !== "live") return;
+          // Clear clarify flag and proceed to directors
+          setAwaitingClarify(id, false);
+          tickRoom(id, { roundNum: 1 });
+        }
+      })();
+    } else {
+      // Restore the saved queue + re-engage the speaker pump.
+      resumeRoom(id);
+    }
 
     return c.json({ room: getRoom(id) });
   });
@@ -849,7 +876,7 @@ export function roomsRouter(): Hono {
     try { body = await c.req.json(); }
     catch { return c.json({ error: "invalid JSON body" }, 400); }
 
-    const b = (body ?? {}) as { mode?: unknown; intensity?: unknown; briefStyle?: unknown; incognito?: unknown };
+    const b = (body ?? {}) as { mode?: unknown; intensity?: unknown; briefStyle?: unknown; incognito?: unknown; deliveryMode?: unknown };
 
     // `no-mercy` retired · existing rooms with that mode keep loading
     // (the prompt builder maps no-mercy → debate at runtime), but new
@@ -865,7 +892,7 @@ export function roomsRouter(): Hono {
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
     const STYLE_ALIAS: Record<string, string> = { mck: "mckinsey" };
 
-    const patch: { mode?: string; intensity?: string; briefStyle?: string } = {};
+    const patch: { mode?: string; intensity?: string; briefStyle?: string; deliveryMode?: string } = {};
     let incognitoNext: boolean | null = null;
 
     if (typeof b.mode === "string") {
@@ -886,6 +913,11 @@ export function roomsRouter(): Hono {
     }
     if (typeof b.incognito === "boolean") {
       incognitoNext = b.incognito;
+    }
+    if (typeof b.deliveryMode === "string") {
+      const dm = b.deliveryMode.trim();
+      if (dm !== "voice" && dm !== "text") return c.json({ error: `invalid deliveryMode: ${dm}` }, 400);
+      patch.deliveryMode = dm;
     }
 
     if (Object.keys(patch).length === 0 && incognitoNext === null) {
@@ -909,6 +941,9 @@ export function roomsRouter(): Hono {
     }
     if (patch.briefStyle !== undefined && patch.briefStyle !== room.briefStyle) {
       changes.briefStyle = { from: room.briefStyle, to: patch.briefStyle };
+    }
+    if (patch.deliveryMode !== undefined && patch.deliveryMode !== room.deliveryMode) {
+      changes.deliveryMode = { from: room.deliveryMode, to: patch.deliveryMode };
     }
     if (Object.keys(changes).length > 0) {
       const ts = Date.now();
