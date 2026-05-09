@@ -67,6 +67,7 @@ function fixtureRoom(mode: string, intensity: string): Room {
     incognito: false,
     parentRoomId: null,
     parentBriefId: null,
+    deliveryMode: "text",
   };
 }
 
@@ -77,6 +78,7 @@ function fixturePrefs(): Prefs {
     avatarSeed: null,
     theme: "dark",
     defaultModelV: null,
+    webSearchProvider: "brave",
     createdAt: 0,
     updatedAt: 0,
   };
@@ -198,6 +200,29 @@ describe("buildDirectorMessages · tone normalization", () => {
     expect(prompt).toContain("─── INTENSITY · TERSE ───");
     expect(prompt).toContain("minimal cadence");
     expect(prompt).toContain("LENGTH dial, not the harshness dial");
+  });
+});
+
+describe("buildDirectorMessages · voice delivery mode", () => {
+  it("injects colloquial roundtable guidance", () => {
+    const speaker = fixtureAgent({ id: "speaker", name: "Speaker", handle: "/speaker" });
+    const peer = fixtureAgent({ id: "peer", name: "Peer", handle: "/peer" });
+    const room: Room = { ...fixtureRoom("constructive", "sharp"), deliveryMode: "voice" };
+    const msgs = buildDirectorMessages({
+      speaker,
+      cast: [speaker, peer],
+      room,
+      prefs: fixturePrefs(),
+      history: [],
+      deliveryMode: "voice",
+    });
+    const prompt = msgs[0].content;
+    expect(prompt).toContain("─── DELIVERY · VOICE MODE ───");
+    expect(prompt).toContain("大白话");
+    expect(prompt).toContain("ONE MOVE PER TURN");
+    expect(prompt).toContain("Forbidden taxonomy tours");
+    expect(prompt).toContain("115 English words");
+    expect(msgs[msgs.length - 1].content).toContain("One move only");
   });
 });
 

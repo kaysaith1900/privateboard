@@ -56,6 +56,18 @@ describe("rooms DAO", () => {
     expect(fresh.adjournedAt).toBe(12345);
   });
 
+  it("persists room delivery mode for voice meetings", () => {
+    seedTwoAgents();
+    const { room } = createRoom({
+      name: "voice",
+      subject: "slow the meeting down",
+      agentIds: ["soc"],
+      deliveryMode: "voice",
+    });
+    expect(room.deliveryMode).toBe("voice");
+    expect(getRoom(room.id)?.deliveryMode).toBe("voice");
+  });
+
   it("creating a room with an unknown agent still inserts (FK isn't validated by createRoom)", () => {
     // createRoom takes agentIds it trusts; route layer validates. So FK errors
     // surface as exceptions from SQLite. Confirm that path.

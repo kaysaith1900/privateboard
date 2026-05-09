@@ -23,6 +23,13 @@ describe("prefs", () => {
     expect(p.intro).toBe("thinking about flywheels");
   });
 
+  it("stores webSearchProvider (brave | tavily)", () => {
+    updatePrefs({ webSearchProvider: "tavily" });
+    expect(getPrefs().webSearchProvider).toBe("tavily");
+    updatePrefs({ webSearchProvider: "brave" });
+    expect(getPrefs().webSearchProvider).toBe("brave");
+  });
+
   it("updatedAt advances on writes", async () => {
     const before = getPrefs().updatedAt;
     await new Promise((r) => setTimeout(r, 5));

@@ -1035,6 +1035,23 @@
   margin: -4px 0 6px;
 }
 
+.us-ws-backend-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+}
+.us-ws-backend-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+}
+.us-ws-backend-label span {
+  color: var(--text, #C8C5BE);
+}
+
 /* ─── Available models summary + default picker ───
    Lives at the bottom of the API Key section. Pure-list layout —
    no shadows, no left accents. Provider tag + flat per-model rows

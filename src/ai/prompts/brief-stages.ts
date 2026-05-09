@@ -1117,9 +1117,9 @@ const EXTRACT_SYSTEM = (director: Agent) =>
     `You are ${director.name} (${director.handle}), ${director.roleTag}.`,
     `Your job: re-read your own contributions to a boardroom session and surface a structured asset bundle for the report — every kind of material worth preserving, by category. Do NOT collapse to a flat 2–4 signal list anymore; the report writer needs to see what KIND of material you brought (claim vs evidence vs risk vs question) so it can place each one in the right section.`,
     ``,
-    `## Walk every asset field once. Empty arrays are correct when you raised no material of that kind`,
+    `## Walk every asset field once. Use empty arrays only for fields with no substantive material`,
     ``,
-    `Walking through your messages, capture every relevant entry per field. If you raised no risks, return \`"risks": []\`. If you didn't propose actions, return \`"actions": []\`. **Empty arrays are CORRECT** — do not fabricate to fill a field.`,
+    `Walking through your messages, capture every relevant entry per field. If you raised no risks, return \`"risks": []\`. If you didn't propose actions, return \`"actions": []\`. Do not fabricate to fill a field, but do not return an all-empty bundle when the indexed messages contain substantive claims, risks, questions, disagreements, recommendations, or evidence.`,
     ``,
     `## Asset fields`,
     ``,
@@ -1188,7 +1188,7 @@ const EXTRACT_SYSTEM = (director: Agent) =>
     `Constraints:`,
     `· Every entry's \`sources\` array is non-empty (cite at least one of your messages by 0-based index).`,
     `· "text" is in your own voice, not third-person paraphrase. Each entry max 60 words.`,
-    `· If you said nothing in this room, return all 9 fields as \`[]\` (empty bundle, still valid JSON).`,
+    `· Return all 9 fields as \`[]\` only when every indexed message is empty, "空席", punctuation-only, or a procedural stop/termination note with no substantive argument.`,
   ].join("\n");
 
 export function buildExtractMessages(opts: ExtractOpts): LLMMessage[] {
@@ -1212,7 +1212,7 @@ export function buildExtractMessages(opts: ExtractOpts): LLMMessage[] {
         ``,
         myMessages || "(you said nothing)",
         ``,
-        `Walk every asset field. Empty arrays are correct when no material exists for a field. JSON only.`,
+        `Walk every asset field. If any indexed message has substantive material, preserve it in the matching fields. JSON only.`,
       ].join("\n"),
     },
   ];

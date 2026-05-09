@@ -95,16 +95,13 @@ describe("ai/availability · model reachability per user state", () => {
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 
-  it("Anthropic-only · all three current-gen Claude models reachable direct", () => {
-    // The registry was updated · `openrouterOnly` was dropped on
-    // opus-4-7 + haiku-4-5 once Anthropic's direct API exposed them
-    // (the dated `claude-haiku-4-5-20251001` alias for haiku, the
-    // unsuffixed claude-opus-4-7 / claude-sonnet-4-6 for the others).
-    // An Anthropic-direct key now reaches all three.
+  it("Anthropic-only · all current-gen Claude models reachable direct", () => {
+    // Opus 4.6 / 4.7, Sonnet 4.6, Haiku 4.5 — direct Anthropic API ids
+    // match registry (`claude-opus-4-6`, etc.).
     setKey("anthropic", "sk-ant");
     const reachable = reachableModels();
     const slugs = reachable.map((m) => m.modelV).sort();
-    expect(slugs).toEqual(["haiku-4-5", "opus-4-7", "sonnet-4-6"]);
+    expect(slugs).toEqual(["haiku-4-5", "opus-4-6", "opus-4-7", "sonnet-4-6"]);
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 
@@ -153,7 +150,7 @@ describe("ai/availability · default model selection", () => {
 
   it("Anthropic only · returns opus-4-7 (provider flagship)", () => {
     // Anthropic-direct now reaches all three current-gen Claude
-    // models (opus-4-7 / sonnet-4-6 / haiku-4-5). The flagship pick
+    // models (opus-4-7 / opus-4-6 / sonnet-4-6 / haiku-4-5). The flagship pick
     // matches PRIMARY_BY_PROVIDER.anthropic = "opus-4-7".
     setKey("anthropic", "sk-ant");
     expect(defaultModelFor()).toBe("opus-4-7");

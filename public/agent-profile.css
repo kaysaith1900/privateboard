@@ -3229,3 +3229,83 @@
   color: var(--bg, #0A0A0A);
 }
 .ap-skill-info-configure-mark { font-size: 12px; }
+
+/* ── Voice configuration panel ───────────────────────────── */
+.ap-voice-config {
+  margin-top: 8px;
+  padding: 12px 0;
+}
+.ap-voice-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ap-voice-picker-row .ap-model-trigger { flex: 1; }
+.ap-voice-preview-btn {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  background: var(--panel-2, #1a1a1a);
+  border: 1px solid var(--line-bright, #333);
+  color: var(--lime, #6FB572);
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+.ap-voice-preview-btn:hover { background: var(--panel-3, #222); }
+.ap-voice-preview-btn:disabled { opacity: 0.5; cursor: wait; }
+
+.ap-voice-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ap-voice-slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ap-voice-slider-label {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-soft, #999);
+  white-space: nowrap;
+  min-width: 70px;
+}
+.ap-voice-slider input[type="range"] {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--lime, #6FB572);
+  cursor: pointer;
+}
+.ap-voice-slider select {
+  flex: 1;
+  background: var(--panel-2, #1a1a1a);
+  border: 1px solid var(--line-bright, #333);
+  color: var(--text, #eee);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.ap-voice-advanced {
+  margin-top: 10px;
+  border-top: 1px solid var(--line, #222);
+  padding-top: 8px;
+}
+.ap-voice-advanced summary {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-soft, #999);
+  cursor: pointer;
+  user-select: none;
+}
+.ap-voice-advanced summary:hover { color: var(--text, #eee); }

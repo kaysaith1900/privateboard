@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { getModel, isModelV, listModels, MODELS } from "../src/ai/registry.js";
 
 describe("model registry", () => {
-  it("exposes 15 known models", () => {
-    expect(listModels()).toHaveLength(15);
+  it("exposes 17 known models", () => {
+    expect(listModels()).toHaveLength(17);
   });
 
   it("isModelV gates unknown ids", () => {

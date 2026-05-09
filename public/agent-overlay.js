@@ -16,6 +16,7 @@
    *  a key isn't in the table (registry updates lag this map). */
   const MODEL_LABELS = {
     "opus-4-7":         { name: "Claude Opus 4.7",       provider: "Anthropic" },
+    "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "sonnet-4-6":       { name: "Claude Sonnet 4.6",     provider: "Anthropic" },
     "haiku-4-5":        { name: "Claude Haiku 4.5",      provider: "Anthropic" },
     "gpt-5-5":          { name: "GPT-5.5",                provider: "OpenAI"    },
@@ -28,9 +29,9 @@
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  provider: "Google"    },
     "grok-4-3":         { name: "Grok 4.3",                provider: "xAI"       },
     "grok-4-1-fast":    { name: "Grok 4.1 Fast",           provider: "xAI"       },
-    "grok-4-3":         { name: "Grok 4.3",                provider: "xAI"       },
     "grok-4-20":        { name: "Grok 4.20",               provider: "xAI"       },
     "deepseek-v4-pro":  { name: "DeepSeek V4 Pro",         provider: "DeepSeek"  },
+    "deepseek-v4-flash": { name: "DeepSeek Lite",          provider: "DeepSeek"  },
   };
 
   const AGENT_CATALOG = {

@@ -5,6 +5,7 @@ import { getChairAgent } from "./agents.js";
 import { getDb } from "./db.js";
 
 export type RoomStatus = "live" | "paused" | "adjourned";
+export type RoomDeliveryMode = "text" | "voice";
 
 export interface Room {
   id: string;
@@ -14,6 +15,7 @@ export interface Room {
   mode: string;       // tone: brainstorm | constructive | research | debate | critique
                       //       (legacy "no-mercy" rooms map to debate at read time)
   intensity: string;  // calm | sharp | terse  (legacy "brutal" maps to terse at read time)
+  deliveryMode: RoomDeliveryMode;
   status: RoomStatus;
   briefStyle: string | null;  // auto | mckinsey | gartner | a16z | anthropic | 8bit
   /** Soft-pause flag set by the chair after a round-end key-points message. */
@@ -53,6 +55,7 @@ interface Row {
   subject: string;
   mode: string;
   intensity: string;
+  delivery_mode: string;
   status: string;
   brief_style: string | null;
   awaiting_continue: number;
@@ -72,7 +75,7 @@ interface MemberRow {
 }
 
 const ROOM_COLS =
-  "id, number, name, subject, mode, intensity, status, brief_style, awaiting_continue, " +
+  "id, number, name, subject, mode, intensity, delivery_mode, status, brief_style, awaiting_continue, " +
   "awaiting_clarify, created_at, paused_at, adjourned_at, incognito, " +
   "parent_room_id, parent_brief_id";
 
@@ -84,6 +87,7 @@ function mapRow(row: Row): Room {
     subject: row.subject,
     mode: row.mode,
     intensity: row.intensity,
+    deliveryMode: row.delivery_mode === "voice" ? "voice" : "text",
     status: row.status as RoomStatus,
     briefStyle: row.brief_style,
     awaitingContinue: row.awaiting_continue === 1,
@@ -180,6 +184,7 @@ export interface RoomCreate {
   mode?: string;
   intensity?: string;
   briefStyle?: string;
+  deliveryMode?: RoomDeliveryMode;
   agentIds: string[]; // ordered = speaking order
   /** Optional · marks the room as a follow-up to a prior adjourned
    *  room. The orchestrator detects this and injects the parent
@@ -201,9 +206,10 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
   const mode = input.mode ?? "constructive";
   const intensity = input.intensity ?? "sharp";
   const briefStyle = input.briefStyle ?? "auto";
+  const deliveryMode = input.deliveryMode === "voice" ? "voice" : "text";
 
   const insertRoom = db.prepare(
-    "INSERT INTO rooms (id, number, name, subject, mode, intensity, brief_style, status, created_at, parent_room_id, parent_brief_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?)",
+    "INSERT INTO rooms (id, number, name, subject, mode, intensity, delivery_mode, brief_style, status, created_at, parent_room_id, parent_brief_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?)",
   );
   const insertMember = db.prepare(
     "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
@@ -217,7 +223,7 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
   const parentBriefId = input.parentBriefId && input.parentBriefId.trim() ? input.parentBriefId.trim() : null;
 
   const tx = db.transaction(() => {
-    insertRoom.run(id, number, input.name, input.subject, mode, intensity, briefStyle, now, parentRoomId, parentBriefId);
+    insertRoom.run(id, number, input.name, input.subject, mode, intensity, deliveryMode, briefStyle, now, parentRoomId, parentBriefId);
     if (chair) insertMember.run(id, chair.id, -1, now);
     input.agentIds.forEach((agentId, idx) => {
       // Don't double-insert if a caller passed the chair id explicitly.
@@ -308,6 +314,7 @@ export interface RoomSettingsPatch {
   mode?: string;
   intensity?: string;
   briefStyle?: string;
+  deliveryMode?: RoomDeliveryMode;
 }
 
 /**
@@ -324,6 +331,7 @@ export function updateRoomSettings(
   if (patch.mode !== undefined)       { sets.push("mode = ?");        vals.push(patch.mode); }
   if (patch.intensity !== undefined)  { sets.push("intensity = ?");   vals.push(patch.intensity); }
   if (patch.briefStyle !== undefined) { sets.push("brief_style = ?"); vals.push(patch.briefStyle); }
+  if (patch.deliveryMode !== undefined) { sets.push("delivery_mode = ?"); vals.push(patch.deliveryMode === "voice" ? "voice" : "text"); }
   if (sets.length === 0) return getRoom(roomId);
   vals.push(roomId);
   getDb().prepare(`UPDATE rooms SET ${sets.join(", ")} WHERE id = ?`).run(...vals);

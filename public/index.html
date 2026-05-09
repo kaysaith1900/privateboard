@@ -3128,6 +3128,98 @@
   }
   .brief-stat-fact.brief-stat-live { color: var(--lime); }
 
+  .brief-llm-trace {
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+  .brief-llm-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: left;
+    cursor: pointer;
+  }
+  .brief-llm-toggle:hover { color: var(--lime); }
+  .brief-llm-toggle-mark {
+    color: var(--lime);
+    font-weight: 700;
+  }
+  .brief-llm-toggle-meta {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+  .brief-llm-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 8px;
+  }
+  .brief-llm-row {
+    padding: 10px 0;
+    border-top: 1px solid var(--line-bright);
+  }
+  .brief-llm-row:first-child { border-top: 0; }
+  .brief-llm-row-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 7px;
+  }
+  .brief-llm-row-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .brief-llm-row.is-running .brief-llm-row-title { color: var(--lime); }
+  .brief-llm-row.is-failed .brief-llm-row-title { color: var(--red); }
+  .brief-llm-row-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .brief-llm-error {
+    margin-bottom: 8px;
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  .brief-llm-output {
+    max-height: 220px;
+    overflow: auto;
+    margin: 0;
+    padding: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .brief-llm-empty {
+    color: var(--text-faint);
+    font-style: italic;
+  }
+
   /* Brief error / interrupted state · retry button matches the
      supplement-row treatment but uses red accent for "something went
      wrong, click to retry" affordance. */
@@ -7330,6 +7422,47 @@
     border-color: var(--lime-dim);
   }
 
+  /* Voice mode switch in composer toolbar */
+  .cmp-voice-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    user-select: none;
+  }
+  .cmp-voice-switch input { display: none; }
+  .cmp-voice-switch-track {
+    position: relative;
+    width: 28px; height: 14px;
+    background: var(--line-bright);
+    border-radius: 7px;
+    transition: background 0.15s;
+  }
+  .cmp-voice-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 10px; height: 10px;
+    background: var(--bg);
+    border-radius: 50%;
+    transition: transform 0.15s;
+  }
+  .cmp-voice-switch input:checked ~ .cmp-voice-switch-track {
+    background: var(--lime);
+  }
+  .cmp-voice-switch input:checked ~ .cmp-voice-switch-track::after {
+    transform: translateX(14px);
+  }
+  .cmp-voice-switch input:checked ~ .cmp-voice-switch-label {
+    color: var(--lime);
+  }
+
   .cmp-go {
     flex-shrink: 0;
     width: 36px; height: 36px;
@@ -9072,6 +9205,7 @@
 <link rel="stylesheet" href="new-agent.css">
 <script src="new-agent.js" defer></script>
 <link rel="stylesheet" href="user-settings.css">
+<script type="module" src="keys-store.js"></script>
 <script src="user-settings.js" defer></script>
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">

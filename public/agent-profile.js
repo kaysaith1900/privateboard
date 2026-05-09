@@ -604,6 +604,7 @@
   // /api/agents record (via window.app.agentsById) and resolves it here.
   const MODEL_LABELS = {
     "sonnet-4-6":     { name: "Sonnet 4.6",      deck: "balanced · default" },
+    "opus-4-6":       { name: "Opus 4.6",        deck: "deep reasoning · 1M ctx" },
     "opus-4-7":       { name: "Opus 4.7",        deck: "deep reasoning" },
     "haiku-4-5":      { name: "Haiku 4.5",       deck: "fast · low-cost" },
     "gpt-5-5":        { name: "GPT-5.5",         deck: "flagship · 1M ctx" },
@@ -614,6 +615,11 @@
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  deck: "fast · 1M ctx" },
     "grok-4-3":       { name: "Grok 4.3",        deck: "flagship · 1M ctx" },
     "grok-4-1-fast":  { name: "Grok 4.1 Fast",   deck: "fast · 256k ctx" },
+    "grok-4-20":      { name: "Grok 4.20",       deck: "2M ctx · big context" },
+    "gpt-5-5-pro":    { name: "GPT-5.5 Pro",     deck: "deep reasoning · 1M ctx" },
+    "codex-5-4":      { name: "ChatGPT Codex 5.4", deck: "code · agents" },
+    "deepseek-v4-pro": { name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
+    "deepseek-v4-flash": { name: "DeepSeek Lite", deck: "V4 Flash · fast · 1M ctx" },
   };
 
   function liveModelFor(slug) {
@@ -1432,7 +1438,7 @@
         .join(" ");
       const titleText = keyOk
         ? (enabled ? "Disable Web Search for this director" : "Enable Web Search for this director")
-        : "Web Search needs a Brave Search API key — click to configure";
+        : uiT("ag_ws_title_needs");
       // When the global key is missing, omit the text label entirely
       // so the row stays compact. The dotted toggle track + hover
       // tooltip communicate the state on its own; the just-in-time
@@ -1600,7 +1606,7 @@
           <div class="ap-skill-info-actions">
             <button type="button" class="ap-skill-info-configure" data-ap-ws-configure data-provider="${escape(wsProvider)}">
               <span class="ap-skill-info-configure-mark">↗</span>
-              <span>configure brave search api key</span>
+              <span>${escape(uiT("ag_ws_configure_key"))}</span>
             </button>
           </div>
         ` : ""}
@@ -1857,6 +1863,7 @@
   const PROFILE_MODELS = [
     // Anthropic
     { v: "opus-4-7",        name: "Claude Opus 4.7",   provider: "Anthropic", deck: "deep reasoning · default" },
+    { v: "opus-4-6",        name: "Claude Opus 4.6",   provider: "Anthropic", deck: "deep reasoning · 1M ctx" },
     { v: "sonnet-4-6",      name: "Claude Sonnet 4.6", provider: "Anthropic", deck: "balanced · 1M ctx" },
     { v: "haiku-4-5",       name: "Claude Haiku 4.5",  provider: "Anthropic", deck: "fast · low-cost" },
     // OpenAI
@@ -1872,7 +1879,8 @@
     { v: "grok-4-3",        name: "Grok 4.3",          provider: "xAI",       deck: "1M ctx" },
     { v: "grok-4-20",       name: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     // DeepSeek
-    { v: "deepseek-v4-pro", name: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" }
+    { v: "deepseek-v4-pro", name: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
+    { v: "deepseek-v4-flash", name: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" }
   ];
   function modelKey(slug) { return "boardroom.agent.model." + slug; }
 
@@ -2232,6 +2240,183 @@
     if (prov) prov.textContent = formatTriggerMeta(m);
   }
 
+  let voiceOptionsCache = null;
+  async function ensureVoiceOptions() {
+    if (voiceOptionsCache) return voiceOptionsCache;
+    try {
+      const r = await fetch("/api/voices");
+      const j = r.ok ? await r.json() : {};
+      voiceOptionsCache = Array.isArray(j.voices) ? j.voices : [];
+    } catch {
+      voiceOptionsCache = [];
+    }
+    return voiceOptionsCache;
+  }
+  function voiceForAgent(slug) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    return live && live.voice ? live.voice : null;
+  }
+  function renderVoiceBlock(slug) {
+    const v = voiceForAgent(slug);
+    const label = v ? `${v.provider} · ${v.voiceId}` : "Browser default";
+    const deck = v ? v.model : "speechSynthesis";
+    const speed = v?.speed ?? 1;
+    const pitch = v?.pitch ?? 0;
+    const emotion = v?.emotion || "";
+    const modPitch = v?.modifyPitch ?? 0;
+    const modIntensity = v?.modifyIntensity ?? 0;
+    const modTimbre = v?.modifyTimbre ?? 0;
+
+    const emotions = ["", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"];
+    const emotionOpts = emotions.map((e) =>
+      `<option value="${e}" ${emotion === e ? "selected" : ""}>${e || "auto"}</option>`
+    ).join("");
+
+    return `
+      <div class="ap-voice-config" data-ap-voice-row data-slug="${escape(slug)}">
+        <div class="ap-voice-picker-row">
+          <button type="button" class="ap-model-trigger" data-ap-voice-trigger>
+            <span class="ap-model-trigger-text">
+              <span class="ap-model-trigger-name" data-ap-voice-name>${escape(label)}</span>
+              <span class="ap-model-trigger-provider" data-ap-voice-provider>${escape(deck)}</span>
+            </span>
+            <span class="ap-model-trigger-caret">▾</span>
+          </button>
+          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="试听 / Preview">▶</button>
+        </div>
+        <div class="ap-voice-sliders">
+          <label class="ap-voice-slider">
+            <span class="ap-voice-slider-label">语速 <span data-ap-voice-val="speed">${speed.toFixed(1)}</span></span>
+            <input type="range" min="0.5" max="2" step="0.1" value="${speed}" data-ap-voice-range="speed" data-slug="${escape(slug)}">
+          </label>
+          <label class="ap-voice-slider">
+            <span class="ap-voice-slider-label">语调 <span data-ap-voice-val="pitch">${pitch}</span></span>
+            <input type="range" min="-12" max="12" step="1" value="${pitch}" data-ap-voice-range="pitch" data-slug="${escape(slug)}">
+          </label>
+          <label class="ap-voice-slider">
+            <span class="ap-voice-slider-label">情绪</span>
+            <select data-ap-voice-emotion data-slug="${escape(slug)}">${emotionOpts}</select>
+          </label>
+        </div>
+        <details class="ap-voice-advanced">
+          <summary>高级调节</summary>
+          <div class="ap-voice-sliders">
+            <label class="ap-voice-slider">
+              <span class="ap-voice-slider-label">音高 <span data-ap-voice-val="modifyPitch">${modPitch}</span></span>
+              <input type="range" min="-100" max="100" step="5" value="${modPitch}" data-ap-voice-range="modifyPitch" data-slug="${escape(slug)}">
+            </label>
+            <label class="ap-voice-slider">
+              <span class="ap-voice-slider-label">力度 <span data-ap-voice-val="modifyIntensity">${modIntensity}</span></span>
+              <input type="range" min="-100" max="100" step="5" value="${modIntensity}" data-ap-voice-range="modifyIntensity" data-slug="${escape(slug)}">
+            </label>
+            <label class="ap-voice-slider">
+              <span class="ap-voice-slider-label">音色 <span data-ap-voice-val="modifyTimbre">${modTimbre}</span></span>
+              <input type="range" min="-100" max="100" step="5" value="${modTimbre}" data-ap-voice-range="modifyTimbre" data-slug="${escape(slug)}">
+            </label>
+          </div>
+        </details>
+      </div>
+    `;
+  }
+  async function openVoicePicker(triggerEl) {
+    closeVoicePicker();
+    const row = triggerEl.closest("[data-ap-voice-row]");
+    const slug = row?.getAttribute("data-slug");
+    if (!slug) return;
+    const current = voiceForAgent(slug);
+    const voices = await ensureVoiceOptions();
+    const pop = document.createElement("div");
+    pop.id = "ap-voice-picker";
+    pop.className = "ap-model-picker";
+    pop.dataset.slug = slug;
+    if (voices.length === 0) {
+      pop.innerHTML = `<div class="ap-model-group">No voice provider configured</div>`;
+    } else {
+      const groups = [];
+      let last = null;
+      for (const v of voices) {
+        const provider = String(v.provider || "browser");
+        if (provider !== last) {
+          groups.push(`<div class="ap-model-group">${escape(provider)}</div>`);
+          last = provider;
+        }
+        const id = [provider, v.model || "", v.voiceId || ""].join("|");
+        const active = current && current.provider === provider && current.model === v.model && current.voiceId === v.voiceId;
+        groups.push(`
+          <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-voice-pick="${escape(id)}">
+            <span class="ap-model-opt-label">${escape(v.label || v.voiceId || "voice")}</span>
+            <span class="ap-model-opt-hint">${escape((v.model || "") + (v.language ? " · " + v.language : ""))}</span>
+          </button>
+        `);
+      }
+      pop.innerHTML = groups.join("");
+    }
+    document.body.appendChild(pop);
+    const r = triggerEl.getBoundingClientRect();
+    const popW = 280;
+    pop.style.top = `${Math.round(r.bottom + 4)}px`;
+    pop.style.left = `${Math.round(Math.min(r.left, window.innerWidth - popW - 8))}px`;
+    pop.style.width = `${popW}px`;
+  }
+  function closeVoicePicker() {
+    const el = document.getElementById("ap-voice-picker");
+    if (el) el.remove();
+  }
+  function setVoiceFor(slug, voice) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    if (!live) return;
+    fetch("/api/agents/" + encodeURIComponent(slug), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ voice }),
+    })
+      .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
+      .then((updated) => {
+        live.voice = updated.voice || voice;
+        const row = document.querySelector(`[data-ap-voice-row][data-slug="${slug}"]`);
+        const name = row?.querySelector("[data-ap-voice-name]");
+        const prov = row?.querySelector("[data-ap-voice-provider]");
+        if (name) name.textContent = `${voice.provider} · ${voice.voiceId}`;
+        if (prov) prov.textContent = voice.model;
+      })
+      .catch((e) => alert("Couldn't save voice: " + (e && e.message ? e.message : e)));
+  }
+
+  async function previewVoice(slug) {
+    const v = voiceForAgent(slug);
+    if (!v || !v.voiceId) { alert("Please select a voice first"); return; }
+    const btn = document.querySelector(`[data-ap-voice-preview][data-slug="${slug}"]`);
+    if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+    try {
+      const r = await fetch("/api/voices/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: v.provider,
+          model: v.model,
+          voiceId: v.voiceId,
+          speed: v.speed,
+          pitch: v.pitch,
+          emotion: v.emotion,
+          modifyPitch: v.modifyPitch,
+          modifyIntensity: v.modifyIntensity,
+          modifyTimbre: v.modifyTimbre,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.audioBase64) {
+        alert("Preview failed: " + (data.error || "no audio"));
+        return;
+      }
+      const audio = new Audio(`data:${data.mimeType};base64,${data.audioBase64}`);
+      audio.play().catch((e) => alert("Playback blocked: " + e.message));
+    } catch (e) {
+      alert("Preview error: " + (e.message || e));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "▶"; }
+    }
+  }
+
   function pageHTML(p, slug) {
     const skills = skillsForAgent(slug);
     const liveModel = liveModelFor(slug) || (p.metrics && p.metrics.model) || { name: "—", deck: "" };
@@ -2332,6 +2517,7 @@
               </header>
               <div class="ap-block-body">
                 ${renderModelBlock(slug, liveModel)}
+                ${renderVoiceBlock(slug)}
                 <div class="ap-stats-grid" data-ap-stats data-slug="${escape(slug)}">
                   <div class="ap-stat">
                     <div class="ap-stat-v" data-ap-stat-rooms>—</div>
@@ -2966,9 +3152,10 @@
         const provider = wsToggle.getAttribute("data-provider") || "brave";
         if (!keyConfigured) {
           const ok = confirm(
-            "Web Search needs a Brave Search API key.\n\n" +
-            "Brave Search · ≈ $5 per 1000 queries · privacy-respecting\n\n" +
-            "Open Preferences to paste your key now?",
+            (window.I18n && typeof window.I18n.t === "function")
+              ? uiT("ag_ws_need_key_confirm")
+              :
+                ("Web Search needs Brave Search or Tavily API credentials.\n\nBrave Search · ≈ $5 per 1000 queries. Tavily · per Tavily API credits.\n\nOpen Preferences now?"),
           );
           if (ok && typeof window.openUserSettings === "function") {
             window.openUserSettings({ section: "keys", focusProvider: provider });
@@ -3274,6 +3461,34 @@
         closeModelPicker();
         return;
       }
+      const voiceTrigger = e.target.closest("[data-ap-voice-trigger]");
+      if (voiceTrigger) {
+        e.preventDefault();
+        if (document.getElementById("ap-voice-picker")) closeVoicePicker();
+        else openVoicePicker(voiceTrigger);
+        return;
+      }
+      const voiceOpt = e.target.closest("[data-ap-voice-pick]");
+      if (voiceOpt) {
+        e.preventDefault();
+        const raw = voiceOpt.getAttribute("data-ap-voice-pick") || "";
+        const pop = document.getElementById("ap-voice-picker");
+        const slug = pop?.dataset.slug;
+        const [provider, model, voiceId] = raw.split("|");
+        if (!slug || !provider || !model || !voiceId) return;
+        const existing = voiceForAgent(slug) || {};
+        setVoiceFor(slug, { ...existing, provider, model, voiceId });
+        closeVoicePicker();
+        return;
+      }
+      // Preview button
+      const previewBtn = e.target.closest("[data-ap-voice-preview]");
+      if (previewBtn) {
+        e.preventDefault();
+        const slug = previewBtn.getAttribute("data-slug");
+        if (slug) previewVoice(slug);
+        return;
+      }
     });
     document.addEventListener("click", (e) => {
       const pop = document.getElementById("ap-model-picker");
@@ -3282,6 +3497,48 @@
       if (e.target.closest("[data-ap-model-trigger]")) return;
       closeModelPicker();
     }, true);
+    document.addEventListener("click", (e) => {
+      const pop = document.getElementById("ap-voice-picker");
+      if (!pop) return;
+      if (e.target.closest("#ap-voice-picker")) return;
+      if (e.target.closest("[data-ap-voice-trigger]")) return;
+      closeVoicePicker();
+    }, true);
+
+    // Voice config sliders + emotion
+    document.addEventListener("input", (e) => {
+      const range = e.target.closest("[data-ap-voice-range]");
+      if (range) {
+        const param = range.getAttribute("data-ap-voice-range");
+        const slug = range.getAttribute("data-slug");
+        const val = parseFloat(range.value);
+        // Update display value
+        const container = range.closest(".ap-voice-config");
+        const display = container?.querySelector(`[data-ap-voice-val="${param}"]`);
+        if (display) display.textContent = Number.isInteger(val) ? String(val) : val.toFixed(1);
+        return;
+      }
+    });
+    document.addEventListener("change", (e) => {
+      const range = e.target.closest("[data-ap-voice-range]");
+      if (range) {
+        const param = range.getAttribute("data-ap-voice-range");
+        const slug = range.getAttribute("data-slug");
+        if (!param || !slug) return;
+        const val = parseFloat(range.value);
+        const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        setVoiceFor(slug, { ...existing, [param]: val });
+        return;
+      }
+      const emotionSel = e.target.closest("[data-ap-voice-emotion]");
+      if (emotionSel) {
+        const slug = emotionSel.getAttribute("data-slug");
+        if (!slug) return;
+        const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        setVoiceFor(slug, { ...existing, emotion: emotionSel.value || undefined });
+        return;
+      }
+    });
 
     // Back-to-room paths now that the explicit Back button is gone:
     //  • clicking any sidebar room row → switch back to room view

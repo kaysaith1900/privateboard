@@ -63,7 +63,7 @@ export function getProviderKeyState(): ProviderKeyState {
   for (const meta of listKeyMeta()) {
     if (!meta.configured) continue;
     if (meta.provider === "openrouter") hasOpenRouter = true;
-    else if (meta.provider === "brave") continue; // skill key, not an LLM provider
+    else if (meta.provider === "brave" || meta.provider === "tavily" || meta.provider === "minimax" || meta.provider === "elevenlabs") continue; // skill / voice keys, not LLM
     else directProviders.add(meta.provider);
   }
   return { hasOpenRouter, directProviders };
@@ -135,6 +135,9 @@ const PROVIDER_FLAGSHIP: Record<Provider, ModelV | null> = {
   deepseek: "deepseek-v4-pro",
   openrouter: "opus-4-7",
   brave: null,
+  tavily: null,
+  minimax: null,
+  elevenlabs: null,
 };
 
 /** Resolve the default model the user should see RIGHT NOW, with

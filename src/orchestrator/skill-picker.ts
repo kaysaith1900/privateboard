@@ -484,7 +484,7 @@ export async function pickChairWebSearch(opts: {
     role: "system",
     content: [
       "You are the boardroom chair's pre-turn search router. You decide ONE thing:",
-      "should the chair run a Brave web search before its next reply, and if so what query.",
+      "should the chair run a web search before its next reply, and if so what query.",
       "",
       "STRONG-SEARCH signals (pick one of these → ALWAYS issue a query):",
       "- Time markers: 'today' / 'this week' / 'this month' / 'recent' / 'recently' /",
@@ -520,7 +520,7 @@ export async function pickChairWebSearch(opts: {
       "{ \"query\": null }              // otherwise",
       "",
       "Query rules:",
-      "- 3-8 keywords, no full sentences. Plain ASCII works best for Brave.",
+      "- 3-8 keywords, no full sentences. Plain ASCII works best for most providers.",
       "- Match the language of the question when possible (English keywords for",
       "  global topics; CJK keywords if the question is China-specific).",
       "- For time-sensitive questions, INCLUDE the time marker in the query when",
@@ -531,7 +531,7 @@ export async function pickChairWebSearch(opts: {
       "  the query should be `AI moats 2025` — never `搜索 AI 护城河 用户` or similar.",
       "- DEFAULT WHEN UNCERTAIN: if any STRONG-SEARCH signal is present, ALWAYS",
       "  return a query — never null. Skipping a clearly time-sensitive question",
-      "  is worse than burning one Brave call.",
+      "  is worse than issuing one web search.",
     ].join("\n"),
   };
 
@@ -654,7 +654,7 @@ export async function pickSkills(opts: {
   speaker: Agent;
   skills: AgentSkill[];
   history: Message[];
-  /** True when the user has a Brave Search key AND this speaker has
+  /** True when the user has a Web Search API key AND this speaker has
    *  web-search enabled. When set, the router prompt also asks for
    *  an optional web-search query — same haiku call, no extra cost. */
   webSearchAvailable?: boolean;
@@ -686,7 +686,7 @@ export async function pickSkills(opts: {
   }
   if (webSearchAvailable) {
     baseLines.push(
-      `Web Search · You may also issue ONE Brave Search query for this turn.`,
+      `Web Search · You may also issue ONE live web search query for this turn.`,
     );
     baseLines.push(``);
     baseLines.push(`STRONG-SEARCH signals (pick one → ALWAYS issue a query):`);
@@ -702,7 +702,7 @@ export async function pickSkills(opts: {
     baseLines.push(`DON'T search on philosophical / first-principles / pure-reasoning`);
     baseLines.push(`questions with no time anchor — search adds noise. But when ANY of`);
     baseLines.push(`the STRONG-SEARCH signals above are present, ALWAYS issue a query`);
-    baseLines.push(`— skipping a time-sensitive question is worse than the Brave cost.`);
+    baseLines.push(`— skipping a time-sensitive question is worse than the API cost.`);
     baseLines.push(``);
   }
   const schemaLines = [
@@ -728,7 +728,7 @@ export async function pickSkills(opts: {
     schemaLines.push(`- For \`web_search.query\`: 3-8 keywords, no full sentences. Plain ASCII works best.`);
     schemaLines.push(`- Match the question's language for the query (English keywords for global topics; CJK if China-specific).`);
     schemaLines.push(`- For time-sensitive questions, INCLUDE the time marker in the query when it sharpens results (e.g. '2025', 'this week', '最近').`);
-    schemaLines.push(`- DEFAULT WHEN UNCERTAIN: if any STRONG-SEARCH signal is present in the question, ALWAYS issue a query — never null. Skipping a clearly time-sensitive question is worse than burning one Brave call.`);
+    schemaLines.push(`- DEFAULT WHEN UNCERTAIN: if any STRONG-SEARCH signal is present in the question, ALWAYS issue a query — never null. Skipping a clearly time-sensitive question is worse than one search call.`);
   } else {
     schemaLines.push(`- \`web_search\` MUST be null — the user hasn't enabled it for this speaker.`);
   }

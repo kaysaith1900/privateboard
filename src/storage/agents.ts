@@ -43,8 +43,26 @@ export interface Agent {
    *  provider_keys — without that key, no agent searches regardless
    *  of this flag. */
   webSearchEnabled: boolean;
+  voice: AgentVoiceProfile | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export type AgentVoiceProvider = "openai" | "minimax" | "elevenlabs" | "azure" | "browser" | "custom";
+
+export interface AgentVoiceProfile {
+  provider: AgentVoiceProvider;
+  model: string;
+  voiceId: string;
+  speed?: number;        // 0.5~2.0, default 1.0
+  pitch?: number;        // -12~12, default 0
+  volume?: number;       // 0~10, default 1.0
+  emotion?: string;      // happy|sad|angry|fearful|disgusted|surprised|calm|fluent
+  // voice_modify (advanced fine-tuning)
+  modifyPitch?: number;     // -100~100, 低沉↔明亮
+  modifyIntensity?: number; // -100~100, 刚劲↔轻柔
+  modifyTimbre?: number;    // -100~100, 浑厚↔清脆
+  instructions?: string;
 }
 
 interface Row {
@@ -63,6 +81,7 @@ interface Row {
   is_pinned: number;
   is_seed: number;
   web_search_enabled: number;
+  voice_json: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -80,6 +99,50 @@ function parseAbility(raw: string | null): Record<string, number> | null {
   } catch {
     return null;
   }
+}
+
+const VALID_VOICE_PROVIDERS: ReadonlySet<AgentVoiceProvider> = new Set([
+  "openai", "minimax", "elevenlabs", "azure", "browser", "custom",
+]);
+
+function parseVoice(raw: string | null): AgentVoiceProfile | null {
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const provider = typeof obj.provider === "string" && VALID_VOICE_PROVIDERS.has(obj.provider as AgentVoiceProvider)
+      ? obj.provider as AgentVoiceProvider
+      : null;
+    const model = typeof obj.model === "string" ? obj.model.trim() : "";
+    const voiceId = typeof obj.voiceId === "string" ? obj.voiceId.trim() : "";
+    if (!provider || !model || !voiceId) return null;
+    const out: AgentVoiceProfile = { provider, model, voiceId };
+    if (typeof obj.speed === "number" && Number.isFinite(obj.speed)) out.speed = obj.speed;
+    if (typeof obj.pitch === "number" && Number.isFinite(obj.pitch)) out.pitch = obj.pitch;
+    if (typeof obj.volume === "number" && Number.isFinite(obj.volume)) out.volume = obj.volume;
+    if (typeof obj.instructions === "string" && obj.instructions.trim()) {
+      out.instructions = obj.instructions.trim().slice(0, 500);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function serializeVoice(v: AgentVoiceProfile | null): string | null {
+  if (!v) return null;
+  const provider = VALID_VOICE_PROVIDERS.has(v.provider) ? v.provider : null;
+  const model = typeof v.model === "string" ? v.model.trim() : "";
+  const voiceId = typeof v.voiceId === "string" ? v.voiceId.trim() : "";
+  if (!provider || !model || !voiceId) return null;
+  return JSON.stringify({
+    provider,
+    model,
+    voiceId,
+    ...(typeof v.speed === "number" && Number.isFinite(v.speed) ? { speed: Math.max(0.5, Math.min(2, v.speed)) } : {}),
+    ...(typeof v.pitch === "number" && Number.isFinite(v.pitch) ? { pitch: Math.max(-12, Math.min(12, v.pitch)) } : {}),
+    ...(typeof v.volume === "number" && Number.isFinite(v.volume) ? { volume: Math.max(0, Math.min(2, v.volume)) } : {}),
+    ...(v.instructions && v.instructions.trim() ? { instructions: v.instructions.trim().slice(0, 500) } : {}),
+  });
 }
 
 function mapRow(row: Row): Agent {
@@ -100,6 +163,7 @@ function mapRow(row: Row): Agent {
     isPinned: row.is_pinned === 1,
     isSeed: row.is_seed === 1,
     webSearchEnabled: row.web_search_enabled !== 0,
+    voice: parseVoice(row.voice_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -107,7 +171,7 @@ function mapRow(row: Row): Agent {
 
 const SELECT_COLS =
   "id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref, " +
-  "avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, created_at, updated_at";
+  "avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, created_at, updated_at";
 
 /** Directors only — the moderator (chair) is hidden from generic listings. */
 export function listAgents(): Agent[] {
@@ -344,6 +408,7 @@ export interface AgentInsert {
   carrierPref?: AgentCarrierPref | null;
   avatarPath: string;
   ability?: Record<string, number> | null;
+  voice?: AgentVoiceProfile | null;
   isPinned?: boolean;
   isSeed?: boolean;
 }
@@ -361,8 +426,8 @@ export function insertAgent(a: AgentInsert): Agent {
     .prepare(
       `INSERT INTO agents
        (id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref,
-        avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       a.id,
@@ -380,6 +445,7 @@ export function insertAgent(a: AgentInsert): Agent {
       a.isPinned ? 1 : 0,
       a.isSeed ? 1 : 0,
       0, // web_search_enabled · opt-in only
+      serializeVoice(a.voice ?? null),
       now,
       now,
     );
@@ -437,6 +503,7 @@ export function updateAgent(
     instruction?: string;
     webSearchEnabled?: boolean;
     ability?: Record<string, number> | null;
+    voice?: AgentVoiceProfile | null;
   },
 ): Agent | null {
   const fields: string[] = [];
@@ -471,6 +538,10 @@ export function updateAgent(
       ? JSON.stringify(patch.ability)
       : null;
     values.push(json);
+  }
+  if (patch.voice !== undefined) {
+    fields.push("voice_json = ?");
+    values.push(serializeVoice(patch.voice));
   }
   if (fields.length === 0) return getAgent(id);
   fields.push("updated_at = ?");

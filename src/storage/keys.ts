@@ -12,6 +12,7 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:
 import { userInfo } from "node:os";
 
 import { getDb } from "./db.js";
+import { getPrefs } from "./prefs.js";
 
 const SALT = "boardroom.v1.salt";
 const ALGO = "aes-256-gcm";
@@ -48,16 +49,56 @@ export type Provider =
   | "google"
   | "xai"
   | "deepseek"
+  | "minimax"
+  | "elevenlabs"
   // Skill-service keys (not LLM providers). Currently:
-  //   · brave  · web search via the Brave Search API.
-  | "brave";
+  //   · brave   · Brave Search API
+  //   · tavily  · Tavily Search API — same Web Search orchestration hook.
+  | "brave"
+  | "tavily";
 
-/** Cheap existence check used as the global gate for the Web Search
- *  system skill — without a Brave key, no agent searches regardless
- *  of per-agent toggles. */
+export type WebSearchKeyProvider = "brave" | "tavily";
+
+/** Brave key configured (Brave-only gate for legacy callers / copy). */
 export function hasBraveKey(): boolean {
   const k = getKey("brave");
   return typeof k === "string" && k.length > 0;
+}
+
+export function hasTavilyKey(): boolean {
+  const k = getKey("tavily");
+  return typeof k === "string" && k.length > 0;
+}
+
+/** True when at least one search API backing Web Search is available. */
+export function hasWebSearchKey(): boolean {
+  return hasBraveKey() || hasTavilyKey();
+}
+
+/** Pick which search backend executes this turn · `preference` applies
+ *  only when both keys exist (see prefs `web_search_provider`). */
+export function resolveWebSearchBackend(preference: WebSearchKeyProvider): WebSearchKeyProvider | null {
+  const b = hasBraveKey();
+  const t = hasTavilyKey();
+  if (!b && !t) return null;
+  if (b && !t) return "brave";
+  if (!b && t) return "tavily";
+  if (preference === "tavily" && t) return "tavily";
+  if (preference === "brave" && b) return "brave";
+  return b ? "brave" : "tavily";
+}
+
+/** Active backend + plaintext key · null when no search key configured. */
+export function getActiveWebSearchCredentials(): {
+  backend: WebSearchKeyProvider;
+  apiKey: string;
+} | null {
+  const prefRaw = getPrefs().webSearchProvider;
+  const preference: WebSearchKeyProvider = prefRaw === "tavily" ? "tavily" : "brave";
+  const backend = resolveWebSearchBackend(preference);
+  if (!backend) return null;
+  const apiKey = getKey(backend);
+  return apiKey ? { backend, apiKey } : null;
 }
 
 export interface ProviderKeyMeta {

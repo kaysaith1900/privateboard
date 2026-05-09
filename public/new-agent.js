@@ -10,6 +10,7 @@
     { provider: "anthropic", models: [
       { v: "sonnet-4-6", name: "Sonnet 4.6", deck: "balanced · default" },
       { v: "opus-4-7",   name: "Opus 4.7",   deck: "deep reasoning" },
+      { v: "opus-4-6",   name: "Opus 4.6",   deck: "deep reasoning · 1M ctx" },
       { v: "haiku-4-5",  name: "Haiku 4.5",  deck: "fast · low-cost" }
     ]},
     { provider: "openai", models: [
@@ -25,6 +26,10 @@
     { provider: "xai", models: [
       { v: "grok-4-3",      name: "Grok 4.3",      deck: "flagship · 1M ctx" },
       { v: "grok-4-1-fast", name: "Grok 4.1 Fast", deck: "fast · 256k ctx" }
+    ]},
+    { provider: "deepseek", models: [
+      { v: "deepseek-v4-pro",   name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
+      { v: "deepseek-v4-flash", name: "DeepSeek Lite",   deck: "V4 Flash · fast · 1M ctx" }
     ]}
   ];
   const ALL_MODELS = MODEL_GROUPS.flatMap((g) => g.models);

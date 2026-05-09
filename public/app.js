@@ -18,6 +18,7 @@
    *  of src/ai/registry.ts's displayName field. */
   const MODEL_LABELS = {
     "sonnet-4-6":       "Sonnet 4.6",
+    "opus-4-6":         "Opus 4.6",
     "opus-4-7":         "Opus 4.7",
     "haiku-4-5":        "Haiku 4.5",
     "gpt-5-5":          "GPT-5.5",
@@ -32,6 +33,7 @@
     "grok-4-1-fast":    "Grok 4.1 Fast",
     "grok-4-20":        "Grok 4.20",
     "deepseek-v4-pro":  "DeepSeek V4 Pro",
+    "deepseek-v4-flash": "DeepSeek Lite",
   };
 
   /** Full model catalog for the new-agent composer dropdown. Mirrors
@@ -42,6 +44,7 @@
    *  glance. */
   const AGENT_COMPOSER_MODELS = [
     { v: "opus-4-7",         label: "Claude Opus 4.7",   provider: "Anthropic", deck: "deep reasoning" },
+    { v: "opus-4-6",         label: "Claude Opus 4.6",   provider: "Anthropic", deck: "deep reasoning · 1M ctx" },
     { v: "sonnet-4-6",       label: "Claude Sonnet 4.6", provider: "Anthropic", deck: "balanced · default" },
     { v: "haiku-4-5",        label: "Claude Haiku 4.5",  provider: "Anthropic", deck: "fast · low-cost" },
     { v: "gpt-5-5-pro",      label: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
@@ -56,6 +59,7 @@
     { v: "grok-4-1-fast",    label: "Grok 4.1 Fast",     provider: "xAI",       deck: "fast · 256k ctx" },
     { v: "grok-4-20",        label: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     { v: "deepseek-v4-pro",  label: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
+    { v: "deepseek-v4-flash", label: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" },
   ];
 
   /** Tone tooltips · short, user-readable summary of how each tone
@@ -89,6 +93,7 @@
     currentMembers: [],            // directors only (chair excluded)
     currentChair: null,            // chair agent for the current room
     currentQueue: [],
+    voiceQueues: {},
     /** Round progress from the orchestrator: how many directors have
      *  spoken in the current round vs. the cap (= cast size). */
     currentRound: { spoken: 0, total: 0 },
@@ -811,10 +816,30 @@
 
       this.sse.addEventListener("message-removed", (e) => {
         const data = JSON.parse(e.data);
+        // Stop any voice playback for this message (e.g. READY control token)
+        const vq = this.voiceQueues[data.messageId];
+        if (vq) {
+          if (vq.audio) { try { vq.audio.pause(); } catch(_) {} }
+          delete this.voiceQueues[data.messageId];
+        }
         // Drop the empty placeholder bubble.
         this.currentMessages = this.currentMessages.filter((m) => m.id !== data.messageId);
         const article = document.querySelector(`[data-message-id="${data.messageId}"]`);
         if (article) article.remove();
+      });
+
+      this.sse.addEventListener("voice-chunk", (e) => {
+        const data = JSON.parse(e.data);
+        this.enqueueVoiceChunk(roomId, data);
+      });
+
+      this.sse.addEventListener("voice-final", (e) => {
+        const data = JSON.parse(e.data);
+        const q = this.voiceQueues[data.messageId] || (this.voiceQueues[data.messageId] = { chunks: [], final: false, scheduled: false, roomId, messageId: data.messageId });
+        q.final = true;
+        q.messageId = data.messageId;
+        q.roomId = roomId;
+        this.drainVoiceQueue(roomId, data.messageId);
       });
 
       // Full body+meta replacement · used by tool-use rows whose
@@ -858,6 +883,11 @@
           if (this.currentRoom) {
             this.currentRoom.status = "paused";
             this.currentRoom.pausedAt = ts;
+          }
+          // Hard pause: stop audio immediately (speaker was aborted mid-stream).
+          // Soft pause: let current audio finish naturally (speaker completed their turn).
+          if (payload.mode === "hard") {
+            this.stopVoicePlayback();
           }
           document.documentElement.classList.remove("pause-pending");
           document.documentElement.setAttribute("data-status", "paused");
@@ -949,6 +979,8 @@
               "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
               write:               { status: "pending", detail: "", progress: null, startedAt: null, etaSec: null },
             },
+            llmLogs: [],
+            llmLogOpen: false,
           };
           this.currentBrief = newBrief;
           // Insert the in-progress brief into currentBriefs so the tab
@@ -1052,6 +1084,51 @@
             else list.push(entry);
             if (this.currentBrief && this.currentBrief.id === target.id) {
               this.renderBrief();
+            }
+          }
+        } else if (kind === "brief-llm-start") {
+          this.markBriefEvent();
+          const target = this._briefById(payload.briefId);
+          if (target && payload.log) {
+            const logs = target.llmLogs || (target.llmLogs = []);
+            const idx = logs.findIndex((l) => l.id === payload.log.id);
+            const log = { ...payload.log, text: payload.log.text || "" };
+            if (idx >= 0) logs[idx] = log;
+            else logs.push(log);
+            if (this.currentBrief && this.currentBrief.id === target.id) this.renderBrief();
+          }
+        } else if (kind === "brief-llm-token") {
+          this.markBriefEvent();
+          const target = this._briefById(payload.briefId);
+          if (target && payload.logId) {
+            const logs = target.llmLogs || (target.llmLogs = []);
+            const log = logs.find((l) => l.id === payload.logId);
+            if (log) {
+              const limit = 6000;
+              if ((log.text || "").length < limit) {
+                log.text = ((log.text || "") + (payload.delta || "")).slice(0, limit);
+              }
+              if (this.currentBrief && this.currentBrief.id === target.id && target.llmLogOpen) {
+                const now = Date.now();
+                if (!this._briefLlmLastRender || (now - this._briefLlmLastRender) > 500) {
+                  this._briefLlmLastRender = now;
+                  this.renderBrief();
+                }
+              }
+            }
+          }
+        } else if (kind === "brief-llm-end") {
+          this.markBriefEvent();
+          const target = this._briefById(payload.briefId);
+          if (target && payload.logId) {
+            const logs = target.llmLogs || (target.llmLogs = []);
+            const log = logs.find((l) => l.id === payload.logId);
+            if (log) {
+              log.status = payload.status || log.status;
+              log.finishedAt = typeof payload.finishedAt === "number" ? payload.finishedAt : Date.now();
+              if (typeof payload.totalTokens === "number") log.totalTokens = payload.totalTokens;
+              if (typeof payload.error === "string") log.error = payload.error;
+              if (this.currentBrief && this.currentBrief.id === target.id) this.renderBrief();
             }
           }
         } else if (kind === "brief-token") {
@@ -1177,6 +1254,7 @@
             if (ch.mode) this.currentRoom.mode = ch.mode.to;
             if (ch.intensity) this.currentRoom.intensity = ch.intensity.to;
             if (ch.briefStyle) this.currentRoom.briefStyle = ch.briefStyle.to;
+            if (ch.deliveryMode) this.currentRoom.deliveryMode = ch.deliveryMode.to;
           }
           this.renderHeader();
           syncSidebar({
@@ -1340,7 +1418,7 @@
     },
 
     // ── Actions ───────────────────────────────────────────────
-    async createRoom({ subject, agentIds, mode, intensity, briefStyle, autoPick }) {
+    async createRoom({ subject, agentIds, mode, intensity, briefStyle, autoPick, deliveryMode }) {
       const r = await fetch("/api/rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1350,6 +1428,7 @@
           mode: mode || "constructive",
           intensity: intensity || "sharp",
           briefStyle: briefStyle || "auto",
+          deliveryMode: deliveryMode === "voice" ? "voice" : "text",
           ...(autoPick ? { autoPick: true } : {}),
         }),
       });
@@ -1703,12 +1782,21 @@
       const room = this.currentRoom || {};
       const turns = (this.currentMessages || []).filter((m) => m.body && m.body.trim()).length;
       const status = room.status || "live";
-      const titleTxt = isGen ? "Generate the report" : "File the report?";
-      const classifyTxt = isGen ? "room · generate report" : "room · adjourn";
-      const classifyRight = isGen ? "// post-hoc" : "// terminal";
-      const confirmTxt = isGen ? "[ Generate ]" : "[ Adjourn & file ]";
+      const titleTxt = isGen ? this._t("adj_title_generate") : this._t("adj_title_file");
+      const classifyTxt = isGen ? this._t("adj_classify_generate") : this._t("adj_classify_adjourn");
+      const classifyRight = isGen ? this._t("adj_classify_right_posthoc") : this._t("adj_classify_right_terminal");
+      const confirmTxt = isGen ? this._t("adj_confirm_generate") : this._t("adj_confirm_file");
       const subjectTxt = room.subject || room.name || "—";
       const memberCount = (this.currentMembers || []).length;
+      const statusLabel = this._t(
+        status === "paused" ? "adj_meta_status_paused"
+        : status === "adjourned" ? "adj_meta_status_adjourned"
+        : "adj_meta_status_live",
+      );
+      const roomKicker = this._t("adj_meta_room_kicker");
+      const metaSep = this._t("adj_meta_sep");
+      const metaTurns = this._t("adj_meta_turns", { n: turns });
+      const noteTxt = isGen ? this._t("adj_note_generate") : this._t("adj_note_adjourn");
       const html = `
         <div class="adjourn-overlay" id="adjourn-overlay" role="dialog" aria-modal="true" data-adjourn-mode="${this.escape(mode)}">
           <div class="adjourn-backdrop" data-adjourn-close></div>
@@ -1721,31 +1809,29 @@
 
             <header class="adjourn-head">
               <div>
-                <div class="meta">// room #<span>${this.escape(String(room.number ?? "—"))}</span> · <span class="${status === "live" ? "live" : "status"}">${this.escape(status)}</span> · <span>${turns}</span> turns</div>
+                <div class="meta">${this.escape(roomKicker)}<span>${this.escape(String(room.number ?? "—"))}</span>${this.escape(metaSep)}<span class="${status === "live" ? "live" : "status"}">${this.escape(statusLabel)}</span>${this.escape(metaSep)}${this.escape(metaTurns)}</div>
                 <div class="title">${this.escape(titleTxt)}</div>
               </div>
-              <button type="button" class="adjourn-close" data-adjourn-close aria-label="Close">✕</button>
+              <button type="button" class="adjourn-close" data-adjourn-close aria-label="${this.escape(this._t("adj_close_aria"))}">✕</button>
             </header>
 
             <div class="adjourn-body">
               <div class="adjourn-summary">
                 <div class="adjourn-summary-row">
-                  <span class="adjourn-summary-key">// subject</span>
+                  <span class="adjourn-summary-key">${this.escape(this._t("adj_key_subject"))}</span>
                   <span class="adjourn-summary-val">${this.escape(subjectTxt)}</span>
                 </div>
                 <div class="adjourn-summary-row">
-                  <span class="adjourn-summary-key">// authors</span>
-                  <span class="adjourn-summary-val">${memberCount} agents</span>
+                  <span class="adjourn-summary-key">${this.escape(this._t("adj_key_authors"))}</span>
+                  <span class="adjourn-summary-val">${this.escape(this._t("adj_agents_count", { n: memberCount }))}</span>
                 </div>
                 <div class="adjourn-summary-row">
-                  <span class="adjourn-summary-key">// turns</span>
+                  <span class="adjourn-summary-key">${this.escape(this._t("adj_key_turns"))}</span>
                   <span class="adjourn-summary-val">${turns}</span>
                 </div>
               </div>
               <p class="adjourn-summary-note">
-                The chair compiles a standard report from the room's transcript —
-                situation, key findings, and implications. The room is marked
-                adjourned and the report is filed in the chat.
+                ${this.escape(noteTxt)}
               </p>
             </div>
 
@@ -1753,10 +1839,10 @@
               ${isGen ? `<span class="adjourn-skip-spacer"></span>` : `
               <button type="button" class="adjourn-skip-btn" data-adjourn-skip>
                 <span class="adjourn-skip-mark">⊘</span>
-                <span>End without report</span>
+                <span>${this.escape(this._t("adj_skip"))}</span>
               </button>`}
               <div class="adjourn-foot-actions">
-                <button type="button" class="adjourn-cancel" data-adjourn-close>[ Cancel ]</button>
+                <button type="button" class="adjourn-cancel" data-adjourn-close>${this.escape(this._t("adj_cancel"))}</button>
                 <button type="button" class="adjourn-confirm" data-adjourn-confirm>${this.escape(confirmTxt)}</button>
               </div>
             </footer>
@@ -2677,6 +2763,20 @@
         target.progress   = incoming.progress || target.progress;
         target.etaSec     = (incoming.etaSec && typeof incoming.etaSec.lo === "number") ? incoming.etaSec : target.etaSec;
       }
+      if (Array.isArray(state.llmLogs)) {
+        brief.llmLogs = state.llmLogs.map((l) => ({
+          id: String(l.id || ""),
+          stage: String(l.stage || ""),
+          label: String(l.label || ""),
+          modelV: String(l.modelV || ""),
+          status: l.status === "done" || l.status === "failed" ? l.status : "running",
+          startedAt: typeof l.startedAt === "number" ? l.startedAt : Date.now(),
+          finishedAt: typeof l.finishedAt === "number" ? l.finishedAt : null,
+          text: String(l.text || ""),
+          totalTokens: typeof l.totalTokens === "number" ? l.totalTokens : null,
+          error: typeof l.error === "string" ? l.error : null,
+        })).filter((l) => l.id);
+      }
     },
 
     /** Delete a single brief from this room's history. Asks for
@@ -2800,8 +2900,8 @@
       const isGen = mode === "generate-brief";
       const skipPicked = overlay.querySelector(".adjourn-skip-btn.picked") !== null;
       const btn = overlay.querySelector("[data-adjourn-confirm]");
-      const origLabel = isGen ? "[ Generate ]" : "[ Adjourn & file ]";
-      const busyLabel = isGen ? "[ Generating… ]" : "[ Adjourning… ]";
+      const origLabel = isGen ? this._t("adj_confirm_generate") : this._t("adj_confirm_file");
+      const busyLabel = isGen ? this._t("adj_busy_generate") : this._t("adj_busy_adjourn");
       if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
       try {
         if (isGen) {
@@ -2814,7 +2914,7 @@
         this.closeAdjournOverlay();
       } catch (e) {
         if (btn) { btn.disabled = false; btn.textContent = origLabel; }
-        alert((isGen ? "Generate failed: " : "Adjourn failed: ") + (e && e.message ? e.message : e));
+        alert((isGen ? this._t("adj_err_generate") : this._t("adj_err_adjourn")) + (e && e.message ? e.message : e));
       }
     },
 
@@ -2839,6 +2939,27 @@
         const e = await r.json().catch(() => ({}));
         throw new Error(e.error || "brief generation failed");
       }
+    },
+
+    async toggleDeliveryMode() {
+      if (!this.currentRoomId || !this.currentRoom) return;
+      const next = this.currentRoom.deliveryMode === "voice" ? "text" : "voice";
+      // Unlock audio if switching to voice
+      if (next === "voice") this.unlockAudioPlayback();
+      try {
+        const r = await fetch(
+          "/api/rooms/" + encodeURIComponent(this.currentRoomId),
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ deliveryMode: next }),
+          },
+        );
+        if (r.ok) {
+          this.currentRoom.deliveryMode = next;
+          this.renderHeader();
+        }
+      } catch (_) { /* offline */ }
     },
 
     async pauseRoom(mode) {
@@ -4092,11 +4213,11 @@
       // base provider colour. Append-only — adding a new variant just
       // requires its modelV at the appropriate position.
       const MODEL_SHADE_ORDER = {
-        anthropic: ["opus-4-7", "sonnet-4-6", "haiku-4-5"],
+        anthropic: ["opus-4-7", "opus-4-6", "sonnet-4-6", "haiku-4-5"],
         openai:    ["gpt-5-5", "gpt-5-4-mini", "codex-5-4"],
         google:    ["gemini-3-1", "gemini-3-flash", "gemini-3-1-flash"],
         xai:       ["grok-4", "grok-4-3", "grok-4-mini"],
-        deepseek:  ["deepseek-v4-pro", "deepseek-v4"],
+        deepseek:  ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4"],
       };
       const providerOf = (modelV) => {
         const hit = reachable.find((m) => m.modelV === modelV);
@@ -4273,6 +4394,7 @@
       directorIds: [],   // populated lazily from the chair's roster
       mode: "constructive",
       intensity: "sharp",
+      deliveryMode: "text",
     },
 
     loadComposerState() {
@@ -4293,10 +4415,10 @@
     saveComposerState() {
       if (!this.composerState) return;
       try {
-        const { directorIds, mode, intensity, autoPickDirectors, subject } = this.composerState;
+        const { directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject } = this.composerState;
         localStorage.setItem(
           "boardroom.composer",
-          JSON.stringify({ directorIds, mode, intensity, autoPickDirectors, subject }),
+          JSON.stringify({ directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject }),
         );
       } catch { /* ignore */ }
     },
@@ -5641,6 +5763,11 @@
                   <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(state.intensity)}</span>
                   <span class="cmp-dd-chevron">▾</span>
                 </button>
+                <label class="cmp-voice-switch" title="${this.escape(lang === "zh" ? "开启语音会议" : "Enable voice mode")}">
+                  <input type="checkbox" data-composer-voice-toggle ${state.deliveryMode === "voice" ? "checked" : ""}>
+                  <span class="cmp-voice-switch-track"></span>
+                  <span class="cmp-voice-switch-label">${lang === "zh" ? "语音" : "Voice"}</span>
+                </label>
               </div>
 
               <button type="button" class="cmp-go" data-composer-go title="${this.escape(t.convene)} (⏎)">
@@ -5802,15 +5929,14 @@
       } catch { /* ignore */ }
     },
 
-    /** True when the global Brave Search key is configured · gates the
-     *  websearch toggle's "on" state. Reads through window.boardroomKeys
-     *  (cached on boot, refetched after any /api/keys mutation), so the
-     *  composer reflects the current key state without its own fetch. */
-    agentComposerBraveConfigured() {
+    /** True when a Web Search backend key is configured · gates the
+     *  websearch toggle's "on" state (Brave Search and/or Tavily). Reads
+     *  through window.boardroomKeys · refetched after /api/keys mutations. */
+    agentComposerWebSearchConfigured() {
       try {
         if (typeof window.boardroomKeys !== "function") return false;
         const k = window.boardroomKeys();
-        return !!(k && k.brave);
+        return !!(k && (k.brave || k.tavily));
       } catch { return false; }
     },
 
@@ -5819,7 +5945,7 @@
      *  configuring the key, no reason to default OFF) and FALSE when
      *  not configured (no point pretending it's on). */
     loadAgentComposerWebSearch() {
-      const configured = this.agentComposerBraveConfigured();
+      const configured = this.agentComposerWebSearchConfigured();
       if (!configured) return false;
       try {
         const raw = localStorage.getItem("boardroom.composer.agent.websearch");
@@ -6170,7 +6296,7 @@
                 // same control. Class set: `ap-skill-row-toggle` +
                 // `on` / `off` / `needs-key` modifiers, mirroring the
                 // skill row at agent-profile.js:1411.
-                const configured = this.agentComposerBraveConfigured();
+                const configured = this.agentComposerWebSearchConfigured();
                 const on = configured && this.loadAgentComposerWebSearch();
                 const stateLabel = !configured
                   ? this._t("ag_ws_needs_key")
@@ -6959,6 +7085,14 @@
       if (v) v.textContent = intensity;
     },
 
+    setComposerDeliveryMode(deliveryMode) {
+      const state = this.loadComposerState();
+      state.deliveryMode = deliveryMode === "voice" ? "voice" : "text";
+      this.saveComposerState();
+      const cb = document.querySelector("[data-composer-voice-toggle]");
+      if (cb) cb.checked = state.deliveryMode === "voice";
+    },
+
     /** Generic option-list dropdown anchored under a tune trigger
      *  button. Used for both tone and intensity. Each option is a
      *  full-text row with a short hint (current/calmer/etc). Click an
@@ -7022,6 +7156,17 @@
         } else {
           current = state.intensity;
         }
+      } else if (kind === "delivery") {
+        opts = lang === "zh"
+          ? [
+              { v: "text", label: "Text", hint: "最快的文字会议" },
+              { v: "voice", label: "Voice", hint: "口语化 · 逐位播放" },
+            ]
+          : [
+              { v: "text", label: "Text", hint: "fast written meeting" },
+              { v: "voice", label: "Voice", hint: "spoken · paced turns" },
+            ];
+        current = state.deliveryMode === "voice" ? "voice" : "text";
       } else if (kind === "agent-model") {
         // Reachable-only model catalog · pulls from the shared
         // /api/models cache so the picker reflects the user's
@@ -7148,6 +7293,11 @@
         if (ta) ta.focus();
         return;
       }
+      // Unlock audio playback on this user gesture — required by
+      // browser autoplay policies before we can play TTS audio later.
+      if (state.deliveryMode === "voice") {
+        this.unlockAudioPlayback();
+      }
       // Pre-flight · convening triggers chair convening + auto-pick +
       // clarify, all of which need a model key. Bail early and prompt
       // the user to configure one if missing.
@@ -7169,6 +7319,7 @@
           agentIds: useAutoPick ? [] : state.directorIds.slice(),
           mode: state.mode,
           intensity: state.intensity,
+          deliveryMode: state.deliveryMode,
           autoPick: useAutoPick,
         });
         // Clear the saved draft now that the room is convened — next
@@ -7622,6 +7773,145 @@
       if (!chat) return;
       const existing = chat.querySelector("[data-chair-pending]");
       if (existing) existing.remove();
+    },
+
+    enqueueVoiceChunk(roomId, chunk) {
+      if (!chunk || !chunk.messageId || !chunk.audioBase64 || !chunk.mimeType) return;
+      let q = this.voiceQueues[chunk.messageId];
+      if (!q) {
+        q = this._createVoiceStream(roomId, chunk.messageId);
+        this.voiceQueues[chunk.messageId] = q;
+      }
+      // Convert base64 to Uint8Array and append to the MSE SourceBuffer
+      const binary = atob(chunk.audioBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      q.pendingBuffers.push(bytes);
+      this._flushVoiceBuffer(q);
+    },
+
+    /** Create a MediaSource-backed audio stream for one speaker's turn. */
+    _createVoiceStream(roomId, messageId) {
+      const audio = new Audio();
+      const ms = new MediaSource();
+      audio.src = URL.createObjectURL(ms);
+
+      const q = {
+        roomId,
+        messageId,
+        audio,
+        mediaSource: ms,
+        sourceBuffer: null,
+        pendingBuffers: [],
+        final: false,
+        doneSent: false,
+        ready: false,
+      };
+
+      ms.addEventListener("sourceopen", () => {
+        try {
+          q.sourceBuffer = ms.addSourceBuffer("audio/mpeg");
+          q.sourceBuffer.addEventListener("updateend", () => this._flushVoiceBuffer(q));
+          q.ready = true;
+          this._flushVoiceBuffer(q);
+        } catch (e) {
+          console.warn("[voice] addSourceBuffer failed:", e);
+        }
+      });
+
+      // Start playing as soon as we have some data
+      audio.play().catch(() => {});
+
+      return q;
+    },
+
+    /** Flush pending buffers into the SourceBuffer one at a time. */
+    _flushVoiceBuffer(q) {
+      if (!q.ready || !q.sourceBuffer || q.sourceBuffer.updating) return;
+      if (q.pendingBuffers.length > 0) {
+        const buf = q.pendingBuffers.shift();
+        try {
+          q.sourceBuffer.appendBuffer(buf);
+        } catch (e) {
+          console.warn("[voice] appendBuffer failed:", e);
+        }
+        return;
+      }
+      // No more pending buffers. If final, signal end of stream.
+      if (q.final && !q.doneSent) {
+        q.doneSent = true;
+        try {
+          if (q.mediaSource.readyState === "open") {
+            q.mediaSource.endOfStream();
+          }
+        } catch (_) {}
+        // Wait for audio to finish playing, then fire voice-done
+        q.audio.addEventListener("ended", () => this._fireVoiceDone(q));
+        // Safety timeout in case 'ended' doesn't fire (e.g. empty stream)
+        const duration = q.audio.duration;
+        const remaining = isFinite(duration) ? (duration - q.audio.currentTime) : 0;
+        setTimeout(() => {
+          if (!this.voiceQueues[q.messageId]) return; // already fired
+          this._fireVoiceDone(q);
+        }, (remaining * 1000) + 2000);
+      }
+    },
+
+    _scheduleVoiceDone(q) {
+      // Called from voice-final handler — trigger flush check which will
+      // endOfStream + wait for playback to finish.
+      this._flushVoiceBuffer(q);
+    },
+
+    _fireVoiceDone(q) {
+      if (!this.voiceQueues[q.messageId]) return; // already fired
+      delete this.voiceQueues[q.messageId];
+      // Clean up audio element
+      try { q.audio.pause(); } catch (_) {}
+      try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
+      fetch(`/api/rooms/${encodeURIComponent(q.roomId)}/messages/${encodeURIComponent(q.messageId)}/voice-done`, {
+        method: "POST",
+      }).catch(() => {});
+    },
+
+    async drainVoiceQueue(roomId, messageId) {
+      // Called from voice-final handler — mark final and flush
+      const q = this.voiceQueues[messageId];
+      if (!q) return;
+      if (q.final && !q.doneSent) {
+        this._flushVoiceBuffer(q);
+      }
+    },
+
+    /** Immediately stop all voice playback and discard pending queues.
+     *  Used on hard-pause to silence mid-stream audio. */
+    stopVoicePlayback() {
+      for (const messageId of Object.keys(this.voiceQueues)) {
+        const q = this.voiceQueues[messageId];
+        if (q && q.audio) {
+          try { q.audio.pause(); } catch (_) {}
+          try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
+        }
+      }
+      this.voiceQueues = {};
+      this._voiceCurrentMessageId = null;
+    },
+
+    /** Unlock HTMLAudioElement autoplay policy.
+     *  Must be called inside a user-gesture handler (click/keydown). */
+    unlockAudioPlayback() {
+      if (this._audioUnlocked) return;
+      try {
+        // Play a silent audio to satisfy autoplay policy
+        const silence = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=");
+        silence.volume = 0;
+        const p = silence.play();
+        if (p) p.then(() => silence.pause()).catch(() => {});
+        this._audioUnlocked = true;
+        console.log("[voice] audio playback unlocked via user gesture");
+      } catch (e) {
+        console.warn("[voice] unlock failed:", e);
+      }
     },
 
     updateMessageBodyDom(messageId, body, streaming) {
@@ -8990,6 +9280,55 @@
       write:               { eta: [30, 90] },
     },
 
+    renderBriefLlmTrace(b) {
+      const logs = Array.isArray(b.llmLogs) ? b.llmLogs : [];
+      const open = b.llmLogOpen === true;
+      const running = logs.filter((l) => l.status === "running").length;
+      const failed = logs.filter((l) => l.status === "failed").length;
+      const label = open
+        ? (b.language === "zh" ? "收起模型流水" : "Hide model stream")
+        : (b.language === "zh" ? "查看模型流水" : "View model stream");
+      const countText = logs.length
+        ? `${logs.length} call${logs.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}${failed ? ` · ${failed} failed` : ""}`
+        : (b.language === "zh" ? "等待首个调用" : "waiting for first call");
+      const button = `
+        <button type="button" class="brief-llm-toggle" data-brief-llm-toggle data-brief-id="${this.escape(b.id || "")}" aria-expanded="${open ? "true" : "false"}">
+          <span class="brief-llm-toggle-mark">${open ? "−" : "+"}</span>
+          <span>${this.escape(label)}</span>
+          <span class="brief-llm-toggle-meta">${this.escape(countText)}</span>
+        </button>
+      `;
+      if (!open) return `<div class="brief-llm-trace">${button}</div>`;
+      const fmt = (ms) => {
+        if (!ms || ms < 0) return "";
+        const s = Math.round(ms / 1000);
+        return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+      };
+      const rows = logs.map((l) => {
+        const elapsed = fmt((l.finishedAt || Date.now()) - (l.startedAt || Date.now()));
+        const text = (l.text || "").trim();
+        const preview = text
+          ? this.escape(text)
+          : `<span class="brief-llm-empty">${this.escape(b.language === "zh" ? "等待模型输出…" : "waiting for output…")}</span>`;
+        const meta = [
+          l.modelV || "",
+          elapsed,
+          typeof l.totalTokens === "number" ? `${l.totalTokens} tok` : "",
+        ].filter(Boolean).join(" · ");
+        return `
+          <div class="brief-llm-row is-${this.escape(l.status || "running")}">
+            <div class="brief-llm-row-head">
+              <span class="brief-llm-row-title">${this.escape(l.label || l.stage || "LLM call")}</span>
+              <span class="brief-llm-row-meta">${this.escape(meta)}</span>
+            </div>
+            ${l.error ? `<div class="brief-llm-error">${this.escape(l.error)}</div>` : ""}
+            <pre class="brief-llm-output">${preview}</pre>
+          </div>
+        `;
+      }).join("");
+      return `<div class="brief-llm-trace">${button}<div class="brief-llm-panel">${rows || `<div class="brief-llm-empty">${this.escape(countText)}</div>`}</div></div>`;
+    },
+
     _briefSubList(stageKey) {
       const sk = String(stageKey).replace(/-/g, "_");
       const list = [];
@@ -9389,6 +9728,7 @@
           </div>
           <div class="brief-pip-rail">${pipHtml}</div>
           ${statsHtml}
+          ${this.renderBriefLlmTrace(b)}
         </div>
       `;
     },
@@ -9566,6 +9906,8 @@
       }
       return;
     }
+    // Toggle voice/text delivery mode — REMOVED (mid-session switching
+    // causes too many timing issues; delivery mode is set at room creation).
     // Pause-choice modal buttons
     const choice = e.target.closest("[data-pause-choice]");
     if (choice) {
@@ -9754,6 +10096,17 @@
       e.preventDefault();
       const targetId = retryBtn.getAttribute("data-target-brief-id") || null;
       app.retryBriefGeneration(targetId);
+      return;
+    }
+    const llmToggle = e.target.closest("[data-brief-llm-toggle]");
+    if (llmToggle) {
+      e.preventDefault();
+      const id = llmToggle.getAttribute("data-brief-id");
+      const brief = id ? app._briefById(id) : app.currentBrief;
+      if (brief) {
+        brief.llmLogOpen = !brief.llmLogOpen;
+        app.renderBrief();
+      }
       return;
     }
     // Salvage banner · dismiss button. Just removes the banner DOM —
@@ -9968,12 +10321,15 @@
       // has it. boardroomKeys() reads through the shared _keysMeta
       // map, which user-settings.js patches in place after every
       // setProviderKey, so we get fresh truth here.
-      const configured = !!(app.agentComposerBraveConfigured && app.agentComposerBraveConfigured());
-      const isZh = (app.composerLanguage && app.composerLanguage()) === "zh";
+      const configured = !!(app.agentComposerWebSearchConfigured && app.agentComposerWebSearchConfigured());
       if (!configured) {
-        const ok = confirm(isZh
-          ? "联网搜索需要 Brave Search API key。\n\nBrave Search · 约 $5 / 1000 次查询 · 注重隐私\n\n现在去 Preferences 配置吗？"
-          : "Web Search needs a Brave Search API key.\n\nBrave Search · ≈ $5 per 1000 queries · privacy-respecting\n\nOpen Preferences to paste your key now?");
+        const fallback =
+          "Web Search needs Brave Search or Tavily API credentials.\n\nOpen Preferences now?";
+        const ok = confirm(
+          (window.I18n && typeof window.I18n.t === "function")
+            ? window.I18n.t("ag_ws_need_key_confirm")
+            : fallback,
+        );
         if (ok && typeof window.openUserSettings === "function") {
           window.openUserSettings({ section: "keys", focusProvider: "brave" });
         }
@@ -10106,6 +10462,7 @@
       } else {
         if (kind === "tone") app.setComposerTone(v);
         else if (kind === "intensity") app.setComposerIntensity(v);
+        else if (kind === "delivery") app.setComposerDeliveryMode(v);
         else if (kind === "agent-model") app.setAgentComposerModel(v);
       }
       app.closeComposerDropdown();
@@ -10217,6 +10574,11 @@
   // which is a <select> whose `selected` attr only sets the initial
   // option). Reads the field name → field key off the element.
   document.addEventListener("change", (e) => {
+    // Voice mode switch in the new-room composer
+    if (e.target && e.target.matches && e.target.matches("[data-composer-voice-toggle]")) {
+      app.setComposerDeliveryMode(e.target.checked ? "voice" : "text");
+      return;
+    }
     const el = e.target && e.target.closest && e.target.closest("[data-agent-spec-field]");
     if (!el || !app.agentSpec) return;
     const key = el.getAttribute("data-agent-spec-field");
@@ -10329,6 +10691,18 @@
         app.tickBriefStallWatch();
       }
     }
+  });
+
+  // Global one-shot listener: unlock audio playback on first user
+  // interaction so voice mode works regardless of which button was
+  // clicked first.
+  document.addEventListener("click", function _unlockAudio() {
+    app.unlockAudioPlayback();
+    document.removeEventListener("click", _unlockAudio);
+  });
+  document.addEventListener("keydown", function _unlockAudioKey() {
+    app.unlockAudioPlayback();
+    document.removeEventListener("keydown", _unlockAudioKey);
   });
 
   window.app = app;

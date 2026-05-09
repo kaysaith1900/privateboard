@@ -18,7 +18,7 @@
 
   // /api/prefs is async; cache the latest value at module bootstrap so the
   // synchronous render code below stays simple. saveUser writes through.
-  let _prefsCache = { name: "You", intro: "", avatarSeed: null };
+  let _prefsCache = { name: "You", intro: "", avatarSeed: null, webSearchProvider: "brave", minimaxRegion: "cn" };
 
   const THEMES = [
     { slug: "regent",      name: "Regent",      desc: "warm gold on dark · default · the boardroom premium",
@@ -49,9 +49,13 @@
     { id: "openai",     label: "OpenAI",      hint: "GPT · gpt-5, gpt-5 mini, gpt-4o",                placeholder: "sk-…",         group: "llm" },
     { id: "google",     label: "Google",      hint: "Gemini · 2.5 Pro, 2.5 Flash",                    placeholder: "AIza…",        group: "llm" },
     { id: "xai",        label: "xAI",         hint: "Grok · grok-4.3, grok-4.1 fast",                  placeholder: "xai-…",        group: "llm" },
+    { id: "minimax",    label: "MiniMax",     hint: "speech · T2A voices, cloning, streaming audio",   placeholder: "mm-…",         group: "voice" },
+    { id: "elevenlabs", label: "ElevenLabs",  hint: "text-to-speech · pricing & docs at elevenlabs.io",  placeholder: "xi-…",         group: "voice" },
     // ── Skill Services (not LLM providers, but the same encrypted key store) ──
     { id: "brave",      label: "Brave Search", hint: "powers the Web Search system skill · ≈ $5 / 1000 queries · privacy-respecting",
       placeholder: "BSA…",         group: "skill" },
+    { id: "tavily",     label: "Tavily Search", hint: "alternate Web Search backend · billed per Tavily credits · LLM-focused results",
+      placeholder: "tvly-…",        group: "skill" },
   ];
 
   function escape(s) {
@@ -80,7 +84,9 @@
       _prefsCache = {
         name: typeof data.name === "string" ? data.name : "You",
         intro: typeof data.intro === "string" ? data.intro : "",
-        avatarSeed: data.avatarSeed ?? null
+        avatarSeed: data.avatarSeed ?? null,
+        webSearchProvider: data.webSearchProvider === "tavily" ? "tavily" : "brave",
+        minimaxRegion: data.minimaxRegion === "intl" ? "intl" : "cn",
       };
     } catch (e) {
       // Network or server hiccup — fall back to whatever's already cached.
@@ -105,31 +111,28 @@
     }).catch(() => { /* offline → cache stays, retry on next edit */ });
   }
 
-  // Provider keys live in the SQLite-backed /api/keys. Plaintext is never
-  // returned by the server — only meta. We cache the meta map locally so
-  // sync code (and window.boardroomKeys) keeps working.
-  //   _keysMeta: { openrouter: { configured: true, updatedAt }, anthropic: {...}, ... }
-  let _keysMeta = {};
+  // Provider keys · canonical state lives in keys-store.js (loaded as a
+  // module script before this file). All reads/writes go through that store;
+  // _keysMeta is a live accessor so the rest of this file needs no changes.
+  const _keysMeta = new Proxy({}, {
+    get(_, k) { return window.keysStore ? window.keysStore.keysMeta[k] : undefined; },
+    set(_, k, v) { if (window.keysStore) window.keysStore.keysMeta[k] = v; return true; },
+    ownKeys() { return window.keysStore ? Object.keys(window.keysStore.keysMeta) : []; },
+    has(_, k) { return window.keysStore ? k in window.keysStore.keysMeta : false; },
+    getOwnPropertyDescriptor(_, k) {
+      const v = window.keysStore ? window.keysStore.keysMeta[k] : undefined;
+      return v !== undefined ? { value: v, writable: true, enumerable: true, configurable: true } : undefined;
+    },
+  });
 
-  async function fetchKeyMeta() {
-    try {
-      const r = await fetch("/api/keys");
-      if (!r.ok) return;
-      const data = await r.json();
-      const next = {};
-      for (const row of (data.keys || [])) next[row.provider] = row;
-      _keysMeta = next;
-    } catch (e) { /* keep last cache on offline */ }
+  function fetchKeyMeta() {
+    return window.keysStore ? window.keysStore.fetchKeyMeta() : Promise.resolve();
   }
 
   // Sync read used by new-agent.js: returns a map { provider: truthy } where
   // 'truthy' is the meta object so existence-check (`if (keys[p])`) still works.
   function getKeys() {
-    const out = {};
-    for (const [p, m] of Object.entries(_keysMeta)) {
-      if (m && m.configured) out[p] = m;
-    }
-    return out;
+    return window.keysStore ? window.keysStore.getConfiguredKeys() : {};
   }
 
   // Available-models snapshot · shape from /api/models. We don't keep
@@ -167,21 +170,9 @@
   // were removed in favour of the dedicated "Default Model" sidebar
   // pane (single source of truth). Helpers deleted as dead code.
 
-  // Set / clear a single provider key. The server applies the trim+empty-=delete
-  // semantic; we mirror the resulting meta into our local cache.
-  async function setProviderKey(provider, value) {
-    try {
-      const trimmed = (value || "").trim();
-      const r = await fetch("/api/keys/" + encodeURIComponent(provider), {
-        method: trimmed ? "PUT" : "DELETE",
-        headers: trimmed ? { "content-type": "application/json" } : undefined,
-        body: trimmed ? JSON.stringify({ key: trimmed }) : undefined
-      });
-      if (!r.ok) return null;
-      const meta = await r.json();
-      _keysMeta[provider] = meta;
-      return meta;
-    } catch (e) { return null; }
+  // Set / clear a single provider key — delegated to keys-store.js.
+  function setProviderKey(provider, value) {
+    return window.keysStore ? window.keysStore.setProviderKey(provider, value) : Promise.resolve(null);
   }
 
   // Public — other modules read provider configuration via this
@@ -439,6 +430,7 @@
   // "+ add provider" flow).
   const LLM_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "llm").map((p) => p.id);
   const SKILL_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "skill").map((p) => p.id);
+  const VOICE_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "voice").map((p) => p.id);
 
   function ensureActiveProviders() {
     if (activeProviders === null) {
@@ -501,6 +493,52 @@
     `;
   }
 
+  /** Shown only when BOTH Brave Search and Tavily keys are configured. */
+  function webSearchBackendPrefHTML() {
+    const braveOk = !!(_keysMeta.brave && _keysMeta.brave.configured);
+    const tavilyOk = !!(_keysMeta.tavily && _keysMeta.tavily.configured);
+    const visible = braveOk && tavilyOk;
+    const pref = _prefsCache.webSearchProvider === "tavily" ? "tavily" : "brave";
+    return `
+        <div class="us-key-group us-key-group-ws-backend" data-us-ws-backend-wrap ${visible ? "" : "hidden"}>
+          <div class="us-key-group-tag">${tr("us_ws_backend_tag")}</div>
+          <div class="us-key-group-deck">${tr("us_ws_backend_deck")}</div>
+          <div class="us-ws-backend-radios">
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-ws-backend" value="brave" ${pref === "brave" ? "checked" : ""}>
+              <span>${tr("us_ws_backend_brave")}</span>
+            </label>
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-ws-backend" value="tavily" ${pref === "tavily" ? "checked" : ""}>
+              <span>${tr("us_ws_backend_tavily")}</span>
+            </label>
+          </div>
+        </div>
+    `;
+  }
+
+  function minimaxRegionPrefHTML() {
+    const minimaxOk = !!(_keysMeta.minimax && _keysMeta.minimax.configured);
+    if (!minimaxOk) return "";
+    const region = (_prefsCache && _prefsCache.minimaxRegion) || "cn";
+    return `
+        <div class="us-key-group us-key-group-minimax-region" data-us-minimax-region-wrap>
+          <div class="us-key-group-tag">MiniMax API region</div>
+          <div class="us-key-group-deck">Select the region matching your API key source.</div>
+          <div class="us-ws-backend-radios">
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-minimax-region" value="cn" ${region === "cn" ? "checked" : ""}>
+              <span>China (api.minimaxi.com)</span>
+            </label>
+            <label class="us-ws-backend-label">
+              <input type="radio" name="us-minimax-region" value="intl" ${region === "intl" ? "checked" : ""}>
+              <span>International (api.minimax.io)</span>
+            </label>
+          </div>
+        </div>
+    `;
+  }
+
   function keysSectionHTML() {
     ensureActiveProviders();
     // Anthropic is temporarily excluded from the "+ add provider"
@@ -515,6 +553,7 @@
       (p) => p.group === "llm" && !HIDDEN_FROM_ADD.has(p.id) && !activeProviders.includes(p.id),
     );
     const skillProviders = PROVIDERS.filter((p) => p.group === "skill");
+    const voiceProviders = PROVIDERS.filter((p) => p.group === "voice");
 
     return `
       <div class="us-pane-head">
@@ -550,6 +589,18 @@
             ${skillProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
           </div>
         ` : ""}
+
+        ${webSearchBackendPrefHTML()}
+
+        ${voiceProviders.length > 0 ? `
+          <div class="us-key-group us-key-group-voice">
+            <div class="us-key-group-tag">Voice providers</div>
+            <div class="us-key-group-deck">Used for voice meetings and per-director speech synthesis.</div>
+            ${voiceProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
+          </div>
+        ` : ""}
+
+        ${minimaxRegionPrefHTML()}
 
         <div data-models-summary>${modelsSummaryHTML()}</div>
 
@@ -969,6 +1020,7 @@
         await setProviderKey(provider, v);
         await refreshModels();
         refreshModelsSummary();
+        syncWsBackendPicker();
       }, 220);
       debounceMap.set(row, timer);
     }
@@ -984,6 +1036,50 @@
         setTimeout(() => persistRow(row), 0);
       });
     });
+
+    function syncWsBackendPicker() {
+      const wrap = paneEl.querySelector("[data-us-ws-backend-wrap]");
+      if (!wrap) return;
+      const braveOk = !!(_keysMeta.brave && _keysMeta.brave.configured);
+      const tavilyOk = !!(_keysMeta.tavily && _keysMeta.tavily.configured);
+      wrap.hidden = !(braveOk && tavilyOk);
+      const pref = _prefsCache.webSearchProvider === "tavily" ? "tavily" : "brave";
+      wrap.querySelectorAll("input[name=\"us-ws-backend\"]").forEach((inp) => {
+        inp.checked = inp.value === pref;
+      });
+    }
+
+    paneEl.querySelectorAll("input[name=us-ws-backend]").forEach((input) => {
+      input.addEventListener("change", async () => {
+        if (!input.checked) return;
+        const v = input.value === "tavily" ? "tavily" : "brave";
+        _prefsCache = { ..._prefsCache, webSearchProvider: v };
+        try {
+          await fetch("/api/prefs", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ webSearchProvider: v }),
+          });
+        } catch (_) { /* offline · prefs stay in _prefsCache */ }
+      });
+    });
+
+    paneEl.querySelectorAll("input[name=us-minimax-region]").forEach((input) => {
+      input.addEventListener("change", async () => {
+        if (!input.checked) return;
+        const v = input.value === "intl" ? "intl" : "cn";
+        _prefsCache = { ..._prefsCache, minimaxRegion: v };
+        try {
+          await fetch("/api/prefs", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ minimaxRegion: v }),
+          });
+        } catch (_) { /* offline */ }
+      });
+    });
+
+    syncWsBackendPicker();
 
     // First render of the section · the shared cache may already
     // have a snapshot (models-cache.js fetches at module load). If
@@ -1057,6 +1153,7 @@
           input.classList.toggle("has-preview", has);
         }
       });
+      syncWsBackendPicker();
     });
   }
 
