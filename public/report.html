@@ -243,6 +243,24 @@
       --lime-dim: #5C4422;
       --em: #B58950;
       --em-deep: #8C6730;
+      /* Cross-spine tokens are defined on :root in boardroom-dark as
+         `var(--text)` chains. Those resolve on html while --text still
+         means "paper white" for dark UI, so descendants inherit
+         low-contrast greys and the unified cover stack (var(--ink) /
+         var(--paper) / var(--rule) in report.html) never picks up the
+         paper palette. Redefine aliases explicitly on body for print. */
+      --ink: #1A1814;
+      --ink-soft: #4A4338;
+      --ink-mid: #6B6359;
+      --ink-faint: #978C7E;
+      --ink-muted: #B5AB9B;
+      --paper: #FAF7F0;
+      --paper-soft: #EDE6D6;
+      --paper-deep: #E2D9C4;
+      --rule: #DDD5C8;
+      --rule-soft: #E8E1D2;
+      --surface: #FAF7F0;
+      --surface-hover: #F0EBDD;
     }
     /* The Bottom Line panel had a transparent bg + top rule; on paper
        give it a faint cream wash so it reads as a callout. */
