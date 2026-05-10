@@ -1193,6 +1193,66 @@
   cursor: progress;
 }
 .na-avatar-regen-mark { font-size: 11px; color: var(--lime); line-height: 1; }
+/* Model picker chip · sits in the avatar column right under the
+   regen button, so the user sees the active model the moment they
+   open the modal (the foot-bottom placement was almost invisible).
+   Sized to match .na-avatar-regen so the two reads as a paired
+   control set: regen the face, switch the model. Same .cmp-dd
+   markup as the AI composer's chip — these overrides only adjust
+   the surface fit (padding / type scale / alignment). */
+.new-agent-overlay .na-avatar-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  max-width: 220px;
+}
+.new-agent-overlay .na-avatar-model:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.new-agent-overlay .na-avatar-model.open {
+  border-color: var(--lime);
+  color: var(--lime);
+  background: var(--bg);
+}
+.new-agent-overlay .na-avatar-model .cmp-dd-label {
+  color: var(--text-faint);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+}
+.new-agent-overlay .na-avatar-model .cmp-dd-value {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 11px;
+  /* Long model names (e.g. "Claude Opus 4.7 · 1M context") truncate
+     instead of wrapping the chip into a second line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+.new-agent-overlay .na-avatar-model.open .cmp-dd-value { color: var(--lime); }
+.new-agent-overlay .na-avatar-model .cmp-dd-chevron {
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1;
+  transition: transform 0.12s;
+}
+.new-agent-overlay .na-avatar-model.open .cmp-dd-chevron {
+  color: var(--lime);
+  transform: rotate(180deg);
+}
 /* Vibe caption · the LLM's one-line description that seeded the avatar. */
 .na-avatar-vibe {
   font-family: var(--mono);

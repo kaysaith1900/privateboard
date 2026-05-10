@@ -762,8 +762,8 @@
    GAME-CARD layout (Director console)
    ─────────────────────────────────────────────
    New chrome inspired by an RPG character sheet:
-   header tabs · left portrait · right 2x2 grid
-   (Badges / Intel / Skills / Equipment) · roster row
+   header tabs · left portrait · right column
+   (Badges / Intel / Skills) · roster row
    · single bright lime CTA. Boardroom palette
    (lime on charcoal), no shadows, hairline lines.
    ═════════════════════════════════════════════ */
@@ -1246,7 +1246,10 @@
   flex-direction: column;
   gap: 4px;
   padding-top: 4px;
-  border-top: 0.5px dashed var(--line);
+  /* No border-top here · the explicit `.dream-divider` element
+     placed BEFORE the caption already paints the dashed hairline.
+     Keeping a border on both produced two stacked rules under the
+     running-state lanes. */
   min-height: 38px;
 }
 .dream-caption-kicker {
@@ -2215,103 +2218,6 @@
   line-height: 1;
 }
 
-/* Equipment · 6 inventory slots */
-.ap-equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
-}
-/* Compact variant for the right rail · 3 cols, smaller slots. */
-.ap-equipment-grid.compact {
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.ap-slot {
-  aspect-ratio: 1;
-  border: 0.5px solid var(--line);
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--mono);
-  color: var(--text-faint);
-  font-size: 14px;
-  cursor: default;
-  position: relative;
-  opacity: 0.7;
-  transition: border-color 0.12s, background 0.12s, opacity 0.12s, color 0.12s;
-}
-.ap-slot:hover {
-  border-color: var(--line-bright);
-  background: var(--panel);
-  opacity: 1;
-  color: var(--text-soft);
-}
-.ap-slot.filled {
-  border-color: var(--line-bright);
-  color: var(--text);
-  background: var(--panel-3);
-  opacity: 1;
-}
-.ap-slot.filled:hover { border-color: var(--text-faint); }
-.ap-slot .ap-slot-ext {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 7.5px;
-  letter-spacing: 0.1em;
-  color: var(--text-faint);
-  text-transform: uppercase;
-}
-
-/* Coming-soon block · used by sections (e.g., Equipment) whose feature
-   isn't shipped yet. Centered glyph + title + body copy + status tag,
-   so the section reads as deliberately reserved space rather than an
-   empty grid. */
-.ap-coming-soon {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 8px;
-  padding: 6px 4px 4px;
-}
-.ap-coming-soon-mark {
-  font-family: var(--mono);
-  font-size: 18px;
-  line-height: 1;
-  color: var(--lime-dim);
-  letter-spacing: 0;
-}
-.ap-coming-soon-title {
-  font-family: var(--font-human);
-  font-size: 13.5px;
-  font-weight: 700;
-  letter-spacing: -0.005em;
-  color: var(--text);
-  line-height: 1.2;
-}
-.ap-coming-soon-body {
-  font-family: var(--font-human);
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--text-soft);
-  letter-spacing: -0.003em;
-  margin: 0;
-  max-width: 280px;
-}
-.ap-coming-soon-tag {
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--lime);
-  border: 0.5px solid var(--lime-dim);
-  padding: 3px 9px;
-}
 
 /* Roster · bottom-spanning row showing recent room avatars */
 .ap-roster-portraits {
@@ -2516,6 +2422,40 @@
 }
 .ap-model-picker::-webkit-scrollbar { width: 6px; }
 .ap-model-picker::-webkit-scrollbar-thumb { background: var(--line-strong); }
+
+/* Loading row · shown inside the voice picker while /api/voices
+   round-trips. The animated dot trio matches the play button's
+   loading register so both surfaces share the same vocabulary
+   for "working on it." Without the animation, users read the
+   static label as "frozen / no response." */
+.ap-model-picker-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.ap-model-picker-loading .ap-loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.ap-model-picker-loading .ap-loading-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--lime);
+  display: inline-block;
+  animation: ap-voice-preview-dot 1s ease-in-out infinite;
+}
+.ap-model-picker-loading .ap-loading-dots i:nth-child(2) { animation-delay: 0.15s; }
+.ap-model-picker-loading .ap-loading-dots i:nth-child(3) { animation-delay: 0.30s; }
 
 /* Provider section header · matches .cmp-dd-group · mono / faint /
    uppercase, hairline divider above (suppressed on the first one). */
@@ -3756,69 +3696,333 @@
 .ap-skill-info-configure-mark { font-size: 12px; }
 
 /* ── Voice configuration panel ───────────────────────────── */
-.ap-voice-config {
-  margin-top: 8px;
-  padding: 12px 0;
-}
+/* The wrapping `.ap-voice-config` no longer needs spacing of its
+   own — the parent `.ap-block-body` already handles padding now
+   that Voice Setup is its own section (was nested inside Track
+   Record before, where the inner offset disambiguated it from
+   the model row above). */
 .ap-voice-picker-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .ap-voice-picker-row .ap-model-trigger { flex: 1; }
+/* Preview button · sits next to the voice picker trigger.
+   Matches the global hairline register (`.ap-model-trigger` /
+   `.ap-block-h-action`) — same vertical metrics so it baseline-
+   aligns with the dropdown next to it, 0.5px border, transparent
+   background with panel-on-hover. Lime accent on the glyph
+   signals "audio action" without making the button shout. Loading
+   overlays three pulsing dots ON TOP of the glyph (same grid cell
+   via absolute positioning) so the button width is invariant
+   across states — no horizontal jump on click. */
 .ap-voice-preview-btn {
   flex-shrink: 0;
-  width: 32px; height: 32px;
-  background: var(--panel-2, #1a1a1a);
-  border: 1px solid var(--line-bright, #333);
-  color: var(--lime, #6FB572);
-  cursor: pointer;
-  font-size: 14px;
-  border-radius: 4px;
-  display: flex;
+  position: relative;
+  padding: 6px 12px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--lime);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
 }
-.ap-voice-preview-btn:hover { background: var(--panel-3, #222); }
-.ap-voice-preview-btn:disabled { opacity: 0.5; cursor: wait; }
+.ap-voice-preview-btn:hover {
+  background: var(--panel);
+  border-color: var(--text-faint);
+}
+.ap-voice-preview-btn:disabled {
+  cursor: wait;
+  color: var(--text-faint);
+}
+.ap-voice-preview-btn .ap-voice-preview-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  visibility: visible;
+}
+.ap-voice-preview-btn .ap-voice-preview-dots {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.ap-voice-preview-btn.is-loading .ap-voice-preview-glyph { visibility: hidden; }
+.ap-voice-preview-btn.is-loading .ap-voice-preview-dots  { visibility: visible; }
+.ap-voice-preview-btn .ap-voice-preview-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--lime);
+  display: inline-block;
+  animation: ap-voice-preview-dot 1s ease-in-out infinite;
+}
+.ap-voice-preview-btn .ap-voice-preview-dots i:nth-child(2) { animation-delay: 0.15s; }
+.ap-voice-preview-btn .ap-voice-preview-dots i:nth-child(3) { animation-delay: 0.30s; }
+@keyframes ap-voice-preview-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40%           { opacity: 1;    transform: scale(1);   }
+}
 
-.ap-voice-sliders {
+/* Legacy `.ap-voice-sliders` / `.ap-voice-slider` were a left-label
+   + flex-row layout that read cramped at the agent profile's column
+   width. Replaced by `.ap-voice-tune*` below. */
+/* Emotion row · sits directly under the voice picker outside the
+   advanced section. The trigger fills the row's width and the
+   hint caption sits below in the small mono-italic register
+   used for inline help across the profile (no left-side label —
+   the picker's selected option already names the choice). */
+.ap-voice-emotion-row {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ap-voice-emotion-row .ap-voice-emotion-trigger {
+  width: 100%;
+}
+.ap-voice-emotion-hint {
+  font-family: var(--font-human);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--text-faint);
+  letter-spacing: -0.003em;
+  padding: 0 2px;
+}
+/* Locked-state card · shown inside Voice Setup when neither
+   MiniMax nor ElevenLabs is configured. The sound-wave glyph
+   carries the visual interest by itself · no gradient backdrop
+   or framed container — the parent `.ap-block-body` already
+   gives it scope, and the `.ap-voice-locked` element just
+   centers its contents and gives them breathing room. */
+.ap-voice-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 16px 12px 8px;
+}
+.ap-voice-locked-glyph {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  padding-bottom: 2px;
+}
+.ap-voice-locked-glyph i {
+  width: 4px;
+  background: var(--lime);
+  display: inline-block;
+  animation: ap-voice-locked-bar 1.4s ease-in-out infinite;
+  opacity: 0.55;
+}
+.ap-voice-locked-glyph i:nth-child(1) { height: 10px; animation-delay: 0s; }
+.ap-voice-locked-glyph i:nth-child(2) { height: 18px; animation-delay: 0.12s; }
+.ap-voice-locked-glyph i:nth-child(3) { height: 26px; animation-delay: 0.24s; }
+.ap-voice-locked-glyph i:nth-child(4) { height: 18px; animation-delay: 0.36s; }
+.ap-voice-locked-glyph i:nth-child(5) { height: 10px; animation-delay: 0.48s; }
+@keyframes ap-voice-locked-bar {
+  0%, 100% { transform: scaleY(0.45); opacity: 0.35; }
+  50%      { transform: scaleY(1);    opacity: 1;    }
+}
+/* Small inline caption · was a bold display title; now reads as a
+   secondary explainer matching the rest of the profile's faint
+   helper-text register (.ap-voice-emotion-hint and similar). */
+.ap-voice-locked-title {
+  font-family: var(--font-human);
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
+  color: var(--text-soft);
+  max-width: 320px;
+  margin: 0;
+}
+.ap-voice-locked-cta {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lime);
+  background: transparent;
+  border: 0.5px solid var(--lime);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
+  margin-top: 4px;
+}
+.ap-voice-locked-cta:hover {
+  background: var(--lime);
+  color: var(--bg);
+}
+.ap-voice-locked-cta-arrow {
+  display: inline-block;
+  transition: transform 0.12s;
+}
+.ap-voice-locked-cta:hover .ap-voice-locked-cta-arrow { transform: translateX(2px); }
+
+/* Voice tune row · header (label left, value right) on top + a
+   custom-styled range slider beneath. Each slider's track shows a
+   lime "fill" segment from origin to thumb (or from neutral to
+   thumb for centered ranges) so the row reads as "lit up" instead
+   of just a thumb floating on a hairline. Fill positions are
+   driven by `--fill-lo` / `--fill-hi` CSS vars, set inline by the
+   render code and updated by the input handler. */
+.ap-voice-tune-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 10px;
 }
-.ap-voice-slider {
+.ap-voice-tune {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+.ap-voice-tune-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
+  min-height: 14px;
 }
-.ap-voice-slider-label {
-  font-family: var(--mono, monospace);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+.ap-voice-tune-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-soft, #999);
-  white-space: nowrap;
-  min-width: 70px;
+  color: var(--text-faint);
 }
-.ap-voice-slider .ap-voice-emotion-trigger {
-  flex: 1 1 auto;
-  min-width: 0;
+.ap-voice-tune-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--lime);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
-.ap-voice-slider input[type="range"] {
-  flex: 1;
-  height: 4px;
-  accent-color: var(--lime, #6FB572);
+
+/* Custom slider chrome · 2px hairline track with a lime fill, 9px
+   square thumb. The fill gradient uses `--fill-lo` / `--fill-hi`
+   so the same rule covers both non-centered (speed: lo=0, hi=value)
+   and centered (pitch / modify-*: lo/hi flank zero) sliders.
+   Vendor prefixes carry the same shape so Chrome and Firefox
+   render identically. */
+.ap-voice-tune-range {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 14px;
+  background: transparent;
   cursor: pointer;
+  margin: 0;
+  padding: 0;
+  --fill-lo: 0%;
+  --fill-hi: 0%;
+}
+.ap-voice-tune-range:focus { outline: none; }
+.ap-voice-tune-range::-webkit-slider-runnable-track {
+  height: 2px;
+  border: none;
+  background:
+    linear-gradient(
+      to right,
+      var(--line-bright) 0%,
+      var(--line-bright) var(--fill-lo),
+      var(--lime)        var(--fill-lo),
+      var(--lime)        var(--fill-hi),
+      var(--line-bright) var(--fill-hi),
+      var(--line-bright) 100%
+    );
+}
+.ap-voice-tune-range::-moz-range-track {
+  height: 2px;
+  border: none;
+  background:
+    linear-gradient(
+      to right,
+      var(--line-bright) 0%,
+      var(--line-bright) var(--fill-lo),
+      var(--lime)        var(--fill-lo),
+      var(--lime)        var(--fill-hi),
+      var(--line-bright) var(--fill-hi),
+      var(--line-bright) 100%
+    );
+}
+.ap-voice-tune-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 9px;
+  height: 9px;
+  background: var(--lime);
+  border: 0;
+  border-radius: 0;
+  margin-top: -3.5px;
+  cursor: grab;
+  transition: transform 0.1s, background 0.12s;
+}
+.ap-voice-tune-range::-moz-range-thumb {
+  width: 9px;
+  height: 9px;
+  background: var(--lime);
+  border: 0;
+  border-radius: 0;
+  cursor: grab;
+  transition: transform 0.1s, background 0.12s;
+}
+.ap-voice-tune-range:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.25); }
+.ap-voice-tune-range:active::-moz-range-thumb     { cursor: grabbing; transform: scale(1.25); }
+
+/* Centered ranges (pitch / modify-*) get a faint vertical tick at
+   the 50% mark to anchor the neutral / zero position. Sits behind
+   the lime thumb (z-index 0) so the thumb stays foreground when
+   the value happens to land on zero. */
+.ap-voice-tune-centered::before {
+  content: "";
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  width: 1px;
+  height: 5px;
+  background: var(--line-strong);
+  pointer-events: none;
+  z-index: 0;
 }
 .ap-voice-advanced {
   margin-top: 10px;
   border-top: 1px solid var(--line, #222);
   padding-top: 8px;
 }
+/* Header row · label on the left, custom expand/collapse indicator
+   on the right. Removes the browser's default ▶ disclosure triangle
+   on the left so the row reads as a clean section header rather
+   than a list item. The right-edge `+ / −` glyph swaps when
+   [open] is set — same hairline mono register the rest of the
+   profile uses for header actions. */
 .ap-voice-advanced summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-family: var(--mono, monospace);
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -3826,5 +4030,19 @@
   color: var(--text-soft, #999);
   cursor: pointer;
   user-select: none;
+  list-style: none;
 }
+.ap-voice-advanced summary::-webkit-details-marker { display: none; }
+.ap-voice-advanced summary::marker { display: none; content: ""; }
+.ap-voice-advanced summary::after {
+  content: "+";
+  font-family: var(--mono, monospace);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--text-faint);
+  transition: color 0.12s;
+}
+.ap-voice-advanced[open] summary::after { content: "−"; }
 .ap-voice-advanced summary:hover { color: var(--text, #eee); }
+.ap-voice-advanced summary:hover::after { color: var(--text); }

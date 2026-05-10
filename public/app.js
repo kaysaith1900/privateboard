@@ -1783,6 +1783,17 @@
       return MODEL_PROVIDERS.some((p) => keys[p] && keys[p].configured);
     },
 
+    /** Pure cache read · true when at least one voice provider
+     *  (MiniMax / ElevenLabs) is configured. The composer's voice
+     *  toggle calls this before flipping ON; if false, we redirect
+     *  the user to the keys panel rather than silently enabling a
+     *  feature that has no provider behind it. */
+    hasAnyVoiceKey() {
+      const VOICE_PROVIDERS = ["minimax", "elevenlabs"];
+      const keys = this.keys || {};
+      return VOICE_PROVIDERS.some((p) => keys[p] && keys[p].configured);
+    },
+
     /** Secondary hint under a failed brief · the legacy copy always blamed
      *  missing keys even when stage-2 scaffolding failed after successful
      *  LLM calls. Route hints by substring of the server's `brief-error`
@@ -3089,12 +3100,25 @@
             }
           } catch { /* swallow */ }
         }
+        // Preserve the failed brief's mode on retry · without this
+        // the POST defaulted back to `research-note` regardless of
+        // whether the user originally picked Magazine / Newspaper /
+        // Slides. Same goes for the supplement string (regenerate-
+        // with-perspective flow). Anything else (style etc) is
+        // re-derived server-side from the room's stored config.
+        const retryBody = {};
+        if (failed && this.isStructuredBriefMode(failed.mode)) {
+          retryBody.mode = failed.mode;
+        }
+        if (failed && typeof failed.supplement === "string" && failed.supplement.trim()) {
+          retryBody.supplement = failed.supplement;
+        }
         const r = await fetch(
           "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: "{}",
+            body: JSON.stringify(retryBody),
           },
         );
         if (!r.ok) {
@@ -3964,7 +3988,7 @@
         `;
       };
 
-      list.innerHTML = `
+      const html = `
         ${live.length > 0 ? `
           <div class="section-header live">
             <span>${this.escape(this._t("sidebar_section_live"))}</span>
@@ -3997,6 +4021,19 @@
           <div class="adjourned-empty-deck">${this.escape(this._t("sidebar_no_adjourned_deck"))}</div>
         </div>
       `;
+
+      // SSE handlers (room.updated / message.appended / brief.appended)
+      // call renderSidebarRooms unconditionally; many of those events
+      // don't actually change anything visible in the sidebar. A no-op
+      // innerHTML rewrite still tears down + recreates every anchor,
+      // which kills any in-flight click whose mousedown/mouseup
+      // straddle the wipe — symptom: "I clicked a room and nothing
+      // happened, had to refresh." Skip the write when the rendered
+      // string is identical to last time.
+      if (this._sidebarRoomsHtml !== html) {
+        this._sidebarRoomsHtml = html;
+        list.innerHTML = html;
+      }
 
       this.markActiveRoom(this.currentRoomId);
     },
@@ -4164,8 +4201,6 @@
             </div>
             <div class="agent-row-subtitle">
               <span class="agent-row-chair-role">${this.escape((a.roleTag && String(a.roleTag).toLowerCase() === "moderator") ? this._t("agent_role_tag_moderator") : (a.roleTag || this._t("sidebar_chair_role_fallback")))}</span>
-              <span class="agent-row-sep">·</span>
-              <span class="agent-row-chair-note">${this.escape(this._t("sidebar_chair_note"))}</span>
             </div>
           </div>
         </a>
@@ -4209,7 +4244,15 @@
         parts.push(sectionHeader(this._t("sidebar_sec_core"), core.length));
         parts.push(core.map((a) => renderRow(a)).join(""));
       }
-      list.innerHTML = parts.join("");
+      // Same idempotency guard as renderSidebarRooms · skip the
+      // innerHTML wipe when nothing has actually changed, so a
+      // background SSE re-render doesn't drop in-flight clicks on
+      // agent rows.
+      const html = parts.join("");
+      if (this._sidebarAgentsHtml !== html) {
+        this._sidebarAgentsHtml = html;
+        list.innerHTML = html;
+      }
     },
 
     renderUserBlock() {
@@ -4784,6 +4827,13 @@
           setTimeout(() => {
             const ta = chat.querySelector("[data-agent-composer-desc]");
             if (ta) {
+              // Set the multi-line placeholder via DOM property · the
+              // HTML attribute path strips newlines in some parsers,
+              // so the second line of the pitch wouldn't render. The
+              // DOM `placeholder` property reflects `\n` as a literal
+              // line break in the textarea's empty state, which is
+              // exactly what we want.
+              ta.placeholder = this._t("ag_cmp_placeholder");
               ta.focus();
               this.autosizeAgentComposerTextarea();
             }
@@ -4805,7 +4855,13 @@
           chat.innerHTML = this.renderComposerHtml(state);
           setTimeout(() => {
             const ta = chat.querySelector("[data-composer-subject]");
-            if (ta) ta.focus();
+            if (ta) {
+              // Same multi-line placeholder pattern as the agent
+              // composer above · DOM property preserves the `\n` the
+              // HTML attribute path can drop.
+              ta.placeholder = this._composerSubjectPlaceholder();
+              ta.focus();
+            }
             this.autosizeComposerTextarea();
           }, 30);
         }
@@ -6057,6 +6113,19 @@
       }
     },
 
+    /** Pitch copy for the new-room composer's textarea placeholder.
+     *  Centralised so renderComposerHtml AND the post-render DOM
+     *  `.placeholder` set in renderEmptyState share one source. The
+     *  DOM property path is the load-bearing one — setting it via
+     *  the HTML attribute strips the `\n` in some parsers, so a
+     *  multi-line pitch never renders the second line. The earlier
+     *  trailing "Drop in what's on your mind in a sentence or two."
+     *  was retired at the user's request — it was a CTA-style nudge
+     *  redundant with the heading question above the textarea. */
+    _composerSubjectPlaceholder() {
+      return "Convening a room can stress-test a thesis, force a decision you've been avoiding, or surface the angle nobody on your real team brings.";
+    },
+
     /** Build the composer HTML. Centred hero composition · Claude /
      *  ChatGPT-style new-chat landing, but tuned to our boardroom
      *  language. The single input block IS the focal point — cast +
@@ -6075,7 +6144,7 @@
       const t = {
         greet: greeting,
         prompt: "What's on your mind today?",
-        placeholder: "An idea you're not sure about, a decision you keep avoiding, or a thesis you want stress-tested. e.g. Should we lean into mid-market or stay enterprise-only? Or: What's the strongest argument against shipping the self-serve tier next quarter?",
+        placeholder: this._composerSubjectPlaceholder(),
         convene: "Convene",
         tuneLabel: "tune",
         starterLabel: "starter",
@@ -6178,15 +6247,47 @@
                   <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(state.intensity)}</span>
                   <span class="cmp-dd-chevron">▾</span>
                 </button>
-                <label class="cmp-voice-switch" title="${this.escape(this._t("cmp_voice_tooltip"))}">
-                  <input type="checkbox" data-composer-voice-toggle ${state.deliveryMode === "voice" ? "checked" : ""}>
-                  <span class="cmp-voice-switch-track"></span>
-                  <span class="cmp-voice-switch-label">${this.escape(this._t("cmp_voice_label"))}</span>
-                </label>
+                ${(() => {
+                  // Reuse the same toggle vocabulary as the new-agent
+                  // composer's web-search toggle: `.ap-skill-row-toggle`
+                  // (track + knob + text) plus `.cmp-ws-toggle` for
+                  // toolbar fitting. `needs-key` modifier renders the
+                  // dashed "configure first" treatment when no voice
+                  // provider is set, matching the WS toggle pattern
+                  // exactly. Class set: `on` / `off` / `needs-key`.
+                  const voiceConfigured = this.hasAnyVoiceKey();
+                  const voiceOn = voiceConfigured && state.deliveryMode === "voice";
+                  const voiceLabel = this._t("cmp_voice_label");
+                  const voiceTitle = !voiceConfigured
+                    ? "Configure a voice provider to enable voice mode"
+                    : (voiceOn
+                      ? "Voice mode on · directors speak aloud during the room"
+                      : "Voice mode off · click to enable");
+                  const voiceCls = [
+                    "ap-skill-row-toggle",
+                    "cmp-ws-toggle",
+                    voiceOn ? "on" : "off",
+                    voiceConfigured ? "" : "needs-key",
+                  ].filter(Boolean).join(" ");
+                  return `
+                    <button type="button" class="${voiceCls}"
+                      data-composer-voice-toggle
+                      data-configured="${voiceConfigured ? "1" : "0"}"
+                      data-on="${voiceOn ? "1" : "0"}"
+                      aria-pressed="${voiceOn ? "true" : "false"}"
+                      title="${this.escape(voiceTitle)}">
+                      <span class="ap-skill-row-toggle-track"><span class="ap-skill-row-toggle-knob"></span></span>
+                      <span class="ap-skill-row-toggle-text">${this.escape(voiceLabel)}</span>
+                    </button>
+                  `;
+                })()}
               </div>
 
               <button type="button" class="cmp-go" data-composer-go title="${this.escape(t.convene)} (⏎)">
-                <span class="cmp-go-arrow">→</span>
+                <svg class="cmp-go-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M5 12h14"/>
+                  <path d="m13 5 7 7-7 7"/>
+                </svg>
               </button>
             </div>
           </div>
@@ -6376,6 +6477,15 @@
       } catch { /* ignore */ }
     },
 
+    /** Public lookup for the human-friendly label of a model id.
+     *  Mirrors `MODEL_LABELS[modelV] || modelV`, exposed so callers
+     *  outside this IIFE (e.g. new-agent.js's overlay) don't have to
+     *  reach into module-scoped state. */
+    modelLabel(modelV) {
+      if (!modelV) return "";
+      return MODEL_LABELS[modelV] || modelV;
+    },
+
     setAgentComposerModel(modelV) {
       if (!modelV) return;
       // Accept any modelV the registry knows about (MODEL_LABELS) so
@@ -6385,9 +6495,16 @@
       if (!MODEL_LABELS[modelV]) return;
       this.agentComposerModel = modelV;
       this.saveAgentComposerModel();
-      // Update the dropdown trigger label in place.
-      const v = document.querySelector('[data-cmp-dd-value="agent-model"]');
-      if (v) v.textContent = MODEL_LABELS[modelV] || modelV;
+      // Update every dropdown trigger label in place. There can be
+      // more than one mounted at once (the AI composer's toolbar
+      // chip + the manual new-agent overlay's foot chip), and they
+      // share the same model state, so all instances should reflect
+      // the new pick. Picking one out via querySelector() updated
+      // only the first; querySelectorAll keeps them in sync.
+      const label = MODEL_LABELS[modelV] || modelV;
+      document.querySelectorAll('[data-cmp-dd-value="agent-model"]').forEach((v) => {
+        v.textContent = label;
+      });
     },
 
     /** Click handler for the agent-composer starter list. Drops the
@@ -6508,6 +6625,7 @@
           <span class="ag-gen-mark"><span class="ag-gen-pulse"></span></span>
           <span class="ag-gen-title">${this.escape(headerLabel)}</span>
           <span class="ag-gen-elapsed">${this.escape(elapsedLabel)}</span>
+          <button type="button" class="ag-gen-stop" data-agent-spec-stop title="Stop generating">[ Stop ]</button>
         </div>
         <div class="ag-gen-stage-area">
           <div class="ag-gen-sigil" aria-hidden="true">${sigilSvg}</div>
@@ -6646,7 +6764,6 @@
         ctaHint: this._t("ag_cmp_cta_hint"),
         manual: this._t("ag_cmp_manual"),
         generating: this._t("ag_cmp_generating"),
-        modelLabel: this._t("ag_cmp_model_label"),
         starterCaption: this._t("ag_cmp_starter_caption"),      };
       // If we already have a spec preview, render that instead of the input.
       if (this.agentSpec) {
@@ -6659,8 +6776,6 @@
         return this.renderAgentSpecErrorHtml(this.agentSpecError, lang);
       }
       const generating = this.agentSpecGenerating;
-      const currentModel = this.loadAgentComposerModel();
-      const modelDisplay = MODEL_LABELS[currentModel] || currentModel;
       const starters = this.AGENT_STARTERS_EN;
       const starterCards = starters.map((q, idx) => `
         <button type="button" class="cmp-starter" data-agent-starter="${idx}">
@@ -6680,11 +6795,13 @@
             <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}>${this.escape(this.loadAgentComposerDraft())}</textarea>
 
             <div class="cmp-toolbar">
-              <button type="button" class="cmp-dd" data-cmp-dropdown="agent-model" title="${this.escape(t.modelLabel)}">
-                <span class="cmp-dd-label">${this.escape(t.modelLabel)}</span>
-                <span class="cmp-dd-value" data-cmp-dd-value="agent-model">${this.escape(modelDisplay)}</span>
-                <span class="cmp-dd-chevron">▾</span>
-              </button>
+              <!-- Model selection lives downstream now: the post-
+                   generation spec preview card has a model <select>
+                   (renderAgentSpecPreviewHtml), the manual new-agent
+                   overlay has its own model picker (new-agent.js), and
+                   the agent profile page can change the model at any
+                   time. Putting it in the composer toolbar too was
+                   redundant and made the bar visually noisy. -->
               <button type="button" class="ag-cmp-manual" data-agent-composer-manual>
                 <span class="ag-cmp-manual-mark">⚙</span>
                 <span class="ag-cmp-manual-label">${this.escape(t.manual)}</span>
@@ -6727,7 +6844,12 @@
                 `;
               })()}
               <button type="button" class="cmp-go ${generating ? "busy" : ""}" data-agent-composer-go title="${this.escape(t.cta)} (⏎)" ${generating ? "disabled" : ""}>
-                <span class="cmp-go-arrow">${generating ? "…" : "→"}</span>
+                ${generating
+                  ? `<span class="cmp-go-arrow">…</span>`
+                  : `<svg class="cmp-go-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M5 12h14"/>
+                      <path d="m13 5 7 7-7 7"/>
+                    </svg>`}
               </button>
             </div>
           </div>
@@ -7482,8 +7604,20 @@
       const state = this.loadComposerState();
       state.deliveryMode = deliveryMode === "voice" ? "voice" : "text";
       this.saveComposerState();
-      const cb = document.querySelector("[data-composer-voice-toggle]");
-      if (cb) cb.checked = state.deliveryMode === "voice";
+      // Sync the button-style toggle's classes / aria / data attrs /
+      // visible text. Was a checkbox previously (cb.checked = ...);
+      // the new register uses .ap-skill-row-toggle so we mirror what
+      // the click handler does for the in-place mutation case.
+      const btn = document.querySelector("[data-composer-voice-toggle]");
+      if (btn) {
+        const on = state.deliveryMode === "voice";
+        btn.classList.toggle("on", on);
+        btn.classList.toggle("off", !on);
+        btn.setAttribute("data-on", on ? "1" : "0");
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+        const txt = btn.querySelector(".ap-skill-row-toggle-text");
+        if (txt) txt.textContent = this._t("cmp_voice_label");
+      }
     },
 
     /** Generic option-list dropdown anchored under a tune trigger
@@ -7548,6 +7682,17 @@
               { v: "voice", label: "Voice", hint: "spoken · paced turns" },
             ];
         current = state.deliveryMode === "voice" ? "voice" : "text";
+      } else if (kind === "locale") {
+        // Interface language picker · routes through the shared
+        // .cmp-dd dropdown vocabulary so the User-settings pane
+        // doesn't ship a separate two-button toggle. Hints describe
+        // what the locale switch affects so the user knows it's the
+        // chrome language, not the brief language.
+        opts = [
+          { v: "en", label: "EN",   hint: "interface in english" },
+          { v: "zh", label: "中文", hint: "界面语言切到中文" },
+        ];
+        current = (window.I18n && window.I18n.getLocale && window.I18n.getLocale()) || "en";
       } else if (kind === "agent-model") {
         // Reachable-only model catalog · pulls from the shared
         // /api/models cache so the picker reflects the user's
@@ -7890,20 +8035,29 @@
       // tagged-meta-pills) — net height reduction ~150 → ~85px.
       // Tone / intensity / brief-style remain editable in the room
       // settings overlay; only their on-header surface is collapsed.
+      // Compact two-row layout · kicker carries all the meta (room
+      // number / tone / intensity / status) on a single mono line
+      // above the subject. Replaces the prior three-row stack of
+      // `.room-id` + subject + `.room-meta` tagged pills which the
+      // CSS in index.html no longer styles. Tone / intensity stay
+      // editable in the room-settings overlay.
+      // System chrome is English-only per the project rule (only
+      // user / LLM content follows query language), so the kicker
+      // tokens are not routed through `_t()`.
+      const statusWord = r.status !== "live" ? String(r.status).toUpperCase() : "";
       head.innerHTML = `
         <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}"></button>
         <div class="room-info">
-          <div class="room-id">
-            <span class="room-name">${this.escape(this._t("room_meeting_room"))}</span>
-            <span class="session-num">// ROOM #${r.number} · ${this.escape(tone.toUpperCase())}</span>
+          <div class="room-kicker">
+            <span class="kicker-num">// ROOM #${r.number}</span>
+            <span class="kicker-sep">·</span>
+            <span class="kicker-tone" data-tone-tip="${this.escape(toneTip)}">${this.escape(tone.toUpperCase())}</span>
+            <span class="kicker-sep">·</span>
+            <span class="kicker-intensity">${this.escape(intensity.toUpperCase())}</span>
+            ${statusWord ? `<span class="kicker-sep">·</span><span class="kicker-status status-${this.escape(r.status)}">${statusWord}</span>` : ""}
           </div>
           <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(r.subject)}</h1>
-          <div class="room-meta" data-room-meta>
-            <span class="meta-tag tag-tone" data-tone-tip="${this.escape(toneTip)}"><span class="k">${this.escape(this._t("room_meta_tone"))}</span><span class="v">${this.escape(tone)}</span></span>
-            <span class="meta-tag tag-intensity"><span class="k">${this.escape(this._t("room_meta_intensity"))}</span><span class="v">${this.escape(intensity)}</span></span>
-            <span class="meta-tag tag-report"><span class="k">${this.escape(this._t("room_meta_report"))}</span><span class="v">${this.escape(briefStyle)}</span></span>
-            ${stamp ? `<span class="meta-stamp">${this.escape(stamp)}</span>` : ""}
-          </div>        </div>
+        </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
           <a href="#" class="room-settings-trigger" data-room-settings-trigger title="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}">⚙</a>
@@ -9533,12 +9687,8 @@
         card.innerHTML = `
           <div class="brief-card">
             ${tabsStripHtml}
-            <div class="brief-banner">
-              <span class="brief-banner-tag" style="color: var(--red);">${this.escape(this._t("brief_report_tag"))}</span>
-              <span class="brief-banner-stamp" style="color: var(--red);">${this.escape(copy.stamp)}</span>
-            </div>
             <div class="brief-body brief-body-error">
-              <div class="brief-kicker" style="color: var(--red);">${this.escape(copy.kicker)}</div>
+              <div class="brief-kicker" style="color: var(--red);">${this.escape(copy.kicker)} <span class="brief-kicker-sep" aria-hidden="true">·</span> ${this.escape(copy.stamp)} <span class="brief-kicker-sep" aria-hidden="true">·</span> <span class="brief-meta-type">${this.escape(this.briefModeLabel(b))}</span></div>
               <div class="brief-meta-line" style="color: var(--text-soft); text-transform: none; letter-spacing: 0;">
                 ${(b.interrupted || b.timedOut) ? this.escape(copy.detail) : copy.detail}
               </div>
@@ -9591,24 +9741,34 @@
 
         <div class="brief-card">
           ${tabsHtml}
-          <div class="brief-banner">
-            <span class="brief-banner-tag">${this.escape(this._t("brief_report_tag"))}</span>            <span class="brief-banner-stamp">${filedLabel}</span>
-          </div>
 
           <div class="brief-body">
             ${generating
               ? `<div class="brief-info brief-info-generating">${this.renderBriefStages(b)}</div>`
               : (() => {
                   const wc = this._briefWordCount(b);
-                  const tip = this._briefWordCountTip(wc);
+                  // Tucked the mode chip into the meta-row alongside
+                  // authors / word count. The earlier `.brief-banner`
+                  // strip (kicker + chip + stamp) was retired — the
+                  // user found it ate too much vertical space for
+                  // info that's already implied by the surrounding
+                  // adjourned-room context.
+                  const filedAgo = b.createdAt ? this.relTime(b.createdAt) : "";
+                  const filedKicker = this._t("brief_filed_by", {
+                    name: this.currentChair?.name ? this.escape(this.currentChair.name) : this._t("brief_chair_fallback"),
+                  });
+                  const kickerLine = filedAgo
+                    ? `${filedKicker} <span class="brief-kicker-sep" aria-hidden="true">·</span> ${this.escape(filedAgo)}`
+                    : filedKicker;
                   return `<div class="brief-info">
-                    <div class="brief-kicker">${this._t("brief_filed_by", {
-                      name: this.currentChair?.name ? this.escape(this.currentChair.name) : this._t("brief_chair_fallback"),
-                    })}</div>
+                    <div class="brief-kicker">${kickerLine}</div>
                     <h2 class="brief-title" data-brief-title>${this.escape(b.title || this._t("brief_untitled"))}</h2>
                     <div class="brief-meta-row">
                       <span class="brief-meta-line">${this.escape(this._t("brief_meta_authors", { n: this.currentMembers.length }))}</span>
-                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}                      <div class="brief-signed">
+                      ${wc ? `<span class="brief-meta-sep" aria-hidden="true">·</span><span class="brief-meta-line brief-meta-words">${this.escape(wc)}</span>` : ""}
+                      <span class="brief-meta-sep" aria-hidden="true">·</span>
+                      <span class="brief-meta-type">${this.escape(this.briefModeLabel(b))}</span>
+                      <div class="brief-signed">
                         <div class="brief-signed-avatars">${signed}</div>
                       </div>
                     </div>
@@ -9956,8 +10116,37 @@
         "scaffold-actions":  { status: "pending", detail: "", progress: null, startedAt: null },
         write:               { status: "pending", detail: "", progress: null, startedAt: null },
       };
-      const STAGE_ORDER = ["extract", "compose", "scaffold-anchor", "scaffold-findings", "scaffold-cluster", "scaffold-actions", "write"];
+      // Mode-aware stage rail. The wire format emitted by emitStage()
+      // in src/orchestrator/brief.ts depends on which pipeline ran:
+      //
+      //   research-note (default) · extract → compose →
+      //     scaffold-{anchor,findings,cluster,actions} → write
+      //     (7 stages · the 4 scaffold sub-stages are driven by
+      //      JSON-key arrival in the streaming buffer)
+      //
+      //   magazine / newspaper / ppt · extract → write
+      //     (2 stages · runBentoStage runs ONE chair-LLM call that
+      //      produces the BentoScaffold; composer + scaffold sub-
+      //      stages are skipped entirely. Each mode customises only
+      //      the write label so the user sees what's actually
+      //      being composed.)
+      const isStructured = this.isStructuredBriefMode(b.mode);
+      const STAGE_ORDER = isStructured
+        ? ["extract", "write"]
+        : ["extract", "compose", "scaffold-anchor", "scaffold-findings", "scaffold-cluster", "scaffold-actions", "write"];
+      // For structured modes the write key swaps to a per-mode label
+      // (`brief_stage_magazine_write_label`, etc) so the user reads
+      // "Composing the magazine" instead of the generic "Writing the
+      // report" copy that suits research-note's chapter-by-chapter
+      // pipeline.
       const STAGE_DEFS = STAGE_ORDER.map((key) => {
+        if (isStructured && key === "write") {
+          return {
+            key,
+            label: this._t(`brief_stage_${b.mode}_write_label`),
+            pipShort: this._t(`brief_stage_${b.mode}_write_pip`),
+          };
+        }
         const sk = key.replace(/-/g, "_");
         return {
           key,
@@ -10413,6 +10602,23 @@
       window.location.href = "/api/rooms/" + encodeURIComponent(app.currentRoomId) + "/export.md";
       return;
     }
+    // Voice Replay · adjourned-bar action. Plays the transcript
+    // back via TTS in chronological order, each director in their
+    // own voice. Routed through the standalone voice-replay module
+    // so the playback state machine + overlay live in one place.
+    if (e.target.closest("[data-room-replay]")) {
+      e.preventDefault();
+      if (!app.currentRoomId) return;
+      if (window.boardroomVoiceReplay && typeof window.boardroomVoiceReplay.open === "function") {
+        window.boardroomVoiceReplay.open({
+          roomId: app.currentRoomId,
+          messages: Array.isArray(app.currentMessages) ? app.currentMessages.slice() : [],
+          members: Array.isArray(app.currentMembers) ? app.currentMembers.slice() : [],
+          chair: app.currentChair || null,
+        });
+      }
+      return;
+    }
     // Convene Follow-up · adjourned-bar action. Opens the follow-up
     // overlay with parent reference + form for the new question.
     if (e.target.closest("[data-room-followup]")) {
@@ -10810,6 +11016,43 @@
       if (typeof window.openNewAgent === "function") window.openNewAgent();
       return;
     }
+    // ─── New-room composer · voice-mode toggle. Same three paths
+    //   as the websearch toggle just below: unconfigured → open
+    //   keys panel; on → off; off → on. Done with in-place class /
+    //   text mutation so the composer textarea isn't blown away by
+    //   a full repaint on every click.
+    const voiceToggle = e.target.closest("[data-composer-voice-toggle]");
+    if (voiceToggle) {
+      e.preventDefault();
+      const configured = app.hasAnyVoiceKey();
+      if (!configured) {
+        // Stale `data-configured` may say 1 if the user added then
+        // removed a key without a re-render; live cache wins.
+        if (typeof window.openUserSettings === "function") {
+          window.openUserSettings({ section: "keys", focusProvider: "minimax" });
+        }
+        return;
+      }
+      // Live cache says configured · sync the toggle's stale attrs
+      // so the next click flips rather than re-prompts.
+      if (voiceToggle.getAttribute("data-configured") !== "1") {
+        voiceToggle.setAttribute("data-configured", "1");
+        voiceToggle.classList.remove("needs-key");
+      }
+      const wasOn = voiceToggle.getAttribute("data-on") === "1";
+      const next = !wasOn;
+      app.setComposerDeliveryMode(next ? "voice" : "text");
+      voiceToggle.classList.toggle("on", next);
+      voiceToggle.classList.toggle("off", !next);
+      voiceToggle.setAttribute("data-on", next ? "1" : "0");
+      voiceToggle.setAttribute("aria-pressed", next ? "true" : "false");
+      const txt = voiceToggle.querySelector(".ap-skill-row-toggle-text");
+      if (txt) txt.textContent = app._t("cmp_voice_label");
+      voiceToggle.title = next
+        ? "Voice mode on · directors speak aloud during the room"
+        : "Voice mode off · click to enable";
+      return;
+    }
     // ─── Agent composer · websearch toggle. Three paths:
     //   · unconfigured → confirm + open Preferences → Brave row
     //   · on  → save off + flip toggle in place
@@ -10875,6 +11118,14 @@
       return;
     }
     if (e.target.closest("[data-agent-spec-discard]")) {
+      e.preventDefault();
+      app.discardAgentSpec();
+      return;
+    }
+    if (e.target.closest("[data-agent-spec-stop]")) {
+      // Stop · same effect as Discard while generation is in flight ·
+      // aborts the AbortController, which propagates to the fetch
+      // (cancels the LLM call server-side) and resets composer state.
       e.preventDefault();
       app.discardAgentSpec();
       return;
@@ -10966,6 +11217,23 @@
         else if (kind === "intensity") app.setComposerIntensity(v);
         else if (kind === "delivery") app.setComposerDeliveryMode(v);
         else if (kind === "agent-model") app.setAgentComposerModel(v);
+        else if (kind === "locale") {
+          // Interface language · runs through the shared I18n
+          // setter so document.documentElement.lang, the persisted
+          // boardroom.uiLocale storage entry, applyDom, and the
+          // boardroom:locale event all fire as a unit. The trigger's
+          // value span is updated explicitly because applyDom won't
+          // touch a `data-cmp-dd-value` (it has no data-i18n key).
+          if (window.I18n && typeof window.I18n.setLocale === "function") {
+            window.I18n.setLocale(v);
+          }
+          if (trigger) {
+            const valSpan = trigger.querySelector("[data-cmp-dd-value]");
+            if (valSpan) {
+              valSpan.textContent = v === "zh" ? "中文" : "EN";
+            }
+          }
+        }
       }
       app.closeComposerDropdown();
       return;
@@ -11090,11 +11358,6 @@
   // which is a <select> whose `selected` attr only sets the initial
   // option). Reads the field name → field key off the element.
   document.addEventListener("change", (e) => {
-    // Voice mode switch in the new-room composer
-    if (e.target && e.target.matches && e.target.matches("[data-composer-voice-toggle]")) {
-      app.setComposerDeliveryMode(e.target.checked ? "voice" : "text");
-      return;
-    }
     const el = e.target && e.target.closest && e.target.closest("[data-agent-spec-field]");
     if (!el || !app.agentSpec) return;
     const key = el.getAttribute("data-agent-spec-field");
