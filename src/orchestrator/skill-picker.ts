@@ -169,8 +169,10 @@ export async function pickChairClarifyDecision(opts: {
 export type RoundWrapRecommendation = "end" | "continue";
 export interface RoundWrapDecision {
   recommendation: RoundWrapRecommendation;
-  /** ≤200 chars · why this call. Surfaced in the round-prompt body so
-   *  the user reads the chair's reasoning before pressing the button. */
+  /** ≤120 chars · why this call, in one tight sentence. Surfaced in the
+   *  round-prompt body so the user reads the chair's reasoning before
+   *  pressing the button — keep it terse so the wrap doesn't read as
+   *  a wall of text. */
   rationale: string;
 }
 
@@ -221,8 +223,12 @@ export async function pickRoundWrap(opts: {
       "there's still substantive ground to cover is worse than letting",
       "them run one more round. When in doubt, recommend CONTINUE.",
       "",
+      "Rationale style: ONE tight sentence, ≤120 chars. Name the load-",
+      "bearing reason — no preamble, no \"the room has\", no hedges. Vary",
+      "your phrasing across calls; don't lean on the same opener twice.",
+      "",
       "Reply with STRICT JSON ONLY (no prose, no fences):",
-      "{ \"recommendation\": \"end\" | \"continue\", \"rationale\": \"≤200 chars · the load-bearing reason\" }",
+      "{ \"recommendation\": \"end\" | \"continue\", \"rationale\": \"≤120 chars · one tight sentence on the load-bearing reason\" }",
     ].join("\n"),
   };
 
@@ -268,7 +274,7 @@ export async function pickRoundWrap(opts: {
   }
   const obj = parsed as { recommendation?: unknown; rationale?: unknown };
   const rec: RoundWrapRecommendation = obj.recommendation === "end" ? "end" : "continue";
-  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim().slice(0, 240) : "";
+  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim().slice(0, 160) : "";
   return { recommendation: rec, rationale };
 }
 
@@ -377,8 +383,14 @@ export async function pickNextSpeaker(opts: {
       "",
       "If you DO intervene: 1 sentence, neutral moderator voice, name",
       "the SPECIFIC pattern + the load-bearing piece worth pinning down.",
-      "Match the user's language (Chinese subject → Chinese; English →",
-      "English). No greeting, no signature.",
+      "No greeting, no signature.",
+      "",
+      "LANGUAGE · the chair note must follow the room's DOMINANT",
+      "language detected from the recent transcript (most recent",
+      "messages weight highest). If most directors and the user are",
+      "speaking Chinese, your intervention is CHINESE. If English,",
+      "ENGLISH. Never default to English just because this prompt is",
+      "in English. Never mix languages inside a single intervention.",
       "",
       "Reply with STRICT JSON ONLY (no prose, no fences):",
       "{",

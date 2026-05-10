@@ -170,6 +170,64 @@ export function deleteMessage(id: string): boolean {
  * error note so the user sees what's left of the partial reply
  * instead of a silent disappearance.
  */
+/** Cross-room keyword search. Substring match against `body` only ·
+ *  filters out streaming placeholders (so "thinking…" / partial
+ *  drafts don't show up) and drops empty bodies.
+ *
+ *  Returns oldest-first per room so the UI can group by room with a
+ *  stable order; `LIMIT` caps the result count globally to keep the
+ *  response cheap. The match offset is the byte index of the first
+ *  case-insensitive hit so the client can render a centered snippet
+ *  without re-searching. */
+export interface MessageSearchHit {
+  messageId: string;
+  roomId: string;
+  authorKind: AuthorKind;
+  authorId: string | null;
+  body: string;
+  matchOffset: number;       // index of first match in `body`, lowercase-compared
+  createdAt: number;
+}
+export function searchMessages(query: string, limit = 200): MessageSearchHit[] {
+  const q = (query || "").trim();
+  if (q.length < 1) return [];
+  const like = "%" + q.replace(/([%_\\])/g, "\\$1") + "%";
+  const rows = getDb()
+    .prepare(
+      `SELECT id, room_id, author_kind, author_id, body, created_at
+       FROM messages
+       WHERE body LIKE ? ESCAPE '\\'
+         AND body IS NOT NULL
+         AND trim(body) <> ''
+         AND (
+           meta_json IS NULL
+           OR NOT json_valid(meta_json)
+           OR json_extract(meta_json, '$.streaming') IS NULL
+           OR json_extract(meta_json, '$.streaming') = 0
+         )
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+    .all(like, limit) as Array<{
+      id: string;
+      room_id: string;
+      author_kind: string;
+      author_id: string | null;
+      body: string;
+      created_at: number;
+    }>;
+  const ql = q.toLowerCase();
+  return rows.map((r) => ({
+    messageId: r.id,
+    roomId: r.room_id,
+    authorKind: r.author_kind as AuthorKind,
+    authorId: r.author_id,
+    body: r.body,
+    matchOffset: r.body.toLowerCase().indexOf(ql),
+    createdAt: r.created_at,
+  }));
+}
+
 export function cleanupOrphanedStreams(): { fixed: number; deleted: number } {
   const db = getDb();
   const del = db

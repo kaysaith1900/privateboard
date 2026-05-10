@@ -1079,6 +1079,100 @@
   function renderRulesBlock(slug) {
     return `<div class="ap-rules-block" data-ap-rules-block data-slug="${escape(slug)}">${renderRulesInner(slug)}</div>`;
   }
+
+  /** Persona dossier card · only mounted for Full-mode agents (those
+   *  with `personaSpec` populated by the deep-build pipeline). The
+   *  card reads as a gamified character-sheet · mono kicker, big
+   *  divergence stat, secondary stat grid, ▸ CTA. Clicking opens an
+   *  overlay that previews the persona.md content with a Download
+   *  affordance. Hidden entirely for Signal-mode agents and seeded
+   *  directors so the panel doesn't render an empty section.
+   *
+   *  Stats source from `live.personaSpec` (resolved from
+   *  window.app.agentsById at render time · the `p` object passed in
+   *  doesn't carry the spec, so we reach across). */
+  function renderPersonaDossierSection(slug, p) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    const spec = live && live.personaSpec ? live.personaSpec : null;
+    if (!spec) return "";
+    // Stats. Differentiation score is the headline — null when the
+    // build skipped the eval pass (rare). The rest are counts of the
+    // structured artifacts so the user can eyeball depth at a glance.
+    const score = typeof spec.differentiationScore === "number" ? spec.differentiationScore : null;
+    const scorePct = score == null ? "—" : `${Math.round(score * 100)}%`;
+    const knowledge = spec.knowledge || {};
+    const sourceCount = (knowledge.keyThinkers || []).length
+      + (knowledge.foundationalWorks || []).length
+      + (knowledge.recentDevelopments || []).length
+      + (knowledge.contestedClaims || []).length;
+    const searchCount = (knowledge.searchQueries || []).length;
+    const fewShotCount = (spec.fewShot || []).length;
+    const rulesCount = (spec.rules || []).length;
+    const checklistCount = (spec.reflectionChecklist || []).length;
+    const evalCount = (spec.evalSet || []).length;
+    const builtIso = spec.generatedAt || "";
+    const builtLabel = builtIso ? new Date(builtIso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
+    return `
+      <section class="ap-block ap-persona-block">
+        <header class="ap-block-h">
+          <span class="ap-block-h-title">Persona dossier</span>
+          <span class="ap-block-h-tag">Full-mode build</span>
+        </header>
+        <button type="button" class="ap-persona-card" data-ap-persona-open data-slug="${escape(slug)}" aria-label="Open persona dossier">
+          <div class="ap-persona-card-head">
+            <div class="ap-persona-card-glyph" aria-hidden="true">
+              <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4">
+                <circle cx="16" cy="16" r="12" />
+                <circle cx="16" cy="16" r="5" />
+                <line x1="16" y1="2"  x2="16" y2="8" />
+                <line x1="16" y1="24" x2="16" y2="30" />
+                <line x1="2"  y1="16" x2="8"  y2="16" />
+                <line x1="24" y1="16" x2="30" y2="16" />
+              </svg>
+            </div>
+            <div class="ap-persona-card-id">
+              <div class="ap-persona-card-kicker">— PERSONA · 7-PHASE DOSSIER</div>
+              <div class="ap-persona-card-title">${escape(p && p.name ? p.name : "Director")}</div>
+              ${builtLabel ? `<div class="ap-persona-card-meta">Built · ${escape(builtLabel)}</div>` : ""}
+            </div>
+            <div class="ap-persona-card-score" title="Differentiation vs generic-AI baseline">
+              <div class="ap-persona-card-score-v">${escape(scorePct)}</div>
+              <div class="ap-persona-card-score-l">DIVERGENCE</div>
+            </div>
+          </div>
+          <div class="ap-persona-card-grid">
+            <div class="ap-persona-stat">
+              <div class="ap-persona-stat-v">${sourceCount}</div>
+              <div class="ap-persona-stat-l">SOURCES</div>
+            </div>
+            <div class="ap-persona-stat">
+              <div class="ap-persona-stat-v">${searchCount}</div>
+              <div class="ap-persona-stat-l">SEARCHES</div>
+            </div>
+            <div class="ap-persona-stat">
+              <div class="ap-persona-stat-v">${fewShotCount}</div>
+              <div class="ap-persona-stat-l">VOICE EX.</div>
+            </div>
+            <div class="ap-persona-stat">
+              <div class="ap-persona-stat-v">${rulesCount}</div>
+              <div class="ap-persona-stat-l">RULES</div>
+            </div>
+            <div class="ap-persona-stat">
+              <div class="ap-persona-stat-v">${checklistCount}</div>
+              <div class="ap-persona-stat-l">CHECKS</div>
+            </div>
+            <div class="ap-persona-stat">
+              <div class="ap-persona-stat-v">${evalCount}</div>
+              <div class="ap-persona-stat-l">EVALS</div>
+            </div>
+          </div>
+          <div class="ap-persona-card-cta">
+            <span class="ap-persona-card-cta-label">▸ OPEN DOSSIER</span>
+            <span class="ap-persona-card-cta-hint">preview · download .md</span>
+          </div>
+        </button>
+      </section>`;
+  }
   function renderRulesInner(slug) {
     const rules = rulesForAgent(slug);
     const list = rules.length === 0
@@ -1772,6 +1866,79 @@
     `;
   }
 
+  /* ─── Persona dossier overlay ──────────────────────────
+     Full-screen modal that previews the persona.md content. Opens
+     from the dossier card in the main column. Fetches the route
+     once per open (no caching · the file is small and downloads
+     are cheap), renders via the in-file renderMarkdown helper, and
+     surfaces a Download button that hits the same endpoint with
+     the browser's native download path. Closed on backdrop click
+     or Escape. */
+  let _personaOverlayEsc = null;
+  function openPersonaOverlay(slug, agentName) {
+    closePersonaOverlay();
+    const overlay = document.createElement("div");
+    overlay.id = "ap-persona-overlay";
+    overlay.className = "ap-persona-overlay";
+    overlay.innerHTML = `
+      <div class="ap-persona-overlay-backdrop" data-ap-persona-close></div>
+      <div class="ap-persona-overlay-modal" role="dialog" aria-modal="true" aria-label="Persona dossier">
+        <div class="ap-persona-overlay-classification">
+          <span><span class="dot">●</span> CLASSIFIED · DIRECTOR DOSSIER</span>
+          <span class="right">${escape(agentName || "")}</span>
+        </div>
+        <div class="ap-persona-overlay-head">
+          <div class="ap-persona-overlay-title">Persona dossier</div>
+          <div class="ap-persona-overlay-actions">
+            <a class="ap-persona-overlay-dl" href="/api/agents/${encodeURIComponent(slug)}/persona.md" download>
+              <span aria-hidden="true">↓</span> Download .md
+            </a>
+            <button type="button" class="ap-persona-overlay-close" data-ap-persona-close aria-label="Close">✕</button>
+          </div>
+        </div>
+        <div class="ap-persona-overlay-body" data-ap-persona-body>
+          <div class="ap-persona-overlay-loading">Decrypting dossier…</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    document.body.classList.add("ap-persona-overlay-open");
+    _personaOverlayEsc = (ev) => {
+      if (ev.key === "Escape") {
+        ev.stopImmediatePropagation();
+        closePersonaOverlay();
+      }
+    };
+    document.addEventListener("keydown", _personaOverlayEsc, true);
+    // Fetch + render. Same-origin so credentials default. The
+    // fetch path returns text/markdown; we feed it straight into
+    // the existing renderMarkdown helper.
+    fetch(`/api/agents/${encodeURIComponent(slug)}/persona.md`, { credentials: "same-origin" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then((md) => {
+        const body = overlay.querySelector("[data-ap-persona-body]");
+        if (!body) return;
+        body.innerHTML = `<div class="ap-persona-overlay-md">${renderMarkdown(md)}</div>`;
+      })
+      .catch((err) => {
+        const body = overlay.querySelector("[data-ap-persona-body]");
+        if (!body) return;
+        body.innerHTML = `<div class="ap-persona-overlay-error">Could not load dossier · ${escape(String(err && err.message ? err.message : err))}</div>`;
+      });
+  }
+  function closePersonaOverlay() {
+    const el = document.getElementById("ap-persona-overlay");
+    if (el) el.remove();
+    document.body.classList.remove("ap-persona-overlay-open");
+    if (_personaOverlayEsc) {
+      document.removeEventListener("keydown", _personaOverlayEsc, true);
+      _personaOverlayEsc = null;
+    }
+  }
+
   /* ─── Profile · ⋯ menu (top-right of the cover) ─────
      Small popover anchored to the menu button with one or more
      actions. v1 ships a single "regenerate 8-bit avatar" item. */
@@ -1806,6 +1973,20 @@
           <span class="ap-id-menu-mark">◆</span>
           <span>Regenerate 8-bit avatar</span>
         </button>`);
+    }
+    // Persona MD download · only present for Full-mode agents (those
+    // built via the deep persona-builder pipeline). Their `personaSpec`
+    // field carries the 7-phase artifact; the route renders it as
+    // Markdown. Hidden for Signal-mode agents and seeded directors —
+    // they have no spec to export.
+    const hasPersonaSpec = !!(live && live.personaSpec);
+    if (hasPersonaSpec) {
+      parts.push(`<div class="ap-id-menu-divider" aria-hidden="true"></div>`);
+      parts.push(`
+        <a class="ap-id-menu-item" href="/api/agents/${encodeURIComponent(slug)}/persona.md" target="_blank" rel="noopener" data-ap-menu-action="persona-md">
+          <span class="ap-id-menu-mark">↓</span>
+          <span>Download persona.md</span>
+        </a>`);
     }
     if (isCustom) {
       parts.push(`<div class="ap-id-menu-divider" aria-hidden="true"></div>`);
@@ -2709,6 +2890,8 @@
               </div>
             </section>
 
+            ${renderPersonaDossierSection(slug, p)}
+
             <section class="ap-block">
               <header class="ap-block-h">
                 <span class="ap-block-h-title">${escape(uiT("ap_instruction"))}</span>
@@ -3158,6 +3341,34 @@
         return;
       }
 
+      // Persona dossier card · open the preview overlay. Card is a
+      // <button>, so the click lands on the button or any of its
+      // children — closest() catches both. The overlay reads the
+      // slug from the data attribute and fetches /persona.md.
+      const personaOpen = e.target.closest("[data-ap-persona-open]");
+      if (personaOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        const slug = personaOpen.getAttribute("data-slug");
+        if (!slug) return;
+        const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+        const agentName = live && live.name ? live.name : "";
+        openPersonaOverlay(slug, agentName);
+        return;
+      }
+      // Persona dossier overlay · backdrop / close-button click. The
+      // download anchor inside the overlay is NOT marked with the
+      // close attr, so it doesn't fire here — its native href
+      // navigation handles the download and the user can dismiss
+      // the overlay manually if they wish.
+      const personaClose = e.target.closest("[data-ap-persona-close]");
+      if (personaClose) {
+        e.preventDefault();
+        e.stopPropagation();
+        closePersonaOverlay();
+        return;
+      }
+
       // ⋯ menu · open the popover (anchored to the button).
       const idMenuBtn = e.target.closest("[data-ap-id-menu]");
       if (idMenuBtn) {
@@ -3173,10 +3384,20 @@
       // ⋯ menu · action click.
       const menuAction = e.target.closest("[data-ap-menu-action]");
       if (menuAction) {
-        e.preventDefault();
         const action = menuAction.getAttribute("data-ap-menu-action");
         const pop = document.getElementById("ap-id-menu-pop");
         const slug = pop?.dataset.slug;
+        // persona-md is rendered as an <a href=…> · let the browser
+        // navigate natively (the route returns the file with a
+        // download Content-Disposition). preventDefault here would
+        // kill the download. For the button-based actions below we
+        // DO want preventDefault (otherwise the button-as-form-
+        // submitter behaviour and click bubbling can both fire).
+        if (action === "persona-md") {
+          closeProfileIdMenu();
+          return;
+        }
+        e.preventDefault();
         closeProfileIdMenu();
         if (action === "regen-avatar" && slug) regenerateProfileAvatar(slug);
         if (action === "delete" && slug && window.app && typeof window.app.deleteAgent === "function") {

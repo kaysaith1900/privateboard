@@ -494,8 +494,28 @@
   // some paths but not all; using a self-contained one keeps this
   // module independent. Lime for ok, red-tinted for error. Auto-
   // dismisses after 1.8s; click to dismiss early.
+  //
+  // Horizontal anchor · the toast sits over the CHAT COLUMN, not
+  // the viewport center. Centering on the viewport pulls the
+  // toast right of the chat (the sidebar eats ~280px on the left)
+  // and reads as visually skewed. Recomputed every show so the
+  // toast tracks sidebar collapse / window resize.
   let toastEl = null;
   let toastTimer = null;
+  function positionToast() {
+    if (!toastEl) return;
+    const chat = document.querySelector(".chat-col") || document.querySelector('[data-main-view="room"]');
+    if (!chat) {
+      // Fallback · centre on viewport when the chat column isn't
+      // mounted (e.g. notes page · toast still useful but anchor
+      // missing). Same behaviour as before this fix.
+      toastEl.style.left = "50%";
+      return;
+    }
+    const r = chat.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    toastEl.style.left = cx + "px";
+  }
   function toast(msg, kind) {
     if (!toastEl) {
       toastEl = document.createElement("div");
@@ -506,6 +526,7 @@
     toastEl.classList.remove("kind-ok", "kind-error");
     toastEl.classList.add("kind-" + (kind === "error" ? "error" : "ok"));
     toastEl.textContent = msg;
+    positionToast();
     toastEl.classList.add("open");
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {

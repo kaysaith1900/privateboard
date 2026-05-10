@@ -29,8 +29,11 @@
 .adjourn-modal {
   position: relative;
   z-index: 1;
-  width: 100%;
-  max-width: 880px;
+  /* Width matches the convene-follow-up overlay (.supplement-modal)
+     so the room's two terminal-action overlays read as the same
+     family. Was max-width: 880px which felt oversized for a
+     short-form action confirm. */
+  width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   background: var(--panel);
   border: 0.5px solid var(--line-strong);
@@ -441,8 +444,9 @@
   pointer-events: none;
 }
 
-/* Narrow modal */
+/* Narrow viewport · summary rows tighten. The modal width itself
+   already collapses gracefully below ~592px via the
+   `min(560px, calc(100vw - 32px))` rule on .adjourn-modal. */
 @media (max-width: 640px) {
-  .adjourn-modal { max-width: 100%; }
   .adjourn-summary-row { grid-template-columns: 78px 1fr; gap: 10px; padding: 9px 12px; }
 }

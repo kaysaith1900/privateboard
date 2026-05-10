@@ -131,6 +131,11 @@
                    U+FF00-FFEF;
   }
 
+  /* Print-paper backstop · hidden on screen; shown only during the
+     print render. Inside @media print (below) it expands to a
+     position:fixed full-page background. */
+  [data-print-paper-fill] { display: none; }
+
   @media print {
     *, *::before, *::after {
       print-color-adjust: exact !important;
@@ -194,14 +199,36 @@
 
     /* Page-frame background · matches body's printed colour per spine
        so any PDF engine that paints html beyond body's box (some
-       legacy print pipelines) stays coherent. Modern Chrome with
-       @page margin: 0 fills the page from body alone, but this is
-       belt-and-braces. Default white; per-spine `:has()` selectors
-       below override for the light-paper spines. */
+       legacy print pipelines) stays coherent. Default white; per-
+       spine selectors below override for the light-paper spines.
+       The earlier `:has()` selector silently failed on browsers
+       that don't support `:has()` in print mode (some Chrome
+       versions, headless / Save-as-PDF pipelines), leaving html
+       white and the dark spine PDF unreadable. We now mirror the
+       `data-spine` attribute onto `<html>` itself in `swapSpine`
+       (see JS below), so a plain attribute selector picks up the
+       light-paper colour reliably. */
     html { background: #FFFFFF !important; }
-    html:has(body[data-spine="anthropic-essay"]) { background: #F4F0E8 !important; }
-    html:has(body[data-spine="a16z-thesis"])     { background: #F7F3E8 !important; }
-    html:has(body[data-spine="boardroom-dark"])  { background: #FAF7F0 !important; }
+    html[data-spine="anthropic-essay"] { background: #F4F0E8 !important; }
+    html[data-spine="a16z-thesis"]     { background: #F7F3E8 !important; }
+    html[data-spine="boardroom-dark"]  { background: #FAF7F0 !important; }
+
+    /* Print-paper backstop · a `position: fixed; inset: 0` div with
+       `print-color-adjust: exact` reliably paints on every printed
+       page in Chrome, where `html { background }` and `body {
+       background }` are inconsistently honoured. JS sets the
+       background colour per spine in `swapSpine` so this paints the
+       cream / white paper colour edge-to-edge. z-index: -1 keeps it
+       behind all content. */
+    [data-print-paper-fill] {
+      display: block !important;
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: -1 !important;
+      print-color-adjust: exact !important;
+      -webkit-print-color-adjust: exact !important;
+      pointer-events: none !important;
+    }
 
     /* Container resets so .doc fills the printable area instead of
        being clipped at its 880px on-screen max-width. */
@@ -2822,6 +2849,16 @@
 </head>
 <body>
 
+<!-- Print-only paper background · a position:fixed div that fills the
+     entire page on every printed sheet. Chrome's print pipeline is
+     historically unreliable about painting `html { background }` and
+     `body { background }` (even with print-color-adjust: exact),
+     causing dark-spine reports to save as PDFs with the wrong (white)
+     bleed colour. A real DIV with print-color-adjust paints reliably
+     on every page. JS sets the background colour per spine in
+     `swapSpine`. Hidden on screen. -->
+<div class="print-paper-fill" data-print-paper-fill aria-hidden="true"></div>
+
 <div class="top-rule">
   <span class="crumb">Boardroom <span class="accent">·</span> Insights</span>
   <div class="top-actions">
@@ -2897,6 +2934,15 @@
     const href = `report/spines/${safe}.css`;
     if (link.getAttribute("href") !== href) link.setAttribute("href", href);
     document.body.setAttribute("data-spine", safe);
+    // Mirror the spine onto <html> too so the @media print rule
+    // `html[data-spine="..."] { background: ... }` resolves
+    // reliably in every Chrome / Save-as-PDF pipeline. The
+    // earlier `:has()`-based selector silently failed in some
+    // print pipelines, leaving html white and the dark-spine PDF
+    // showing wrong text colours against an unintended white
+    // page bleed. Setting data-spine on the root element bypasses
+    // `:has()` entirely.
+    document.documentElement.setAttribute("data-spine", safe);
     // Mark the document as CJK when the brief is in Chinese (or any
     // CJK script). Several spines — anthropic-essay, a16z-thesis,
     // boardroom-dark in the bottom-line callout — use `font-style:
@@ -2909,10 +2955,27 @@
     const sample = ((brief && brief.title) || "") + " " + ((brief && brief.bodyMd) || "");
     const isCjk = /[㐀-鿿぀-ヿ가-힯]/.test(sample);
     document.body.classList.toggle("is-cjk", isCjk);
-    // Inject (or replace) the per-spine @page background rule so the
-    // PDF page bleed matches the paper colour. Replaces any prior
-    // injected rule for this same id, so swapping spines repaints
-    // cleanly without stacking style nodes.
+    // Inject (or replace) the per-spine print-paper rule. We paint
+    // the cream / white paper colour at THREE levels because Chrome
+    // / Save-as-PDF pipelines silently drop one or another:
+    //   · `@page { background }` — paints the @page bleed
+    //     (technically the canonical surface, but historically buggy
+    //     and ignored by some print pipelines)
+    //   · `html { background }` — paints the document canvas;
+    //     overridden by the static `html { background: #FFFFFF }`
+    //     default in @media print, but THIS injected rule wins on
+    //     specificity (it loads after the static stylesheet)
+    //   · `body { background }` — paints the body's content box;
+    //     the most reliable surface but only fills inside @page
+    //     margins
+    // With all three forced to the same paper colour AND
+    // print-color-adjust: exact !important, the saved PDF reliably
+    // shows the spine's paper colour edge-to-edge regardless of
+    // which surface Chrome ends up honouring on a given OS / Chrome
+    // version. The earlier single-`@page`-rule injection was the
+    // root cause of the "dark report → white PDF" bug — Chrome
+    // dropped the @page background and the static `html {
+    // background: #FFFFFF }` default won.
     const paper = SPINE_PAPER[safe] || "#FFFFFF";
     let pageStyle = document.getElementById("spine-page-bg");
     if (!pageStyle) {
@@ -2920,7 +2983,24 @@
       pageStyle.id = "spine-page-bg";
       document.head.appendChild(pageStyle);
     }
-    pageStyle.textContent = `@media print { @page { background: ${paper}; } }`;
+    pageStyle.textContent = `
+      @media print {
+        @page { background: ${paper}; }
+        html, body {
+          background: ${paper} !important;
+          print-color-adjust: exact !important;
+          -webkit-print-color-adjust: exact !important;
+        }
+      }
+    `;
+    // Print-paper backstop · the position:fixed div in <body> needs
+    // its background colour set directly (inline style) so it paints
+    // the right paper colour on every printed page. This is the
+    // FALLBACK surface — Chrome's print pipeline drops `html` and
+    // `body` backgrounds inconsistently, but always paints a real
+    // div with print-color-adjust: exact.
+    const fill = document.querySelector("[data-print-paper-fill]");
+    if (fill) fill.style.background = paper;
   }
 
   function escape(s) {
@@ -3400,6 +3480,23 @@
   // bullets, ordered lists, paragraphs, blockquotes, fenced code blocks
   // (incl. ```mermaid for diagrams), and pipe tables.
   function renderMarkdown(md) {
+    // Pre-pre-pass · normalise fenced-block openers that the LLM
+    // sometimes glues onto the tail of a paragraph (`...end of prose.```views-compared`).
+    // The fence-recognition regex below requires the opener to be on
+    // its OWN line (`/^```.../`), so a mid-line opener falls through
+    // and the fenced body renders as raw text full of `{` / `}` / `:`
+    // / quote symbols — exactly the "符号导致内容混乱" report we
+    // get when the brief writer writes the closing prose without a
+    // newline before the dispatch fence. Insert a blank line in
+    // front of every fence opener that isn't already at the start
+    // of a line. Keep paired closing fences alone (they're always
+    // preceded by content inside the block — that's fine).
+    // Match openers only · `[\w-]+` requires a non-empty lang tag so
+    // bare closing fences (`\`\`\`\n`) don't get rewritten too. Without
+    // that distinction, every closing fence also picks up an extra
+    // blank line and the body slice includes a trailing empty line.
+    md = String(md || "").replace(/([^\n])(\n?)```([\w-]+)\s*\n/g,
+      (_m, before, _newline, lang) => `${before}\n\n\`\`\`${lang}\n`);
     // Pre-pass · pull out fenced ```code blocks before splitting on blank
     // lines, since a code block can legally contain blank lines.
     const placeholders = [];

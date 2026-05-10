@@ -660,6 +660,23 @@ async function streamChairMessage(args: DispatchArgs & {
   // Voice mode support for chair messages
   const voiceMode = room.deliveryMode === "voice";
   const voiceChunker = voiceMode ? new SentenceChunker({ maxChars: 120 }) : null;
+  // Round-end voice gating · the chair's round-end body is a
+  // one-sentence ping followed by `POINTS:` + 3 bullet items. The
+  // ping is a recap the user already heard via the round-prompt
+  // voice, and the literal text "POINTS:" / dash-prefixed bullets
+  // sound mechanical when read aloud. We feed only the bullet
+  // CONTENT to the voice chunker for round-end · everything before
+  // `POINTS:` (the ping) and the structural tokens (the marker,
+  // the dashes, blank lines) are stripped.
+  const metaKind = (meta as { kind?: unknown })?.kind;
+  const isRoundEndVoice = voiceMode && metaKind === "round-end";
+  // Tracker for the round-end voice path · `pingDone` flips true
+  // when we cross the `POINTS:` boundary; `voiceBuf` accumulates
+  // post-boundary text that hasn't been pushed to the chunker yet
+  // (we strip leading dashes / whitespace / cross-bullet line
+  // breaks before pushing).
+  let pingDone = false;
+  let voiceBuf = "";
   const voiceProfile = voiceMode ? voiceProfileForAgent(chair) : null;
   let voiceSeq = 0;
 
@@ -709,8 +726,36 @@ async function streamChairMessage(args: DispatchArgs & {
           delta: chunk.delta,
         });
         if (voiceChunker) {
-          for (const spoken of voiceChunker.push(chunk.delta)) {
-            await emitChairVoice(spoken);
+          if (isRoundEndVoice) {
+            // Skip ping · accumulate the streaming buffer until we
+            // see "POINTS:" (case-insensitive). Once crossed, push
+            // post-boundary text into the chunker minus the structural
+            // markers (dash-bullets, blank lines).
+            voiceBuf += chunk.delta;
+            if (!pingDone) {
+              const idx = voiceBuf.search(/POINTS\s*:/i);
+              if (idx >= 0) {
+                pingDone = true;
+                // Drop everything up through the POINTS: marker.
+                const after = voiceBuf.slice(voiceBuf.search(/POINTS\s*:/i));
+                voiceBuf = after.replace(/POINTS\s*:/i, "");
+              }
+            }
+            if (pingDone && voiceBuf) {
+              // Strip leading bullet markers and surrounding
+              // whitespace so the chunker sees flat sentences.
+              // Replace dash-bullets with sentence boundary so each
+              // point reads as its own utterance.
+              const cleaned = voiceBuf.replace(/(^|\n)\s*[-*]\s*/g, ". ");
+              voiceBuf = "";
+              for (const spoken of voiceChunker.push(cleaned)) {
+                await emitChairVoice(spoken);
+              }
+            }
+          } else {
+            for (const spoken of voiceChunker.push(chunk.delta)) {
+              await emitChairVoice(spoken);
+            }
           }
         }
       } else if (chunk.type === "usage") {
@@ -1196,31 +1241,134 @@ export async function runChairRoundEnd(roomId: string, roundNum: number): Promis
  * cap was reached and no awaiting flag is set — so each round wraps
  * with at most one prompt.
  */
-export function announceRoundPrompt(
+
+/** Synthesize voice for a templated chair announcement and emit the
+ *  same `voice-chunk` / `voice-final` SSE pair that streamChairMessage
+ *  emits for live LLM turns. Two templated chair messages need voice:
+ *  `announceRoundPrompt` (vote prompt at round wrap) and
+ *  `announceIntervention` (chair note between speakers). The other
+ *  announce* templates (research-hint, billing, round-open, adjourn-
+ *  no-brief, member-change, settings-change) stay silent — they're
+ *  structural notices not worth narrating.
+ *
+ *  Strict speaking order: this function awaits `waitForVoicePlayback`
+ *  for its own message AFTER emitting voice-final, so the caller
+ *  blocks until the chair's audio has finished playing on the
+ *  frontend. The orchestrator's pumpQueue already awaits each
+ *  director's voice playback (room.ts:820) before advancing, so
+ *  awaiting this helper inside `announceIntervention` /
+ *  `announceRoundPrompt` slots the chair's audio cleanly between
+ *  director turns without overlap. Failures log to stderr and
+ *  resolve immediately — never block the room indefinitely. */
+async function emitChairAnnouncementVoice(
+  roomId: string,
+  messageId: string,
+  body: string,
+): Promise<void> {
+  const room = getRoom(roomId);
+  if (!room || room.deliveryMode !== "voice") return;
+  const chair = getChairAgent();
+  if (!chair) return;
+  const profile = voiceProfileForAgent(chair);
+  if (!profile) return;
+  const trimmed = body.trim();
+  if (!trimmed) return;
+  let seq = 0;
+  try {
+    for await (const chunk of synthesizeSpeechStream(trimmed, profile)) {
+      roomBus.emit(roomId, {
+        type: "voice-chunk",
+        messageId,
+        seq: seq++,
+        text: chunk.text,
+        provider: chunk.provider,
+        model: chunk.model,
+        voiceId: chunk.voiceId,
+        ...(chunk.mimeType ? { mimeType: chunk.mimeType } : {}),
+        ...(chunk.audioBase64 ? { audioBase64: chunk.audioBase64 } : {}),
+      });
+    }
+    roomBus.emit(roomId, { type: "voice-final", messageId });
+    // Block until the frontend confirms playback complete (POST
+    // /voice-done resolves the waiter). 60s timeout protects
+    // against a stuck audio path so the room never deadlocks.
+    await waitForVoicePlayback(roomId, messageId, 60_000);
+  } catch (e) {
+    process.stderr.write(`[tts-chair-announce] ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+}
+
+/** Variation pools for the templated round-prompt body. The chair
+ *  rotates phrasing across rounds so the wrap-up doesn't read as a
+ *  fixed template — picked deterministically by `roundNum` so a page
+ *  refresh shows the same line. Keep variants tight (≤ ~10 words for
+ *  tails); the LLM-generated rationale carries the substance. */
+const ROUND_OPENERS = [
+  "Round done.",
+  "That closes the round.",
+  "End of round.",
+  "Round wrapped.",
+] as const;
+const END_TAILS_WITH_RATIONALE = [
+  "Ready to file — or push once more.",
+  "I'd wrap here. Another sweep is fair.",
+  "Enough to file. Continue if there's more.",
+  "File now, or run another round.",
+] as const;
+const END_TAILS_BARE = [
+  "Looks ready to file — or another sweep.",
+  "Vote and wrap, or push for more.",
+  "Ready to file. Continue if you want.",
+  "Wrap here, or another round.",
+] as const;
+const CONTINUE_TAILS_WITH_RATIONALE = [
+  "Worth another pass — or call it.",
+  "I'd push once more, or end here.",
+  "One more sweep earns its keep — or wrap.",
+  "Another round, or file now.",
+] as const;
+const CONTINUE_TAILS_BARE = [
+  "Worth another pass — or call it.",
+  "One more sweep, or wrap.",
+  "Push another round, or end here.",
+  "Another pass, or file now.",
+] as const;
+const NEUTRAL_TAILS = [
+  "Vote a point, or roll on.",
+  "Weight a point with a vote, or continue.",
+  "Vote to bias the next round — or skip.",
+  "Vote, or continue without one.",
+] as const;
+const pickByRound = <T>(arr: readonly T[], seed: number): T =>
+  arr[((seed % arr.length) + arr.length) % arr.length] as T;
+
+export async function announceRoundPrompt(
   roomId: string,
   roundNum: number,
   recommendation?: { kind: "end" | "continue"; rationale: string },
-): void {
+): Promise<void> {
   const chair = getChairAgent();
   if (!chair) return;
   // Body shape: when a recommendation is supplied, lead with the chair's
   // call so the user reads it before pressing a button. When omitted
-  // (recommendation undefined / haiku unavailable), fall back to the
-  // template ping that's been here since v1.
+  // (recommendation undefined / haiku unavailable), fall back to a
+  // templated ping. Opener + tail are picked from rotating pools so
+  // the chair doesn't sound like a stuck cron job.
+  const opener = pickByRound(ROUND_OPENERS, roundNum);
   let body: string;
   if (recommendation) {
     const rationale = recommendation.rationale.trim();
     if (recommendation.kind === "end") {
       body = rationale
-        ? `Round complete. ${rationale} The room has covered enough — file the brief, or continue if you want another reactive sweep.`
-        : "Round complete. The room has covered enough to file — vote on key points and end, or continue if you want another reactive sweep.";
+        ? `${opener} ${rationale} ${pickByRound(END_TAILS_WITH_RATIONALE, roundNum)}`
+        : `${opener} ${pickByRound(END_TAILS_BARE, roundNum)}`;
     } else {
       body = rationale
-        ? `Round complete. ${rationale} Worth one more reactive round before filing — or end now if you've heard enough.`
-        : "Round complete. Worth one more reactive round before filing — or end now if you've heard enough.";
+        ? `${opener} ${rationale} ${pickByRound(CONTINUE_TAILS_WITH_RATIONALE, roundNum)}`
+        : `${opener} ${pickByRound(CONTINUE_TAILS_BARE, roundNum)}`;
     }
   } else {
-    body = "Round complete. Vote on key points to weight the next round, or continue without a vote.";
+    body = `${opener} ${pickByRound(NEUTRAL_TAILS, roundNum)}`;
   }
   const m = insertMessage({
     roomId,
@@ -1250,6 +1398,12 @@ export function announceRoundPrompt(
     roundNum: m.roundNum,
     createdAt: m.createdAt,
   });
+  // Voice mode · synthesize chair audio and BLOCK until playback
+  // completes before firing message-final. Mirrors the ordering in
+  // streamChairMessage (voice-final before message-final) so the
+  // pump's awaiter doesn't release until the chair's audio has been
+  // heard. Caller must await this function for ordering to hold.
+  await emitChairAnnouncementVoice(roomId, m.id, m.body);
   roomBus.emit(roomId, { type: "message-final", messageId: m.id });
 }
 
@@ -1264,11 +1418,11 @@ export function announceRoundPrompt(
  * intervention is already vetted. Posted with kind=intervention so the
  * UI can style it as a moderator note rather than a turn.
  */
-export function announceIntervention(
+export async function announceIntervention(
   roomId: string,
   body: string,
   rationale?: string,
-): void {
+): Promise<void> {
   const chair = getChairAgent();
   if (!chair) return;
   const text = body.trim();
@@ -1296,6 +1450,10 @@ export function announceIntervention(
     roundNum: m.roundNum,
     createdAt: m.createdAt,
   });
+  // Voice mode · BLOCK on playback before firing message-final so
+  // the pump's awaiter holds until the chair's audio has been
+  // heard. Caller must `await announceIntervention(...)`.
+  await emitChairAnnouncementVoice(roomId, m.id, m.body);
   roomBus.emit(roomId, { type: "message-final", messageId: m.id });
 }
 

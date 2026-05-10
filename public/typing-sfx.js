@@ -142,6 +142,35 @@
     noise.stop(t0 + 0.06);
   }
 
+  /** Speaker-change cue · fires once when the round-table stage flips
+   *  to a new speaker (idle → A, A → B). A short triangle-wave swoop
+   *  at ~660 → 990 Hz, decaying over ~220ms — distinct from the
+   *  keyboard-click texture of `tick()` so the ear reads it as a
+   *  scene transition rather than typing. Same enabled-flag and
+   *  AudioContext as tick · the user-settings toggle controls both. */
+  function speakerChange() {
+    if (!_enabled) return;
+    if (document.visibilityState !== "visible") return;
+    const ctx = ensureContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const dur = 0.22;
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    // Brief upward sweep · 660Hz → 990Hz across the first 70ms, then
+    // hold while the gain envelope fades. Triangle waveform reads as
+    // softer / more "chime"-like than sine for this register.
+    osc.frequency.setValueAtTime(660, t0);
+    osc.frequency.exponentialRampToValueAtTime(990, t0 + 0.07);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.085, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur);
+  }
+
   function setEnabled(on) {
     _enabled = !!on;
     writeEnabled(_enabled);
@@ -154,5 +183,5 @@
 
   // Public surface · attached to window so app.js (and the
   // user-settings toggle) can reach it without an import.
-  window.boardroomTypingSfx = { tick, setEnabled, isEnabled };
+  window.boardroomTypingSfx = { tick, speakerChange, setEnabled, isEnabled };
 })();

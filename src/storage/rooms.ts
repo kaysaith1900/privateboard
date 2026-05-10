@@ -6,6 +6,10 @@ import { getDb } from "./db.js";
 
 export type RoomStatus = "live" | "paused" | "adjourned";
 export type RoomDeliveryMode = "text" | "voice";
+/** Vote-trigger preference · controls whether the chair's vote
+ *  phase (round-prompt) auto-fires at round wrap or only on a
+ *  user click in the bottom bar. */
+export type RoomVoteTrigger = "auto" | "manual";
 
 export interface Room {
   id: string;
@@ -16,6 +20,7 @@ export interface Room {
                       //       (legacy "no-mercy" rooms map to debate at read time)
   intensity: string;  // calm | sharp | terse  (legacy "brutal" maps to terse at read time)
   deliveryMode: RoomDeliveryMode;
+  voteTrigger: RoomVoteTrigger;
   status: RoomStatus;
   briefStyle: string | null;  // auto | mckinsey | gartner | a16z | anthropic | 8bit
   /** Soft-pause flag set by the chair after a round-end key-points message. */
@@ -56,6 +61,7 @@ interface Row {
   mode: string;
   intensity: string;
   delivery_mode: string;
+  vote_trigger: string;
   status: string;
   brief_style: string | null;
   awaiting_continue: number;
@@ -75,7 +81,7 @@ interface MemberRow {
 }
 
 const ROOM_COLS =
-  "id, number, name, subject, mode, intensity, delivery_mode, status, brief_style, awaiting_continue, " +
+  "id, number, name, subject, mode, intensity, delivery_mode, vote_trigger, status, brief_style, awaiting_continue, " +
   "awaiting_clarify, created_at, paused_at, adjourned_at, incognito, " +
   "parent_room_id, parent_brief_id";
 
@@ -88,6 +94,7 @@ function mapRow(row: Row): Room {
     mode: row.mode,
     intensity: row.intensity,
     deliveryMode: row.delivery_mode === "voice" ? "voice" : "text",
+    voteTrigger: row.vote_trigger === "manual" ? "manual" : "auto",
     status: row.status as RoomStatus,
     briefStyle: row.brief_style,
     awaitingContinue: row.awaiting_continue === 1,
@@ -315,6 +322,7 @@ export interface RoomSettingsPatch {
   intensity?: string;
   briefStyle?: string;
   deliveryMode?: RoomDeliveryMode;
+  voteTrigger?: RoomVoteTrigger;
 }
 
 /**
@@ -332,6 +340,7 @@ export function updateRoomSettings(
   if (patch.intensity !== undefined)  { sets.push("intensity = ?");   vals.push(patch.intensity); }
   if (patch.briefStyle !== undefined) { sets.push("brief_style = ?"); vals.push(patch.briefStyle); }
   if (patch.deliveryMode !== undefined) { sets.push("delivery_mode = ?"); vals.push(patch.deliveryMode === "voice" ? "voice" : "text"); }
+  if (patch.voteTrigger !== undefined) { sets.push("vote_trigger = ?"); vals.push(patch.voteTrigger === "manual" ? "manual" : "auto"); }
   if (sets.length === 0) return getRoom(roomId);
   vals.push(roomId);
   getDb().prepare(`UPDATE rooms SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
