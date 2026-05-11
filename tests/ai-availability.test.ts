@@ -141,35 +141,45 @@ describe("ai/availability · default model selection", () => {
     expect(defaultModelFor()).toBeNull();
   });
 
-  it("OpenAI only · returns gpt-5-5 (provider flagship)", () => {
+  // Fast-default policy · defaultModelFor() now returns the FAST-tier
+  // model for the active provider so a brand-new user doesn't burn
+  // the flagship rate on every chair turn. Flagships are still in
+  // PROVIDER_FLAGSHIP but they're no longer the user-facing default.
+  // See src/ai/availability.ts ~L252.
+
+  it("OpenAI only · returns gpt-5-4-mini (fast tier)", () => {
     setKey("openai", "sk-oa");
-    expect(defaultModelFor()).toBe("gpt-5-5");
+    expect(defaultModelFor()).toBe("gpt-5-4-mini");
   });
 
-  it("Anthropic only · returns opus-4-7 (provider flagship)", () => {
-    // Anthropic-direct now reaches all three current-gen Claude
-    // models (opus-4-7 / opus-4-6 / sonnet-4-6 / haiku-4-5). The flagship pick
-    // matches PRIMARY_BY_PROVIDER.anthropic = "opus-4-7".
+  it("Anthropic only · returns haiku-4-5 (fast tier)", () => {
+    // PROVIDER_FAST.anthropic = "haiku-4-5" — the cheap/fast tier
+    // surfaces as the default per the fast-default policy.
     setKey("anthropic", "sk-ant");
-    expect(defaultModelFor()).toBe("opus-4-7");
+    expect(defaultModelFor()).toBe("haiku-4-5");
   });
 
-  it("OpenRouter present · prefers opus-4-7 (historical default)", () => {
+  it("OpenRouter present · prefers opus-4-6-fast (fast tier)", () => {
     setKey("openrouter", "sk-or");
-    expect(defaultModelFor()).toBe("opus-4-7");
+    expect(defaultModelFor()).toBe("opus-4-6-fast");
   });
 
-  it("OpenRouter + OpenAI · still opus-4-7 (OR rule wins for default)", () => {
+  it("OpenRouter + OpenAI · still opus-4-6-fast (OR rule wins for default)", () => {
     setKey("openrouter", "sk-or");
     setKey("openai", "sk-oa");
-    expect(defaultModelFor()).toBe("opus-4-7");
+    expect(defaultModelFor()).toBe("opus-4-6-fast");
   });
 
-  it("Multiple direct, no OR · picks one of the configured flagships", () => {
+  it("Multiple direct, no OR · picks one of the configured fast tiers", () => {
     setKey("openai", "sk-oa");
     setKey("google", "AIza-x");
     const def = defaultModelFor();
-    expect(def !== null && (def === "gpt-5-5" || def === "gemini-3-1")).toBe(true);
+    // PROVIDER_FAST.openai = "gpt-5-4-mini"; PROVIDER_FAST.google =
+    // "gemini-3-1-flash". Either is acceptable depending on the
+    // direct-provider Set's iteration order.
+    expect(
+      def !== null && (def === "gpt-5-4-mini" || def === "gemini-3-1-flash"),
+    ).toBe(true);
   });
 });
 

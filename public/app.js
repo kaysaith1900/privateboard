@@ -87,11 +87,24 @@
     keys: {},
     agents: [],
     agentsById: {},
+    /** Voice-options label cache · keyed by `<provider>:<voiceId>` →
+     *  friendly label (e.g. "minimax:male-qn-qingse" → "青涩青年").
+     *  Populated by a one-shot /api/voices prefetch in loadInitial.
+     *  Sidebar's agent-row subtitle reads from this synchronously; a
+     *  miss falls back to the raw voiceId so the row never blocks on
+     *  the fetch. */
+    voiceLabels: {},
     rooms: [],
     currentRoomId: null,
     currentRoom: null,
     currentMessages: [],
-    currentMembers: [],            // directors only (chair excluded)
+    currentMembers: [],            // directors only (chair excluded) · ACTIVE roster
+    // Every director who's ever been in this room, including those
+    // the chair has soft-excused. Each carries `removedAt` (null =
+    // active, timestamp = excused). Used for chat-history speaker
+    // resolution + voice replay so excused directors' past messages
+    // still render their name / avatar / voice profile.
+    currentHistoricalMembers: [],
     currentChair: null,            // chair agent for the current room
     currentQueue: [],
     voiceQueues: {},
@@ -436,6 +449,15 @@
     },
 
     async loadInitial() {
+      // CRITICAL fetches block the dashboard's first paint — only the
+      // four queries below have data the initial render NEEDS. The
+      // `/api/voices` route is intentionally NOT in this Promise.all:
+      // its server handler can synchronously hit MiniMax + ElevenLabs
+      // cloud APIs (1-2s each), and putting it here used to delay the
+      // ENTIRE UI by the slowest of those calls. Voice labels are a
+      // sidebar-row sweetener — `voiceLabelFor()` already falls back
+      // to raw voice IDs on cache miss — so we fetch them in the
+      // background and re-render the sidebar once they arrive.
       const [prefsRes, keysRes, agentsRes, roomsRes] = await Promise.all([
         fetch("/api/prefs"),
         fetch("/api/keys"),
@@ -460,6 +482,41 @@
         const j = await roomsRes.json();
         this.rooms = j.rooms || [];
       }
+      // Fire-and-forget the voice-labels prefetch · the initial paint
+      // already finished by the time this resolves. Re-renders the
+      // agents sidebar so the friendly label ("青涩青年") swaps in for
+      // any raw voiceId rows that already mounted. Safe to discard on
+      // failure (sidebar keeps the raw id fallback).
+      void this._prefetchVoiceLabels();
+    },
+
+    /** Background prefetch for /api/voices · runs after the initial
+     *  load completes so the dashboard's first paint isn't held up by
+     *  the MiniMax / ElevenLabs cloud-API round-trips inside the
+     *  server's `listAvailableVoices`. Triggers a sidebar re-render
+     *  when labels arrive so the friendly names replace the raw voice
+     *  IDs in-place. Idempotent · safe to call multiple times. */
+    async _prefetchVoiceLabels() {
+      try {
+        const res = await fetch("/api/voices");
+        if (!res || !res.ok) return;
+        const j = await res.json();
+        const list = Array.isArray(j.voices) ? j.voices : [];
+        const map = {};
+        for (const v of list) {
+          if (v && typeof v.provider === "string" && typeof v.voiceId === "string") {
+            const label = typeof v.label === "string" && v.label.trim() ? v.label.trim() : v.voiceId;
+            map[`${v.provider}:${v.voiceId}`] = label;
+          }
+        }
+        this.voiceLabels = map;
+        // Re-render the agents sidebar so any rows currently showing
+        // a raw voice id (e.g. "male-qn-qingse") swap to the prettier
+        // label ("青涩青年"). Cheap idempotent paint.
+        if (typeof this.renderSidebarAgents === "function") {
+          this.renderSidebarAgents();
+        }
+      } catch { /* keep empty map · sidebar falls back to voiceId */ }
     },
 
     // ── Routing ───────────────────────────────────────────────
@@ -685,6 +742,11 @@
       this.currentRoom = data.room;
       this.currentMessages = data.messages || [];
       this.currentMembers = data.members || [];
+      // Full historical roster · falls back to active members for
+      // older servers that don't ship `historicalMembers` yet.
+      this.currentHistoricalMembers = Array.isArray(data.historicalMembers)
+        ? data.historicalMembers
+        : (data.members || []).map((m) => ({ ...m, removedAt: null }));
       this.currentChair = data.chair || null;
       this.currentQueue = data.queue || [];
       this.currentRound = data.round || { spoken: 0, total: 0 };
@@ -859,6 +921,7 @@
       this.currentRoom = null;
       this.currentMessages = [];
       this.currentMembers = [];
+      this.currentHistoricalMembers = [];
       // `currentChair` is NOT reset · the chair is a structural
       // singleton (one moderator agent in the catalog, same across
       // every room), and the sidebar's Chair section keys off it
@@ -1145,6 +1208,22 @@
         // meta.streaming. Skipping when a queue already exists keeps
         // the SSE hot path cheap (we don't repaint per chunk).
         const fresh = !this.voiceQueues[data.messageId];
+        // Chair gavel SFX · fire ONCE when fresh chair voice starts
+        // streaming, so the user hears the courtroom "knock-knock"
+        // calling for attention before the chair speaks. Detection:
+        // pull the message from currentMessages by id, check author
+        // is the chair. Fires before enqueueVoiceChunk schedules the
+        // first audio buffer, so the gavel overlaps only the audio
+        // header / chunker startup (~50-100ms of inaudible buffer),
+        // not the chair's first spoken word. Same enabled-flag as
+        // typing/speaker-change · respects user-settings sound toggle.
+        if (fresh && this.currentChair && window.boardroomTypingSfx
+            && typeof window.boardroomTypingSfx.gavel === "function") {
+          const msg = (this.currentMessages || []).find((m) => m.id === data.messageId);
+          if (msg && msg.authorKind === "agent" && msg.authorId === this.currentChair.id) {
+            window.boardroomTypingSfx.gavel();
+          }
+        }
         this.enqueueVoiceChunk(roomId, data);
         if (fresh) {
           this.renderRoundTable();
@@ -1668,6 +1747,27 @@
             if (byId[aid] && !this.currentMembers.find((m) => m.id === aid)) {
               this.currentMembers.push(byId[aid]);
             }
+          }
+          // Mirror the diff into historicalMembers so excused
+          // directors stay queryable for chat-history + voice
+          // replay lookups. Removal flips `removedAt` to now;
+          // re-adding clears it back to null. New additions
+          // append the snapshot from the global agents catalog.
+          if (!Array.isArray(this.currentHistoricalMembers)) {
+            this.currentHistoricalMembers = [];
+          }
+          if (removed.length > 0) {
+            const ts = Date.now();
+            for (const id of removed) {
+              const entry = this.currentHistoricalMembers.find((m) => m.id === id);
+              if (entry) entry.removedAt = ts;
+              else if (byId[id]) this.currentHistoricalMembers.push({ ...byId[id], removedAt: ts });
+            }
+          }
+          for (const aid of added) {
+            const entry = this.currentHistoricalMembers.find((m) => m.id === aid);
+            if (entry) entry.removedAt = null;
+            else if (byId[aid]) this.currentHistoricalMembers.push({ ...byId[aid], removedAt: null });
           }
           this.renderHeader();
           this.renderQueue();
@@ -4259,6 +4359,7 @@
         this.currentRoom = null;
         this.currentMessages = [];
         this.currentMembers = [];
+        this.currentHistoricalMembers = [];
         this.currentQueue = [];
         this.currentBrief = null;
         location.hash = "";
@@ -4729,10 +4830,27 @@
 
       const renderRow = (a, opts = {}) => {
         const status = "active"; // every persisted director is active in v1
-        const time = this.relTime(a.createdAt) || "—";
         const pinBtn = `
           <button type="button" class="pin-toggle" title="${this.escape(a.isPinned ? this._t("sidebar_unpin") : this._t("sidebar_pin"))}" data-pin-toggle>${PIN_GLYPH}</button>
         `;
+        // Subtitle · model name + (optional) voice character.
+        // Replaces the prior "{roleTag} · Active" pattern which carried
+        // no information beyond what the section header already
+        // conveyed. Model is the practical "what's this agent" tell;
+        // voice (when set) tells the user which TTS voice they'll hear
+        // in voice rooms.
+        const modelLabel = this.modelLabel(a.modelV);
+        const voiceLabel = this.voiceLabelFor(a);
+        const subParts = [];
+        if (modelLabel) {
+          subParts.push(`<span class="agent-row-model">${this.escape(modelLabel)}</span>`);
+        }
+        if (voiceLabel) {
+          if (subParts.length > 0) {
+            subParts.push(`<span class="agent-row-sep">·</span>`);
+          }
+          subParts.push(`<span class="agent-row-voice">${this.escape(voiceLabel)}</span>`);
+        }
         // Delete moved off the sidebar row · it now lives inside the
         // agent profile's ⋯ overflow menu where it's protected by the
         // standard ⋯ → confirm flow. The sidebar row is the navigate-
@@ -4746,11 +4864,7 @@
                   <span class="agent-row-title">${this.escape(a.name)}</span>
                   ${pinBtn}
                 </div>
-                <div class="agent-row-subtitle">
-                  <span>${this.escape(a.roleTag || this._t("sidebar_role_director"))}</span>
-                  <span class="agent-row-sep">·</span>
-                  <span class="agent-row-status">${this.escape(this._t("sidebar_status_active"))}</span>
-                </div>
+                <div class="agent-row-subtitle">${subParts.join("")}</div>
               </div>
             </a>
           </div>
@@ -5599,6 +5713,7 @@
         this.currentRoom = null;
         this.currentMessages = [];
         this.currentMembers = [];
+        this.currentHistoricalMembers = [];
         this.currentQueue = [];
         this.currentBrief = null;
         // Clear the URL hash so re-clicking a room link works (same
@@ -6089,6 +6204,7 @@
         this.currentRoom = null;
         this.currentMessages = [];
         this.currentMembers = [];
+        this.currentHistoricalMembers = [];
         this.currentQueue = [];
         this.currentBrief = null;
         if (/^#\/r\//.test(location.hash)) {
@@ -6163,6 +6279,7 @@
         this.currentRoom = null;
         this.currentMessages = [];
         this.currentMembers = [];
+        this.currentHistoricalMembers = [];
         this.currentQueue = [];
         this.currentBrief = null;
         if (/^#\/r\//.test(location.hash)) {
@@ -6196,35 +6313,293 @@
 
       const page = document.querySelector("[data-search-page]");
       if (!page) return;
-      // Initial paint · search input + empty hint. The input field
-      // listens for `input` events to debounce-fire runSearch.
+      // Initial paint · Google-style two-state markup. Both the
+      // hero (kicker / wordmark / caption) and the head row (input
+      // + result-count meta) live in the DOM together so the
+      // `.is-initial` ↔ `.has-results` flip is purely a CSS class
+      // change — the input element stays put so its value / focus
+      // / cursor survive the swap. The doc-level `[data-search-
+      // input]` listener (~line 15486) calls `runSearch(value)` on
+      // every input event; the clear button (~line 14577) routes
+      // back through `runSearch("")`.
       const lastQuery = this._searchLastQuery || "";
+      const startsInResults = lastQuery.length > 0;
+      page.className = "search-page " + (startsInResults ? "has-results" : "is-initial");
+      // Perplexity-style hero · calm conversational tagline above
+      // a substantial card-style input with an internal footer
+      // toolbar (mono hint left, lime send button right). Starter
+      // chips below give one-click into common queries. The same
+      // input element serves both states; `.is-initial` styles
+      // make the wrapping `.search-card` look like a standalone
+      // card, while `.has-results` strips the card chrome and
+      // collapses input + meta into a compact head row.
+      // 8-bit ambient deco · scattered pixel constellation that
+      // gives the page texture without competing with the hero.
+      // All coordinates picked by hand to avoid the "regular
+      // grid" feel · varied densities + 3 lime accents land
+      // the eye softly. CSS masks the bottom edge to a fade so
+      // it never crowds the card. Static · no animation,
+      // pointer-events: none, aria-hidden.
+      const BG_DECO_SVG = `
+        <svg viewBox="0 0 800 280" preserveAspectRatio="xMidYMin slice"
+             shape-rendering="crispEdges" aria-hidden="true">
+          <!-- Faint pixel dots · scattered, mostly 2×2. -->
+          <g fill="var(--line-bright, #2A2A26)">
+            <rect x="32"  y="38"  width="2" height="2"/>
+            <rect x="78"  y="22"  width="2" height="2"/>
+            <rect x="118" y="62"  width="2" height="2"/>
+            <rect x="156" y="30"  width="2" height="2"/>
+            <rect x="206" y="78"  width="2" height="2"/>
+            <rect x="254" y="44"  width="2" height="2"/>
+            <rect x="298" y="92"  width="2" height="2"/>
+            <rect x="342" y="26"  width="2" height="2"/>
+            <rect x="388" y="68"  width="2" height="2"/>
+            <rect x="436" y="38"  width="2" height="2"/>
+            <rect x="486" y="86"  width="2" height="2"/>
+            <rect x="528" y="50"  width="2" height="2"/>
+            <rect x="572" y="22"  width="2" height="2"/>
+            <rect x="618" y="74"  width="2" height="2"/>
+            <rect x="664" y="42"  width="2" height="2"/>
+            <rect x="708" y="88"  width="2" height="2"/>
+            <rect x="752" y="32"  width="2" height="2"/>
+            <rect x="60"  y="118" width="2" height="2"/>
+            <rect x="146" y="142" width="2" height="2"/>
+            <rect x="222" y="116" width="2" height="2"/>
+            <rect x="316" y="148" width="2" height="2"/>
+            <rect x="402" y="124" width="2" height="2"/>
+            <rect x="488" y="158" width="2" height="2"/>
+            <rect x="572" y="118" width="2" height="2"/>
+            <rect x="654" y="146" width="2" height="2"/>
+            <rect x="734" y="124" width="2" height="2"/>
+            <rect x="92"  y="180" width="2" height="2"/>
+            <rect x="186" y="206" width="2" height="2"/>
+            <rect x="278" y="186" width="2" height="2"/>
+            <rect x="370" y="216" width="2" height="2"/>
+            <rect x="462" y="194" width="2" height="2"/>
+            <rect x="554" y="222" width="2" height="2"/>
+            <rect x="646" y="198" width="2" height="2"/>
+            <rect x="724" y="226" width="2" height="2"/>
+          </g>
+          <!-- Mid accents · 4×4 squares, lime-dim. -->
+          <g fill="var(--lime-dim, #2D5532)">
+            <rect x="226" y="46"  width="4" height="4"/>
+            <rect x="514" y="100" width="4" height="4"/>
+            <rect x="694" y="170" width="4" height="4"/>
+          </g>
+          <!-- Pixel "plus" accents · evoke the 8-bit
+               star/sparkle vocabulary. Lime-dim. -->
+          <g fill="var(--lime-dim, #2D5532)">
+            <!-- top-left plus -->
+            <rect x="98"  y="78"  width="6" height="2"/>
+            <rect x="100" y="76"  width="2" height="6"/>
+            <!-- mid-right plus -->
+            <rect x="640" y="62"  width="6" height="2"/>
+            <rect x="642" y="60"  width="2" height="6"/>
+            <!-- lower-left plus -->
+            <rect x="354" y="178" width="6" height="2"/>
+            <rect x="356" y="176" width="2" height="6"/>
+          </g>
+          <!-- Bright accents · sparse, lime. Catch-the-eye
+               points scattered at the visual rule-of-thirds. -->
+          <g fill="var(--lime, #6FB572)">
+            <rect x="170" y="98"  width="3" height="3"/>
+            <rect x="540" y="38"  width="3" height="3"/>
+            <rect x="416" y="170" width="3" height="3"/>
+          </g>
+          <!-- Pixel "frame" segments · short hairline brackets at
+               the very top corners · evoke a CRT scanlines feel
+               without a full grid. -->
+          <g fill="var(--line-bright, #2A2A26)">
+            <rect x="14"  y="14"  width="20" height="2"/>
+            <rect x="14"  y="14"  width="2"  height="20"/>
+            <rect x="766" y="14"  width="20" height="2"/>
+            <rect x="784" y="14"  width="2"  height="20"/>
+          </g>
+        </svg>
+      `;
+      // Results-only deco · second 8-bit layer that mounts on
+      // top of the constellation when .has-results is active.
+      // Adds proper "search station" character: pixel antennas
+      // anchoring the corners, scattered "+" sparkles between
+      // them, denser dot field, and a horizon-tick floor at
+      // the bottom of the band. CSS scanlines (declared in
+      // index.html) sit underneath via background-image.
+      const RESULTS_DECO_SVG = `
+        <svg viewBox="0 0 800 130" preserveAspectRatio="xMidYMin slice"
+             shape-rendering="crispEdges" aria-hidden="true">
+          <!-- Left antenna · vertical mast + 2 crossbars +
+               base tile. Reads as a pixel radio tower. -->
+          <g fill="var(--line-bright, #2A2A26)">
+            <rect x="22"  y="40"  width="2"  height="74"/>
+            <rect x="18"  y="56"  width="10" height="2"/>
+            <rect x="20"  y="74"  width="6"  height="2"/>
+            <rect x="14"  y="114" width="18" height="3"/>
+          </g>
+          <!-- Left antenna blink tip · static lime accent. -->
+          <rect x="22"  y="36"  width="2" height="2" fill="var(--lime, #6FB572)"/>
+          <!-- Right antenna · mirror of the left. -->
+          <g fill="var(--line-bright, #2A2A26)">
+            <rect x="776" y="44"  width="2"  height="70"/>
+            <rect x="772" y="60"  width="10" height="2"/>
+            <rect x="774" y="78"  width="6"  height="2"/>
+            <rect x="768" y="114" width="18" height="3"/>
+          </g>
+          <rect x="776" y="40"  width="2" height="2" fill="var(--lime, #6FB572)"/>
+          <!-- Pixel "+" sparkles · scattered in the central
+               band between the antennas. Reads as scanner
+               pings. -->
+          <g fill="var(--lime-dim, #2D5532)">
+            <rect x="138" y="44"  width="6" height="2"/>
+            <rect x="140" y="42"  width="2" height="6"/>
+            <rect x="324" y="68"  width="6" height="2"/>
+            <rect x="326" y="66"  width="2" height="6"/>
+            <rect x="498" y="34"  width="6" height="2"/>
+            <rect x="500" y="32"  width="2" height="6"/>
+            <rect x="612" y="86"  width="6" height="2"/>
+            <rect x="614" y="84"  width="2" height="6"/>
+            <rect x="220" y="92"  width="6" height="2"/>
+            <rect x="222" y="90"  width="2" height="6"/>
+            <rect x="700" y="50"  width="6" height="2"/>
+            <rect x="702" y="48"  width="2" height="6"/>
+          </g>
+          <!-- Dense pixel-dot field · layered on top of the
+               existing constellation to thicken the header. -->
+          <g fill="var(--line-bright, #2A2A26)">
+            <rect x="62"  y="28"  width="2" height="2"/>
+            <rect x="106" y="78"  width="2" height="2"/>
+            <rect x="170" y="34"  width="2" height="2"/>
+            <rect x="248" y="56"  width="2" height="2"/>
+            <rect x="288" y="22"  width="2" height="2"/>
+            <rect x="370" y="50"  width="2" height="2"/>
+            <rect x="412" y="92"  width="2" height="2"/>
+            <rect x="468" y="68"  width="2" height="2"/>
+            <rect x="544" y="84"  width="2" height="2"/>
+            <rect x="588" y="44"  width="2" height="2"/>
+            <rect x="668" y="76"  width="2" height="2"/>
+            <rect x="722" y="32"  width="2" height="2"/>
+            <rect x="84"  y="98"  width="2" height="2"/>
+            <rect x="262" y="100" width="2" height="2"/>
+          </g>
+          <!-- Bright lime accent dots · 2 only, at rule-of-
+               thirds positions. Catches the eye. -->
+          <g fill="var(--lime, #6FB572)">
+            <rect x="266" y="40"  width="3" height="3"/>
+            <rect x="566" y="74"  width="3" height="3"/>
+          </g>
+          <!-- Horizon ticks · faint dashed pixel line near
+               the bottom edge of the band. Acts as visual
+               "floor" the antennas plant on. -->
+          <g fill="var(--line, #1A1A18)">
+            <rect x="40"  y="122" width="6" height="1"/>
+            <rect x="60"  y="122" width="2" height="1"/>
+            <rect x="76"  y="122" width="6" height="1"/>
+            <rect x="96"  y="122" width="2" height="1"/>
+            <rect x="112" y="122" width="6" height="1"/>
+            <rect x="132" y="122" width="2" height="1"/>
+            <rect x="148" y="122" width="6" height="1"/>
+            <rect x="168" y="122" width="2" height="1"/>
+            <rect x="184" y="122" width="6" height="1"/>
+            <rect x="204" y="122" width="2" height="1"/>
+            <rect x="220" y="122" width="6" height="1"/>
+            <rect x="240" y="122" width="2" height="1"/>
+            <rect x="256" y="122" width="6" height="1"/>
+            <rect x="276" y="122" width="2" height="1"/>
+            <rect x="292" y="122" width="6" height="1"/>
+            <rect x="312" y="122" width="2" height="1"/>
+            <rect x="328" y="122" width="6" height="1"/>
+            <rect x="348" y="122" width="2" height="1"/>
+            <rect x="364" y="122" width="6" height="1"/>
+            <rect x="384" y="122" width="2" height="1"/>
+            <rect x="400" y="122" width="6" height="1"/>
+            <rect x="420" y="122" width="2" height="1"/>
+            <rect x="436" y="122" width="6" height="1"/>
+            <rect x="456" y="122" width="2" height="1"/>
+            <rect x="472" y="122" width="6" height="1"/>
+            <rect x="492" y="122" width="2" height="1"/>
+            <rect x="508" y="122" width="6" height="1"/>
+            <rect x="528" y="122" width="2" height="1"/>
+            <rect x="544" y="122" width="6" height="1"/>
+            <rect x="564" y="122" width="2" height="1"/>
+            <rect x="580" y="122" width="6" height="1"/>
+            <rect x="600" y="122" width="2" height="1"/>
+            <rect x="616" y="122" width="6" height="1"/>
+            <rect x="636" y="122" width="2" height="1"/>
+            <rect x="652" y="122" width="6" height="1"/>
+            <rect x="672" y="122" width="2" height="1"/>
+            <rect x="688" y="122" width="6" height="1"/>
+            <rect x="708" y="122" width="2" height="1"/>
+            <rect x="724" y="122" width="6" height="1"/>
+            <rect x="744" y="122" width="2" height="1"/>
+            <rect x="760" y="122" width="6" height="1"/>
+          </g>
+        </svg>
+      `;
       page.innerHTML = `
-        <div class="search-page-head">
-          <div>
-            <div class="search-page-kicker">// search · across every room</div>
-            <h1 class="search-page-title">Search</h1>
+        <!-- 8-bit ambient deco · top-of-page background overlay
+             for the is-initial state. Stays visible (dimmer)
+             in has-results as the base atmosphere layer. -->
+        <div class="search-bg-deco">${BG_DECO_SVG}</div>
+        <!-- Results-only deco · second layer with antennas +
+             sparkles + horizon ticks + CSS scanlines (in CSS).
+             Hidden in is-initial via opacity. -->
+        <div class="search-results-deco">${RESULTS_DECO_SVG}</div>
+        <!-- Hero · longer wordmark + mono subline. Only visible
+             in .is-initial · faded + collapsed via CSS once
+             .has-results lands. -->
+        <div class="search-hero">
+          <h1 class="search-hero-title">Search every conversation</h1>
+          <p class="search-hero-sub">across every room · keyword · message body · room name</p>
+        </div>
+        <!-- Card · is-initial = standalone framed input with
+             internal toolbar; has-results = flex row with the
+             meta beside it, toolbar hidden. -->
+        <div class="search-card${lastQuery ? "" : " is-empty"}" data-search-card>
+          <div class="search-input-wrap">
+            <span class="search-input-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                <circle cx="7" cy="7" r="4.5"/>
+                <line x1="10.3" y1="10.3" x2="13.5" y2="13.5"/>
+              </svg>
+            </span>
+            <input type="text" class="search-input" data-search-input
+                   placeholder="Find a keyword, decision, or name across rooms"
+                   value="${this.escape(lastQuery)}"
+                   spellcheck="false"
+                   autocomplete="off">
+            <button type="button" class="search-input-clear" data-search-clear aria-label="Clear" title="Clear">✕</button>
+          </div>
+          <!-- Sort filter · only visible in .has-results. Toggle
+               between newest-first (default) and oldest-first.
+               Click handler in the doc-level delegate updates
+               app._searchSort and re-renders from the cached
+               result list (no re-fetch). -->
+          <div class="search-results-sort" data-search-sort>
+            <span class="srs-label">sort</span>
+            <button type="button" data-search-sort-by="newest" class="active">Newest</button>
+            <button type="button" data-search-sort-by="oldest">Oldest</button>
+          </div>
+          <span class="search-results-meta" data-search-results-meta></span>
+          <div class="search-input-toolbar">
+            <span class="search-toolbar-hint">keyword · message body · room name</span>
           </div>
         </div>
-        <div class="search-input-wrap">
-          <span class="search-input-icon" aria-hidden="true">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-              <circle cx="7" cy="7" r="4.5"/>
-              <line x1="10.3" y1="10.3" x2="13.5" y2="13.5"/>
-            </svg>
-          </span>
-          <input type="text" class="search-input" data-search-input
-                 placeholder="Find any keyword across rooms · room name, director name, message body…"
-                 value="${this.escape(lastQuery)}"
-                 spellcheck="false">
-          <button type="button" class="search-input-clear" data-search-clear aria-label="Clear" title="Clear">✕</button>
+        <!-- Static starter chips · one click pre-fills the input
+             and triggers the search. Hidden once the user types
+             anything (.has-results). System UI English-only. -->
+        <div class="search-starters" data-search-starters>
+          <span class="search-starters-label">try</span>
+          <button type="button" class="search-starter" data-search-starter="decision">decision</button>
+          <button type="button" class="search-starter" data-search-starter="next step">next step</button>
+          <button type="button" class="search-starter" data-search-starter="risk">risk</button>
+          <button type="button" class="search-starter" data-search-starter="ship">ship</button>
         </div>
-        <div class="search-results" data-search-results>
-          ${lastQuery
-            ? `<div class="search-empty"><span class="search-empty-kicker">// queued</span><div class="search-empty-msg">Searching…</div></div>`
-            : `<div class="search-empty"><span class="search-empty-kicker">// hint</span><div class="search-empty-msg">Type a keyword above. Searches every message in every room · the result row jumps straight to the match.</div></div>`}
-        </div>
+        <div class="search-results" data-search-results></div>
       `;
+      // Initialise the sort default · defaults to "newest"
+      // (most recent matches first). The chip group reads from
+      // this on every render to set the active state.
+      if (this._searchSort !== "oldest") this._searchSort = "newest";
+      this._refreshSortChips();
       const inputEl = page.querySelector("[data-search-input]");
       if (inputEl) {
         // Defer focus so the layout settles + view is visible.
@@ -6235,6 +6610,18 @@
           this.runSearch(lastQuery);
         }
       }
+    },
+
+    /** Flip the page-level state class. `is-initial` mounts the
+     *  vertical-centre hero; `has-results` collapses the hero and
+     *  shrinks the input into a head row beside the meta. Called
+     *  from runSearch whenever the query crosses the empty
+     *  threshold (and on cold mount in renderSearchPage). */
+    _setSearchPageState(state) {
+      const page = document.querySelector("[data-search-page]");
+      if (!page) return;
+      page.classList.toggle("is-initial", state === "initial");
+      page.classList.toggle("has-results", state !== "initial");
     },
 
     /** Debounced search · 200ms after last keystroke we hit
@@ -6250,12 +6637,31 @@
       }
       const seq = (this._searchSeq = (this._searchSeq || 0) + 1);
       const target = document.querySelector("[data-search-results]");
+      const metaEl = document.querySelector("[data-search-results-meta]");
+      // Keep the card's empty-state class in sync with the live
+      // query · the CSS class hides the trailing ✕ when the
+      // input is genuinely empty so the hero's right edge stays
+      // clean before the user has typed anything.
+      const card = document.querySelector("[data-search-card]");
+      if (card) card.classList.toggle("is-empty", q.length === 0);
       if (!target) return;
       if (q.length === 0) {
-        target.innerHTML = `<div class="search-empty"><span class="search-empty-kicker">// hint</span><div class="search-empty-msg">Type a keyword above. Searches every message in every room · the result row jumps straight to the match.</div></div>`;
+        // Empty query · snap back to the hero (initial state),
+        // clear the results list + meta. The CSS hides both via
+        // `.is-initial`; we still wipe innerHTML so a later
+        // .has-results flip doesn't briefly show stale rows.
+        this._setSearchPageState("initial");
+        target.innerHTML = "";
+        if (metaEl) metaEl.textContent = "";
         return;
       }
+      // Non-empty query · flip to results state (CSS fades the
+      // hero out, shrinks the input into the head row) and show
+      // a small "searching…" placeholder while the fetch is in
+      // flight. The meta line takes a beat to populate.
+      this._setSearchPageState("results");
       target.innerHTML = `<div class="search-empty"><span class="search-empty-kicker">// searching</span><div class="search-empty-msg">…</div></div>`;
+      if (metaEl) metaEl.textContent = "";
       this._searchDebounceTimer = setTimeout(async () => {
         try {
           const r = await fetch("/api/search?q=" + encodeURIComponent(q));
@@ -6270,34 +6676,74 @@
       }, 200);
     },
 
-    /** Render the search results list · flat ordered-by-recency list.
-     *  Each row carries its own provenance line ("from <Room>") so
-     *  the user can spot which room each hit belongs to without a
-     *  separate per-room cluster header. The header pattern was
-     *  retired because rooms with one match each were producing
-     *  N tiny clusters; the in-row footer reads cleaner. */
+    /** Render the search results list · flat ordered list with
+     *  Google-style 3-line rows (mono source breadcrumb → sans
+     *  link title → sans snippet body). Per-row chrome is defined
+     *  in `renderSearchResultRow`. The sort order ("newest" /
+     *  "oldest") is read from `app._searchSort` (default
+     *  "newest") and re-applied client-side by `_applySearchSort`
+     *  whenever the user clicks a sort chip — no re-fetch. */
     renderSearchResults(results, query) {
       const target = document.querySelector("[data-search-results]");
+      const metaEl = document.querySelector("[data-search-results-meta]");
       if (!target) return;
+      // Cache the raw response so the sort chip click can re-
+      // render without hitting the server again. Also store the
+      // query so the row builder knows what to highlight.
+      this._searchLastResults = Array.isArray(results) ? results.slice() : [];
+      this._searchLastQueryRendered = query || "";
       if (!results || results.length === 0) {
+        if (metaEl) metaEl.textContent = `0 matches`;
         target.innerHTML = `<div class="search-empty"><span class="search-empty-kicker">// no matches</span><div class="search-empty-msg">No messages match "${this.escape(query)}". Try a shorter or different term.</div></div>`;
         return;
       }
-      const roomSet = new Set(results.map((r) => r.roomId));
-      const rows = results.map((hit) => this.renderSearchResultRow(hit, query)).join("");
-      target.innerHTML = `
-        <div class="search-results-meta">${results.length} match${results.length === 1 ? "" : "es"} · ${roomSet.size} room${roomSet.size === 1 ? "" : "s"}</div>
-        <ul class="search-flat-list">${rows}</ul>
-      `;
+      const sorted = this._applySearchSort(results);
+      const roomSet = new Set(sorted.map((r) => r.roomId));
+      if (metaEl) {
+        metaEl.textContent =
+          `${sorted.length} match${sorted.length === 1 ? "" : "es"} · ` +
+          `${roomSet.size} room${roomSet.size === 1 ? "" : "s"}`;
+      }
+      const rows = sorted.map((hit) => this.renderSearchResultRow(hit, query)).join("");
+      target.innerHTML = `<ul class="search-results-list">${rows}</ul>`;
     },
 
-    /** Build one result row · 2-line snippet centered on the match
-     *  + a "from <Room>" provenance line beneath. Avatar / author /
-     *  timestamp removed in favour of a denser list — the click
-     *  destination has all that context. Wider snippet window
-     *  (~110 lead, ~180 trail) so two lines of 14px text aren't
-     *  half-empty. The hash carries `?q=...` so the room view can
-     *  highlight the matched word in place. */
+    /** Sort a results array by createdAt according to the current
+     *  `app._searchSort` setting. Returns a NEW array so the
+     *  cached `_searchLastResults` stays in original order. */
+    _applySearchSort(results) {
+      const order = this._searchSort === "oldest" ? "oldest" : "newest";
+      const sorted = (results || []).slice();
+      sorted.sort((a, b) => {
+        const aT = (a && a.createdAt) || 0;
+        const bT = (b && b.createdAt) || 0;
+        return order === "oldest" ? aT - bT : bT - aT;
+      });
+      return sorted;
+    },
+
+    /** Sync the active state on the sort chips so the lit button
+     *  reflects `app._searchSort`. Called from the chip click
+     *  handler + on initial mount. */
+    _refreshSortChips() {
+      const order = this._searchSort === "oldest" ? "oldest" : "newest";
+      document.querySelectorAll("[data-search-sort-by]").forEach((btn) => {
+        btn.classList.toggle("active", btn.getAttribute("data-search-sort-by") === order);
+      });
+    },
+
+    /** Build one Google-style result row · three stacked text
+     *  lines:
+     *    1. Source breadcrumb (mono caption, faint) · author name
+     *       + time-ago — the "URL row" equivalent.
+     *    2. Title (sans link, lime on hover) · the room subject
+     *       (truncated). Clicking jumps to `#/r/<id>?m=<mid>&q=
+     *       <q>` exactly like the previous flat-list row.
+     *    3. Snippet (sans body, soft tone) · 2-line clamp of the
+     *       message context with `<mark>` highlight on the
+     *       matched keyword.
+     *  Snippet window (~110 lead, ~180 trail) is unchanged from
+     *  the prior implementation — the change is purely visual. */
     renderSearchResultRow(hit, query) {
       const body = hit.body || "";
       const offset = Math.max(0, hit.matchOffset || 0);
@@ -6316,19 +6762,28 @@
         `<mark>${this.escape(flat(matched))}</mark>` +
         this.escape(flat(after) + suffix);
       const roomTitle = (hit.roomTitle || "Untitled room").trim() || "Untitled room";
+      const author = (hit.authorName || "").trim() || "Director";
+      const timeAgo = hit.createdAt ? this.relTime(hit.createdAt) : "";
       const qParam = query ? `&q=${encodeURIComponent(query)}` : "";
+      // Source breadcrumb · author + relative time. No "from"
+      // label · room title is now the prominent title line (where
+      // the user navigates to), so the breadcrumb only needs to
+      // identify the speaker + when.
+      const sourceLine =
+        `<span class="sr-source-author">${this.escape(author)}</span>` +
+        (timeAgo
+          ? `<span class="sr-source-sep">·</span><span class="sr-source-time">${this.escape(timeAgo)}</span>`
+          : "");
       return `
         <li>
           <a href="#/r/${this.escape(hit.roomId)}?m=${this.escape(hit.messageId)}${qParam}"
-             class="search-row"
+             class="sr-row"
              data-search-jump-room="${this.escape(hit.roomId)}"
              data-search-jump-msg="${this.escape(hit.messageId)}"
              data-search-jump-q="${this.escape(query || "")}">
-            <div class="search-row-snippet">${snippet}</div>
-            <div class="search-row-source">
-              <span class="search-row-source-label">from</span>
-              <span class="search-row-source-room">${this.escape(roomTitle)}</span>
-            </div>
+            <div class="sr-source">${sourceLine}</div>
+            <div class="sr-title">${this.escape(roomTitle)}</div>
+            <div class="sr-snippet">${snippet}</div>
           </a>
         </li>
       `;
@@ -7177,6 +7632,180 @@
      *  tune live as a slim toolbar inside its bottom edge so the page
      *  has one clear gravitational centre, not three competing form
      *  fields. */
+    /** 8-bit ambient backdrop · same vocabulary as the Search page's
+     *  `.search-bg-deco` (crispEdges pixel motifs, lime accents) but
+     *  scene-tuned for each composer:
+     *    · room  → mini boardroom (pixel table + 4 chair silhouettes)
+     *    · agent → row of pixel character heads w/ speech bubbles
+     *  Constellation dots + corner brackets are shared. Returns plain
+     *  SVG markup ready to drop into `.cmp-bg-deco`. */
+    composerBgDecoSvg(scene) {
+      // Helper · stagger animation-delays so siblings don't pulse in
+      // lockstep. Returns a string like `style="animation-delay: 1.2s"`.
+      // The pseudo-random offset is index-based so it's deterministic
+      // (no flicker between renders).
+      const _delay = (i, base) => `style="animation-delay: ${(((i * 137) % 100) / 100 * base).toFixed(2)}s"`;
+      // Constellation dots + lime accents + corner brackets · shared
+      // ambient "8-bit sky" the user singled out as the visual goal.
+      // Each dot animates with `deco-twinkle` keyframes for a slow
+      // opacity blink, staggered by index so the field shimmers
+      // organically instead of pulsing as a single beat.
+      const scatterDots = [
+        [32, 38], [78, 22], [118, 62], [156, 30], [206, 78], [254, 44],
+        [298, 92], [342, 26], [388, 68], [436, 38], [486, 86], [528, 50],
+        [572, 22], [618, 74], [664, 42], [708, 88], [752, 32], [60, 200],
+        [186, 216], [278, 196], [554, 222], [646, 198], [734, 226],
+      ];
+      const limeAccents = [
+        // Dropped the centre-lower lime dot (416, 170) — it sat
+        // directly behind the H1 prompt and read as a typo.
+        [170, 98], [540, 38],
+      ];
+      const scatter = `
+        <g fill="var(--line-bright, #2A2A26)">
+          ${scatterDots.map(([x, y], i) =>
+            `<rect class="deco-twinkle" ${_delay(i, 4.5)} x="${x}" y="${y}" width="2" height="2"/>`
+          ).join("")}
+        </g>
+        <g fill="var(--lime, #6FB572)">
+          ${limeAccents.map(([x, y], i) =>
+            `<rect class="deco-shine" ${_delay(i + 7, 2.8)} x="${x}" y="${y}" width="3" height="3"/>`
+          ).join("")}
+        </g>
+        <g fill="var(--line-bright, #2A2A26)">
+          <rect x="14"  y="14"  width="20" height="2"/>
+          <rect x="14"  y="14"  width="2"  height="20"/>
+          <rect x="766" y="14"  width="20" height="2"/>
+          <rect x="784" y="14"  width="2"  height="20"/>
+        </g>
+      `;
+      // Scene-specific MINI motifs · small scattered 8-bit glyphs that
+      // theme the constellation without occupying the centre stage.
+      // Replaces the previous big centred tableau (table + chairs /
+      // row of character heads) — the user wanted ambient dots /
+      // sparkles tinted with each composer's flavour, not a literal
+      // scene in the hero band. Each motif is ≤ 14×14 px so the band
+      // still reads as scatter, not a feature illustration.
+      let motif = "";
+      if (scene === "room") {
+        // Room scene · tiny pixel chairs + mics + plus-sparkles + a
+        // few pixel "speech-mark" pairs (boardroom vocabulary). All
+        // in the warm wood / cyan moderator palette so the scatter
+        // tints toward "meeting" without ever forming a tableau.
+        // Each group carries an animation class · `deco-bob` for
+        // chairs, `deco-spark` for "+" glyphs, `deco-twinkle` for
+        // quote dots. Inline animation-delays stagger across siblings
+        // so the field never pulses in lockstep.
+        // Center-lower zone (roughly x ∈ [280, 520], y > 140) is
+        // where the H1 "What's on your mind today?" prompt lands.
+        // Cleared of motif elements so the chairs / mics / sparks /
+        // quote dots never collide with the title text · the deco
+        // stays visible only at the periphery + along the top band.
+        // Same hygiene pass as the agent composer's motif.
+        const chairs = [
+          { x: 108, y: 138, fill: "#7A5230" },
+          { x: 372, y: 46,  fill: "#7A5230" },
+          { x: 678, y: 148, fill: "#7A5230" },
+        ];
+        const sparks = [
+          [98, 78], [640, 62], [588, 156],
+        ];
+        const quotes = [
+          [148, 110], [152, 110], [716, 98], [720, 98],
+        ];
+        motif = `
+          <g shape-rendering="crispEdges">
+            <!-- Mini chair silhouettes (3 wood + 1 cyan moderator) -->
+            ${chairs.map((c, i) => `
+              <g class="deco-bob" ${_delay(i + 3, 3.2)} fill="${c.fill}">
+                <rect x="${c.x}" y="${c.y + 10}" width="6" height="2"/>
+                <rect x="${c.x}" y="${c.y}"      width="2" height="10"/>
+                <rect x="${c.x + 6}" y="${c.y}"  width="2" height="10"/>
+              </g>
+            `).join("")}
+            <!-- Tiny microphones · static (small, would feel busy).
+                 Removed the (296, 206) centre-lower mic and the
+                 (244, 216) cyan moderator chair — both sat in the
+                 title's footprint and read as typos behind the
+                 prompt. -->
+            <g fill="#8E8B83">
+              <rect x="226" y="46"  width="3" height="2"/>
+              <rect x="227" y="42"  width="1" height="4"/>
+              <rect x="514" y="100" width="3" height="2"/>
+              <rect x="515" y="96"  width="1" height="4"/>
+            </g>
+            <!-- Wood-tone "+" sparkles · scale-pulse animation -->
+            ${sparks.map(([x, y], i) => `
+              <g class="deco-spark" ${_delay(i + 11, 2.4)} fill="var(--amber-dim, #5C3A1F)">
+                <rect x="${x}"     y="${y + 2}" width="6" height="2"/>
+                <rect x="${x + 2}" y="${y}"     width="2" height="6"/>
+              </g>
+            `).join("")}
+            <!-- Pixel "quote marks" · 2-dot pairs, twinkle in sync -->
+            ${quotes.map(([x, y], i) =>
+              `<rect class="deco-twinkle" ${_delay(i + 17, 3.5)} x="${x}" y="${y}" width="2" height="2" fill="var(--lime-dim, #2D5532)"/>`
+            ).join("")}
+          </g>
+        `;
+      } else if (scene === "agent") {
+        // Agent scene · tiny pixel character heads (4×4) + mini
+        // speech bubbles (5×3) + lime sparkles · evokes "cast / new
+        // persona" without ever forming a centre tableau. Heads are
+        // small enough to read as constellation, not as portraits.
+        // Heads bob, bubbles blink in / out, sparkles pulse.
+        // Center-lower zone (roughly x ∈ [280, 520], y > 140) is
+        // where the H1 "What do you want to build?" prompt lands.
+        // Cleared of motif elements so the heads / bubbles / sparks
+        // never collide with the title text · the deco stays
+        // visible only at the periphery + along the top band.
+        const heads = [
+          [124, 48], [498, 64], [676, 178], [218, 200],
+        ];
+        const bubbles = [
+          [170, 68], [362, 92], [552, 46], [612, 206],
+        ];
+        const ideaSparks = [
+          [68, 118], [724, 138], [84, 186],
+        ];
+        motif = `
+          <g shape-rendering="crispEdges">
+            <!-- Mini character heads · 4×4 face + 1px hat band -->
+            ${heads.map(([x, y], i) => `
+              <g class="deco-bob" ${_delay(i + 21, 3.0)}>
+                <rect x="${x}" y="${y}" width="4" height="4" fill="#D8A878"/>
+                <rect x="${x}" y="${y}" width="4" height="1" fill="#5C3A1F"/>
+              </g>
+            `).join("")}
+            <!-- Tiny speech bubbles · 10×6 pill with 1-pixel tail · blink -->
+            ${bubbles.map(([x, y], i) => `
+              <g class="deco-blink" ${_delay(i + 27, 4.0)}>
+                <rect x="${x}"     y="${y}"     width="10" height="6" fill="var(--panel-3, #1A1A18)"/>
+                <rect x="${x}"     y="${y}"     width="10" height="1" fill="var(--lime-dim, #2D5532)"/>
+                <rect x="${x}"     y="${y + 5}" width="10" height="1" fill="var(--lime-dim, #2D5532)"/>
+                <rect x="${x}"     y="${y}"     width="1"  height="6" fill="var(--lime-dim, #2D5532)"/>
+                <rect x="${x + 9}" y="${y}"     width="1"  height="6" fill="var(--lime-dim, #2D5532)"/>
+                <rect x="${x + 2}" y="${y + 6}" width="2"  height="1" fill="var(--lime-dim, #2D5532)"/>
+              </g>
+            `).join("")}
+            <!-- Idea sparkles · "+" glyphs in lime-dim · scale pulse -->
+            ${ideaSparks.map(([x, y], i) => `
+              <g class="deco-spark" ${_delay(i + 33, 2.6)} fill="var(--lime-dim, #2D5532)">
+                <rect x="${x}"     y="${y + 2}" width="6" height="2"/>
+                <rect x="${x + 2}" y="${y}"     width="2" height="6"/>
+              </g>
+            `).join("")}
+          </g>
+        `;
+      }
+      return `
+        <svg viewBox="0 0 800 280" preserveAspectRatio="xMidYMin slice"
+             shape-rendering="crispEdges" aria-hidden="true">
+          ${scatter}
+          ${motif}
+        </svg>
+      `;
+    },
+
     renderComposerHtml(state) {
       const userName = (this.prefs?.name || "you").trim() || "you";
       const lang = this.composerLanguage();
@@ -7266,6 +7895,7 @@
 
       return `
         <section class="cmp">
+          <div class="cmp-bg-deco" aria-hidden="true">${this.composerBgDecoSvg("room")}</div>
           <header class="cmp-hero">
             <div class="cmp-greet">${this.escape(t.greet)}</div>
             <h1 class="cmp-prompt">${this.escape(t.prompt)}</h1>
@@ -7529,6 +8159,20 @@
     modelLabel(modelV) {
       if (!modelV) return "";
       return MODEL_LABELS[modelV] || modelV;
+    },
+
+    /** Friendly label for an agent's voice profile. Returns "" when
+     *  the agent has no voice set, so callers can omit a voice chip
+     *  entirely. Looks up the prefetched `voiceLabels` map (populated
+     *  by loadInitial) and falls back to the raw voiceId when the
+     *  prefetch missed (e.g. /api/voices failed, or the agent uses
+     *  a fresh cloned voice that wasn't in the snapshot). */
+    voiceLabelFor(agent) {
+      const v = agent && agent.voice;
+      if (!v || !v.provider || !v.voiceId) return "";
+      const key = `${v.provider}:${v.voiceId}`;
+      const cached = this.voiceLabels && this.voiceLabels[key];
+      return cached || v.voiceId;
     },
 
     setAgentComposerModel(modelV) {
@@ -7864,6 +8508,7 @@
       `).join("");
       return `
         <section class="cmp ag-cmp">
+          <div class="cmp-bg-deco" aria-hidden="true">${this.composerBgDecoSvg("agent")}</div>
           <header class="cmp-hero">
             <div class="cmp-greet">${this.escape(t.greet)}</div>
             <h1 class="cmp-prompt">${this.escape(t.prompt)}</h1>
@@ -11306,6 +11951,14 @@
       const isUser = m.authorKind === "user";
       const author = isUser ? null : this.agentsById[m.authorId];
       const isChair = !isUser && author?.roleKind === "moderator";
+      // Excused-from-room marker · the director is in this room's
+      // historicalMembers with a non-null removedAt. Past messages
+      // keep their name + role tag (so the chat transcript still
+      // makes sense) and get a small "// excused" pill in the
+      // header so the reader knows this seat is gone.
+      const excusedMember = (!isUser && !isChair && m.authorId)
+        ? (this.currentHistoricalMembers || []).find((hm) => hm.id === m.authorId && hm.removedAt != null)
+        : null;
       const metaKind = m.meta && typeof m.meta.kind === "string" ? m.meta.kind : null;
 
       // Convening · the chair's spoken introduction of the auto-
@@ -11706,6 +12359,7 @@
               <span class="msg-name">${this.escape(name)}</span>
               ${modelLabel ? `<span class="msg-model" title="${this.escape(this._t("msg_model_title", { label: modelLabel }))}">${this.escape(modelLabel)}</span>` : ""}
               <span class="msg-tag">${tag}</span>
+              ${excusedMember ? `<span class="msg-excused" title="Excused from this room by the chair">// excused</span>` : ""}
               ${skillsBadge}
               ${webSearchBadge}
               ${ctxBadge}
@@ -12609,11 +13263,14 @@
         } else {
           avatar = `<img class="rt-avatar" src="${this.escape(m.avatarPath || "")}" alt="" aria-hidden="true">`;
         }
-        // Name plate · adds a small "董事长" title beneath the user's
-        // name so the user seat reads as the room owner / chairman.
-        // Directors and the chair render the plain single-line name.
+        // Name plate · adds a small "Chairman / 董事长" title beneath
+        // the user's name so the user seat reads as the room owner /
+        // chairman. Pulled from i18n (`rt_user_title`) so the label
+        // follows the active UI locale: defaults to "Chairman" in
+        // English, "董事长" in Chinese. Directors and the chair
+        // render the plain single-line name.
         const name = isUser
-          ? `<div class="rt-name">${this.escape(m.name || "")}<div class="rt-name-title">董事长</div></div>`
+          ? `<div class="rt-name">${this.escape(m.name || "")}<div class="rt-name-title">${this.escape(this._t("rt_user_title"))}</div></div>`
           : `<div class="rt-name">${this.escape(m.name || "")}</div>`;
         const bubbleState = isSpeaking ? speakerState : null;
         // Bubble carries the speaker's NAME so the user always knows
@@ -14564,10 +15221,18 @@
       e.preventDefault();
       if (!app.currentRoomId) return;
       if (window.boardroomVoiceReplay && typeof window.boardroomVoiceReplay.open === "function") {
+        // Pass historicalMembers (includes excused directors) so
+        // past messages from a director the chair has excused still
+        // resolve to the speaker's name + voice profile. Falls back
+        // to active members for legacy contexts where the historical
+        // list isn't populated yet.
+        const replayMembers = Array.isArray(app.currentHistoricalMembers) && app.currentHistoricalMembers.length > 0
+          ? app.currentHistoricalMembers.slice()
+          : (Array.isArray(app.currentMembers) ? app.currentMembers.slice() : []);
         window.boardroomVoiceReplay.open({
           roomId: app.currentRoomId,
           messages: Array.isArray(app.currentMessages) ? app.currentMessages.slice() : [],
-          members: Array.isArray(app.currentMembers) ? app.currentMembers.slice() : [],
+          members: replayMembers,
           chair: app.currentChair || null,
         });
       }
@@ -14581,6 +15246,45 @@
         input.value = "";
         input.focus();
         app.runSearch("");
+      }
+      return;
+    }
+    // Search view · starter chip click. Pre-fills the input with
+    // the chip's keyword and triggers a search. Dispatching an
+    // input event ensures the existing doc-level input listener
+    // (which calls runSearch) fires too, so the debounced fetch
+    // path stays canonical.
+    const starter = e.target.closest("[data-search-starter]");
+    if (starter) {
+      e.preventDefault();
+      const term = starter.getAttribute("data-search-starter") || "";
+      const input = document.querySelector("[data-search-input]");
+      if (input && term) {
+        input.value = term;
+        input.focus();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      return;
+    }
+    // Search view · sort chip ("Newest" / "Oldest"). Updates the
+    // sort key + re-renders the cached result list client-side.
+    // No re-fetch · the API doesn't expose a sort param and the
+    // dataset is small (≤ 200 hits per query) so an in-memory
+    // sort is the right call.
+    const sortChip = e.target.closest("[data-search-sort-by]");
+    if (sortChip) {
+      e.preventDefault();
+      const next = sortChip.getAttribute("data-search-sort-by") === "oldest" ? "oldest" : "newest";
+      if (app._searchSort === next) return; // already active
+      app._searchSort = next;
+      app._refreshSortChips();
+      // Re-render from the cached results · skip the no-cache
+      // path (search not yet run) since the chip group is hidden
+      // in is-initial.
+      const cached = Array.isArray(app._searchLastResults) ? app._searchLastResults : null;
+      const cachedQuery = app._searchLastQueryRendered || app._searchLastQuery || "";
+      if (cached && cached.length > 0) {
+        app.renderSearchResults(cached, cachedQuery);
       }
       return;
     }

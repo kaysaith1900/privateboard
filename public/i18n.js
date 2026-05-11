@@ -392,6 +392,7 @@
 
       rt_speaking: "Speaking",
       rt_thinking: "Thinking",
+      rt_user_title: "Chairman",
       rt_toggle_transcript: "Transcript",
       rt_toggle_roundtable: "Round table",
       rt_toggle_enable_voice: "Voice mode",
@@ -1172,6 +1173,7 @@ When the room ___, raise an objection.`,
 
       rt_speaking: "正在说话",
       rt_thinking: "思考中",
+      rt_user_title: "董事长",
       rt_toggle_transcript: "字幕",
       rt_toggle_roundtable: "圆桌",
       rt_toggle_enable_voice: "语音模式",

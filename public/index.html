@@ -1904,51 +1904,312 @@
 
   /* ──────────────────────────────────────────────────────────
      Search page · cross-room keyword search results.
-     Mirrors notes-page chrome (head + meta) so the three
-     destinations (reports / notes / search) share register. */
+     Two postures driven by `.is-initial` / `.has-results` on
+     `.search-page` (toggled by `app.renderSearchPage` /
+     `app.runSearch`):
+       · is-initial · vertically-centred Google-style hero with
+         a wide search input and a mono caption beneath. Reads
+         as "this IS the page" rather than chrome above an
+         empty list.
+       · has-results · the hero collapses, the input shrinks to
+         a compact head row paired with the result-count meta,
+         and the list below uses Google-style 3-line rows
+         (mono source breadcrumb · sans link title · sans
+         snippet body).
+     The same input element serves both states so the focus /
+     value / cursor position survive the swap. */
   .search-page {
-    flex: 1;
-    padding: 24px 32px 40px;
-    max-width: 920px;
+    /* No `flex: 1` here · search-page must grow naturally with
+       its content (especially long result lists) so the sticky
+       `.search-card`'s containing block extends through all the
+       rows. With `flex: 1`, the search-page was clamped to one
+       viewport tall and the sticky card un-stuck after scrolling
+       past that — exactly the "sticky disappears after a few
+       scrolls" bug. `min-height: 100%` is still the floor so the
+       is-initial hero can vertical-centre against a viewport-
+       sized stage. */
     width: 100%;
+    max-width: 920px;
     margin: 0 auto;
-  }
-  .search-page-head {
+    padding: 32px 32px 40px;
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 14px;
-    border-bottom: 0.5px solid var(--line);
-    padding-bottom: 14px;
+    flex-direction: column;
+    min-height: 100%;
+    box-sizing: border-box;
+    /* NO `position: relative` here · the deco layers below
+       anchor to `.main-view[data-main-view="search"]` instead
+       (which IS position:relative) so they fill main-view's
+       width — the visible room content area to the right of
+       the sidebar — rather than the .search-page's own 920px
+       column. Earlier the deco was anchored here and used a
+       `width: 100vw` trick to escape, but `vw` units include
+       the sidebar's slice of the viewport, so the deco's left
+       edge ended up underneath the sidebar (and the corner
+       brackets sat where the user couldn't see them). */
   }
-  .search-page-title {
+  /* ─── Initial / empty state · 8-bit ambient deco + wide card ───
+     The page surface gets a static 8-bit "constellation" overlay
+     at the top — scattered pixel dots + a few lime accents —
+     drawn with `shape-rendering: crispEdges` to match the
+     round-table stage / chair-sprite vocabulary. Hero is text-
+     only (longer wordmark, subline) since the prior pixel mark
+     read too noisy. The card itself is 760px and `width: 100%`
+     so it actually fills the centred column instead of shrinking
+     to the input's intrinsic width. */
+  .search-page.is-initial {
+    justify-content: center;
+    /* Nudge slightly above true-centre so the hero feels
+       visually weighted. */
+    padding-bottom: 12vh;
+    padding-top: 0;
+  }
+  /* Has-results · inner-scroll layout. The PAGE itself is sized
+     to exactly main-view height (so nothing scrolls at this
+     level), and the results list inside gets its own scroll
+     via `flex: 1 + overflow-y: auto`. This puts the head row
+     in a non-scrolling top slot — no `position: sticky`
+     gymnastics, no containing-block-too-short failure mode.
+     The previous sticky approach disappeared as soon as the
+     user scrolled past one screen because the sticky's
+     containing block (the page) ran out; this design has no
+     such ceiling. */
+  .search-page.has-results {
+    height: 100%;
+    min-height: 0;
+    padding-top: 32px;
+    padding-bottom: 0;
+    flex-shrink: 0;
+  }
+  /* 8-bit ambient deco · absolute-positioned overlay at the top
+     of the page. Pure decoration · pointer-events: none, aria-
+     hidden, fades out the lower edge with a CSS mask so it
+     doesn't compete with the hero / card below.
+
+     Width · `left: 0; right: 0` resolves against the nearest
+     positioned ancestor, which is `.main-view[data-main-view=
+     "search"]` (it sits to the right of the sidebar). The deco
+     therefore spans the FULL main-view width, not the viewport
+     — so the sidebar never overlaps. .search-page is static
+     (no position:relative) so the deco escapes its 920px cap
+     naturally. */
+  .search-bg-deco {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 280px;
+    pointer-events: none;
+    z-index: -1;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+    opacity: 0.85;
+  }
+  .search-bg-deco svg { display: block; width: 100%; height: 100%; }
+
+  /* Positioning anchor for the deco layers · main-view sits
+     to the right of the sidebar so its bounds = the visible
+     "room content" width. `isolation: isolate` scopes the
+     deco's z-index: -1 so it sits behind search-page content
+     without leaking past main-view's background. */
+  .main-view[data-main-view="search"] {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .search-page.has-results .search-bg-deco {
+    /* Compact in has-results · keep a slim band of pixel
+       constellation behind the head row so the page still
+       reads as the search page rather than a generic list. */
+    height: 130px;
+    opacity: 0.45;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 50%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 50%, transparent 100%);
+    transition: opacity 0.18s ease, height 0.22s ease;
+  }
+
+  /* Results-only deco · second layer that ONLY shows in
+     has-results. Adds proper 8-bit characters on top of the
+     constellation: CRT scanlines (CSS), pixel antennas at
+     the corners, scattered pixel "plus" sparkles, and a
+     dashed horizon line at the bottom edge. The combination
+     gives the results header genuine "search station"
+     atmosphere instead of a thin star field. */
+  .search-results-deco {
+    position: absolute;
+    top: 0;
+    /* Spans full main-view width · the deco's `position:
+       absolute` resolves to `.main-view[data-main-view=
+       "search"]` (now position:relative) since .search-page
+       is static. No `100vw` trick needed — main-view already
+       sits to the right of the sidebar. */
+    left: 0;
+    right: 0;
+    height: 130px;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.22s ease;
+    /* Faint CRT scanlines · 1px lime-tinted line every 5px.
+       Subtle enough not to compete with the input but
+       persistent enough to read as "this surface is alive." */
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 4px,
+      rgba(111, 181, 114, 0.035) 4px,
+      rgba(111, 181, 114, 0.035) 5px
+    );
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 60%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 60%, transparent 100%);
+  }
+  .search-page.has-results .search-results-deco {
+    opacity: 0.85;
+  }
+  .search-results-deco svg { display: block; width: 100%; height: 100%; }
+  .search-hero {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto 26px;
+    overflow: hidden;
+    transition:
+      opacity 0.22s ease,
+      max-height 0.24s ease,
+      margin 0.24s ease;
+  }
+  .search-page.is-initial .search-hero {
+    opacity: 1;
+    max-height: 220px;
+  }
+  .search-page.has-results .search-hero {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    pointer-events: none;
+  }
+  .search-hero-title {
     font-family: var(--font-human);
-    font-size: 26px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
     color: var(--text);
-    margin: 0;
+    line-height: 1.05;
+    margin: 0 0 12px 0;
   }
-  .search-page-kicker {
+  .search-hero-sub {
     font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.22em;
+    font-size: 11px;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-faint);
-    font-weight: 700;
-    margin-bottom: 4px;
+    margin: 0;
   }
+
+  /* Search card · the substantial input affordance for the
+     is-initial state. `width: 100%` is load-bearing — without
+     it the card collapses to its content's intrinsic width
+     (the input had no flex anchor in is-initial because the
+     wrap was display:flex with the input as a single child),
+     making the whole hero look narrow. With `width: 100%`
+     plus `max-width: 760px` the card always fills the
+     centred column. In has-results the card chrome strips
+     and the inner input-wrap takes back its own border so
+     the compact head row can flex input + meta side-by-side. */
+  .search-card {
+    display: block;
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    /* Mirror the new-room composer's `.cmp-input-frame` (line
+       ~9989) — the frame is black (`var(--bg)`), the input
+       inside is transparent so it inherits the black, and the
+       toolbar at the bottom is `panel-2` (lighter). The two
+       tones plus the hairline divider make it read as one
+       designed input object. `overflow: hidden` is load-bearing
+       so the panel-2 toolbar doesn't bleed past the frame's
+       hairline border. */
+    background: var(--bg);
+    border: 0.5px solid var(--line-strong);
+    overflow: hidden;
+    transition:
+      border-color 0.18s,
+      background 0.18s,
+      max-width 0.22s ease,
+      margin 0.22s ease,
+      padding 0.22s ease;
+  }
+  .search-card:focus-within {
+    border-color: var(--lime);
+  }
+  .search-page.has-results .search-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: none;
+    /* No `margin-bottom` here · the 18px breathing room below
+       the head row moved INSIDE `.search-results` (via the
+       ::before pseudo down at line ~XXX). With it on the card,
+       that 18px lived OUTSIDE the scroll area and permanently
+       stole vertical real estate; the scroll content was
+       truncated 18px earlier than the visible band. Moving the
+       gap into the scroll content means it scrolls away
+       naturally as the user reads down. */
+    margin: 0;
+    padding-top: 12px;
+    padding-bottom: 14px;
+    /* The head row is now in a NON-scrolling top slot of
+       search-page (the page is fixed at main-view height; the
+       scroll lives inside `.search-results`). No `position:
+       sticky` needed — the card stays put because the surface
+       around it doesn't move. */
+    background: var(--panel);
+    border: none;
+    flex-shrink: 0;
+    z-index: 2;
+    /* Stacking context for the full-width ::after pseudo. */
+    position: relative;
+    isolation: isolate;
+  }
+  /* Full-width head band · ::after extends a panel-coloured
+     strip + 0.5px under-line from -100vmax to +100vmax past
+     the card's 920px box, clipped by main-view's overflow.
+     z-index: -1 keeps it behind the card's children (input /
+     chips / meta) inside the card's own stacking context. */
+  .search-page.has-results .search-card::after {
+    content: "";
+    position: absolute;
+    inset: 0 -100vmax;
+    background: var(--panel);
+    border-bottom: 0.5px solid var(--line);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .search-page.has-results .search-card:focus-within {
+    border-color: transparent;
+    border-bottom-color: var(--lime);
+  }
+
+  /* Input wrap · borderless inside the card in is-initial,
+     bordered pill in has-results. */
   .search-input-wrap {
     position: relative;
     display: flex;
     align-items: center;
-    margin: 8px 0 22px;
+    flex: 1;
+    min-width: 0;
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .search-page.is-initial .search-input-wrap {
+    background: transparent;
+    border: none;
+    padding: 6px 4px 0;
+  }
+  .search-page.has-results .search-input-wrap {
     background: var(--panel-2);
     border: 0.5px solid var(--line);
-    transition: border-color 0.12s, background 0.12s;
   }
-  .search-input-wrap:focus-within {
+  .search-page.has-results .search-input-wrap:focus-within {
     border-color: var(--lime);
     background: var(--panel);
   }
@@ -1956,50 +2217,350 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
     color: var(--text-faint);
     flex-shrink: 0;
+    transition: width 0.22s ease, color 0.12s;
   }
+  /* Hide the leading magnifier in BOTH states · the hero card
+     is its own affordance, and in has-results the input is
+     unmistakably a search field by context (sort chips +
+     result-count meta beside it). The icon was reading as
+     redundant chrome. */
+  .search-input-icon { display: none; }
   .search-input-wrap:focus-within .search-input-icon { color: var(--lime); }
   .search-input {
     flex: 1;
     min-width: 0;
-    padding: 12px 8px;
     background: transparent;
     border: none;
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 15px;
     letter-spacing: -0.005em;
     outline: none;
+    transition: padding 0.22s ease, font-size 0.22s ease;
+  }
+  .search-page.is-initial .search-input {
+    /* Same type spec as `.cmp-input` (14.5px sans, line-height
+       1.55, letter-spacing -0.003em) so the family register
+       matches the new-room composer. SYMMETRIC vertical
+       padding (22 top / 22 bottom) instead of the cmp's
+       20/12 — the cmp is a TEXTAREA where text starts at
+       the top, but our search-input is a SINGLE-LINE input
+       so the text/placeholder must vertical-centre for it
+       to read right. The taller padding also gives the
+       hero card more presence. */
+    padding: 22px 22px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    letter-spacing: -0.003em;
+  }
+  /* Defuse Chrome's autofill bg · when the browser remembers a
+     prior query, the input gets a pale yellow/gray autofill
+     surface that fights our intended black card. The giant
+     inset box-shadow trick paints the autofill area with our
+     own surface color so the input stays visually consistent
+     with the rest of the card whether autofill engaged or not. */
+  .search-input:-webkit-autofill,
+  .search-input:-webkit-autofill:hover,
+  .search-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--bg) inset !important;
+    -webkit-text-fill-color: var(--text) !important;
+    caret-color: var(--text);
+    transition: background-color 5000s ease-in-out 0s;
+  }
+  .search-page.has-results .search-input {
+    padding: 9px 6px;
+    font-size: 13px;
   }
   .search-input::placeholder {
     color: var(--text-faint);
-    font-style: italic;
+    font-style: normal;
+    font-weight: 400;
+  }
+  /* Override the OLDER `.search-input:focus` rule (line ~796)
+     from the sidebar's search-block · that rule sets
+     `background: var(--panel-2)` on focus, which turned our
+     hero input GRAY whenever the user clicked into it. Both
+     features share the class name `.search-input`, so an
+     unscoped focus rule there leaks here. Scoping under
+     `.search-page` raises specificity and pins the input
+     transparent on focus. */
+  .search-page .search-input:focus,
+  .search-page .search-input:focus-visible {
+    background: transparent;
+    border: none;
+    outline: none;
   }
   .search-input-clear {
-    width: 36px;
-    height: 36px;
     background: transparent;
     border: none;
     color: var(--text-faint);
-    font-size: 13px;
     cursor: pointer;
-    transition: color 0.12s;
+    transition:
+      color 0.12s,
+      width 0.22s ease,
+      height 0.22s ease;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .search-page.is-initial .search-input-clear {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+    margin-right: 6px;
+  }
+  .search-page.has-results .search-input-clear {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
   }
   .search-input-clear:hover { color: var(--text); }
+  /* Hide the clear button when the input is empty (set by JS
+     via the .is-empty class on .search-card). Keeps the
+     hero's right edge clean when the user hasn't typed yet. */
+  .search-card.is-empty .search-input-clear { display: none; }
 
+  /* Internal toolbar · footer of the card in is-initial.
+     Mono hint on the left, lime send button on the right.
+     Hidden entirely in has-results (the card is collapsed
+     to a head row by then). */
+  .search-input-toolbar {
+    /* Mirror `.cmp-toolbar` (line ~10028) — same padding /
+       min-height / hairline-divider / panel-2 surface so the
+       two-tone frame reads as one designed input. The panel-2
+       tone is the visual cue that "this is the action row."
+       It's slightly lighter than the input area's black so
+       the eye registers it as a distinct band without a heavy
+       border. */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 8px 8px 14px;
+    min-height: 48px;
+    border-top: 0.5px solid var(--line);
+    background: var(--panel-2);
+  }
+  .search-page.has-results .search-input-toolbar { display: none; }
+  .search-toolbar-hint {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  /* Starter chips · static suggestions below the card in
+     is-initial. Click → pre-fill the input + trigger search.
+     Hidden in has-results. */
+  .search-starters {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 20px auto 0;
+    max-width: 760px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    flex-wrap: wrap;
+  }
+  .search-page.has-results .search-starters { display: none; }
+  .search-starters-label { color: var(--text-faint); margin-right: 4px; }
+  .search-starter {
+    background: transparent;
+    border: 0.5px solid var(--line);
+    color: var(--text-soft);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .search-starter:hover {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+
+  /* Result-count meta · sits beside the shrunk input in the
+     has-results head row. Hidden entirely in is-initial. */
   .search-results-meta {
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-faint);
-    margin-bottom: 14px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
+  .search-page.is-initial .search-results-meta { display: none; }
+
+  /* Sort chip group · "Newest" / "Oldest" toggle that re-sorts
+     the result list client-side (no re-fetch). Only visible in
+     has-results · the head row's flex layout slots it between
+     the input and the meta count. Active chip uses the lime
+     accent border + caps; inactives are line-faint until hover. */
+  .search-results-sort {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .search-page.has-results .search-results-sort {
+    display: inline-flex;
+  }
+  .search-results-sort .srs-label {
+    color: var(--text-faint);
+    margin-right: 4px;
+  }
+  .search-results-sort button {
+    background: transparent;
+    border: 0.5px solid var(--line);
+    color: var(--text-faint);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    padding: 5px 9px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .search-results-sort button:hover {
+    color: var(--text-soft);
+    border-color: var(--text-faint);
+  }
+  .search-results-sort button.active {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .search-results-sort button.active:hover {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+
+  /* Results · only visible in has-results. Top padding gives a
+     small breathing room below the head row's hairline. */
+  .search-results {
+    padding-top: 4px;
+  }
+  .search-page.is-initial .search-results { display: none; }
+  /* Inner scroll container · in has-results, `.search-results`
+     owns the vertical scroll instead of `.main-view`. The
+     search-page itself is sized to exactly main-view height,
+     so the head row (`.search-card`) sits in a non-scrolling
+     top slot and stays there permanently. */
+  .search-page.has-results .search-results {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 40px;
+    scrollbar-width: thin;
+  }
+  /* Initial breathing-room spacer · 18px tall block that sits
+     INSIDE the scroll content (before the result list). On
+     first render it gives the user the same gap below the
+     head row that a `margin-bottom: 18px` would; once they
+     start scrolling, this spacer scrolls away with the rest
+     of the list (it's part of the scrollable content), so it
+     doesn't permanently consume visible scroll real estate
+     the way an outside-the-scroll margin did. */
+  .search-page.has-results .search-results::before {
+    content: "";
+    display: block;
+    height: 18px;
+  }
+  .search-page.has-results .search-results::-webkit-scrollbar { width: 8px; }
+  .search-page.has-results .search-results::-webkit-scrollbar-thumb { background: transparent; }
+  .search-page.has-results .search-results::-webkit-scrollbar-track { background: transparent; }
+  .search-page.has-results .search-results:hover::-webkit-scrollbar-thumb { background: var(--line-bright); }
+
+  /* Google-style result row · 3 stacked text lines (mono
+     source breadcrumb · sans link title · sans snippet body).
+     No row hover background, no per-row border — only the
+     title line lights up on hover so the row reads calm. */
+  .search-results-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .search-results-list > li {
+    margin-bottom: 22px;
+  }
+  .search-results-list > li:last-child { margin-bottom: 0; }
+  .sr-row {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+  .sr-source {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sr-source-author {
+    color: var(--text-soft);
+    font-weight: 600;
+  }
+  .sr-source-sep {
+    color: var(--text-faint);
+    margin: 0 2px;
+  }
+  .sr-source-time {
+    color: var(--text-faint);
+  }
+  .sr-title {
+    font-family: var(--font-human);
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--text);
+    margin: 0 0 4px 0;
+    letter-spacing: -0.005em;
+    transition: color 0.12s;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sr-row:hover .sr-title { color: var(--lime); }
+  .sr-snippet {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .sr-snippet mark {
+    background: var(--lime);
+    color: var(--bg, #0c0c0c);
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 600;
+  }
+
+  /* Empty / hint card · only ever rendered inside .search-results
+     so it's tied to the has-results state. Centered block, calm
+     copy. */
   .search-empty {
-    padding: 60px 0;
+    padding: 40px 0;
     text-align: center;
     color: var(--text-faint);
   }
@@ -2021,70 +2582,15 @@
     margin: 0 auto;
   }
 
-  /* Flat list · one row per hit; provenance shown as a footer
-     line on each row (`from <Room>`) instead of grouping into
-     per-room clusters. Avatar / author / timestamp removed in
-     favour of a denser, snippet-first list. */
-  .search-flat-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    border-top: 0.5px solid var(--line);
+  /* Reduced-motion · snap state changes, no transitions. */
+  @media (prefers-reduced-motion: reduce) {
+    .search-hero,
+    .search-card,
+    .search-input,
+    .search-input-icon,
+    .search-input-clear,
+    .sr-title { transition: none; }
   }
-  .search-row {
-    display: block;
-    padding: 12px 14px;
-    text-decoration: none;
-    color: inherit;
-    border-bottom: 0.5px solid var(--line);
-    transition: background 0.1s;
-  }
-  .search-row:hover { background: var(--panel-2); }
-  .search-row-snippet {
-    font-family: var(--font-human);
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--text);
-    word-break: break-word;
-    /* Two-line clamp · keeps every row a uniform height so the
-       list scans cleanly. The snippet is already centered on the
-       match (LEAD/TRAIL chars on either side) so the visible
-       lines almost always include the keyword. */
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .search-row-snippet mark {
-    background: var(--lime);
-    color: var(--bg, #0c0c0c);
-    padding: 0 2px;
-    border-radius: 2px;
-    font-weight: 600;
-  }
-  .search-row-source {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    margin-top: 6px;
-    font-family: var(--mono);
-    font-size: 9.5px;
-  }
-  .search-row-source-label {
-    color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-  }
-  .search-row-source-room {
-    color: var(--text-soft);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 60%;
-  }
-  .search-row:hover .search-row-source-room { color: var(--lime); }
 
   /* Search-result jump · in-place keyword pulse + article outline.
      The keyword wraps in a `.search-keyword-flash` span (~2s lime
@@ -2259,7 +2765,7 @@
      spatially, so each fades. */
   .notes-item-passage {
     font-family: var(--font-human);
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.6;
     color: var(--text);
     margin: 0;
@@ -2711,8 +3217,12 @@
     min-width: 22px;
     padding: 0 5px;
     background: var(--panel-3);
-    color: var(--text);
-    border: 0.5px solid var(--lime-dim);
+    /* Was `var(--text)` (the brightest text token) which read as a
+       second focal point next to the room subject and pulled the
+       eye away from the live header. Drop to `--text-soft` so the
+       chip stays informational (visible but not loud). */
+    color: var(--text-soft);
+    border: 0.5px solid var(--line-bright);
     margin-left: -4px;
     display: inline-flex;
     align-items: center;
@@ -5889,6 +6399,21 @@
      invisible at glance. Bumped to text-dim for legibility while
      still reading as quieter than the name + model in the same line. */
   .msg-tag { color: var(--text-dim); text-transform: lowercase; }
+  /* Excused-from-room marker · the chair removed this director
+     mid-discussion but their past messages still render so the
+     transcript stays coherent. Reads as a muted mono pill in the
+     message header so the reader knows this seat is gone. */
+  .msg-excused {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    border: 0.5px dashed var(--line-bright);
+    padding: 1px 6px;
+    cursor: help;
+  }
   /* Subtle pill showing which model produced this message. Reads
      after the agent name; sits in the same monospace meta line
      so it doesn't compete with the conversation. */
@@ -9337,6 +9862,90 @@
     margin: 0 auto;
     padding: 32px 32px;
     width: 100%;
+    /* `isolation: isolate` creates a stacking context here WITHOUT
+       making cmp the containing block for absolute descendants.
+       Result: `.cmp-bg-deco` belongs to cmp's stacking context
+       (so `z-index: -1` puts it just below cmp's static content
+       but ABOVE the lower-layer chat / chat-col panel bgs), while
+       its SPATIAL containing block is `.chat-col` (positioned
+       above) — so the deco can span the full chat-col width
+       without being constrained to cmp's 760px. The two-axis
+       split is what makes the Search-page-style backdrop work
+       inside a max-width-narrower section. */
+    isolation: isolate;
+  }
+  /* 8-bit ambient backdrop · pinned at the top of the composer.
+     Same visual language + position as `.search-bg-deco`. The
+     backdrop ESCAPES `.cmp`'s max-width (760px) so it spans the
+     full main-view width — same `left: 50%; margin-left: -50vw;
+     width: 100vw` pattern the Search page uses. `.main-view`'s
+     own `overflow: hidden` clips it to the visible content area,
+     so "full width" resolves to the room-content rect (sidebar
+     not included). Scene-tuned SVG content is injected by
+     `composerBgDecoSvg(scene)` in app.js · room mode draws a
+     mini boardroom (table + chairs), agent mode draws a row of
+     pixel character heads + speech bubble. */
+  .cmp-bg-deco {
+    /* Containing block is `.chat-col` (set position: relative above)
+       so `top/left/right: 0` snap to the FULL CHAT COLUMN — exactly
+       the right-pane width the user wants. No `100vw` escape · the
+       previous viewport-relative width spilled behind the sidebar
+       because the sidebar lives OUTSIDE this main-view's overflow
+       clip, so the deco rendered under it. Anchoring to `.chat-col`
+       gets us the right pane's actual content rect and nothing
+       beyond it. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 280px;
+    pointer-events: none;
+    z-index: -1;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+    opacity: 0.85;
+  }
+  .cmp-bg-deco svg { display: block; width: 100%; height: 100%; }
+  /* 8-bit deco animations · keep subtle so the field reads as
+     "alive" rather than "demanding attention". All animations are
+     opacity / quantised transforms so the pixel-art register
+     holds (no smooth tweens). Each element gets an inline
+     `animation-delay` from the SVG generator so siblings don't
+     pulse in lockstep — the field shimmers organically. */
+  @keyframes deco-twinkle {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  @keyframes deco-shine {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+  }
+  @keyframes deco-spark {
+    0%, 100% { opacity: 1;   transform: scale(1);   }
+    50%      { opacity: 0.4; transform: scale(0.7); }
+  }
+  @keyframes deco-bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-1.5px); }
+  }
+  @keyframes deco-blink {
+    0%, 70%, 100% { opacity: 1; }
+    80%, 92%      { opacity: 0.15; }
+  }
+  .cmp-bg-deco .deco-twinkle { animation: deco-twinkle 4.5s ease-in-out infinite; }
+  .cmp-bg-deco .deco-shine   { animation: deco-shine   3.2s ease-in-out infinite; }
+  .cmp-bg-deco .deco-spark   { animation: deco-spark   2.4s ease-in-out infinite;
+                                transform-box: fill-box; transform-origin: center; }
+  .cmp-bg-deco .deco-bob     { animation: deco-bob     3.0s ease-in-out infinite;
+                                transform-box: fill-box; transform-origin: center; }
+  .cmp-bg-deco .deco-blink   { animation: deco-blink   4.0s ease-in-out infinite; }
+  /* Reduced-motion · stop animation but keep the deco visible. */
+  @media (prefers-reduced-motion: reduce) {
+    .cmp-bg-deco .deco-twinkle,
+    .cmp-bg-deco .deco-shine,
+    .cmp-bg-deco .deco-spark,
+    .cmp-bg-deco .deco-bob,
+    .cmp-bg-deco .deco-blink { animation: none; }
   }
   /* Default composer mode (content fits viewport).
      Toggled by JS via `.chat--composer` (added in
@@ -12399,6 +13008,17 @@
     overflow: hidden;
     background: var(--panel);
     height: 100%;
+    /* `position: relative` makes chat-col the CONTAINING BLOCK
+       for `.cmp-bg-deco` (positioned absolute) so the deco's
+       `left/right: 0` snap to the full chat-col width. NOTE: no
+       `isolation` here · we DON'T want chat-col to also be the
+       stacking context. The deco's `z-index: -1` is meant to
+       paint within `.cmp`'s isolated stacking context (which sits
+       on top of chat / chat-col bgs), not get trapped below
+       chat-col's own panel bg. Splitting the two roles lets the
+       deco stretch wide while still rendering above the chat
+       panel — see `.cmp` + `.cmp-bg-deco` below. */
+    position: relative;
   }
 
   /* Input bar — sits inside the chat column. Live state hosts a
@@ -13478,6 +14098,17 @@
         }
         return;
       }
+      // "search" → cross-room keyword search view. Restores on
+      // refresh same as reports / notes — without this branch
+      // the saved token fell through to the roomId resolver,
+      // failed `appRoomExists("search")`, and bounced the user
+      // back to the new-room composer.
+      if (sub === "search") {
+        if (window.app && typeof window.app.openSearch === "function") {
+          window.app.openSearch();
+        }
+        return;
+      }
       if (!sub || sub === "new") {
         if (window.app && typeof window.app.setComposerMode === "function") {
           window.app.setComposerMode("room");
@@ -13580,9 +14211,9 @@
         // when there's no saved sub-state at all.
         const saved = lsGet(ROOMS_KEY);
         let target;
-        if (saved && saved !== "new" && saved !== "reports" && saved !== "notes") {
+        if (saved && saved !== "new" && saved !== "reports" && saved !== "notes" && saved !== "search") {
           target = saved; // explicit room id
-        } else if (saved === "reports" || saved === "notes" || saved === "new") {
+        } else if (saved === "reports" || saved === "notes" || saved === "new" || saved === "search") {
           target = saved; // explicit destination preserved on any nav
         } else if (fromTabClick) {
           // No saved sub-state · fresh user clicking the tab. Prefer

@@ -89,6 +89,47 @@ export interface PriorContextOpts {
   language: "zh" | "en";
 }
 
+/** Strict room-language detection · the room's INITIAL QUESTION
+ *  (`room.subject`) is the canonical source of truth for the room's
+ *  working language. Locked once; no transcript reads, no LLM-side
+ *  detection, no feedback loop possible. Used by every chair +
+ *  director + skill-picker prompt builder so a Chinese-subject room
+ *  cannot produce English output even if the chair's prior turn drifted
+ *  to English. Reuses the same CJK regex as brief.ts:63 and
+ *  chair.ts:144 so behaviour is identical to the brief / report path
+ *  that already works. */
+export function detectRoomLang(room: { subject?: string | null }): "zh" | "en" {
+  return /[一-鿿]/.test(room.subject || "") ? "zh" : "en";
+}
+
+/** Target-language LANGUAGE LOCK block · appended to the TAIL of every
+ *  chair / director / skill-picker system prompt. Recency bias makes the
+ *  last lines of the system prompt the freshest instruction in the LLM's
+ *  attention; writing the lock IN THE TARGET LANGUAGE means a Chinese
+ *  room sees Chinese characters in its own instructions, which strongly
+ *  biases the LLM toward producing Chinese output even when the rest of
+ *  the prompt is in English. The earlier "detect from subject" rule
+ *  positioned mid-prompt was insufficient — by the time the LLM finished
+ *  reading 1k+ tokens of English instructions, the language signal had
+ *  decayed. This block is the load-bearing fix. */
+export function languageLockBlock(roomLang: "zh" | "en"): string {
+  if (roomLang === "zh") {
+    return [
+      "",
+      "─── 语言锁定 (LANGUAGE LOCK) ───",
+      "本对话的工作语言已锁定为【中文】。",
+      "你的所有输出必须使用中文。禁止使用英文。禁止中英混合。",
+      "此规则覆盖所有上文 — 即使本提示词是英文写的，也必须用中文回复。",
+      "(This room's working language is LOCKED to Chinese. Your entire output MUST be in Chinese. No English, no mixed languages. This rule overrides everything above — even though this prompt is written in English, you MUST reply in Chinese.)",
+    ].join("\n");
+  }
+  return [
+    "",
+    "─── LANGUAGE LOCK ───",
+    "This room's working language is LOCKED to English. Your entire output MUST be in English. No mixed languages.",
+  ].join("\n");
+}
+
 export function buildFollowUpPriorContext(opts: PriorContextOpts): string {
   const { parentRoomNumber, parentRoomSubject, parentBrief, parentSignals, language } = opts;
   const isZh = language === "zh";
@@ -869,15 +910,25 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `· When the user's most recent input is already in the room (visible above as a [${prefs.name || "You"}] turn), you may acknowledge it ONCE in the opening sweep — never again. On any later turn, do NOT open with "Since you asked …" / "As you requested …" / "既然你要求了 …" / "按你说的 …" / "既然你提出 …" / "你既然让我 …" or any rephrasing. The user's direction is absorbed context now; engage with the discussion, don't re-preface every turn — that loops. If you've already spoken once on this user input, your next turn must move PAST that acknowledgment.`,
       `· If you genuinely have NOTHING substantive to add this turn — the room has exhausted your angle, every point you'd make has already been made — return an EMPTY response (no text at all). Do NOT narrate your silence. Never output "（沉默）", "(silent)", "我没有更多要补充的", "I have nothing to add", "pass this round", "skip this turn", "abstain", or any variant. Those bubbles read as "the director gave up" and pollute the transcript; the system handles silent turns gracefully and moves the queue on. Return empty OR find one genuinely fresh angle (a different lens, a sharper edge case, a counter-frame, a missing trade-off) — never the meta-narration in between.`,
       `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE ${toneOverrideTarget} The user explicitly opted into this register; staying in role is the helpful behaviour, not breaking it for trained politeness or trained adversariness.`,
-      // Persona reflection checklist · the ABSOLUTE LAST entry in
-      // the system prompt so it's the freshest context the model
-      // reads before generating. Empty string (no-op) for Signal-mode
-      // and seeded directors · zero per-turn cost. The checklist is
+      // Persona reflection checklist · last persona-tuned entry in
+      // the system prompt. Empty string (no-op) for Signal-mode and
+      // seeded directors · zero per-turn cost. The checklist is
       // tuned per-persona by Phase 6 of the build pipeline · catches
       // failure modes specific to THIS director (e.g. "Am I
       // repeating @another_director's mechanism point?" for a
       // Historian).
       renderPersonaReflectionBlock(speaker),
+      // Target-language LANGUAGE LOCK · TRULY the last block in the
+      // system prompt so it's the freshest signal in the LLM's
+      // attention. Written in the room's working language (Chinese
+      // for zh rooms, English for en rooms), which strongly biases
+      // the LLM toward producing output in the matching language.
+      // Replaces the weaker English-only "Reply in the SAME LANGUAGE"
+      // rule earlier in this prompt as the load-bearing directive —
+      // that rule sits above 30+ lines of HOUSE RULES + voice mode
+      // copy, so by the time the LLM gets to generating it has been
+      // long-decayed. See languageLockBlock at top of this file.
+      languageLockBlock(detectRoomLang(room)),
     ].join("\n"),
   };
 
@@ -1063,6 +1114,14 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
         : []),
       "",
       task,
+      // Target-language LANGUAGE LOCK · APPENDED AT THE TAIL of every
+      // chair system prompt so it's the freshest instruction in the
+      // LLM's attention (recency bias). The earlier English LANGUAGE
+      // block above describes detection logic; this tail block STATES
+      // the result in the target language and forbids drift. Both
+      // blocks are kept (defense in depth). See detectRoomLang /
+      // languageLockBlock at top of this file.
+      languageLockBlock(detectRoomLang(room)),
     ].join("\n"),
   };
 }

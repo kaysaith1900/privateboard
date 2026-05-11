@@ -36,7 +36,7 @@ import {
   reachableModelVs,
   reconcileAgentModels,
 } from "../storage/reconcile-models.js";
-import { getRoom, listRoomMembers, setAwaitingContinue, setRoomStatus, type Room } from "../storage/rooms.js";
+import { getRoom, listAllRoomMembers, listRoomMembers, setAwaitingContinue, setRoomStatus, type Room } from "../storage/rooms.js";
 import { getBrief } from "../storage/briefs.js";
 
 import { formatSearchResults, runWebSearch } from "../ai/skills/web-search.js";
@@ -716,7 +716,16 @@ async function pumpQueue(roomId: string): Promise<void> {
               // intervention OR director turn — frontend handler
               // hides on any agent author).
               emitChairPending(roomId, "next-speaker");
-              const pick = await pickNextSpeaker({ candidates, history: recent });
+              // Fetch room here so the picker can language-lock the
+              // intervention to room.subject (avoids the feedback-loop
+              // bug where one stray English director turn re-biased
+              // the detector toward English in a Chinese room).
+              const pickRoom = getRoom(roomId);
+              const pick = await pickNextSpeaker({
+                candidates,
+                history: recent,
+                room: pickRoom ?? undefined,
+              });
               // Guard · fresh tickRoom may have replaced state.queue
               // while haiku was thinking. Only reorder if the snapshot
               // is still the live queue.
@@ -1016,7 +1025,7 @@ async function pumpQueue(roomId: string): Promise<void> {
         let recommendation: { kind: "end" | "continue"; rationale: string } | undefined;
         try {
           const recent = listRecentMessages(roomId, 30);
-          const wrap = await pickRoundWrap({ history: recent, roundNum: wrappedRound });
+          const wrap = await pickRoundWrap({ history: recent, roundNum: wrappedRound, room });
           recommendation = { kind: wrap.recommendation, rationale: wrap.rationale };
         } catch (e) {
           rlog(roomId, "round-wrap-error", {
@@ -1597,25 +1606,47 @@ function appendSystemMessage(roomId: string, body: string): void {
 
 /** Snapshot used by GET /api/rooms/:id. The chair shows up in
  *  `chair` separately from `members` (which is directors only) so
- *  the frontend can render them differently. */
+ *  the frontend can render them differently.
+ *
+ *  `historicalMembers` is the full director roster including any
+ *  who have been soft-deleted via `removeRoomMember`. Each entry
+ *  carries `removedAt` (null when active). The frontend uses this
+ *  list — not `members` — for speaker-name + voice-profile
+ *  resolution on past messages, so a director who's been excused
+ *  mid-discussion still shows their name in the chat history and
+ *  their voice still plays in voice replay. */
+export type HistoricalMember = Agent & { joinedAt: number; removedAt: number | null };
+
 export function getRoomFullState(roomId: string): {
   room: Room;
   members: Agent[];
+  historicalMembers: HistoricalMember[];
   chair: Agent | null;
   messages: Message[];
   keyPoints: ReturnType<typeof listKeyPointsForRoom>;
 } | null {
   const room = getRoom(roomId);
   if (!room) return null;
-  const memberRows = listRoomMembers(roomId);
-  const all = memberRows
+  const allRows = listAllRoomMembers(roomId);
+  const activeAgents = allRows
+    .filter((m) => m.removedAt === null)
     .map((m) => getAgent(m.agentId))
     .filter((a): a is Agent => a !== null);
-  const members = all.filter((a) => a.roleKind === "director");
-  const chair = all.find((a) => a.roleKind === "moderator") ?? null;
+  const members = activeAgents.filter((a) => a.roleKind === "director");
+  const chair = activeAgents.find((a) => a.roleKind === "moderator") ?? null;
+
+  // Directors only · chair is never excused, so historicalMembers
+  // matches the same "directors only" contract `members` has.
+  const historicalMembers: HistoricalMember[] = [];
+  for (const m of allRows) {
+    const a = getAgent(m.agentId);
+    if (!a || a.roleKind !== "director") continue;
+    historicalMembers.push({ ...a, joinedAt: m.joinedAt, removedAt: m.removedAt });
+  }
+
   const messages = listRecentMessages(roomId, 200);
   const keyPoints = listKeyPointsForRoom(roomId);
-  return { room, members, chair, messages, keyPoints };
+  return { room, members, historicalMembers, chair, messages, keyPoints };
 }
 
 /** Current speaking-queue snapshot — shown to clients on initial load. */

@@ -2589,7 +2589,6 @@
     ensureVoiceOptions();
     const v = voiceForAgent(slug);
     const label = v ? `${v.provider} · ${v.voiceId}` : uiT("ap_voice_browser_default");
-    const deck = v ? v.model : uiT("ap_voice_engine_browser");
     const speed = v?.speed ?? 1;
     const pitch = v?.pitch ?? 0;
     const emotion = v?.emotion || "";
@@ -2605,7 +2604,6 @@
           <button type="button" class="ap-model-trigger" data-ap-voice-trigger>
             <span class="ap-model-trigger-text">
               <span class="ap-model-trigger-name" data-ap-voice-name>${escape(label)}</span>
-              <span class="ap-model-trigger-provider" data-ap-voice-provider>${escape(deck)}</span>
             </span>
             <span class="ap-model-trigger-caret">▾</span>
           </button>

@@ -42,6 +42,7 @@ import webSearchProviderPref029 from "./migrations/029_web_search_provider_pref.
 import minimaxRegion030 from "./migrations/030_minimax_region.sql";
 import agentPersonaSpec031 from "./migrations/031_agent_persona_spec.sql";
 import roomVoteTrigger032 from "./migrations/032_room_vote_trigger.sql";
+import roomMembersRemovedAt033 from "./migrations/033_room_members_removed_at.sql";
 
 interface Migration {
   name: string;
@@ -81,6 +82,7 @@ const MIGRATIONS: Migration[] = [
   { name: "030_minimax_region.sql", sql: minimaxRegion030 },
   { name: "031_agent_persona_spec.sql", sql: agentPersonaSpec031 },
   { name: "032_room_vote_trigger.sql", sql: roomVoteTrigger032 },
+  { name: "033_room_members_removed_at.sql", sql: roomMembersRemovedAt033 },
 ];
 
 let _db: Database.Database | null = null;

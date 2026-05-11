@@ -46,7 +46,8 @@ import { parseSkillMd } from "../skills/parse.js";
 import { analyzeSkillAbility } from "../skills/analyze.js";
 import { getSystemSkillsForAgent, isSystemSkillSlug } from "../skills/system-skills.js";
 import { callLLM } from "../ai/adapter.js";
-import { effectiveDefaultModel, FLAGSHIP_TIER, reachableModels, utilityModelFor } from "../ai/availability.js";
+import { effectiveDefaultModel, FLAGSHIP_TIER, pickRandomFastModel, reachableModels, utilityModelFor } from "../ai/availability.js";
+import { activeCarrier } from "../storage/reconcile-models.js";
 import {
   buildAgentProfileMessages,
   buildAgentSpecMessages,
@@ -670,7 +671,15 @@ export function agentsRouter(): Hono {
       handle = uniqueHandle(base || slugifyHandle(name));
     }
 
-    const modelV = typeof b.modelV === "string" && isModelV(b.modelV) ? b.modelV : (effectiveDefaultModel() ?? "opus-4-7");
+    // New agents follow the fast-tier policy: pick a random fast
+    // model from the active carrier's pool so each new persona
+    // shows a different brand badge on OpenRouter (Anthropic /
+    // OpenAI / Google / xAI / DeepSeek fast tiers). Falls back to
+    // the user's explicit default, then to opus-4-6-fast as the
+    // last-resort baseline.
+    const modelV = typeof b.modelV === "string" && isModelV(b.modelV)
+      ? b.modelV
+      : (pickRandomFastModel(activeCarrier()) ?? effectiveDefaultModel() ?? "opus-4-6-fast");
     const roleTag = typeof b.roleTag === "string" && b.roleTag.trim().length > 0
       ? b.roleTag.trim().slice(0, 80)
       : "director";

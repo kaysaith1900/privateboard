@@ -42,6 +42,7 @@ import {
   buildChairConveningMessages,
   buildChairDirectMessages,
   buildChairRoundEndMessages,
+  detectRoomLang,
   parseRoundEndOutput,
 } from "./prompt.js";
 import { pickChairClarifyDecision, pickChairWebSearch } from "./skill-picker.js";
@@ -1302,45 +1303,90 @@ async function emitChairAnnouncementVoice(
  *  rotates phrasing across rounds so the wrap-up doesn't read as a
  *  fixed template — picked deterministically by `roundNum` so a page
  *  refresh shows the same line. Keep variants tight (≤ ~10 words for
- *  tails); the LLM-generated rationale carries the substance. */
-const ROUND_OPENERS = [
+ *  tails); the LLM-generated rationale carries the substance.
+ *  Each pool has parallel `_EN` (default) and `_ZH` (Chinese)
+ *  variants; the rendering function picks the right pool per
+ *  `detectRoomLang(room)`. */
+const ROUND_OPENERS_EN = [
   "Round done.",
   "That closes the round.",
   "End of round.",
   "Round wrapped.",
 ] as const;
-const END_TAILS_WITH_RATIONALE = [
+const ROUND_OPENERS_ZH = [
+  "本轮结束。",
+  "这一轮告一段落。",
+  "刚才这一轮结束。",
+  "本轮收尾。",
+] as const;
+const END_TAILS_WITH_RATIONALE_EN = [
   "Ready to file — or push once more.",
   "I'd wrap here. Another sweep is fair.",
   "Enough to file. Continue if there's more.",
   "File now, or run another round.",
 ] as const;
-const END_TAILS_BARE = [
+const END_TAILS_WITH_RATIONALE_ZH = [
+  "可以归档了 — 或者再来一轮。",
+  "我倾向收尾，但再讨论一轮也合理。",
+  "够归档了。如果还有要补的就继续。",
+  "现在归档，或者再讨论一轮。",
+] as const;
+const END_TAILS_BARE_EN = [
   "Looks ready to file — or another sweep.",
   "Vote and wrap, or push for more.",
   "Ready to file. Continue if you want.",
   "Wrap here, or another round.",
 ] as const;
-const CONTINUE_TAILS_WITH_RATIONALE = [
+const END_TAILS_BARE_ZH = [
+  "看来可以归档了 — 或再讨论一轮。",
+  "投票收尾，或继续推进。",
+  "可以归档了。要继续就继续。",
+  "这里收尾，或再来一轮。",
+] as const;
+const CONTINUE_TAILS_WITH_RATIONALE_EN = [
   "Worth another pass — or call it.",
   "I'd push once more, or end here.",
   "One more sweep earns its keep — or wrap.",
   "Another round, or file now.",
 ] as const;
-const CONTINUE_TAILS_BARE = [
+const CONTINUE_TAILS_WITH_RATIONALE_ZH = [
+  "值得再讨论一轮 — 或者就此打住。",
+  "我倾向再推一轮，或者就此结束。",
+  "再讨论一轮是值得的 — 或者收尾。",
+  "再来一轮，或现在归档。",
+] as const;
+const CONTINUE_TAILS_BARE_EN = [
   "Worth another pass — or call it.",
   "One more sweep, or wrap.",
   "Push another round, or end here.",
   "Another pass, or file now.",
 ] as const;
-const NEUTRAL_TAILS = [
+const CONTINUE_TAILS_BARE_ZH = [
+  "值得再讨论一轮 — 或就此打住。",
+  "再讨论一轮，或者收尾。",
+  "推进下一轮，或在这里结束。",
+  "再来一轮，或现在归档。",
+] as const;
+const NEUTRAL_TAILS_EN = [
   "Vote a point, or roll on.",
   "Weight a point with a vote, or continue.",
   "Vote to bias the next round — or skip.",
   "Vote, or continue without one.",
 ] as const;
+const NEUTRAL_TAILS_ZH = [
+  "为关键点投票，或继续。",
+  "用投票给某个点加权，或直接继续。",
+  "投票影响下一轮 — 或跳过。",
+  "投票，或不投票直接继续。",
+] as const;
 const pickByRound = <T>(arr: readonly T[], seed: number): T =>
   arr[((seed % arr.length) + arr.length) % arr.length] as T;
+/** Pool selector · returns the language-appropriate pool for the
+ *  given English-default pool. Centralises the zh / en swap so the
+ *  rendering function stays clean. */
+function poolFor<T>(en: readonly T[], zh: readonly T[], lang: "zh" | "en"): readonly T[] {
+  return lang === "zh" ? zh : en;
+}
 
 export async function announceRoundPrompt(
   roomId: string,
@@ -1349,26 +1395,33 @@ export async function announceRoundPrompt(
 ): Promise<void> {
   const chair = getChairAgent();
   if (!chair) return;
+  // Language lock · pick zh / en pool based on the room's initial
+  // question. Chinese rooms get the Chinese opener + tail variants
+  // so the templated round-prompt doesn't break the room's working
+  // language. The rationale comes from `pickRoundWrap` which already
+  // has its own LANGUAGE LOCK so it's in the right language too.
+  const room = getRoom(roomId);
+  const roomLang = detectRoomLang(room || {});
   // Body shape: when a recommendation is supplied, lead with the chair's
   // call so the user reads it before pressing a button. When omitted
   // (recommendation undefined / haiku unavailable), fall back to a
   // templated ping. Opener + tail are picked from rotating pools so
   // the chair doesn't sound like a stuck cron job.
-  const opener = pickByRound(ROUND_OPENERS, roundNum);
+  const opener = pickByRound(poolFor(ROUND_OPENERS_EN, ROUND_OPENERS_ZH, roomLang), roundNum);
   let body: string;
   if (recommendation) {
     const rationale = recommendation.rationale.trim();
     if (recommendation.kind === "end") {
       body = rationale
-        ? `${opener} ${rationale} ${pickByRound(END_TAILS_WITH_RATIONALE, roundNum)}`
-        : `${opener} ${pickByRound(END_TAILS_BARE, roundNum)}`;
+        ? `${opener} ${rationale} ${pickByRound(poolFor(END_TAILS_WITH_RATIONALE_EN, END_TAILS_WITH_RATIONALE_ZH, roomLang), roundNum)}`
+        : `${opener} ${pickByRound(poolFor(END_TAILS_BARE_EN, END_TAILS_BARE_ZH, roomLang), roundNum)}`;
     } else {
       body = rationale
-        ? `${opener} ${rationale} ${pickByRound(CONTINUE_TAILS_WITH_RATIONALE, roundNum)}`
-        : `${opener} ${pickByRound(CONTINUE_TAILS_BARE, roundNum)}`;
+        ? `${opener} ${rationale} ${pickByRound(poolFor(CONTINUE_TAILS_WITH_RATIONALE_EN, CONTINUE_TAILS_WITH_RATIONALE_ZH, roomLang), roundNum)}`
+        : `${opener} ${pickByRound(poolFor(CONTINUE_TAILS_BARE_EN, CONTINUE_TAILS_BARE_ZH, roomLang), roundNum)}`;
     }
   } else {
-    body = `${opener} ${pickByRound(NEUTRAL_TAILS, roundNum)}`;
+    body = `${opener} ${pickByRound(poolFor(NEUTRAL_TAILS_EN, NEUTRAL_TAILS_ZH, roomLang), roundNum)}`;
   }
   const m = insertMessage({
     roomId,

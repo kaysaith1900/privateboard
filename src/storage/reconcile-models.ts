@@ -20,6 +20,7 @@ import { listAllAgents, updateAgent } from "./agents.js";
 import { getKey } from "./keys.js";
 import { getPrefs, updatePrefs } from "./prefs.js";
 import { MODELS, type ModelMeta, type ModelV, type Provider } from "../ai/registry.js";
+import { pickRandomFastModel } from "../ai/availability.js";
 
 /** A "carrier" is the network path a model travels on · OpenRouter
  *  routes everything; the rest match the model's own provider. The
@@ -27,16 +28,20 @@ import { MODELS, type ModelMeta, type ModelV, type Provider } from "../ai/regist
  *  doesn't include openrouter, so we widen it here. */
 type Carrier = Provider | "openrouter";
 
-/** Per-provider primary model (the chair's default when that carrier
- *  is the active one). Tied to which models in the registry are
- *  direct-routable for each provider. OpenRouter as a carrier carries
- *  every model — its primary is opus-4-7 (Anthropic's flagship). */
+/** Per-carrier primary model (the chair's default when that carrier
+ *  is the active one). User-requested fast-tier policy: every primary
+ *  here is a fast / mini / flash model so a brand-new user lands on a
+ *  cheap-and-quick chair by default. OpenRouter intentionally maps to
+ *  `opus-4-6-fast` so the Anthropic brand identity stays recognisable
+ *  while the throughput / cost is the fast tier. Directors are picked
+ *  randomly from `FAST_POOL_BY_CARRIER` in availability.ts — see the
+ *  reconcile loop below. */
 export const PRIMARY_BY_CARRIER: Record<string, ModelV> = {
-  openrouter: "opus-4-7",
-  anthropic:  "sonnet-4-6",
-  openai:     "gpt-5-5",
-  google:     "gemini-3-flash",
-  xai:        "grok-4-3",
+  openrouter: "opus-4-6-fast",
+  anthropic:  "haiku-4-5",
+  openai:     "gpt-5-4-mini",
+  google:     "gemini-3-1-flash",
+  xai:        "grok-4-1-fast",
 };
 
 /** Carrier preference order when prefs.defaultModelV isn't set / its
@@ -155,7 +160,8 @@ export interface ReconcileOptions {
 
 export function reconcileAgentModels(opts: ReconcileOptions = {}): ReconcileResult {
   const reachable = reachableModelVs();
-  const primary = activeCarrierPrimary();
+  const carrier = activeCarrier();
+  const primary = carrier ? PRIMARY_BY_CARRIER[carrier] ?? null : null;
   const forcePrimary = opts.forcePrimary === true;
   const switched: string[] = [];
   const cleared: string[] = [];
@@ -165,9 +171,20 @@ export function reconcileAgentModels(opts: ReconcileOptions = {}): ReconcileResu
     // Default behavior: leave reachable models alone. forcePrimary
     // skips this guard so every agent funnels into the switch branch.
     if (!forcePrimary && v && reachable.has(v as ModelV)) continue;
-    if (primary) {
-      if (v === primary) continue; // already on primary somehow
-      updateAgent(agent.id, { modelV: primary });
+    if (primary && carrier) {
+      // Chair (moderator) stays on the carrier's primary fast model
+      // so the user's "default model" identity remains stable across
+      // resets. Directors get a random pick from the carrier's fast
+      // pool so each seat shows a different brand badge (on
+      // OpenRouter this means a visibly mixed cast of Anthropic /
+      // OpenAI / Google / xAI / DeepSeek fast tiers; on direct
+      // carriers it picks from that vendor's own fast set).
+      const isChair = agent.roleKind === "moderator";
+      const target: ModelV = isChair
+        ? primary
+        : (pickRandomFastModel(carrier) ?? primary);
+      if (v === target) continue;
+      updateAgent(agent.id, { modelV: target });
       switched.push(agent.id);
     } else {
       // No carrier reachable · clear the agent's model. agents.ts
