@@ -40,7 +40,9 @@
     { slug: "nebirhos",    name: "Nebirhos",    desc: "teal · warm orange highlights",
       swatches: ["#0A1414","#11201F","#5EB1A6","#357770","#DD9258","#D87060","#6FBEC2","#B8D4D0"] },
     { slug: "wedisagree",  name: "We Disagree", desc: "argumentative orange · subtle green",
-      swatches: ["#14110E","#1F1A14","#DD7B40","#A8521E","#E6B872","#E26060","#6FB28A","#D8CBBC"] }
+      swatches: ["#14110E","#1F1A14","#DD7B40","#A8521E","#E6B872","#E26060","#6FB28A","#D8CBBC"] },
+    { slug: "nintendo",    name: "8-bit",       desc: "NES palette · Mario red · coin gold · sky cyan",
+      swatches: ["#181820","#22222C","#E60012","#A40009","#FBC000","#FC4438","#5BC0EB","#FCFCFC"] }
   ];
 
   const PROVIDERS = [

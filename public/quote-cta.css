@@ -87,13 +87,15 @@
 
 /* ─── Save toast ─────────────────────────────────────────────
    Lightweight feedback after a successful POST /api/notes (or a
-   failure). Bottom-center anchored, fades in/out. Lime for ok,
+   failure). Top-center anchored so it doesn't overlap with the
+   bottom bar's input controls + voice-replay panel — which were
+   covering the previous bottom-center placement. Lime for ok,
    red-tinted for error. Click to dismiss early. */
 .qcta-toast {
   position: fixed;
-  bottom: 24px;
+  top: 72px;             /* clears the topbar / classification strip */
   left: 50%;
-  transform: translate(-50%, 8px);
+  transform: translate(-50%, -8px); /* starts above resting, slides DOWN */
   z-index: 1600;
   background: var(--panel, #131312);
   border: 0.5px solid var(--lime, #6FB572);
@@ -107,6 +109,8 @@
   opacity: 0;
   transition: opacity 0.16s ease-out, transform 0.16s ease-out;
   white-space: nowrap;
+  /* Drop shadow flipped so the elevation hint reads as "tray
+     dropping from above" rather than "rising from below." */
   box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.55);
 }
 .qcta-toast.open {

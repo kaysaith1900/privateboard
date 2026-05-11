@@ -142,6 +142,92 @@
     noise.stop(t0 + 0.06);
   }
 
+  /** Speaker-change cue · fires once when the round-table stage flips
+   *  to a new speaker (idle → A, A → B). A short triangle-wave swoop
+   *  at ~660 → 990 Hz, decaying over ~220ms — distinct from the
+   *  keyboard-click texture of `tick()` so the ear reads it as a
+   *  scene transition rather than typing. Same enabled-flag and
+   *  AudioContext as tick · the user-settings toggle controls both. */
+  function speakerChange() {
+    if (!_enabled) return;
+    if (document.visibilityState !== "visible") return;
+    const ctx = ensureContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const dur = 0.22;
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    // Brief upward sweep · 660Hz → 990Hz across the first 70ms, then
+    // hold while the gain envelope fades. Triangle waveform reads as
+    // softer / more "chime"-like than sine for this register.
+    osc.frequency.setValueAtTime(660, t0);
+    osc.frequency.exponentialRampToValueAtTime(990, t0 + 0.07);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.085, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur);
+  }
+
+  /** Chair gavel cue · fires before chair voice playback begins in
+   *  voice mode. Two-strike wooden knock that reads as "court is in
+   *  session — listen up." Designed by ear:
+   *    · Layer 1 · low sine ~190 Hz, 1ms attack + 220ms decay,
+   *      gives the bass "thunk" of wood on wood.
+   *    · Layer 2 · filtered noise burst at ~3.2 kHz, 30ms total,
+   *      provides the sharp percussive transient.
+   *    · Two strikes 160ms apart so the ear hears a deliberate
+   *      "knock-knock" pattern (single strike read as a glitch /
+   *      typewriter chime in early prototyping). */
+  function gavel() {
+    if (!_enabled) return;
+    if (document.visibilityState !== "visible") return;
+    const ctx = ensureContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const strikes = [0, 0.16];
+    for (const offset of strikes) {
+      const t = t0 + offset;
+      // Body resonance · low sine, fat envelope.
+      const body = ctx.createOscillator();
+      body.type = "sine";
+      body.frequency.setValueAtTime(220, t);
+      body.frequency.exponentialRampToValueAtTime(140, t + 0.18);
+      const bodyGain = ctx.createGain();
+      bodyGain.gain.setValueAtTime(0.0001, t);
+      bodyGain.gain.exponentialRampToValueAtTime(0.18, t + 0.005);
+      bodyGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      body.connect(bodyGain).connect(ctx.destination);
+      body.start(t);
+      body.stop(t + 0.25);
+      // Transient click · 30ms filtered noise burst.
+      const noiseBuf = ctx.createBuffer(
+        1,
+        Math.max(1, Math.floor(ctx.sampleRate * 0.03)),
+        ctx.sampleRate,
+      );
+      const noiseData = noiseBuf.getChannelData(0);
+      for (let i = 0; i < noiseData.length; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * (1 - i / noiseData.length);
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 3200;
+      bp.Q.value = 0.8;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.0001, t);
+      noiseGain.gain.exponentialRampToValueAtTime(0.10, t + 0.003);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+      noise.connect(bp).connect(noiseGain).connect(ctx.destination);
+      noise.start(t);
+      noise.stop(t + 0.05);
+    }
+  }
+
   function setEnabled(on) {
     _enabled = !!on;
     writeEnabled(_enabled);
@@ -154,5 +240,5 @@
 
   // Public surface · attached to window so app.js (and the
   // user-settings toggle) can reach it without an import.
-  window.boardroomTypingSfx = { tick, setEnabled, isEnabled };
+  window.boardroomTypingSfx = { tick, speakerChange, gavel, setEnabled, isEnabled };
 })();

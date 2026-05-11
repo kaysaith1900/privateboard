@@ -40,6 +40,9 @@ import memoryMetabolismP2_027 from "./migrations/027_memory_metabolism_p2.sql";
 import voiceMode028 from "./migrations/028_voice_mode.sql";
 import webSearchProviderPref029 from "./migrations/029_web_search_provider_pref.sql";
 import minimaxRegion030 from "./migrations/030_minimax_region.sql";
+import agentPersonaSpec031 from "./migrations/031_agent_persona_spec.sql";
+import roomVoteTrigger032 from "./migrations/032_room_vote_trigger.sql";
+import roomMembersRemovedAt033 from "./migrations/033_room_members_removed_at.sql";
 
 interface Migration {
   name: string;
@@ -77,6 +80,9 @@ const MIGRATIONS: Migration[] = [
   { name: "028_voice_mode.sql", sql: voiceMode028 },
   { name: "029_web_search_provider_pref.sql", sql: webSearchProviderPref029 },
   { name: "030_minimax_region.sql", sql: minimaxRegion030 },
+  { name: "031_agent_persona_spec.sql", sql: agentPersonaSpec031 },
+  { name: "032_room_vote_trigger.sql", sql: roomVoteTrigger032 },
+  { name: "033_room_members_removed_at.sql", sql: roomMembersRemovedAt033 },
 ];
 
 let _db: Database.Database | null = null;

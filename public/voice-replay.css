@@ -17,7 +17,14 @@
 .voice-replay-overlay {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  /* The adjourned-bar (where Voice Replay is launched from) is
+     `min-height: 44px` and pinned to the bottom of the room view.
+     `bottom: 24px` would overlap it; lift the panel to clear the
+     bar with a small gap so the user always reads the bar's
+     [Export / Voice Replay / Convene Follow-up] actions even while
+     the player is open. Same offset for expanded + collapsed so
+     the title bar sits flush above the bottom bar when shrunk. */
+  bottom: 56px;
   z-index: 9300;
   width: 380px;
   max-width: calc(100vw - 32px);
@@ -56,6 +63,12 @@
   font-size: 13px;
   letter-spacing: 0;
 }
+.vr-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.vr-collapse,
 .vr-close {
   width: 22px;
   height: 22px;
@@ -68,11 +81,67 @@
   font-size: 11px;
   cursor: pointer;
   transition: border-color 0.12s, color 0.12s;
+  font-family: var(--mono);
+  line-height: 1;
 }
+.vr-collapse { font-size: 14px; padding-bottom: 4px; }
+.vr-collapse:hover,
 .vr-close:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
 
 .vr-body {
   padding: 14px 14px 14px;
+}
+
+/* Collapsed posture · the entire floating panel hides, freeing
+   the chat / round-table stage of any overlap. The user re-opens
+   by clicking the inline `.vr-inline-expand` pill that gets
+   slotted into the adjourned-bar's action group right next to the
+   Voice Replay button. Audio keeps playing in the background. */
+.voice-replay-overlay.is-collapsed {
+  display: none;
+}
+
+/* Inline replay control group · three buttons (Next / Pause /
+   Expand) mounted into the adjourned-bar's action group right
+   after Voice Replay when the floating panel is collapsed. Each
+   button inherits `.ghost-btn`'s panel + hairline chrome so the
+   group reads as a sibling of Export / Voice Replay / Convene
+   Follow-up. The Expand button carries a small lime pulsing dot
+   so the user can locate "what's still active" at a glance. */
+.vr-inline-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Icon-only ghost-btns · all the visual chrome (panel bg, hairline
+   border, mono font, uppercase, hover lime) comes from `.ghost-btn`
+   in index.html. We don't override font-size / color / padding so
+   the inline group reads as a true sibling of Export / Voice
+   Replay / Convene Follow-up — just with bracket-wrapped glyphs
+   instead of trailing labels. The Expand button gets a small lime
+   pulsing dot tagged on the end so the user can locate "what's
+   still active" at a glance. */
+.vr-inline-btn .vib-icon {
+  display: block; /* drop the inline baseline gap so the SVG centres */
+}
+.vr-inline-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.vr-inline-expand .vie-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--lime, #6FB572);
+  animation: vr-inline-pulse 1.6s ease-in-out infinite;
+}
+@keyframes vr-inline-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vr-inline-expand .vie-pulse { animation: none; opacity: 0.7; }
 }
 
 /* ─── Loading row ───

@@ -44,8 +44,121 @@ export interface Agent {
    *  of this flag. */
   webSearchEnabled: boolean;
   voice: AgentVoiceProfile | null;
+  /** Full-persona artifact when the agent was built via the deep
+   *  persona-builder pipeline (`mode === 'full'`). Null on every
+   *  Signal-mode agent and on every seeded director. The runtime
+   *  injection of few-shot examples + reflection checklist into
+   *  director system prompts is gated on this field — see
+   *  `src/orchestrator/prompt.ts:buildDirectorMessages`. */
+  personaSpec: PersonaSpec | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Schema for the deep-persona artifact persisted to
+ *  `agents.persona_spec_json`. Each Full-mode build produces exactly
+ *  one of these; the artifact is also rendered as a downloadable
+ *  Markdown doc via `GET /api/agents/:id/persona.md`.
+ *
+ *  Versioned so future schema migrations can be parsed defensively —
+ *  unknown / missing fields default to null and the runtime injection
+ *  helpers degrade gracefully (skip that block, render the rest). */
+export interface PersonaSpec {
+  /** Schema version · bump when fields change shape so older readers
+   *  can detect mismatches and fall back to ignoring the artifact. */
+  version: 1;
+  /** ISO-8601 timestamp of the build. Surfaces in the MD export's
+   *  header line so the user can tell when this persona was made. */
+  generatedAt: string;
+  /** What the user typed into the composer to kick the build. Kept
+   *  for the MD export's "built from" attribution + future re-builds. */
+  description: string;
+  /** Short content summary of phases 1+3 (intellectual lineage etc.).
+   *  Mirror of the existing `AgentProfile` shape from agent-spec.ts so
+   *  the synthesizer that compiles `instruction` from this can re-use
+   *  the same helpers. */
+  spec: PersonaSpecCore;
+  /** Phase-2 ReAct loop output · structured knowledge with citations. */
+  knowledge: PersonaKnowledge;
+  /** Phase-4 · ranked behavioural rules. Always / Never / When X do Y. */
+  rules: PersonaRule[];
+  /** Phase-5 · 3-5 worked examples that distill voice. Injected into
+   *  the per-turn system prompt for Full-mode agents. */
+  fewShot: PersonaFewShot[];
+  /** Phase-6 · 5-8 questions the agent silently runs before speaking.
+   *  Injected at the END of the per-turn system prompt. */
+  reflectionChecklist: string[];
+  /** Phase-7 · test prompts + per-prompt differentiation scores from
+   *  the build-time eval. The header score is surfaced on the save
+   *  card AND in the MD export. */
+  evalSet: PersonaEvalEntry[];
+  /** Optional · the cumulative differentiation score (mean across
+   *  evalSet). Null when the build skipped the eval pass (e.g. no
+   *  embedding model reachable). */
+  differentiationScore: number | null;
+  /** Per-tool recommendation surfaced from spec generation. Currently
+   *  only `webSearch` because that's the only system skill that has a
+   *  per-agent toggle. Future skills extend this map. */
+  toolAccess: { webSearch: boolean };
+  /** Optional · build-time guess at a director name produced by a
+   *  small post-pipeline naming pass. The save form prefills this in
+   *  the name field. Older completed jobs may not carry it; the route
+   *  layer falls back to the seed-words heuristic when missing. */
+  guessName?: string;
+}
+
+export interface PersonaSpecCore {
+  intellectualLineage: string[];
+  loadBearingConcepts: string[];
+  referentSet: string[];
+  failureModes: string[];
+  contrarianTakes: string[];
+}
+
+export interface PersonaKnowledge {
+  /** What the loop learned, organised. The MD export renders these
+   *  sections verbatim; the synthesizer pulls bits into the compiled
+   *  instruction's "intellectual lineage" / "referent set" sections. */
+  keyThinkers: PersonaKnowledgeEntry[];
+  foundationalWorks: PersonaKnowledgeEntry[];
+  recentDevelopments: PersonaKnowledgeEntry[];
+  contestedClaims: PersonaKnowledgeEntry[];
+  /** Audit trail · every search query the ReAct planner ran, with
+   *  result counts. Useful for the user to see why a build was thin. */
+  searchQueries: PersonaSearchRound[];
+}
+
+export interface PersonaKnowledgeEntry {
+  title: string;
+  summary: string;
+  citations: string[]; // URLs surfaced in the search loop
+}
+
+export interface PersonaSearchRound {
+  query: string;
+  resultsCount: number;
+  pagesRead: number;
+}
+
+export interface PersonaRule {
+  kind: "always" | "never" | "conditional";
+  rule: string;
+}
+
+export interface PersonaFewShot {
+  scenario: string;
+  genericResponse: string; // what a generic AI would say
+  personaResponse: string; // what THIS persona says
+  rationale: string;       // why they differ
+}
+
+export interface PersonaEvalEntry {
+  prompt: string;
+  expectedSignature: string;
+  /** Embedding distance between persona vs generic-baseline response.
+   *  Higher = more differentiated. Null when the eval failed for this
+   *  prompt (e.g. embedding API unreachable). */
+  divergenceScore: number | null;
 }
 
 export type AgentVoiceProvider = "openai" | "minimax" | "elevenlabs" | "azure" | "browser" | "custom";
@@ -82,6 +195,7 @@ interface Row {
   is_seed: number;
   web_search_enabled: number;
   voice_json: string | null;
+  persona_spec_json: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -128,6 +242,121 @@ function parseVoice(raw: string | null): AgentVoiceProfile | null {
   }
 }
 
+/** Defensive parser · the JSON blob can be old-shape (different
+ *  PersonaSpec.version), partially populated by an aborted save, or
+ *  hand-edited via direct DB access. Walk the fields one at a time
+ *  and only keep what's well-formed; an unrecognised version returns
+ *  null so callers fall back to "no persona" (treats the agent as
+ *  Signal-mode) instead of crashing on a future schema. */
+function parsePersonaSpec(raw: string | null): PersonaSpec | null {
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    if (!obj || typeof obj !== "object") return null;
+    if (obj.version !== 1) return null; // schema bump · don't try to read forward
+    const description = typeof obj.description === "string" ? obj.description : "";
+    const generatedAt = typeof obj.generatedAt === "string" ? obj.generatedAt : new Date(0).toISOString();
+    const stringArray = (v: unknown): string[] => Array.isArray(v) ? v.filter((x) => typeof x === "string") as string[] : [];
+    const specRaw = (obj.spec as Record<string, unknown> | undefined) || {};
+    const spec: PersonaSpecCore = {
+      intellectualLineage: stringArray(specRaw.intellectualLineage),
+      loadBearingConcepts: stringArray(specRaw.loadBearingConcepts),
+      referentSet: stringArray(specRaw.referentSet),
+      failureModes: stringArray(specRaw.failureModes),
+      contrarianTakes: stringArray(specRaw.contrarianTakes),
+    };
+    const knowledgeRaw = (obj.knowledge as Record<string, unknown> | undefined) || {};
+    const parseEntries = (v: unknown): PersonaKnowledgeEntry[] => {
+      if (!Array.isArray(v)) return [];
+      return v.flatMap((e) => {
+        if (!e || typeof e !== "object") return [];
+        const r = e as Record<string, unknown>;
+        const title = typeof r.title === "string" ? r.title : "";
+        const summary = typeof r.summary === "string" ? r.summary : "";
+        if (!title && !summary) return [];
+        return [{ title, summary, citations: stringArray(r.citations) }];
+      });
+    };
+    const parseRounds = (v: unknown): PersonaSearchRound[] => {
+      if (!Array.isArray(v)) return [];
+      return v.flatMap((e) => {
+        if (!e || typeof e !== "object") return [];
+        const r = e as Record<string, unknown>;
+        if (typeof r.query !== "string") return [];
+        return [{
+          query: r.query,
+          resultsCount: typeof r.resultsCount === "number" ? r.resultsCount : 0,
+          pagesRead: typeof r.pagesRead === "number" ? r.pagesRead : 0,
+        }];
+      });
+    };
+    const knowledge: PersonaKnowledge = {
+      keyThinkers: parseEntries(knowledgeRaw.keyThinkers),
+      foundationalWorks: parseEntries(knowledgeRaw.foundationalWorks),
+      recentDevelopments: parseEntries(knowledgeRaw.recentDevelopments),
+      contestedClaims: parseEntries(knowledgeRaw.contestedClaims),
+      searchQueries: parseRounds(knowledgeRaw.searchQueries),
+    };
+    const rules: PersonaRule[] = Array.isArray(obj.rules)
+      ? (obj.rules as unknown[]).flatMap((r) => {
+          if (!r || typeof r !== "object") return [];
+          const x = r as Record<string, unknown>;
+          const kind = x.kind === "always" || x.kind === "never" || x.kind === "conditional" ? x.kind : null;
+          if (!kind || typeof x.rule !== "string") return [];
+          return [{ kind, rule: x.rule }];
+        })
+      : [];
+    const fewShot: PersonaFewShot[] = Array.isArray(obj.fewShot)
+      ? (obj.fewShot as unknown[]).flatMap((r) => {
+          if (!r || typeof r !== "object") return [];
+          const x = r as Record<string, unknown>;
+          if (typeof x.scenario !== "string" || typeof x.personaResponse !== "string") return [];
+          return [{
+            scenario: x.scenario,
+            genericResponse: typeof x.genericResponse === "string" ? x.genericResponse : "",
+            personaResponse: x.personaResponse,
+            rationale: typeof x.rationale === "string" ? x.rationale : "",
+          }];
+        })
+      : [];
+    const reflectionChecklist: string[] = stringArray(obj.reflectionChecklist);
+    const evalSet: PersonaEvalEntry[] = Array.isArray(obj.evalSet)
+      ? (obj.evalSet as unknown[]).flatMap((r) => {
+          if (!r || typeof r !== "object") return [];
+          const x = r as Record<string, unknown>;
+          if (typeof x.prompt !== "string") return [];
+          return [{
+            prompt: x.prompt,
+            expectedSignature: typeof x.expectedSignature === "string" ? x.expectedSignature : "",
+            divergenceScore: typeof x.divergenceScore === "number" && Number.isFinite(x.divergenceScore)
+              ? x.divergenceScore
+              : null,
+          }];
+        })
+      : [];
+    const differentiationScore = typeof obj.differentiationScore === "number" && Number.isFinite(obj.differentiationScore)
+      ? obj.differentiationScore
+      : null;
+    const toolAccessRaw = (obj.toolAccess as Record<string, unknown> | undefined) || {};
+    const toolAccess = { webSearch: toolAccessRaw.webSearch !== false };
+    return {
+      version: 1,
+      generatedAt,
+      description,
+      spec,
+      knowledge,
+      rules,
+      fewShot,
+      reflectionChecklist,
+      evalSet,
+      differentiationScore,
+      toolAccess,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function serializeVoice(v: AgentVoiceProfile | null): string | null {
   if (!v) return null;
   const provider = VALID_VOICE_PROVIDERS.has(v.provider) ? v.provider : null;
@@ -164,6 +393,7 @@ function mapRow(row: Row): Agent {
     isSeed: row.is_seed === 1,
     webSearchEnabled: row.web_search_enabled !== 0,
     voice: parseVoice(row.voice_json),
+    personaSpec: parsePersonaSpec(row.persona_spec_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -171,7 +401,8 @@ function mapRow(row: Row): Agent {
 
 const SELECT_COLS =
   "id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref, " +
-  "avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, created_at, updated_at";
+  "avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, " +
+  "persona_spec_json, created_at, updated_at";
 
 /** Directors only — the moderator (chair) is hidden from generic listings. */
 export function listAgents(): Agent[] {
@@ -568,6 +799,11 @@ export interface AgentInsert {
   voice?: AgentVoiceProfile | null;
   isPinned?: boolean;
   isSeed?: boolean;
+  /** Set when the agent was built via the Full-persona pipeline.
+   *  Stored as JSON in `persona_spec_json` and unlocks runtime
+   *  injection of few-shot examples + reflection checklist into the
+   *  per-turn director system prompt. */
+  personaSpec?: PersonaSpec | null;
 }
 
 export function insertAgent(a: AgentInsert): Agent {
@@ -579,12 +815,22 @@ export function insertAgent(a: AgentInsert): Agent {
   // stays at 1 (changing it requires a SQLite full table rebuild),
   // so we explicitly write 0 here. Users opt in via the toggle on
   // the agent profile after configuring the global Brave key.
+  // Persona spec · serialised inline if the caller is creating a
+  // Full-mode agent. NULL on every Signal-mode insert (current
+  // /api/agents POST path) and on every seeded director.
+  const personaSpecJson = a.personaSpec ? JSON.stringify(a.personaSpec) : null;
+  // Full-mode agents born from a deep persona build default
+  // web-search ON when the persona spec recommends it (the Phase 6
+  // tool-access output). Signal-mode and seed inserts keep the
+  // historical "opt-in via toggle" behaviour at 0.
+  const initialWebSearch = a.personaSpec?.toolAccess?.webSearch ? 1 : 0;
   getDb()
     .prepare(
       `INSERT INTO agents
        (id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref,
-        avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json,
+        persona_spec_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       a.id,
@@ -601,8 +847,9 @@ export function insertAgent(a: AgentInsert): Agent {
       abilityJson,
       a.isPinned ? 1 : 0,
       a.isSeed ? 1 : 0,
-      0, // web_search_enabled · opt-in only
+      initialWebSearch,
       serializeVoice(a.voice ?? null),
+      personaSpecJson,
       now,
       now,
     );
@@ -666,6 +913,10 @@ export function updateAgent(
      *  in `renderSidebarAgents`. Surface-level UX only — no
      *  orchestrator behaviour depends on this flag. */
     isPinned?: boolean;
+    /** Persona spec patch · pass `null` to clear (downgrades the
+     *  agent to Signal-mode), or a `PersonaSpec` to write. Omitting
+     *  the key leaves the column untouched. */
+    personaSpec?: PersonaSpec | null;
   },
 ): Agent | null {
   const fields: string[] = [];
@@ -708,6 +959,10 @@ export function updateAgent(
   if (typeof patch.isPinned === "boolean") {
     fields.push("is_pinned = ?");
     values.push(patch.isPinned ? 1 : 0);
+  }
+  if (patch.personaSpec !== undefined) {
+    fields.push("persona_spec_json = ?");
+    values.push(patch.personaSpec ? JSON.stringify(patch.personaSpec) : null);
   }
   if (fields.length === 0) return getAgent(id);
   fields.push("updated_at = ?");

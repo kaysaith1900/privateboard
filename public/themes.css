@@ -315,6 +315,44 @@
   --magenta: #C5839E;
 }
 
+/* ─── NINTENDO · 8-bit NES palette · Mario red on dark sky ───
+       Built from the classic NES title-screen vocabulary: deep
+       night-sky background, pure-white NES title text, Mario red
+       as the primary accent (the slot called `--lime*` in this
+       codebase), coin-block gold for amber, fire-flower red for
+       warnings, and sky-cloud cyan for the moderator accent. Every
+       swatch is high-saturation / high-contrast in the NES family —
+       no muted desaturated tones (those don't belong in 8-bit). */
+:root[data-theme="nintendo"] {
+  --bg: #181820;
+  --panel: #22222C;
+  --panel-2: #2A2A38;
+  --panel-3: #34344A;
+  --hi: #44445A;
+
+  --line: #2C2C3A;
+  --line-bright: #44445A;
+  --line-strong: #5C5C72;
+
+  --text: #FCFCFC;
+  --text-soft: #C8C8D8;
+  --text-dim: #8E8EA0;
+  --text-faint: #5C5C70;
+
+  /* Primary accent · Mario red. Token names stay `--lime*` so every
+     callsite that already references the primary keeps working. */
+  --lime: #E60012;
+  --lime-deep: #A40009;
+  --lime-dim: #4F0007;
+
+  --amber: #FBC000;        /* coin / question block */
+  --amber-dim: #6B4D00;
+  --red: #FC4438;          /* fire flower */
+  --red-dim: #6E1A14;
+  --cyan: #5BC0EB;         /* Mario sky / chair moderator */
+  --magenta: #FC74FC;      /* princess pink / power-up */
+}
+
 /* ─── REGENT · gold-on-warm-dark · the eastwood twin
        The same warm dark palette as the default eastwood, with the
        primary forest-green accent swapped for the warm gold used by

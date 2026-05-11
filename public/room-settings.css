@@ -472,6 +472,73 @@
   color: var(--lime, #6FB572);
 }
 
+/* Vote-trigger radio group · two cells per row (Auto / Manual)
+   with the radio glyph + name pinned to the top line and a single
+   compact description line beneath. The previous stacked-column
+   layout wasted vertical space for two short binary options; the
+   2-up grid sits the choices side-by-side at content height so the
+   panel stays dense. The section's own .rs-config-row-hint above
+   carries the "when the chair opens the round-end vote" framing,
+   so each cell only needs its own short rationale. */
+.rs-vote-trigger-grp {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.rs-radio-row {
+  display: grid;
+  grid-template-columns: 13px 1fr;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 7px 9px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.rs-radio-row:hover { border-color: var(--text-faint, #3A382F); }
+.rs-radio-row input[type="radio"] {
+  grid-row: 1;
+  grid-column: 1;
+  margin: 0;
+  accent-color: var(--lime, #6FB572);
+  cursor: pointer;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.rs-radio-label {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.rs-radio-name {
+  font-family: var(--font-human);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft, #8E8B83);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+.rs-radio-desc {
+  font-family: var(--font-human);
+  font-size: 11px;
+  color: var(--text-faint, #5C5A4D);
+  letter-spacing: -0.003em;
+  line-height: 1.35;
+}
+.rs-radio-row.active {
+  border-color: var(--lime, #6FB572);
+  background: var(--panel-2, #1A1A18);
+}
+.rs-radio-row.active .rs-radio-name {
+  color: var(--lime, #6FB572);
+}
+
 /* Section label · matches the new composer's mono micro-type kicker.
    No leading lime bullet — the inline count chip carries enough
    visual weight, and dropping the bullet lets the labels sit flush

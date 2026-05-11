@@ -469,7 +469,14 @@
   .agents-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 2px 4px;
+    /* No top padding · the first child's `position: sticky; top: 0`
+       pins flush to the scroll-viewport edge. Any padding-top here
+       creates a sliver between the static nav buttons above and the
+       pinned header which can briefly expose the body --bg through
+       sub-pixel render races during fast scroll. Explicit panel bg
+       belt-and-braces the inheritance chain. */
+    padding: 0 4px 2px;
+    background: var(--panel);
   }
   .agents-section-header {
     padding: 8px 8px 6px;
@@ -696,6 +703,82 @@
   /* Hide the Chair section's count badge — there's only ever one. */
   .agents-section-header.chair .badge { display: none; }
 
+  /* "Building" section · in-flight Full persona build placeholder.
+     Lime accent on the header to distinguish from inert pinned /
+     custom / core sections. */
+  .agents-section-header.building {
+    color: var(--lime);
+  }
+  .agents-section-header.building .line {
+    background: var(--lime-dim, var(--line));
+    opacity: 0.4;
+  }
+  .agents-section-header.building .badge {
+    color: var(--lime);
+    border-color: var(--lime-dim, var(--line));
+  }
+  /* Building row · same dimensions as a normal agent row but the
+     avatar slot is a pulsing CRT-style frame instead of a face,
+     and the row carries a small "BUILD" / "READY" tag chip.
+     Differentiation comes from those + the lime mono subtitle ·
+     no left-edge stripe (per project CSS rules). */
+  .agent-row.pb-row:hover { background: var(--panel-2); }
+  .pb-row-av {
+    position: relative;
+    background: var(--panel-2);
+    border: 0.5px solid var(--lime);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .pb-row-pulse {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center,
+      rgba(132, 187, 78, 0.45) 0%,
+      rgba(132, 187, 78, 0) 65%);
+    animation: pb-row-pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+  .pb-row-glyph {
+    position: relative;
+    z-index: 1;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--lime);
+    line-height: 1;
+  }
+  .pb-row-ready .pb-row-pulse {
+    animation: none;
+    background: rgba(132, 187, 78, 0.18);
+  }
+  @keyframes pb-row-pulse {
+    0%, 100% { opacity: 0.85; transform: scale(1); }
+    50%      { opacity: 0.35; transform: scale(0.85); }
+  }
+  .pb-row-tag {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 8.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--lime);
+    padding: 1px 6px;
+    border: 0.5px solid var(--lime-dim, var(--line));
+    border-radius: 999px;
+    flex-shrink: 0;
+    line-height: 1.4;
+  }
+  .agent-row.pb-row .agent-row-subtitle {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+  .agent-row.pb-row-ready .agent-row-subtitle { color: var(--lime); }
+
   .search-block {
     padding: 6px 8px 4px;
     flex-shrink: 0;
@@ -794,16 +877,24 @@
   .new-btn.nav-notes::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'/></svg>");
   }
-  /* All Reports / All Notes nav-button shape · the count badge floats
-     to the right of the label, so the link's flex layout grows to fill
-     the row. `.nav-label` flex-grows, `.nav-count` is auto-sized and
-     hugs the trailing edge. */
+  /* "Search" · Search (Lucide) — circle + diagonal handle. Standard
+     magnifying-glass glyph in the same Lucide line-icon vocabulary as
+     the rest of the sidebar. */
+  .new-btn.nav-search::before {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>");
+  }
+  /* All Reports / All Notes / Search nav-button shape · the count
+     badge floats to the right of the label, so the link's flex
+     layout grows to fill the row. `.nav-label` flex-grows,
+     `.nav-count` is auto-sized and hugs the trailing edge. */
   .new-btn.nav-notes,
-  .new-btn.nav-reports {
+  .new-btn.nav-reports,
+  .new-btn.nav-search {
     justify-content: flex-start;
   }
   .new-btn.nav-notes .nav-label,
-  .new-btn.nav-reports .nav-label {
+  .new-btn.nav-reports .nav-label,
+  .new-btn.nav-search .nav-label {
     flex: 1;
     min-width: 0;
   }
@@ -815,7 +906,8 @@
      mono pills so the sidebar reads as one consistent counting
      system. */
   .new-btn.nav-notes .nav-count,
-  .new-btn.nav-reports .nav-count {
+  .new-btn.nav-reports .nav-count,
+  .new-btn.nav-search .nav-count {
     font-family: var(--mono);
     font-size: 10px;
     font-weight: 600;
@@ -830,7 +922,9 @@
   .new-btn.nav-notes:hover .nav-count,
   .new-btn.nav-notes.active .nav-count,
   .new-btn.nav-reports:hover .nav-count,
-  .new-btn.nav-reports.active .nav-count {
+  .new-btn.nav-reports.active .nav-count,
+  .new-btn.nav-search:hover .nav-count,
+  .new-btn.nav-search.active .nav-count {
     color: var(--lime);
     background: rgba(190, 242, 100, 0.08);
   }
@@ -851,7 +945,17 @@
   .sessions-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 2px 4px;
+    /* No top padding · the first sticky `.section-header` pins flush
+       to the scroll-viewport edge. Any padding-top here creates a 2px
+       sliver between the static nav buttons above and the pinned
+       header that can briefly expose the body --bg through sub-pixel
+       render races during fast scroll (visible as a thin "see-through"
+       seam right above the ADJOURNED / LIVE / PAUSED divider).
+       Explicit panel bg belts-and-braces the inheritance chain so the
+       region is unambiguously --panel even if a child's bg falls
+       through. */
+    padding: 0 4px 2px;
+    background: var(--panel);
   }
 
   .section-header {
@@ -874,6 +978,26 @@
     text-transform: uppercase;
     letter-spacing: 0.14em;
     font-weight: 700;
+    /* Sticky · the LIVE / PAUSED / ADJOURNED dividers stay pinned
+       to the top of the scroll viewport as the user scrolls down
+       a long room list. Parent `.sessions-scroll` is the scroll
+       container. Background is the same `--panel` as the sidebar
+       so rows passing under the header don't bleed through; the
+       box-shadow extends that background 4px to either side (to
+       mask the parent's lateral 4px padding) and 2px upward (to
+       absorb any sub-pixel sliver between the scroll-viewport edge
+       and the pinned header during fast scroll — without it, brief
+       repaint races can expose the body --bg as a thin seam above
+       the divider). z-index keeps the header above the rows during
+       the scroll transition. */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--panel);
+    box-shadow:
+      -4px 0 0 var(--panel),
+       4px 0 0 var(--panel),
+       0 -2px 0 var(--panel);
   }
   .section-header.live { color: var(--lime); }
   .section-header.draft { color: var(--amber); }
@@ -1105,15 +1229,6 @@
     font-family: var(--sans);
     letter-spacing: -0.005em;
   }
-  /* Live indicator · was a `● ` prefix on the (now-removed) .row-time
-     tag. Migrated to a title prefix so live rooms still read at a
-     glance. The rest of the title stays its usual colour. */
-  .session-row-shell[data-status="live"] .row-title::before {
-    content: "● ";
-    color: var(--lime);
-    font-weight: 700;
-  }
-
   .row-subtitle {
     font-size: 11.5px;
     color: var(--text-dim);
@@ -1313,6 +1428,20 @@
 
   /* All Notes view · same scroll register as All Reports so the two
      cross-room aggregation destinations read as a paired set. */
+  /* Search view · same scroll chrome as reports / notes so the
+     three cross-cutting destinations behave identically. */
+  .main-view[data-main-view="search"] {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .main-view[data-main-view="search"]::-webkit-scrollbar { width: 8px; }
+  .main-view[data-main-view="search"]::-webkit-scrollbar-thumb { background: transparent; }
+  .main-view[data-main-view="search"]::-webkit-scrollbar-track { background: transparent; }
+  .main-view[data-main-view="search"]:hover { scrollbar-width: thin; }
+  .main-view[data-main-view="search"]:hover::-webkit-scrollbar-thumb { background: var(--line-bright); }
+
   .main-view[data-main-view="notes"] {
     display: block;
     overflow-y: auto;
@@ -1773,6 +1902,759 @@
     color: var(--text-dim);
   }
 
+  /* ──────────────────────────────────────────────────────────
+     Search page · cross-room keyword search results.
+     Two postures driven by `.is-initial` / `.has-results` on
+     `.search-page` (toggled by `app.renderSearchPage` /
+     `app.runSearch`):
+       · is-initial · vertically-centred Google-style hero with
+         a wide search input and a mono caption beneath. Reads
+         as "this IS the page" rather than chrome above an
+         empty list.
+       · has-results · the hero collapses, the input shrinks to
+         a compact head row paired with the result-count meta,
+         and the list below uses Google-style 3-line rows
+         (mono source breadcrumb · sans link title · sans
+         snippet body).
+     The same input element serves both states so the focus /
+     value / cursor position survive the swap. */
+  .search-page {
+    /* No `flex: 1` here · search-page must grow naturally with
+       its content (especially long result lists) so the sticky
+       `.search-card`'s containing block extends through all the
+       rows. With `flex: 1`, the search-page was clamped to one
+       viewport tall and the sticky card un-stuck after scrolling
+       past that — exactly the "sticky disappears after a few
+       scrolls" bug. `min-height: 100%` is still the floor so the
+       is-initial hero can vertical-centre against a viewport-
+       sized stage. */
+    width: 100%;
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 32px 32px 40px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    box-sizing: border-box;
+    /* NO `position: relative` here · the deco layers below
+       anchor to `.main-view[data-main-view="search"]` instead
+       (which IS position:relative) so they fill main-view's
+       width — the visible room content area to the right of
+       the sidebar — rather than the .search-page's own 920px
+       column. Earlier the deco was anchored here and used a
+       `width: 100vw` trick to escape, but `vw` units include
+       the sidebar's slice of the viewport, so the deco's left
+       edge ended up underneath the sidebar (and the corner
+       brackets sat where the user couldn't see them). */
+  }
+  /* ─── Initial / empty state · 8-bit ambient deco + wide card ───
+     The page surface gets a static 8-bit "constellation" overlay
+     at the top — scattered pixel dots + a few lime accents —
+     drawn with `shape-rendering: crispEdges` to match the
+     round-table stage / chair-sprite vocabulary. Hero is text-
+     only (longer wordmark, subline) since the prior pixel mark
+     read too noisy. The card itself is 760px and `width: 100%`
+     so it actually fills the centred column instead of shrinking
+     to the input's intrinsic width. */
+  .search-page.is-initial {
+    justify-content: center;
+    /* Nudge slightly above true-centre so the hero feels
+       visually weighted. */
+    padding-bottom: 12vh;
+    padding-top: 0;
+  }
+  /* Has-results · inner-scroll layout. The PAGE itself is sized
+     to exactly main-view height (so nothing scrolls at this
+     level), and the results list inside gets its own scroll
+     via `flex: 1 + overflow-y: auto`. This puts the head row
+     in a non-scrolling top slot — no `position: sticky`
+     gymnastics, no containing-block-too-short failure mode.
+     The previous sticky approach disappeared as soon as the
+     user scrolled past one screen because the sticky's
+     containing block (the page) ran out; this design has no
+     such ceiling. */
+  .search-page.has-results {
+    height: 100%;
+    min-height: 0;
+    padding-top: 32px;
+    padding-bottom: 0;
+    flex-shrink: 0;
+  }
+  /* 8-bit ambient deco · absolute-positioned overlay at the top
+     of the page. Pure decoration · pointer-events: none, aria-
+     hidden, fades out the lower edge with a CSS mask so it
+     doesn't compete with the hero / card below.
+
+     Width · `left: 0; right: 0` resolves against the nearest
+     positioned ancestor, which is `.main-view[data-main-view=
+     "search"]` (it sits to the right of the sidebar). The deco
+     therefore spans the FULL main-view width, not the viewport
+     — so the sidebar never overlaps. .search-page is static
+     (no position:relative) so the deco escapes its 920px cap
+     naturally. */
+  .search-bg-deco {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 280px;
+    pointer-events: none;
+    z-index: -1;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+    opacity: 0.85;
+  }
+  .search-bg-deco svg { display: block; width: 100%; height: 100%; }
+
+  /* Positioning anchor for the deco layers · main-view sits
+     to the right of the sidebar so its bounds = the visible
+     "room content" width. `isolation: isolate` scopes the
+     deco's z-index: -1 so it sits behind search-page content
+     without leaking past main-view's background. */
+  .main-view[data-main-view="search"] {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .search-page.has-results .search-bg-deco {
+    /* Compact in has-results · keep a slim band of pixel
+       constellation behind the head row so the page still
+       reads as the search page rather than a generic list. */
+    height: 130px;
+    opacity: 0.45;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 50%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 50%, transparent 100%);
+    transition: opacity 0.18s ease, height 0.22s ease;
+  }
+
+  /* Results-only deco · second layer that ONLY shows in
+     has-results. Adds proper 8-bit characters on top of the
+     constellation: CRT scanlines (CSS), pixel antennas at
+     the corners, scattered pixel "plus" sparkles, and a
+     dashed horizon line at the bottom edge. The combination
+     gives the results header genuine "search station"
+     atmosphere instead of a thin star field. */
+  .search-results-deco {
+    position: absolute;
+    top: 0;
+    /* Spans full main-view width · the deco's `position:
+       absolute` resolves to `.main-view[data-main-view=
+       "search"]` (now position:relative) since .search-page
+       is static. No `100vw` trick needed — main-view already
+       sits to the right of the sidebar. */
+    left: 0;
+    right: 0;
+    height: 130px;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.22s ease;
+    /* Faint CRT scanlines · 1px lime-tinted line every 5px.
+       Subtle enough not to compete with the input but
+       persistent enough to read as "this surface is alive." */
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 4px,
+      rgba(111, 181, 114, 0.035) 4px,
+      rgba(111, 181, 114, 0.035) 5px
+    );
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 60%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 60%, transparent 100%);
+  }
+  .search-page.has-results .search-results-deco {
+    opacity: 0.85;
+  }
+  .search-results-deco svg { display: block; width: 100%; height: 100%; }
+  .search-hero {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto 26px;
+    overflow: hidden;
+    transition:
+      opacity 0.22s ease,
+      max-height 0.24s ease,
+      margin 0.24s ease;
+  }
+  .search-page.is-initial .search-hero {
+    opacity: 1;
+    max-height: 220px;
+  }
+  .search-page.has-results .search-hero {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    pointer-events: none;
+  }
+  .search-hero-title {
+    font-family: var(--font-human);
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    line-height: 1.05;
+    margin: 0 0 12px 0;
+  }
+  .search-hero-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0;
+  }
+
+  /* Search card · the substantial input affordance for the
+     is-initial state. `width: 100%` is load-bearing — without
+     it the card collapses to its content's intrinsic width
+     (the input had no flex anchor in is-initial because the
+     wrap was display:flex with the input as a single child),
+     making the whole hero look narrow. With `width: 100%`
+     plus `max-width: 760px` the card always fills the
+     centred column. In has-results the card chrome strips
+     and the inner input-wrap takes back its own border so
+     the compact head row can flex input + meta side-by-side. */
+  .search-card {
+    display: block;
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    /* Mirror the new-room composer's `.cmp-input-frame` (line
+       ~9989) — the frame is black (`var(--bg)`), the input
+       inside is transparent so it inherits the black, and the
+       toolbar at the bottom is `panel-2` (lighter). The two
+       tones plus the hairline divider make it read as one
+       designed input object. `overflow: hidden` is load-bearing
+       so the panel-2 toolbar doesn't bleed past the frame's
+       hairline border. */
+    background: var(--bg);
+    border: 0.5px solid var(--line-strong);
+    overflow: hidden;
+    transition:
+      border-color 0.18s,
+      background 0.18s,
+      max-width 0.22s ease,
+      margin 0.22s ease,
+      padding 0.22s ease;
+  }
+  .search-card:focus-within {
+    border-color: var(--lime);
+  }
+  .search-page.has-results .search-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: none;
+    /* No `margin-bottom` here · the 18px breathing room below
+       the head row moved INSIDE `.search-results` (via the
+       ::before pseudo down at line ~XXX). With it on the card,
+       that 18px lived OUTSIDE the scroll area and permanently
+       stole vertical real estate; the scroll content was
+       truncated 18px earlier than the visible band. Moving the
+       gap into the scroll content means it scrolls away
+       naturally as the user reads down. */
+    margin: 0;
+    padding-top: 12px;
+    padding-bottom: 14px;
+    /* The head row is now in a NON-scrolling top slot of
+       search-page (the page is fixed at main-view height; the
+       scroll lives inside `.search-results`). No `position:
+       sticky` needed — the card stays put because the surface
+       around it doesn't move. */
+    background: var(--panel);
+    border: none;
+    flex-shrink: 0;
+    z-index: 2;
+    /* Stacking context for the full-width ::after pseudo. */
+    position: relative;
+    isolation: isolate;
+  }
+  /* Full-width head band · ::after extends a panel-coloured
+     strip + 0.5px under-line from -100vmax to +100vmax past
+     the card's 920px box, clipped by main-view's overflow.
+     z-index: -1 keeps it behind the card's children (input /
+     chips / meta) inside the card's own stacking context. */
+  .search-page.has-results .search-card::after {
+    content: "";
+    position: absolute;
+    inset: 0 -100vmax;
+    background: var(--panel);
+    border-bottom: 0.5px solid var(--line);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .search-page.has-results .search-card:focus-within {
+    border-color: transparent;
+    border-bottom-color: var(--lime);
+  }
+
+  /* Input wrap · borderless inside the card in is-initial,
+     bordered pill in has-results. */
+  .search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .search-page.is-initial .search-input-wrap {
+    background: transparent;
+    border: none;
+    padding: 6px 4px 0;
+  }
+  .search-page.has-results .search-input-wrap {
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+  }
+  .search-page.has-results .search-input-wrap:focus-within {
+    border-color: var(--lime);
+    background: var(--panel);
+  }
+  .search-input-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    transition: width 0.22s ease, color 0.12s;
+  }
+  /* Hide the leading magnifier in BOTH states · the hero card
+     is its own affordance, and in has-results the input is
+     unmistakably a search field by context (sort chips +
+     result-count meta beside it). The icon was reading as
+     redundant chrome. */
+  .search-input-icon { display: none; }
+  .search-input-wrap:focus-within .search-input-icon { color: var(--lime); }
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--font-human);
+    letter-spacing: -0.005em;
+    outline: none;
+    transition: padding 0.22s ease, font-size 0.22s ease;
+  }
+  .search-page.is-initial .search-input {
+    /* Same type spec as `.cmp-input` (14.5px sans, line-height
+       1.55, letter-spacing -0.003em) so the family register
+       matches the new-room composer. SYMMETRIC vertical
+       padding (22 top / 22 bottom) instead of the cmp's
+       20/12 — the cmp is a TEXTAREA where text starts at
+       the top, but our search-input is a SINGLE-LINE input
+       so the text/placeholder must vertical-centre for it
+       to read right. The taller padding also gives the
+       hero card more presence. */
+    padding: 22px 22px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    letter-spacing: -0.003em;
+  }
+  /* Defuse Chrome's autofill bg · when the browser remembers a
+     prior query, the input gets a pale yellow/gray autofill
+     surface that fights our intended black card. The giant
+     inset box-shadow trick paints the autofill area with our
+     own surface color so the input stays visually consistent
+     with the rest of the card whether autofill engaged or not. */
+  .search-input:-webkit-autofill,
+  .search-input:-webkit-autofill:hover,
+  .search-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--bg) inset !important;
+    -webkit-text-fill-color: var(--text) !important;
+    caret-color: var(--text);
+    transition: background-color 5000s ease-in-out 0s;
+  }
+  .search-page.has-results .search-input {
+    padding: 9px 6px;
+    font-size: 13px;
+  }
+  .search-input::placeholder {
+    color: var(--text-faint);
+    font-style: normal;
+    font-weight: 400;
+  }
+  /* Override the OLDER `.search-input:focus` rule (line ~796)
+     from the sidebar's search-block · that rule sets
+     `background: var(--panel-2)` on focus, which turned our
+     hero input GRAY whenever the user clicked into it. Both
+     features share the class name `.search-input`, so an
+     unscoped focus rule there leaks here. Scoping under
+     `.search-page` raises specificity and pins the input
+     transparent on focus. */
+  .search-page .search-input:focus,
+  .search-page .search-input:focus-visible {
+    background: transparent;
+    border: none;
+    outline: none;
+  }
+  .search-input-clear {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      width 0.22s ease,
+      height 0.22s ease;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .search-page.is-initial .search-input-clear {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+    margin-right: 6px;
+  }
+  .search-page.has-results .search-input-clear {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+  .search-input-clear:hover { color: var(--text); }
+  /* Hide the clear button when the input is empty (set by JS
+     via the .is-empty class on .search-card). Keeps the
+     hero's right edge clean when the user hasn't typed yet. */
+  .search-card.is-empty .search-input-clear { display: none; }
+
+  /* Internal toolbar · footer of the card in is-initial.
+     Mono hint on the left, lime send button on the right.
+     Hidden entirely in has-results (the card is collapsed
+     to a head row by then). */
+  .search-input-toolbar {
+    /* Mirror `.cmp-toolbar` (line ~10028) — same padding /
+       min-height / hairline-divider / panel-2 surface so the
+       two-tone frame reads as one designed input. The panel-2
+       tone is the visual cue that "this is the action row."
+       It's slightly lighter than the input area's black so
+       the eye registers it as a distinct band without a heavy
+       border. */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 8px 8px 14px;
+    min-height: 48px;
+    border-top: 0.5px solid var(--line);
+    background: var(--panel-2);
+  }
+  .search-page.has-results .search-input-toolbar { display: none; }
+  .search-toolbar-hint {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  /* Starter chips · static suggestions below the card in
+     is-initial. Click → pre-fill the input + trigger search.
+     Hidden in has-results. */
+  .search-starters {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 20px auto 0;
+    max-width: 760px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    flex-wrap: wrap;
+  }
+  .search-page.has-results .search-starters { display: none; }
+  .search-starters-label { color: var(--text-faint); margin-right: 4px; }
+  .search-starter {
+    background: transparent;
+    border: 0.5px solid var(--line);
+    color: var(--text-soft);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .search-starter:hover {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+
+  /* Result-count meta · sits beside the shrunk input in the
+     has-results head row. Hidden entirely in is-initial. */
+  .search-results-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .search-page.is-initial .search-results-meta { display: none; }
+
+  /* Sort chip group · "Newest" / "Oldest" toggle that re-sorts
+     the result list client-side (no re-fetch). Only visible in
+     has-results · the head row's flex layout slots it between
+     the input and the meta count. Active chip uses the lime
+     accent border + caps; inactives are line-faint until hover. */
+  .search-results-sort {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .search-page.has-results .search-results-sort {
+    display: inline-flex;
+  }
+  .search-results-sort .srs-label {
+    color: var(--text-faint);
+    margin-right: 4px;
+  }
+  .search-results-sort button {
+    background: transparent;
+    border: 0.5px solid var(--line);
+    color: var(--text-faint);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    padding: 5px 9px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .search-results-sort button:hover {
+    color: var(--text-soft);
+    border-color: var(--text-faint);
+  }
+  .search-results-sort button.active {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .search-results-sort button.active:hover {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+
+  /* Results · only visible in has-results. Top padding gives a
+     small breathing room below the head row's hairline. */
+  .search-results {
+    padding-top: 4px;
+  }
+  .search-page.is-initial .search-results { display: none; }
+  /* Inner scroll container · in has-results, `.search-results`
+     owns the vertical scroll instead of `.main-view`. The
+     search-page itself is sized to exactly main-view height,
+     so the head row (`.search-card`) sits in a non-scrolling
+     top slot and stays there permanently. */
+  .search-page.has-results .search-results {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 40px;
+    scrollbar-width: thin;
+  }
+  /* Initial breathing-room spacer · 18px tall block that sits
+     INSIDE the scroll content (before the result list). On
+     first render it gives the user the same gap below the
+     head row that a `margin-bottom: 18px` would; once they
+     start scrolling, this spacer scrolls away with the rest
+     of the list (it's part of the scrollable content), so it
+     doesn't permanently consume visible scroll real estate
+     the way an outside-the-scroll margin did. */
+  .search-page.has-results .search-results::before {
+    content: "";
+    display: block;
+    height: 18px;
+  }
+  .search-page.has-results .search-results::-webkit-scrollbar { width: 8px; }
+  .search-page.has-results .search-results::-webkit-scrollbar-thumb { background: transparent; }
+  .search-page.has-results .search-results::-webkit-scrollbar-track { background: transparent; }
+  .search-page.has-results .search-results:hover::-webkit-scrollbar-thumb { background: var(--line-bright); }
+
+  /* Google-style result row · 3 stacked text lines (mono
+     source breadcrumb · sans link title · sans snippet body).
+     No row hover background, no per-row border — only the
+     title line lights up on hover so the row reads calm. */
+  .search-results-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .search-results-list > li {
+    margin-bottom: 22px;
+  }
+  .search-results-list > li:last-child { margin-bottom: 0; }
+  .sr-row {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+  .sr-source {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sr-source-author {
+    color: var(--text-soft);
+    font-weight: 600;
+  }
+  .sr-source-sep {
+    color: var(--text-faint);
+    margin: 0 2px;
+  }
+  .sr-source-time {
+    color: var(--text-faint);
+  }
+  .sr-title {
+    font-family: var(--font-human);
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--text);
+    margin: 0 0 4px 0;
+    letter-spacing: -0.005em;
+    transition: color 0.12s;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sr-row:hover .sr-title { color: var(--lime); }
+  .sr-snippet {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .sr-snippet mark {
+    background: var(--lime);
+    color: var(--bg, #0c0c0c);
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 600;
+  }
+
+  /* Empty / hint card · only ever rendered inside .search-results
+     so it's tied to the has-results state. Centered block, calm
+     copy. */
+  .search-empty {
+    padding: 40px 0;
+    text-align: center;
+    color: var(--text-faint);
+  }
+  .search-empty-kicker {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime);
+    margin-bottom: 8px;
+  }
+  .search-empty-msg {
+    font-family: var(--font-human);
+    font-size: 14px;
+    color: var(--text-soft);
+    line-height: 1.5;
+    max-width: 520px;
+    margin: 0 auto;
+  }
+
+  /* Reduced-motion · snap state changes, no transitions. */
+  @media (prefers-reduced-motion: reduce) {
+    .search-hero,
+    .search-card,
+    .search-input,
+    .search-input-icon,
+    .search-input-clear,
+    .sr-title { transition: none; }
+  }
+
+  /* Search-result jump · in-place keyword pulse + article outline.
+     The keyword wraps in a `.search-keyword-flash` span (~2s lime
+     pulse + scale, then auto-unwrap) so the user can spot the
+     exact word they came for; the outline glow on the article is
+     a backup cue when the walker can't reach the match (code
+     fences etc.). */
+  /* Search-jump animations · all alpha values derive from
+     `var(--lime)` via `color-mix` so the accent tracks the
+     theme variable rather than a hard-coded RGB. 3s lifetime
+     keeps the cue visible long enough to read but stops short
+     of feeling persistent. */
+  article.search-hit-flash {
+    outline: 1.5px solid var(--lime);
+    outline-offset: 12px;
+    animation: search-hit-flash-anim 3s ease-out forwards;
+  }
+  @keyframes search-hit-flash-anim {
+    0% {
+      outline-color: var(--lime);
+      outline-offset: 4px;
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--lime) 55%, transparent);
+    }
+    15% {
+      outline-color: var(--lime);
+      outline-offset: 14px;
+      box-shadow: 0 0 32px 6px color-mix(in srgb, var(--lime) 32%, transparent);
+    }
+    30% {
+      outline-color: var(--lime);
+      outline-offset: 12px;
+      box-shadow: 0 0 22px 4px color-mix(in srgb, var(--lime) 20%, transparent);
+    }
+    75% {
+      outline-color: color-mix(in srgb, var(--lime) 85%, transparent);
+      outline-offset: 12px;
+      box-shadow: 0 0 18px 3px color-mix(in srgb, var(--lime) 12%, transparent);
+    }
+    100% {
+      outline-color: color-mix(in srgb, var(--lime) 0%, transparent);
+      outline-offset: 12px;
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--lime) 0%, transparent);
+    }
+  }
+  /* Keyword highlight · two-stage entry pulse, then steady through
+     the rest of the 3s ring lifetime so both fade together. */
+  .search-keyword-flash {
+    background: var(--lime);
+    color: var(--bg, #0c0c0c);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-weight: 600;
+    display: inline-block;
+    animation: search-keyword-pulse 3s ease-out forwards;
+  }
+  @keyframes search-keyword-pulse {
+    0%   { box-shadow: 0 0 0 0  color-mix(in srgb, var(--lime) 70%, transparent); transform: scale(1); }
+    15%  { box-shadow: 0 0 0 10px color-mix(in srgb, var(--lime) 0%,  transparent); transform: scale(1.05); }
+    30%  { box-shadow: 0 0 0 0  color-mix(in srgb, var(--lime) 60%, transparent); transform: scale(1); }
+    45%  { box-shadow: 0 0 0 10px color-mix(in srgb, var(--lime) 0%,  transparent); transform: scale(1.05); }
+    60%  { box-shadow: 0 0 0 0  color-mix(in srgb, var(--lime) 0%,  transparent); transform: scale(1); }
+    100% { box-shadow: 0 0 0 0  color-mix(in srgb, var(--lime) 0%,  transparent); transform: scale(1); }
+  }
+
   .notes-list { list-style: none; margin: 0; padding: 0; }
   /* `position: relative` so the absolutely-positioned delete button
      (top-right of each note row) anchors to its own item. Hover-only
@@ -1883,7 +2765,7 @@
      spatially, so each fades. */
   .notes-item-passage {
     font-family: var(--font-human);
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.6;
     color: var(--text);
     margin: 0;
@@ -2335,8 +3217,12 @@
     min-width: 22px;
     padding: 0 5px;
     background: var(--panel-3);
-    color: var(--text);
-    border: 0.5px solid var(--lime-dim);
+    /* Was `var(--text)` (the brightest text token) which read as a
+       second focal point next to the room subject and pulled the
+       eye away from the live header. Drop to `--text-soft` so the
+       chip stays informational (visible but not loud). */
+    color: var(--text-soft);
+    border: 0.5px solid var(--line-bright);
     margin-left: -4px;
     display: inline-flex;
     align-items: center;
@@ -2460,41 +3346,57 @@
   html.no-room .speaking-queue,
   html.no-room .paused-bar,
   html.no-room .adjourned-bar { display: none !important; }
+  /* Round-table toggle wrapper · empty row would still show its
+     6px top padding even with the hidden button inside. Hide the
+     whole stack on no-room so it doesn't add a phantom strip. */
+  html.no-room .rt-floating-row { display: none !important; }
+  /* Round-table stage itself · its [hidden] flips off when a voice
+     room loads (applyRoundTableVisibility), and closeRoom doesn't
+     re-toggle it because the helper early-returns without a
+     currentRoomId. Without this rule, leaving a voice room for the
+     new-agent / new-room composer leaves the wood-floor stage
+     bleeding through under the empty-state column. */
+  html.no-room .roundtable-stage { display: none !important; }
   /* Room-head is empty on the zero-room starter panel — hide it entirely
      so the panel's own welcome heading isn't doubled by a "No room
      selected" banner above. */
   html.no-room .room-head:empty { display: none; }
 
   /* ─── Pause-pending state ───
-     Set on <html> the moment the user picks "After they finish".
-     The room is still technically `live` (the speaker is finishing their
-     turn), so the input-bar is still in the DOM — we just lock it down
-     and announce that a pause is queued. The class is cleared the moment
-     the SSE `room-paused` event arrives. */
-  html.pause-pending .input-bar .input-wrap { display: none; }
-  html.pause-pending .input-bar .speaking-queue { display: none; }
-  /* Hide the session-control toolbar mid-transition · prevents double-
-     clicking pause while the previous pause is still resolving (and
-     adjourn while we're stopping cleanly is also confusing UX). */
-  html.pause-pending .input-bar .input-bar-actions { display: none; }
-  html.pause-pending .input-bar::before {
+     Set on <html> the moment the user picks "After they finish". The
+     room is still technically `live` (the speaker is finishing their
+     turn), so the input-bar / speaking queue / action toolbar all stay
+     interactive — we just float a small pill near the TOP of the room
+     announcing that a pause is queued. Anchoring above the input bar
+     was the prior approach but it covered the speaking-queue controls;
+     the top-of-room placement keeps every existing control reachable
+     and reads as a transient room-level notice. The class is cleared
+     the moment the SSE `room-paused` event arrives.
+
+     Anchor: `.chat-col` (the room's main column · already
+     `position: relative`-safe with `overflow: hidden`) so the pill
+     stacks below the room-head and above the chat without taking
+     layout space from any of them. */
+  html.pause-pending .chat-col { position: relative; }
+  html.pause-pending .chat-col::before {
     content: "⌛ pausing after the current turn finishes…";
-    display: block;
-    /* `.input-bar` is now `display: flex` (for the new icon toolbar),
-       so this pseudo is a flex child. Without `flex: 1` it shrinks
-       to its text width instead of spanning the bar. The grow-to-fill
-       restores the pre-flex banner behaviour. */
-    flex: 1 1 auto;
-    text-align: center;
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--lime);
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    padding: 12px 14px;
+    padding: 6px 12px;
     background: var(--panel-3, var(--panel-2));
-    border: 0.5px dashed var(--lime-dim);
+    border: 1px dashed var(--lime-dim);
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 5;
     animation: pause-pending-pulse 1.6s ease-in-out infinite;
   }
   @keyframes pause-pending-pulse {
@@ -2652,7 +3554,30 @@
   }
   .adjourned-bar-text { font-size: 10.5px; color: var(--text-dim); }
   .adjourned-bar-text strong { color: var(--text); font-weight: 700; }
-  .adjourned-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .adjourned-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  /* Action button base · icon + label inline-flex pairing. The
+     label drops to display:none under `.adjourned-bar.is-tight`
+     when the bar runs out of horizontal room (toggled by the
+     ResizeObserver below). `aria-label` / `title` on the anchor
+     preserves a11y + hover text when the visual label hides. */
+  .adjourned-bar .ab-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .adjourned-bar .ab-action .ab-icon { display: block; flex-shrink: 0; }
+  /* Progressive collapse · the JS fitter near the bottom of this
+     file walks the action buttons LEFT to RIGHT and adds
+     `.is-icon-only` to as many as it takes for the bar to fit on
+     a single row. Right-most buttons keep their labels longest —
+     Convene Follow-up reads as the most action-dense of the three,
+     and the user expects "the destination action" to stay legible
+     even when secondary actions fall back to icon-only. Per-button
+     class · the previous all-or-nothing `.is-tight` collapsed
+     everything at once which felt jarring when only one needed
+     to drop its label. */
+  .adjourned-bar .ab-action.is-icon-only .ab-label { display: none; }
+  .adjourned-bar .ab-action.is-icon-only { padding: 6px 9px; }
   .followup-btn {
     padding: 5px 10px;
     background: var(--lime);
@@ -5474,6 +6399,21 @@
      invisible at glance. Bumped to text-dim for legibility while
      still reading as quieter than the name + model in the same line. */
   .msg-tag { color: var(--text-dim); text-transform: lowercase; }
+  /* Excused-from-room marker · the chair removed this director
+     mid-discussion but their past messages still render so the
+     transcript stays coherent. Reads as a muted mono pill in the
+     message header so the reader knows this seat is gone. */
+  .msg-excused {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    border: 0.5px dashed var(--line-bright);
+    padding: 1px 6px;
+    cursor: help;
+  }
   /* Subtle pill showing which model produced this message. Reads
      after the agent name; sits in the same monospace meta line
      so it doesn't compete with the conversation. */
@@ -6405,6 +7345,1713 @@
     transition: background 0.18s;
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     Round-table view · gamified voice-mode stage
+     ═══════════════════════════════════════════════════════════
+     When voice mode is on, the chat scroller is hidden and this
+     stage takes its place. Top-down flat oval table with seats
+     arrayed at angles; chair pinned at the bottom-center C-pos.
+     Avatars are the existing 48×56 chibi pixel-art sprites; chair
+     sprites use the same 1×1-rect grammar as /public/avatars/
+     chair.svg. Live-speaker accent + queue badges drive off the
+     existing currentQueue / queue-update SSE wiring. */
+  .roundtable-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    /* Tone-keyed 8-bit floor · the room's `mode` (tone) drives a
+       different pixel-art floor per phase, so the stage's mood
+       reads at a glance:
+         · brainstorm   → soil + grass terrain (creative · open ground)
+         · constructive → graphite marble slabs (structured · executive)
+         · research     → marble (light + veins · scholarly)
+         · debate       → ancient stone (dark slabs + cracks)
+         · critique     → burgundy carpet (formal · executive)
+       The floor pattern + base colour live in two CSS variables
+       (`--floor-image`, `--floor-bg`) overridden on each
+       `[data-floor="..."]` rule. The vignette stays the same on
+       all variants. JS `renderRoundTable` sets the data attribute
+       from `currentRoom.mode`. Default (attr absent) is the
+       constructive graphite marble so the brief flash before JS runs
+       matches the most common tone.
+       Each floor SVG is tileable, paints with `shape-rendering=
+       crispEdges`, and `image-rendering: pixelated` on the parent
+       keeps browser scaling crisp on HiDPI / non-integer zooms. */
+    --floor-bg: #2A2C32;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%232A2C32'/><rect x='20' y='30' width='30' height='18' fill='%232F3138'/><rect x='75' y='75' width='25' height='25' fill='%2325272D'/><rect x='5' y='90' width='18' height='15' fill='%232D2F36'/><rect x='20' y='25' width='1' height='1' fill='%231F2026'/><rect x='50' y='65' width='1' height='1' fill='%231F2026'/><rect x='90' y='30' width='1' height='1' fill='%231F2026'/><rect x='110' y='100' width='1' height='1' fill='%231F2026'/><rect x='35' y='110' width='1' height='1' fill='%231F2026'/><rect x='65' y='15' width='1' height='1' fill='%231F2026'/><rect x='100' y='55' width='1' height='1' fill='%231F2026'/><rect x='15' y='15' width='1' height='1' fill='%233D4048'/><rect x='40' y='45' width='1' height='1' fill='%233D4048'/><rect x='70' y='35' width='1' height='1' fill='%233D4048'/><rect x='95' y='80' width='1' height='1' fill='%233D4048'/><rect x='25' y='75' width='1' height='1' fill='%233D4048'/><rect x='55' y='100' width='1' height='1' fill='%233D4048'/><rect x='30' y='55' width='1' height='1' fill='%234A4D55'/><rect x='80' y='20' width='1' height='1' fill='%234A4D55'/><rect x='115' y='65' width='1' height='1' fill='%234A4D55'/><rect x='45' y='85' width='2' height='1' fill='%233D4048'/><rect x='100' y='35' width='1' height='2' fill='%233D4048'/><rect x='10' y='50' width='2' height='1' fill='%231F2026'/><rect x='126' y='0' width='2' height='128' fill='%2315161B'/><rect x='0' y='126' width='128' height='2' fill='%2315161B'/></svg>");
+    background-color: var(--floor-bg);
+    background-image:
+      radial-gradient(ellipse at 50% 50%,
+        transparent 28%,
+        rgba(0, 0, 0, 0.40) 78%,
+        rgba(0, 0, 0, 0.55) 100%),
+      var(--floor-image);
+    background-repeat: no-repeat, repeat;
+    image-rendering: pixelated;
+    overflow: hidden;
+    container-type: inline-size;
+    container-name: rtstage;
+  }
+  .roundtable-stage[hidden] { display: none !important; }
+
+  /* ─── brainstorm · SOIL + GRASS floor ────────────────────────
+     128×128 tileable terrain · grass base with two irregular dirt
+     patches placed inside the tile bounds so when the pattern
+     repeats the patches read as organic "islands" of bare earth in
+     a grass field rather than a gridded indoor layout. Subtle
+     tonal blobs in the grass (darker / lighter) break the flat
+     fill; scattered 1×2 lighter pixels read as grass blades
+     catching light; pebbles + dust spots inside the dirt patches
+     add ground-texture detail. JRPG outdoor-tile vocabulary for
+     the "yes-and" creative tone — open ground, room to grow.
+
+     Replaces the earlier muted-earth grid mosaic which still read
+     as an indoor floor pattern even at the larger tile size. */
+  .roundtable-stage[data-floor="brainstorm"] {
+    --floor-bg: #5E6B47;
+    --rt-chair-name: var(--lime, #6FB572);
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%235E6B47'/><rect x='0' y='8' width='20' height='16' fill='%234F5C3D'/><rect x='104' y='20' width='20' height='20' fill='%234F5C3D'/><rect x='88' y='64' width='24' height='16' fill='%234F5C3D'/><rect x='0' y='64' width='12' height='20' fill='%234F5C3D'/><rect x='44' y='64' width='16' height='8' fill='%234F5C3D'/><rect x='72' y='8' width='12' height='8' fill='%236E7A52'/><rect x='120' y='80' width='8' height='12' fill='%236E7A52'/><rect x='48' y='84' width='8' height='8' fill='%236E7A52'/><rect x='48' y='24' width='32' height='32' fill='%235C4838'/><rect x='44' y='28' width='4' height='24' fill='%235C4838'/><rect x='80' y='28' width='4' height='24' fill='%235C4838'/><rect x='52' y='20' width='24' height='4' fill='%235C4838'/><rect x='52' y='56' width='20' height='4' fill='%235C4838'/><rect x='56' y='16' width='12' height='4' fill='%235C4838'/><rect x='56' y='32' width='8' height='8' fill='%234A3A28'/><rect x='68' y='40' width='4' height='8' fill='%234A3A28'/><rect x='60' y='24' width='4' height='4' fill='%236E5A48'/><rect x='68' y='48' width='4' height='4' fill='%236E5A48'/><rect x='58' y='44' width='2' height='2' fill='%236B6258'/><rect x='72' y='32' width='2' height='2' fill='%236B6258'/><rect x='50' y='38' width='2' height='2' fill='%236B6258'/><rect x='16' y='96' width='24' height='20' fill='%235C4838'/><rect x='12' y='100' width='4' height='12' fill='%235C4838'/><rect x='40' y='100' width='4' height='12' fill='%235C4838'/><rect x='20' y='92' width='16' height='4' fill='%235C4838'/><rect x='22' y='104' width='8' height='4' fill='%234A3A28'/><rect x='20' y='100' width='4' height='4' fill='%236E5A48'/><rect x='24' y='108' width='2' height='2' fill='%236B6258'/><rect x='32' y='98' width='2' height='2' fill='%236B6258'/><rect x='8' y='40' width='1' height='2' fill='%238FA068'/><rect x='24' y='72' width='1' height='2' fill='%238FA068'/><rect x='104' y='56' width='1' height='2' fill='%238FA068'/><rect x='120' y='104' width='1' height='2' fill='%238FA068'/><rect x='88' y='44' width='1' height='2' fill='%238FA068'/><rect x='4' y='88' width='1' height='2' fill='%238FA068'/><rect x='64' y='88' width='1' height='2' fill='%238FA068'/><rect x='92' y='24' width='1' height='2' fill='%238FA068'/><rect x='44' y='62' width='1' height='2' fill='%238FA068'/><rect x='80' y='120' width='1' height='2' fill='%238FA068'/><rect x='12' y='12' width='1' height='2' fill='%238FA068'/><rect x='112' y='60' width='1' height='2' fill='%238FA068'/></svg>");
+  }
+  /* ─── constructive · GRAPHITE MARBLE SLABS ────────────────────
+     128×128 tileable polished graphite marble · each tile renders
+     ONE large slab with 2px darker seams on the right + bottom
+     edges, so when the pattern repeats every adjacent slab is
+     visibly bordered.
+
+     Layer stack — pushed harder than the prior pass for the
+     "high-end polished stone" reading:
+       · Graphite base `#2A2C32` (slight cool/blue undertone for
+         the sophisticated upper-end-marble feel; the prior neutral
+         `#2A2A2E` read flat / cheap)
+       · Three tonal blobs in three different tones (`#2F3138` /
+         `#25272D` / `#2D2F36`) — wider tonal range gives slabs
+         more body variation
+       · 7 darker grain dots `#1F2026` (1×1) for stone micro-grain
+       · 6 mid-tone crystal speckles `#3D4048` (1×1) — flecks
+         catching light, the way a polished granite-marble does
+       · 3 brightest sparkle pixels `#4A4D55` (1×1) used sparingly
+         as crystal highlights
+       · 3 elongated mineral marks (2×1 / 1×2) — thin streaks
+         that read as small mineral inclusions in the stone
+       · 2px slab seams in `#15161B` on right + bottom edges so
+         every slab boundary reads as a hairline grout line
+
+     Total: ~22 visible pattern elements per slab vs. the prior 5,
+     so the marble has clear surface character without veining. */
+  .roundtable-stage[data-floor="constructive"] {
+    --floor-bg: #2A2C32;
+    --rt-chair-name: #A8AEB8;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%232A2C32'/><rect x='20' y='30' width='30' height='18' fill='%232F3138'/><rect x='75' y='75' width='25' height='25' fill='%2325272D'/><rect x='5' y='90' width='18' height='15' fill='%232D2F36'/><rect x='20' y='25' width='1' height='1' fill='%231F2026'/><rect x='50' y='65' width='1' height='1' fill='%231F2026'/><rect x='90' y='30' width='1' height='1' fill='%231F2026'/><rect x='110' y='100' width='1' height='1' fill='%231F2026'/><rect x='35' y='110' width='1' height='1' fill='%231F2026'/><rect x='65' y='15' width='1' height='1' fill='%231F2026'/><rect x='100' y='55' width='1' height='1' fill='%231F2026'/><rect x='15' y='15' width='1' height='1' fill='%233D4048'/><rect x='40' y='45' width='1' height='1' fill='%233D4048'/><rect x='70' y='35' width='1' height='1' fill='%233D4048'/><rect x='95' y='80' width='1' height='1' fill='%233D4048'/><rect x='25' y='75' width='1' height='1' fill='%233D4048'/><rect x='55' y='100' width='1' height='1' fill='%233D4048'/><rect x='30' y='55' width='1' height='1' fill='%234A4D55'/><rect x='80' y='20' width='1' height='1' fill='%234A4D55'/><rect x='115' y='65' width='1' height='1' fill='%234A4D55'/><rect x='45' y='85' width='2' height='1' fill='%233D4048'/><rect x='100' y='35' width='1' height='2' fill='%233D4048'/><rect x='10' y='50' width='2' height='1' fill='%231F2026'/><rect x='126' y='0' width='2' height='128' fill='%2315161B'/><rect x='0' y='126' width='128' height='2' fill='%2315161B'/></svg>");
+  }
+  /* ─── research · MARBLE floor ───────────────────────────────
+     128×128 light marble with subtle slab tonal variation, dark
+     slab boundaries, and scattered thin "veins". Library /
+     museum vibe — for a room that mines the material. */
+  .roundtable-stage[data-floor="research"] {
+    --floor-bg: #BFBBB0;
+    --rt-chair-name: var(--amber, #B59560);
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%23BFBBB0'/><rect x='64' y='0' width='64' height='64' fill='%23B5B0A4'/><rect x='0' y='64' width='64' height='64' fill='%23C4C0B5'/><rect x='63' y='0' width='1' height='128' fill='%23A0998D'/><rect x='0' y='63' width='128' height='1' fill='%23A0998D'/><rect x='10' y='20' width='2' height='6' fill='%238E8A7F'/><rect x='12' y='26' width='6' height='2' fill='%238E8A7F'/><rect x='18' y='28' width='4' height='2' fill='%238E8A7F'/><rect x='22' y='30' width='2' height='4' fill='%238E8A7F'/><rect x='80' y='80' width='8' height='2' fill='%238E8A7F'/><rect x='86' y='82' width='2' height='6' fill='%238E8A7F'/><rect x='88' y='88' width='6' height='2' fill='%238E8A7F'/><rect x='40' y='100' width='2' height='4' fill='%238E8A7F'/><rect x='42' y='104' width='8' height='2' fill='%238E8A7F'/><rect x='90' y='10' width='2' height='4' fill='%238E8A7F'/><rect x='92' y='14' width='6' height='2' fill='%238E8A7F'/></svg>");
+  }
+  /* ─── debate · ANCIENT-STONE floor ──────────────────────────
+     64×64 dark slate slabs with cracks running across them and a
+     few weathered lighter spots. Gladiatorial / ancient-tomb
+     vibe — for a room that finds the holes. */
+  .roundtable-stage[data-floor="debate"] {
+    --floor-bg: #4A4945;
+    --rt-chair-name: var(--red, #B5706A);
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' shape-rendering='crispEdges'><rect width='64' height='64' fill='%234A4945'/><rect x='0' y='0' width='32' height='32' fill='%234F4E4A'/><rect x='32' y='32' width='32' height='32' fill='%234F4E4A'/><rect x='31' y='0' width='2' height='64' fill='%232D2C2A'/><rect x='0' y='31' width='64' height='2' fill='%232D2C2A'/><rect x='10' y='10' width='2' height='6' fill='%232D2C2A'/><rect x='12' y='14' width='6' height='2' fill='%232D2C2A'/><rect x='44' y='8' width='6' height='2' fill='%232D2C2A'/><rect x='50' y='10' width='2' height='8' fill='%232D2C2A'/><rect x='8' y='44' width='2' height='8' fill='%232D2C2A'/><rect x='10' y='50' width='8' height='2' fill='%232D2C2A'/><rect x='44' y='46' width='2' height='6' fill='%232D2C2A'/><rect x='44' y='50' width='8' height='2' fill='%232D2C2A'/><rect x='22' y='6' width='2' height='2' fill='%23605F5B'/><rect x='6' y='24' width='2' height='2' fill='%23605F5B'/><rect x='40' y='26' width='2' height='2' fill='%23605F5B'/><rect x='56' y='42' width='2' height='2' fill='%23605F5B'/><rect x='24' y='56' width='2' height='2' fill='%23605F5B'/></svg>");
+  }
+  /* ─── critique · CARPET floor ───────────────────────────────
+     32×32 deep-burgundy carpet with a centred diamond motif +
+     cross arms and corner texture-dots (carpet weave). Executive-
+     boardroom vibe — for a room that audits the deliverable. */
+  .roundtable-stage[data-floor="critique"] {
+    --floor-bg: #5A2A2A;
+    --rt-chair-name: #D4B07A;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' shape-rendering='crispEdges'><rect width='32' height='32' fill='%235A2A2A'/><rect x='14' y='14' width='4' height='4' fill='%237A4040'/><rect x='12' y='15' width='8' height='2' fill='%237A4040'/><rect x='15' y='12' width='2' height='8' fill='%237A4040'/><rect x='15' y='4' width='2' height='4' fill='%23753838'/><rect x='15' y='24' width='2' height='4' fill='%23753838'/><rect x='4' y='15' width='4' height='2' fill='%23753838'/><rect x='24' y='15' width='4' height='2' fill='%23753838'/><rect x='2' y='2' width='1' height='1' fill='%23753838'/><rect x='29' y='2' width='1' height='1' fill='%23753838'/><rect x='2' y='29' width='1' height='1' fill='%23753838'/><rect x='29' y='29' width='1' height='1' fill='%23753838'/></svg>");
+  }
+
+  /* 8-bit pixel-art conference table · sized to occupy the
+     central portion of the stage so the seat ring (rx=36%, ry=28%
+     of stage from computeSeatPositions) fans cleanly around it.
+     `shape-rendering: crispEdges` keeps the band transitions
+     pixel-sharp; the warm wood swatches sit in the same family
+     as the chair sprite (same `--amber` register). */
+  .rt-table {
+    position: absolute;
+    top: 36%;
+    left: 18%;
+    width: 64%;
+    height: 28%;
+    pointer-events: none;
+    shape-rendering: crispEdges;
+  }
+  .rt-table-floor { fill: #000; opacity: 0.42; }
+  .rt-table-rim   { fill: #3A2410; }   /* very dark wood frame */
+  .rt-table-mid   { fill: #7A5230; }   /* main wood top */
+  .rt-table-hi    { fill: #B8884E; }   /* top highlight band */
+  .rt-table-grain { fill: #5C3A1F; }   /* grain stripes (darker) */
+  .rt-table-lo    { fill: #4A2E18; }   /* bottom shadow band */
+  .rt-table-cap   { fill: #D4B07A; }   /* corner highlight pixels */
+
+  /* ─── Table props · books, coffee, microphones, notepad. All
+     drawn as flat 1×1-unit rect cells in the same crispEdges
+     vocabulary as the table body. Colors stay restrained so they
+     don't fight the seat/bubble accents. ─── */
+  .rt-prop-shadow     { fill: #000; opacity: 0.32; }
+  /* Books */
+  .rt-prop-book-1     { fill: #A8443A; }   /* red bottom book */
+  .rt-prop-book-1-hi  { fill: #C76E5E; }
+  .rt-prop-book-2     { fill: #3F5E8C; }   /* navy top book */
+  .rt-prop-book-2-hi  { fill: #6688B5; }
+  .rt-prop-book-band  { fill: #E8D9A8; }   /* spine band */
+  /* Coffee cup */
+  .rt-prop-cup        { fill: #E0DACA; }
+  .rt-prop-cup-rim    { fill: #BDB7A8; }
+  .rt-prop-cup-handle { fill: #BDB7A8; }
+  .rt-prop-cup-saucer { fill: #94917F; }
+  /* Microphone */
+  .rt-prop-mic-base   { fill: #2A2A2A; }
+  .rt-prop-mic-stand  { fill: #4A4A4A; }
+  .rt-prop-mic-head   { fill: #1F1F1F; }
+  .rt-prop-mic-grille { fill: #6A6A6A; }
+  .rt-prop-mic-grille-hi { fill: #A8A8A8; }
+  /* Notepad + pencil */
+  .rt-prop-pad-paper  { fill: #F0EAD8; }
+  .rt-prop-pad-edge   { fill: #C8C2B0; }
+  .rt-prop-pad-line   { fill: #B0AC9A; }
+  .rt-prop-pencil     { fill: #D4A24A; }   /* yellow body */
+  .rt-prop-pencil-tip { fill: #2A2A2A; }   /* black tip */
+
+  /* Faint lime sweep across the table when nobody's speaking.
+     Sells "alive room" without drawing attention. Suspended
+     under prefers-reduced-motion. */
+  .rt-shimmer {
+    position: absolute;
+    top: 38%;
+    left: -20%;
+    width: 40%;
+    height: 24%;
+    background: radial-gradient(ellipse at center,
+      rgba(111, 181, 114, 0.10) 0%,
+      transparent 70%);
+    pointer-events: none;
+    animation: rt-shimmer 12s linear infinite;
+    mix-blend-mode: screen;
+  }
+  @keyframes rt-shimmer {
+    0%   { transform: translateX(0%);   opacity: 0;    }
+    20%  {                              opacity: 0.6;  }
+    80%  {                              opacity: 0.6;  }
+    100% { transform: translateX(360%); opacity: 0;    }
+  }
+
+  /* ─── Pixel-art potted plants · two decorative props placed in
+     the back corners of the stage to soften the room. Inline SVG
+     so the rects paint as crisp 1×1 pixel cells (same vocabulary
+     as the table sprite). `image-rendering: pixelated` forces the
+     2× CSS upscale to keep hard edges instead of bilinear-blurring
+     them. Pointer-events disabled so the plants don't intercept
+     clicks meant for seats / HUD / floor. */
+  .rt-plant {
+    position: absolute;
+    z-index: 2;
+    width: 96px;
+    height: 120px;
+    pointer-events: none;
+    image-rendering: pixelated;
+    shape-rendering: crispEdges;
+  }
+  /* Plant 1 · top-right corner. Top-left is occupied by the HUD
+     console and toast-tray, so the plant balances visual weight
+     on the opposite corner. */
+  .rt-plant-1 { top: 16px; right: 16px; }
+  /* Plant 2 · bottom-left corner. Diagonally opposite the HUD,
+     in the floor area outside the seat ring (rx=36% / ry=28% from
+     centre, so corners are always clear of seats). */
+  .rt-plant-2 { bottom: 16px; left: 16px; }
+  /* Narrow stage · shrink + pull to the corners so the plants
+     don't squeeze the table on a 480px-wide voice room. */
+  @container rtstage (max-width: 520px) {
+    .rt-plant     { width: 64px; height: 80px; }
+    .rt-plant-1   { top: 8px;    right: 8px; }
+    .rt-plant-2   { bottom: 8px; left: 8px; }
+  }
+
+  /* ─── Seats ───────────────────────────────────────────────── */
+  .rt-seats {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .rt-seat {
+    position: absolute;
+    width: 88px;
+    height: 110px;
+    transform: translate(-50%, -50%) scale(var(--rt-scale, 1));
+    transition: transform 0.24s ease-out;
+    pointer-events: auto;
+    --seat-i: 0;
+    animation: rt-idle-bob 2.4s ease-in-out infinite;
+    animation-delay: calc(var(--seat-i) * 0.18s);
+  }
+  /* Speaking state · the seat itself does NOT scale (felt jittery
+     and drew attention away from the bubble). The visual cues are
+     the speech bubble above the head + the lime glow ring on the
+     chair sprite's footprint (see .rt-seat-speaking::before below).
+     The idle bob is suspended only because the bubble's animations
+     own the speaker's motion. */
+  .rt-seat.rt-seat-speaking {
+    animation: none;
+    z-index: 3;
+  }
+  @keyframes rt-idle-bob {
+    0%, 100% { transform: translate(-50%, -50%) scale(var(--rt-scale, 1))                         translateY(0); }
+    50%      { transform: translate(-50%, -50%) scale(var(--rt-scale, 1))                         translateY(-1.5px); }
+  }
+
+  /* Chair sprite · pixel-rect SVG (32×40 cells, 2px each = 64×80
+     rendered). Sits behind the avatar. The .rt-chair--mod variant
+     adds a cyan headrest gem + side rails for the moderator. */
+  .rt-chair {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 64px;
+    height: 80px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    shape-rendering: crispEdges;
+    z-index: 1;
+  }
+  .rt-chair-back   { fill: #C8A877; }
+  .rt-chair-back-shade { fill: #A0814F; }
+  .rt-chair-seat   { fill: #8B5E3B; }
+  .rt-chair-seat-shade { fill: #5A3A22; }
+  .rt-chair-finial { fill: #5A3A22; }
+  .rt-chair-mod-rail { fill: var(--cyan, #6A9B97); }
+  .rt-chair-mod-gem  { fill: var(--cyan, #6A9B97); }
+  .rt-chair-mod-gem-glow { fill: #B8E5E0; }
+
+  /* Speaker glow ring · sits as a halo behind the chair sprite
+     when this seat is speaking. CSS-only; no SVG mutation. The
+     thinking variant uses the amber palette so the floor + bubble
+     read as one unified state. */
+  .rt-seat-speaking::before {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 18px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center,
+      rgba(111, 181, 114, 0.55) 0%,
+      transparent 70%);
+    z-index: 0;
+    animation: rt-glow 0.9s ease-in-out infinite;
+    pointer-events: none;
+    transition: background 0.18s;
+  }
+  .rt-seat-thinking::before {
+    background: radial-gradient(ellipse at center,
+      rgba(181, 149, 96, 0.50) 0%,
+      transparent 70%);
+    animation-duration: 1.4s;
+  }
+  @keyframes rt-glow {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1;   }
+  }
+
+  /* Avatar · the existing chibi sprite, sits centered on the
+     chair seat, slightly elevated so the head reads above the
+     back-rail. */
+  .rt-avatar {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 48px;
+    height: 56px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* Name plate · small mono caption ABOVE the avatar (was below,
+     but back-row director seats had their names land on the table
+     surface and obscure the props). Dark pixel-chip backdrop keeps
+     the text readable against any tile color underneath. Hidden
+     while the seat is speaking so the speech bubble (which lives
+     at top: -26px) doesn't stack on top of it. */
+  .rt-name {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    /* Counter-scale by 1 / --rt-scale so the name plate stays the
+       same physical size on EVERY seat regardless of the parent
+       seat's depth-cue scale (1.10× front-row, 0.90× back-row).
+       Without this counter-scale, bottom-row names render ~22%
+       larger than top-row, which reads as a bug. transform-origin
+       50% 0 anchors the plate at its top edge so it stays just
+       below the offset position as it scales. */
+    transform: translateX(-50%) scale(calc(1 / var(--rt-scale, 1)));
+    transform-origin: 50% 0;
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    white-space: nowrap;
+    text-align: center;
+    pointer-events: none;
+    padding: 4px 9px;
+    background: rgba(10, 10, 10, 0.62);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+  }
+  .rt-seat-below .rt-name {
+    /* Below variant anchors at the BOTTOM edge so the plate stays
+       glued just under the chair sprite when scaled. */
+    transform-origin: 50% 100%;
+  }
+  .rt-seat-speaking .rt-name { display: none; }
+  /* Sub-title slot · small "role" line beneath the name. Currently
+     used only on the user seat to render "董事长" — the user is the
+     room owner, the chair runs the floor for them.
+     Tuned for CJK readability:
+     · Sans font (mono renders Chinese glyphs poorly at small sizes)
+     · 10px (9px Chinese ideographs lose stroke detail)
+     · Reduced letter-spacing (CJK glyphs don't need Latin tracking)
+     · text-soft instead of text-faint for legible contrast */
+  .rt-name-title {
+    display: block;
+    font-family: var(--sans, "Inter", system-ui, sans-serif);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    margin-top: 3px;
+  }
+  /* Chair-seat name colour follows the room's tone via the
+     `--rt-chair-name` variable (set on `.roundtable-stage` and
+     overridden per `[data-floor="..."]` rule). The previous fixed
+     cyan didn't read as part of any tone's palette and clashed
+     with the marble / carpet floors that don't carry cyan. The
+     fallback (`var(--lime)`) covers initial paint before the
+     floor attribute lands. */
+  .rt-seat-chair .rt-name    { color: var(--rt-chair-name, var(--lime, #6FB572)); }
+  /* Front-row seats (chair + any director whose y > 50) carry
+     `rt-seat-below` from the renderer. Flip the name plate down so
+     it doesn't overlap the table surface props (books, mics, cup).
+     Top-row seats keep the default top: -14px. */
+  .rt-seat-below .rt-name {
+    top: auto;
+    bottom: -16px;
+  }
+  /* User seat · the added "董事长" subtitle makes the plate taller,
+     so we override the front-row `bottom: -16px` anchor (which
+     grows the plate UPWARD into the chair sprite) with a TOP
+     anchor that grows the plate DOWNWARD, clear of the chair.
+     transform-origin flips to top-centre to match. */
+  .rt-seat-user .rt-name {
+    top: calc(100% + 4px);
+    bottom: auto;
+    transform-origin: 50% 0;
+  }
+
+  /* Speech bubble · two states drive off message body content:
+     · thinking — agent has started but no tokens yet (queue
+       flipped to "speaking" or message-appended fired with empty
+       body). Amber palette + slower dot rhythm signals "warming
+       up." Same shape as speaking so the transition is just a
+       color/text swap.
+     · speaking — tokens are flowing (message body has content).
+       Lime palette + crisper dot rhythm.
+     Both share the chunky pill + downward-triangle tail. */
+  .rt-bubble {
+    position: absolute;
+    top: -26px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--panel-3);
+    border: 1px solid var(--lime);
+    color: var(--lime);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    z-index: 5;
+    pointer-events: none;
+    animation: rt-bubble-in 0.22s ease-out;
+    transform-origin: 50% 100%;
+    transition: border-color 0.18s, color 0.18s;
+  }
+  .rt-bubble.is-thinking {
+    border-color: var(--amber, #B59560);
+    color: var(--amber, #B59560);
+  }
+  .rt-bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid var(--lime);
+    transition: border-top-color 0.18s;
+  }
+  .rt-bubble.is-thinking::after {
+    border-top-color: var(--amber, #B59560);
+  }
+  /* Speaker name (primary) + status (secondary) inside the bubble.
+     Both lines centred · monospace sticks to the kicker register
+     used elsewhere on the stage (toasts, badges). The status word
+     sits a hair smaller and lower-contrast so the eye reads NAME
+     first, then "speaking / thinking" as a status tag. */
+  .rt-bubble-name {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: inherit;
+  }
+  .rt-bubble-status {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: inherit;
+    opacity: 0.7;
+    margin-left: 2px;
+  }
+  .rt-bubble-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .rt-bubble-dots i {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--lime);
+    animation: rt-bubble-dot 1s ease-in-out infinite;
+    transition: background 0.18s;
+  }
+  .rt-bubble.is-thinking .rt-bubble-dots i {
+    background: var(--amber, #B59560);
+    animation-duration: 1.4s;
+  }
+  .rt-bubble-dots i:nth-child(2) { animation-delay: 0.15s; }
+  .rt-bubble-dots i:nth-child(3) { animation-delay: 0.30s; }
+  @keyframes rt-bubble-dot {
+    0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
+    40%           { opacity: 1;    transform: scale(1);   }
+  }
+  @keyframes rt-bubble-in {
+    0%   { transform: translateX(-50%) scale(0.6); opacity: 0; }
+    100% { transform: translateX(-50%) scale(1);   opacity: 1; }
+  }
+
+  /* ─── User seat · speech bubble + avatar fallback ───────────
+     Appears once the user types their first message in the room
+     (paired with the chair on the bottom row of the table). The
+     bubble is ephemeral — auto-dismisses after 10s with a visible
+     countdown digit; the `×` button dismisses it immediately. The
+     seat itself persists for the rest of the room session even
+     after the bubble closes. */
+  .rt-bubble-user {
+    /* Critical width handling · the bubble is `position: absolute`
+       (inherited from `.rt-bubble`) and its containing block is
+       `.rt-seat` which is only 88px wide. That means `fit-content`
+       evaluates against 88px and clamps the bubble to that —
+       which made text wrap one character per line. Solution:
+       `width: max-content` sizes the bubble to its content's
+       natural max width (independent of the 88px container), then
+       `max-width: 220px` caps long text so it wraps inside the
+       cap. Short messages → narrow bubble; long messages → 220px
+       with wrapping inside.
+       Other overrides relax the base's status-word vocabulary
+       (uppercase mono caps, nowrap) for prose text and unlock
+       pointer events for the close button (base sets `pointer-
+       events: none` so director bubbles don't intercept seat
+       clicks). */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: max-content;
+    max-width: 220px;
+    pointer-events: auto;
+    white-space: normal;
+    padding: 5px 9px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+    /* Suppress the entry animation inherited from .rt-bubble · the
+       seat HTML is rebuilt every time renderRoundTable() fires (on
+       message-token, queue-update, etc. — ~10×/sec during agent
+       streaming), so re-running the 0.22s `rt-bubble-in` animation
+       on every rebuild produced a continuous flash-in cycle. The
+       bubble appears in place at full opacity / scale instead. */
+    animation: none;
+    transform: translateX(-50%);
+    /* Bottom-anchor the bubble (override the base `top: -26px`)
+       so multi-line wrapped text grows UPWARD rather than DOWNWARD.
+       With `top` fixed, a tall wrapped bubble would extend down
+       over the avatar and chair sprite. With the bottom edge
+       anchored to ~4px above the seat's top, the bubble's height
+       grows upward — the avatar stays visible no matter how long
+       the typed message is. The arrow tail (`::after` at bottom:
+       -7px of the bubble) stays glued to the bubble's bottom edge
+       and continues pointing down at the avatar. */
+    top: auto;
+    bottom: calc(100% + 4px);
+    /* Border-as-countdown · the inline `Ns` digit was eating ~3
+       characters of bubble width, so we moved the countdown onto
+       the bubble's BORDER instead. Two backgrounds:
+         · padding-box · solid panel-3 fills the bubble interior
+         · border-box · conic-gradient(from -90deg, lime <progress>,
+           lime-dim) fills the 2px border ring
+       As `--rt-bubble-user-progress` ticks 0 → 1 over 10 seconds
+       (driven by tickUserBubble), the lime arc grows clockwise
+       from 12 o'clock. When it completes the full circle the
+       bubble auto-dismisses. The interior text now has the full
+       bubble width to itself — no countdown digit to crowd it. */
+    border-width: 2px;
+    border-color: transparent;
+    --rt-bubble-user-progress: 0;
+    background:
+      linear-gradient(var(--panel-3), var(--panel-3)) padding-box,
+      conic-gradient(
+        from -90deg,
+        var(--lime) 0,
+        var(--lime) calc(var(--rt-bubble-user-progress) * 360deg),
+        var(--lime-dim) 0
+      ) border-box;
+  }
+  .rt-bubble-user-text {
+    /* No flex sizing tricks · the parent's width: max-content
+       already sized us correctly. min-width: 0 + word-break let
+       text wrap inside the parent's 220px cap when content
+       exceeds it. */
+    min-width: 0;
+    color: var(--text);
+    line-height: 1.35;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  /* Speech tail · downward triangle pointing at the user's avatar.
+     The base `.rt-bubble::after` already paints a 5px lime triangle,
+     but at the user-bubble's larger size + against the dark stage
+     floor it reads too thin to clearly say "this bubble belongs to
+     the user below." Bumping to a 7px tail with a 1px darker
+     `::before` shadow underneath gives it a visible 8-bit pixel
+     outline that anchors the bubble to the seat. */
+  .rt-bubble-user::after {
+    border-left-width: 7px;
+    border-right-width: 7px;
+    border-top-width: 7px;
+    border-top-color: var(--lime);
+    bottom: -7px;
+  }
+  .rt-bubble-user::before {
+    content: "";
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid var(--lime-dim, #2D5532);
+    pointer-events: none;
+  }
+  /* Close button · clones the .sys-notice-close vocabulary (bare
+     button, faint by default, lime on hover) so it reads as part
+     of the system-chrome family the rest of the app uses. */
+  .rt-bubble-user-close {
+    appearance: none;
+    background: none;
+    border: 0;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 4px;
+    transition: color 0.12s;
+  }
+  .rt-bubble-user-close:hover { color: var(--lime); }
+
+  /* Wait-marker · small flat pixel pill on the user seat shown
+     ONLY when the user has picked "wait — flush after current
+     speaker finishes" in the interrupt-or-queue modal. Slow
+     opacity blink (steps(1) keeps it discrete / gamey instead of
+     soft-pulsing) reads as "queued, holding" without competing
+     with the chair's LED. Amber palette signals "in-flight,
+     waiting" — the same vocabulary the speaking-queue strip uses
+     for not-yet-spoken seats. Sits above the avatar at top-right
+     so it doesn't crash the speech-bubble's anchor at top-centre. */
+  .rt-seat-wait-mark {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 4;
+    pointer-events: none;
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--amber, #B59560);
+    padding: 3px 6px;
+    background: var(--panel-3);
+    border: 1px solid var(--amber, #B59560);
+    white-space: nowrap;
+    animation: rt-seat-wait-blink 1.6s steps(1) infinite;
+  }
+  @keyframes rt-seat-wait-blink {
+    0%, 60%   { opacity: 1; }
+    61%, 100% { opacity: 0.45; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rt-seat-wait-mark { animation: none; }
+  }
+
+  /* Initial-letter avatar chip · fallback when the user has no
+     `prefs.avatarSeed` configured. Mirrors the sidebar foot's
+     pre-AvatarSkill chip so the seat reads as "the user, no
+     custom avatar" rather than empty space. */
+  .rt-avatar-user.rt-avatar-initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel-3);
+    border: 1px solid var(--line-strong);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  /* Pixel-art avatar wrapper · when an avatar seed IS present, the
+     SVG is injected by AvatarSkill; this wrapper just constrains it
+     to the same box as a regular `<img class="rt-avatar">`. The
+     wrapper itself stays transparent — the AvatarSkill SVG carries
+     its own surface, and the chair sprite shows through any
+     letterboxed area (the SVG is square, the seat-avatar box is
+     portrait 48×56, so without transparent bg a dark block paints
+     above + below the SVG). */
+  .rt-avatar-user.has-pixel-av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    overflow: hidden;
+  }
+  .rt-avatar-user.has-pixel-av > svg {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* Toast tray · stacks pixel-art event chips at the top-center
+     of the stage. Each chip slides in from above, holds ~4-5s,
+     then fades out. Used for room-state notifications (members
+     joined/left, tone/intensity changed, round opened) that the
+     chat surface normally renders but the round-table view hides. */
+  .rt-toast-tray {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    z-index: 12;
+    pointer-events: none;
+  }
+  /* Unified pill style · matches the pause-pending floating tip on
+     `.chat-col::before` so every transient room-level notice
+     (member joined/left, tone shift, round opens, pause queued,
+     etc.) shares the same visual register: rounded pill, dashed
+     lime-dim hairline, panel-3 fill, lime mono caps. The earlier
+     coloured `border-left` accents per event kind were retired —
+     they conflicted with the project-wide "no left-border callout"
+     rule and made the top-of-room notice strip read as four
+     distinct components instead of one consistent system. The
+     glyph + text content carry the kind information; differentiation
+     is by symbol (▶ + − ↗) and word, not chrome colour. */
+  .rt-toast {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--panel-3, var(--panel-2));
+    border: 1px dashed var(--lime-dim);
+    border-radius: 999px;
+    color: var(--lime);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    animation: rt-toast-in 0.28s ease-out;
+    transform-origin: 50% 0%;
+    max-width: 88vw;
+  }
+  .rt-toast.is-leaving {
+    animation: rt-toast-out 0.28s ease-in forwards;
+    pointer-events: none;
+  }
+  .rt-toast-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    font-size: 11px;
+    line-height: 1;
+    flex-shrink: 0;
+    color: inherit;
+  }
+  .rt-toast-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 380px;
+  }
+  /* Emphasis · italic flips the load-bearing word (director name,
+     new tone) inside the otherwise-uniform mono caps pill. Colour
+     stays inherited (lime) so the pill reads as one cohesive
+     surface. */
+  .rt-toast-text em {
+    font-style: italic;
+    color: inherit;
+    font-weight: 700;
+  }
+  @keyframes rt-toast-in {
+    0%   { transform: translateY(-12px) scale(0.92); opacity: 0; }
+    100% { transform: translateY(0)     scale(1);    opacity: 1; }
+  }
+  @keyframes rt-toast-out {
+    0%   { transform: translateY(0)     scale(1);    opacity: 1; }
+    100% { transform: translateY(-8px)  scale(0.96); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rt-toast,
+    .rt-toast.is-leaving { animation: none; }
+  }
+
+  /* ─── Round-table HUD · persistent room-status console ───────
+     Flat 8-bit status panel pinned to the stage's top-left. Reads in
+     the same crisp pixel-art register as the table sprite + chair
+     sprites + mosaic floor: hard edges, solid fills, no decorative
+     glow / drop-shadow / gradient — the existing stage uses
+     `shape-rendering: crispEdges` and flat swatches, and the HUD
+     extends that vocabulary. Game-feel comes from the structure
+     (corner welds, level/HP-style pip rows, colour-keyed state tag,
+     kind-glyph log) and from the data being live, not from
+     cinematic effects. The sister .rt-toast-tray flashes the moment
+     of change; the HUD persists the running tally. */
+  .rt-hud {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 11;
+    width: 200px;
+    /* Frosted-glass treatment · the HUD floats over the stage's
+       wood floor + props, so a subtle backdrop blur lets the
+       texture peek through while keeping the data inside legible.
+       Light blur (4px) so background reads as "behind glass", not
+       "obscured"; rgba background drops opacity from solid to ~78%
+       so the blur has something to do. -webkit prefix kept for
+       older Safari builds. */
+    background: rgba(20, 20, 18, 0.78);
+    -webkit-backdrop-filter: blur(4px) saturate(115%);
+            backdrop-filter: blur(4px) saturate(115%);
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    font-family: var(--mono);
+    color: var(--text);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* Live subtitle · pinned to the bottom-center of the stage,
+     shows the current speaker's name (lime kicker) above the
+     tail of their text. Updates on every message-token in text-
+     mode and stays parked through voice playback in voice-mode.
+     Auto-hides when no one's speaking. Width is capped so very
+     wide stages don't sprawl the caption across the whole row. */
+  .rt-subtitle {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 12;
+    width: min(640px, 86%);
+    padding: 10px 16px 12px;
+    background: rgba(8, 8, 10, 0.86);
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    pointer-events: none;
+    animation: rt-sub-in 0.18s ease-out;
+  }
+  .rt-subtitle[hidden] { display: none; }
+  @keyframes rt-sub-in {
+    from { opacity: 0; transform: translate(-50%, 6px); }
+    to   { opacity: 1; transform: translate(-50%, 0);   }
+  }
+  .rt-sub-kicker {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime, #6FB572);
+    margin-bottom: 6px;
+  }
+  .rt-sub-text {
+    margin: 0;
+    font-family: var(--font-human);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    word-break: break-word;
+    /* The renderer slices `text` to a ~140-char window ending at
+       the current TTS cursor (`audio.currentTime / duration`), so
+       the visible content is already what the voice is reading
+       right now — no line-clamp needed. We still cap height at
+       3 lines as a safety in case wrapping puts a long word on
+       its own line. */
+    max-height: 4.5em;
+    overflow: hidden;
+  }
+  /* Pixel corner welds · 4×4 lime squares pinning the panel to the
+     stage. Rendered as inline DOM children (`.rt-hud-corner`) so we
+     keep the parent's `::before` / `::after` available for future
+     additions without juggling pseudos. */
+  .rt-hud-corner {
+    position: absolute;
+    top: -1px;
+    width: 4px;
+    height: 4px;
+    background: var(--lime);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .rt-hud-corner-tl { left:  -1px; }
+  .rt-hud-corner-tr { right: -1px; }
+
+  .rt-hud-head {
+    display: grid;
+    /* Four columns · LED · title (1fr) · state pill · collapse toggle.
+       The toggle is the only interactive surface in the header so it
+       carries `pointer-events: auto` while the rest of the HUD stays
+       click-through. */
+    grid-template-columns: auto 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 10px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line-strong);
+  }
+  /* Collapse / expand toggle · tiny mono `−` / `+` button. When the
+     HUD is collapsed only the header strip remains; stats / rate
+     control / log all hide via the `.is-collapsed` modifier below. */
+  .rt-hud-toggle-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--text-soft);
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    transition: color 0.08s, border-color 0.08s, background 0.08s;
+  }
+  .rt-hud-toggle-btn:hover {
+    color: var(--lime);
+    border-color: var(--lime-dim);
+    background: var(--panel-3);
+  }
+  /* Collapsed state · only the header strip is visible. Bottom border
+     of the header drops too so the panel reads as a clean single
+     strip rather than a header with a phantom under-rule. */
+  .rt-hud.is-collapsed .rt-hud-stats,
+  .rt-hud.is-collapsed .rt-hud-controls,
+  .rt-hud.is-collapsed .rt-hud-log {
+    display: none;
+  }
+  .rt-hud.is-collapsed .rt-hud-head {
+    border-bottom: none;
+  }
+  /* Live indicator · 6×6 flat lime square (not a circle, no glow) ·
+     same shape vocabulary as the corner welds and the table-prop
+     pixel cells. Two-step opacity blink reads as a discrete game
+     "tick" rather than a soft cinematic pulse. */
+  .rt-hud-led {
+    width: 6px;
+    height: 6px;
+    background: var(--lime);
+    animation: rt-hud-led-blink 1.6s steps(1) infinite;
+  }
+  @keyframes rt-hud-led-blink {
+    0%, 60%   { opacity: 1; }
+    61%, 100% { opacity: 0.35; }
+  }
+  .rt-hud-title {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  /* Room-state tag · LIVE / VOTE / PAUSE / WAIT / DONE. Flat
+     colour-keyed block — solid panel-3 fill, solid 1px accent
+     border, accent-coloured caps. The colour itself carries the
+     phase signal; no background tinting / glow. */
+  .rt-hud-state {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    background: var(--panel-3);
+    border: 1px solid var(--lime-dim);
+    color: var(--lime);
+  }
+  .rt-hud-state-vote   { border-color: var(--lime);  color: var(--lime); }
+  .rt-hud-state-pause  { border-color: var(--amber); color: var(--amber); }
+  .rt-hud-state-wait   { border-color: var(--cyan);  color: var(--cyan); }
+  .rt-hud-state-done   { border-color: var(--line-strong); color: var(--text-faint); }
+  /* Replay · soft amber accent on a paper-2 fill so the user
+     reads "this stage is showing playback, not live" at a glance.
+     Distinct from PAUSE (which uses bordered amber on panel-3 for
+     a "session frozen" feel) by keeping a subtle inner fill. The
+     state-pill itself is the load-bearing signal — no extra
+     decoration / pulse / glow needed. */
+  .rt-hud-state-replay {
+    border-color: var(--amber);
+    color: var(--amber);
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  .rt-hud-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-bottom: 1px solid var(--line);
+  }
+  .rt-hud-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 9px 4px 8px;
+    border-right: 1px solid var(--line);
+  }
+  .rt-hud-stat:last-child { border-right: none; }
+  .rt-hud-stat-label {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .rt-hud-stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--lime);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Pip progress row · five 5×4 blocks beneath each stat, lit
+     proportionally to the value. JRPG HP/MP vocabulary scaled down
+     to fit the stat grid. ROUND lights pips equal to round number,
+     VOTES equal to vote count, SEATS equal to (members − 1). */
+  .rt-hud-pips {
+    display: inline-flex;
+    gap: 2px;
+    margin-top: 1px;
+  }
+  .rt-hud-pip {
+    width: 5px;
+    height: 4px;
+    background: rgba(190, 242, 100, 0.14);
+  }
+  .rt-hud-pip.is-on { background: var(--lime); }
+
+  /* ─── Voice-rate control · single-row strip between stats and log.
+     Only renders when the room is voice-mode (renderRoundTableHud
+     gates this). Click cycles audio playbackRate through the
+     VOICE_RATE_PRESETS list, wrapping at the top — same pattern as
+     a chunky in-game "text-speed toggle." The button is the only
+     `pointer-events: auto` surface inside the otherwise inert
+     .rt-hud, so the rest of the panel still lets clicks fall
+     through to the stage seats behind it. */
+  .rt-hud-controls {
+    display: flex;
+    border-bottom: 1px solid var(--line);
+  }
+  .rt-hud-rate-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: transparent;
+    border: 0;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 0.08s, color 0.08s;
+  }
+  .rt-hud-rate-btn::before {
+    content: "▸";
+    color: var(--lime);
+    font-size: 9px;
+    line-height: 1;
+  }
+  .rt-hud-rate-btn:hover  { background: var(--panel-2); color: var(--text); }
+  .rt-hud-rate-btn:active { background: var(--panel); }
+  .rt-hud-rate-label {
+    flex: 1;
+    color: var(--text-faint);
+    text-align: left;
+    margin-left: 6px;
+  }
+  .rt-hud-rate-value {
+    color: var(--lime);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rt-hud-log {
+    display: flex;
+    flex-direction: column;
+    max-height: 132px;
+    overflow: hidden;
+  }
+  .rt-hud-log-empty {
+    padding: 12px 10px 14px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    text-align: center;
+    font-style: italic;
+  }
+  .rt-hud-log-entry {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    border-top: 1px solid var(--line);
+    /* `steps(4)` so the entry materialises in 4 discrete frames —
+       reads as a pixel-game tile flip, not a smooth fade. */
+    animation: rt-hud-log-in 0.24s steps(4);
+  }
+  .rt-hud-log-entry:first-child { border-top: none; }
+  /* Newest entry · two-frame opacity blink on the kind glyph (no
+     scale, no brightness filter — those felt cinematic). */
+  .rt-hud-log-entry:first-child .rt-hud-log-glyph {
+    animation: rt-hud-log-blink 0.32s steps(1) 2;
+  }
+  .rt-hud-log-glyph {
+    font-size: 10px;
+    line-height: 1;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .rt-hud-log-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rt-hud-log-text em {
+    font-style: italic;
+    color: var(--text);
+    font-weight: 700;
+  }
+  .rt-hud-log-entry.rt-hud-log-add      .rt-hud-log-glyph { color: var(--lime,  #6FB572); }
+  .rt-hud-log-entry.rt-hud-log-remove   .rt-hud-log-glyph { color: var(--amber, #B59560); }
+  .rt-hud-log-entry.rt-hud-log-settings .rt-hud-log-glyph { color: var(--cyan,  #6A9B97); }
+  .rt-hud-log-entry.rt-hud-log-round    .rt-hud-log-glyph { color: var(--lime,  #6FB572); }
+  .rt-hud-log-entry.rt-hud-log-vote     .rt-hud-log-glyph { color: var(--lime,  #6FB572); }
+
+  @keyframes rt-hud-log-in {
+    0%   { transform: translateY(-4px); opacity: 0; }
+    100% { transform: translateY(0);    opacity: 1; }
+  }
+  @keyframes rt-hud-log-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rt-hud-led,
+    .rt-hud-log-entry,
+    .rt-hud-log-entry:first-child .rt-hud-log-glyph { animation: none; }
+  }
+  /* Narrow stage (mobile / split-screen) · trim the panel and pip
+     / numeral scale so it doesn't squeeze the table. The container-
+     query parent is .roundtable-stage. */
+  @container rtstage (max-width: 520px) {
+    .rt-hud { width: 172px; top: 8px; left: 8px; }
+    .rt-hud-stat-value { font-size: 18px; }
+    .rt-hud-log { max-height: 110px; }
+    .rt-hud-pip { width: 4px; }
+  }
+
+  /* Vote popover · floats above the chair seat during the
+     awaiting-continue / vote phase. Three buttons replicate the
+     chat round-prompt card's CTAs with the same data attrs, so
+     existing click handlers + refreshContinueButton paint both
+     surfaces consistently. Visually anchored to the chair so the
+     user knows the chair is awaiting their decision; the cyan
+     accent matches the moderator's chair-sprite gem so it reads
+     as "from the chair." */
+  .rt-vote-pop {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 11px 12px 10px;
+    /* Was min 360 / max 460 with 9-10px buttons — felt loose against
+       the pixel-art register of the rest of the room. Tightened to
+       320 / 420 so the popover stops short of "tooltip width" and
+       reads as a chunky moderator chip instead. */
+    min-width: 320px;
+    max-width: 420px;
+    background: var(--panel-3);
+    border: 1px solid var(--cyan, #6A9B97);
+    z-index: 10;
+    pointer-events: auto;
+    animation: rt-bubble-in 0.22s ease-out;
+    transform-origin: 50% 100%;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  }
+  /* Card variant · embeds the canonical round-prompt or round-end
+     card (the same one rendered in chat). The popover supplies the
+     cyan frame + tail; the embedded card drops its own border /
+     background and tightens its inner spacing so the whole panel
+     reads as a single chunky moderator chip rather than a card-
+     stacked-on-card layout. */
+  .rt-vote-pop.rt-vote-pop-card {
+    padding: 11px 12px;
+    min-width: 360px;
+    max-width: 480px;
+    width: max-content;
+  }
+  .rt-vote-pop.rt-vote-pop-card .round-end-card,
+  .rt-vote-pop.rt-vote-pop-card .round-prompt-card {
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+    max-width: none;
+    gap: 6px;
+  }
+  /* Compact embedded key-point list · smaller body type, tighter
+     row padding, less margin on the CTAs row so the whole panel
+     fits the chair-head footprint without dominating the stage. */
+  .rt-vote-pop.rt-vote-pop-card .kp-eyebrow {
+    margin-bottom: 8px;
+    font-size: 9px;
+  }
+  .rt-vote-pop.rt-vote-pop-card .kp-list { gap: 5px; }
+  .rt-vote-pop.rt-vote-pop-card .kp-row {
+    padding: 6px 8px;
+    column-gap: 8px;
+  }
+  .rt-vote-pop.rt-vote-pop-card .kp-body {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .rt-vote-pop.rt-vote-pop-card .kp-vote {
+    padding: 2px 6px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+  .rt-vote-pop.rt-vote-pop-card .kp-ctas {
+    margin-top: 9px;
+    padding-top: 8px;
+    gap: 6px;
+  }
+  .rt-vote-pop.rt-vote-pop-card .kp-cta {
+    padding: 6px 10px;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+  }
+  /* Down-pointing tail anchored to the chair's head. */
+  .rt-vote-pop::after {
+    content: "";
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 7px solid var(--cyan, #6A9B97);
+  }
+  .rt-vote-pop-row {
+    /* Stack vertically · one button per line so each label gets the
+       full popover width and sits on a single row. The previous
+       2-col grid was the source of the wrap-to-3-lines crunch even
+       after widening — labels like "End round · open key-point vote"
+       just need the whole row, not half. */
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rt-vote-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 7px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--line-strong);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: left;
+    line-height: 1.25;
+    cursor: pointer;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+    overflow: hidden;
+  }
+  .rt-vote-btn:hover {
+    background: var(--panel);
+  }
+  .rt-vote-btn:disabled {
+    opacity: 0.45;
+    cursor: wait;
+  }
+  .rt-vote-btn .rt-vote-mark {
+    color: var(--cyan, #6A9B97);
+    font-size: 11px;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
+  .rt-vote-end:hover {
+    color: var(--amber, #B59560);
+    border-color: var(--amber, #B59560);
+  }
+  .rt-vote-end:hover .rt-vote-mark { color: var(--amber, #B59560); }
+  .rt-vote-continue:hover {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .rt-vote-continue:hover .rt-vote-mark { color: var(--lime); }
+  /* Countdown progress · paints a fading lime band from left to
+     right behind the button, sized by the inline `--qc-progress`
+     CSS variable (0%..100%) that refreshContinueButton sets. */
+  .rt-vote-continue.counting {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .rt-vote-continue.counting::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--qc-progress, 0%);
+    background: rgba(111, 181, 114, 0.18);
+    transition: width 0.5s linear;
+    pointer-events: none;
+  }
+  .rt-vote-timer {
+    margin-left: 2px;
+    color: var(--lime);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+  /* Secondary action · file the brief / adjourn the room. Lives on
+     its own row beneath the primary pair so it never competes for
+     attention with End / Continue. */
+  .rt-vote-adjourn {
+    background: transparent;
+    border: none;
+    border-top: 0.5px dashed var(--line-bright);
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 8px 4px 2px;
+    margin-top: 2px;
+    text-align: center;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .rt-vote-adjourn:hover {
+    color: var(--red);
+    border-top-color: var(--red);
+  }
+
+  /* Queue order badge · only on queued seats (not the speaker).
+     Decimal-leading-zero numerals (02, 03, ...) in mono on an
+     amber pill, top-right of the avatar. */
+  .rt-badge {
+    position: absolute;
+    top: 12px;
+    right: 4px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 11px;
+    background: var(--amber, #B59560);
+    color: var(--bg);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 4;
+    pointer-events: none;
+    box-shadow: 0 0 0 2px var(--panel-2);
+  }
+
+  /* Empty state · shown when the room has no directors yet
+     (chair-only). Centered placeholder so the stage doesn't
+     read as broken. */
+  .rt-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+
+  /* Reduced motion · drop the ambient/idle animations but keep
+     the speaker glow + bubble dots (informational). */
+  @media (prefers-reduced-motion: reduce) {
+    .rt-shimmer,
+    .rt-seat { animation: none !important; }
+    .rt-seat.rt-seat-speaking::before { animation: none; opacity: 0.85; }
+  }
+
+  /* Narrow widths · tighten the stage so seats stay usable.
+     `container-type: inline-size` on .roundtable-stage means
+     these queries respond to the stage's own width regardless
+     of viewport. */
+  @container rtstage (max-width: 520px) {
+    .rt-seat   { width: 72px; height: 90px; }
+    .rt-chair  { width: 52px; height: 64px; }
+    .rt-avatar { width: 40px; height: 46px; bottom: 18px; }
+    .rt-name   { font-size: 11px; top: -19px; padding: 3px 7px; letter-spacing: 0.05em; }
+    .rt-seat-below .rt-name { top: auto; bottom: -14px; }
+  }
+
+  /* ─── Round-table view toggle · inline in input-bar (game-y) ─
+     Sits as a 3rd toolbar slot between the session-control icons
+     (pause / adjourn) and the input pill. Visually distinct from
+     `.ib-action` (which is borderless icon-only) — the toggle has
+     a framed glyph slot, idle blink, hover preview popover, and
+     a flip animation on click. Gated by `applyRoundTableVisibility`
+     to live + voice rooms via the `[hidden]` attribute. */
+  .ib-sep {
+    width: 0.5px;
+    align-self: stretch;
+    margin: 4px 4px;
+    background: var(--line-bright);
+    flex-shrink: 0;
+  }
+  .ib-sep[hidden] { display: none; }
+
+  :is(.ib-rt-toggle, .head-rt-toggle) {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    /* Scale property is animated · the press / flip transforms
+       on `.ib-rt-glyph` need a quick easing curve so the click
+       feels snappy rather than mushy. */
+    transition: background 0.12s;
+  }
+  :is(.ib-rt-toggle, .head-rt-toggle):hover { background: var(--panel); }
+  :is(.ib-rt-toggle, .head-rt-toggle)[hidden] { display: none; }
+
+  /* Glyph slot · the framed square the icon lives inside. State
+     transitions are single-dimension and theme-coloured · no
+     glow / no aura / no shadow animation / no game-card flip.
+     Hover lifts the icon to the lime accent; click is a brief
+     opacity + tiny-scale settle (the JS class `is-flipping`
+     rides for ~220ms during the chat ↔ stage swap); the active
+     state inverts to a solid lime tile so the "this side is up"
+     cue reads as a pressed key, not a glowing arcade button.
+     No persistent animation when active — the colour invert
+     itself carries the signal. */
+  .ib-rt-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+    line-height: 1;
+    background: var(--panel);
+    border: 0.5px solid var(--line-strong, #3A3A35);
+    color: var(--text-soft, #8E8B83);
+    transition:
+      transform 0.16s ease,
+      border-color 0.16s ease,
+      background 0.16s ease,
+      color 0.16s ease;
+    /* Attention micro-loop · 9s cycle, motion crammed into the last
+       8% so the toggle stays still 92% of the time then does one
+       brief squash + 3D-spin + jump to catch the eye. Pure transform
+       (no shadow). Suppressed on hover (already in view), on active
+       (state itself is the signal), and during is-flipping (its own
+       swap animation takes over). The `perspective()` is an inline
+       transform function, not a property — it gives the rotateY a
+       depth cue without creating a containing block (which would
+       trap the position:fixed preview). */
+    animation: ib-rt-attention 9s ease-in-out infinite;
+  }
+  @keyframes ib-rt-attention {
+    0%, 92%, 100% { transform: none; }
+    93%   { transform: scaleY(0.78) scaleX(1.10); }
+    95%   { transform: perspective(420px) translateY(-7px) rotateY(22deg) scale(1.05); }
+    96.5% { transform: perspective(420px) translateY(-4px) rotateY(-16deg) scale(1.02); }
+    98%   { transform: translateY(0) scaleY(0.9) scaleX(1.06); }
+    99%   { transform: scaleY(1.04) scaleX(0.98); }
+  }
+
+  :is(.ib-rt-toggle, .head-rt-toggle):hover .ib-rt-glyph {
+    /* Pause the attention loop while the user is looking at the
+       toggle — no need to tug on attention that already arrived. */
+    animation: none;
+    border-color: var(--lime, #6FB572);
+    color: var(--lime, #6FB572);
+  }
+  :is(.ib-rt-toggle, .head-rt-toggle):active .ib-rt-glyph {
+    animation: none;
+    transform: scale(0.94);
+  }
+
+  /* "Flipping" state · the click handler adds this briefly so
+     the new glyph (transcript ↔ round-table) registers visually.
+     Replaces the prior 320ms rotateY card-flip with a clean
+     opacity + tiny-scale settle — refined rather than arcade. */
+  :is(.ib-rt-toggle, .head-rt-toggle).is-flipping .ib-rt-glyph {
+    animation: ib-rt-glyph-swap 0.22s ease-in-out;
+  }
+  @keyframes ib-rt-glyph-swap {
+    0%   { opacity: 1; transform: scale(1); }
+    50%  { opacity: 0; transform: scale(0.9); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+
+  /* Active state (round-table view IS open) · solid lime tile
+     with the icon inverted to the dark page color. No shadow,
+     no tilt, no pulse — the colour invert is the entire cue.
+     Reads as "this side of the toggle is currently selected"
+     in the same way a pressed key looks distinct from an
+     unpressed one. Hover-on-active dims the lime a touch so the
+     cursor still gets feedback without un-asserting the state. */
+  :is(.ib-rt-toggle, .head-rt-toggle)[aria-pressed="true"] .ib-rt-glyph {
+    /* Active state suppresses the attention loop · the lime tile
+       is its own signal and the loop would just be noise here. */
+    animation: none;
+    background: var(--lime, #6FB572);
+    border-color: var(--lime, #6FB572);
+    color: var(--bg, #0A0A0A);
+  }
+  :is(.ib-rt-toggle, .head-rt-toggle)[aria-pressed="true"]:hover .ib-rt-glyph {
+    background: var(--lime-deep, #427A48);
+    border-color: var(--lime-deep, #427A48);
+    color: var(--bg, #0A0A0A);
+  }
+
+  /* Hover preview popover · floats directly above the toggle
+     showing a tiny SVG sketch of the destination view + the
+     destination name + a "press to switch" prompt.
+     `position: fixed` to escape `.chat-col`'s `overflow:
+     hidden` (which clips position:absolute children — the
+     paused-bar's leftmost button hit this). The JS positioner
+     sets `left` and `top` to the EXPLICIT top-left corner of
+     the preview · no transform centering · so the position can
+     never silently drift from a transform-vs-anchor mismatch.
+     CSS owns visibility transitions and the rise-on-hover
+     animation only (translateY 6 → 0). */
+  .ib-rt-preview {
+    position: fixed;
+    width: 132px;
+    /* Surface uses --panel-2 (one step lighter than --panel) so the
+       popover reads as elevated against the chat backdrop without
+       any drop-shadow / coloured glow. The lime hairline border
+       carries the accent identity; no lime ring shadow underneath
+       (was double-bordering against the existing border anyway). */
+    background: var(--panel-2);
+    border: 0.5px solid var(--lime, #6FB572);
+    color: var(--text);
+    padding: 9px 10px 10px;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 9100;
+    /* JS sets `left` + `top` to the preview's explicit top-left
+       pixel coordinates · NO `translate(-50%)` centering here.
+       Transform is reserved purely for the rise-on-hover
+       animation (translateY 6 → 0). */
+    transform: translateY(6px);
+    transition:
+      opacity 0.14s ease,
+      transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1),
+      visibility 0s linear 0.18s;
+  }
+  /* Visibility · CSS :hover is the primary trigger (kept here so
+     even if JS somehow fails, the tooltip still appears on hover).
+     `!important` defeats inline `opacity: 0` set by the JS
+     hidePreview handler when the user leaves the button. JS still
+     owns the POSITION (sets inline left/top from getBoundingClientRect
+     on mouseenter). Focus-visible deliberately excluded so clicking
+     the button doesn't latch the tooltip open. */
+  :is(.ib-rt-toggle, .head-rt-toggle):hover .ib-rt-preview {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: translateY(0) !important;
+  }
+  .ib-rt-preview::before,
+  .ib-rt-preview::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+  }
+  .ib-rt-preview::before {
+    bottom: -6px;
+    border-top: 6px solid var(--lime, #6FB572);
+  }
+  .ib-rt-preview::after {
+    bottom: -5px;
+    border-top: 6px solid var(--panel);
+  }
+  .ib-rt-preview-kicker {
+    font-family: var(--mono);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime, #6FB572);
+    margin-bottom: 6px;
+  }
+  .ib-rt-preview-svg {
+    display: block;
+    width: 100%;
+    height: 42px;
+    margin-bottom: 6px;
+  }
+  .ib-rt-preview-svg .rt-prev-fill { fill: var(--lime, #6FB572); }
+  .ib-rt-preview-svg .rt-prev-stroke {
+    stroke: var(--lime, #6FB572);
+    fill: none;
+    stroke-width: 1.2;
+  }
+  .ib-rt-preview-foot {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    text-align: right;
+  }
+  .ib-rt-preview-foot .rt-prev-arrow {
+    color: var(--lime, #6FB572);
+    margin-left: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* Strip every spatial animation · attention loop, click-swap,
+       press-scale. The hover and active colour transitions stay
+       (they're pure colour, no movement). */
+    .ib-rt-glyph,
+    :is(.ib-rt-toggle, .head-rt-toggle).is-flipping .ib-rt-glyph {
+      animation: none;
+    }
+    :is(.ib-rt-toggle, .head-rt-toggle):active .ib-rt-glyph {
+      transform: none;
+    }
+    :is(.ib-rt-toggle, .head-rt-toggle):hover .ib-rt-preview,
+    :is(.ib-rt-toggle, .head-rt-toggle):focus-visible .ib-rt-preview {
+      transform: translateY(0);
+      transition: opacity 0.1s ease, visibility 0s;
+    }
+  }
+
   /* ─── Speaking queue (KTV-style cue sheet) ─────────────────
      Floats above the input bar; collapsible.
      Layout-wise it sits as a sibling of .chat inside .chat-col,
@@ -7215,6 +9862,90 @@
     margin: 0 auto;
     padding: 32px 32px;
     width: 100%;
+    /* `isolation: isolate` creates a stacking context here WITHOUT
+       making cmp the containing block for absolute descendants.
+       Result: `.cmp-bg-deco` belongs to cmp's stacking context
+       (so `z-index: -1` puts it just below cmp's static content
+       but ABOVE the lower-layer chat / chat-col panel bgs), while
+       its SPATIAL containing block is `.chat-col` (positioned
+       above) — so the deco can span the full chat-col width
+       without being constrained to cmp's 760px. The two-axis
+       split is what makes the Search-page-style backdrop work
+       inside a max-width-narrower section. */
+    isolation: isolate;
+  }
+  /* 8-bit ambient backdrop · pinned at the top of the composer.
+     Same visual language + position as `.search-bg-deco`. The
+     backdrop ESCAPES `.cmp`'s max-width (760px) so it spans the
+     full main-view width — same `left: 50%; margin-left: -50vw;
+     width: 100vw` pattern the Search page uses. `.main-view`'s
+     own `overflow: hidden` clips it to the visible content area,
+     so "full width" resolves to the room-content rect (sidebar
+     not included). Scene-tuned SVG content is injected by
+     `composerBgDecoSvg(scene)` in app.js · room mode draws a
+     mini boardroom (table + chairs), agent mode draws a row of
+     pixel character heads + speech bubble. */
+  .cmp-bg-deco {
+    /* Containing block is `.chat-col` (set position: relative above)
+       so `top/left/right: 0` snap to the FULL CHAT COLUMN — exactly
+       the right-pane width the user wants. No `100vw` escape · the
+       previous viewport-relative width spilled behind the sidebar
+       because the sidebar lives OUTSIDE this main-view's overflow
+       clip, so the deco rendered under it. Anchoring to `.chat-col`
+       gets us the right pane's actual content rect and nothing
+       beyond it. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 280px;
+    pointer-events: none;
+    z-index: -1;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+    opacity: 0.85;
+  }
+  .cmp-bg-deco svg { display: block; width: 100%; height: 100%; }
+  /* 8-bit deco animations · keep subtle so the field reads as
+     "alive" rather than "demanding attention". All animations are
+     opacity / quantised transforms so the pixel-art register
+     holds (no smooth tweens). Each element gets an inline
+     `animation-delay` from the SVG generator so siblings don't
+     pulse in lockstep — the field shimmers organically. */
+  @keyframes deco-twinkle {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  @keyframes deco-shine {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+  }
+  @keyframes deco-spark {
+    0%, 100% { opacity: 1;   transform: scale(1);   }
+    50%      { opacity: 0.4; transform: scale(0.7); }
+  }
+  @keyframes deco-bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-1.5px); }
+  }
+  @keyframes deco-blink {
+    0%, 70%, 100% { opacity: 1; }
+    80%, 92%      { opacity: 0.15; }
+  }
+  .cmp-bg-deco .deco-twinkle { animation: deco-twinkle 4.5s ease-in-out infinite; }
+  .cmp-bg-deco .deco-shine   { animation: deco-shine   3.2s ease-in-out infinite; }
+  .cmp-bg-deco .deco-spark   { animation: deco-spark   2.4s ease-in-out infinite;
+                                transform-box: fill-box; transform-origin: center; }
+  .cmp-bg-deco .deco-bob     { animation: deco-bob     3.0s ease-in-out infinite;
+                                transform-box: fill-box; transform-origin: center; }
+  .cmp-bg-deco .deco-blink   { animation: deco-blink   4.0s ease-in-out infinite; }
+  /* Reduced-motion · stop animation but keep the deco visible. */
+  @media (prefers-reduced-motion: reduce) {
+    .cmp-bg-deco .deco-twinkle,
+    .cmp-bg-deco .deco-shine,
+    .cmp-bg-deco .deco-spark,
+    .cmp-bg-deco .deco-bob,
+    .cmp-bg-deco .deco-blink { animation: none; }
   }
   /* Default composer mode (content fits viewport).
      Toggled by JS via `.chat--composer` (added in
@@ -7337,6 +10068,27 @@
     border-top: 0.5px solid var(--line);
     background: var(--panel-2);
     min-height: 48px;
+    /* Establish a size container · child elements (notably the
+       voice-mode toggle's text) can respond to the toolbar's width
+       directly, regardless of the viewport. Important because the
+       toolbar lives inside a panel that's typically narrower than
+       the window — viewport media queries fire too late. */
+    container-type: inline-size;
+    container-name: cmptoolbar;
+  }
+  /* When the toolbar gets cramped (composer panel is narrow / sidebar
+     is expanded), drop the Voice Mode toggle's text so the row
+     doesn't wrap or push the Convene button off-axis. The track +
+     knob remain visible — state stays readable from the visual
+     register, and the hover tooltip carries the verbal label. */
+  @container cmptoolbar (max-width: 600px) {
+    .cmp-toolbar [data-composer-voice-toggle] .ap-skill-row-toggle-text {
+      display: none;
+    }
+    .cmp-toolbar [data-composer-voice-toggle] {
+      gap: 0;
+      padding: 0 4px;
+    }
   }
 
   .cmp-cast-btn {
@@ -7597,6 +10349,61 @@
   }
   .cmp-dd-opt:hover { background: var(--panel-2); }
   .cmp-dd-opt.active { background: var(--panel-3); }
+  /* Row wrapper · only used when an option carries an `info` field
+     (currently agent-builder-mode). Lets us put the info ⓘ button
+     as a SIBLING of the picker (nested buttons are invalid HTML)
+     while keeping the picker's full-width hover affordance. The
+     wrapper drops to `display: contents` for ordinary rows so it
+     adds no layout cost when no info button is present. */
+  .cmp-dd-row { display: contents; }
+  .cmp-dd-row.has-info {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    transition: background 0.1s;
+  }
+  .cmp-dd-row.has-info .cmp-dd-opt { flex: 1; min-width: 0; }
+  /* Hover / active background paints the WHOLE row (picker + info
+     gutter), not just the picker button — otherwise the info icon
+     sits in an unhighlighted patch and the row reads as broken.
+     The inner button's own hover/active paint is suppressed so
+     the row-level background isn't double-stacked. */
+  .cmp-dd-row.has-info:hover { background: var(--panel-2); }
+  .cmp-dd-row.has-info:has(.cmp-dd-opt.active) { background: var(--panel-3); }
+  .cmp-dd-row.has-info .cmp-dd-opt:hover,
+  .cmp-dd-row.has-info .cmp-dd-opt.active { background: transparent; }
+  .cmp-dd-opt-info {
+    flex-shrink: 0;
+    width: 28px;
+    padding: 0 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.1s;
+  }
+  .cmp-dd-opt-info:hover { color: var(--lime); }
+  /* Floating tooltip popover · anchored under the ⓘ button. Lives
+     in document.body (not inside the dropdown) so it can escape
+     the dropdown's overflow clipping. Closed on outside click /
+     Esc / clicking the same icon again — see the click handler
+     in app.js under `[data-cmp-dd-info]`. */
+  .cmp-dd-info-pop {
+    position: fixed;
+    z-index: 10010;
+    max-width: 320px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 0.5px solid var(--line-bright, var(--line));
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+    font-family: var(--font-human);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+    letter-spacing: -0.005em;
+  }
   .cmp-dd-opt-label {
     font-family: var(--font-human);
     font-size: 12.5px;
@@ -8242,6 +11049,969 @@
   }
   .ag-gen-stop:hover { color: var(--red, #C85A5A); }
   .ag-gen-stop:active { color: var(--red, #C85A5A); }
+  /* ─── Full-persona builder ───
+     The Signal-mode quick path uses .ag-gen-stages above. Full-mode
+     uses the same row vocabulary but in a single-column list (each
+     phase has a sub-detail line that needs the full width) and lives
+     inside .ag-persona-progress-card.
+
+     The mode picker (Signal vs Full persona) lives in the composer
+     toolbar as a `.cmp-dd` dropdown — same vocabulary as the new-
+     room composer's tone/intensity dropdowns, so the toolbar reads
+     as one consistent control bar. The earlier pill-toggle + deck
+     above the textarea was retired in favour of this. */
+  .cmp-dd-mode .cmp-dd-value { text-transform: uppercase; letter-spacing: 0.04em; }
+
+  /* Builder progress card · the SSE-driven 7-phase block */
+  .ag-persona-builder { padding: 12px 0 24px; }
+  .ag-persona-progress-card {
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright, var(--line));
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ag-persona-progress-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-family: var(--mono);
+  }
+  .ag-persona-progress-pct {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--lime);
+    letter-spacing: -0.01em;
+  }
+  .ag-persona-progress-elapsed {
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+    flex: 1;
+  }
+  .ag-persona-cancel {
+    appearance: none;
+    background: transparent;
+    border: 0.5px solid var(--line-bright);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .ag-persona-cancel:hover {
+    color: var(--red, #B5706A);
+    border-color: var(--red, #B5706A);
+  }
+  .ag-persona-progress-bar {
+    height: 4px;
+    background: var(--bg);
+    border: 0.5px solid var(--line);
+    overflow: hidden;
+  }
+  .ag-persona-progress-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--lime);
+    transition: width 0.3s ease-out;
+  }
+  /* The phase-list grid override · single column for the persona
+     builder (each row carries a sub-detail line). */
+  .ag-persona-progress-card .ag-gen-stages {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    border-top: 0.5px dashed var(--line);
+    padding-top: 12px;
+  }
+  .ag-persona-progress-card .ag-gen-stage {
+    grid-template-columns: 14px 1fr;
+    align-items: start;
+    padding: 4px 0;
+  }
+
+  .ag-persona-rounds {
+    border-top: 0.5px dashed var(--line);
+    padding-top: 12px;
+  }
+  .ag-persona-rounds-tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+  .ag-persona-rounds-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ag-persona-rounds-list li {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-soft);
+  }
+  .ag-persona-round-num {
+    color: var(--text-faint);
+    font-weight: 700;
+    text-align: right;
+  }
+  /* "Build done" inline callout · Full-mode confirmation lives in
+     the manual-config overlay (window.openNewAgent), so this
+     in-composer view is just a fallback that re-opens the
+     overlay if the user dismissed it. Visually quiet · doesn't
+     compete with the (auto-opening) overlay above it. */
+  .pb-done { padding: 24px 0; }
+  .pb-done-card {
+    padding: 22px 26px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+    margin-bottom: 18px;
+    text-align: center;
+  }
+  .pb-done-kicker {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime);
+    margin-bottom: 10px;
+  }
+  .pb-done-title {
+    font-family: var(--font-human);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.005em;
+    line-height: 1.25;
+    margin: 0 0 8px;
+  }
+  .pb-done-sub {
+    font-family: var(--font-human);
+    font-size: 13px;
+    color: var(--text-soft);
+    line-height: 1.5;
+    margin: 0 auto 18px;
+    max-width: 560px;
+  }
+  .pb-done-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pb-done-discard,
+  .pb-done-open {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 9px 16px;
+    background: transparent;
+    border: 0.5px solid var(--line);
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .pb-done-discard:hover {
+    color: #ff6262;
+    border-color: #ff6262;
+    background: rgba(255, 98, 98, 0.05);
+  }
+  .pb-done-open {
+    color: var(--bg, #0c0c0c);
+    background: var(--lime);
+    border-color: var(--lime);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pb-done-open:hover {
+    background: transparent;
+    color: var(--lime);
+  }
+  .pb-done-open-mark { font-size: 13px; line-height: 1; }
+
+  /* When the manual overlay is in Full-mode reuse, surface the
+     build's footer-meta override in lime (it carries the
+     differentiation score · informational, not gating). */
+  .new-agent-modal .na-foot-meta-override {
+    color: var(--lime);
+    letter-spacing: 0.06em;
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     Gamified persona-build stage (`.pb-*`)
+     ──────────────────────────────────────────────────────────
+     Replaces the older `.ag-persona-progress-card` UI with a
+     dossier-assembly stage themed after a CRT-terminal mission
+     console. Three regions: header (operation + elapsed/ETA +
+     segmented HP bar), main grid (operative dossier card on the
+     left, intel feed on the right), footer (abort + hint). All
+     class names live under `.pb-*` so they don't collide with
+     the legacy `.ag-persona-*` rules (kept · used by error /
+     recovery cards). */
+  .pb-stage {
+    padding: 16px 0 32px;
+    color: var(--text);
+  }
+  .pb-stage-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 24px;
+    padding-bottom: 14px;
+    border-bottom: 0.5px solid var(--line);
+    margin-bottom: 18px;
+  }
+  .pb-stage-kicker {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime);
+    margin-bottom: 8px;
+  }
+  .pb-stage-subject {
+    font-family: var(--font-human);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    margin: 0;
+    /* Two-line clamp · long descriptions wrap once and ellipse. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .pb-stage-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: right;
+    min-width: 140px;
+  }
+  .pb-meta-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+  }
+  .pb-meta-l {
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 9px;
+  }
+  .pb-meta-v {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .pb-meta-pct .pb-meta-v {
+    color: var(--lime);
+    font-size: 14px;
+  }
+
+  /* 20-segment "HP-bar" progress · console game look */
+  .pb-segbar {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 22px;
+    padding: 6px 8px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+  }
+  .pb-seg {
+    flex: 1;
+    height: 14px;
+    border-radius: 1px;
+  }
+  .pb-seg-empty {
+    background: var(--panel-3, var(--panel));
+    border: 0.5px solid var(--line);
+  }
+  .pb-seg-fill {
+    background: var(--lime);
+    box-shadow: 0 0 6px var(--lime-dim, rgba(132, 187, 78, 0.4));
+    animation: pb-seg-pulse 1.6s ease-in-out infinite;
+  }
+  /* Stagger the pulse across the filled segments so the bar
+     reads as a "scanning" sweep, not a synchronised flash. */
+  .pb-seg-fill:nth-child(2n)   { animation-delay: 0.1s; }
+  .pb-seg-fill:nth-child(3n)   { animation-delay: 0.2s; }
+  .pb-seg-fill:nth-child(5n)   { animation-delay: 0.35s; }
+  .pb-seg-fill:nth-child(7n)   { animation-delay: 0.5s; }
+  @keyframes pb-seg-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+  }
+
+  /* Two-column grid · dossier (left) + intel feed (right).
+     Both columns get a fixed height so the stage doesn't reshape
+     as phase counters tick up / search rounds append. Without
+     this the dossier grows from ~360px → ~620px across the
+     build, and the user reads each SSE update as a layout jolt
+     rather than a content update. 600px holds all 7 phase rows
+     + the stat strip without scroll, which is the worst case. */
+  .pb-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: stretch;
+  }
+  .pb-dossier,
+  .pb-feed { height: 600px; }
+  @media (max-width: 880px) {
+    .pb-grid { grid-template-columns: 1fr; }
+    .pb-dossier, .pb-feed { height: auto; min-height: 360px; }
+  }
+
+  /* ── Dossier card · the operative being assembled ── */
+  .pb-dossier { min-width: 0; display: flex; }
+  .pb-dossier-frame {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 22px 18px;
+    background: var(--panel);
+    border: 0.5px solid var(--line-bright, var(--line));
+    overflow: hidden;
+  }
+  .pb-dossier-frame::before {
+    /* Faint horizontal scanline overlay · CRT vibe. Pinned
+       behind content via z-index. */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(132, 187, 78, 0.04) 3px,
+      rgba(132, 187, 78, 0.04) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .pb-dossier-corner {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: var(--lime);
+    border-style: solid;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .pb-dossier-tl { top: 6px;   left: 6px;   border-width: 1px 0 0 1px; }
+  .pb-dossier-tr { top: 6px;   right: 6px;  border-width: 1px 1px 0 0; }
+  .pb-dossier-bl { bottom: 6px; left: 6px;  border-width: 0 0 1px 1px; }
+  .pb-dossier-br { bottom: 6px; right: 6px; border-width: 0 1px 1px 0; }
+
+  .pb-dossier-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+  }
+  .pb-dossier-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text-faint);
+  }
+  .pb-dossier-id {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .pb-dossier-codename {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .pb-dossier-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    color: var(--lime);
+  }
+  .pb-dossier-pulse {
+    width: 8px;
+    height: 8px;
+    background: var(--lime);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--lime);
+    animation: pb-dossier-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pb-dossier-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* Phase rows · the assembly checklist. Takes the available
+     vertical space inside the dossier so the stat strip pins to
+     the bottom instead of floating mid-card · keeps the layout
+     stable when the active row's `phase-detail` line appears. */
+  .pb-phase-list {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    list-style: none;
+    margin: 0 0 18px;
+    padding: 0;
+    border-top: 0.5px solid var(--line);
+    overflow-y: auto;
+  }
+  .pb-phase-list::-webkit-scrollbar { width: 4px; }
+  .pb-phase-list::-webkit-scrollbar-thumb { background: var(--line); }
+  .pb-phase {
+    display: grid;
+    grid-template-columns: 28px 22px 1fr auto;
+    gap: 10px;
+    align-items: start;
+    padding: 11px 4px;
+    border-bottom: 0.5px solid var(--line);
+    transition: background 0.2s;
+  }
+  .pb-phase-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    padding-top: 1px;
+  }
+  .pb-phase-icon {
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-faint);
+    text-align: center;
+  }
+  .pb-phase-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .pb-phase-label {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    font-weight: 600;
+  }
+  .pb-phase-hint {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+  .pb-phase-detail {
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  /* Phase-2 dimension checklist · sub-list under the active phase
+     row showing the parallel research angles. Mono kicker + status
+     glyph per row, query in italic-ish soft tone, meta on the right. */
+  .pb-dim-list {
+    margin: 8px 0 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .pb-dim {
+    display: grid;
+    grid-template-columns: 12px max-content 1fr max-content;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-soft);
+    letter-spacing: 0.02em;
+    min-width: 0;
+  }
+  .pb-dim-icon {
+    color: var(--text-faint);
+    text-align: center;
+  }
+  .pb-dim-tag {
+    color: var(--lime);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 9.5px;
+  }
+  .pb-dim-query {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .pb-dim-meta {
+    color: var(--text-faint);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .pb-dim-pending .pb-dim-icon { color: var(--text-faint); }
+  .pb-dim-pending .pb-dim-tag { color: var(--text-soft); opacity: 0.7; }
+  .pb-dim-pending .pb-dim-query { color: var(--text-soft); opacity: 0.7; }
+  .pb-dim-done .pb-dim-icon { color: var(--lime); }
+  .pb-phase-counter {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--lime);
+    align-self: center;
+    padding: 2px 8px;
+    border: 0.5px solid var(--lime-dim, var(--line));
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  /* Per-state styling · pending / active / done. */
+  .pb-phase-pending .pb-phase-icon { color: var(--text-faint); }
+  .pb-phase-pending .pb-phase-label { color: var(--text-faint); }
+  .pb-phase-pending .pb-phase-hint { color: var(--text-faint); opacity: 0.6; }
+
+  /* Active phase row · the lime gradient + blinking icon +
+     coloured label do the "this row is live" work. No left-edge
+     stripe (per project CSS rules). */
+  .pb-phase-active {
+    background: linear-gradient(
+      90deg,
+      rgba(132, 187, 78, 0.08) 0%,
+      rgba(132, 187, 78, 0.02) 100%);
+  }
+  .pb-phase-active .pb-phase-icon {
+    color: var(--lime);
+    animation: pb-phase-blink 0.9s steps(2, jump-none) infinite;
+  }
+  .pb-phase-active .pb-phase-label {
+    color: var(--lime);
+    text-shadow: 0 0 8px rgba(132, 187, 78, 0.35);
+  }
+  .pb-phase-active .pb-phase-hint { color: var(--text-soft); }
+  @keyframes pb-phase-blink {
+    0%, 49%  { opacity: 1; }
+    50%, 100% { opacity: 0.35; }
+  }
+
+  .pb-phase-done .pb-phase-icon { color: var(--lime); }
+  .pb-phase-done .pb-phase-label { color: var(--text-soft); }
+
+  /* 6-stat strip below the phase list. */
+  .pb-stats {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border: 0.5px solid var(--line);
+    background: var(--panel-2);
+  }
+  .pb-stat {
+    padding: 10px 6px;
+    text-align: center;
+    border-right: 0.5px solid var(--line);
+  }
+  .pb-stat:last-child { border-right: none; }
+  .pb-stat-v {
+    display: block;
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .pb-stat-l {
+    display: block;
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-top: 5px;
+  }
+  @media (max-width: 720px) {
+    .pb-stats { grid-template-columns: repeat(3, 1fr); }
+    .pb-stat { border-bottom: 0.5px solid var(--line); }
+    .pb-stat:nth-child(3) { border-right: none; }
+    .pb-stat:nth-last-child(-n+3) { border-bottom: none; }
+  }
+
+  /* ── Intel feed · scrolling console log on the right. ── */
+  .pb-feed {
+    position: relative;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a0a;
+    border: 0.5px solid var(--line-bright, var(--line));
+    overflow: hidden;
+  }
+  .pb-feed::before {
+    /* Same scanline as the dossier · ties the two surfaces. */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(132, 187, 78, 0.05) 3px,
+      rgba(132, 187, 78, 0.05) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .pb-feed-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(132, 187, 78, 0.08);
+    border-bottom: 0.5px solid var(--line);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime);
+  }
+  .pb-feed-cursor {
+    color: var(--lime);
+    animation: pb-cursor-blink 1s steps(2, jump-none) infinite;
+  }
+  @keyframes pb-cursor-blink {
+    0%, 49%  { opacity: 1; }
+    50%, 100% { opacity: 0.2; }
+  }
+  .pb-feed-list {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    list-style: none;
+    margin: 0;
+    padding: 12px;
+    overflow-y: auto;
+    /* Scrollbar trim to keep the console aesthetic. */
+  }
+  .pb-feed-list::-webkit-scrollbar { width: 6px; }
+  .pb-feed-list::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 3px;
+  }
+  .pb-feed-line {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.45;
+    letter-spacing: 0.02em;
+    color: var(--text-soft);
+    /* Each new entry fades in. The animation-delay is keyed off
+       --pb-feed-idx so the top-most (newest) flickers first. */
+    opacity: 0;
+    animation: pb-feed-fadein 0.4s ease-out forwards;
+    animation-delay: calc(var(--pb-feed-idx, 0) * 0.025s);
+  }
+  @keyframes pb-feed-fadein {
+    0%   { opacity: 0; transform: translateY(-2px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .pb-feed-text {
+    color: var(--text);
+    word-break: break-word;
+  }
+  .pb-feed-meta {
+    color: var(--text-faint);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-left: 16px;
+  }
+  .pb-feed-phase-active .pb-feed-text {
+    color: var(--lime);
+    text-shadow: 0 0 6px rgba(132, 187, 78, 0.3);
+  }
+  .pb-feed-phase-done .pb-feed-text { color: var(--text-soft); opacity: 0.7; }
+  .pb-feed-round .pb-feed-text { color: var(--text); }
+  .pb-feed-empty .pb-feed-text { color: var(--text-faint); font-style: italic; }
+
+  /* ── Footer · abort + hint. ── */
+  .pb-stage-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 0.5px solid var(--line);
+  }
+  .pb-cancel {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    background: transparent;
+    border: 0.5px solid var(--line);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .pb-cancel:hover {
+    color: #ff6262;
+    border-color: #ff6262;
+    background: rgba(255, 98, 98, 0.05);
+  }
+  .pb-cancel-mark {
+    font-size: 13px;
+    line-height: 1;
+  }
+  .pb-foot-hint {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  @media (max-width: 600px) {
+    .pb-stage-foot { flex-direction: column; gap: 10px; align-items: stretch; }
+    .pb-foot-hint { text-align: center; }
+  }
+
+  .ag-persona-round-q {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .ag-persona-round-meta {
+    color: var(--text-faint);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+  }
+
+  /* Save card */
+  .ag-persona-save-card {
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright, var(--line));
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .ag-persona-save-grid {
+    display: grid;
+    gap: 10px;
+  }
+  .ag-persona-save-row {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 12px;
+    align-items: center;
+  }
+  .ag-persona-save-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .ag-persona-save-input {
+    background: var(--bg);
+    border: 0.5px solid var(--line-bright);
+    color: var(--text);
+    font-family: var(--font-human);
+    font-size: 13px;
+    padding: 7px 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .ag-persona-save-input:focus {
+    outline: none;
+    border-color: var(--lime);
+  }
+  textarea.ag-persona-save-input {
+    font-family: var(--font-human);
+    line-height: 1.5;
+    resize: vertical;
+  }
+  .ag-persona-report {
+    border-top: 0.5px dashed var(--line);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ag-persona-report-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: var(--mono);
+  }
+  .ag-persona-report-tag {
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    flex: 1;
+  }
+  .ag-persona-report-score {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--lime);
+  }
+  .ag-persona-report-elapsed {
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+  }
+  .ag-persona-report-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ag-persona-report-section-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .ag-persona-eval-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ag-persona-eval-list li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-soft);
+    padding: 2px 0;
+  }
+  .ag-persona-eval-q {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ag-persona-eval-score {
+    color: var(--text);
+    font-weight: 700;
+  }
+  .ag-persona-report-deck {
+    font-size: 11px;
+    color: var(--text-faint);
+    line-height: 1.5;
+  }
+  .ag-persona-save-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    border-top: 0.5px dashed var(--line);
+    padding-top: 14px;
+  }
+  .ag-persona-save, .ag-persona-discard, .ag-persona-retry {
+    appearance: none;
+    background: transparent;
+    border: 0.5px solid var(--line-bright);
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .ag-persona-save {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .ag-persona-save:hover {
+    background: var(--lime);
+    color: var(--bg);
+  }
+  .ag-persona-discard:hover {
+    color: var(--text);
+    border-color: var(--text-faint);
+  }
+  .ag-persona-retry {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .ag-persona-retry:hover {
+    background: var(--lime);
+    color: var(--bg);
+  }
+  .ag-persona-error-card {
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-bright);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ag-persona-error-detail {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.55;
+  }
+  .ag-persona-error-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.12em;
+  }
+  .ag-persona-error-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+
   .ag-gen-stages {
     list-style: none;
     margin: 0;
@@ -9238,6 +13008,17 @@
     overflow: hidden;
     background: var(--panel);
     height: 100%;
+    /* `position: relative` makes chat-col the CONTAINING BLOCK
+       for `.cmp-bg-deco` (positioned absolute) so the deco's
+       `left/right: 0` snap to the full chat-col width. NOTE: no
+       `isolation` here · we DON'T want chat-col to also be the
+       stacking context. The deco's `z-index: -1` is meant to
+       paint within `.cmp`'s isolated stacking context (which sits
+       on top of chat / chat-col bgs), not get trapped below
+       chat-col's own panel bg. Splitting the two roles lets the
+       deco stretch wide while still rendering above the chat
+       panel — see `.cmp` + `.cmp-bg-deco` below. */
+    position: relative;
   }
 
   /* Input bar — sits inside the chat column. Live state hosts a
@@ -9354,6 +13135,66 @@
   .ib-adjourn {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/></svg>");
   }
+  /* Manual vote trigger · Lucide gavel — semantically the chair
+     calling the vote (mallet head + sounding-block tablet). Visible
+     only when room.voteTrigger === "manual"; drives the chair's
+     vote phase without waiting for the round cap. The mallet glyph
+     is more imagistic than the prior "checkbox in box" — reads at
+     16px as a clear "convene the vote" cue rather than a ballot
+     square that competed visually with the adjourn / pause icons. */
+  .ib-vote {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m14.5 12.5-8 8a2.119 2.119 0 1 1-3-3l8-8'/><path d='m16 16 6-6'/><path d='m8 8 6-6'/><path d='m9 7 8 8'/><path d='m21 11-8-8'/></svg>");
+  }
+  .ib-vote::before { background-color: var(--lime, #6FB572); }
+  .ib-vote:hover::before { background-color: var(--lime, #6FB572); }
+  .ib-vote[hidden] { display: none !important; }
+  /* Queued state · the user picked "After current speaker" and the
+     server stashed the request. The visual cue is a slow opacity
+     breath on the icon glyph alone — single-dimension, theme-
+     coloured (uses the existing lime mask, no extra accents),
+     no box-shadow / no glow / no extra dot. The breath reads as
+     "this is waiting on a turn to finish" without competing with
+     the round-table toggle's active aura. The ::after pseudo
+     stays reserved for the tooltip popover (the parent's data-tip
+     flips to `ib_vote_tip_queued` from JS), so hover still
+     surfaces the queued explanation. */
+  .ib-vote.is-queued::before {
+    animation: ib-vote-queued-breath 2.4s ease-in-out infinite;
+  }
+  @keyframes ib-vote-queued-breath {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.42; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ib-vote.is-queued::before { animation: none; opacity: 0.7; }
+  }
+  /* Vote-trigger overlay reuses the pause-choice modal chrome
+     (`.pc-overlay / .pc-modal / .pc-choice`) — see the pc-* block
+     above. No bespoke styles needed; markup in `openVoteTrigger-
+     Overlay` carries the pc-* classes directly. */
+
+  /* Round-table vote overlay · auto-mounts when the chair has
+     wrapped a round and the user is on the round-table stage. The
+     modal wraps the same round-end card used in chat (key-points
+     + Continue / Adjourn), so it needs more width than the default
+     460px pc-modal. Embedded card carries its own padding · we
+     drop pc-modal's body padding to let the card breathe edge-to-
+     edge. */
+  .pc-modal.rt-vote-modal {
+    max-width: 800px;
+    width: min(800px, 100%);
+  }
+  .rt-vote-modal-body {
+    padding: 8px 0 0;
+  }
+  .rt-vote-modal-body .round-end-card {
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 14px 20px 18px;
+    max-width: none;
+  }
+
   .input-wrap {
     flex: 1 1 auto;
     min-width: 0;
@@ -9513,6 +13354,13 @@
       <div class="sidebar-panel" data-sidebar-panel="rooms">
 
       <a href="#convene" class="new-btn" data-convene-trigger data-i18n="sidebar_new_room">New room</a>
+      <!-- "Search" · cross-room keyword search · sits directly under
+           "New room" because it's the most-used reach tool ("where
+           did <X> come up?"). Same .new-btn chrome as siblings. -->
+      <a href="#" class="new-btn nav-search" data-search-trigger>
+        <span class="nav-label">Search</span>
+        <span class="nav-count" data-search-count hidden></span>
+      </a>
       <!-- "All Reports" cross-room index · opens a Perplexity-Discover-
            style grid of every brief any room has produced. Sits below
            "New room" so it reads as a peer destination, not a list
@@ -9581,8 +13429,223 @@
         <div class="chat">
           <div data-chat-messages></div>
           <div data-brief-card></div>
-        
+
         </div>
+
+          <!-- Round-table view · gamified voice-mode stage. Siblings
+               .chat — visibility toggled by app.applyRoundTableVisibility().
+               The .chat node stays mounted (just [hidden]) so its scroll
+               position survives toggles, and the ~20 write sites that
+               target [data-chat-messages] keep working unchanged. -->
+          <div class="roundtable-stage" data-roundtable-stage role="img" hidden>
+            <!-- 8-bit pixel-art conference table · rim, mid wood,
+                 top highlight, three grain stripes, bottom shadow
+                 band, corner caps, ground shadow underneath. Drawn
+                 with shape-rendering: crispEdges so the bands read
+                 as sharp pixel transitions, matching the chair-
+                 sprite + avatar register. ViewBox is 100×30; the
+                 element is sized via CSS to occupy the central
+                 portion of the stage so seats fan around it. -->
+            <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <!-- Floor shadow under the table · grounds it to the
+                   stage surface. Soft ellipse, dark with low alpha. -->
+              <ellipse cx="50" cy="27" rx="44" ry="1.5" class="rt-table-floor"/>
+              <!-- Outer dark rim · the chunky frame -->
+              <rect x="2"  y="3"  width="96" height="22" rx="3" ry="3" class="rt-table-rim"/>
+              <!-- Inner mid wood · main top surface -->
+              <rect x="4"  y="5"  width="92" height="18" rx="2" ry="2" class="rt-table-mid"/>
+              <!-- Top highlight band · lighter wood where light hits -->
+              <rect x="6"  y="6"  width="88" height="2"  class="rt-table-hi"/>
+              <!-- Three grain stripes · 1-unit horizontal lines -->
+              <rect x="10" y="11" width="80" height="1"  class="rt-table-grain"/>
+              <rect x="10" y="15" width="80" height="1"  class="rt-table-grain"/>
+              <rect x="10" y="19" width="80" height="1"  class="rt-table-grain"/>
+              <!-- Bottom edge shadow band -->
+              <rect x="6"  y="20" width="88" height="2"  class="rt-table-lo"/>
+              <!-- Corner highlight pixels · two top corners catching light -->
+              <rect x="4"  y="5"  width="3"  height="2"  class="rt-table-cap"/>
+              <rect x="93" y="5"  width="3"  height="2"  class="rt-table-cap"/>
+
+              <!-- ─── Table props · 8-bit pixel-art décor that
+                   makes the table read as an actual boardroom
+                   surface. All props sit inside the wood body
+                   bounds (x: 4..96, y: 5..23) so they never
+                   overlap the rim or grain edges. ─── -->
+
+              <!-- Stack of two books on the left side of the table. -->
+              <g class="rt-prop">
+                <!-- Bottom book · red spine, flat shadow underneath -->
+                <rect x="13" y="14"  width="14" height="0.6" class="rt-prop-shadow"/>
+                <rect x="13" y="11.5" width="14" height="3"  class="rt-prop-book-1"/>
+                <rect x="13" y="11.5" width="14" height="0.6" class="rt-prop-book-1-hi"/>
+                <rect x="14" y="12.5" width="1"  height="1.5" class="rt-prop-book-band"/>
+                <!-- Top book · navy spine, slightly offset right -->
+                <rect x="15" y="9"   width="13" height="2.5" class="rt-prop-book-2"/>
+                <rect x="15" y="9"   width="13" height="0.6" class="rt-prop-book-2-hi"/>
+                <rect x="16" y="9.7" width="1"  height="1.2" class="rt-prop-book-band"/>
+              </g>
+
+              <!-- Coffee cup · little white cylinder with handle, sits
+                   to the right of the books. -->
+              <g class="rt-prop">
+                <rect x="32"  y="13.5" width="0.4" height="2.5" class="rt-prop-shadow"/>
+                <rect x="30"  y="11.5" width="3.5" height="3.5" class="rt-prop-cup"/>
+                <rect x="30"  y="11.5" width="3.5" height="0.5" class="rt-prop-cup-rim"/>
+                <rect x="33.5" y="12.5" width="0.7" height="1.7" class="rt-prop-cup-handle"/>
+                <rect x="29.5" y="14.7" width="4.5" height="0.4" class="rt-prop-cup-saucer"/>
+              </g>
+
+              <!-- Microphone · facing the chair (bottom-center seat). -->
+              <g class="rt-prop">
+                <rect x="46" y="20"   width="6"   height="0.8" class="rt-prop-mic-base"/>
+                <rect x="48.6" y="14" width="0.8" height="6"   class="rt-prop-mic-stand"/>
+                <rect x="46.5" y="11.5" width="5" height="2.8" class="rt-prop-mic-head"/>
+                <rect x="47"  y="12.2" width="4"  height="1.5" class="rt-prop-mic-grille"/>
+                <rect x="47.5" y="12.6" width="0.8" height="0.4" class="rt-prop-mic-grille-hi"/>
+              </g>
+
+              <!-- Microphone · facing the top-center seat. Smaller
+                   so it reads as further away (perspective hint). -->
+              <g class="rt-prop">
+                <rect x="60" y="11.6" width="4"   height="0.6" class="rt-prop-mic-base"/>
+                <rect x="61.7" y="7.5" width="0.6" height="4"  class="rt-prop-mic-stand"/>
+                <rect x="60.3" y="5.5" width="3.4" height="2"  class="rt-prop-mic-head"/>
+                <rect x="60.7" y="6"   width="2.6" height="1"  class="rt-prop-mic-grille"/>
+              </g>
+
+              <!-- Notepad on the right · open, with two ruled lines. -->
+              <g class="rt-prop">
+                <rect x="74" y="15.5" width="14" height="0.5" class="rt-prop-shadow"/>
+                <rect x="74" y="11"   width="14" height="4.5" class="rt-prop-pad-paper"/>
+                <rect x="74" y="11"   width="14" height="0.6" class="rt-prop-pad-edge"/>
+                <rect x="76" y="12.5" width="10" height="0.4" class="rt-prop-pad-line"/>
+                <rect x="76" y="13.7" width="10" height="0.4" class="rt-prop-pad-line"/>
+                <rect x="76" y="14.9" width="6"  height="0.4" class="rt-prop-pad-line"/>
+                <!-- Pencil resting diagonally on the pad. -->
+                <rect x="80" y="15.2" width="6"  height="0.5" class="rt-prop-pencil"/>
+                <rect x="86" y="15.2" width="0.8" height="0.5" class="rt-prop-pencil-tip"/>
+              </g>
+            </svg>
+            <div class="rt-shimmer" aria-hidden="true"></div>
+            <!-- Pixel-art potted plants · two decorative props
+                 placed in the back-right and front-left corners
+                 of the stage, outside the seat ring. Inline SVG
+                 with shape-rendering=crispEdges so the rects
+                 paint as 1×1 pixel cells matching the table
+                 sprite. Plant 1 is a bushy oval (fern / philo);
+                 plant 2 is a snake-plant-style spear leaf trio.
+                 Both share the same terracotta pot palette. -->
+            <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <!-- Bushy plant · 3/4 view with multi-layer leaves
+                   (dark silhouette / mid green / light highlights),
+                   pot showing visible soil interior, and a stepped
+                   floor shadow beneath. The dark back layer + inset
+                   mid layer create depth so the plant doesn't read
+                   as a flat sticker on the wood floor. -->
+              <!-- Tip leaves -->
+              <rect x="22" y="0"  width="4"  height="3"  fill="#2A4F1D"/>
+              <rect x="21" y="3"  width="6"  height="3"  fill="#3D6E2F"/>
+              <!-- Dark back layer · silhouette base -->
+              <rect x="9"  y="6"  width="30" height="3"  fill="#2A4F1D"/>
+              <rect x="6"  y="9"  width="36" height="3"  fill="#2A4F1D"/>
+              <rect x="3"  y="12" width="42" height="12" fill="#2A4F1D"/>
+              <rect x="6"  y="24" width="36" height="3"  fill="#2A4F1D"/>
+              <rect x="9"  y="27" width="30" height="3"  fill="#2A4F1D"/>
+              <!-- Mid green · main leaf body inset 3px from silhouette -->
+              <rect x="12" y="9"  width="24" height="3"  fill="#3D6E2F"/>
+              <rect x="9"  y="12" width="30" height="9"  fill="#3D6E2F"/>
+              <rect x="12" y="21" width="24" height="3"  fill="#3D6E2F"/>
+              <!-- Underside shadow band · darker green at the bush
+                   bottom suggests leaves curving under (volume cue) -->
+              <rect x="12" y="24" width="24" height="3"  fill="#1F3A14"/>
+              <!-- Light-green highlights · "tops of leaves catching
+                   light" specks scattered across the front face -->
+              <rect x="15" y="12" width="6"  height="3"  fill="#6BAA48"/>
+              <rect x="24" y="9"  width="6"  height="3"  fill="#6BAA48"/>
+              <rect x="9"  y="15" width="3"  height="3"  fill="#6BAA48"/>
+              <rect x="33" y="15" width="3"  height="3"  fill="#6BAA48"/>
+              <rect x="21" y="18" width="6"  height="3"  fill="#6BAA48"/>
+              <!-- Stem -->
+              <rect x="22" y="30" width="4"  height="3"  fill="#5A3A1F"/>
+              <!-- Pot 3/4 view · top rim curved (back row darker, front
+                   row lighter) with dark-brown soil visible between =
+                   "looking down into the pot" cue. -->
+              <rect x="12" y="32" width="24" height="1"  fill="#5A2D14"/>
+              <rect x="9"  y="33" width="30" height="2"  fill="#5A2D14"/>
+              <rect x="12" y="35" width="24" height="3"  fill="#3D2418"/>
+              <rect x="9"  y="38" width="30" height="3"  fill="#A86348"/>
+              <rect x="12" y="41" width="24" height="1"  fill="#A86348"/>
+              <!-- Pot body · trapezoidal narrowing toward bottom; left
+                   highlight + right shadow give the cylinder 3D form -->
+              <rect x="12" y="42" width="24" height="9"  fill="#8C4A2F"/>
+              <rect x="12" y="42" width="3"  height="9"  fill="#A86348"/>
+              <rect x="33" y="42" width="3"  height="9"  fill="#5A2D14"/>
+              <rect x="15" y="51" width="18" height="3"  fill="#5A2D14"/>
+              <!-- Floor shadow · stepped oval anchors the pot in 3D
+                   space (without it the plant floats on the floor) -->
+              <rect x="12" y="54" width="24" height="1"  fill="rgba(0,0,0,0.35)"/>
+              <rect x="9"  y="55" width="30" height="2"  fill="rgba(0,0,0,0.35)"/>
+              <rect x="12" y="57" width="24" height="1"  fill="rgba(0,0,0,0.25)"/>
+            </svg>
+            <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <!-- Snake-plant trio · 3/4 view. Each spear has a dark
+                   silhouette behind a lighter front face plus a light-
+                   green tiger stripe; same visible-soil pot + floor
+                   shadow as plant 1 so both props share vocabulary. -->
+              <!-- Centre spear (tallest) -->
+              <rect x="22" y="0"  width="4"  height="3"  fill="#2A4F1D"/>
+              <rect x="20" y="3"  width="8"  height="29" fill="#2A4F1D"/>
+              <rect x="21" y="3"  width="6"  height="29" fill="#3D6E2F"/>
+              <rect x="23" y="6"  width="2"  height="23" fill="#6BAA48"/>
+              <!-- Left spear · slightly shorter -->
+              <rect x="14" y="6"  width="3"  height="3"  fill="#2A4F1D"/>
+              <rect x="11" y="9"  width="8"  height="23" fill="#2A4F1D"/>
+              <rect x="12" y="9"  width="6"  height="23" fill="#3D6E2F"/>
+              <rect x="13" y="12" width="2"  height="17" fill="#6BAA48"/>
+              <!-- Right spear · mirror of left -->
+              <rect x="31" y="6"  width="3"  height="3"  fill="#2A4F1D"/>
+              <rect x="29" y="9"  width="8"  height="23" fill="#2A4F1D"/>
+              <rect x="30" y="9"  width="6"  height="23" fill="#3D6E2F"/>
+              <rect x="33" y="12" width="2"  height="17" fill="#6BAA48"/>
+              <!-- Pot 3/4 view · same vocabulary as plant 1 -->
+              <rect x="12" y="32" width="24" height="1"  fill="#5A2D14"/>
+              <rect x="9"  y="33" width="30" height="2"  fill="#5A2D14"/>
+              <rect x="12" y="35" width="24" height="3"  fill="#3D2418"/>
+              <rect x="9"  y="38" width="30" height="3"  fill="#A86348"/>
+              <rect x="12" y="41" width="24" height="1"  fill="#A86348"/>
+              <rect x="12" y="42" width="24" height="9"  fill="#8C4A2F"/>
+              <rect x="12" y="42" width="3"  height="9"  fill="#A86348"/>
+              <rect x="33" y="42" width="3"  height="9"  fill="#5A2D14"/>
+              <rect x="15" y="51" width="18" height="3"  fill="#5A2D14"/>
+              <!-- Floor shadow -->
+              <rect x="12" y="54" width="24" height="1"  fill="rgba(0,0,0,0.35)"/>
+              <rect x="9"  y="55" width="30" height="2"  fill="rgba(0,0,0,0.35)"/>
+              <rect x="12" y="57" width="24" height="1"  fill="rgba(0,0,0,0.25)"/>
+            </svg>
+            <!-- Toast tray · pixel-art event chips slide in from
+                 the top of the stage, hold ~4-5s, fade out. Used
+                 for room-state notifications (member joined / left,
+                 tone changed, round opened) that the chat surface
+                 would normally render but the round-table view
+                 hides. Mounted by app.showRoundTableToast. -->
+            <div class="rt-toast-tray" data-rt-toast-tray aria-live="polite" aria-atomic="false"></div>
+            <!-- Persistent room-status HUD · pixel-art panel pinned
+                 to the stage's top-left. Shows current round number,
+                 total user votes cast on key points, seat count, and
+                 a rolling log of the last few chair operations
+                 (joined / left / tone-shift / etc). Sister to the
+                 ephemeral toast tray: the tray flashes the moment
+                 of change, the HUD persists the running tally so
+                 a glance at the stage answers "where are we." -->
+            <div class="rt-hud" data-rt-hud aria-live="polite" aria-atomic="false"></div>
+            <div class="rt-seats" data-rt-seats></div>
+            <!-- Live subtitle · pinned to the bottom-center of the
+                 stage. Shows the current speaker's name + tail of
+                 their text (last ~240 chars) as the message streams
+                 or the voice clip plays. Hidden when no one is
+                 speaking. Mounted by app.renderRtSubtitle. -->
+            <div class="rt-subtitle" data-rt-subtitle hidden aria-live="polite" aria-atomic="false"></div>
+          </div>
 
           <!-- Speaking queue — floats above the input bar, collapsible -->
           <div class="speaking-queue" id="speaking-queue">
@@ -9616,7 +13679,22 @@
             <div class="input-bar-actions">
               <button type="button" class="ib-action ib-pause" data-pause data-i18n-title="ib_pause_tip" data-i18n-aria="ib_pause_label" data-i18n-tip="ib_pause_tip"></button>
               <button type="button" class="ib-action ib-adjourn" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label" data-i18n-tip="ib_adjourn_tip"></button>
+              <!-- Manual vote trigger · visible only when the room's
+                   voteTrigger setting is "manual" and the room is
+                   live + idle (not clarifying / not already voting).
+                   Click fires app.requestRoundEnd() — same path the
+                   chat round-prompt's "Open vote" button uses. -->
+              <button type="button" class="ib-action ib-vote" data-room-end-manual hidden
+                data-i18n-title="ib_vote_tip" data-i18n-aria="ib_vote_label" data-i18n-tip="ib_vote_tip"></button>
             </div>
+            <!-- Round-table view toggle · sits left of the input
+                 pill in the LIVE state. There's a TWIN toggle in
+                 the paused-bar below for the paused state (this one
+                 is hidden together with .input-bar when paused).
+                 Both buttons share the same data-room-rt-toggle
+                 attribute so the click handler + applyRoundTable-
+                 Visibility update them in lockstep. -->
+            <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
             <div class="input-wrap">
               <input type="text" data-i18n-placeholder="send_placeholder" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
               <button class="send-btn" data-send-button data-i18n="send_button">[ Send ]</button>
@@ -9624,6 +13702,11 @@
           </footer>
 
           <footer class="paused-bar">
+            <!-- Round-table view toggle · twin of the input-bar
+                 button. Sits leftmost so it stays accessible while
+                 the room is paused (the input-bar's twin is hidden
+                 alongside .input-bar in the paused state). -->
+            <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
             <div class="paused-bar-text">
               <strong>// discussion paused.</strong> last input — your message at 04:28. next turn: <span class="lime">value_inv</span>.
             </div>
@@ -9634,13 +13717,47 @@
           </footer>
 
           <footer class="adjourned-bar">
-            <div class="adjourned-bar-text">
-              <strong>// room adjourned.</strong> the brief is filed above.
-            </div>
+            <!-- Round-table view toggle · third twin alongside the
+                 input-bar and paused-bar buttons. Stays available
+                 after adjourn so the user can flip between the
+                 archived transcript and the round-table snapshot.
+                 Hidden by applyRoundTableVisibility when delivery-
+                 Mode !== "voice". -->
+            <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
             <div class="adjourned-bar-actions">
-              <a href="#" class="ghost-btn" data-room-export>[↓] Export</a>
-              <a href="#" class="ghost-btn" data-room-replay>[♪] Voice Replay</a>
-              <a href="#" class="ghost-btn" data-room-followup>[→] Convene Follow-up</a>
+              <!-- Action buttons · icon (inline-SVG, currentColor) +
+                   label span. The label drops to display:none under
+                   the bottom-bar's container query at narrow widths
+                   so all four actions (these three + the Voice Replay
+                   inline group) stay reachable on a packed adjourned
+                   bar. `aria-label` / `title` keep the text in the
+                   accessibility tree even when the visual label is
+                   hidden. -->
+              <a href="#" class="ghost-btn ab-action" data-room-export aria-label="Export" title="Export">
+                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+                  <path d="M7 2 L7 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  <polyline points="4,6.5 7,9.5 10,6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M2.5 11.5 L11.5 11.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+                <span class="ab-label">Export</span>
+              </a>
+              <a href="#" class="ghost-btn ab-action" data-room-replay aria-label="Voice Replay" title="Voice Replay">
+                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+                  <!-- Stylised speaker · square body + outward sound waves -->
+                  <path d="M3 5.5 L3 8.5 L5 8.5 L7.5 10.5 L7.5 3.5 L5 5.5 Z" fill="currentColor"/>
+                  <path d="M9.5 5 Q11 7 9.5 9" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                  <path d="M11 3.5 Q13 7 11 10.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                </svg>
+                <span class="ab-label">Voice Replay</span>
+              </a>
+              <a href="#" class="ghost-btn ab-action" data-room-followup aria-label="Convene Follow-up" title="Convene Follow-up">
+                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+                  <!-- Branch arrow · trunk turning into a forward arrow -->
+                  <path d="M3 11 L3 6 Q3 4 5 4 L11 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="8.5,2 11,4 8.5,6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="ab-label">Convene Follow-up</span>
+              </a>
             </div>
           </footer>
         </div>
@@ -9663,6 +13780,12 @@
            Filled by app.renderNotesPage() on demand. -->
       <div class="main-view" data-main-view="notes" hidden>
         <div class="notes-page" data-notes-page></div>
+      </div>
+
+      <!-- Search view · cross-room keyword search results.
+           Filled by app.renderSearchPage() on demand. -->
+      <div class="main-view" data-main-view="search" hidden>
+        <div class="search-page" data-search-page></div>
       </div>
 
     </main>
@@ -9975,6 +14098,17 @@
         }
         return;
       }
+      // "search" → cross-room keyword search view. Restores on
+      // refresh same as reports / notes — without this branch
+      // the saved token fell through to the roomId resolver,
+      // failed `appRoomExists("search")`, and bounced the user
+      // back to the new-room composer.
+      if (sub === "search") {
+        if (window.app && typeof window.app.openSearch === "function") {
+          window.app.openSearch();
+        }
+        return;
+      }
       if (!sub || sub === "new") {
         if (window.app && typeof window.app.setComposerMode === "function") {
           window.app.setComposerMode("room");
@@ -10077,9 +14211,9 @@
         // when there's no saved sub-state at all.
         const saved = lsGet(ROOMS_KEY);
         let target;
-        if (saved && saved !== "new" && saved !== "reports" && saved !== "notes") {
+        if (saved && saved !== "new" && saved !== "reports" && saved !== "notes" && saved !== "search") {
           target = saved; // explicit room id
-        } else if (saved === "reports" || saved === "notes" || saved === "new") {
+        } else if (saved === "reports" || saved === "notes" || saved === "new" || saved === "search") {
           target = saved; // explicit destination preserved on any nav
         } else if (fromTabClick) {
           // No saved sub-state · fresh user clicking the tab. Prefer
@@ -10156,6 +14290,16 @@
         lsSet(ROOMS_KEY, "notes");
         if (window.app && typeof window.app.openAllNotes === "function") {
           window.app.openAllNotes();
+        }
+        return;
+      }
+      // "Search" trigger · cross-room keyword search view.
+      const searchBtn = e.target.closest("[data-search-trigger]");
+      if (searchBtn) {
+        e.preventDefault();
+        lsSet(ROOMS_KEY, "search");
+        if (window.app && typeof window.app.openSearch === "function") {
+          window.app.openSearch();
         }
         return;
       }
@@ -10286,6 +14430,97 @@
         try { window.openAgentProfile(agentId); } catch (_) {}
       }
     };
+  })();
+
+  /* ─── Adjourned-bar progressive collapse fitter ──────────────────
+     The bar's three action buttons (Export / Voice Replay / Convene
+     Follow-up) carry a label by default. When the bar packs tight,
+     we want as MANY buttons as possible to keep their full
+     icon+label, dropping ONLY the leftmost ones to icon-only as
+     space requires — so the user sees full labels until the row
+     would actually wrap.
+
+     Algorithm (each fit cycle):
+       1. Restore every action to label-visible.
+       2. Force a synchronous layout read (bar.offsetHeight).
+       3. If the bar is still on a single row, we're done.
+       4. Otherwise, collapse the LEFTMOST not-yet-collapsed
+          button to `.is-icon-only`. Re-measure. Repeat until
+          either the bar fits on one row or every action is
+          icon-only.
+
+     Wrap detection uses `bar.offsetHeight > FIT_HEIGHT`. The bar's
+     `min-height: 44px` keeps a single row at 44px exactly; any
+     wrap pushes it to ~70px+ (two rows of ~26px). FIT_HEIGHT is
+     50px to give a small slack for padding / sub-pixel rounding.
+
+     Container queries can't drive this — the bar's own inline-size
+     matches its parent, so `@container` only fires when the parent
+     shrinks past a fixed threshold. The progressive nature of the
+     collapse needs a real measurement after each step anyway. */
+  (function () {
+    const FIT_HEIGHT = 50; // bar.offsetHeight ≤ this · single row
+    let attached = null;
+    let ro = null;
+    let scheduled = false;
+
+    function fit() {
+      scheduled = false;
+      const bar = attached;
+      if (!bar) return;
+      // Bar can be display:none in non-adjourned states (CSS keys
+      // off html[data-status]). Skip when not laid out — else
+      // offsetHeight is 0 and we'd thrash the buttons unnecessarily.
+      if (bar.offsetParent === null) return;
+      const buttons = Array.from(bar.querySelectorAll(".ab-action"));
+      if (buttons.length === 0) return;
+      // Step 1 · restore every button so we measure the maximal
+      // (label-visible) layout. If everything fits, we're done.
+      buttons.forEach((b) => b.classList.remove("is-icon-only"));
+      // Force layout · reading offsetHeight is the canonical way
+      // to flush pending style/layout work synchronously.
+      let h = bar.offsetHeight;
+      // Step 2-4 · collapse leftmost while wrapped.
+      for (let i = 0; i < buttons.length && h > FIT_HEIGHT; i++) {
+        buttons[i].classList.add("is-icon-only");
+        h = bar.offsetHeight;
+      }
+    }
+
+    function scheduleFit() {
+      if (scheduled) return;
+      scheduled = true;
+      // rAF throttles the fit work to once per frame — drag-resize
+      // can fire ResizeObserver entries faster than paint, and we
+      // only need to settle on the final size each frame.
+      requestAnimationFrame(fit);
+    }
+
+    function attach() {
+      const bar = document.querySelector(".adjourned-bar");
+      if (!bar || bar === attached) return;
+      if (ro) { try { ro.disconnect(); } catch (_) {} ro = null; }
+      attached = bar;
+      scheduleFit();
+      try {
+        ro = new ResizeObserver(() => scheduleFit());
+        ro.observe(bar);
+      } catch (_) {
+        // ResizeObserver unsupported · fall back to window-resize.
+        window.addEventListener("resize", scheduleFit);
+      }
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", attach);
+    } else {
+      attach();
+    }
+    // Re-attach + re-fit periodically · catches layout rebuilds
+    // (room state flip live → adjourned, sidebar collapse, brief
+    // banner mount) that change which siblings share the bar.
+    // Cheaper than a MutationObserver fanning over chat appends.
+    setInterval(() => { attach(); scheduleFit(); }, 1000);
   })();
 
 

@@ -30,6 +30,7 @@ import {
   getRoomQueueSnapshot,
   injectSpeakers,
   isRoomSpeaking,
+  requestRoundEndAfterCurrent,
   requestSoftPause,
   resumeRoom,
   setPendingUserAfterCurrent,
@@ -870,13 +871,31 @@ export function roomsRouter(): Hono {
     const id = c.req.param("id");
     const room = getRoom(id);
     if (!room) return c.json({ error: "not found" }, 404);
-    if (room.status === "adjourned") return c.json({ error: "room is adjourned" }, 409);
 
     let body: unknown;
     try { body = await c.req.json(); }
     catch { return c.json({ error: "invalid JSON body" }, 400); }
 
-    const b = (body ?? {}) as { mode?: unknown; intensity?: unknown; briefStyle?: unknown; incognito?: unknown; deliveryMode?: unknown };
+    const b = (body ?? {}) as { mode?: unknown; intensity?: unknown; briefStyle?: unknown; incognito?: unknown; deliveryMode?: unknown; voteTrigger?: unknown };
+
+    // Adjourned rooms are otherwise frozen, but `deliveryMode` is a
+    // user-preference flag (text vs voice) that controls in-room UI
+    // and replay-experience defaults — flipping it on an archived
+    // room has no live side effects, so we permit deliveryMode-only
+    // patches even when the room is adjourned. Any other field
+    // change on an adjourned room is still rejected.
+    if (room.status === "adjourned") {
+      const onlyDeliveryMode =
+        b.deliveryMode !== undefined &&
+        b.mode === undefined &&
+        b.intensity === undefined &&
+        b.briefStyle === undefined &&
+        b.incognito === undefined &&
+        b.voteTrigger === undefined;
+      if (!onlyDeliveryMode) {
+        return c.json({ error: "room is adjourned" }, 409);
+      }
+    }
 
     // `no-mercy` retired · existing rooms with that mode keep loading
     // (the prompt builder maps no-mercy → debate at runtime), but new
@@ -892,7 +911,7 @@ export function roomsRouter(): Hono {
     const ALLOWED_STYLES = new Set(["auto", "mckinsey", "gartner", "a16z", "anthropic", "8bit"]);
     const STYLE_ALIAS: Record<string, string> = { mck: "mckinsey" };
 
-    const patch: { mode?: string; intensity?: string; briefStyle?: string; deliveryMode?: string } = {};
+    const patch: { mode?: string; intensity?: string; briefStyle?: string; deliveryMode?: string; voteTrigger?: "auto" | "manual" } = {};
     let incognitoNext: boolean | null = null;
 
     if (typeof b.mode === "string") {
@@ -919,6 +938,11 @@ export function roomsRouter(): Hono {
       if (dm !== "voice" && dm !== "text") return c.json({ error: `invalid deliveryMode: ${dm}` }, 400);
       patch.deliveryMode = dm;
     }
+    if (typeof b.voteTrigger === "string") {
+      const vt = b.voteTrigger.trim();
+      if (vt !== "auto" && vt !== "manual") return c.json({ error: `invalid voteTrigger: ${vt}` }, 400);
+      patch.voteTrigger = vt;
+    }
 
     if (Object.keys(patch).length === 0 && incognitoNext === null) {
       return c.json({ room });
@@ -944,6 +968,9 @@ export function roomsRouter(): Hono {
     }
     if (patch.deliveryMode !== undefined && patch.deliveryMode !== room.deliveryMode) {
       changes.deliveryMode = { from: room.deliveryMode, to: patch.deliveryMode };
+    }
+    if (patch.voteTrigger !== undefined && patch.voteTrigger !== room.voteTrigger) {
+      changes.voteTrigger = { from: room.voteTrigger, to: patch.voteTrigger };
     }
     if (Object.keys(changes).length > 0) {
       const ts = Date.now();
@@ -1066,16 +1093,37 @@ export function roomsRouter(): Hono {
   //    User-driven (the queue strip exposes a "wrap round" button).
   //    Refuses if the room isn't actively running, if a director is
   //    mid-stream, or if we're already paused / clarifying.
-  r.post("/:id/round-end", (c) => {
+  r.post("/:id/round-end", async (c) => {
     const id = c.req.param("id");
     const room = getRoom(id);
     if (!room) return c.json({ error: "not found" }, 404);
     if (room.status !== "live") return c.json({ error: "room is not live" }, 409);
     if (room.awaitingClarify) return c.json({ error: "still in clarification" }, 409);
     if (room.awaitingContinue) return c.json({ error: "already in round-end" }, 409);
-    if (isRoomSpeaking(id)) return c.json({ error: "wait for the current speaker to finish" }, 409);
 
-    // Cancel any queued directors so the round wraps cleanly.
+    // Mode dispatch · "now" interrupts any in-flight director and
+    // dispatches the chair immediately. "after-speaker" defers the
+    // dispatch to pumpQueue's between-turn drain (no interruption,
+    // chair runs once the current turn finalises). The two modes
+    // are surfaced by the bottom-bar manual-vote overlay so the
+    // user can pick the trade-off explicitly. Default "now" keeps
+    // the legacy behaviour for any older client that posts no body.
+    let body: unknown = {};
+    try { body = await c.req.json(); } catch { /* body optional */ }
+    const mode = (body as { mode?: unknown })?.mode === "after-speaker"
+      ? "after-speaker"
+      : "now";
+
+    // After-speaker · if a director is mid-stream, stash the request
+    // and let the orchestrator drain it between turns. If nobody's
+    // speaking, fall through to the now-path (immediate dispatch).
+    if (mode === "after-speaker" && isRoomSpeaking(id)) {
+      requestRoundEndAfterCurrent(id);
+      return c.json({ deferred: true });
+    }
+
+    // Now-path · cancel any queued directors AND any in-flight stream.
+    // abortRoom both clears the queue and aborts s.inflight if present.
     abortRoom(id);
 
     // Resolve the round number from the latest user message (mirrors

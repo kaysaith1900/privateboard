@@ -166,6 +166,7 @@
     intensity: "sharp",
     style: "auto",
     incognito: false,
+    voteTrigger: "auto",
     history: [
       { ts: "Apr 28 · 21:08", who: "system", kind: "open",   label: "room opened" }
     ]
@@ -173,7 +174,7 @@
 
   // Staged changes layered on top of ROOM_STATE — committed only when
   // the user clicks Confirm. The shape mirrors the room config keys.
-  let STAGED = { mode: null, intensity: null, incognito: null };
+  let STAGED = { mode: null, intensity: null, incognito: null, voteTrigger: null };
   // Snapshot of ROOM_STATE.members at overlay-open time. The members
   // array itself is mutated optimistically by add/removeMember; this
   // baseline lets us detect "dirty" by diffing and lets us roll back
@@ -196,11 +197,12 @@
       STAGED.mode !== null ||
       STAGED.intensity !== null ||
       STAGED.incognito !== null ||
+      STAGED.voteTrigger !== null ||
       membersDirty()
     );
   }
   function resetStaged() {
-    STAGED = { mode: null, intensity: null, incognito: null };
+    STAGED = { mode: null, intensity: null, incognito: null, voteTrigger: null };
   }
 
   const MODES = [
@@ -360,6 +362,29 @@
                   <input type="checkbox" class="rs-incognito-check" data-rs-incognito-check>
                   <span class="rs-toggle-label">Incognito — don't extract memory from this room</span>
                 </label>
+              </div>
+
+              <div class="rs-config-row">
+                <div class="rs-config-row-label">
+                  <span class="rs-config-row-name">Vote phase</span>
+                  <span class="rs-config-row-hint">when the chair opens the round-end vote</span>
+                </div>
+                <div class="rs-vote-trigger-grp" role="radiogroup" aria-label="Vote phase trigger">
+                  <label class="rs-radio-row" data-rs-vote-trigger-row="auto">
+                    <input type="radio" name="rs-vote-trigger" value="auto" data-rs-vote-trigger-input>
+                    <span class="rs-radio-label">
+                      <span class="rs-radio-name">Auto</span>
+                      <span class="rs-radio-desc">chair drops the vote prompt at every round wrap</span>
+                    </span>
+                  </label>
+                  <label class="rs-radio-row" data-rs-vote-trigger-row="manual">
+                    <input type="radio" name="rs-vote-trigger" value="manual" data-rs-vote-trigger-input>
+                    <span class="rs-radio-label">
+                      <span class="rs-radio-name">Manual</span>
+                      <span class="rs-radio-desc">you trigger the vote with the bottom-bar button</span>
+                    </span>
+                  </label>
+                </div>
               </div>
 
             </div>
@@ -544,6 +569,16 @@
     checkbox.checked = !!effective;
   }
 
+  function renderVoteTrigger() {
+    const eff = STAGED.voteTrigger !== null ? STAGED.voteTrigger : ROOM_STATE.voteTrigger;
+    modal.querySelectorAll("[data-rs-vote-trigger-input]").forEach((input) => {
+      input.checked = input.value === eff;
+    });
+    modal.querySelectorAll("[data-rs-vote-trigger-row]").forEach((row) => {
+      row.classList.toggle("active", row.dataset.rsVoteTriggerRow === eff);
+    });
+  }
+
   function renderIntensity() {
     // Intensity is now a 3-chip row (Calm / Sharp / Terse) instead of
     // a slider · highlight the active chip. The hint line above shows
@@ -602,6 +637,7 @@
     ROOM_STATE.mode     = room.mode || "constructive";
     ROOM_STATE.intensity = room.intensity || "sharp";
     ROOM_STATE.incognito = room.incognito === true;
+    ROOM_STATE.voteTrigger = room.voteTrigger === "manual" ? "manual" : "auto";
     if (Array.isArray(app.currentMembers) && app.currentMembers.length) {
       ROOM_STATE.members = app.currentMembers.map((a) => a.id);
     }
@@ -627,6 +663,7 @@
     renderModes();
     renderIntensity();
     renderIncognito();
+    renderVoteTrigger();
     renderConfirmState();
     closeCastPicker();
     overlay.classList.add("open");
@@ -738,16 +775,23 @@
     renderIncognito();
     renderConfirmState();
   }
+  function stageVoteTrigger(next) {
+    const v = next === "manual" ? "manual" : "auto";
+    STAGED.voteTrigger = v === ROOM_STATE.voteTrigger ? null : v;
+    renderVoteTrigger();
+    renderConfirmState();
+  }
 
   /** Push staged config + member changes to the backend. */
   async function commit() {
     if (!isDirty()) { close(); return; }
 
-    // Build the settings patch (mode / intensity / incognito).
+    // Build the settings patch (mode / intensity / incognito / voteTrigger).
     const patch = {};
-    if (STAGED.mode !== null)      patch.mode = STAGED.mode;
-    if (STAGED.intensity !== null) patch.intensity = STAGED.intensity;
-    if (STAGED.incognito !== null) patch.incognito = STAGED.incognito;
+    if (STAGED.mode !== null)         patch.mode = STAGED.mode;
+    if (STAGED.intensity !== null)    patch.intensity = STAGED.intensity;
+    if (STAGED.incognito !== null)    patch.incognito = STAGED.incognito;
+    if (STAGED.voteTrigger !== null)  patch.voteTrigger = STAGED.voteTrigger;
 
     const btn = modal.querySelector("[data-rs-confirm]");
     const status = modal.querySelector("[data-rs-status]");
@@ -793,11 +837,13 @@
         mode: ROOM_STATE.mode,
         intensity: ROOM_STATE.intensity,
         incognito: ROOM_STATE.incognito,
+        voteTrigger: ROOM_STATE.voteTrigger,
       };
       const after = {
         mode: patch.mode ?? ROOM_STATE.mode,
         intensity: patch.intensity ?? ROOM_STATE.intensity,
         incognito: typeof patch.incognito === "boolean" ? patch.incognito : ROOM_STATE.incognito,
+        voteTrigger: patch.voteTrigger ?? ROOM_STATE.voteTrigger,
       };
       Object.assign(ROOM_STATE, after);
       if (STAGED.mode !== null) {
@@ -811,6 +857,19 @@
       if (STAGED.incognito !== null) {
         logEvent({ kind: "incognito", before: before.incognito, after: after.incognito,
           label: `memory: ${before.incognito ? "incognito" : "default"} → ${after.incognito ? "incognito" : "default"}` });
+      }
+      if (STAGED.voteTrigger !== null) {
+        logEvent({ kind: "voteTrigger", before: before.voteTrigger, after: after.voteTrigger,
+          label: `vote phase: ${before.voteTrigger} → ${after.voteTrigger}` });
+      }
+      // Mirror the new voteTrigger onto the live app.currentRoom so the
+      // bottom-bar manual button shows/hides immediately without
+      // waiting for an SSE round-trip.
+      if (STAGED.voteTrigger !== null && window.app && window.app.currentRoom) {
+        window.app.currentRoom.voteTrigger = after.voteTrigger;
+        if (typeof window.app.refreshManualVoteButton === "function") {
+          window.app.refreshManualVoteButton();
+        }
       }
       resetStaged();
       if (btn) { btn.disabled = false; btn.textContent = "[ Confirm ]"; }
@@ -1038,6 +1097,13 @@
         // Don't stop propagation · the native checkbox click event
         // continues, then we read its checked state on next tick.
         setTimeout(() => stageIncognito(incBox.checked), 0);
+        return;
+      }
+      // Vote trigger radio · same defer-and-read-state pattern as
+      // incognito so the native input flip resolves before we stage.
+      const vtInput = e.target.closest("[data-rs-vote-trigger-input]");
+      if (vtInput) {
+        setTimeout(() => stageVoteTrigger(vtInput.value), 0);
         return;
       }
     }, true);

@@ -6,6 +6,10 @@ import { getDb } from "./db.js";
 
 export type RoomStatus = "live" | "paused" | "adjourned";
 export type RoomDeliveryMode = "text" | "voice";
+/** Vote-trigger preference · controls whether the chair's vote
+ *  phase (round-prompt) auto-fires at round wrap or only on a
+ *  user click in the bottom bar. */
+export type RoomVoteTrigger = "auto" | "manual";
 
 export interface Room {
   id: string;
@@ -16,6 +20,7 @@ export interface Room {
                       //       (legacy "no-mercy" rooms map to debate at read time)
   intensity: string;  // calm | sharp | terse  (legacy "brutal" maps to terse at read time)
   deliveryMode: RoomDeliveryMode;
+  voteTrigger: RoomVoteTrigger;
   status: RoomStatus;
   briefStyle: string | null;  // auto | mckinsey | gartner | a16z | anthropic | 8bit
   /** Soft-pause flag set by the chair after a round-end key-points message. */
@@ -46,6 +51,10 @@ export interface RoomMember {
   agentId: string;
   position: number;
   joinedAt: number;
+  /** When the chair excused this member from the room. NULL = active.
+   *  Soft-delete: `removeRoomMember` flips this to a timestamp instead
+   *  of DELETE so past messages can still resolve the speaker. */
+  removedAt: number | null;
 }
 
 interface Row {
@@ -56,6 +65,7 @@ interface Row {
   mode: string;
   intensity: string;
   delivery_mode: string;
+  vote_trigger: string;
   status: string;
   brief_style: string | null;
   awaiting_continue: number;
@@ -72,10 +82,11 @@ interface MemberRow {
   agent_id: string;
   position: number;
   joined_at: number;
+  removed_at: number | null;
 }
 
 const ROOM_COLS =
-  "id, number, name, subject, mode, intensity, delivery_mode, status, brief_style, awaiting_continue, " +
+  "id, number, name, subject, mode, intensity, delivery_mode, vote_trigger, status, brief_style, awaiting_continue, " +
   "awaiting_clarify, created_at, paused_at, adjourned_at, incognito, " +
   "parent_room_id, parent_brief_id";
 
@@ -88,6 +99,7 @@ function mapRow(row: Row): Room {
     mode: row.mode,
     intensity: row.intensity,
     deliveryMode: row.delivery_mode === "voice" ? "voice" : "text",
+    voteTrigger: row.vote_trigger === "manual" ? "manual" : "auto",
     status: row.status as RoomStatus,
     briefStyle: row.brief_style,
     awaitingContinue: row.awaiting_continue === 1,
@@ -102,7 +114,12 @@ function mapRow(row: Row): Room {
 }
 
 function mapMember(row: MemberRow): RoomMember {
-  return { agentId: row.agent_id, position: row.position, joinedAt: row.joined_at };
+  return {
+    agentId: row.agent_id,
+    position: row.position,
+    joinedAt: row.joined_at,
+    removedAt: row.removed_at,
+  };
 }
 
 export function listRooms(): Room[] {
@@ -122,7 +139,22 @@ export function getRoom(id: string): Room | null {
 export function listRoomMembers(roomId: string): RoomMember[] {
   const rows = getDb()
     .prepare(
-      "SELECT agent_id, position, joined_at FROM room_members WHERE room_id = ? ORDER BY position ASC",
+      "SELECT agent_id, position, joined_at, removed_at FROM room_members " +
+      "WHERE room_id = ? AND removed_at IS NULL ORDER BY position ASC",
+    )
+    .all(roomId) as MemberRow[];
+  return rows.map(mapMember);
+}
+
+/** Every director who was EVER in this room — active + soft-deleted.
+ *  Used by the orchestrator's room-state snapshot so the frontend can
+ *  resolve speaker names / voice profiles for past messages from
+ *  excused directors. Active subset = `listRoomMembers(roomId)`. */
+export function listAllRoomMembers(roomId: string): RoomMember[] {
+  const rows = getDb()
+    .prepare(
+      "SELECT agent_id, position, joined_at, removed_at FROM room_members " +
+      "WHERE room_id = ? ORDER BY position ASC",
     )
     .all(roomId) as MemberRow[];
   return rows.map(mapMember);
@@ -266,25 +298,43 @@ export function setRoomStatus(
 export function addRoomMember(roomId: string, agentId: string): RoomMember | null {
   const db = getDb();
   const existing = db
-    .prepare("SELECT agent_id, position, joined_at FROM room_members WHERE room_id = ? AND agent_id = ?")
+    .prepare("SELECT agent_id, position, joined_at, removed_at FROM room_members WHERE room_id = ? AND agent_id = ?")
     .get(roomId, agentId) as MemberRow | undefined;
-  if (existing) return mapMember(existing);
+  if (existing) {
+    // Already on the roster — either still active (no-op) or
+    // previously excused → resurrect by clearing removed_at. Keep
+    // the original position so prior speaker-queue rotations and
+    // any messages filed under that index still line up.
+    if (existing.removed_at !== null) {
+      db.prepare("UPDATE room_members SET removed_at = NULL WHERE room_id = ? AND agent_id = ?")
+        .run(roomId, agentId);
+      return { agentId, position: existing.position, joinedAt: existing.joined_at, removedAt: null };
+    }
+    return mapMember(existing);
+  }
   const maxRow = db
     .prepare("SELECT COALESCE(MAX(position), -1) AS p FROM room_members WHERE room_id = ?")
     .get(roomId) as { p: number };
   const position = maxRow.p + 1;
   const now = Date.now();
   db.prepare(
-    "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
+    "INSERT INTO room_members (room_id, agent_id, position, joined_at, removed_at) VALUES (?, ?, ?, ?, NULL)",
   ).run(roomId, agentId, position, now);
-  return { agentId, position, joinedAt: now };
+  return { agentId, position, joinedAt: now, removedAt: null };
 }
 
-/** Remove a director from a room. No-op if they weren't a member. */
+/** Excuse a director from the room via soft-delete · flips
+ *  `removed_at` from NULL to the current timestamp. The row stays
+ *  in `room_members` so past messages can still resolve the
+ *  speaker's name, avatar, and voice profile via
+ *  `listAllRoomMembers`. No-op if already excused or not a member. */
 export function removeRoomMember(roomId: string, agentId: string): boolean {
   const result = getDb()
-    .prepare("DELETE FROM room_members WHERE room_id = ? AND agent_id = ?")
-    .run(roomId, agentId);
+    .prepare(
+      "UPDATE room_members SET removed_at = ? " +
+      "WHERE room_id = ? AND agent_id = ? AND removed_at IS NULL",
+    )
+    .run(Date.now(), roomId, agentId);
   return result.changes > 0;
 }
 
@@ -315,6 +365,7 @@ export interface RoomSettingsPatch {
   intensity?: string;
   briefStyle?: string;
   deliveryMode?: RoomDeliveryMode;
+  voteTrigger?: RoomVoteTrigger;
 }
 
 /**
@@ -332,6 +383,7 @@ export function updateRoomSettings(
   if (patch.intensity !== undefined)  { sets.push("intensity = ?");   vals.push(patch.intensity); }
   if (patch.briefStyle !== undefined) { sets.push("brief_style = ?"); vals.push(patch.briefStyle); }
   if (patch.deliveryMode !== undefined) { sets.push("delivery_mode = ?"); vals.push(patch.deliveryMode === "voice" ? "voice" : "text"); }
+  if (patch.voteTrigger !== undefined) { sets.push("vote_trigger = ?"); vals.push(patch.voteTrigger === "manual" ? "manual" : "auto"); }
   if (sets.length === 0) return getRoom(roomId);
   vals.push(roomId);
   getDb().prepare(`UPDATE rooms SET ${sets.join(", ")} WHERE id = ?`).run(...vals);

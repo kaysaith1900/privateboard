@@ -58,10 +58,48 @@
     skipUser: true,
     abortCtrl: null,
     prefetched: new Map(), // idx → { audioBase64, mimeType }
+    /** Currently-active replay item · what the round-table stage
+     *  reads via getActive() to drive seat highlights, the rt-bubble,
+     *  and the subtitle bar. `state` flips to "thinking" while the
+     *  next message is being fetched / synthesised, then "speaking"
+     *  once audio.play resolves. Cleared on close + on playlist end. */
+    active: null, // { messageId, authorId, kind, state, body }
   };
 
   function isOpen() {
     return !!STATE.overlay;
+  }
+
+  function getActive() {
+    return STATE.active;
+  }
+
+  /** Expose the live audio element so the round-table stage's
+   *  subtitle bar can sync with playback time (currentTime /
+   *  duration) when replay is active. The replay's audio is a
+   *  single full-message clip (not a chunked stream), so the
+   *  subtitle has to interpolate sentence position from the
+   *  playhead — there's no per-chunk timing metadata available. */
+  function getActiveAudio() {
+    return STATE.audio || null;
+  }
+
+  /** Fire a DOM event so listeners (the room view's renderRoundTable
+   *  + renderRoundTableHud) can repaint without each having to
+   *  poll. Bubble + composed so a subtree listener catches it. */
+  function emitActiveChanged() {
+    try {
+      const ev = new CustomEvent("boardroom:replay-active", {
+        detail: STATE.active ? { ...STATE.active } : null,
+        bubbles: true,
+      });
+      document.dispatchEvent(ev);
+    } catch { /* IE-style envs · CustomEvent missing → noop */ }
+  }
+
+  function setActive(next) {
+    STATE.active = next;
+    emitActiveChanged();
   }
 
   /** Build the ordered playlist · keep chronological order, drop
@@ -169,8 +207,10 @@
       STATE.overlay = null;
     }
     clearActiveHighlight();
+    removeInlineExpand(); // any inline pill in the adjourned-bar drops too
     STATE.playlist = [];
     STATE.prefetched = new Map();
+    setActive(null); // round-table stage clears its replay seat / subtitle
   }
 
   // ─── Mount + render ──────────────────────────────────────────
@@ -182,7 +222,10 @@
     el.innerHTML = `
       <div class="vr-head">
         <span class="vr-kicker"><span class="vr-kicker-glyph">♪</span> voice replay</span>
-        <button type="button" class="vr-close" data-vr-close aria-label="Close">✕</button>
+        <div class="vr-head-actions">
+          <button type="button" class="vr-collapse" data-vr-collapse aria-label="Collapse" title="Collapse">_</button>
+          <button type="button" class="vr-close" data-vr-close aria-label="Close">✕</button>
+        </div>
       </div>
       <div class="vr-body" data-vr-body>
         <div class="vr-spinner-row">
@@ -196,10 +239,25 @@
       </div>
     `;
     document.body.appendChild(el);
+    // Every fresh `open()` starts with the floating panel
+    // expanded — collapse is a per-session preference, not a
+    // sticky one. The previous version persisted `voice-replay.
+    // collapsed` to localStorage so a re-open would mount
+    // already-collapsed; that confused users who clicked the
+    // bottom-bar Voice Replay button and saw the inline group
+    // appear without the floating panel ever showing. The bug
+    // looked like "Voice Replay morphs into Pause/Next/Stop
+    // /Expand instead of opening the player." Solve by NOT
+    // restoring the collapsed flag on cold open. Also clear any
+    // legacy "1" left in storage from earlier builds so users
+    // upgrading from those don't keep getting the same bug for
+    // one more session before re-toggling.
+    try { localStorage.removeItem("voice-replay.collapsed"); } catch { /* noop */ }
     el.addEventListener("click", (ev) => {
       const target = ev.target;
       if (!target || !(target instanceof Element)) return;
       if (target.closest("[data-vr-close]")) { ev.preventDefault(); close(); return; }
+      if (target.closest("[data-vr-collapse]")) { ev.preventDefault(); toggleCollapsed(); return; }
       if (target.closest("[data-vr-pause]")) { ev.preventDefault(); togglePause(); return; }
       if (target.closest("[data-vr-skip]")) { ev.preventDefault(); skipCurrent(); return; }
       if (target.closest("[data-vr-speed]")) { ev.preventDefault(); cycleSpeed(); return; }
@@ -220,6 +278,169 @@
       }
     });
     return el;
+  }
+
+  /** Doc-level handler for the inline replay control group in the
+   *  adjourned-bar — those buttons are mounted OUTSIDE the overlay
+   *  so the overlay-scoped click delegate above can't see them.
+   *  Bound once per page lifetime; safe even when no replay is
+   *  active (the buttons simply aren't in the DOM until
+   *  toggleCollapsed mounts them). */
+  if (!root.__vrInlineExpandBound && typeof document !== "undefined"
+      && typeof document.addEventListener === "function") {
+    root.__vrInlineExpandBound = true;
+    document.addEventListener("click", (ev) => {
+      const target = ev.target;
+      if (!target || !(target instanceof Element)) return;
+      if (target.closest("[data-vr-inline-next]")) {
+        ev.preventDefault();
+        skipCurrent();
+        return;
+      }
+      if (target.closest("[data-vr-inline-pause]")) {
+        ev.preventDefault();
+        togglePause();
+        return;
+      }
+      if (target.closest("[data-vr-inline-stop]")) {
+        ev.preventDefault();
+        close();
+        return;
+      }
+      if (target.closest("[data-vr-inline-expand]")) {
+        ev.preventDefault();
+        toggleCollapsed();
+        return;
+      }
+    });
+  }
+
+  /** Collapse the player by hiding the floating overlay entirely +
+   *  surfacing the inline replay control group in the adjourned-bar
+   *  right after where the Voice Replay button used to be. Audio
+   *  keeps playing in the background; the user's content is no
+   *  longer blocked.
+   *
+   *  The collapsed posture is per-session only. We deliberately
+   *  do NOT persist to localStorage — restoring a collapsed flag
+   *  on cold open would make a fresh `open()` look like the panel
+   *  never appeared (it'd mount already-collapsed and hide the
+   *  floating overlay), confusing users who expect the player to
+   *  show every time they click Voice Replay. */
+  function toggleCollapsed() {
+    if (!STATE.overlay) return;
+    const collapsed = STATE.overlay.classList.toggle("is-collapsed");
+    if (collapsed) mountInlineExpand();
+    else removeInlineExpand();
+  }
+
+  /** Slot the inline replay control group into the bottom-bar
+   *  action group right after the existing Voice Replay anchor.
+   *  Three buttons: Next (skip current message), Pause/Resume
+   *  (toggles audio playback), Expand (re-opens the panel). The
+   *  group reads as a sibling of Export / Voice Replay / Convene
+   *  Follow-up via `.ghost-btn` chrome. Idempotent · re-mount is
+   *  a no-op when the group is already present. */
+  function mountInlineExpand() {
+    if (document.querySelector("[data-vr-inline-group]")) return;
+    const replayBtn = document.querySelector(".adjourned-bar [data-room-replay]");
+    if (!replayBtn) return;
+    const group = document.createElement("span");
+    group.className = "vr-inline-group";
+    group.setAttribute("data-vr-inline-group", "1");
+    // Inline-SVG icons · all `currentColor` so they inherit
+    // `.ghost-btn`'s text + lime-on-hover treatment. Standard
+    // media-player vocabulary: filled triangles for play/skip,
+    // filled bars for pause, stroked corner-out arrows for expand.
+    // 14×14 viewBox sized down to 12px so the buttons stay tight.
+    // Hover / aria-label carry the action text.
+    const NEXT_SVG = `
+      <svg class="vib-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <path d="M2 2 L7.5 7 L2 12 Z" fill="currentColor"/>
+        <path d="M7 2 L12.5 7 L7 12 Z" fill="currentColor"/>
+      </svg>
+    `;
+    const PAUSE_SVG = `
+      <svg class="vib-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <rect x="3.5" y="2.5" width="2.5" height="9" rx="0.6" fill="currentColor"/>
+        <rect x="8" y="2.5" width="2.5" height="9" rx="0.6" fill="currentColor"/>
+      </svg>
+    `;
+    const PLAY_SVG = `
+      <svg class="vib-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <path d="M3.5 2 L12 7 L3.5 12 Z" fill="currentColor"/>
+      </svg>
+    `;
+    // Stash the play SVG on the constructor so refreshInlinePauseButton
+    // can swap between Pause / Play without re-wiring the markup.
+    group.dataset.vrPlaySvg = PLAY_SVG.trim();
+    group.dataset.vrPauseSvg = PAUSE_SVG.trim();
+    const STOP_SVG = `
+      <svg class="vib-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <rect x="3" y="3" width="8" height="8" rx="0.6" fill="currentColor"/>
+      </svg>
+    `;
+    const EXPAND_SVG = `
+      <svg class="vib-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <!-- Top-right corner out -->
+        <polyline points="8.5,3 11,3 11,5.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="11" y1="3" x2="7.5" y2="6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <!-- Bottom-left corner out -->
+        <polyline points="5.5,11 3,11 3,8.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="3" y1="11" x2="6.5" y2="7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    `;
+    group.innerHTML = `
+      <button type="button" class="ghost-btn vr-inline-btn" data-vr-inline-next aria-label="Next message" title="Next message">${NEXT_SVG}</button>
+      <button type="button" class="ghost-btn vr-inline-btn" data-vr-inline-pause aria-label="Pause" title="Pause"><span data-vib-pause-mark>${PAUSE_SVG}</span></button>
+      <button type="button" class="ghost-btn vr-inline-btn" data-vr-inline-stop aria-label="Stop replay" title="Stop replay">${STOP_SVG}</button>
+      <button type="button" class="ghost-btn vr-inline-btn vr-inline-expand" data-vr-inline-expand aria-label="Expand voice replay" title="Expand voice replay">${EXPAND_SVG}<span class="vie-pulse" aria-hidden="true"></span></button>
+    `;
+    replayBtn.insertAdjacentElement("afterend", group);
+    // Hide the original Voice Replay anchor while the inline group
+    // is showing — its job (open the player) is supplanted by the
+    // inline Expand button. Stash the previous display so we can
+    // restore it cleanly on remove.
+    replayBtn.dataset.vrPrevDisplay = replayBtn.style.display || "";
+    replayBtn.style.display = "none";
+    refreshInlinePauseButton();
+  }
+
+  function removeInlineExpand() {
+    const group = document.querySelector("[data-vr-inline-group]");
+    if (group) group.remove();
+    // Restore the original Voice Replay anchor in the bottom bar
+    // so the user can re-trigger the player. We stashed the prior
+    // inline display when we hid it; restore it (empty string ==
+    // CSS default).
+    const replayBtn = document.querySelector(".adjourned-bar [data-room-replay]");
+    if (replayBtn) {
+      const prev = replayBtn.dataset.vrPrevDisplay;
+      replayBtn.style.display = (prev === undefined || prev === null) ? "" : prev;
+      delete replayBtn.dataset.vrPrevDisplay;
+    }
+  }
+
+  /** Sync the inline pause/resume button with the live STATE.paused
+   *  flag. Called from mount, togglePause, and on advance so the
+   *  glyph + label always read the current state. No-op when the
+   *  inline group isn't mounted. */
+  function refreshInlinePauseButton() {
+    const mark = document.querySelector("[data-vib-pause-mark]");
+    if (!mark) return;
+    const group = document.querySelector("[data-vr-inline-group]");
+    if (!group) return;
+    const playing = STATE.audio && !STATE.paused && !STATE.audio.paused;
+    // Pull the cached SVG sources stashed at mount time. innerHTML
+    // assignment is fine — SVG strings are author-controlled
+    // constants, not user input.
+    mark.innerHTML = playing ? group.dataset.vrPauseSvg : group.dataset.vrPlaySvg;
+    const btn = mark.closest("[data-vr-inline-pause]");
+    if (btn) {
+      const label = playing ? "Pause" : "Resume";
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+    }
   }
 
   function setBusy(busy, msg) {
@@ -312,6 +533,17 @@
     if (!cur) { close(); return; }
     renderPlayer();
     highlightActive(cur.messageId);
+    // Mark the seat as "thinking" while we fetch + synthesise. The
+    // round-table stage reads this via getActive() and lights the
+    // seat with a thinking bubble. Body is included so the stage
+    // subtitle can preview the line that's about to be spoken.
+    setActive({
+      messageId: cur.messageId,
+      authorId: cur.authorId,
+      kind: cur.kind,
+      state: "thinking",
+      body: cur.body || "",
+    });
     let payload;
     try {
       payload = await fetchAudio(STATE.idx);
@@ -336,14 +568,40 @@
     STATE.audio.playbackRate = STATE.speed;
     STATE.audio.addEventListener("ended", () => advance());
     STATE.audio.addEventListener("error", () => advance());
+    // Tick out a DOM event on every timeupdate (~4 Hz) so the
+    // round-table stage's subtitle bar can poll currentTime /
+    // duration and interpolate which sentence is being read. We
+    // can't capture per-sentence timing for replay (the audio is
+    // a single base64-decoded clip, not a chunked stream), so the
+    // subtitle has to estimate · firing the event keeps the
+    // cadence consistent without coupling the modules.
+    STATE.audio.addEventListener("timeupdate", () => {
+      try {
+        const ev = new CustomEvent("boardroom:replay-tick", { bubbles: true });
+        document.dispatchEvent(ev);
+      } catch { /* old browsers · noop */ }
+    });
     if (!STATE.paused) {
-      try { await STATE.audio.play(); }
+      try {
+        await STATE.audio.play();
+        // Audio is running · flip seat from "thinking" → "speaking".
+        setActive({
+          messageId: cur.messageId,
+          authorId: cur.authorId,
+          kind: cur.kind,
+          state: "speaking",
+          body: cur.body || "",
+        });
+      }
       catch (e) {
         // Autoplay block · pause and let the user click resume.
         STATE.paused = true;
         renderPlayer();
       }
     }
+    // Sync the inline (collapsed) pause button so its glyph
+    // tracks the live playback state across message handoffs.
+    refreshInlinePauseButton();
     // Pre-fetch the next message while this one plays so the
     // handoff is gapless. Single in-flight pre-fetch.
     void prefetch(STATE.idx + 1);
@@ -355,6 +613,7 @@
     if (STATE.idx >= STATE.playlist.length) {
       // Playback complete · keep the overlay open with a "done"
       // message so the user can dismiss explicitly.
+      setActive(null);
       const body = STATE.overlay && STATE.overlay.querySelector("[data-vr-body]");
       if (body) {
         body.innerHTML = `
@@ -415,6 +674,7 @@
     if (!STATE.audio) {
       STATE.paused = !STATE.paused;
       renderPlayer();
+      refreshInlinePauseButton();
       return;
     }
     if (STATE.audio.paused) {
@@ -425,6 +685,7 @@
       STATE.paused = true;
     }
     renderPlayer();
+    refreshInlinePauseButton();
   }
 
   function skipCurrent() {
@@ -527,6 +788,8 @@
     open: open,
     close: close,
     isOpen: isOpen,
+    getActive: getActive,
+    getActiveAudio: getActiveAudio,
     // Exposed for testing.
     _internals: { buildPlaylist, PROCEDURAL_KINDS },
   };

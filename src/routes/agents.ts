@@ -7,9 +7,24 @@
  *                         new-agent overlay
  */
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
+// tiny-pinyin · CJK → pinyin so director handles like "/苏格拉底"
+// become "/sugeladi" instead of collapsing to "/_". Server-side
+// only · the slugifier in `slugifyHandle` runs the conversion
+// when Han characters are present.
+import tinyPinyin from "tiny-pinyin";
 
 import { isModelV } from "../ai/registry.js";
-import { deleteAgent, getAgent, getAgentByHandle, getAgentStats, getChairAgent, insertAgent, listAgents, updateAgent, type AgentVoiceProvider } from "../storage/agents.js";
+import { deleteAgent, getAgent, getAgentByHandle, getAgentStats, getChairAgent, incrementAgentTokens, insertAgent, listAgents, updateAgent, type AgentVoiceProvider, type PersonaSpec } from "../storage/agents.js";
+import { getPersonaJob } from "../storage/persona-jobs.js";
+import {
+  abortPersonaBuild,
+  getPartialPersona,
+  isPersonaJobRunning,
+  startPersonaBuild,
+} from "../orchestrator/persona-builder.js";
+import { personaBus, type PersonaEvent } from "../orchestrator/persona-stream.js";
+import { renderPersonaMarkdown, synthesizePersonaBio, synthesizePersonaInstruction } from "../ai/prompts/persona-render.js";
 import {
   deleteMemory,
   getMemory,
@@ -31,7 +46,8 @@ import { parseSkillMd } from "../skills/parse.js";
 import { analyzeSkillAbility } from "../skills/analyze.js";
 import { getSystemSkillsForAgent, isSystemSkillSlug } from "../skills/system-skills.js";
 import { callLLM } from "../ai/adapter.js";
-import { effectiveDefaultModel, FLAGSHIP_TIER, reachableModels, utilityModelFor } from "../ai/availability.js";
+import { effectiveDefaultModel, FLAGSHIP_TIER, pickRandomFastModel, reachableModels, utilityModelFor } from "../ai/availability.js";
+import { activeCarrier } from "../storage/reconcile-models.js";
 import {
   buildAgentProfileMessages,
   buildAgentSpecMessages,
@@ -164,10 +180,91 @@ function synthesizeAbility(text: string): Record<string, number> {
   return out;
 }
 
+/** Build the SSE `persona-final` payload sent to the save screen.
+ *  The bus event carries only the `spec`; the route layer adds
+ *  presentation fields (instruction / coverQuote / ability) so the
+ *  client save card can reuse Signal-mode's preview shell · same
+ *  identity / radar / instruction-textarea form. The user can edit
+ *  any of these in the save form; `/save` accepts overrides. */
+function buildPersonaFinalPayload(spec: PersonaSpec, jobDescription: string): {
+  type: "persona-final";
+  spec: PersonaSpec;
+  instruction: string;
+  bio: string;
+  coverQuote: string;
+  ability: Record<string, number>;
+  guessName: string;
+  guessRoleTag: string;
+} {
+  // Name guess · prefers the LLM-produced `spec.guessName` from the
+  // post-pipeline naming pass. Falls back to the description's
+  // leading words so jobs that completed before the naming pass
+  // existed (or whose naming call failed) still render a save form.
+  const seed = (jobDescription || spec.description || "").trim();
+  const heuristicName = seed.split(/\s+/).slice(0, 3).join(" ").slice(0, 32) || "Director";
+  const guessName = (typeof spec.guessName === "string" && spec.guessName.trim())
+    ? spec.guessName.trim().slice(0, 48)
+    : heuristicName;
+  const guessRoleTag = "director";
+  // Ability · synthesized heuristically from bio-equivalent text.
+  // The user's typed-in description carries the role / register
+  // signal best; falling back to spec.description handles the
+  // resume-from-stale path where the build already ran.
+  const abilityText = `${guessRoleTag} ${seed} ${(spec.spec.contrarianTakes || []).join(" ")} ${(spec.spec.loadBearingConcepts || []).join(" ")}`;
+  const ability = synthesizeAbility(abilityText);
+  // Instruction · synthesized from the spec with the placeholder
+  // name. The user edits the name in the form; if they change it
+  // and don't re-edit the instruction, the `/save` handler will
+  // re-synthesize when the user provided no instruction override.
+  const instruction = synthesizePersonaInstruction(spec, { name: guessName, roleTag: guessRoleTag });
+  // Bio · 1-3 sentence intro in the seed-bio register,
+  // synthesized from the spec's contrarian takes / failure modes
+  // / load-bearing concepts. Without this the confirmation
+  // overlay's bio textarea defaulted to the user's typed
+  // description (or empty) and forced them to re-write each time.
+  const bio = synthesizePersonaBio(spec, { name: guessName, roleTag: guessRoleTag });
+  // Cover quote · derived from the first contrarian take (phrased
+  // as an opening question) when one exists, else empty so the
+  // textarea reads as optional. The persona pipeline doesn't
+  // currently produce a coverQuote of its own, so this heuristic
+  // gives the user a starting point they can re-write.
+  const coverQuote = pickCoverQuote(spec);
+  return {
+    type: "persona-final",
+    spec,
+    instruction,
+    bio,
+    coverQuote,
+    ability,
+    guessName,
+    guessRoleTag,
+  };
+}
+
+function pickCoverQuote(spec: PersonaSpec): string {
+  const c = spec.spec.contrarianTakes || [];
+  if (c.length === 0) return "";
+  const seed = (c[0] || "").trim();
+  if (!seed) return "";
+  // Trim to the first sentence-ish unit so it reads as one line.
+  const oneLine = seed.split(/(?<=[.!?])\s+/)[0] || seed;
+  return oneLine.slice(0, 200);
+}
+
 function slugifyHandle(name: string): string {
+  let working = (name || "").trim();
+  // CJK detection · if any Han ideograph is present, run the
+  // pinyin pass first so "苏格拉底" → "sugeladi" instead of
+  // collapsing to "_". `tiny-pinyin` returns concatenated
+  // uppercase pinyin (separator empty); the downstream
+  // `toLowerCase()` + non-alnum filter normalises it. Mixed
+  // CJK + ASCII like "苏格拉底Bot" comes back "SUGELADIBot",
+  // which slugifies cleanly to "sugeladibot".
+  if (/\p{Script=Han}/u.test(working) && tinyPinyin.isSupported()) {
+    working = tinyPinyin.convertToPinyin(working, "", false);
+  }
   return (
-    name
-      .trim()
+    working
       .toLowerCase()
       .normalize("NFKD")
       .replace(/[̀-ͯ]/g, "")     // strip diacritics
@@ -387,6 +484,283 @@ export function agentsRouter(): Hono {
       }
     }
     return c.json({ error: "couldn't generate an agent spec — try a more concrete description, or configure manually" }, 502);
+  });
+
+  // ──────────── Full-persona builder · 5-10 min deep build ────────────
+  //
+  // Three endpoints + a Markdown export wired together:
+  //
+  //   POST /generate-persona              · kicks the job, returns jobId
+  //   GET  /generate-persona/:jobId/stream · SSE channel (PersonaEvent)
+  //   POST /generate-persona/:jobId/abort · user cancels
+  //   POST /generate-persona/:jobId/save  · finalise · creates agent
+  //   GET  /:id/persona.md                · Markdown export of saved
+  //                                         persona artifact
+  //
+  // The pipeline lives in `src/orchestrator/persona-builder.ts`. State
+  // tracked in `agent_persona_jobs` + an in-memory Map so a fresh SSE
+  // subscriber can rehydrate the last completed phase without polling.
+
+  r.post("/generate-persona", async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { return c.json({ error: "invalid JSON body" }, 400); }
+    const b = (body ?? {}) as { description?: unknown };
+    const description = typeof b.description === "string" ? b.description.trim() : "";
+    if (description.length < 4) {
+      return c.json({ error: "describe the director in at least a few words" }, 400);
+    }
+    if (description.length > 1200) {
+      return c.json({ error: "description too long (max 1200 chars)" }, 400);
+    }
+    const jobId = startPersonaBuild({ description });
+    return c.json({ jobId });
+  });
+
+  r.get("/generate-persona/:jobId/stream", (c) => {
+    const jobId = c.req.param("jobId");
+    const job = getPersonaJob(jobId);
+    if (!job) return c.json({ error: "job not found" }, 404);
+
+    return streamSSE(c, async (s) => {
+      // Greet · client uses this to know the channel is alive AND to
+      // hydrate from `partial` when the build is mid-flight (or to
+      // jump straight to the final spec when the build has already
+      // completed before the SSE subscriber attached).
+      const partial = getPartialPersona(jobId);
+      await s.writeSSE({
+        event: "hello",
+        data: JSON.stringify({
+          jobId,
+          status: job.status,
+          currentPhase: job.currentPhase,
+          progressPct: job.progressPct,
+          partial,
+        }),
+      });
+
+      // If the job has already finished (done / failed / aborted)
+      // before this subscriber attached, send the terminal event and
+      // close. Don't sit in the bus loop — the bus already dropped.
+      if (!isPersonaJobRunning(jobId)) {
+        if (job.status === "done" && partial) {
+          await s.writeSSE({ event: "persona-final", data: JSON.stringify(buildPersonaFinalPayload(partial, job.description || "")) });
+        } else if (job.status === "aborted") {
+          await s.writeSSE({ event: "persona-aborted", data: JSON.stringify({ type: "persona-aborted" }) });
+        } else if (job.status === "failed") {
+          await s.writeSSE({
+            event: "persona-error",
+            data: JSON.stringify({ type: "persona-error", message: job.error || "build failed" }),
+          });
+        }
+        return;
+      }
+
+      // Live · subscribe to the personaBus and pump events until
+      // the channel closes (terminal event reached or client aborts).
+      const queue: PersonaEvent[] = [];
+      let resolveWaiter: (() => void) | null = null;
+      let closed = false;
+
+      const off = personaBus.subscribe(jobId, (event: PersonaEvent) => {
+        queue.push(event);
+        if (resolveWaiter) {
+          resolveWaiter();
+          resolveWaiter = null;
+        }
+      });
+
+      s.onAbort(() => {
+        closed = true;
+        off();
+        if (resolveWaiter) {
+          resolveWaiter();
+          resolveWaiter = null;
+        }
+      });
+
+      while (!closed) {
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => { resolveWaiter = resolve; });
+          continue;
+        }
+        const event = queue.shift()!;
+        // Augment persona-final with the presentation-side fields
+        // the client save screen needs (instruction / coverQuote /
+        // ability) so the Full-mode confirmation reuses the same
+        // shell as Signal-mode's preview · see
+        // `buildPersonaFinalPayload`.
+        const payload = event.type === "persona-final"
+          ? buildPersonaFinalPayload(event.spec, job.description || "")
+          : event;
+        await s.writeSSE({ event: event.type, data: JSON.stringify(payload) });
+        // Terminal events close the stream cleanly so the client can
+        // distinguish "natural end" from "transport drop".
+        if (event.type === "persona-final" || event.type === "persona-error" || event.type === "persona-aborted") {
+          closed = true;
+          off();
+        }
+      }
+    });
+  });
+
+  r.post("/generate-persona/:jobId/abort", (c) => {
+    const jobId = c.req.param("jobId");
+    const ok = abortPersonaBuild(jobId);
+    if (!ok) {
+      const job = getPersonaJob(jobId);
+      if (!job) return c.json({ error: "job not found" }, 404);
+      // Already terminal · idempotent.
+      return c.json({ ok: true, status: job.status });
+    }
+    return c.json({ ok: true });
+  });
+
+  // Save · materialises an agent row from the completed persona job.
+  // Body carries the user-pickable fields the build doesn't decide:
+  //   { name, handle, modelV, avatarPath?, abilityOverride? }
+  // The compiled `instruction` string is synthesised from the persona
+  // spec + name/role so existing readers (brief, chair, room
+  // orchestration) keep working without learning the new shape.
+  r.post("/generate-persona/:jobId/save", async (c) => {
+    const jobId = c.req.param("jobId");
+    const job = getPersonaJob(jobId);
+    if (!job) return c.json({ error: "job not found" }, 404);
+    if (job.status !== "done") {
+      return c.json({ error: `job is not complete (status: ${job.status})` }, 409);
+    }
+    if (job.agentId) {
+      // Idempotent · double-clicks return the existing agent.
+      const existing = getAgent(job.agentId);
+      if (existing) return c.json(existing, 200);
+    }
+    const partial = getPartialPersona(jobId);
+    if (!partial || !partial.spec) {
+      return c.json({ error: "job partial is missing spec" }, 500);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { body = {}; }
+    const b = (body ?? {}) as Record<string, unknown>;
+
+    const name = typeof b.name === "string" ? b.name.trim() : "";
+    if (name.length < NAME_MIN || name.length > NAME_MAX) {
+      return c.json({ error: `name must be ${NAME_MIN}–${NAME_MAX} chars` }, 400);
+    }
+    let handle = typeof b.handle === "string" ? b.handle.trim() : "";
+    if (!handle.startsWith("/")) handle = "/" + handle;
+    // Degenerate handle · empty, just "/", or "/_+" (happens when
+    // the client slugified a CJK / pure-symbol name and the regex
+    // collapsed it to nothing). Re-derive from the name using
+    // `slugifyHandle` (NFKD + strip diacritics + fallback) and
+    // pass through `uniqueHandle` so a duplicate name doesn't
+    // collide with a prior build.
+    if (handle.length < 2 || /^\/_+$/.test(handle)) {
+      handle = uniqueHandle(slugifyHandle(name));
+    }
+    if (handle.length > HANDLE_MAX + 1) {
+      return c.json({ error: "handle too long" }, 400);
+    }
+    // If the handle is taken (user-supplied OR a slugified one
+    // that just happens to collide with an existing director),
+    // auto-uniquify rather than 409. Same UX as the regular
+    // create path.
+    if (getAgentByHandle(handle)) {
+      const base = handle.replace(/^\/+/, "");
+      handle = uniqueHandle(base || slugifyHandle(name));
+    }
+
+    // New agents follow the fast-tier policy: pick a random fast
+    // model from the active carrier's pool so each new persona
+    // shows a different brand badge on OpenRouter (Anthropic /
+    // OpenAI / Google / xAI / DeepSeek fast tiers). Falls back to
+    // the user's explicit default, then to opus-4-6-fast as the
+    // last-resort baseline.
+    const modelV = typeof b.modelV === "string" && isModelV(b.modelV)
+      ? b.modelV
+      : (pickRandomFastModel(activeCarrier()) ?? effectiveDefaultModel() ?? "opus-4-6-fast");
+    const roleTag = typeof b.roleTag === "string" && b.roleTag.trim().length > 0
+      ? b.roleTag.trim().slice(0, 80)
+      : "director";
+    const bio = typeof b.bio === "string" && b.bio.trim().length >= BIO_MIN
+      ? b.bio.trim().slice(0, BIO_MAX)
+      : (partial.description ? partial.description.slice(0, BIO_MAX) : `A custom director built via deep persona replication.`);
+    const coverQuote = typeof b.coverQuote === "string" ? b.coverQuote.trim().slice(0, 220) : null;
+    const avatarPath = typeof b.avatarPath === "string" && (AVATAR_DATA_URL_RE.test(b.avatarPath) || AVATAR_PATH_RE.test(b.avatarPath))
+      ? b.avatarPath
+      : "/avatars/socrates.svg"; // safe fallback · client should always pass a real avatar
+
+    const ability = parseAbilityFromRequest(b.ability) ?? synthesizeAbility(`${bio} ${roleTag} ${partial.description}`);
+
+    const finalSpec: PersonaSpec = { ...partial, description: partial.description || job.description };
+    // Instruction · the save card carries an editable textarea
+    // pre-populated with the server-synthesized instruction. If the
+    // user edited it (or even just kept the synthesized value), we
+    // honour their string. Only when the field was missing from
+    // the request do we re-synthesize · happens for legacy callers
+    // that don't pass instruction at all.
+    const instructionOverride = typeof b.instruction === "string" ? b.instruction.trim() : "";
+    const instruction = instructionOverride.length >= 1
+      ? instructionOverride.slice(0, 6000)
+      : synthesizePersonaInstruction(finalSpec, { name, roleTag });
+
+    const agentId = newId();
+    insertAgent({
+      id: agentId,
+      name,
+      handle,
+      roleTag,
+      bio,
+      coverQuote,
+      instruction,
+      modelV,
+      avatarPath,
+      ability,
+      personaSpec: finalSpec,
+    });
+    // Flush the build's accumulated tokens onto the new agent so the
+    // Usage panel credits this director's existence to the right row
+    // (rather than leaving the spend orphaned in the job table).
+    const totalTokens = (job.promptTokens || 0) + (job.outputTokens || 0);
+    if (totalTokens > 0) incrementAgentTokens(agentId, totalTokens);
+
+    // Mark the job as having materialised this agent · the SSE
+    // subscribers are already gone (terminal event fired earlier),
+    // but the row stays for diagnostics + retry-from-history.
+    // Note: directly UPDATE is fine; we don't expose a setAgentId
+    // helper since this is the only call site.
+    try {
+      const { updatePersonaJob } = await import("../storage/persona-jobs.js");
+      updatePersonaJob(jobId, { agentId });
+    } catch {
+      /* swallow · the agent was created successfully; the job-row
+       * back-link is informational. */
+    }
+
+    const created = getAgent(agentId);
+    return c.json(created, 201);
+  });
+
+  // Markdown export of a saved persona spec. The Frontend agent
+  // profile's "Download persona.md" button hits this and triggers a
+  // file download. Hidden in the UI for Signal-mode agents (no
+  // `personaSpec`) — but the route 404s anyway for safety.
+  r.get("/:id/persona.md", (c) => {
+    const id = c.req.param("id");
+    const agent = getAgent(id);
+    if (!agent) return c.json({ error: "not found" }, 404);
+    if (!agent.personaSpec) return c.json({ error: "this agent has no persona spec" }, 404);
+    const md = renderPersonaMarkdown(agent);
+    const safeName = (agent.handle || agent.name || "persona").replace(/[^a-z0-9_-]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "") || "persona";
+    return new Response(md, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${safeName}.persona.md"`,
+        "Cache-Control": "no-store",
+      },
+    });
   });
 
   // ── Create a user-defined director.

@@ -18,6 +18,7 @@ import { closeDb, runMigrations } from "./storage/db.js";
 import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
 import { recoverStuckClarifyRooms } from "./storage/rooms.js";
+import { markRunningJobsFailed } from "./storage/persona-jobs.js";
 import { listAllAgents } from "./storage/agents.js";
 import { countMemoriesForAgent } from "./storage/memories.js";
 import { runDreamCycle, bootCeilingFor } from "./orchestrator/dream.js";
@@ -95,6 +96,20 @@ async function main(): Promise<void> {
     }
   } catch (e) {
     process.stderr.write(`[boot] clarify recovery failed: ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+
+  // Persona-builder recovery · the deep agent-build pipeline persists
+  // its job rows but can't realistically resume a mid-LLM-call after
+  // a process restart (upstream HTTP fetches are dead). Mark every
+  // `running` row failed so the user sees a retry CTA on next open
+  // instead of a perpetual "building…" spinner that never updates.
+  try {
+    const failed = markRunningJobsFailed();
+    if (failed > 0) {
+      process.stderr.write(`[boot] marked ${failed} persona-build job(s) failed (server restarted mid-build)\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`[boot] persona-job recovery failed: ${e instanceof Error ? e.message : String(e)}\n`);
   }
 
   // Memory metabolism · boot-time sweep. Per-agent counters live in

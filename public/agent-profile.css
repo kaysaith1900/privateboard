@@ -4046,3 +4046,348 @@
 .ap-voice-advanced[open] summary::after { content: "−"; }
 .ap-voice-advanced summary:hover { color: var(--text, #eee); }
 .ap-voice-advanced summary:hover::after { color: var(--text); }
+
+/* ────────────────────────────────────────────────────────────
+   Persona dossier · Full-mode agents only
+   ────────────────────────────────────────────────────────────
+   Reads as a gamified character-sheet entry below the rules
+   section. The card is the entire button — keyboard + click
+   land on the same element. Stat values use the mono register
+   so digits hold a fixed grid; labels are upper-mono kickers
+   for the dossier flavour. */
+.ap-persona-block .ap-block-h-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lime);
+  padding: 2px 8px;
+  border: 0.5px solid var(--lime-dim, var(--line));
+  border-radius: 999px;
+}
+.ap-persona-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px 14px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+  position: relative;
+  overflow: hidden;
+}
+.ap-persona-card::before {
+  /* Faint diagonal hatch behind the card · evokes a stamped
+     dossier surface without competing with content. Pure CSS,
+     pinned to the corner so it doesn't follow the cta. */
+  content: "";
+  position: absolute;
+  top: 0; right: 0;
+  width: 110px; height: 110px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0,
+    transparent 6px,
+    var(--line) 6px,
+    var(--line) 7px
+  );
+  opacity: 0.35;
+  pointer-events: none;
+}
+.ap-persona-card:hover {
+  border-color: var(--lime);
+  background: var(--panel-3, var(--panel-2));
+}
+.ap-persona-card:active { transform: translateY(1px); }
+.ap-persona-card:focus-visible {
+  outline: 1px solid var(--lime);
+  outline-offset: 2px;
+}
+.ap-persona-card-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+.ap-persona-card-glyph {
+  width: 44px; height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lime);
+  border: 0.5px solid var(--lime-dim, var(--line));
+  background: var(--panel);
+}
+.ap-persona-card-id { min-width: 0; }
+.ap-persona-card-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 4px;
+}
+.ap-persona-card-title {
+  font-family: var(--font-human);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.ap-persona-card-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+.ap-persona-card-score {
+  text-align: right;
+  padding-left: 12px;
+  border-left: 0.5px solid var(--line);
+}
+.ap-persona-card-score-v {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--lime);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.ap-persona-card-score-l {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 5px;
+}
+.ap-persona-card-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
+  border-top: 0.5px solid var(--line);
+  border-bottom: 0.5px solid var(--line);
+}
+.ap-persona-stat {
+  padding: 10px 8px;
+  text-align: center;
+  border-right: 0.5px solid var(--line);
+}
+.ap-persona-stat:last-child { border-right: none; }
+.ap-persona-stat-v {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1;
+}
+.ap-persona-stat-l {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 5px;
+}
+.ap-persona-card-cta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.ap-persona-card-cta-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+  font-weight: 600;
+}
+.ap-persona-card-cta-hint {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+@media (max-width: 720px) {
+  .ap-persona-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ap-persona-stat:nth-child(3) { border-right: none; }
+  .ap-persona-stat:nth-child(n+4) { border-top: 0.5px solid var(--line); }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Persona dossier overlay · markdown preview + download
+   ──────────────────────────────────────────────────────────── */
+.ap-persona-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ap-persona-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  cursor: pointer;
+}
+.ap-persona-overlay-modal {
+  position: relative;
+  width: min(820px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong, var(--line));
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+}
+.ap-persona-overlay-classification {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 18px;
+  background: var(--panel-2);
+  border-bottom: 0.5px solid var(--line);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-persona-overlay-classification .dot { color: var(--lime); margin-right: 4px; }
+.ap-persona-overlay-classification .right { color: var(--text-soft); }
+.ap-persona-overlay-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  border-bottom: 0.5px solid var(--line);
+}
+.ap-persona-overlay-title {
+  font-family: var(--font-human);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.ap-persona-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ap-persona-overlay-dl {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lime);
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 0.5px solid var(--lime-dim, var(--line));
+  background: var(--panel-2);
+  transition: background 0.12s, color 0.12s;
+}
+.ap-persona-overlay-dl:hover {
+  background: var(--lime);
+  color: var(--bg, #0c0c0c);
+}
+.ap-persona-overlay-close {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 0.5px solid var(--line);
+  color: var(--text-soft);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.ap-persona-overlay-close:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
+.ap-persona-overlay-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 28px 28px;
+}
+.ap-persona-overlay-loading,
+.ap-persona-overlay-error {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 60px 0;
+}
+.ap-persona-overlay-error { color: var(--ink, #c97373); }
+.ap-persona-overlay-md {
+  font-family: var(--font-human);
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.ap-persona-overlay-md h2 {
+  font-family: var(--font-human);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 24px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 0.5px solid var(--line);
+}
+.ap-persona-overlay-md h3 {
+  font-family: var(--font-human);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 18px 0 6px;
+}
+.ap-persona-overlay-md h4 {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin: 14px 0 4px;
+}
+.ap-persona-overlay-md p { margin: 8px 0; }
+.ap-persona-overlay-md ul, .ap-persona-overlay-md ol {
+  margin: 8px 0 8px 22px;
+  padding: 0;
+}
+.ap-persona-overlay-md li { margin: 3px 0; }
+.ap-persona-overlay-md blockquote {
+  margin: 10px 0;
+  padding: 6px 12px;
+  border-top: 0.5px solid var(--line);
+  border-bottom: 0.5px solid var(--line);
+  font-style: italic;
+  color: var(--text-soft);
+}
+.ap-persona-overlay-md code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--panel-2);
+  padding: 1px 5px;
+  color: var(--text);
+}
+.ap-persona-overlay-md pre {
+  background: var(--panel-2);
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+  border: 0.5px solid var(--line);
+}
+.ap-persona-overlay-md pre code { background: transparent; padding: 0; font-size: 11.5px; }
+.ap-persona-overlay-md strong { color: var(--text); font-weight: 700; }
+.ap-persona-overlay-md em { color: var(--lime); font-style: italic; }
+body.ap-persona-overlay-open { overflow: hidden; }

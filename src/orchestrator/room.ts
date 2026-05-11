@@ -36,7 +36,7 @@ import {
   reachableModelVs,
   reconcileAgentModels,
 } from "../storage/reconcile-models.js";
-import { getRoom, listRoomMembers, setAwaitingContinue, setRoomStatus, type Room } from "../storage/rooms.js";
+import { getRoom, listAllRoomMembers, listRoomMembers, setAwaitingContinue, setRoomStatus, type Room } from "../storage/rooms.js";
 import { getBrief } from "../storage/briefs.js";
 
 import { formatSearchResults, runWebSearch } from "../ai/skills/web-search.js";
@@ -48,6 +48,7 @@ import {
   announceRoundPrompt,
   emitChairPending,
   runChairDirectResponse,
+  runChairRoundEnd,
 } from "./chair.js";
 import { buildDirectorContext } from "./context.js";
 import { buildDirectorMessages, buildFollowUpPriorContext } from "./prompt.js";
@@ -87,6 +88,14 @@ interface RoomState {
    *  so the message lands BEFORE the next director starts — and so
    *  the next director's response is keyed off the user's question. */
   pendingUserAfterCurrent: PendingUserAfterCurrent | null;
+  /** Manual-vote-trigger deferred path · set by the user clicking
+   *  "After current speaker" in the bottom-bar vote overlay while a
+   *  director streams. pumpQueue checks this between speakers and,
+   *  if set, clears the queue + dispatches runChairRoundEnd so the
+   *  vote phase opens cleanly after the in-flight turn finishes.
+   *  In-process only — a server restart loses the deferral, but the
+   *  user can re-click the button after recovery. */
+  pendingRoundEnd: boolean;
   /** Snapshot taken when the room is paused so resume can pick up the
    *  same queue / round / speaker-count instead of starting from scratch.
    *  Cleared on tickRoom (a fresh user message replans the round). */
@@ -174,6 +183,7 @@ function ensureState(roomId: string): RoomState {
       maxSpeakersThisTurn: 0,
       pauseAfterCurrent: false,
       pendingUserAfterCurrent: null,
+      pendingRoundEnd: false,
       savedOnPause: null,
       pendingChairPick: null,
       billingHaltedThisTurn: false,
@@ -283,6 +293,19 @@ export function setPendingUserAfterCurrent(
 ): void {
   const s = ensureState(roomId);
   s.pendingUserAfterCurrent = payload;
+}
+
+/** Manual-vote-trigger deferred path · queue a round-end to fire
+ *  after the current speaker finishes their turn. pumpQueue checks
+ *  this flag between turns and dispatches runChairRoundEnd; the
+ *  remaining queued directors are dropped (the chair's vote phase
+ *  supersedes them). The route handler uses this when the user
+ *  picks "After current speaker" in the bottom-bar vote overlay
+ *  while a director is in flight. */
+export function requestRoundEndAfterCurrent(roomId: string): void {
+  const s = ensureState(roomId);
+  s.pendingRoundEnd = true;
+  rlog(roomId, "round-end-deferred", { remaining: s.queue.length, speaking: s.inflight ? 1 : 0 });
 }
 
 /** Has a soft-pause request been honored / cleared? */
@@ -693,7 +716,16 @@ async function pumpQueue(roomId: string): Promise<void> {
               // intervention OR director turn — frontend handler
               // hides on any agent author).
               emitChairPending(roomId, "next-speaker");
-              const pick = await pickNextSpeaker({ candidates, history: recent });
+              // Fetch room here so the picker can language-lock the
+              // intervention to room.subject (avoids the feedback-loop
+              // bug where one stray English director turn re-biased
+              // the detector toward English in a Chinese room).
+              const pickRoom = getRoom(roomId);
+              const pick = await pickNextSpeaker({
+                candidates,
+                history: recent,
+                room: pickRoom ?? undefined,
+              });
               // Guard · fresh tickRoom may have replaced state.queue
               // while haiku was thinking. Only reorder if the snapshot
               // is still the live queue.
@@ -737,7 +769,11 @@ async function pumpQueue(roomId: string): Promise<void> {
                     note: pick.intervention.slice(0, 80),
                     nextSpeaker: getAgent(state.queue[0]!.agentId)?.name ?? state.queue[0]!.agentId,
                   });
-                  announceIntervention(roomId, pick.intervention, pick.rationale);
+                  // Await · in voice mode the chair audio plays
+                  // before the next director starts streaming, so
+                  // the user hears the intervention as a distinct
+                  // beat between turns rather than overlapping.
+                  await announceIntervention(roomId, pick.intervention, pick.rationale);
                 }
               }
             } catch (e) {
@@ -890,6 +926,28 @@ async function pumpQueue(roomId: string): Promise<void> {
         continue;
       }
 
+      // Manual-vote-trigger deferred path · the user clicked "After
+      // current speaker" in the bottom-bar vote overlay while the
+      // in-flight director was streaming. Drop any remaining queued
+      // directors (the chair's vote phase supersedes them) and
+      // dispatch runChairRoundEnd, which streams the chair's
+      // round-end summary, persists key points, and flips
+      // awaitingContinue. Fire-and-forget so the pump-loop can exit
+      // cleanly; the chair stream lands via SSE just like the auto
+      // path. Resolve roundNum the same way the route handler does
+      // (latest user-message round) so key-point ownership lines up.
+      if (state.pendingRoundEnd) {
+        state.pendingRoundEnd = false;
+        state.queue = [];
+        emitQueueUpdate(roomId, state);
+        const roundNum = Math.max(1, nextUserRoundNum(roomId) - 1);
+        rlog(roomId, "round-end-honored", { round: roundNum });
+        void runChairRoundEnd(roomId, roundNum).catch((e) => {
+          process.stderr.write(`[room] deferred round-end failed: ${e instanceof Error ? e.message : String(e)}\n`);
+        });
+        break;
+      }
+
       // Soft pause requested mid-turn → snapshot the remaining queue so
       // resume picks up the same speaker order, then drain + flip to
       // 'paused'. Emit the lifecycle event so the UI follows.
@@ -956,13 +1014,18 @@ async function pumpQueue(roomId: string): Promise<void> {
         room &&
         room.status === "live" &&
         !room.awaitingContinue &&
-        !room.awaitingClarify
+        !room.awaitingClarify &&
+        // Manual vote-trigger · skip the auto round-prompt; the
+        // user fires it via the bottom-bar "End round & vote"
+        // button which posts to /api/rooms/:id/round-end (the
+        // same path the chat round-prompt button takes).
+        room.voteTrigger !== "manual"
       ) {
         const wrappedRound = state.roundNum;
         let recommendation: { kind: "end" | "continue"; rationale: string } | undefined;
         try {
           const recent = listRecentMessages(roomId, 30);
-          const wrap = await pickRoundWrap({ history: recent, roundNum: wrappedRound });
+          const wrap = await pickRoundWrap({ history: recent, roundNum: wrappedRound, room });
           recommendation = { kind: wrap.recommendation, rationale: wrap.rationale };
         } catch (e) {
           rlog(roomId, "round-wrap-error", {
@@ -986,7 +1049,10 @@ async function pumpQueue(roomId: string): Promise<void> {
             round: wrappedRound,
             recommendation: recommendation?.kind ?? "(none)",
           });
-          announceRoundPrompt(roomId, wrappedRound, recommendation);
+          // Await · voice mode plays the vote prompt audio before
+          // the pump returns; the vote popover only mounts after
+          // the chair has audibly handed control back to the user.
+          await announceRoundPrompt(roomId, wrappedRound, recommendation);
         } else {
           rlog(roomId, "round-prompt-skip", {
             reason: "phase-changed-during-haiku",
@@ -1540,25 +1606,47 @@ function appendSystemMessage(roomId: string, body: string): void {
 
 /** Snapshot used by GET /api/rooms/:id. The chair shows up in
  *  `chair` separately from `members` (which is directors only) so
- *  the frontend can render them differently. */
+ *  the frontend can render them differently.
+ *
+ *  `historicalMembers` is the full director roster including any
+ *  who have been soft-deleted via `removeRoomMember`. Each entry
+ *  carries `removedAt` (null when active). The frontend uses this
+ *  list — not `members` — for speaker-name + voice-profile
+ *  resolution on past messages, so a director who's been excused
+ *  mid-discussion still shows their name in the chat history and
+ *  their voice still plays in voice replay. */
+export type HistoricalMember = Agent & { joinedAt: number; removedAt: number | null };
+
 export function getRoomFullState(roomId: string): {
   room: Room;
   members: Agent[];
+  historicalMembers: HistoricalMember[];
   chair: Agent | null;
   messages: Message[];
   keyPoints: ReturnType<typeof listKeyPointsForRoom>;
 } | null {
   const room = getRoom(roomId);
   if (!room) return null;
-  const memberRows = listRoomMembers(roomId);
-  const all = memberRows
+  const allRows = listAllRoomMembers(roomId);
+  const activeAgents = allRows
+    .filter((m) => m.removedAt === null)
     .map((m) => getAgent(m.agentId))
     .filter((a): a is Agent => a !== null);
-  const members = all.filter((a) => a.roleKind === "director");
-  const chair = all.find((a) => a.roleKind === "moderator") ?? null;
+  const members = activeAgents.filter((a) => a.roleKind === "director");
+  const chair = activeAgents.find((a) => a.roleKind === "moderator") ?? null;
+
+  // Directors only · chair is never excused, so historicalMembers
+  // matches the same "directors only" contract `members` has.
+  const historicalMembers: HistoricalMember[] = [];
+  for (const m of allRows) {
+    const a = getAgent(m.agentId);
+    if (!a || a.roleKind !== "director") continue;
+    historicalMembers.push({ ...a, joinedAt: m.joinedAt, removedAt: m.removedAt });
+  }
+
   const messages = listRecentMessages(roomId, 200);
   const keyPoints = listKeyPointsForRoom(roomId);
-  return { room, members, chair, messages, keyPoints };
+  return { room, members, historicalMembers, chair, messages, keyPoints };
 }
 
 /** Current speaking-queue snapshot — shown to clients on initial load. */

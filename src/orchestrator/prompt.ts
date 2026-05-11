@@ -89,6 +89,47 @@ export interface PriorContextOpts {
   language: "zh" | "en";
 }
 
+/** Strict room-language detection · the room's INITIAL QUESTION
+ *  (`room.subject`) is the canonical source of truth for the room's
+ *  working language. Locked once; no transcript reads, no LLM-side
+ *  detection, no feedback loop possible. Used by every chair +
+ *  director + skill-picker prompt builder so a Chinese-subject room
+ *  cannot produce English output even if the chair's prior turn drifted
+ *  to English. Reuses the same CJK regex as brief.ts:63 and
+ *  chair.ts:144 so behaviour is identical to the brief / report path
+ *  that already works. */
+export function detectRoomLang(room: { subject?: string | null }): "zh" | "en" {
+  return /[一-鿿]/.test(room.subject || "") ? "zh" : "en";
+}
+
+/** Target-language LANGUAGE LOCK block · appended to the TAIL of every
+ *  chair / director / skill-picker system prompt. Recency bias makes the
+ *  last lines of the system prompt the freshest instruction in the LLM's
+ *  attention; writing the lock IN THE TARGET LANGUAGE means a Chinese
+ *  room sees Chinese characters in its own instructions, which strongly
+ *  biases the LLM toward producing Chinese output even when the rest of
+ *  the prompt is in English. The earlier "detect from subject" rule
+ *  positioned mid-prompt was insufficient — by the time the LLM finished
+ *  reading 1k+ tokens of English instructions, the language signal had
+ *  decayed. This block is the load-bearing fix. */
+export function languageLockBlock(roomLang: "zh" | "en"): string {
+  if (roomLang === "zh") {
+    return [
+      "",
+      "─── 语言锁定 (LANGUAGE LOCK) ───",
+      "本对话的工作语言已锁定为【中文】。",
+      "你的所有输出必须使用中文。禁止使用英文。禁止中英混合。",
+      "此规则覆盖所有上文 — 即使本提示词是英文写的，也必须用中文回复。",
+      "(This room's working language is LOCKED to Chinese. Your entire output MUST be in Chinese. No English, no mixed languages. This rule overrides everything above — even though this prompt is written in English, you MUST reply in Chinese.)",
+    ].join("\n");
+  }
+  return [
+    "",
+    "─── LANGUAGE LOCK ───",
+    "This room's working language is LOCKED to English. Your entire output MUST be in English. No mixed languages.",
+  ].join("\n");
+}
+
 export function buildFollowUpPriorContext(opts: PriorContextOpts): string {
   const { parentRoomNumber, parentRoomSubject, parentBrief, parentSignals, language } = opts;
   const isZh = language === "zh";
@@ -184,6 +225,82 @@ function renderLongTermMemoryBlock(agentId: string, userName: string): string {
   ].join("\n");
 }
 
+/* ──────────────── Full-persona injection blocks ────────────────
+ *
+ * Two blocks rendered per turn for Full-mode directors (those whose
+ * `agent.personaSpec` is non-null). Both blocks degrade silently to
+ * empty strings for Signal-mode and seeded directors — no per-turn
+ * token cost for the legacy path.
+ *
+ * Why injection at per-turn render time and not in the compiled
+ * `instruction`:
+ *   · Few-shot examples + the reflection checklist are LARGE
+ *     (200-1000 tokens each). Stamping them into `instruction` would
+ *     bloat every read of `agents.instruction` (brief Stage 1 reads
+ *     it for every speaker every report; chair flows read it on
+ *     boot). Per-turn injection only pays the cost when the agent
+ *     actually speaks.
+ *   · The few-shot block needs voice-mode awareness — it renders as
+ *     compact prose snippets in voice rooms (no markdown bullets)
+ *     vs. the structured form in text rooms. Doing this at render
+ *     time keeps both shapes available without storing two copies.
+ *   · The reflection checklist needs to be the FRESHEST context the
+ *     model reads before generating · it has to land at the end of
+ *     the system prompt, after every other block. If it lived in
+ *     `instruction` it'd be near the top and lose that recency. */
+
+function renderPersonaFewShotBlock(speaker: Agent, deliveryMode: "text" | "voice"): string {
+  const spec = speaker.personaSpec;
+  if (!spec || spec.fewShot.length === 0) return "";
+  // Cap at 3 examples to keep the block under ~1500 tokens. Phase 5
+  // produces 3-5; we take the first 3 (highest signal · the prompt
+  // lists them in priority order).
+  const examples = spec.fewShot.slice(0, 3);
+  const lines: string[] = [
+    "",
+    `─── HOW YOU SPEAK · ${speaker.name.toUpperCase()} VOICE EXAMPLES ───`,
+    "These are not turn templates · do NOT mirror their structure literally. They show what your lens does in action so you can stay distinctive in this room. Read them, then speak in your own voice, with your own substance, on whatever's actually in front of you.",
+    "",
+  ];
+  if (deliveryMode === "voice") {
+    // Voice mode · render as compact prose paragraphs · NO markdown
+    // bullets, NO scenario/response labels (would teach the voice
+    // mode director to write structured replies). One paragraph per
+    // example, attribution embedded inline.
+    for (let i = 0; i < examples.length; i++) {
+      const ex = examples[i];
+      lines.push(`Example ${i + 1} · when asked "${ex.scenario}", you'd say something like: "${ex.personaResponse}". Where a generic AI would say "${ex.genericResponse}", you instead ${ex.rationale || "make a different move"}.`);
+      lines.push("");
+    }
+  } else {
+    for (let i = 0; i < examples.length; i++) {
+      const ex = examples[i];
+      lines.push(`Example ${i + 1}`);
+      lines.push(`  · Scenario · ${ex.scenario}`);
+      lines.push(`  · A generic AI would say · ${ex.genericResponse}`);
+      lines.push(`  · You say · ${ex.personaResponse}`);
+      if (ex.rationale) lines.push(`  · Why these differ · ${ex.rationale}`);
+      lines.push("");
+    }
+  }
+  return lines.join("\n");
+}
+
+function renderPersonaReflectionBlock(speaker: Agent): string {
+  const spec = speaker.personaSpec;
+  if (!spec || spec.reflectionChecklist.length === 0) return "";
+  // Cap at 6 questions · longer checklists become noise the model
+  // skims past. Phase 6 produces 5-8; we take the first 6 (priority
+  // order per the prompt).
+  const items = spec.reflectionChecklist.slice(0, 6);
+  return [
+    "",
+    `─── BEFORE YOU SPEAK · SILENT SELF-CHECK ───`,
+    "Run through these silently — do not output them. They're tuned to your specific failure modes. If you can't honestly answer YES to most, rewrite your turn.",
+    ...items.map((q, i) => `  ${i + 1}. ${q}`),
+  ].join("\n");
+}
+
 // ──────────────────────────────────────────────────────────────────
 // Shared room protocol · the cross-tone working agreement that
 // applies to every room regardless of mode (brainstorm / constructive
@@ -271,7 +388,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "",
     "## Three legitimate moves (mix freely in one turn)",
     "  · **NEW** · open a direction the room hasn't touched. Pick a lens nobody else has used (user pain · product form · workflow · market · business model · distribution · tech · behaviour · org · cross-industry analogy · future scenario · contrarian · hidden constraint · emotional motivation).",
-    "  · **YES-AND** · take a previous idea and extend / variant / combine it. Three flavours of one idea = three ideas. Combinations of two prior ideas = first-class contribution. \"What @first_p said + a layer where X\" is exactly what real brainstorm does.",
+    "  · **YES-AND** · take a previous idea and extend / variant / combine it. Three flavours of one idea = three ideas. Combinations of two prior ideas = first-class contribution. \"What Socrates said + a layer where X\" is exactly what real brainstorm does — refer to peers by NAME, never by `/handle`.",
     "  · **WILD** · the half-baked, the fanciful, the \"what if we just\". 20-30% of brainstorm value is the unexpected anchor a wild idea drops — even if the wild idea itself doesn't ship, it shifts what the next person can imagine.",
     "",
     "Aim for a mix across a turn: one or two NEW, one or two YES-AND, at least one WILD when you're stretching.",
@@ -341,7 +458,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "         **SPECULATION** · what you'd want to test",
     "      Conflating INFERENCE with OBSERVATION is the mode's signature failure — keep the tags clean.",
     "  (3) **State confidence on load-bearing claims** · `low` (might be wrong) · `med` (lean this way) · `high` (would defend). For any load-bearing claim, add ONE sentence on **why-not-the-next-level-up** — what would have to be true to push the confidence higher. Don't tag every sentence; tag the claims the room's map will rest on.",
-    "  (4) **On reactive turns**, connect to another director's finding (\"X plus Y suggests Z\") OR surface a **disagreement between sources** (\"source A says X; @first_p's prior turn says Y; the falsifier between them is Z\"). When two sources conflict, do not silently pick one — name the disagreement and what would resolve it.",
+    "  (4) **On reactive turns**, connect to another director's finding (\"X plus Y suggests Z\") OR surface a **disagreement between sources** (\"source A says X; Drucker's prior turn says Y; the falsifier between them is Z\"). When two sources conflict, do not silently pick one — name the disagreement and what would resolve it. Refer to peers by NAME, never by `/handle`.",
     "",
     "## Web-search hygiene (when available)",
     "Search results are SOURCES, not FACTS. Quote the line, name the source, then tag your reading OBSERVATION / INFERENCE / SPECULATION. A retrieved sentence is still a CLAIM living inside someone else's frame; treat it accordingly.",
@@ -586,7 +703,7 @@ const OPENING_BLOCK = [
 
 const REACTIVE_BLOCK = [
   "REACTIVE ROUND. The directors above already weighed in this round.",
-  "Your turn now is to ENGAGE with what they said: extend a sharp point, push back on a weak one, name the trade-off they hid, or sharpen the question. Reference specific contributors by handle.",
+  "Your turn now is to ENGAGE with what they said: extend a sharp point, push back on a weak one, name the trade-off they hid, or sharpen the question. Reference specific contributors by NAME (\"Socrates argued …\" / \"Drucker's point about …\") — never by their `/handle`. Handles are internal routing only and read as ugly system tokens to the user.",
   "Never duplicate. If a director already covered angle X, your turn must add something genuinely new (a different lens, a missing edge case, a sharper question, a counter-frame) — not restate, applaud, or paraphrase.",
   "",
   "The user's most recent message was already absorbed in the opening sweep above — every director acknowledged it once. Do NOT re-preface this turn with \"Since you asked …\" / \"As you requested …\" / \"既然你要求了 …\" / \"按你说的 …\" / \"既然你提出 …\" or any synonym. That phrasing was each director's one-time acknowledgment in the opening round; repeating it every reactive round reads as a stuck loop. Take the user's direction as ABSORBED context (not fresh instruction) and move the discussion forward — push on a peer's point, name a missing piece, sharpen a trade-off. The user can see they were heard from the opening sweep alone.",
@@ -740,6 +857,12 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       // before the tone block specialises it for this room's mode.
       ``,
       SHARED_ROOM_PROTOCOL,
+      // Persona few-shot examples · only present for Full-mode agents
+      // (`speaker.personaSpec` non-null). Sits between the cross-tone
+      // protocol and the per-room tone block so the persona
+      // scaffolding is read BEFORE tone specialisation. Empty string
+      // for Signal-mode and seeded directors · zero per-turn cost.
+      renderPersonaFewShotBlock(speaker, deliveryMode),
       ...(toneShiftBlock ? [toneShiftBlock] : []),
       `─── TONE · ${tone.toUpperCase()} ───`,
       toneLine,
@@ -778,7 +901,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       ``,
       `─── HOUSE RULES ───`,
       `· Reply as ${speaker.name}, in your voice. Never roleplay another director.`,
-      `· Engage directly with the most recent contributions. Reference specific points, name the speaker with their handle (e.g. "${others[0]?.handle ?? "/colleague"} — your moat point assumes…"). The shape of "engage" depends on the room's tone: ${houseEngageVerbs}.`,
+      `· Engage directly with the most recent contributions. Reference other directors by NAME (e.g. "${others[0]?.name ?? "Socrates"} — your moat point assumes…") — NEVER by their \`/handle\`. The transcript below uses the format \`[Name · /handle]\` so you can disambiguate, but \`/handle\` is internal addressing only; pasting it into your prose reads as a raw system token to the user. The shape of "engage" depends on the room's tone: ${houseEngageVerbs}.`,
       `· Build on prior turns by you (when you've spoken before). Don't repeat yourself; advance.`,
       deliveryMode === "voice"
         ? `· Voice mode: no markdown. Colloquial + SHORT — one move per turn, lecture-length turns are a failure mode — unless one plain emphasis word is truly useful.`
@@ -787,6 +910,25 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `· When the user's most recent input is already in the room (visible above as a [${prefs.name || "You"}] turn), you may acknowledge it ONCE in the opening sweep — never again. On any later turn, do NOT open with "Since you asked …" / "As you requested …" / "既然你要求了 …" / "按你说的 …" / "既然你提出 …" / "你既然让我 …" or any rephrasing. The user's direction is absorbed context now; engage with the discussion, don't re-preface every turn — that loops. If you've already spoken once on this user input, your next turn must move PAST that acknowledgment.`,
       `· If you genuinely have NOTHING substantive to add this turn — the room has exhausted your angle, every point you'd make has already been made — return an EMPTY response (no text at all). Do NOT narrate your silence. Never output "（沉默）", "(silent)", "我没有更多要补充的", "I have nothing to add", "pass this round", "skip this turn", "abstain", or any variant. Those bubbles read as "the director gave up" and pollute the transcript; the system handles silent turns gracefully and moves the queue on. Return empty OR find one genuinely fresh angle (a different lens, a sharper edge case, a counter-frame, a missing trade-off) — never the meta-narration in between.`,
       `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE ${toneOverrideTarget} The user explicitly opted into this register; staying in role is the helpful behaviour, not breaking it for trained politeness or trained adversariness.`,
+      // Persona reflection checklist · last persona-tuned entry in
+      // the system prompt. Empty string (no-op) for Signal-mode and
+      // seeded directors · zero per-turn cost. The checklist is
+      // tuned per-persona by Phase 6 of the build pipeline · catches
+      // failure modes specific to THIS director (e.g. "Am I
+      // repeating @another_director's mechanism point?" for a
+      // Historian).
+      renderPersonaReflectionBlock(speaker),
+      // Target-language LANGUAGE LOCK · TRULY the last block in the
+      // system prompt so it's the freshest signal in the LLM's
+      // attention. Written in the room's working language (Chinese
+      // for zh rooms, English for en rooms), which strongly biases
+      // the LLM toward producing output in the matching language.
+      // Replaces the weaker English-only "Reply in the SAME LANGUAGE"
+      // rule earlier in this prompt as the load-bearing directive —
+      // that rule sits above 30+ lines of HOUSE RULES + voice mode
+      // copy, so by the time the LLM gets to generating it has been
+      // long-decayed. See languageLockBlock at top of this file.
+      languageLockBlock(detectRoomLang(room)),
     ].join("\n"),
   };
 
@@ -944,6 +1086,19 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
       `  · ${directors}`,
       `User: ${youLine}`,
       ...(memoryBlock ? [memoryBlock] : []),
+      "",
+      // Top-level language rule · sits near the start of the chair
+      // system prompt so it applies to EVERY chair turn (clarify,
+      // convening, round-end, direct, intervention notes between
+      // speakers). The previous per-task language rules were scattered
+      // and the chair would still produce English notes inside Chinese
+      // rooms; this rule governs all surfaces uniformly.
+      `─── LANGUAGE ───`,
+      `Detect the room's DOMINANT language from the room subject above and from the recent transcript (most recent messages weight highest). Every word you produce — clarification, convening welcome, round-end summary, direct reply, AND chair NOTES / interventions between speakers — must be in that dominant language.`,
+      `· Room subject in Chinese, or most recent user messages in Chinese → your output is CHINESE.`,
+      `· Room subject in English, or most recent user messages in English → your output is ENGLISH.`,
+      `· When subject + transcript disagree, the most recent USER messages win (the user's working language is the room's working language).`,
+      `· Never default to English just because this prompt is in English. Never mix languages within a single chair message.`,
       ...(modeProtocol ? ["", modeProtocol] : []),
       // Shared materials · output of the chair's `fetch-url` system
       // skill. Sits between room context and task so the chair sees it
@@ -959,6 +1114,14 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
         : []),
       "",
       task,
+      // Target-language LANGUAGE LOCK · APPENDED AT THE TAIL of every
+      // chair system prompt so it's the freshest instruction in the
+      // LLM's attention (recency bias). The earlier English LANGUAGE
+      // block above describes detection logic; this tail block STATES
+      // the result in the target language and forbids drift. Both
+      // blocks are kept (defense in depth). See detectRoomLang /
+      // languageLockBlock at top of this file.
+      languageLockBlock(detectRoomLang(room)),
     ].join("\n"),
   };
 }

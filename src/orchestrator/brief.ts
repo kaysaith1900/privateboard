@@ -1112,6 +1112,17 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
     return;
   }
 
+  // Normalise fenced-block openers · the LLM occasionally glues
+  // `\`\`\`<lang>` onto the tail of a paragraph instead of placing
+  // it on its own line, which kills the renderer's fence-extraction
+  // pass (it requires `^\`\`\`<lang>$`). Fix at save time so the
+  // export file + downstream re-renders all see the cleaned text.
+  // The renderer also runs the same normalisation defensively for
+  // older briefs already in the DB. Only opener fences are touched
+  // (closing fences have no lang).
+  buf = buf.replace(/([^\n])(\n?)```([\w-]+)\s*\n/g,
+    (_m, before, _newline, lang) => `${before}\n\n\`\`\`${lang}\n`);
+
   const title = extractBriefTitle(
     buf,
     room.subject,

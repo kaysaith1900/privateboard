@@ -140,6 +140,66 @@ const PROVIDER_FLAGSHIP: Record<Provider, ModelV | null> = {
   elevenlabs: null,
 };
 
+/** Fast-tier default per provider · the "cheap and fast" model
+ *  the user gets as their default after onboarding. Per the
+ *  user-requested fast-default policy: avoid pro/flagship for
+ *  the auto-default so a brand-new user doesn't immediately
+ *  burn the most expensive token rate on every chair turn.
+ *  OpenRouter intentionally maps to `opus-4-6-fast` (the
+ *  Anthropic 4.6 Fast variant) so the brand identity stays
+ *  recognisable while the throughput / cost is the fast tier. */
+const PROVIDER_FAST: Record<Provider, ModelV | null> = {
+  anthropic: "haiku-4-5",
+  openai: "gpt-5-4-mini",
+  google: "gemini-3-1-flash",
+  xai: "grok-4-1-fast",
+  deepseek: "deepseek-v4-flash",
+  openrouter: "opus-4-6-fast",
+  brave: null,
+  tavily: null,
+  minimax: null,
+  elevenlabs: null,
+};
+
+/** Per-carrier fast-tier POOL · used to randomize each director's
+ *  model so a fresh user gets a visibly diverse cast (different
+ *  brand badges per seat) instead of every director speaking
+ *  through the same wire. OpenRouter routes everything so its
+ *  pool spans brands; direct carriers stick to their own fast
+ *  models since they can only call their own SDK. Consumed by
+ *  `pickRandomFastModel()` below + `reconcile-models.ts` during
+ *  the onboarding `forcePrimary` sweep. */
+export const FAST_POOL_BY_CARRIER: Record<string, readonly ModelV[]> = {
+  openrouter: [
+    "opus-4-6-fast",
+    "haiku-4-5",
+    "gpt-5-4-mini",
+    "gemini-3-flash",
+    "gemini-3-1-flash",
+    "grok-4-1-fast",
+    "deepseek-v4-flash",
+  ],
+  anthropic: ["opus-4-6-fast", "haiku-4-5"],
+  openai: ["gpt-5-4-mini"],
+  google: ["gemini-3-flash", "gemini-3-1-flash"],
+  xai: ["grok-4-1-fast"],
+};
+
+/** Pick a random fast-tier model for the given carrier. Filters
+ *  to reachable models first so we never hand back a modelV the
+ *  user's current keys can't actually serve. Falls back to the
+ *  full pool if reachability narrows it to zero (the LLM call
+ *  remains the source of truth for "can this model run"). */
+export function pickRandomFastModel(carrier: string | null): ModelV | null {
+  if (!carrier) return null;
+  const pool = FAST_POOL_BY_CARRIER[carrier];
+  if (!pool || pool.length === 0) return null;
+  const reachable = new Set(reachableModels().map((m) => m.modelV));
+  const candidates = pool.filter((v) => reachable.has(v));
+  const list = candidates.length > 0 ? candidates : pool;
+  return list[Math.floor(Math.random() * list.length)] ?? null;
+}
+
 /** Flagship-tier model pool · superset of PROVIDER_FLAGSHIP. Each
  *  provider's primary flagship plus any comparable peers (e.g.
  *  sonnet-4-6 alongside opus-4-7) so callers that need a fallback
@@ -192,18 +252,31 @@ export function effectiveDefaultModel(): ModelV | null {
 export function defaultModelFor(keys: ProviderKeyState = getProviderKeyState()): ModelV | null {
   const reachable = modelAvailability().filter((m) => m.reachable);
   if (reachable.length === 0) return null;
-  // Single direct provider · pick its flagship.
+  // Fast-default policy · pick the FAST-tier model for the active
+  // provider rather than its flagship. A brand-new user should
+  // land on a cheap-and-quick chair by default; if they want the
+  // flagship, they can flip it in settings. (PROVIDER_FLAGSHIP
+  // still drives spec-generation candidates elsewhere — it's
+  // not dead code, just no longer the user-facing default.)
   if (!keys.hasOpenRouter && keys.directProviders.size === 1) {
     const provider = Array.from(keys.directProviders)[0];
+    const fast = PROVIDER_FAST[provider];
+    if (fast && reachable.find((m) => m.modelV === fast)) return fast;
     const flagship = PROVIDER_FLAGSHIP[provider];
     if (flagship && reachable.find((m) => m.modelV === flagship)) return flagship;
   }
-  // OpenRouter present · prefer Opus 4.7 (historical default).
+  // OpenRouter present · prefer Opus 4.6 Fast (per fast-default policy).
   if (keys.hasOpenRouter) {
+    const fast = reachable.find((m) => m.modelV === "opus-4-6-fast");
+    if (fast) return fast.modelV;
     const opus = reachable.find((m) => m.modelV === "opus-4-7");
     if (opus) return opus.modelV;
   }
-  // Multiple direct, no OR · pick the first reachable provider's flagship.
+  // Multiple direct, no OR · pick the first reachable provider's fast tier.
+  for (const provider of keys.directProviders) {
+    const fast = PROVIDER_FAST[provider];
+    if (fast && reachable.find((m) => m.modelV === fast)) return fast;
+  }
   for (const provider of keys.directProviders) {
     const flagship = PROVIDER_FLAGSHIP[provider];
     if (flagship && reachable.find((m) => m.modelV === flagship)) return flagship;

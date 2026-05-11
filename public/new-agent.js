@@ -422,27 +422,105 @@
     });
   }
 
-  function open() {
+  /** Module-scoped overrides set by `open(options)`. Cleared on
+   *  close so the next default open() starts clean. */
+  let _submitOverride = null;
+  let _onCancelOverride = null;
+  let _classificationOverride = null;
+  let _footMetaOverride = null;
+  let _createLabelOverride = null;
+
+  /** Open the overlay. With no args, this is the default Signal
+   *  manual-config flow (POST /api/agents on Create). With options,
+   *  callers can pre-fill the form, intercept submit, and tweak
+   *  the chrome — this lets the Full-persona save flow reuse the
+   *  exact same overlay instead of forking the UI.
+   *
+   *    options.prefill = { name, bio, instruction, modelV,
+   *                        avatarSeed, avatarPath }
+   *    options.onSubmit = async (data, helpers) => {}
+   *      data    · { name, handle, bio, instruction, modelV,
+   *                  avatarPath, avatarSeed }
+   *      helpers · { close }
+   *      Throw / reject to keep the overlay open and surface an
+   *      error toast (alert).
+   *    options.onCancel · fired before close() when the user clicks
+   *      cancel / X / backdrop · use to e.g. preserve build state.
+   *    options.classificationLeft · text shown in the upper-left
+   *      classification bar (default · "DIRECTOR · NEW")
+   *    options.footMeta · text shown in the foot-meta line
+   *    options.createLabel · text on the Create button (default ·
+   *      "Create director")
+   */
+  function open(options) {
     if (!overlay) return;
-    // Reset form to a clean slate every time.
-    modal.querySelector(".na-name-input").value = "";
-    modal.querySelector(".na-desc-input").value = "";
-    modal.querySelector(".na-instr-input").value = "";
-    avatarState = { placeholder: true, seed: null, roll: 0 };
+    options = options || null;
+    const prefill = (options && options.prefill) || null;
+
+    // Reset form. When prefill is supplied, populate after reset.
+    modal.querySelector(".na-name-input").value = prefill && prefill.name ? prefill.name : "";
+    modal.querySelector(".na-desc-input").value = prefill && prefill.bio ? prefill.bio : "";
+    modal.querySelector(".na-instr-input").value = prefill && prefill.instruction ? prefill.instruction : "";
+
+    // Avatar · pre-seed when caller provides one (e.g. Full-mode
+    // build's stashed seed). Falls back to the placeholder otherwise.
+    if (prefill && prefill.avatarSeed) {
+      avatarState = { placeholder: false, seed: prefill.avatarSeed, roll: 1 };
+    } else {
+      avatarState = { placeholder: true, seed: null, roll: 0 };
+    }
     paintAvatar();
     refreshAll();
 
-    // Paint the model dropdown's current label · the chip uses the
-    // same agent-model state as the AI composer (loadAgentComposerModel),
-    // so re-opening the overlay reflects the user's last pick.
+    // Model · push prefill model into the shared agent-composer
+    // state so the chip + downstream readers (na-create POST etc.)
+    // pick it up. Cleared by the user via the chip dropdown.
+    if (prefill && prefill.modelV
+        && window.app && typeof window.app.setAgentComposerModel === "function") {
+      try { window.app.setAgentComposerModel(prefill.modelV); } catch (_) { /* */ }
+    }
     paintModelLabel();
+
+    // Apply chrome overrides.
+    _submitOverride = (options && typeof options.onSubmit === "function") ? options.onSubmit : null;
+    _onCancelOverride = (options && typeof options.onCancel === "function") ? options.onCancel : null;
+    _classificationOverride = (options && options.classificationLeft) ? String(options.classificationLeft) : null;
+    _footMetaOverride = (options && options.footMeta) ? String(options.footMeta) : null;
+    _createLabelOverride = (options && options.createLabel) ? String(options.createLabel) : null;
+    applyChromeOverrides();
 
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
     setTimeout(() => modal.querySelector(".na-name-input").focus(), 80);
     applyNewAgentI18n();
+    // applyChromeOverrides runs AFTER applyNewAgentI18n on i18n
+    // events too · the i18n pass would otherwise reset our custom
+    // strings.
+    applyChromeOverrides();
     refreshProviderStatus();
+  }
+
+  /** Mirror the override state into the actual DOM. Re-runs after
+   *  i18n applies so user-facing labels survive locale changes. */
+  function applyChromeOverrides() {
+    if (!modal) return;
+    const classEl = modal.querySelector(".na-classification > span:first-child");
+    if (classEl && _classificationOverride) {
+      classEl.innerHTML = `<span class="dot">●</span> ${escape(_classificationOverride)}`;
+    }
+    const footEl = modal.querySelector(".na-foot-meta");
+    if (footEl && _footMetaOverride) {
+      footEl.textContent = _footMetaOverride;
+      footEl.classList.add("na-foot-meta-override");
+    } else if (footEl) {
+      footEl.classList.remove("na-foot-meta-override");
+    }
+    const createBtn = modal.querySelector(".na-create");
+    if (createBtn && _createLabelOverride) {
+      const labelSpan = createBtn.querySelector("span:not(.na-create-mark)");
+      if (labelSpan) labelSpan.textContent = _createLabelOverride;
+    }
   }
 
   /** Read the user's current agent-model selection (shared with the
@@ -465,11 +543,25 @@
     span.textContent = label;
   }
 
-  function close() {
+  function close(opts) {
     if (!overlay) return;
+    const fromCancel = !!(opts && opts.fromCancel);
+    // Notify the caller (e.g. Full-mode persona flow) that the user
+    // dismissed without saving · lets them preserve the build so it
+    // can be re-opened. Fired BEFORE we wipe the override state so
+    // the callback can still see options it set.
+    if (fromCancel && _onCancelOverride) {
+      try { _onCancelOverride(); } catch (_) { /* */ }
+    }
     overlay.classList.remove("open");
     overlay.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
+    // Reset overrides so the next default open() starts clean.
+    _submitOverride = null;
+    _onCancelOverride = null;
+    _classificationOverride = null;
+    _footMetaOverride = null;
+    _createLabelOverride = null;
   }
 
   function slugify(s) {
@@ -628,16 +720,18 @@
     overlay = document.getElementById("new-agent-overlay");
     modal = overlay.querySelector(".new-agent-modal");
 
-    // Close
-    modal.querySelector(".na-close").addEventListener("click", close);
-    modal.querySelector(".na-cancel").addEventListener("click", close);
+    // Close · all dismissal paths flag fromCancel:true so the
+    // override hook fires (Full-mode persona flow uses it to
+    // preserve the build state when the overlay is dismissed).
+    modal.querySelector(".na-close").addEventListener("click", () => close({ fromCancel: true }));
+    modal.querySelector(".na-cancel").addEventListener("click", () => close({ fromCancel: true }));
     overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) close();
+      if (e.target === overlay) close({ fromCancel: true });
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && overlay.classList.contains("open")) {
         e.stopImmediatePropagation();
-        close();
+        close({ fromCancel: true });
       }
     });
 
@@ -702,39 +796,56 @@
       create.innerHTML = `<span class="na-create-mark">◆</span><span>${escape(t("na_creating"))}</span>`;
 
       try {
-        const res = await fetch("/api/agents", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, bio, instruction, modelV, avatarPath }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || res.statusText);
+        if (_submitOverride) {
+          // Caller-supplied submit path · used by the Full-persona
+          // save flow to POST to /generate-persona/:jobId/save
+          // instead of the default /api/agents. The override
+          // owns success-state handling (refresh, close, etc.)
+          // but we still close on resolve as a safety.
+          await _submitOverride({
+            name, bio, instruction, modelV, avatarPath,
+            avatarSeed, avatarRoll,
+          }, { close, escape, t });
+          // Close `fromCancel:false` so the override's onCancel
+          // hook doesn't fire (we just saved successfully).
+          close();
+        } else {
+          const res = await fetch("/api/agents", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name, bio, instruction, modelV, avatarPath }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || res.statusText);
+          }
+          const created = await res.json();
+          // Refresh app.agents so the sidebar + agentsById register the
+          // new director immediately. Falls back gracefully if app isn't
+          // booted (shouldn't happen in normal flows).
+          if (window.app && typeof window.app.refreshAgents === "function") {
+            await window.app.refreshAgents();
+          }
+          // Hand the new agent's id to anyone watching for the event.
+          try {
+            window.dispatchEvent(new CustomEvent("boardroom:agent-created", { detail: created }));
+          } catch (_) { /* */ }
+          close();
         }
-        const created = await res.json();
-        // Refresh app.agents so the sidebar + agentsById register the
-        // new director immediately. Falls back gracefully if app isn't
-        // booted (shouldn't happen in normal flows).
-        if (window.app && typeof window.app.refreshAgents === "function") {
-          await window.app.refreshAgents();
-        }
-        // Hand the new agent's id to anyone watching for the event.
-        try {
-          window.dispatchEvent(new CustomEvent("boardroom:agent-created", { detail: created }));
-        } catch (_) { /* */ }
-        close();
       } catch (e) {
         const msg = e && e.message ? e.message : String(e);
         alert(t("na_create_fail", { msg }));
         create.disabled = false;
         create.innerHTML = `<span class="na-create-mark">◆</span><span data-i18n-na="na_create"></span>`;
         applyNewAgentI18n();
+        applyChromeOverrides();
       }
     });
   }
 
-  // Public API
-  window.openNewAgent  = function () { if (!overlay) init(); open(); };
+  // Public API · options pass-through lets the Full-persona save
+  // flow open the same overlay with prefill + custom submit.
+  window.openNewAgent  = function (options) { if (!overlay) init(); open(options); };
   window.closeNewAgent = close;
 
   if (document.readyState === "loading") {

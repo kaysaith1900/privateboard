@@ -21,6 +21,7 @@ import type { AgentSkill } from "../storage/skills.js";
 import type { ModelV } from "../ai/registry.js";
 import { utilityModelFor } from "../ai/availability.js";
 import { WEB_SEARCH_SLUG } from "../skills/system-skills.js";
+import { detectRoomLang, languageLockBlock } from "./prompt.js";
 
 /** Pick the cheapest reachable model for routing decisions. Thin
  *  delegate over `utilityModelFor()` (availability.ts) — same call,
@@ -169,17 +170,24 @@ export async function pickChairClarifyDecision(opts: {
 export type RoundWrapRecommendation = "end" | "continue";
 export interface RoundWrapDecision {
   recommendation: RoundWrapRecommendation;
-  /** ≤200 chars · why this call. Surfaced in the round-prompt body so
-   *  the user reads the chair's reasoning before pressing the button. */
+  /** ≤120 chars · why this call, in one tight sentence. Surfaced in the
+   *  round-prompt body so the user reads the chair's reasoning before
+   *  pressing the button — keep it terse so the wrap doesn't read as
+   *  a wall of text. */
   rationale: string;
 }
 
 export async function pickRoundWrap(opts: {
   history: Message[];
   roundNum: number;
+  /** Optional room reference · when present, the rationale's language
+   *  is locked to `room.subject` via the LANGUAGE LOCK appended to the
+   *  system prompt. Optional so existing test paths keep working; in
+   *  production the orchestrator always passes it. */
+  room?: { subject?: string | null };
   signal?: AbortSignal;
 }): Promise<RoundWrapDecision> {
-  const { history, roundNum, signal } = opts;
+  const { history, roundNum, room, signal } = opts;
 
   const transcript = history
     .slice(-20)
@@ -221,8 +229,17 @@ export async function pickRoundWrap(opts: {
       "there's still substantive ground to cover is worse than letting",
       "them run one more round. When in doubt, recommend CONTINUE.",
       "",
+      "Rationale style: ONE tight sentence, ≤120 chars. Name the load-",
+      "bearing reason — no preamble, no \"the room has\", no hedges. Vary",
+      "your phrasing across calls; don't lean on the same opener twice.",
+      "",
       "Reply with STRICT JSON ONLY (no prose, no fences):",
-      "{ \"recommendation\": \"end\" | \"continue\", \"rationale\": \"≤200 chars · the load-bearing reason\" }",
+      "{ \"recommendation\": \"end\" | \"continue\", \"rationale\": \"≤120 chars · one tight sentence on the load-bearing reason\" }",
+      // Target-language LANGUAGE LOCK · the rationale must be in the
+      // room's working language so the round-prompt the chair posts
+      // afterwards is consistent with the rest of a zh / en room.
+      // Appended at the tail of the system prompt (recency bias).
+      ...(room ? [languageLockBlock(detectRoomLang(room))] : []),
     ].join("\n"),
   };
 
@@ -268,7 +285,7 @@ export async function pickRoundWrap(opts: {
   }
   const obj = parsed as { recommendation?: unknown; rationale?: unknown };
   const rec: RoundWrapRecommendation = obj.recommendation === "end" ? "end" : "continue";
-  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim().slice(0, 240) : "";
+  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim().slice(0, 160) : "";
   return { recommendation: rec, rationale };
 }
 
@@ -308,9 +325,17 @@ export interface NextSpeakerPick {
 export async function pickNextSpeaker(opts: {
   candidates: Agent[];
   history: Message[];
+  /** Optional room reference · when present, room.subject is surfaced
+   *  in the user message as the canonical language signal AND a
+   *  target-language LANGUAGE LOCK is appended to the system prompt.
+   *  Without this, the picker would only see "recent transcript" —
+   *  which can be polluted by past English director output and cause
+   *  the chair-note intervention to drift to English in a Chinese
+   *  room. Optional so callers can opt in gradually. */
+  room?: { subject?: string | null };
   signal?: AbortSignal;
 }): Promise<NextSpeakerPick> {
-  const { candidates, history, signal } = opts;
+  const { candidates, history, room, signal } = opts;
   if (candidates.length < 2) return { agentId: null, rationale: "", intervention: null };
 
   // Build the candidate roster. We include role tag + bio so the picker
@@ -377,8 +402,14 @@ export async function pickNextSpeaker(opts: {
       "",
       "If you DO intervene: 1 sentence, neutral moderator voice, name",
       "the SPECIFIC pattern + the load-bearing piece worth pinning down.",
-      "Match the user's language (Chinese subject → Chinese; English →",
-      "English). No greeting, no signature.",
+      "No greeting, no signature.",
+      "",
+      "LANGUAGE · the chair note must follow the room's DOMINANT",
+      "language detected from the recent transcript (most recent",
+      "messages weight highest). If most directors and the user are",
+      "speaking Chinese, your intervention is CHINESE. If English,",
+      "ENGLISH. Never default to English just because this prompt is",
+      "in English. Never mix languages inside a single intervention.",
       "",
       "Reply with STRICT JSON ONLY (no prose, no fences):",
       "{",
@@ -386,12 +417,24 @@ export async function pickNextSpeaker(opts: {
       "  \"rationale\": \"≤120 chars · why this lens fits next\",",
       "  \"intervention\": \"≤200 chars · the one-sentence note\" | null",
       "}",
+      // Target-language LANGUAGE LOCK · the intervention must match
+      // the room's working language. Earlier "detect from transcript"
+      // wording was unreliable in feedback-loop scenarios (one past
+      // English director turn would re-bias the detector). Locked to
+      // room.subject via the helper. Appended at the tail (recency).
+      ...(room ? [languageLockBlock(detectRoomLang(room))] : []),
     ].join("\n"),
   };
 
   const userMsg: LLMMessage = {
     role: "user",
     content: [
+      // Surface room.subject at the TOP of the user message so the
+      // picker has the canonical language signal alongside the
+      // candidate roster + transcript. Without this, the prompt's
+      // only language signal was "recent transcript" — which a
+      // single English chair drift could pollute.
+      ...(room?.subject ? [`Room subject: ${room.subject}`, ``] : []),
       `Candidates (queued, in current order):`,
       roster,
       ``,
