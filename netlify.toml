@@ -10,7 +10,7 @@
     cp public/home.html _site/index.html &&
     cp public/favicon.svg public/themes.css public/agent-overlay.css public/agent-overlay.js _site/ &&
     cp public/fonts/human-sans.woff2 public/fonts/agent-Italic.woff2 _site/fonts/ &&
-    cp public/avatars/socrates.svg public/avatars/first-principles.svg public/avatars/value-investor.svg public/avatars/user-empathy.svg public/avatars/long-horizon.svg public/avatars/phenomenologist.svg _site/avatars/
+    cp public/avatars/socrates.svg public/avatars/first-principles.svg public/avatars/value-investor.svg public/avatars/user-empathy.svg public/avatars/long-horizon.svg public/avatars/phenomenologist.svg public/avatars/chair.svg public/avatars/historian.svg _site/avatars/
   """
   publish = "_site"
 
