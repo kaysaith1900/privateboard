@@ -1292,8 +1292,17 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
     `Output: either <ack + blank line + READY> OR the 2-part question block (in the user's language).`,
   ].join("\n");
 
+  // Background material pre-attached by the home-composer's
+  // topic-rec tray · when the user opened this room from a
+  // recommendation, the route stamped the opening message with
+  // `meta.seedContext.snippets`. Format them once and inject as
+  // an additional system message so the chair grounds its
+  // clarify in the actual source material instead of guessing.
+  const seedSystem = buildSeedContextSystem(opts.history);
+
   return [
     buildChairSystem(opts, isFirstTurn ? firstTurnTask : followUpTask),
+    ...(seedSystem ? [seedSystem] : []),
     ...renderHistoryForChair(opts.history, opts.cast, opts.prefs),
     {
       role: "user",
@@ -1302,6 +1311,56 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
         : "Your move — output either the 2-part structured block (in my language) or the literal token READY.",
     },
   ];
+}
+
+/** Extract seedContext.snippets from the most recent user
+ *  message in history (the opening question, on a fresh room).
+ *  Returns a system message that lists titles + descriptions
+ *  the chair can quote · null when the room wasn't opened from
+ *  a recommendation. */
+function buildSeedContextSystem(history: Message[]): LLMMessage | null {
+  for (let i = 0; i < history.length; i++) {
+    const m = history[i];
+    if (m.authorKind !== "user") continue;
+    const meta = m.meta as {
+      seedContext?: { rationale?: unknown; snippets?: unknown };
+    } | undefined;
+    const rationale = typeof meta?.seedContext?.rationale === "string"
+      ? meta.seedContext.rationale.trim()
+      : "";
+    const rawSnippets = meta?.seedContext?.snippets;
+    const snippets = Array.isArray(rawSnippets) ? rawSnippets : [];
+
+    const snippetLines: string[] = [];
+    for (const s of snippets) {
+      if (!s || typeof s !== "object") continue;
+      const title = typeof (s as { title?: unknown }).title === "string" ? (s as { title: string }).title.trim() : "";
+      const url = typeof (s as { url?: unknown }).url === "string" ? (s as { url: string }).url.trim() : "";
+      const desc = typeof (s as { description?: unknown }).description === "string"
+        ? (s as { description: string }).description.trim()
+        : "";
+      if (!title && !url && !desc) continue;
+      snippetLines.push(`· ${title || "(untitled)"} — ${url || "(no url)"}\n  ${desc.slice(0, 360)}`);
+    }
+
+    // Nothing to surface · skip injection entirely so the chair
+    // sees a normal subject.
+    if (!rationale && snippetLines.length === 0) continue;
+
+    const blocks: string[] = [
+      `─── BACKGROUND MATERIAL · pre-attached by the user ───`,
+      `The user opened this room from a topic recommendation. Treat the material below as hidden context they've already seen — reference it naturally when useful, don't re-summarise it, don't pretend it doesn't exist.`,
+    ];
+    if (rationale) {
+      blocks.push(``, `Why this topic was recommended (hidden from the user — your reasoning context):`, `· ${rationale}`);
+    }
+    if (snippetLines.length > 0) {
+      blocks.push(``, `Source snippets the recommendation was grounded in:`, ...snippetLines);
+    }
+
+    return { role: "system", content: blocks.join("\n") };
+  }
+  return null;
 }
 
 /** Chair · convening speech. Posted right after the auto-picker has
