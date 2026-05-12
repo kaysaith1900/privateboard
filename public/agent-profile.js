@@ -30,11 +30,19 @@
     return String(p.status).toUpperCase();
   }
 
+  /** Align display with canonical `@slug` when DB still has legacy `/slug`. */
+  function displayAgentHandle(h) {
+    if (h == null || typeof h !== "string") return h;
+    const t = h.trim();
+    if (t.startsWith("/")) return "@" + t.slice(1);
+    return t;
+  }
+
   const PROFILES = {
 
     /* ════════════════════════════════════ SOCRATES ════════════════════════════════════ */
     "socrates": {
-      name: "Socrates", role: "The Skeptic", handle: "/socrates",
+      name: "Socrates", role: "The Skeptic", handle: "@socrates",
       avatar: "avatars/socrates.svg", status: "active", tenure: "core · 4 yr",
       coverQuote: "won't let any sentence pass",
       meta: { creator: "@Kay", joined: "2024-04-01" },
@@ -105,7 +113,7 @@
 
     /* ════════════════════════════════════ FIRST PRINCIPLES ════════════════════════════ */
     "first-principles": {
-      name: "First Principles", role: "Causal Reasoning", handle: "/first_p",
+      name: "First Principles", role: "Causal Reasoning", handle: "@first_p",
       avatar: "avatars/first-principles.svg", status: "active", tenure: "core · 4 yr",
       coverQuote: "what's the smallest unit?",
       meta: { creator: "@Kay", joined: "2024-04-01" },
@@ -168,7 +176,7 @@
 
     /* ════════════════════════════════════ VALUE INVESTOR ════════════════════════════ */
     "value-investor": {
-      name: "Value Investor", role: "Pattern Recognition", handle: "/value_inv",
+      name: "Value Investor", role: "Pattern Recognition", handle: "@value_inv",
       avatar: "avatars/value-investor.svg", status: "active", tenure: "core · 3 yr",
       coverQuote: "who's tried this before?",
       meta: { creator: "@Kay", joined: "2024-08-14" },
@@ -233,7 +241,7 @@
 
     /* ════════════════════════════════════ USER-EMPATHY ════════════════════════════════ */
     "user-empathy": {
-      name: "User-Empathy", role: "Empathy Lens", handle: "/user_emp",
+      name: "User-Empathy", role: "Empathy Lens", handle: "@user_e",
       avatar: "avatars/user-empathy.svg", status: "active", tenure: "core · 2 yr",
       coverQuote: "name one user who'd reach for it",
       meta: { creator: "@Kay", joined: "2024-11-02" },
@@ -297,7 +305,7 @@
 
     /* ════════════════════════════════════ LONG HORIZON ════════════════════════════════ */
     "long-horizon": {
-      name: "Long Horizon", role: "Historical Lens", handle: "/long_h",
+      name: "Long Horizon", role: "Historical Lens", handle: "@long_h",
       avatar: "avatars/long-horizon.svg", status: "active", tenure: "core · 2 yr",
       coverQuote: "this is the cycle's mid-point",
       meta: { creator: "@Kay", joined: "2025-01-22" },
@@ -359,7 +367,7 @@
 
     /* ════════════════════════════════════ PHENOMENOLOGIST ═══════════════════════════ */
     "phenomenologist": {
-      name: "Phenomenologist", role: "Experience-First", handle: "/phen",
+      name: "Phenomenologist", role: "Experience-First", handle: "@phen",
       avatar: "avatars/phenomenologist.svg", status: "intern", tenure: "intern · trial",
       coverQuote: "what is it like, actually?",
       meta: { creator: "@Kay", joined: "2026-03-08" },
@@ -2865,7 +2873,7 @@
             <h1 class="ap-id-name">${escape(p.name)}</h1>
             <div class="ap-id-meta">
               <span class="ap-id-role">${escape(profileRoleLabel(p))}</span>
-              ${p.handle ? `<span class="ap-id-dot">·</span><span class="ap-id-handle">${escape(p.handle)}</span>` : ""}
+              ${p.handle ? `<span class="ap-id-dot">·</span><span class="ap-id-handle">${escape(displayAgentHandle(p.handle))}</span>` : ""}
               <span class="ap-status-pill">${escape(statusLabel)}</span>
             </div>
           </div>
@@ -3852,8 +3860,8 @@
         try {
           const r = await fetch("/api/agents");
           const j = await r.json();
-          const agent = (j.agents || []).find((a) => a.handle === ("/" + agentSlug) || a.handle === agentSlug || a.id === agentSlug)
-            || (j.chair && (j.chair.handle === ("/" + agentSlug) || j.chair.id === agentSlug) ? j.chair : null);
+          const agent = (j.agents || []).find((a) => a.handle === ("@" + agentSlug) || a.handle === ("/" + agentSlug) || a.handle === agentSlug || a.id === agentSlug)
+            || (j.chair && (j.chair.handle === ("@" + agentSlug) || j.chair.handle === ("/" + agentSlug) || j.chair.id === agentSlug) ? j.chair : null);
           if (!agent) throw new Error("agent not found");
           const p = await fetch("/api/agents/" + encodeURIComponent(agent.id), {
             method: "PATCH",

@@ -8,8 +8,8 @@
  */
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-// tiny-pinyin · CJK → pinyin so director handles like "/苏格拉底"
-// become "/sugeladi" instead of collapsing to "/_". Server-side
+// tiny-pinyin · CJK → pinyin so director handles like "@苏格拉底"
+// become "@sugeladi" instead of collapsing to "@_". Server-side
 // only · the slugifier in `slugifyHandle` runs the conversion
 // when Han characters are present.
 import tinyPinyin from "tiny-pinyin";
@@ -58,6 +58,7 @@ import {
 import { runWebSearch } from "../ai/skills/web-search.js";
 import { getActiveWebSearchCredentials, hasWebSearchKey } from "../storage/keys.js";
 import { newId } from "../utils/id.js";
+import { bareHandleSlug, normalizeAgentHandleForStorage } from "../utils/agent-handle.js";
 import { runDreamCycle, resetAdjournCounter } from "../orchestrator/dream.js";
 
 /** Pick the model list to try for agent-spec generation. The previous
@@ -276,14 +277,14 @@ function slugifyHandle(name: string): string {
 
 /** Find a unique handle by appending _2, _3 … if the base is taken. */
 function uniqueHandle(base: string): string {
-  let h = "/" + base;
+  let h = `@${base}`;
   if (!getAgentByHandle(h)) return h;
   for (let i = 2; i < 1000; i++) {
-    const candidate = `/${base}_${i}`;
+    const candidate = `@${base}_${i}`;
     if (!getAgentByHandle(candidate)) return candidate;
   }
   // Last-resort suffix · effectively never hits.
-  return "/" + base + "_" + Math.floor(Math.random() * 9999);
+  return `@${base}_${Math.floor(Math.random() * 9999)}`;
 }
 
 /** Cheap LLM call to turn the user's freeform description into a focused
@@ -649,14 +650,17 @@ export function agentsRouter(): Hono {
       return c.json({ error: `name must be ${NAME_MIN}–${NAME_MAX} chars` }, 400);
     }
     let handle = typeof b.handle === "string" ? b.handle.trim() : "";
-    if (!handle.startsWith("/")) handle = "/" + handle;
-    // Degenerate handle · empty, just "/", or "/_+" (happens when
-    // the client slugified a CJK / pure-symbol name and the regex
-    // collapsed it to nothing). Re-derive from the name using
-    // `slugifyHandle` (NFKD + strip diacritics + fallback) and
-    // pass through `uniqueHandle` so a duplicate name doesn't
-    // collide with a prior build.
-    if (handle.length < 2 || /^\/_+$/.test(handle)) {
+    if (handle.length > 0) {
+      try {
+        handle = normalizeAgentHandleForStorage(handle);
+      } catch {
+        handle = "";
+      }
+    }
+    const bare = bareHandleSlug(handle);
+    // Degenerate handle · empty, "@", or slug collapsed to only underscores.
+    // Re-derive from the name using `slugifyHandle` and `uniqueHandle`.
+    if (!handle || handle.length < 2 || /^_+$/.test(bare)) {
       handle = uniqueHandle(slugifyHandle(name));
     }
     if (handle.length > HANDLE_MAX + 1) {
@@ -667,7 +671,7 @@ export function agentsRouter(): Hono {
     // auto-uniquify rather than 409. Same UX as the regular
     // create path.
     if (getAgentByHandle(handle)) {
-      const base = handle.replace(/^\/+/, "");
+      const base = bareHandleSlug(handle) || slugifyHandle(name);
       handle = uniqueHandle(base || slugifyHandle(name));
     }
 

@@ -388,7 +388,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "",
     "## Three legitimate moves (mix freely in one turn)",
     "  · **NEW** · open a direction the room hasn't touched. Pick a lens nobody else has used (user pain · product form · workflow · market · business model · distribution · tech · behaviour · org · cross-industry analogy · future scenario · contrarian · hidden constraint · emotional motivation).",
-    "  · **YES-AND** · take a previous idea and extend / variant / combine it. Three flavours of one idea = three ideas. Combinations of two prior ideas = first-class contribution. \"What Socrates said + a layer where X\" is exactly what real brainstorm does — refer to peers by NAME, never by `/handle`.",
+    "  · **YES-AND** · take a previous idea and extend / variant / combine it. Three flavours of one idea = three ideas. Combinations of two prior ideas = first-class contribution. \"What Socrates said + a layer where X\" is exactly what real brainstorm does — refer to peers by NAME, never by `@handle`.",
     "  · **WILD** · the half-baked, the fanciful, the \"what if we just\". 20-30% of brainstorm value is the unexpected anchor a wild idea drops — even if the wild idea itself doesn't ship, it shifts what the next person can imagine.",
     "",
     "Aim for a mix across a turn: one or two NEW, one or two YES-AND, at least one WILD when you're stretching.",
@@ -458,7 +458,7 @@ const TONE_GUIDANCE: Record<string, string> = {
     "         **SPECULATION** · what you'd want to test",
     "      Conflating INFERENCE with OBSERVATION is the mode's signature failure — keep the tags clean.",
     "  (3) **State confidence on load-bearing claims** · `low` (might be wrong) · `med` (lean this way) · `high` (would defend). For any load-bearing claim, add ONE sentence on **why-not-the-next-level-up** — what would have to be true to push the confidence higher. Don't tag every sentence; tag the claims the room's map will rest on.",
-    "  (4) **On reactive turns**, connect to another director's finding (\"X plus Y suggests Z\") OR surface a **disagreement between sources** (\"source A says X; Drucker's prior turn says Y; the falsifier between them is Z\"). When two sources conflict, do not silently pick one — name the disagreement and what would resolve it. Refer to peers by NAME, never by `/handle`.",
+    "  (4) **On reactive turns**, connect to another director's finding (\"X plus Y suggests Z\") OR surface a **disagreement between sources** (\"source A says X; Drucker's prior turn says Y; the falsifier between them is Z\"). When two sources conflict, do not silently pick one — name the disagreement and what would resolve it. Refer to peers by NAME, never by `@handle`.",
     "",
     "## Web-search hygiene (when available)",
     "Search results are SOURCES, not FACTS. Quote the line, name the source, then tag your reading OBSERVATION / INFERENCE / SPECULATION. A retrieved sentence is still a CLAIM living inside someone else's frame; treat it accordingly.",
@@ -666,15 +666,15 @@ function detectRecentToneShift(
  *  phrase. If present, drop everything up to and including the first
  *  sentence terminator (。 or .). No-op when no echo phrase matches —
  *  legitimate openers (a director leading with their own claim, or
- *  starting with "Yes, /handle …") pass through unchanged. */
+ *  starting with "Yes, @handle …") pass through unchanged. */
 function stripUserAcknowledgmentPreface(body: string): string {
   if (!body) return body;
   const trimmed = body.replace(/^\s+/, "");
   const head = trimmed.slice(0, 240);
   // Signature lead-in patterns observed in director turns. The head
   // may begin with an optional name+comma prefix (e.g. "Kaysaith，"
-  // or "/socrates,") before the actual echo phrase.
-  const ECHO_LEAD = /^(?:[A-Za-z一-鿿/_-]+[，,][\s]*)?(?:既然(?:你|[A-Za-z一-鿿]+)|Since you (?:asked|insist|insisted|stated|claimed|said|noted|requested)|As you (?:asked|stated|noted|said|requested)|按你(?:说的|的要求)|你既然(?:已经|说|提到|要求))/;
+  // or "@socrates,") before the actual echo phrase.
+  const ECHO_LEAD = /^(?:[A-Za-z一-鿿/@_-]+[，,][\s]*)?(?:既然(?:你|[A-Za-z一-鿿]+)|Since you (?:asked|insist|insisted|stated|claimed|said|noted|requested)|As you (?:asked|stated|noted|said|requested)|按你(?:说的|的要求)|你既然(?:已经|说|提到|要求))/;
   if (!ECHO_LEAD.test(head)) return body;
   // Drop everything up to and including the first sentence terminator
   // (full-width 。 or half-width . followed by space/newline/end). If
@@ -703,7 +703,7 @@ const OPENING_BLOCK = [
 
 const REACTIVE_BLOCK = [
   "REACTIVE ROUND. The directors above already weighed in this round.",
-  "Your turn now is to ENGAGE with what they said: extend a sharp point, push back on a weak one, name the trade-off they hid, or sharpen the question. Reference specific contributors by NAME (\"Socrates argued …\" / \"Drucker's point about …\") — never by their `/handle`. Handles are internal routing only and read as ugly system tokens to the user.",
+  "Your turn now is to ENGAGE with what they said: extend a sharp point, push back on a weak one, name the trade-off they hid, or sharpen the question. Reference specific contributors by NAME (\"Socrates argued …\" / \"Drucker's point about …\") — never by their `@handle`. Handles are internal routing only; do not paste raw handle tokens into user-facing prose.",
   "Never duplicate. If a director already covered angle X, your turn must add something genuinely new (a different lens, a missing edge case, a sharper question, a counter-frame) — not restate, applaud, or paraphrase.",
   "",
   "The user's most recent message was already absorbed in the opening sweep above — every director acknowledged it once. Do NOT re-preface this turn with \"Since you asked …\" / \"As you requested …\" / \"既然你要求了 …\" / \"按你说的 …\" / \"既然你提出 …\" or any synonym. That phrasing was each director's one-time acknowledgment in the opening round; repeating it every reactive round reads as a stuck loop. Take the user's direction as ABSORBED context (not fresh instruction) and move the discussion forward — push on a peer's point, name a missing piece, sharpen a trade-off. The user can see they were heard from the opening sweep alone.",
@@ -901,7 +901,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       ``,
       `─── HOUSE RULES ───`,
       `· Reply as ${speaker.name}, in your voice. Never roleplay another director.`,
-      `· Engage directly with the most recent contributions. Reference other directors by NAME (e.g. "${others[0]?.name ?? "Socrates"} — your moat point assumes…") — NEVER by their \`/handle\`. The transcript below uses the format \`[Name · /handle]\` so you can disambiguate, but \`/handle\` is internal addressing only; pasting it into your prose reads as a raw system token to the user. The shape of "engage" depends on the room's tone: ${houseEngageVerbs}.`,
+      `· Engage directly with the most recent contributions. Reference other directors by NAME (e.g. "${others[0]?.name ?? "Socrates"} — your moat point assumes…") — NEVER by their \`@handle\`. The transcript below uses the format \`[Name · @handle]\` so you can disambiguate, but \`@handle\` is internal addressing only; pasting it into your prose reads as a raw system token to the user. The shape of "engage" depends on the room's tone: ${houseEngageVerbs}.`,
       `· Build on prior turns by you (when you've spoken before). Don't repeat yourself; advance.`,
       deliveryMode === "voice"
         ? `· Voice mode: no markdown. Colloquial + SHORT — one move per turn, lecture-length turns are a failure mode — unless one plain emphasis word is truly useful.`
@@ -987,7 +987,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
     // stripping (they don't echo user requests), but the helper is a
     // no-op when no echo phrase matches.
     const who = cast.find((a) => a.id === m.authorId);
-    const handle = who?.handle ?? "/director";
+    const handle = who?.handle ?? "@director";
     const name = who?.name ?? "Director";
     out.push({
       role: "user",
@@ -1143,7 +1143,7 @@ function renderHistoryForChair(history: Message[], cast: Agent[], prefs: Prefs):
     }
     const who = cast.find((a) => a.id === m.authorId);
     const name = who?.name ?? "Director";
-    const handle = who?.handle ?? "/director";
+    const handle = who?.handle ?? "@director";
     out.push({ role: "user", content: `[${name} · ${handle}] ${m.body}` });
   }
   // Collapse consecutive user-roles to keep providers happy.

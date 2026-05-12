@@ -40,7 +40,7 @@
     "socrates": {
       name: "Socrates",
       role: "The Skeptic",
-      handle: "/socrates",
+      handle: "@socrates",
       avatar: "avatars/socrates.svg",
       lens: "Won't let any sentence pass without unpacking its assumptions three layers deep. Treats every word as a contract that must be defined before reasoning can begin.",
       traits: ["probing", "definitional", "patient", "rarely concedes"],
@@ -64,7 +64,7 @@
     "first-principles": {
       name: "First Principles",
       role: "Causal Reasoning",
-      handle: "/first_p",
+      handle: "@first_p",
       avatar: "avatars/first-principles.svg",
       lens: "Strips problems to their primitives. Refuses to reason in the middle layer where most thinking dies. Will rebuild the argument from physics if necessary.",
       traits: ["reductive", "literal", "cold", "physics-first"],
@@ -88,7 +88,7 @@
     "value-investor": {
       name: "Value Investor",
       role: "Pattern Recognition",
-      handle: "/value_inv",
+      handle: "@value_inv",
       avatar: "avatars/value-investor.svg",
       lens: "Reads every judgment through a ten-year lens. Pattern recognition trained on twenty years of market history. Sees what's already been tried — and how it ended.",
       traits: ["historical", "skeptical of hype", "long-horizon", "selectively quiet"],
@@ -112,7 +112,7 @@
     "user-empathy": {
       name: "User-Empathy",
       role: "Empathy Lens",
-      handle: "/user_emp",
+      handle: "@user_e",
       avatar: "avatars/user-empathy.svg",
       lens: "Asks why anyone would actually use this — never lets a feature pass without a real-person scenario. Holds the room accountable to people who aren't in it.",
       traits: ["narrative", "scenario-driven", "warm", "uncompromising"],
@@ -136,7 +136,7 @@
     "long-horizon": {
       name: "Long Horizon",
       role: "Historical Lens",
-      handle: "/long_h",
+      handle: "@long_h",
       avatar: "avatars/long-horizon.svg",
       lens: "Reads everything on a hundred-year scale. Knows which patterns repeat and which never do. Treats the present as a single frame in a much longer film.",
       traits: ["macro", "civilizational", "calm", "rare interjector"],
@@ -160,7 +160,7 @@
     "phenomenologist": {
       name: "Phenomenologist",
       role: "Experience-First · Intern",
-      handle: "/phen",
+      handle: "@phen",
       avatar: "avatars/phenomenologist.svg",
       lens: "Begins from experience itself, without imposing structure. Currently on probation — has to earn a permanent seat, or step back to observer.",
       traits: ["unstructured", "first-person", "uneven", "promising"],
@@ -191,6 +191,13 @@
 
   function ovT(key, vars) {
     return (window.I18n && window.I18n.t(key, vars)) || key;
+  }
+
+  function displayAgentHandle(h) {
+    if (h == null || typeof h !== "string") return h;
+    const t = h.trim();
+    if (t.startsWith("/")) return "@" + t.slice(1);
+    return t;
   }
 
   const OVERLAY_HTML = `
@@ -337,7 +344,7 @@
       return {
         name: live.name,
         role: live.roleTag || ovT("ap_live_agent_director"),
-        handle: live.handle || ("/" + live.id),
+        handle: displayAgentHandle(live.handle) || ("@" + live.id),
         avatar: live.avatarPath || "",
         lens: live.bio || "",
         traits: [],
@@ -376,7 +383,7 @@
         roleDisp = ovT("agent_role_tag_moderator");
       }
       card.querySelector(".agent-card-id .role").textContent = roleDisp;
-      card.querySelector(".agent-card-id .handle").textContent = a.handle;
+      card.querySelector(".agent-card-id .handle").textContent = displayAgentHandle(a.handle);
       card.querySelector(".agent-lens").textContent = a.lens;
 
       // Model · resolved from the live record (catalog entries don't

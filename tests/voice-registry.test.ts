@@ -10,7 +10,7 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
   return {
     id: "test-agent",
     name: "Test",
-    handle: "/test",
+    handle: "@test",
     roleTag: "analyst",
     roleKind: "director",
     bio: "",

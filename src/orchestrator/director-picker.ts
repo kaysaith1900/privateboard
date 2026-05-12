@@ -20,6 +20,18 @@ import { callLLM, NoKeyError, type LLMMessage } from "../ai/adapter.js";
 import { effectiveDefaultModel, utilityModelFor } from "../ai/availability.js";
 import type { ModelV } from "../ai/registry.js";
 import type { Agent } from "../storage/agents.js";
+import { bareHandleSlug } from "../utils/agent-handle.js";
+
+/** Match LLM / legacy output (`/foo`) to catalog rows stored as `@foo`. */
+function resolveCatalogAgent(candidates: Agent[], handleRaw: string): Agent | undefined {
+  const t = handleRaw.trim();
+  if (!t) return undefined;
+  const bare = bareHandleSlug(t);
+  return (
+    candidates.find((a) => a.handle === t) ??
+    candidates.find((a) => bareHandleSlug(a.handle) === bare)
+  );
+}
 
 /** Auto-pick is one of the most consequential routing decisions in
  *  the room (which 3 directors get seated determines the room's whole
@@ -177,10 +189,9 @@ function enforceDiversity(picks: Agent[], candidates: Agent[]): Agent[] {
  *  otherwise the first three available directors. */
 function fallbackCast(candidates: Agent[]): Agent[] {
   if (candidates.length <= TARGET_CAST_SIZE) return candidates.slice();
-  const preferredHandles = ["/socrates", "/first_p", "/user_emp"];
-  const byHandle = new Map(candidates.map((a) => [a.handle, a]));
+  const preferredHandles = ["@socrates", "@first_p", "@user_e"];
   const preferred = preferredHandles
-    .map((h) => byHandle.get(h))
+    .map((h) => resolveCatalogAgent(candidates, h))
     .filter((a): a is Agent => !!a);
   if (preferred.length >= TARGET_CAST_SIZE) return preferred.slice(0, TARGET_CAST_SIZE);
   // Fill in with first-N from the remaining catalog.
@@ -228,9 +239,9 @@ export async function pickDirectors(opts: {
       "```json",
       "{",
       "  \"picks\": [",
-      "    {\"handle\": \"/socrates\", \"reason\": \"≤ 60 chars · why this director\"},",
-      "    {\"handle\": \"/long_h\", \"reason\": \"...\"},",
-      "    {\"handle\": \"/user_emp\", \"reason\": \"...\"}",
+      "    {\"handle\": \"@socrates\", \"reason\": \"≤ 60 chars · why this director\"},",
+      "    {\"handle\": \"@long_h\", \"reason\": \"...\"},",
+      "    {\"handle\": \"@user_e\", \"reason\": \"...\"}",
       "  ],",
       "  \"rationale\": \"≤ 80 chars · why this combination as a whole\"",
       "}",
@@ -307,12 +318,11 @@ export async function pickDirectors(opts: {
     };
   }
 
-  const byHandle = new Map(candidates.map((a) => [a.handle, a]));
   const llmPicks: { agent: Agent; reason: string }[] = [];
   for (const p of parsed.picks as PickRaw[]) {
     const handle = typeof p.handle === "string" ? p.handle.trim() : "";
     if (!handle) continue;
-    const agent = byHandle.get(handle);
+    const agent = resolveCatalogAgent(candidates, handle);
     if (!agent) continue;
     if (llmPicks.find((x) => x.agent.id === agent.id)) continue; // dedupe
     const reason = typeof p.reason === "string" ? clipString(p.reason.trim(), 80) : "";

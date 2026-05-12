@@ -206,7 +206,7 @@
                   <div class="na-input-wrap na-name-wrap">
                     <input type="text" class="na-name-input" data-i18n-na-placeholder="na_name_ph" placeholder="" maxlength="32">
                   </div>
-                  <div class="na-field-hint"><span data-i18n-na="na_hint_handle"></span> <span class="na-handle-preview">/new_agent</span></div>
+                  <div class="na-field-hint"><span data-i18n-na="na_hint_handle"></span> <span class="na-handle-preview">@new_agent</span></div>
                 </div>
 
                 <div class="na-field">
@@ -699,7 +699,7 @@
     const desc = modal.querySelector(".na-desc-input").value;
     const instr = modal.querySelector(".na-instr-input").value;
 
-    const handle = "/" + slugify(name);
+    const handle = "@" + slugify(name);
     modal.querySelector(".na-handle-preview").textContent = handle;
     modal.querySelector(".na-name-count").textContent = name.length;
     modal.querySelector(".na-desc-count").textContent = desc.length;

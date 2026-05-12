@@ -81,6 +81,14 @@
       "Review board. The room audits a finished deliverable systematically — each turn names the dimension being audited (logic / evidence / scope / risk / etc.), surfaces 2–3 specific flaws labelled BLOCKER · MAJOR · MINOR, points at the load-bearing piece, and indicates the direction a fix would lie. At least one BLOCKER or MAJOR per turn is mandatory.",
   };
 
+  /** Legacy DB rows may still store `/slug`; product UI always shows `@slug`. */
+  function displayAgentHandle(h) {
+    if (h == null || typeof h !== "string") return h;
+    const t = h.trim();
+    if (t.startsWith("/")) return "@" + t.slice(1);
+    return t;
+  }
+
   const app = {
     // ── State ─────────────────────────────────────────────────
     prefs: null,
@@ -4494,7 +4502,7 @@
 
       // 1) Highlight references to the USER (the human in the room) first —
       //    these get a lime accent so they read as the addressee. Matches
-      //    @Name / /Name where Name is the user's prefs.name (case-
+      //    @Name or /Name where Name is the user's prefs.name (case-
       //    insensitive). We try the full name, then the first token, so
       //    "@Kay Smith" and "@Kay" both light up for a user named "Kay Smith".
       const userName = (this.prefs?.name || "").trim();
@@ -4508,8 +4516,8 @@
           .sort((a, b) => b.length - a.length)
           .join("|");
         const reUser = new RegExp(`(^|[^\\w/@])([@/])(${alt})\\b`, "gi");
-        out = out.replace(reUser, (_, pre, sigil, name) => {
-          return `${pre}<span class="msg-mention msg-mention-user">${sigil}${name}</span>`;
+        out = out.replace(reUser, (_, pre, _sigil, name) => {
+          return `${pre}<span class="msg-mention msg-mention-user">@${name}</span>`;
         });
       }
 
@@ -4518,13 +4526,13 @@
       //    from the user mention above.
       if (this.currentMembers && this.currentMembers.length) {
         const handles = this.currentMembers
-          .map((a) => (a.handle || "").replace(/^\//, ""))
+          .map((a) => (a.handle || "").replace(/^[@/]+/, ""))
           .filter(Boolean)
           .sort((a, b) => b.length - a.length);
         if (handles.length) {
           const re = new RegExp(`(^|[^\\w/@])([@/])(${handles.join("|")})\\b`, "g");
-          out = out.replace(re, (_, pre, sigil, name) => {
-            return `${pre}<span class="msg-mention msg-mention-agent" data-mention="${name}">${sigil}${name}</span>`;
+          out = out.replace(re, (_, pre, _sigil, name) => {
+            return `${pre}<span class="msg-mention msg-mention-agent" data-mention="${name}">@${name}</span>`;
           });
         }
       }
@@ -5470,7 +5478,7 @@
         ? this.agentsById[this.currentQueue[0].agentId]
         : this.currentMembers[0];
       const nextHandle = nextSpeaker
-        ? this.escape(nextSpeaker.handle.replace(/^\//, ""))
+        ? this.escape(nextSpeaker.handle.replace(/^[@/]+/, ""))
         : "";
 
       const addInputLabel = this._t("pause_bar_add_input");
@@ -9585,7 +9593,7 @@
           // POST the user-edited fields to the persona save
           // endpoint · server re-synthesizes instruction if the
           // user blanked it, otherwise honours the override.
-          const handle = "/" + (data.name || "director").toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 16);
+          const handle = "@" + (data.name || "director").toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 16);
           const ability = (job.finalAbility && Object.keys(job.finalAbility).length > 0)
             ? job.finalAbility
             : null;
@@ -11943,7 +11951,7 @@
             <div class="convene-meta">
               <span class="convene-by">${who}</span>
               <span class="convene-time">· ${this.timeFmt(m.createdAt)}</span>
-              <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(a.handle)).join(" ")}</span>
+              <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(displayAgentHandle(a.handle))).join(" ")}</span>
             </div>
           </article>
         `;

@@ -383,7 +383,7 @@ export function parseAgentSpec(raw: string): AgentSpec | null {
 
   const handleRaw = typeof parsed.handle === "string" ? parsed.handle.trim() : "";
   const handle = handleRaw
-    ? handleRaw.replace(/^\/+/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 18)
+    ? handleRaw.replace(/^[@/]+/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 18)
     : name.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 18);
 
   const roleTagRaw = typeof parsed.roleTag === "string" ? parsed.roleTag.trim().toLowerCase() : "";

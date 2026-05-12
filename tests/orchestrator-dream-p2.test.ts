@@ -42,7 +42,7 @@ beforeEach(() => {
   insertAgent({
     id: AGENT_ID,
     name: "P2",
-    handle: "/p2",
+    handle: "@p2",
     roleTag: "director",
     bio: "",
     instruction: "",

@@ -1,4 +1,5 @@
 /** Directors / agents. */
+import { agentHandleLookupCandidates } from "../utils/agent-handle.js";
 import { getDb } from "./db.js";
 
 export type AgentRoleKind = "director" | "moderator";
@@ -775,10 +776,13 @@ export function getAgent(id: string): Agent | null {
 }
 
 export function getAgentByHandle(handle: string): Agent | null {
-  const row = getDb()
-    .prepare(`SELECT ${SELECT_COLS} FROM agents WHERE handle = ?`)
-    .get(handle) as Row | undefined;
-  return row ? mapRow(row) : null;
+  const db = getDb();
+  const stmt = db.prepare(`SELECT ${SELECT_COLS} FROM agents WHERE handle = ?`);
+  for (const candidate of agentHandleLookupCandidates(handle)) {
+    const row = stmt.get(candidate) as Row | undefined;
+    if (row) return mapRow(row);
+  }
+  return null;
 }
 
 export interface AgentInsert {
