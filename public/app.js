@@ -1665,6 +1665,10 @@
                     return {
                       ...sb,
                       bodyMd,
+                      /* `mode` must survive refetches. Older server builds /
+                         JSON paths occasionally omitted `mode` on GET; the
+                         in-memory brief from `brief-started` still has it. */
+                      mode: sb.mode ?? prev.mode ?? "research-note",
                       // UI-only state — preserve in-memory.
                       stages: prev.stages,
                       error: prev.error,
@@ -2285,6 +2289,201 @@
         </div>`;
     },
 
+    /** Second row under the format gallery · composer-recommended spine /
+     *  house style + structured template picks. Markup only — filled by
+     *  `loadBriefRenderPreviewIntoOverlay` after POST preview. */
+    renderBriefThemeRow() {
+      return `
+        <div class="adjourn-render-themes" data-render-themes>
+          <div class="adjourn-mode-label">// look & templates</div>
+          <div class="adjourn-render-body" data-render-body>
+            <p class="adjourn-render-muted" data-render-placeholder>Fetching recommendations…</p>
+            <div class="adjourn-render-tier" hidden data-tier="research-note">
+              <div class="adjourn-render-row">
+                <span class="adjourn-render-field-label">Spine</span>
+                <select data-render-spine class="adjourn-render-select" aria-label="Report spine"></select>
+              </div>
+              <div class="adjourn-render-row">
+                <span class="adjourn-render-field-label">House style</span>
+                <select data-render-house-style class="adjourn-render-select" aria-label="House style"></select>
+              </div>
+              <p class="adjourn-render-rationale" data-render-rationale hidden></p>
+            </div>
+            <div class="adjourn-render-tier" hidden data-tier="structured">
+              <div class="adjourn-variant-block" hidden data-struct="ppt">
+                <span class="adjourn-render-field-label">Slides</span>
+                <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="keynote"><span>Keynote</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="anthropic"><span>Anthropic</span></label>
+                </div>
+              </div>
+              <div class="adjourn-variant-block" hidden data-struct="magazine">
+                <span class="adjourn-render-field-label">Magazine</span>
+                <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="gq"><span>GQ</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="vogue"><span>Vogue</span></label>
+                </div>
+              </div>
+              <div class="adjourn-variant-block" hidden data-struct="newspaper">
+                <span class="adjourn-render-field-label">Newspaper</span>
+                <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="times"><span>Times</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="post"><span>Post</span></label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    },
+
+    /** After preview JSON loads · populate selects/radios once. */
+    populateBriefThemeControls(overlayEl, data) {
+      if (!overlayEl || !data || !data.catalog) return;
+      const spineSel = overlayEl.querySelector("[data-render-spine]");
+      const hsSel = overlayEl.querySelector("[data-render-house-style]");
+      if (spineSel && data.catalog.spines) {
+        spineSel.innerHTML = data.catalog.spines
+          .map((s) => `<option value="${this.escape(s)}">${this.escape(s)}</option>`)
+          .join("");
+        if (data.report && data.report.spine) spineSel.value = data.report.spine;
+      }
+      if (hsSel && data.catalog.houseStyles) {
+        hsSel.innerHTML = data.catalog.houseStyles
+          .map((h) => `<option value="${this.escape(h.id)}">${this.escape(h.label)}</option>`)
+          .join("");
+        if (data.report && data.report.houseStyle) hsSel.value = data.report.houseStyle;
+      }
+      const rat = overlayEl.querySelector("[data-render-rationale]");
+      if (rat) {
+        const r = data.report && data.report.rationale;
+        if (r && String(r).trim()) {
+          rat.textContent = String(r).trim();
+          rat.hidden = false;
+        } else {
+          rat.hidden = true;
+          rat.textContent = "";
+        }
+      }
+      const pv = data.structured && data.structured.ppt;
+      if (pv) {
+        const inp = overlayEl.querySelector(`input[name="render-ppt-variant"][value="${pv}"]`);
+        if (inp) inp.checked = true;
+      }
+      const mv = data.structured && data.structured.magazine;
+      if (mv) {
+        const inp = overlayEl.querySelector(`input[name="render-mag-variant"][value="${mv}"]`);
+        if (inp) inp.checked = true;
+      }
+      const nv = data.structured && data.structured.newspaper;
+      if (nv) {
+        const inp = overlayEl.querySelector(`input[name="render-np-variant"][value="${nv}"]`);
+        if (inp) inp.checked = true;
+      }
+    },
+
+    /** Toggle which theme controls are visible · matches the picked format. */
+    syncBriefThemeTier(overlayEl) {
+      if (!overlayEl || !overlayEl.querySelector) return;
+      const data = overlayEl._briefRenderPreview;
+      const ph = overlayEl.querySelector("[data-render-placeholder]");
+      const tierRn = overlayEl.querySelector('[data-tier="research-note"]');
+      const tierSt = overlayEl.querySelector('[data-tier="structured"]');
+      let briefModeInput = overlayEl.querySelector('input[name="brief-mode"]:checked');
+      if (!briefModeInput) {
+        const fb = overlayEl.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fb) {
+          fb.checked = true;
+          briefModeInput = fb;
+        }
+      }
+      const v = briefModeInput && briefModeInput.value;
+      const mode = this.isStructuredBriefMode(v) ? v : "research-note";
+      if (!data) {
+        if (ph) ph.hidden = false;
+        if (tierRn) tierRn.hidden = true;
+        if (tierSt) tierSt.hidden = true;
+        return;
+      }
+      if (ph) ph.hidden = true;
+      if (mode === "research-note") {
+        if (tierRn) tierRn.hidden = false;
+        if (tierSt) tierSt.hidden = true;
+      } else {
+        if (tierRn) tierRn.hidden = true;
+        if (tierSt) tierSt.hidden = false;
+        const blocks = tierSt ? tierSt.querySelectorAll(".adjourn-variant-block[data-struct]") : [];
+        blocks.forEach((b) => {
+          b.hidden = b.getAttribute("data-struct") !== mode;
+        });
+      }
+    },
+
+    /** Read non-default theme picks for adjourn / regenerate POST bodies. */
+    collectRenderPrefs(overlayEl) {
+      if (!overlayEl) return null;
+      let briefModeInput = overlayEl.querySelector('input[name="brief-mode"]:checked');
+      if (!briefModeInput) {
+        const fb = overlayEl.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fb) {
+          fb.checked = true;
+          briefModeInput = fb;
+        }
+      }
+      const v = briefModeInput && briefModeInput.value;
+      const mode = this.isStructuredBriefMode(v) ? v : "research-note";
+      const prefs = {};
+      if (mode === "research-note") {
+        const spineSel = overlayEl.querySelector("[data-render-spine]");
+        const hsSel = overlayEl.querySelector("[data-render-house-style]");
+        if (spineSel && spineSel.value) prefs.reportSpine = spineSel.value;
+        if (hsSel && hsSel.value) prefs.reportHouseStyle = hsSel.value;
+      } else if (mode === "ppt") {
+        const r = overlayEl.querySelector('input[name="render-ppt-variant"]:checked');
+        if (r && r.value) prefs.pptVariant = r.value;
+      } else if (mode === "magazine") {
+        const r = overlayEl.querySelector('input[name="render-mag-variant"]:checked');
+        if (r && r.value) prefs.magazineVariant = r.value;
+      } else if (mode === "newspaper") {
+        const r = overlayEl.querySelector('input[name="render-np-variant"]:checked');
+        if (r && r.value) prefs.newspaperVariant = r.value;
+      }
+      return Object.keys(prefs).length ? prefs : null;
+    },
+
+    async loadBriefRenderPreviewIntoOverlay(overlayEl) {
+      if (!overlayEl || !this.currentRoomId || !overlayEl.querySelector("[data-render-themes]")) return;
+      const ph = overlayEl.querySelector("[data-render-placeholder]");
+      if (ph) {
+        ph.hidden = false;
+        ph.textContent = "Fetching recommendations…";
+      }
+      if (!this.hasAnyModelKey()) {
+        if (ph) ph.textContent = "Add a model key in settings to load recommended themes.";
+        return;
+      }
+      try {
+        const res = await fetch(
+          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief-render-preview",
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (ph) ph.textContent = err.error || ("Preview failed (" + res.status + ")");
+          overlayEl._briefRenderPreview = null;
+          this.syncBriefThemeTier(overlayEl);
+          return;
+        }
+        const data = await res.json();
+        overlayEl._briefRenderPreview = data;
+        this.populateBriefThemeControls(overlayEl, data);
+        this.syncBriefThemeTier(overlayEl);
+      } catch (e) {
+        if (ph) ph.textContent = "Could not load recommendations (offline?)";
+        overlayEl._briefRenderPreview = null;
+        this.syncBriefThemeTier(overlayEl);
+      }
+    },
+
     /** Read the user's last-picked report mode from localStorage so the
      *  picker defaults to their previous choice. Falls back to
      *  'research-note' on first run / private mode. */
@@ -2502,17 +2701,28 @@
       const mode = opts && this.isStructuredBriefMode(opts.mode)
         ? opts.mode
         : "research-note";
+      const renderPrefs =
+        opts &&
+        opts.renderPrefs &&
+        typeof opts.renderPrefs === "object" &&
+        !Array.isArray(opts.renderPrefs)
+          ? opts.renderPrefs
+          : null;
       // Pre-flight · adjourn-with-brief triggers the brief writer
       // pipeline (3 LLM stages). When skipBrief=true the chair just
       // posts the no-brief marker without LLM calls, so we let it
       // through even without a key.
       if (!skipBrief && !(await this.requireModelKey())) return;
+      let body;
+      if (skipBrief) body = { skipBrief: true };
+      else if (renderPrefs) body = { mode, renderPrefs };
+      else body = { mode };
       const r = await fetch(
         "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/adjourn",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(skipBrief ? { skipBrief: true } : { mode }),
+          body: JSON.stringify(body),
         },
       );
       if (!r.ok) {
@@ -2597,6 +2807,7 @@
               </p>
 
               ${this.renderBriefModePicker(defaultMode)}
+              ${this.renderBriefThemeRow()}
             </div>
 
             <footer class="adjourn-foot">
@@ -2628,6 +2839,11 @@
         const subjBtn = document.querySelector("[data-adjourn-subject-toggle]");
         if (subjEl && subjBtn && subjEl.scrollHeight > subjEl.clientHeight + 1) {
           subjBtn.hidden = false;
+        }
+        const adj = document.getElementById("adjourn-overlay");
+        if (adj) {
+          this.syncBriefThemeTier(adj);
+          this.loadBriefRenderPreviewIntoOverlay(adj);
         }
       });
       // Esc closes the overlay. Listener auto-detaches on close so
@@ -2694,6 +2910,7 @@
               <textarea class="supplement-input" data-supplement-input rows="6" placeholder="${this.escape(t.placeholder)}"></textarea>
               <p class="supplement-hint">${this.escape(t.hint)}</p>
               ${this.renderBriefModePicker(defaultMode)}
+              ${this.renderBriefThemeRow()}
             </div>
             <footer class="supplement-foot">
               <button type="button" class="supplement-cancel" data-supplement-close>${this.escape(t.cancel)}</button>
@@ -2718,6 +2935,11 @@
       setTimeout(() => {
         const input = document.querySelector("[data-supplement-input]");
         if (input) input.focus();
+        const sup = document.getElementById("supplement-overlay");
+        if (sup) {
+          this.syncBriefThemeTier(sup);
+          this.loadBriefRenderPreviewIntoOverlay(sup);
+        }
       }, 30);
     },
 
@@ -3431,10 +3653,20 @@
       // time. Server-side the same `/api/rooms/:id/brief` route reads
       // `mode` regardless of whether the call came from supplement or
       // generate-brief, so no backend change is needed.
-      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      let briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      /* Tile highlight (`.on`) is authoritative when no radio ticks ·
+       * `:checked` can be absent with custom-hidden radios / browser quirks. */
+      if (!briefModeInput) {
+        const fallback = overlay.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fallback) {
+          fallback.checked = true;
+          briefModeInput = fallback;
+        }
+      }
       const v = briefModeInput && briefModeInput.value;
       const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
       this.saveLastBriefMode(briefMode);
+      const themePrefs = this.collectRenderPrefs(overlay);
       // Frontend in-flight guard · without this, a slow server roundtrip
       // gives the user time to click confirm twice (or to close+reopen
       // the overlay and click again). Each click was firing its own POST,
@@ -3453,7 +3685,11 @@
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ supplement: text, mode: briefMode }),
+            body: JSON.stringify(
+              themePrefs
+                ? { supplement: text, mode: briefMode, renderPrefs: themePrefs }
+                : { supplement: text, mode: briefMode },
+            ),
           },
         );
         if (!r.ok) {
@@ -3683,8 +3919,12 @@
         // with-perspective flow). Anything else (style etc) is
         // re-derived server-side from the room's stored config.
         const retryBody = {};
-        if (failed && this.isStructuredBriefMode(failed.mode)) {
-          retryBody.mode = failed.mode;
+        const retryMode =
+          failed && typeof failed.mode === "string"
+            ? failed.mode
+            : null;
+        if (failed && this.isStructuredBriefMode(retryMode)) {
+          retryBody.mode = retryMode;
         }
         if (failed && typeof failed.supplement === "string" && failed.supplement.trim()) {
           retryBody.supplement = failed.supplement;
@@ -3732,10 +3972,20 @@
       const skipPicked = overlay.querySelector(".adjourn-skip-btn.picked") !== null;
       // Read the report-mode picker (research-note / bento). Persist the
       // choice so the picker defaults to the same option next time.
-      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      let briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      /* Match supplement overlay fallback · never send research-note while
+       * the lime `.on` tile is a structured mode whose radio slipped. */
+      if (!briefModeInput) {
+        const fallback = overlay.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fallback) {
+          fallback.checked = true;
+          briefModeInput = fallback;
+        }
+      }
       const v = briefModeInput && briefModeInput.value;
       const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
       this.saveLastBriefMode(briefMode);
+      const themePrefs = this.collectRenderPrefs(overlay);
       const btn = overlay.querySelector("[data-adjourn-confirm]");
       const origLabel = isGen ? this._t("adj_confirm_generate") : this._t("adj_confirm_file");
       const busyLabel = isGen ? this._t("adj_busy_generate") : this._t("adj_busy_adjourn");
@@ -3755,11 +4005,14 @@
           this.applyRoundTableVisibility(this.currentRoomId);
         }
         if (isGen) {
-          await this.generateBriefForAdjournedRoom(briefMode);
+          await this.generateBriefForAdjournedRoom(briefMode, themePrefs);
         } else if (skipPicked) {
           await this.adjournRoom({ skipBrief: true });
         } else {
-          await this.adjournRoom({ mode: briefMode });
+          await this.adjournRoom({
+            mode: briefMode,
+            renderPrefs: themePrefs || undefined,
+          });
         }
         this.closeAdjournOverlay();
       } catch (e) {
@@ -3772,18 +4025,22 @@
      *  whose user originally skipped the brief. Server emits the same
      *  brief-started / brief-token / brief-final SSE events as a normal
      *  adjourn, so the existing handlers in connectSSE handle the rest. */
-    async generateBriefForAdjournedRoom(mode) {
+    async generateBriefForAdjournedRoom(mode, renderPrefs) {
       if (!this.currentRoomId) return;
       const briefMode = this.isStructuredBriefMode(mode) ? mode : "research-note";
       // Pre-flight · the brief writer is a 3-stage LLM pipeline (per-
       // director extract → composer → final write). All require a key.
       if (!(await this.requireModelKey())) return;
+      const payload = { mode: briefMode };
+      if (renderPrefs && typeof renderPrefs === "object" && !Array.isArray(renderPrefs)) {
+        payload.renderPrefs = renderPrefs;
+      }
       const r = await fetch(
         "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ mode: briefMode }),
+          body: JSON.stringify(payload),
         },
       );
       if (!r.ok) {
@@ -15385,50 +15642,6 @@
       app.openAdjournOverlay();
       return;
     }
-    // Generate report now · escape hatch for users who adjourned with
-    // skipBrief and later want a brief filed. Two surfaces share this
-    // hook: (a) the chat's no-brief milestone card, (b) the header
-    // [ ▸ Generate Report ] link that replaces the old [ ⊘ No Report ]
-    // static text. Both carry data-generate-brief; click → POST
-    // /api/rooms/:id/brief → existing brief-* SSE handlers render the
-    // in-progress + final brief bubbles in the brief slot. After
-    // success, currentBrief flips non-null → next renderHeader/Chat
-    // swaps the button to [ View Report ] automatically.
-    const genBriefBtn = e.target.closest("[data-generate-brief]");
-    if (genBriefBtn) {
-      e.preventDefault();
-      if (genBriefBtn.getAttribute("data-pending") === "1") return;
-      genBriefBtn.setAttribute("data-pending", "1");
-      if ("disabled" in genBriefBtn) genBriefBtn.disabled = true;
-
-      // System UI · always English (generating-button chrome).
-      const generatingText = "generating…";
-      const originalHtml = genBriefBtn.innerHTML;
-
-      // Swap to a "generating…" state. The two button shapes both
-      // contain a small ▸ mark + text label; flip the mark to · and
-      // replace the label with the generating phrase. We save the
-      // original innerHTML so a failure can roll back cleanly.
-      const textEl = genBriefBtn.querySelector(".nb-cta-text");
-      const markEl = genBriefBtn.querySelector(".nb-cta-mark, .vr-mark");
-      if (textEl) {
-        textEl.textContent = generatingText;
-        if (markEl) markEl.textContent = "·";
-      } else {
-        // Header anchor · text lives as a sibling text node next to
-        // the mark span. Easiest to re-emit the whole inner content.
-        const markCls = markEl ? markEl.className : "vr-mark";
-        genBriefBtn.innerHTML = `<span class="${app.escape(markCls)}">·</span> ${app.escape(generatingText)}`;
-      }
-
-      app.generateBriefForAdjournedRoom().catch((err) => {
-        genBriefBtn.removeAttribute("data-pending");
-        if ("disabled" in genBriefBtn) genBriefBtn.disabled = false;
-        genBriefBtn.innerHTML = originalHtml;
-        alert("Brief generation failed: " + (err && err.message ? err.message : err));
-      });
-      return;
-    }
     // Brief-mode picker · clicking a label (or its radio) toggles the
     // .on class on that option AND off on the siblings. Used by both
     // the adjourn overlay and the supplement overlay. We scope to the
@@ -15447,6 +15660,8 @@
         const radio = modeOpt.querySelector('input[type="radio"]');
         if (radio) radio.checked = true;
       }
+      const overlayRoot = modeOpt.closest("#adjourn-overlay, #supplement-overlay");
+      if (overlayRoot) app.syncBriefThemeTier(overlayRoot);
       // Don't preventDefault · let the label's native click behaviour
       // also tick the radio for keyboard / a11y users.
     }

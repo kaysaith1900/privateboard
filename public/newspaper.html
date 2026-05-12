@@ -1298,6 +1298,12 @@
       return (Math.abs(h) % 2) === 0 ? "post" : "times";
     }
 
+    function resolveNpVariant(brief) {
+      const v = String(brief && brief.viewerVariant || "").trim().toLowerCase();
+      if (v === "post" || v === "times") return v;
+      return pickVariant(brief && brief.id);
+    }
+
     /** Format date for masthead · returns formatted strings used by
      *  both variants but in slightly different shapes. */
     function formatDate(footerTag) {
@@ -1745,7 +1751,7 @@
 
       if (m.title) document.title = `${m.title} · Newspaper`;
 
-      const variant = pickVariant(brief.id);
+      const variant = resolveNpVariant(brief);
       document.body.setAttribute("data-np-variant", variant);
       if (variantBadge) {
         variantBadge.textContent = variant === "times" ? "Times Edition" : "Post Edition";

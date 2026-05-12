@@ -43,6 +43,8 @@ import minimaxRegion030 from "./migrations/030_minimax_region.sql";
 import agentPersonaSpec031 from "./migrations/031_agent_persona_spec.sql";
 import roomVoteTrigger032 from "./migrations/032_room_vote_trigger.sql";
 import roomMembersRemovedAt033 from "./migrations/033_room_members_removed_at.sql";
+import briefViewerVariant034 from "./migrations/034_brief_viewer_variant.sql";
+import agentHandleAt035 from "./migrations/035_agent_handle_at_prefix.sql";
 
 interface Migration {
   name: string;
@@ -83,6 +85,8 @@ const MIGRATIONS: Migration[] = [
   { name: "031_agent_persona_spec.sql", sql: agentPersonaSpec031 },
   { name: "032_room_vote_trigger.sql", sql: roomVoteTrigger032 },
   { name: "033_room_members_removed_at.sql", sql: roomMembersRemovedAt033 },
+  { name: "034_brief_viewer_variant.sql", sql: briefViewerVariant034 },
+  { name: "035_agent_handle_at_prefix.sql", sql: agentHandleAt035 },
 ];
 
 let _db: Database.Database | null = null;

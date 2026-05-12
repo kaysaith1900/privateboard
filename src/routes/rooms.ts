@@ -41,6 +41,8 @@ import { pickDirectors } from "../orchestrator/director-picker.js";
 import { roomBus, type RoomEvent } from "../orchestrator/stream.js";
 import { getAgent, getChairAgent, listAgents } from "../storage/agents.js";
 import { getBriefByRoom, listBriefsForRoom } from "../storage/briefs.js";
+import { coerceBriefMode } from "../utils/brief-mode.js";
+import { parseRenderPrefsFromBody } from "../utils/render-prefs.js";
 import { hasWebSearchKey } from "../storage/keys.js";
 import { insertConfigEvent, listConfigEvents } from "../storage/config-events.js";
 import {
@@ -1226,9 +1228,8 @@ export function roomsRouter(): Hono {
     // research-note path. (The previously-supported 'bento' mode
     // has been retired; legacy bento rows in the DB are normalized
     // to 'magazine' on read by `mapRow` in storage/briefs.ts.)
-    const mode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
-      ? b.mode
-      : "research-note";
+    const mode = coerceBriefMode(b.mode);
+    const renderPrefs = parseRenderPrefsFromBody(body);
 
     // Cancel any in-flight director turn before transitioning state.
     abortRoom(id);
@@ -1276,7 +1277,12 @@ export function roomsRouter(): Hono {
 
     let briefId: string | null = null;
     try {
-      const result = await generateBrief({ roomId: id, style: style as "mckinsey", mode });
+      const result = await generateBrief({
+        roomId: id,
+        style: style as "mckinsey",
+        mode,
+        renderPrefs,
+      });
       briefId = result.briefId;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1348,15 +1354,15 @@ export function roomsRouter(): Hono {
     const explicit = typeof b.style === "string" && b.style ? b.style : null;
     const fromRoom = room.briefStyle && room.briefStyle !== "auto" ? room.briefStyle : null;
     const style = explicit || fromRoom || "mckinsey";
-    const mode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
-      ? b.mode
-      : "research-note";
+    const mode = coerceBriefMode(b.mode);
+    const renderPrefs = parseRenderPrefsFromBody(body);
     try {
       const result = await generateBrief({
         roomId: id,
         style: style as "mckinsey",
         supplement: supplement || undefined,
         mode,
+        renderPrefs,
       });
       return c.json({ briefId: result.briefId, status: "generating" });
     } catch (e) {

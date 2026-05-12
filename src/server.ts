@@ -9,6 +9,10 @@ import { existsSync } from "node:fs";
 
 import { agentsRouter } from "./routes/agents.js";
 import { avatarRouter } from "./routes/avatar.js";
+import {
+  briefRenderPreviewGET,
+  briefRenderPreviewPOST,
+} from "./routes/brief-render-preview.js";
 import { briefsRouter } from "./routes/briefs.js";
 import { keysRouter } from "./routes/keys.js";
 import { modelsRouter } from "./routes/models.js";
@@ -113,6 +117,11 @@ export function createApp() {
       return c.json({ migrations: [] });
     }
   });
+
+  // Adjourn-modal theme preview · registered on the parent app so POST never
+  // misses the nested `/api/rooms` merge and falls through to serveStatic (404).
+  app.get("/api/rooms/:id/brief-render-preview", briefRenderPreviewGET);
+  app.post("/api/rooms/:id/brief-render-preview", briefRenderPreviewPOST);
 
   // /api routers
   app.route("/api/prefs", prefsRouter());
