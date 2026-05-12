@@ -560,7 +560,7 @@
   .agent-row .agent-row-title {
     color: var(--text);
     font-family: var(--font-human);
-    font-weight: 600;
+    font-weight: 400;
     font-size: 14px;
     letter-spacing: -0.005em;
     /* Truncate long agent names with ellipsis instead of wrapping
@@ -1219,7 +1219,7 @@
   }
   .row-title {
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 400;
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2664,43 +2664,47 @@
     border-bottom: 0.5px solid var(--line);
   }
   .notes-item:last-child { border-bottom: none; }
-  .notes-item-delete {
-    position: absolute;
-    top: 16px;
-    right: 6px;
-    width: 22px;
-    height: 22px;
-    background: var(--panel-2);
-    border: 0.5px solid var(--line-bright);
+  /* Action row beneath each note · Share + Unfavorite. The row was
+     hover-revealed for a while, but the actions are now always-on so
+     a glance at the note tells the user how to act on it. Buttons
+     use the same flat-pill register as `.bento-director-model` (mono
+     kicker text, 0.5px hairline border, no rounded corners). Clicks
+     funnel through the global click delegator via data-attrs. */
+  /* Bare icon + label, no pill chrome · reads as quiet metadata
+     not as a CTA. The note itself is the primary surface; these
+     actions are secondary affordances revealed on inspection. */
+  .notes-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 4px 14px;
+    margin-top: -4px;
+  }
+  .notes-item-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    background: transparent;
+    border: 0;
     color: var(--text-faint);
     font-family: var(--mono);
-    font-size: 11px;
-    line-height: 1;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1.2;
     cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
-    z-index: 2;
+    transition: color 0.14s;
   }
-  .notes-item:hover .notes-item-delete { display: flex; }
-  .notes-item-delete:hover {
-    color: var(--red);
-    border-color: var(--red);
-    background: var(--bg);
+  .notes-item-action:hover { color: var(--text); }
+  .notes-item-share:hover { color: var(--lime); }
+  .notes-item-unfav:hover { color: var(--red); }
+  .notes-action-glyph {
+    font-size: 11px;
+    letter-spacing: 0;
+    opacity: 0.9;
   }
-  /* Reserve the right-edge gutter ALWAYS (not only on hover) so the
-     passage text doesn't reflow when the delete button appears. An
-     earlier version applied `padding-right: 30px` only on hover —
-     the text visibly jumped each time the user mousemoved across
-     rows. Cost: a fixed 30px of empty space at the right edge of
-     every passage; cheap compared to the jitter. */
-  .notes-item-passage { padding-right: 30px; }
-  /* On hover · hide the trailing time tag so the delete button
-     occupies the right-edge slot cleanly. visibility:hidden keeps
-     the layout box (the meta row doesn't reflow either). */
-  .notes-item:hover .notes-item-time { visibility: hidden; }
   .notes-item-link {
     display: block;
     padding: 18px 4px;
@@ -2794,6 +2798,542 @@
     text-decoration-color: var(--lime-dim);
     text-underline-offset: 4px;
     transition: text-decoration-color 0.14s;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     SHARE-CARD OVERLAY · the modal mounted when the user clicks the
+     Share button on a note in All Notes. CHROME (overlay + modal
+     + classification strip + head + foot) is shared with the
+     room-settings overlay via the `.room-settings-overlay /
+     .room-settings-modal / .rs-classification / .rs-head / .rs-body
+     / .rs-foot` classes (defined in `room-settings.css`). Only the
+     template chips + preview viewport + the cards themselves are
+     local to this feature.
+
+     PNG export uses the same html-to-image CDN loader as
+     `public/magazine.html` (lazy-fetched on first export). Native
+     render 540×675 at pixelRatio: 2 → 1080×1350 PNG, IG/Weibo/
+     WeChat-friendly. Templates carry hard-coded palettes (NOT
+     `var(--bg)` / `var(--lime)`) so the exported image looks the
+     same regardless of the user's active theme.
+     ═══════════════════════════════════════════════════════════════ */
+  /* Hoist the share-card overlay z-index above other UI · room-
+     settings reserves 950 but the share-card may need to sit over
+     in-room toasts. Same vertical-scroll behaviour as the rs-modal. */
+  .room-settings-overlay#share-card-overlay { z-index: 9700; }
+  /* The All Notes view's share-card needs a slightly wider modal
+     than room-settings (540px card + 32px gutters fits at 640). */
+  .room-settings-overlay#share-card-overlay .room-settings-modal {
+    max-width: 640px;
+  }
+  /* Template chip row · 4 chips, click to swap the preview's
+     `data-share-template` attribute (the preview re-renders
+     instantly because each template's visual is CSS-keyed off
+     the attr). */
+  .share-card-templates {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .share-card-template-chip {
+    appearance: none;
+    background: var(--panel-2, #1A1A18);
+    border: 0.5px solid var(--line-bright, #2A2A26);
+    color: var(--text-soft, #8E8B83);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: color 0.14s, border-color 0.14s, background 0.14s;
+  }
+  .share-card-template-chip:hover {
+    color: var(--text, #C8C5BE);
+    border-color: var(--line-strong, #3A3A35);
+  }
+  .share-card-template-chip.active {
+    color: var(--bg, #0A0A0A);
+    background: var(--lime, #6FB572);
+    border-color: var(--lime, #6FB572);
+  }
+  /* Preview viewport · centers the native 540×675 card and scales
+     it down with `transform: scale()` so it fits inside the modal
+     on smaller viewports. The native size is preserved so the
+     html-to-image export captures crisp text at the full
+     resolution; the visual scale-down is cosmetic. */
+  .share-card-preview {
+    /* Width is the MIN of three caps so the preview always stays
+       a perfect 540:800 rectangle — container width (100%), the
+       absolute 540px ceiling, and a viewport-height-derived cap
+       (height * 540/800). The third cap is what shrinks the
+       preview proportionally on short displays without breaking
+       the aspect ratio — and that's what makes the image stay
+       centered in the modal body. With `aspect-ratio: 540/800`,
+       height is derived and matches the preview perfectly.
+       `margin: 0 auto` then centres the whole block in `.rs-body`. */
+    width: min(100%, 540px, calc((100vh - 260px) * 0.675));
+    aspect-ratio: 540 / 800;
+    position: relative;
+    overflow: hidden;
+    background: #0A0A0A;
+    border: 0.5px solid var(--line, #2A2A26);
+    margin: 0 auto;
+  }
+  .share-card-preview-inner {
+    width: 540px;
+    height: 800px;
+    transform-origin: top left;
+    /* JS sets `--share-card-scale` based on the rendered viewport
+       width so a small viewport sees a 100%-fit preview without
+       sacrificing the native render resolution. */
+    transform: scale(var(--share-card-scale, 1));
+  }
+  /* Tighten room-settings's default rs-foot padding for the share
+     card's single hint + download row. */
+  .room-settings-overlay#share-card-overlay .rs-foot {
+    padding: 10px 16px;
+  }
+  .share-card-hint {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint, #5C5A52);
+    font-weight: 700;
+  }
+
+  /* ─── Card template base · everything inside the 540×800 frame ─── */
+  .share-card {
+    position: relative;
+    width: 540px;
+    height: 800px;
+    box-sizing: border-box;
+    overflow: hidden;
+    font-family: var(--font-human, "Inter", "Helvetica Neue", system-ui, sans-serif);
+  }
+  .share-card-watermark {
+    position: absolute;
+    bottom: 22px;
+    left: 32px;
+    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+  .share-card-stamp {
+    position: absolute;
+    bottom: 22px;
+    right: 32px;
+    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    opacity: 0.55;
+  }
+
+  /* ── Template A · BOARDROOM · 8-bit pixel-art (DEFAULT) ───────
+     Dribbble-inspired warm-sunset palette: striped horizontal
+     gradient bands climbing from near-black purple at the top
+     through magenta/coral/orange into warm cream at the horizon,
+     where a tiny 8-bit boardroom (table + chairs + mod chair +
+     plants) sits as the brand anchor. The user's quote lives in
+     the centre in a chunky pixel-art dialog box — cream interior,
+     thick dark outline, theme-accent inner band — that reads as
+     "system message in an 8-bit game".
+
+     Pixel-perfect render: `image-rendering: pixelated` on every
+     SVG + `shape-rendering: crispEdges` on every rect keeps the
+     export reading as authentic 8-bit rather than anti-aliased
+     vector graphics.
+
+     Reference: https://dribbble.com/userupload/13578237 (WorkOS
+     Launch Week 8-bit poster). */
+  .share-card[data-share-template="boardroom"] {
+    /* 8 hard-stop bands · near-black purple → deep purple →
+       mauve → rose → coral → orange → peach → cream. Each band
+       is a fixed-percentage stripe so the transitions are sharp
+       (8-bit "no anti-alias" feel), not a smooth gradient. */
+    background: linear-gradient(180deg,
+      #1B0A35 0%,    #1B0A35 5%,
+      #2D1452 5%,    #2D1452 11%,
+      #4A2070 11%,   #4A2070 18%,
+      #6B2B6E 18%,   #6B2B6E 25%,
+      #A03B5E 25%,   #A03B5E 33%,
+      #D85F4C 33%,   #D85F4C 41%,
+      #ED8E48 41%,   #ED8E48 49%,
+      #F4C078 49%,   #F4C078 57%,
+      #F8D898 57%,   #F8D898 100%);
+    color: #1B0A35;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  /* Brand strip · top kicker mirrors the WorkOS-style "◇ BRAND"
+     at the very top of the reference image. Cream-on-purple so
+     it reads against the deepest band. */
+  .share-card[data-share-template="boardroom"] .sc-header {
+    position: absolute;
+    top: 22px;
+    left: 28px;
+    right: 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: #F4D898;
+    font-weight: 700;
+    z-index: 4;
+  }
+  .share-card[data-share-template="boardroom"] .sc-header-right {
+    color: var(--lime, #6FB572);
+  }
+  /* Sky decorations · pixel moon + stars + clouds + floating
+     balloons, painted inline by the renderer as an SVG layer that
+     fills the WHOLE card so the atmosphere wraps the dialog box
+     on every side (not just the top). z-index keeps decorations
+     behind the dialog and the header but in front of the gradient. */
+  .share-card[data-share-template="boardroom"] .sc-sky-deco {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    image-rendering: pixelated;
+    shape-rendering: crispEdges;
+  }
+  .share-card[data-share-template="boardroom"] .sc-heart {
+    display: inline-block;
+    color: var(--lime, #6FB572);
+    margin-left: 8px;
+    font-size: 11px;
+    transform: translateY(0.5px);
+  }
+  /* Wooden 8-bit signpost · cream parchment interior framed by a
+     chunky 8px wood-tone border, with a 2px pixel bevel inside
+     the wood (sun-side highlight + shadow-side darker tone), a
+     2px dark outline outside the wood ("ink line"), and a hard
+     6px drop shadow on the ground for the 8-bit sticker feel.
+     Four pixel "nails" pin the frame at each corner (added
+     inline by the renderer; styled below).
+
+     The tail is intentionally absent — a wooden sign doesn't
+     speech-bubble. The two pseudo-elements that used to draw the
+     tail are hidden. */
+  .share-card[data-share-template="boardroom"] .sc-bubble {
+    position: absolute;
+    top: 200px;
+    left: 32px;
+    right: 32px;
+    max-height: 260px;
+    min-height: 160px;
+    background: #FFF6D9;
+    /* 8px wood-tone border carries the bevel inset highlights */
+    border: 8px solid #7A5230;
+    box-shadow:
+      inset  2px  2px 0 #C8A877,   /* top-left wood highlight */
+      inset -2px -2px 0 #4A2E18,   /* bottom-right wood shadow */
+      0 0 0 2px #1B0A35,           /* outer ink-line outline */
+      6px 6px 0 0 #1B0A35;         /* 8-bit drop shadow */
+    padding: 24px 28px;
+    color: #1B0A35;
+    font-family: "Tiempos Text", "Charter", "Iowan Old Style", "Georgia", serif;
+    font-style: italic;
+    line-height: 1.42;
+    text-align: left;
+    z-index: 3;
+    overflow: hidden;
+  }
+  /* Tail removed for the wooden plank · clean rectangular frame. */
+  .share-card[data-share-template="boardroom"] .sc-bubble::before,
+  .share-card[data-share-template="boardroom"] .sc-bubble::after {
+    display: none;
+  }
+  /* Pixel nails · 4×4 dark squares pinned to the middle of the
+     8px wood border at each corner. Reads as the iron nails
+     holding the wooden plank together. */
+  .share-card[data-share-template="boardroom"] .sc-nail {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: #1B0A35;
+    z-index: 4;
+  }
+  .share-card[data-share-template="boardroom"] .sc-nail.tl { top: 2px;    left: 2px; }
+  .share-card[data-share-template="boardroom"] .sc-nail.tr { top: 2px;    right: 2px; }
+  .share-card[data-share-template="boardroom"] .sc-nail.bl { bottom: 2px; left: 2px; }
+  .share-card[data-share-template="boardroom"] .sc-nail.br { bottom: 2px; right: 2px; }
+  .share-card[data-share-template="boardroom"] .sc-bubble-text { margin: 0; }
+  /* Topic annotation above the quote · small monospace kicker
+     showing what question the room was convened around (the
+     note's `roomSubject`). Reads as a hand-written marginalia /
+     code-comment on the wooden plank: `// re: <subject>`. A
+     1-px dashed underline separates it from the main quote with
+     comfortable padding on both sides so the line never sits
+     flush against the text. No line-clamp · long subjects wrap
+     naturally, and the bubble's font-size tier-down keeps the
+     quote readable even when the meta block takes a few lines. */
+  .share-card[data-share-template="boardroom"] .sc-bubble-meta {
+    display: block;
+    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #6B5A48;
+    font-style: normal;
+    /* Annotation reads as quiet marginalia — regular weight, no
+       bold. The CJK override below keeps Chinese in regular
+       weight too (overriding the default `.cjk { weight: 700 }`). */
+    font-weight: 400;
+    line-height: 1.5;
+    margin: 0 0 16px 0;
+    padding-bottom: 14px;
+    border-bottom: 1px dashed rgba(27, 10, 53, 0.32);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .share-card[data-share-template="boardroom"] .sc-bubble-meta .cjk {
+    font-weight: 400;
+  }
+  /* Mixed-script typography for share cards · Latin / English keeps
+     the serif italic register (Tiempos / Charter / Georgia); CJK
+     runs that the renderer wraps in `<span class="cjk">` switch to
+     PingFang at a heavier weight so Chinese characters print bold
+     and upright (italic-skew on CJK reads as a rendering glitch).
+     Scoped to `.share-card` so other parts of the UI keep their
+     own typography. */
+  .share-card .cjk {
+    /* Prefer the macOS-native Heiti family · STHeiti and Hiragino
+       Sans GB both render Chinese with a slightly warmer, more
+       editorial weight than PingFang. PingFang stays in the stack
+       as a fallback for systems without the Heiti faces. */
+    font-family: "STHeiti", "Heiti SC", "Hiragino Sans GB",
+                 "PingFang SC", "PingFang TC", "Microsoft YaHei", sans-serif;
+    font-weight: 700;
+    font-style: normal;
+    letter-spacing: 0;
+  }
+  /* Byline · stone-textured pixel plaque holding the director
+     name. Same three-tone stone palette as the river-bank rocks
+     (mid-grey body / lighter top-left highlight / darker bottom-
+     right rim) plus a 2px dark outline + a 4px hard drop shadow,
+     so the label reads as a chunky 8-bit name-plate carved
+     from the same rock vocabulary. Centred horizontally below
+     the wooden bubble. CJK director names inside it render in
+     PingFang bold via the `.cjk` rule above (italic skew is
+     intentionally not applied to CJK glyphs). */
+  .share-card[data-share-template="boardroom"] .sc-byline {
+    position: absolute;
+    top: 488px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 22px;
+    background: #7A6F62;
+    border: 2px solid #1B0A35;
+    box-shadow:
+      inset  2px  2px 0 #9F9388,
+      inset -2px -2px 0 #4A4038,
+      4px 4px 0 0 #1B0A35;
+    color: #FFF6D9;
+    font-family: "Tiempos Text", "Charter", "Iowan Old Style", "Georgia", serif;
+    font-style: italic;
+    font-size: 16px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    max-width: 380px;
+    z-index: 4;
+  }
+  /* Watermark + stamp · dark purple chrome on the warm-cream
+     bottom band so they read like a stamped postal mark. */
+  .share-card[data-share-template="boardroom"] .share-card-watermark {
+    color: #4A2070;
+    bottom: 16px;
+    left: 28px;
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    opacity: 1;
+  }
+  .share-card[data-share-template="boardroom"] .share-card-stamp {
+    color: #4A2070;
+    bottom: 16px;
+    right: 28px;
+    opacity: 0.7;
+  }
+  /* Mod chair · cyan rails / gem follow the user's `--cyan` theme
+     token (matches the live round-table moderator chair). Local
+     to this card so the other templates aren't affected. */
+  .share-card[data-share-template="boardroom"] .mod-rail { fill: var(--cyan, #6A9B97); }
+  .share-card[data-share-template="boardroom"] .mod-rail-hi { fill: color-mix(in srgb, var(--cyan, #6A9B97) 60%, #FFFFFF 40%); }
+  .share-card[data-share-template="boardroom"] .mod-gem { fill: var(--cyan, #6A9B97); }
+  .share-card[data-share-template="boardroom"] .mod-gem-hi { fill: color-mix(in srgb, var(--cyan, #6A9B97) 50%, #FFFFFF 50%); }
+
+  /* ── Template B · EDITORIAL · warm cream, pull-quote, serif ─── */
+  .share-card[data-share-template="editorial"] {
+    background: #F4EFE3;
+    color: #2A2620;
+    padding: 56px 52px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .share-card[data-share-template="editorial"] .sc-quotemark {
+    font-family: "Tiempos Headline", "Charter", "Georgia", serif;
+    font-size: 120px;
+    line-height: 0.6;
+    color: #B5704A;
+    margin: 0 0 -28px;
+    user-select: none;
+  }
+  .share-card[data-share-template="editorial"] .sc-quote {
+    font-family: "Tiempos Headline", "Charter", "Iowan Old Style", "Georgia", serif;
+    line-height: 1.32;
+    color: #2A2620;
+    margin: 0;
+    font-weight: 500;
+    /* Font-size set inline by the renderer for length-based step-down. */
+  }
+  .share-card[data-share-template="editorial"] .sc-quote em {
+    font-style: italic;
+    color: #B5704A;
+  }
+  .share-card[data-share-template="editorial"] .sc-byline {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 0.5px solid #B5A893;
+    font-family: var(--mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #6F6354;
+  }
+  .share-card[data-share-template="editorial"] .sc-byline strong {
+    color: #B5704A;
+    font-weight: 700;
+  }
+  .share-card[data-share-template="editorial"] .share-card-watermark { color: #6F6354; }
+  .share-card[data-share-template="editorial"] .share-card-stamp { color: #8E8270; }
+
+  /* ── Template C · TERMINAL · monospace CRT ──────────────────── */
+  .share-card[data-share-template="terminal"] {
+    background: #0E1414;
+    color: #C9F2C2;
+    padding: 44px 38px;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
+  }
+  .share-card[data-share-template="terminal"] .sc-frame {
+    flex: 1;
+    border: 1px solid var(--lime, #6FB572);
+    padding: 28px 26px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .share-card[data-share-template="terminal"] .sc-frame::before {
+    content: "// excerpt";
+    position: absolute;
+    top: -7px;
+    left: 24px;
+    background: #0E1414;
+    color: var(--lime, #6FB572);
+    font-family: var(--mono, monospace);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    padding: 0 8px;
+  }
+  .share-card[data-share-template="terminal"] .sc-prompt {
+    font-family: var(--mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime, #6FB572);
+    margin-bottom: 18px;
+  }
+  .share-card[data-share-template="terminal"] .sc-quote {
+    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
+    line-height: 1.55;
+    color: #DDF6D7;
+    margin: 0;
+    flex: 1;
+    /* Font-size set inline by the renderer for length-based step-down. */
+  }
+  .share-card[data-share-template="terminal"] .sc-byline {
+    margin-top: 22px;
+    font-family: var(--mono, monospace);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime, #6FB572);
+  }
+  .share-card[data-share-template="terminal"] .sc-byline-dim { color: #8E9D89; }
+  .share-card[data-share-template="terminal"] .share-card-watermark { color: var(--lime, #6FB572); left: 24px; bottom: 18px; }
+  .share-card[data-share-template="terminal"] .share-card-stamp { color: #8E9D89; right: 24px; bottom: 18px; }
+
+  /* ── Template D · MAGAZINE · mixed serif + sans, pull-quote ─── */
+  .share-card[data-share-template="magazine"] {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F2EFE9 100%);
+    color: #1A1A1A;
+    padding: 56px 52px;
+    display: flex;
+    flex-direction: column;
+  }
+  .share-card[data-share-template="magazine"] .sc-stripe {
+    height: 3px;
+    width: 56px;
+    background: #1A1A1A;
+    margin-bottom: 22px;
+  }
+  .share-card[data-share-template="magazine"] .sc-kicker {
+    font-family: var(--mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #1A1A1A;
+    margin-bottom: 26px;
+  }
+  .share-card[data-share-template="magazine"] .sc-quote {
+    font-family: "Tiempos Headline", "Charter", "Iowan Old Style", "Georgia", serif;
+    line-height: 1.22;
+    color: #0A0A0A;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    flex: 1;
+    /* Font-size set inline by the renderer for length-based step-down. */
+  }
+  .share-card[data-share-template="magazine"] .sc-byline {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid #1A1A1A;
+    font-family: var(--mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #555050;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .share-card[data-share-template="magazine"] .sc-byline strong {
+    color: #1A1A1A;
+    font-weight: 700;
+  }
+  .share-card[data-share-template="magazine"] .share-card-watermark { color: #1A1A1A; }
+  .share-card[data-share-template="magazine"] .share-card-stamp { color: #777070; }
+
+  @media (max-width: 580px) {
+    .share-card-modal { padding: 18px 14px 14px; }
+    .share-card-preview { max-width: 100%; }
   }
 
   /* In-room highlight overlay · injected into director-message
@@ -7647,8 +8187,15 @@
     width: 80px;
     height: 18px;
     border-radius: 50%;
+    /* Themed glow · matches the speech-bubble border above this
+       seat. Previously hardcoded `rgba(111, 181, 114, 0.55)` (the
+       legacy lime green) which stayed green even when the active
+       theme remapped --lime (e.g. Pinterest red, Apple blue,
+       Nintendo Mario red). color-mix folds the live --lime token
+       to 55% alpha so the floor halo always reads as the same
+       accent as the bubble border. */
     background: radial-gradient(ellipse at center,
-      rgba(111, 181, 114, 0.55) 0%,
+      color-mix(in srgb, var(--lime) 55%, transparent) 0%,
       transparent 70%);
     z-index: 0;
     animation: rt-glow 0.9s ease-in-out infinite;
@@ -7656,8 +8203,13 @@
     transition: background 0.18s;
   }
   .rt-seat-thinking::before {
+    /* Thinking glow tracks the same primary --lime as the bubble
+       above (see `.rt-bubble.is-thinking`). Dimmer alpha than the
+       speaking glow (35% vs 55%) is the visual "warming up" cue
+       paired with the dashed bubble border + slower dot rhythm —
+       all theme-aware. */
     background: radial-gradient(ellipse at center,
-      rgba(181, 149, 96, 0.50) 0%,
+      color-mix(in srgb, var(--lime) 35%, transparent) 0%,
       transparent 70%);
     animation-duration: 1.4s;
   }
@@ -7706,7 +8258,11 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--text-soft);
+    /* Hardcoded light name text · plate background is fixed dark
+       regardless of theme (visibility over the stage floor). On
+       light themes (pinterest / atrium) var(--text-soft) is mid-
+       grey and the name disappears into the plate. */
+    color: #D8D8DC;
     white-space: nowrap;
     text-align: center;
     pointer-events: none;
@@ -7734,7 +8290,9 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.04em;
-    color: var(--text-soft);
+    /* Hardcoded light · same rationale as .rt-name above (dark
+       plate is fixed regardless of theme). */
+    color: rgba(216, 216, 220, 0.78);
     margin-top: 3px;
   }
   /* Chair-seat name colour follows the room's tone via the
@@ -7797,9 +8355,20 @@
     transform-origin: 50% 100%;
     transition: border-color 0.18s, color 0.18s;
   }
+  /* Thinking variant · same theme primary as speaking
+     (`var(--lime)`), differentiated by softer opacity + slower
+     dot rhythm (set further down). Previously used `var(--amber)`
+     for border/text — but amber is a separate accent (Pinterest =
+     orange, Nintendo = coin gold, etc.) that doesn't match the
+     primary theme colour, so thinking bubbles looked "off-brand"
+     in light themes. Tying both states to --lime keeps the seat
+     indicators on-theme; the visual state read still works
+     because the dimmer opacity + slower dots + status word
+     "thinking" carry the "warming up" cue. */
   .rt-bubble.is-thinking {
-    border-color: var(--amber, #B59560);
-    color: var(--amber, #B59560);
+    border-color: var(--lime);
+    color: var(--lime);
+    opacity: 0.78;
   }
   .rt-bubble::after {
     content: "";
@@ -7815,7 +8384,10 @@
     transition: border-top-color 0.18s;
   }
   .rt-bubble.is-thinking::after {
-    border-top-color: var(--amber, #B59560);
+    /* Tail tracks the bubble's themed primary too · see the
+       .rt-bubble.is-thinking rule above for why thinking switched
+       from --amber to --lime. */
+    border-top-color: var(--lime);
   }
   /* Speaker name (primary) + status (secondary) inside the bubble.
      Both lines centred · monospace sticks to the kicker register
@@ -7854,7 +8426,10 @@
     transition: background 0.18s;
   }
   .rt-bubble.is-thinking .rt-bubble-dots i {
-    background: var(--amber, #B59560);
+    /* Dots track the bubble's themed primary too. The slower
+       animation (1.4s vs the speaking 1s) is the kinetic state
+       cue alongside the dashed border + dimmed opacity. */
+    background: var(--lime);
     animation-duration: 1.4s;
   }
   .rt-bubble-dots i:nth-child(2) { animation-delay: 0.15s; }
@@ -8000,6 +8575,94 @@
   }
   .rt-bubble-user-close:hover { color: var(--lime); }
 
+  /* ─── Chair clarify bubble · prose question pinned above the chair
+     avatar in voice-mode round-1 ───────────────────────────────────
+     When the chair asks a clarifying question (meta.kind === "clarify")
+     the user sees the question text in a speech bubble over the chair
+     seat with a 10s border countdown — same conic-gradient mechanic
+     as the user's bubble (see `.rt-bubble-user`). On timeout (or `×`
+     click) the bubble auto-dismisses. The user-bubble's lime palette
+     is reused intentionally: same countdown grammar, same speech-
+     bubble register, only the anchor seat differs.
+
+     The chair seat sits at the BOTTOM of the stage, so the bubble
+     grows upward over the table — which is fine visually because the
+     bubble has its own `panel-3` interior and z-index: 5 keeps it
+     above table props. Multi-line questions stay legible at any
+     reasonable length. */
+  .rt-bubble-chair-clarify {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    width: max-content;
+    max-width: 240px;
+    pointer-events: auto;
+    white-space: normal;
+    padding: 5px 9px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+    animation: none;
+    transform: translateX(-50%);
+    top: auto;
+    bottom: calc(100% + 4px);
+    border-width: 2px;
+    border-color: transparent;
+    --rt-bubble-chair-progress: 0;
+    background:
+      linear-gradient(var(--panel-3), var(--panel-3)) padding-box,
+      conic-gradient(
+        from -90deg,
+        var(--lime) 0,
+        var(--lime) calc(var(--rt-bubble-chair-progress) * 360deg),
+        var(--lime-dim, #2D5532) 0
+      ) border-box;
+  }
+  .rt-bubble-chair-clarify-text {
+    min-width: 0;
+    color: var(--text);
+    line-height: 1.4;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  /* Same heftier downward tail as the user bubble · keeps the speech
+     bubble visually anchored to the seat below at the stage's scale. */
+  .rt-bubble-chair-clarify::after {
+    border-left-width: 7px;
+    border-right-width: 7px;
+    border-top-width: 7px;
+    border-top-color: var(--lime);
+    bottom: -7px;
+  }
+  .rt-bubble-chair-clarify::before {
+    content: "";
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid var(--lime-dim, #2D5532);
+    pointer-events: none;
+  }
+  .rt-bubble-chair-clarify-close {
+    appearance: none;
+    background: none;
+    border: 0;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 4px;
+    margin-top: -1px;
+    transition: color 0.12s;
+  }
+  .rt-bubble-chair-clarify-close:hover { color: var(--lime); }
+
   /* Wait-marker · small flat pixel pill on the user seat shown
      ONLY when the user has picked "wait — flush after current
      speaker finishes" in the interrupt-or-queue modal. Slow
@@ -8020,10 +8683,16 @@
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--amber, #B59560);
+    /* Themed primary · matches the speech bubble border family
+       (speaking/thinking/wait all read off the same --lime so the
+       seat indicators stay on-brand across themes). Dashed border
+       + blink animation differentiates "queued, holding" from the
+       solid speaking border. Was --amber (Pinterest = orange,
+       Nintendo = coin gold) which clashed with the primary theme. */
+    color: var(--lime);
     padding: 3px 6px;
     background: var(--panel-3);
-    border: 1px solid var(--amber, #B59560);
+    border: 1px dashed var(--lime);
     white-space: nowrap;
     animation: rt-seat-wait-blink 1.6s steps(1) infinite;
   }
@@ -8452,7 +9121,9 @@
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--text-soft);
+    /* Hardcoded light · rate-btn label over the fixed dark HUD
+       glass; var(--text-soft) is mid-grey in light themes. */
+    color: rgba(216, 216, 220, 0.85);
     cursor: pointer;
     pointer-events: auto;
     transition: background 0.08s, color 0.08s;
@@ -8499,7 +9170,10 @@
     padding: 5px 10px;
     font-size: 9px;
     letter-spacing: 0.04em;
-    color: var(--text-soft);
+    /* Hardcoded light · the HUD body sits on a fixed dark frosted-
+       glass background, so log entries can't follow var(--text-soft)
+       which is dark grey in light themes (pinterest / atrium). */
+    color: rgba(216, 216, 220, 0.78);
     border-top: 1px solid var(--line);
     /* `steps(4)` so the entry materialises in 4 discrete frames —
        reads as a pixel-game tile flip, not a smooth fade. */
@@ -8524,7 +9198,9 @@
   }
   .rt-hud-log-text em {
     font-style: italic;
-    color: var(--text);
+    /* Hardcoded light · emphasis word (speaker name) over the
+       fixed dark HUD glass; var(--text) is dark in light themes. */
+    color: #F4F4F6;
     font-weight: 700;
   }
   .rt-hud-log-entry.rt-hud-log-add      .rt-hud-log-glyph { color: var(--lime,  #6FB572); }
@@ -10003,7 +10679,13 @@
     overflow-y: auto;
   }
   .chat.chat--composer.chat--composer-overflow .cmp {
-    padding-top: max(32px, calc(50vh - 110px));
+    /* Overflow mode · the starters tray (now augmented with
+       topic recommendations + the "+ N more" button) can push
+       total content past one viewport, at which point the
+       composer can't stay centred. Pin the hero a fixed 120px
+       from the top so it sits comfortably above the fold and
+       the tray scrolls underneath. */
+    padding-top: 120px;
   }
   .cmp-hero {
     text-align: center;
@@ -10582,6 +11264,126 @@
     transform: translateX(3px);
   }
 
+  /* ─── Topic recommendations · home composer "or try a starter"
+     tray.
+       · `.cmp-recs-trigger-card` · disguised as the FIRST row
+         in the starters grid. Click → SSE-driven loading +
+         animated dots happen INSIDE the same card (no separate
+         progress strip). Dashed lime-dim bottom rule + ✦ glyph
+         distinguish it from regular starters at a glance.
+       · `.cmp-rec` · each AI-generated topic. Tag is the
+         synthesiser's category (e.g. "strategy", "product").
+         Tray shows exactly 6 cards — every generation wipes
+         the previous batch, no pagination surface.
+     Theme-token only · no hardcoded colors. ─── */
+  .cmp-recs-trigger-card {
+    position: relative;
+    /* Dashed lime-dim bottom rule reads as "this row is the
+       generator" before any click. Override .cmp-starter's
+       solid var(--line) baseline; the progress bar lives on
+       this same edge during the busy state. */
+    border-bottom-style: dashed !important;
+    border-bottom-color: var(--lime-dim) !important;
+  }
+  .cmp-recs-trigger-card .cmp-starter-tag {
+    color: var(--lime);
+  }
+  .cmp-recs-trigger-card .cmp-starter-arrow {
+    color: var(--lime);
+    font-weight: 700;
+    transition: transform 0.18s ease;
+  }
+  .cmp-recs-trigger-card:hover:not(.is-busy) .cmp-starter-arrow {
+    transform: rotate(90deg);
+  }
+  .cmp-recs-trigger-card.is-busy {
+    cursor: progress;
+  }
+  .cmp-recs-trigger-card.is-busy .cmp-starter-text {
+    color: var(--text-soft);
+  }
+  /* Progress bar · sits flush along the card's dashed bottom
+     edge. Lime fill grows left-to-right as the pipeline ticks. */
+  .cmp-recs-trigger-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: transparent;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .cmp-recs-trigger-fill {
+    height: 100%;
+    background: var(--lime);
+    width: 0;
+    transition: width 0.4s ease-out;
+  }
+  /* Three-dot loading glyph · matches the round-table
+     speech-bubble dots' rhythm; lime accent, compact, sits
+     inline next to the phase-detail text inside the busy
+     card so the user reads "<dots> scanning 3/10 keywords". */
+  .cmp-recs-trigger-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .cmp-recs-trigger-dots i {
+    width: 4px;
+    height: 4px;
+    background: var(--lime);
+    border-radius: 50%;
+    display: inline-block;
+    animation: cmp-trec-dot 1s ease-in-out infinite;
+  }
+  .cmp-recs-trigger-dots i:nth-child(2) { animation-delay: 0.15s; }
+  .cmp-recs-trigger-dots i:nth-child(3) { animation-delay: 0.30s; }
+  @keyframes cmp-trec-dot {
+    0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
+    40%           { opacity: 1;    transform: scale(1);   }
+  }
+  /* Topic-rec card · extends .cmp-starter. The tag is the
+     synthesiser-produced category; the data-source attribute
+     drives a subtle colour cue (lime for web-grounded recs,
+     text-faint for memory-only) without taking real estate
+     away from the actual tag text. */
+  .cmp-rec {
+    /* `.cmp-starter` base is `auto 1fr auto`. The rec card adds
+       a hint row spanning the middle column so the middle column
+       stacks subject / hint. `align-items: start` so tag + arrow
+       anchor to the subject line, not the centre of the taller
+       block. */
+    align-items: start;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .cmp-rec[data-source="web"] .cmp-starter-tag {
+    color: var(--lime);
+  }
+  .cmp-rec[data-source="memory"] .cmp-starter-tag {
+    color: var(--text-faint);
+  }
+  /* Subtitle · synthesiser's "why this fits you" rationale.
+     Sits under the subject in the middle column, italic +
+     text-faint so it reads as caption-tier without competing
+     with the subject line above. ALSO travels into the room
+     as hidden seed context (see `applyTopicRec`). */
+  .cmp-rec-hint {
+    grid-column: 2;
+    margin-top: 4px;
+    font-family: var(--font-human);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-faint);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-style: italic;
+  }
   /* ─── New-agent composer · variant of the new-room composer.
      Reuses .cmp / .cmp-* classes for the hero + input frame; adds
      ag-cmp-* for agent-specific bits and ag-prev-* for the editable

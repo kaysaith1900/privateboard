@@ -16,6 +16,7 @@ import {
 import { briefsRouter } from "./routes/briefs.js";
 import { keysRouter } from "./routes/keys.js";
 import { modelsRouter } from "./routes/models.js";
+import { topicRecsRouter } from "./routes/topic-recs.js";
 import { notesRouter } from "./routes/notes.js";
 import { prefsRouter } from "./routes/prefs.js";
 import { roomsRouter } from "./routes/rooms.js";
@@ -128,6 +129,7 @@ export function createApp() {
   app.route("/api/agents", agentsRouter());
   app.route("/api/keys", keysRouter());
   app.route("/api/models", modelsRouter());
+  app.route("/api/topic-recs", topicRecsRouter());
   app.route("/api/rooms", roomsRouter());
   app.route("/api/briefs", briefsRouter());
   app.route("/api/notes", notesRouter());

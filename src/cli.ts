@@ -19,6 +19,7 @@ import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
 import { recoverStuckClarifyRooms } from "./storage/rooms.js";
 import { markRunningJobsFailed } from "./storage/persona-jobs.js";
+import { markRunningTopicRecJobsFailed } from "./storage/topic-recs.js";
 import { listAllAgents } from "./storage/agents.js";
 import { countMemoriesForAgent } from "./storage/memories.js";
 import { runDreamCycle, bootCeilingFor } from "./orchestrator/dream.js";
@@ -110,6 +111,18 @@ async function main(): Promise<void> {
     }
   } catch (e) {
     process.stderr.write(`[boot] persona-job recovery failed: ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+
+  // Topic-recommendation recovery · same rationale as persona
+  // jobs above. A running pipeline whose process died can't
+  // resume the LLM stream, so mark it failed → user retries.
+  try {
+    const failed = markRunningTopicRecJobsFailed();
+    if (failed > 0) {
+      process.stderr.write(`[boot] marked ${failed} topic-rec job(s) failed (server restarted mid-build)\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`[boot] topic-rec recovery failed: ${e instanceof Error ? e.message : String(e)}\n`);
   }
 
   // Memory metabolism · boot-time sweep. Per-agent counters live in

@@ -51,6 +51,7 @@ import {
   type KeyPointVote,
 } from "../storage/key_points.js";
 import { getCurrentRound, insertMessage, listMessages, nextUserRoundNum } from "../storage/messages.js";
+import { markTopicRecOpened } from "../storage/topic-recs.js";
 import {
   addRoomMember,
   createRoom,
@@ -189,6 +190,7 @@ export function roomsRouter(): Hono {
       autoPick?: unknown;
       parentRoomId?: unknown;
       parentBriefId?: unknown;
+      seedContext?: unknown;
     };
 
     const subject = typeof b.subject === "string" ? b.subject.trim() : "";
@@ -343,6 +345,53 @@ export function roomsRouter(): Hono {
       actorKind: "user",
     });
 
+    // Seed-context plumbing · the home composer's "topic
+    // recommendations" tray can hand us a payload that bundles
+    // pre-fetched web snippets + a back-reference to the rec the
+    // user clicked. We attach the trimmed payload to the opening
+    // message's meta so the chair's clarify prompt + downstream
+    // director prompts can read it as background material.
+    type SeedContext = {
+      topicRecId?: string;
+      rationale?: string;
+      snippets?: Array<{ title: string; url: string; description: string }>;
+    };
+    let seedContext: SeedContext | null = null;
+    if (b.seedContext && typeof b.seedContext === "object") {
+      const raw = b.seedContext as { topicRecId?: unknown; rationale?: unknown; snippets?: unknown };
+      const topicRecId = typeof raw.topicRecId === "string" && raw.topicRecId.trim().length > 0
+        ? raw.topicRecId.trim().slice(0, 64)
+        : undefined;
+      // Rationale is the synthesiser's "why this fits you"
+      // one-liner. Hidden from the picker UI but stored on
+      // the opening message's meta so the chair's clarify
+      // prompt can surface it (see `buildSeedContextSystem`).
+      const rationale = typeof raw.rationale === "string" && raw.rationale.trim().length > 0
+        ? raw.rationale.trim().slice(0, 400)
+        : undefined;
+      const rawSnippets = Array.isArray(raw.snippets) ? raw.snippets : [];
+      const snippets = rawSnippets
+        .filter((s): s is { title: string; url: string; description: string } =>
+          !!s && typeof s === "object"
+          && typeof (s as { title?: unknown }).title === "string"
+          && typeof (s as { url?: unknown }).url === "string"
+          && typeof (s as { description?: unknown }).description === "string",
+        )
+        .slice(0, 12) // cap so a runaway payload can't bloat the meta blob
+        .map((s) => ({
+          title: s.title.slice(0, 200),
+          url: s.url.slice(0, 600),
+          description: s.description.slice(0, 600),
+        }));
+      if (topicRecId || rationale || snippets.length > 0) {
+        seedContext = {
+          ...(topicRecId ? { topicRecId } : {}),
+          ...(rationale ? { rationale } : {}),
+          ...(snippets.length > 0 ? { snippets } : {}),
+        };
+      }
+    }
+
     // The convene subject IS the user's opening question — insert it as the
     // first user message. The chair fires a clarification turn FIRST; if
     // the subject is concrete enough the chair returns SKIP and we tick
@@ -353,7 +402,15 @@ export function roomsRouter(): Hono {
       authorKind: "user",
       body: subject,
       roundNum: 1,
+      meta: seedContext ? { seedContext } : undefined,
     });
+    if (seedContext?.topicRecId) {
+      try {
+        markTopicRecOpened(seedContext.topicRecId, room.id);
+      } catch (e) {
+        process.stderr.write(`[rooms] topic-rec link failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
     roomBus.emit(room.id, {
       type: "message-appended",
       messageId: opening.id,

@@ -102,6 +102,20 @@
      *  miss falls back to the raw voiceId so the row never blocks on
      *  the fetch. */
     voiceLabels: {},
+    /** Interest-driven topic recommendations · the home composer's
+     *  "找你可能感兴趣的话题" tray. Always exactly 6 items (or
+     *  fewer if no batch has been generated yet) — every fresh
+     *  generation wipes the previous batch server-side, so
+     *  there's no pagination or history. `loaded` flips true
+     *  after the first `/api/topic-recs` fetch so first-paint
+     *  can show a sensible empty state. `job` is the live
+     *  generation job (id + phase + pct + detail) or null when
+     *  idle. */
+    topicRecs: {
+      items: [],
+      loaded: false,
+      job: null, // { id, phase, label, pct, detail, eventSource }
+    },
     rooms: [],
     currentRoomId: null,
     currentRoom: null,
@@ -152,6 +166,21 @@
      *  stays after the bubble dismisses; only this object resets.
      *  `dismissed: true` means no bubble is showing right now. */
     userBubble: { text: "", deadline: 0, intervalId: null, dismissed: true },
+    /** Ephemeral question bubble pinned to the CHAIR seat when the
+     *  chair drops a clarifying question in voice mode. Mirrors the
+     *  userBubble shape exactly so the render / tick / dismiss
+     *  surfaces stay parallel. 10s border countdown. */
+    chairBubble: { text: "", deadline: 0, intervalId: null, dismissed: true },
+    /** Set of chair messageIds whose voice synthesis hasn't started yet.
+     *  Bridges the gap between message-appended (the chair's round-prompt
+     *  / round-end placeholder lands instantly) and the first voice-chunk
+     *  arriving from the server's TTS pipeline (~0.5-2s later). Without
+     *  this, isChairBusy briefly returns false in that window and the
+     *  vote popover flashes onto the chair seat before the chair has
+     *  even started speaking — then hides again as audio kicks in, then
+     *  re-appears after audio ends. Cleared when the first voice-chunk
+     *  arrives (or after a 12s safety timeout if TTS never delivers). */
+    _chairVoiceAwaiting: null,
     currentBrief: null,
     /** All briefs filed for the current room · newest first. */
     currentBriefs: [],
@@ -776,6 +805,14 @@
         clearInterval(this.userBubble.intervalId);
       }
       this.userBubble = { text: "", deadline: 0, intervalId: null, dismissed: true };
+      if (this.chairBubble && this.chairBubble.intervalId) {
+        clearInterval(this.chairBubble.intervalId);
+      }
+      this.chairBubble = { text: "", deadline: 0, intervalId: null, dismissed: true };
+      // Drop any leftover voice-await IDs from a prior room · timeouts
+      // that fire later will harmlessly no-op (their messageId isn't
+      // in the set anymore).
+      if (this._chairVoiceAwaiting) this._chairVoiceAwaiting.clear();
       // Chairman's notes for this room · fetched in parallel-ish
       // with the room body so the in-room highlight overlay can
       // wrap saved spans on first paint. Stored as a Map keyed by
@@ -951,6 +988,14 @@
         clearInterval(this.userBubble.intervalId);
       }
       this.userBubble = { text: "", deadline: 0, intervalId: null, dismissed: true };
+      if (this.chairBubble && this.chairBubble.intervalId) {
+        clearInterval(this.chairBubble.intervalId);
+      }
+      this.chairBubble = { text: "", deadline: 0, intervalId: null, dismissed: true };
+      // Drop any leftover voice-await IDs from a prior room · timeouts
+      // that fire later will harmlessly no-op (their messageId isn't
+      // in the set anymore).
+      if (this._chairVoiceAwaiting) this._chairVoiceAwaiting.clear();
       this.currentBrief = null;
       this.currentBriefs = [];
       this.currentParentRef = null;
@@ -1035,6 +1080,30 @@
           if (data.authorKind === "agent") {
             this.hideChairPending();
           }
+          // Chair vote-trigger message · register it as awaiting voice
+          // so the vote popover stays suppressed through the gap
+          // between message-appended and the first voice-chunk. Scoped
+          // to round-prompt + round-end (the two kinds that surface the
+          // chair-seat popover) so unrelated chair pings don't gate
+          // anything. Voice-mode only · text mode has no such gap.
+          if (
+            data.authorKind === "agent"
+            && this.currentChair && data.authorId === this.currentChair.id
+            && data.meta && (data.meta.kind === "round-prompt" || data.meta.kind === "round-end")
+            && this.currentRoom && this.currentRoom.deliveryMode === "voice"
+          ) {
+            this._chairVoiceAwaiting = this._chairVoiceAwaiting || new Set();
+            this._chairVoiceAwaiting.add(data.messageId);
+            const mid = data.messageId;
+            // Safety net · 12s ceiling in case TTS never delivers
+            // (network drop, server failure). Triggers a repaint so the
+            // panel can finally surface without the user being stuck.
+            setTimeout(() => {
+              if (this._chairVoiceAwaiting && this._chairVoiceAwaiting.delete(mid)) {
+                this.renderRoundTable();
+              }
+            }, 12000);
+          }
           // Convening card · clear the moment any chair message lands
           // (convening speech, clarify, anything). The card has done
           // its job; the chair is taking over from here. We re-render
@@ -1074,6 +1143,21 @@
           if (data.authorKind === "user") {
             this.userSeatVisible = true;
             this.showUserBubble(data.body || "");
+          }
+          // Chair clarify bubble · drop it the moment ANY new message
+          // arrives that isn't another chair clarify (a user reply, a
+          // director turn, or the chair moving past the clarify
+          // phase). Without this the 10s timer alone leaves the
+          // question hovering over the chair seat while the user's
+          // own reply bubble or the next speaker's turn already
+          // owns the stage — visually confusing.
+          if (this.chairBubble && !this.chairBubble.dismissed) {
+            const isAnotherClarify =
+              data.authorKind === "agent" &&
+              this.currentChair &&
+              data.authorId === this.currentChair.id &&
+              (data.meta || {}).kind === "clarify";
+            if (!isAnotherClarify) this.dismissChairBubble();
           }
           // Round-table toasts · gamified surface for chair-emitted
           // template messages (round-open marker, etc.) that the
@@ -1168,6 +1252,21 @@
           msg.meta.streaming = false;
           msg.meta.speakerStatus = "final";
         }
+        // Chair clarify · in voice mode, the chair's clarifying
+        // question just finished streaming. Pin the question text to
+        // the chair seat as a 10s countdown bubble (border-progress
+        // ring, same mechanic as the user bubble). Voice-mode only ·
+        // text mode users read the question inline in the scroll, so
+        // a duplicate bubble would just clutter the stage.
+        if (
+          msg && msg.authorKind === "agent"
+          && this.currentChair && msg.authorId === this.currentChair.id
+          && msg.meta && msg.meta.kind === "clarify"
+          && this.currentRoom && this.currentRoom.deliveryMode === "voice"
+          && this.currentRoom.status !== "adjourned"
+        ) {
+          this.showChairBubble(msg.body);
+        }
         // Round-table stage · the speaker just finished, so the
         // bubble should drop. Repaint the seats so the lime ring
         // / bubble migrate to whoever's next (director queue head)
@@ -1247,6 +1346,13 @@
         // meta.streaming. Skipping when a queue already exists keeps
         // the SSE hot path cheap (we don't repaint per chunk).
         const fresh = !this.voiceQueues[data.messageId];
+        // Voice has actually arrived for this messageId · clear it
+        // from the awaiting-voice set so isChairBusy hands off to the
+        // voiceQueues check (which keeps the panel suppressed until
+        // _fireVoiceDone removes the queue at audio end).
+        if (fresh && this._chairVoiceAwaiting) {
+          this._chairVoiceAwaiting.delete(data.messageId);
+        }
         // Chair gavel SFX · fire ONCE when fresh chair voice starts
         // streaming, so the user hears the courtroom "knock-knock"
         // calling for attention before the chair speaks. Detection:
@@ -2002,7 +2108,7 @@
     },
 
     // ── Actions ───────────────────────────────────────────────
-    async createRoom({ subject, agentIds, mode, intensity, briefStyle, autoPick, deliveryMode }) {
+    async createRoom({ subject, agentIds, mode, intensity, briefStyle, autoPick, deliveryMode, seedContext }) {
       const r = await fetch("/api/rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2014,6 +2120,11 @@
           briefStyle: briefStyle || "auto",
           deliveryMode: deliveryMode === "voice" ? "voice" : "text",
           ...(autoPick ? { autoPick: true } : {}),
+          // seedContext · attached when the user opened this room
+          // from a topic-rec card. Backend writes it to the
+          // opening message's meta so the chair grounds clarify
+          // in the actual source snippets.
+          ...(seedContext ? { seedContext } : {}),
         }),
       });
       if (!r.ok) {
@@ -4531,6 +4642,23 @@
       // Pre-flight · the next round will fire a fresh director queue,
       // each turn requiring a model key.
       if (!(await this.requireModelKey())) return;
+      // Paused-room handling · the chair's vote popover stays mounted
+      // through pause (the user can park the room mid-vote to think),
+      // so its Continue / Switch / Keep buttons must still work. The
+      // /continue endpoint requires `status === "live"`, so resume
+      // first when the room is paused — without this, the POST 409s
+      // and benignRace silently swallows the error, leaving the user
+      // clicking a dead button. The shift-accept flow funnels through
+      // here too via acceptModeShiftAndContinue, so this single hop
+      // covers both buttons.
+      if (this.currentRoom && this.currentRoom.status === "paused") {
+        try {
+          await this.resumeRoom();
+        } catch (err) {
+          alert("Resume failed: " + (err && err.message ? err.message : err));
+          return;
+        }
+      }
       const r = await fetch(
         "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/continue",
         { method: "POST" },
@@ -5813,10 +5941,19 @@
         const raw = localStorage.getItem("boardroom.composer");
         if (raw) saved = JSON.parse(raw);
       } catch { /* ignore */ }
+      // seedContext · pre-fetched web snippets the user attached
+      // by clicking a topic-rec card on the home composer. Round-
+      // tripped through localStorage so a page refresh between
+      // pick and convene doesn't lose the attached source
+      // material. Shape: { topicRecId?: string, snippets?: [] }.
+      const savedSeed = saved && typeof saved.seedContext === "object" && saved.seedContext
+        ? saved.seedContext
+        : null;
       this.composerState = {
         ...this.DEFAULT_COMPOSER,
         ...(saved || {}),
         subject: (saved && typeof saved.subject === "string") ? saved.subject : "",
+        seedContext: savedSeed,
       };
       return this.composerState;
     },
@@ -5824,10 +5961,10 @@
     saveComposerState() {
       if (!this.composerState) return;
       try {
-        const { directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject } = this.composerState;
+        const { directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject, seedContext } = this.composerState;
         localStorage.setItem(
           "boardroom.composer",
-          JSON.stringify({ directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject }),
+          JSON.stringify({ directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject, seedContext: seedContext || null }),
         );
       } catch { /* ignore */ }
     },
@@ -5870,6 +6007,15 @@
       // overlay — typing in this view + Enter creates the room.
       const head = document.querySelector("[data-room-head]");
       if (head) head.innerHTML = "";  // CSS hides via html.no-room
+      // One-shot lazy fetch · the composer's "or try a starter"
+      // tray renders the latest topic recommendations when any
+      // exist (replacing the legacy hardcoded starters). Skipping
+      // when already loaded keeps re-renders cheap; the trigger
+      // button's SSE path explicitly refreshes after a successful
+      // generation so the list lands without polling.
+      if (!this.topicRecs.loaded) {
+        void this.refreshTopicRecs();
+      }
 
       // Strip stale follow-up fragments inserted by renderFollowUp-
       // Fragments() when a follow-up room was previously open. These
@@ -5960,12 +6106,19 @@
     },
 
     /** Toggle `.chat--composer-overflow` on the chat scroller based on
-     *  whether the composer's natural height exceeds the visible chat
-     *  area. In overflow mode the hero (`.cmp-fold`) anchors at the
-     *  viewport centre and `.cmp-starters` flow below the fold;
-     *  without overflow, the parent's `align-content: center` keeps
-     *  the whole composer block centred. Called after composer render
-     *  and on window resize. */
+     *  whether the composer's natural height exceeds 70% of the
+     *  visible chat area. In overflow mode the hero pins to a fixed
+     *  120px top offset (`.cmp` `padding-top: 120px`) and the
+     *  starters tray flows below; without overflow, the parent's
+     *  `align-content: center` keeps the whole composer block
+     *  centred. Called after composer render and on window resize.
+     *
+     *  The 0.7 threshold (was "strictly > viewport") catches the
+     *  in-between case where the input + ~6 topic-rec cards fit
+     *  vertically but only just — centred layout would visually
+     *  cram the hero against the top edge. Flipping to overflow
+     *  mode at 70% gives the hero comfortable breathing room
+     *  before any actual scroll is needed. */
     updateComposerOverflow() {
       const chat = document.querySelector(".chat.chat--composer");
       if (!chat) return;
@@ -5973,7 +6126,7 @@
       if (!cmp) return;
       requestAnimationFrame(() => {
         chat.classList.remove("chat--composer-overflow");
-        const overflows = cmp.scrollHeight > chat.clientHeight + 1;
+        const overflows = cmp.scrollHeight > chat.clientHeight * 0.7;
         chat.classList.toggle("chat--composer-overflow", overflows);
       });
       if (!this._composerResizeAttached) {
@@ -7247,12 +7400,11 @@
       const author = n.authorName || this._t("notes_director_fallback");
       // The jump link uses the room's hash route + the note id as a
       // fragment-style query so openRoom can scroll to + flash the
-      // matching span. The delete button sits as a SIBLING of the
-      // anchor (inside the .notes-item) so its click never bubbles
+      // matching span. The action buttons sit as siblings of the
+      // anchor (inside the .notes-item) so their clicks never bubble
       // through the navigation link — same pattern as session-row
       // delete in the rooms sidebar.
       const href = `#/r/${this.escape(n.roomId)}?note=${this.escape(n.id)}`;
-      const deleteTitle = "Delete this note";
       return `
         <li class="notes-item" data-note-id="${this.escape(n.id)}">
           <a class="notes-item-link" href="${href}" data-note-jump="${this.escape(n.id)}" data-note-room="${this.escape(n.roomId)}">
@@ -7269,9 +7421,682 @@
               n.contextAfter ? `<span class="note-context note-context-after">${this.escape(n.contextAfter)}</span>` : ""
             }</p>
           </a>
-          <button type="button" class="notes-item-delete" data-note-delete title="${this.escape(deleteTitle)}" aria-label="${this.escape(deleteTitle)}">✕</button>
+          <div class="notes-item-actions">
+            <button type="button" class="notes-item-action notes-item-share" data-note-share aria-label="Share this note">
+              <span class="notes-action-glyph" aria-hidden="true">↗</span>
+              <span class="notes-action-label">Share</span>
+            </button>
+            <button type="button" class="notes-item-action notes-item-unfav" data-note-delete aria-label="Remove this note from your saved list">
+              <span class="notes-action-glyph" aria-hidden="true">✕</span>
+              <span class="notes-action-label">Unfavorite</span>
+            </button>
+          </div>
         </li>
       `;
+    },
+
+    /** Share-card overlay · mounts a modal with multiple card
+     *  templates rendering the selected note as a shareable image.
+     *  Templates live in CSS (data-share-template attribute swaps
+     *  the visual register without re-rendering markup). PNG export
+     *  reuses the html-to-image CDN loader pattern from
+     *  `public/magazine.html` · lazy-loaded on first download so
+     *  the All Notes page doesn't pay the network cost upfront.
+     *
+     *  Each template is fixed at 540×675 (4:5 portrait) — a sweet
+     *  spot for IG / Weibo / WeChat moments / Twitter portrait. PNG
+     *  export uses pixelRatio: 2 so the saved file is 1080×1350. */
+    SHARE_CARD_TEMPLATES: ["boardroom", "editorial", "terminal", "magazine"],
+    DEFAULT_SHARE_CARD_TEMPLATE: "boardroom",
+
+    /** Open the share-card overlay for a given note id. Resolves the
+     *  note from the in-memory cache (`_notesCache`) so no network
+     *  round-trip is needed; the cache is populated by the All Notes
+     *  fetch and stays fresh through SSE note:created events. */
+    openShareCard(noteId) {
+      const note = (this._notesCache || []).find((n) => n && n.id === noteId);
+      if (!note) {
+        alert("Couldn't find that note — try reloading the page.");
+        return;
+      }
+      // Tear down any prior overlay first · prevents stacking when
+      // the user click-spams Share across different notes.
+      this.closeShareCard();
+      this._shareCardNote = note;
+      this._shareCardTemplate = this.DEFAULT_SHARE_CARD_TEMPLATE;
+
+      // Share-card overlay reuses the room-settings overlay chrome
+      // (`.room-settings-overlay` + `.room-settings-modal` + lime
+      // corner brackets + `.rs-classification` strip + `.rs-head`
+      // header + `.rs-body` scroll area + `.rs-foot` footer) so the
+      // app's overlays share a single visual register. Inner content
+      // (template chips + preview + download button) is local to
+      // this feature.
+      const roomNum = note.roomNumber != null
+        ? `#${String(note.roomNumber).padStart(3, "0")}` : "—";
+      const author = note.authorName || "Director";
+      const overlay = document.createElement("div");
+      overlay.className = "room-settings-overlay open";
+      overlay.id = "share-card-overlay";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", "Share this note");
+      overlay.innerHTML = `
+        <div class="room-settings-modal" role="document">
+          <div class="rs-classification">
+            <span><span class="dot">●</span> share · note</span>
+            <span class="right">// privateboard.ai</span>
+          </div>
+          <header class="rs-head">
+            <div class="rs-head-text">
+              <div class="meta">// from room ${this.escape(roomNum)} · ${this.escape(author)}</div>
+              <div class="rs-title-wrap">
+                <div class="title rs-title">Share this note as a card</div>
+              </div>
+            </div>
+            <button type="button" class="close-btn" data-share-card-close aria-label="Close">✕</button>
+          </header>
+          <div class="rs-body">
+            <div class="share-card-templates" role="tablist" aria-label="Card template">
+              ${this.SHARE_CARD_TEMPLATES.map((t) => `
+                <button type="button"
+                        class="share-card-template-chip${t === this._shareCardTemplate ? " active" : ""}"
+                        data-share-card-template="${t}"
+                        role="tab"
+                        aria-selected="${t === this._shareCardTemplate ? "true" : "false"}"
+                >${this.escape(t)}</button>
+              `).join("")}
+            </div>
+            <div class="share-card-preview" data-share-card-preview>
+              <div class="share-card-preview-inner" data-share-card-preview-inner>
+                ${this.renderShareCardHtml(note, this._shareCardTemplate)}
+              </div>
+            </div>
+          </div>
+          <footer class="rs-foot">
+            <span class="share-card-hint">// 1080 × 1350 png</span>
+            <button type="button" class="rs-action dirty" data-share-card-download>
+              ↓ Download PNG
+            </button>
+          </footer>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      // Fit the 540×800 preview into whatever container the viewport
+      // gives us. CSS caps both width (max-width: 540) AND height
+      // (max-height: calc(100vh - 260px)) so on short viewports the
+      // preview shrinks proportionally — scaling must read whichever
+      // dimension landed smaller so the inner 540×800 native render
+      // fits cleanly without any scrollbars on the modal body.
+      const fitPreview = () => {
+        const preview = overlay.querySelector("[data-share-card-preview]");
+        const inner = overlay.querySelector("[data-share-card-preview-inner]");
+        if (!preview || !inner) return;
+        const rect = preview.getBoundingClientRect();
+        const w = rect.width || 540;
+        const h = rect.height || 800;
+        const scale = Math.min(1, w / 540, h / 800);
+        inner.style.setProperty("--share-card-scale", scale.toFixed(4));
+      };
+      fitPreview();
+      this._shareCardResize = fitPreview;
+      window.addEventListener("resize", this._shareCardResize);
+
+      // Esc closes · same shortcut family as other overlays.
+      this._shareCardEsc = (ev) => {
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          this.closeShareCard();
+        }
+      };
+      document.addEventListener("keydown", this._shareCardEsc, true);
+
+      // Pre-warm html-to-image so the first Download click doesn't
+      // pay the ~50KB CDN fetch latency. Best-effort; if the network
+      // is slow the download path awaits its own ensure() anyway.
+      this.ensureShareCardHtmlToImage().catch(() => { /* swallow */ });
+    },
+
+    closeShareCard() {
+      const el = document.getElementById("share-card-overlay");
+      if (el) el.remove();
+      if (this._shareCardEsc) {
+        document.removeEventListener("keydown", this._shareCardEsc, true);
+        this._shareCardEsc = null;
+      }
+      if (this._shareCardResize) {
+        window.removeEventListener("resize", this._shareCardResize);
+        this._shareCardResize = null;
+      }
+      this._shareCardNote = null;
+      this._shareCardTemplate = null;
+    },
+
+    /** Swap the active template · re-renders only the preview's
+     *  inner block (keeps the chip row + modal chrome stable). The
+     *  data-share-template attribute on `.share-card` is what every
+     *  template's CSS keys off, so the visual change is purely a
+     *  class swap — markup is identical across templates. */
+    setShareCardTemplate(key) {
+      if (!this.SHARE_CARD_TEMPLATES.includes(key)) return;
+      this._shareCardTemplate = key;
+      const overlay = document.getElementById("share-card-overlay");
+      if (!overlay) return;
+      overlay.querySelectorAll("[data-share-card-template]").forEach((btn) => {
+        const active = btn.getAttribute("data-share-card-template") === key;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      const inner = overlay.querySelector("[data-share-card-preview-inner]");
+      if (inner && this._shareCardNote) {
+        inner.innerHTML = this.renderShareCardHtml(this._shareCardNote, key);
+      }
+    },
+
+    /** Length-based font-size step-down for share-card quotes.
+     *  Quotes never get truncated — instead the font shrinks so the
+     *  full passage fits. Returns the font-size in px for a given
+     *  template at the supplied character count. Tiers were tuned
+     *  empirically against each template's content area: the
+     *  boardroom bubble is the smallest box (≈424 × 200), magazine
+     *  and editorial have the most real estate.
+     *
+     *  Length tiers are deliberately coarse — 5-6 buckets keep the
+     *  output predictable and avoid the "text snaps a pixel smaller
+     *  every keystroke" feel a continuous formula would produce. */
+    shareCardQuoteSize(template, len) {
+      const TIERS = {
+        boardroom: [
+          { max: 40,  size: 24 },
+          { max: 70,  size: 21 },
+          { max: 100, size: 19 },
+          { max: 140, size: 16 },
+          { max: 170, size: 14 },
+          { max: 200, size: 13 },
+        ],
+        editorial: [
+          { max: 40,  size: 32 },
+          { max: 70,  size: 28 },
+          { max: 100, size: 25 },
+          { max: 140, size: 21 },
+          { max: 170, size: 18 },
+          { max: 200, size: 16 },
+        ],
+        terminal: [
+          { max: 40,  size: 22 },
+          { max: 70,  size: 19 },
+          { max: 100, size: 17 },
+          { max: 140, size: 15 },
+          { max: 170, size: 13 },
+          { max: 200, size: 12 },
+        ],
+        magazine: [
+          { max: 40,  size: 34 },
+          { max: 70,  size: 30 },
+          { max: 100, size: 26 },
+          { max: 140, size: 22 },
+          { max: 170, size: 19 },
+          { max: 200, size: 17 },
+        ],
+      };
+      const fallback = { max: 200, size: 14 };
+      const tiers = TIERS[template] || TIERS.boardroom;
+      for (const t of tiers) {
+        if (len <= t.max) return t.size;
+      }
+      // > 200 chars · take the smallest tier and shave 2px so the
+      // text still has a chance to fit. Caller can also pre-trim
+      // to 200 if they want a hard cap.
+      return Math.max(10, tiers[tiers.length - 1].size - 2);
+    },
+
+    /** Wrap CJK runs in `<span class="cjk">…</span>` so per-script
+     *  font + weight rules apply: CJK switches to PingFang at bold
+     *  weight (no italic-skew), Latin keeps the surrounding serif
+     *  italic. Always called AFTER `escape()` so the regex only
+     *  matches CJK glyphs and never sees raw `<` / `>` / `&`. */
+    wrapCjk(text) {
+      if (!text) return "";
+      return String(text).replace(
+        /([　-〿぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿＀-￯]+)/g,
+        '<span class="cjk">$1</span>',
+      );
+    },
+
+    /** Render the 540×800 card HTML for a given note + template key.
+     *  All four templates share the SAME inner data slots — kicker,
+     *  quote, byline, watermark, stamp — so this single function
+     *  works for all of them; CSS handles the visual divergence. */
+    renderShareCardHtml(n, templateKey) {
+      const tpl = templateKey || this.DEFAULT_SHARE_CARD_TEMPLATE;
+      const quote = String(n.quoteText || "").trim();
+      const author = (n.authorName || "Director").trim();
+      const roomNum = n.roomNumber != null ? `#${String(n.roomNumber).padStart(3, "0")}` : "";
+      const stampDate = n.createdAt
+        ? new Date(n.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+        : "";
+      const esc = (s) => this.escape(String(s || ""));
+
+      // Template-specific markup · each template needs a slightly
+      // different DOM (8-bit scene for "boardroom", quotation
+      // glyph for "editorial", ASCII frame for "terminal", top
+      // stripe for "magazine"). Watermark on every template is
+      // the domain `Privateboard.ai` (lowercased / capitalised
+      // by the template's text-transform).
+      const DOMAIN = "Privateboard.ai";
+
+      // Quote font-size · scaled by char count so long quotes (up
+      // to 200 chars) shrink to fit rather than getting truncated.
+      const qLen = quote.length;
+      const qFont = this.shareCardQuoteSize(tpl, qLen);
+      const qStyle = `font-size: ${qFont}px;`;
+
+      if (tpl === "boardroom") {
+        // 8-bit Dribbble-style card · striped sunset sky (painted by
+        // CSS) wrapped on every side by an inline-SVG decoration
+        // layer (pixel moon, scattered stars, drifting clouds,
+        // floating balloons). The meeting table + chairs are
+        // intentionally absent — the composition reads as a sunset
+        // poster + system message in a chunky pixel-art dialog box.
+        // Every rect carries an explicit fill so the html-to-image
+        // export keeps colours stable across browsers.
+        const star = (x, y, c = "#FFF6D9") => `<rect x="${x}" y="${y}" width="2" height="2" fill="${c}"/>`;
+        const tinyStar = (x, y, c = "#FFE8A8") => `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
+        // Pixel cloud · 1px-thinner cap row on top + main row +
+        // 1-row peach underbelly shadow. Sky-bands only.
+        const cloud = (x, y) => `
+          <rect x="${x + 4}" y="${y - 2}" width="10" height="2" fill="#FFF6D9"/>
+          <rect x="${x}"     y="${y}"     width="18" height="4" fill="#FFF6D9"/>
+          <rect x="${x + 2}" y="${y + 4}" width="14" height="2" fill="#F4C078"/>
+        `;
+        const bigCloud = (x, y) => `
+          <rect x="${x + 6}"  y="${y - 4}" width="14" height="2" fill="#FFF6D9"/>
+          <rect x="${x + 2}"  y="${y - 2}" width="22" height="2" fill="#FFF6D9"/>
+          <rect x="${x}"      y="${y}"     width="26" height="4" fill="#FFF6D9"/>
+          <rect x="${x + 2}"  y="${y + 4}" width="22" height="2" fill="#F4C078"/>
+        `;
+        // Pixel grass tuft · 7-blade upgraded tuft in two greens
+        // with deeper roots, taller blades, and a wider ground-line.
+        // Roughly 13×8 — about 2× the previous tuft.
+        const grass = (x, y) => `
+          <rect x="${x + 2}"  y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
+          <rect x="${x}"      y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 3}"  y="${y - 5}" width="1" height="5" fill="#2A4F1D"/>
+          <rect x="${x + 5}"  y="${y - 3}" width="1" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 4}"  y="${y}"     width="2" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 7}"  y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
+          <rect x="${x + 8}"  y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 10}" y="${y - 3}" width="1" height="3" fill="#2A4F1D"/>
+          <rect x="${x + 12}" y="${y - 2}" width="1" height="2" fill="#3D6E2F"/>
+          <rect x="${x + 1}"  y="${y + 3}" width="11" height="1" fill="#6BAA48"/>
+        `;
+        // Wider grass patch · 14-blade tuft for "tall grass clumps"
+        // along the river bank. Reads as a thicker, denser growth.
+        const grassWide = (x, y) => `
+          <rect x="${x + 2}"  y="${y - 5}" width="1" height="5" fill="#2A4F1D"/>
+          <rect x="${x}"      y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 3}"  y="${y - 6}" width="1" height="6" fill="#2A4F1D"/>
+          <rect x="${x + 5}"  y="${y - 4}" width="1" height="4" fill="#3D6E2F"/>
+          <rect x="${x + 4}"  y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 7}"  y="${y - 5}" width="1" height="5" fill="#2A4F1D"/>
+          <rect x="${x + 8}"  y="${y - 2}" width="2" height="4" fill="#3D6E2F"/>
+          <rect x="${x + 10}" y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
+          <rect x="${x + 12}" y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
+          <rect x="${x + 14}" y="${y - 3}" width="1" height="3" fill="#2A4F1D"/>
+          <rect x="${x + 16}" y="${y - 2}" width="1" height="2" fill="#3D6E2F"/>
+          <rect x="${x + 17}" y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
+          <rect x="${x + 1}"  y="${y + 3}" width="17" height="1" fill="#6BAA48"/>
+        `;
+        // Pixel dirt patch · bare earth showing through the grass.
+        // Four-tone (light top / mid body / shadow bottom / specks)
+        // gives the patch readable 8-bit texture at small sizes.
+        const dirtPatch = (x, y) => `
+          <rect x="${x}"      y="${y}"     width="14" height="1" fill="#8A6A48"/>
+          <rect x="${x}"      y="${y + 1}" width="16" height="2" fill="#6A4A2C"/>
+          <rect x="${x}"      y="${y + 3}" width="14" height="2" fill="#5A3A22"/>
+          <rect x="${x + 2}"  y="${y + 5}" width="10" height="1" fill="#4A2E18"/>
+          <rect x="${x + 4}"  y="${y + 1}" width="2"  height="1" fill="#A0814F"/>
+          <rect x="${x + 9}"  y="${y + 2}" width="2"  height="1" fill="#A0814F"/>
+        `;
+        const dirtPatchBig = (x, y) => `
+          <rect x="${x + 1}"  y="${y}"     width="22" height="1" fill="#8A6A48"/>
+          <rect x="${x}"      y="${y + 1}" width="26" height="2" fill="#6A4A2C"/>
+          <rect x="${x}"      y="${y + 3}" width="26" height="2" fill="#5A3A22"/>
+          <rect x="${x + 2}"  y="${y + 5}" width="22" height="2" fill="#4A2E18"/>
+          <rect x="${x + 4}"  y="${y + 7}" width="18" height="1" fill="#3A2410"/>
+          <rect x="${x + 5}"  y="${y + 1}" width="3"  height="1" fill="#A0814F"/>
+          <rect x="${x + 14}" y="${y + 2}" width="2"  height="1" fill="#A0814F"/>
+          <rect x="${x + 20}" y="${y + 4}" width="2"  height="1" fill="#A0814F"/>
+          <rect x="${x + 8}"  y="${y + 4}" width="1"  height="1" fill="#8A6A48"/>
+        `;
+        // Top-down pixel stones · much bigger than before, with
+        // a round-blob silhouette (stepped rows that wrap around
+        // a domed body), brighter centre (sun catching the top
+        // of the rounded stone), darker rim along the bottom
+        // edge, and a soft ground drop-shadow that reads as
+        // "looking straight down at a chunky rock". Three sizes.
+        const stoneSmall = (x, y) => `
+          <!-- Shadow beneath -->
+          <rect x="${x + 2}" y="${y + 14}" width="16" height="2" fill="#1B0A35" opacity="0.28"/>
+          <!-- Mid-tone body (round-blob silhouette) -->
+          <rect x="${x + 4}" y="${y}"      width="12" height="2" fill="#7A6F62"/>
+          <rect x="${x + 2}" y="${y + 2}"  width="16" height="2" fill="#7A6F62"/>
+          <rect x="${x}"     y="${y + 4}"  width="20" height="6" fill="#7A6F62"/>
+          <rect x="${x + 2}" y="${y + 10}" width="16" height="2" fill="#7A6F62"/>
+          <rect x="${x + 4}" y="${y + 12}" width="12" height="2" fill="#7A6F62"/>
+          <!-- Lighter top-center (sun catches dome) -->
+          <rect x="${x + 6}"  y="${y + 2}" width="8"  height="2" fill="#9F9388"/>
+          <rect x="${x + 4}"  y="${y + 4}" width="12" height="4" fill="#9F9388"/>
+          <rect x="${x + 6}"  y="${y + 8}" width="8"  height="2" fill="#9F9388"/>
+          <!-- Brightest specular spot -->
+          <rect x="${x + 7}"  y="${y + 4}" width="4" height="2" fill="#B5A998"/>
+          <!-- Bottom rim shadow -->
+          <rect x="${x + 4}"  y="${y + 12}" width="12" height="1" fill="#4A4038"/>
+        `;
+        const stoneMed = (x, y) => `
+          <!-- Shadow beneath -->
+          <rect x="${x + 4}" y="${y + 20}" width="24" height="2" fill="#1B0A35" opacity="0.30"/>
+          <rect x="${x + 6}" y="${y + 22}" width="20" height="1" fill="#1B0A35" opacity="0.18"/>
+          <!-- Mid-tone body -->
+          <rect x="${x + 6}"  y="${y}"      width="20" height="2" fill="#7A6F62"/>
+          <rect x="${x + 3}"  y="${y + 2}"  width="26" height="2" fill="#7A6F62"/>
+          <rect x="${x + 1}"  y="${y + 4}"  width="30" height="2" fill="#7A6F62"/>
+          <rect x="${x}"      y="${y + 6}"  width="32" height="8" fill="#7A6F62"/>
+          <rect x="${x + 1}"  y="${y + 14}" width="30" height="2" fill="#7A6F62"/>
+          <rect x="${x + 3}"  y="${y + 16}" width="26" height="2" fill="#7A6F62"/>
+          <rect x="${x + 6}"  y="${y + 18}" width="20" height="2" fill="#7A6F62"/>
+          <!-- Lighter top-centre dome -->
+          <rect x="${x + 9}"  y="${y + 2}"  width="14" height="2" fill="#9F9388"/>
+          <rect x="${x + 6}"  y="${y + 4}"  width="20" height="2" fill="#9F9388"/>
+          <rect x="${x + 4}"  y="${y + 6}"  width="24" height="4" fill="#9F9388"/>
+          <rect x="${x + 6}"  y="${y + 10}" width="20" height="2" fill="#9F9388"/>
+          <!-- Brightest specular spot (sun) -->
+          <rect x="${x + 11}" y="${y + 5}"  width="10" height="3" fill="#B5A998"/>
+          <!-- Bottom rim shadow -->
+          <rect x="${x + 4}"  y="${y + 16}" width="24" height="1" fill="#5A5048"/>
+          <rect x="${x + 7}"  y="${y + 18}" width="18" height="1" fill="#4A4038"/>
+        `;
+        const stoneLarge = (x, y) => `
+          <!-- Shadow beneath (wider for the bigger stone) -->
+          <rect x="${x + 6}" y="${y + 28}" width="36" height="2" fill="#1B0A35" opacity="0.32"/>
+          <rect x="${x + 8}" y="${y + 30}" width="32" height="1" fill="#1B0A35" opacity="0.20"/>
+          <!-- Mid-tone body (round-blob silhouette, ~46×30) -->
+          <rect x="${x + 10}" y="${y}"      width="26" height="2" fill="#7A6F62"/>
+          <rect x="${x + 6}"  y="${y + 2}"  width="34" height="2" fill="#7A6F62"/>
+          <rect x="${x + 3}"  y="${y + 4}"  width="40" height="2" fill="#7A6F62"/>
+          <rect x="${x + 1}"  y="${y + 6}"  width="44" height="2" fill="#7A6F62"/>
+          <rect x="${x}"      y="${y + 8}"  width="46" height="10" fill="#7A6F62"/>
+          <rect x="${x + 1}"  y="${y + 18}" width="44" height="2" fill="#7A6F62"/>
+          <rect x="${x + 3}"  y="${y + 20}" width="40" height="2" fill="#7A6F62"/>
+          <rect x="${x + 6}"  y="${y + 22}" width="34" height="2" fill="#7A6F62"/>
+          <rect x="${x + 10}" y="${y + 24}" width="26" height="2" fill="#7A6F62"/>
+          <!-- Lighter top-centre dome (sun catches the round top) -->
+          <rect x="${x + 14}" y="${y + 2}"  width="18" height="2" fill="#9F9388"/>
+          <rect x="${x + 10}" y="${y + 4}"  width="26" height="2" fill="#9F9388"/>
+          <rect x="${x + 6}"  y="${y + 6}"  width="34" height="2" fill="#9F9388"/>
+          <rect x="${x + 4}"  y="${y + 8}"  width="38" height="6" fill="#9F9388"/>
+          <rect x="${x + 6}"  y="${y + 14}" width="34" height="2" fill="#9F9388"/>
+          <!-- Brightest specular spot -->
+          <rect x="${x + 16}" y="${y + 6}"  width="14" height="4" fill="#B5A998"/>
+          <rect x="${x + 18}" y="${y + 10}" width="10" height="2" fill="#C7BDB0"/>
+          <!-- Bottom rim shadow (gives the stone weight) -->
+          <rect x="${x + 6}"  y="${y + 20}" width="34" height="1" fill="#5A5048"/>
+          <rect x="${x + 10}" y="${y + 22}" width="26" height="1" fill="#4A4038"/>
+          <rect x="${x + 14}" y="${y + 24}" width="18" height="1" fill="#3A302A"/>
+        `;
+        // Top-down meandering river · a wide cyan ribbon that
+        // S-curves across the bottom band. Coordinates tuned for
+        // the 540×750 card (cream ground starts ≈ y=428): river
+        // body spans roughly y=660-715. Width varies 30-44px at
+        // different points to mimic a real meandering stream.
+        const meanderingRiver = `
+          <!-- Body · solid cyan. The whole scene group (river +
+               stones + grass + dirt) was bumped 100px up from
+               the previous layout so the watermark / stamp at
+               the bottom have a generous cream footer above them. -->
+          <path d="M -10 583
+                   C 80 571, 180 603, 260 583
+                   C 340 563, 420 595, 550 575
+                   L 550 619
+                   C 420 631, 340 607, 260 627
+                   C 180 647, 80 621, -10 629 Z"
+                fill="#5BC0EB" shape-rendering="geometricPrecision"/>
+          <!-- Top edge highlight (lighter ripple) -->
+          <path d="M -10 585
+                   C 80 573, 180 605, 260 585
+                   C 340 565, 420 597, 550 577"
+                stroke="#9ADEFA" stroke-width="2" fill="none"
+                shape-rendering="geometricPrecision"/>
+          <!-- Bottom edge shadow (darker rim) -->
+          <path d="M -10 627
+                   C 80 619, 180 645, 260 625
+                   C 340 605, 420 629, 550 617"
+                stroke="#2A6FA5" stroke-width="2" fill="none"
+                shape-rendering="geometricPrecision"/>
+          <!-- Sparkle pixels on the water surface -->
+          <rect x="44"  y="595" width="3" height="1" fill="#FFFFFF"/>
+          <rect x="116" y="605" width="2" height="1" fill="#FFFFFF"/>
+          <rect x="184" y="599" width="3" height="1" fill="#FFFFFF"/>
+          <rect x="244" y="607" width="2" height="1" fill="#FFFFFF"/>
+          <rect x="312" y="591" width="3" height="1" fill="#FFFFFF"/>
+          <rect x="368" y="593" width="2" height="1" fill="#FFFFFF"/>
+          <rect x="436" y="587" width="3" height="1" fill="#FFFFFF"/>
+          <rect x="496" y="595" width="2" height="1" fill="#FFFFFF"/>
+          <rect x="72"  y="615" width="2" height="1" fill="#FFFFFF"/>
+          <rect x="160" y="619" width="3" height="1" fill="#FFFFFF"/>
+          <rect x="284" y="615" width="2" height="1" fill="#FFFFFF"/>
+          <rect x="396" y="611" width="3" height="1" fill="#FFFFFF"/>
+        `;
+        // Sky decoration layer · fills the full 540×800 card so
+        // pixel atmosphere wraps the bubble on every side. Sky
+        // half holds the moon + stars + clouds; ground (cream)
+        // half holds pixel stones + grass + dirt + a meandering
+        // river.
+        const skyDeco = `
+          <!-- Pixel moon · 8-bit circle in upper-right, ~y=78 so
+               it clears the top-right "Privateboard.ai" header
+               text (which lives at y=22-34). 5 stepped rows of
+               pixel pairs form the round silhouette; three
+               crater highlights in a warmer cream add character. -->
+          <g transform="translate(440 78)">
+            <rect x="8"  y="0"  width="20" height="4" fill="#FFF6D9"/>
+            <rect x="4"  y="4"  width="28" height="4" fill="#FFF6D9"/>
+            <rect x="0"  y="8"  width="36" height="14" fill="#FFF6D9"/>
+            <rect x="4"  y="22" width="28" height="4" fill="#FFF6D9"/>
+            <rect x="8"  y="26" width="20" height="4" fill="#FFF6D9"/>
+            <rect x="14" y="10" width="3" height="3" fill="#F4D898"/>
+            <rect x="22" y="14" width="2" height="2" fill="#F4D898"/>
+            <rect x="10" y="18" width="2" height="2" fill="#F4D898"/>
+          </g>
+          <!-- Star field · denser in deep purple bands, thinning
+               as the sky warms. Mix of 2×2 cream pixels and 1×1
+               amber pixels for depth. Stars near the top-right
+               text bounds (y≈22-34, x≈400-512) were moved down
+               so they don't print on the "Privateboard.ai" label. -->
+          ${star(40, 50)}${star(112, 58)}${star(180, 38)}${star(252, 30)}${star(304, 10)}${star(212, 64)}
+          ${star(72, 90)}${star(160, 84)}${star(220, 110)}${star(316, 64)}${star(376, 116)}${star(36, 98)}
+          ${star(140, 116)}${star(264, 102)}${star(420, 132)}${star(196, 138)}${star(348, 142)}
+          ${tinyStar(60, 40)}${tinyStar(168, 22)}${tinyStar(232, 50)}${tinyStar(340, 50)}${tinyStar(414, 116)}
+          ${tinyStar(96, 76)}${tinyStar(204, 104)}${tinyStar(280, 130)}${tinyStar(388, 124)}
+          ${tinyStar(56, 156)}${tinyStar(132, 168)}${tinyStar(420, 178)}
+          <!-- Clouds · sky bands only (rose / coral around y≈170).
+               The two clouds that previously sat at y=232 / y=244
+               were dropped — after the scene group was shifted up,
+               the bubble's top edge (y=200) covered them entirely. -->
+          ${bigCloud(48, 168)}
+          ${cloud(372, 158)}
+          ${cloud(212, 178)}
+          <!-- Ground · meandering top-down river curving across
+               the warm cream band, plus chunky stones on both
+               banks, denser grass tufts (mix of regular + wide),
+               and scattered dirt patches breaking up the grass.
+               The whole scene group was shifted 100px UP from
+               the previous layout so the watermark + stamp at
+               the bottom of the card have a clean cream "footer"
+               above them. -->
+          ${meanderingRiver}
+          <!-- Stones · spread across both banks. -->
+          ${stoneLarge(20,  535)}
+          ${stoneMed(232, 568)}
+          ${stoneSmall(376, 572)}
+          ${stoneMed(444, 633)}
+          ${stoneSmall(96,  639)}
+          ${stoneSmall(312, 639)}
+          <!-- Grass on the upper bank, woven between the stones. -->
+          ${grass(76,  562)}
+          ${grass(140, 566)}
+          ${grass(296, 570)}
+          ${grass(420, 572)}
+          ${grass(496, 566)}
+          ${grass(180, 578)}
+          <!-- Grass on the lower bank just below the river. -->
+          ${grass(40,  649)}
+          ${grass(180, 651)}
+          ${grass(220, 651)}
+          ${grass(360, 653)}
+          ${grass(500, 651)}
+          <!-- Bigger grass clumps + dirt patches in the strip
+               just below the lower-bank stones. -->
+          ${dirtPatchBig(58,  658)}
+          ${dirtPatch(190, 662)}
+          ${dirtPatch(330, 660)}
+          ${dirtPatchBig(402, 658)}
+          ${grassWide(140, 666)}
+          ${grassWide(290, 666)}
+          ${grassWide(430, 666)}
+          <!-- Extra dirt patches scattered on the upper bank. -->
+          ${dirtPatch(180, 584)}
+          ${dirtPatch(326, 578)}
+        `;
+        return `
+          <div class="share-card" data-share-template="boardroom">
+            <div class="sc-header">
+              <span>◆ PRIVATEBOARD<span class="sc-heart">♥</span></span>
+              <span class="sc-header-right">${esc(DOMAIN)}</span>
+            </div>
+            <svg class="sc-sky-deco" viewBox="0 0 540 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              ${skyDeco}
+            </svg>
+            <div class="sc-bubble">
+              <span class="sc-nail tl" aria-hidden="true"></span>
+              <span class="sc-nail tr" aria-hidden="true"></span>
+              <span class="sc-nail bl" aria-hidden="true"></span>
+              <span class="sc-nail br" aria-hidden="true"></span>
+              ${n.roomSubject ? `<div class="sc-bubble-meta">// re: ${this.wrapCjk(esc(String(n.roomSubject).trim()))}</div>` : ""}
+              <p class="sc-bubble-text" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
+            </div>
+            <div class="sc-byline">${this.wrapCjk(esc(`被蒸馏的 ${author}`))}</div>
+            <div class="share-card-watermark">${esc(DOMAIN)}</div>
+            <div class="share-card-stamp">${esc(stampDate)}</div>
+          </div>
+        `;
+      }
+      if (tpl === "editorial") {
+        return `
+          <div class="share-card" data-share-template="editorial">
+            <div>
+              <div class="sc-quotemark">&ldquo;</div>
+              <p class="sc-quote" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
+            </div>
+            <div class="sc-byline">— <strong>${this.wrapCjk(esc(author))}</strong>${roomNum ? ` · room ${esc(roomNum)}` : ""}</div>
+            <div class="share-card-watermark">${esc(DOMAIN)}</div>
+            <div class="share-card-stamp">${esc(stampDate)}</div>
+          </div>
+        `;
+      }
+      if (tpl === "terminal") {
+        return `
+          <div class="share-card" data-share-template="terminal">
+            <div class="sc-frame">
+              <div class="sc-prompt">$ cat note.txt</div>
+              <p class="sc-quote" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
+              <div class="sc-byline">> attributed to: <strong>${this.wrapCjk(esc(author))}</strong>${roomNum ? ` <span class="sc-byline-dim">[room ${esc(roomNum)}]</span>` : ""}</div>
+            </div>
+            <div class="share-card-watermark">${esc(DOMAIN)}</div>
+            <div class="share-card-stamp">${esc(stampDate)}</div>
+          </div>
+        `;
+      }
+      // magazine (default fallthrough)
+      return `
+        <div class="share-card" data-share-template="magazine">
+          <div class="sc-stripe"></div>
+          <div class="sc-kicker">From the boardroom</div>
+          <p class="sc-quote" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
+          <div class="sc-byline">
+            <span><strong>${this.wrapCjk(esc(author))}</strong></span>
+            <span>${roomNum ? `room ${esc(roomNum)}` : ""}${stampDate ? (roomNum ? " · " : "") + esc(stampDate) : ""}</span>
+          </div>
+          <div class="share-card-watermark">${esc(DOMAIN)}</div>
+        </div>
+      `;
+    },
+
+    /** Lazy-load html-to-image from CDN. Same loader pattern as
+     *  `public/magazine.html`'s `ensureHtmlToImage` so the All Notes
+     *  page doesn't ship the lib unless the user actually exports. */
+    _h2iLoaded: null,
+    async ensureShareCardHtmlToImage() {
+      if (window.htmlToImage) return;
+      if (!this._h2iLoaded) {
+        this._h2iLoaded = new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js";
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      await this._h2iLoaded;
+    },
+
+    /** Capture the current preview at native 540×675 and save it as
+     *  a 1080×1350 PNG. The visible preview is scaled down for fit;
+     *  we capture the un-scaled inner card so the export resolution
+     *  is independent of viewport width. Errors surface as a soft
+     *  alert + console.warn — same pattern as magazine/ppt exports. */
+    async downloadShareCard() {
+      if (!this._shareCardNote) return;
+      const btn = document.querySelector("[data-share-card-download]");
+      const overlay = document.getElementById("share-card-overlay");
+      if (!overlay) return;
+      try {
+        if (btn) { btn.disabled = true; btn.textContent = "rendering…"; }
+        await this.ensureShareCardHtmlToImage();
+        if (document.fonts && document.fonts.ready) {
+          try { await document.fonts.ready; } catch { /* best-effort */ }
+        }
+        // Find the live card element (the inner-most .share-card div
+        // inside the preview, NOT the scaling wrapper). Capturing the
+        // 540×750 card directly at pixelRatio: 2 gives a 1080×1500
+        // PNG that ignores the cosmetic scale applied to the preview.
+        const card = overlay.querySelector(".share-card");
+        if (!card) throw new Error("share card not mounted");
+        const dataUrl = await window.htmlToImage.toPng(card, {
+          pixelRatio: 2,
+          cacheBust: true,
+          width: 540,
+          height: 800,
+          canvasWidth: 540,
+          canvasHeight: 800,
+          style: { transform: "none", margin: "0", width: "540px", height: "800px" },
+        });
+        const slug = (this._shareCardNote.authorName || "note")
+          .toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "note";
+        const a = document.createElement("a");
+        a.download = `privateboard-${slug}-${(this._shareCardNote.id || "").slice(0, 6)}.png`;
+        a.href = dataUrl;
+        a.click();
+      } catch (e) {
+        console.warn("[share-card] PNG export failed:", e);
+        alert("PNG export failed — check the browser console for details.");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<span aria-hidden="true">↓</span><span>Download PNG</span>`;
+        }
+      }
     },
 
     /** DELETE /api/notes/:id · drops a saved excerpt from the index.
@@ -7280,7 +8105,7 @@
      *  click-confirm rather than a full overlay. */
     async deleteNoteAt(id) {
       if (!id) return;
-      if (!confirm("Delete this note? You can save it again from the room.")) return;
+      if (!confirm("Remove this note from your saved list? You can re-save it any time by highlighting the same passage in the room.")) return;
       try {
         const r = await fetch("/api/notes/" + encodeURIComponent(id), { method: "DELETE" });
         if (!r.ok) {
@@ -8176,8 +9001,31 @@
       // unmistakeably a select) without taking up visual real estate.
       const toneLbl = this._t("cmp_tone_label");
       const intensityLbl = this._t("cmp_intensity_label");
-      // Starter grid · 2-col responsive cards.
-      const starters = Array.isArray(window.BOARDROOM_STARTERS) ? window.BOARDROOM_STARTERS : [];
+      // Starter grid · 2-col responsive cards. Two parallel
+      // pools render in the same `.cmp-starters-grid`:
+      //   1. Topic recommendations (newest-first, paged, visible
+      //      list, capped at the 6 the server keeps). Each card
+      //      carries a synthesiser-generated tag (e.g.
+      //      "strategy") in the left column. Clicking populates
+      //      the composer with the rec's subject + attaches its
+      //      seedContext snippets so the room opens grounded in
+      //      the source material.
+      //   2. Legacy hardcoded starters from window.BOARDROOM_STARTERS.
+      //      Show only when there are no recommendations yet (or
+      //      when recs are still loading on first paint) so a
+      //      brand-new user sees something useful in the tray.
+      // Server keeps at most 6 rows — defensive slice covers
+      // any stale cache that pre-dates the "always 6" rule.
+      const recs = (this.topicRecs.items || []).slice(0, 6);
+      // Card markup lives in `topicRecCardHtml` so the
+      // initial render path and any later append paths can't
+      // drift in shape / attributes.
+      const recCards = recs.map((rec) => this.topicRecCardHtml(rec)).join("");
+
+      const showLegacyStarters = recs.length === 0;
+      const starters = showLegacyStarters && Array.isArray(window.BOARDROOM_STARTERS)
+        ? window.BOARDROOM_STARTERS
+        : [];
       const starterCards = starters.map((q, idx) => {
         const tag = (q.tag || "").replace(/^\/\/\s*/, "");
         return `
@@ -8188,6 +9036,47 @@
           </button>
         `;
       }).join("");
+      // Trigger card · disguised as the first row in the
+      // starters grid, so the "recommend" action lives in the
+      // same visual rhythm as the suggestions it produces. The
+      // card has TWO states wired through the same DOM hooks
+      // ([data-trec-label] / [data-trec-detail] / [data-trec-pct]
+      // / [data-trec-bar]) so the SSE handler can patch them
+      // in place without re-rendering the whole composer:
+      //   · IDLE (no job) · tag = "✦ discover", text = the
+      //     bilingual label, arrow = "+". Looks like a starter
+      //     but with a lime accent + dashed bottom rule.
+      //   · BUSY (job live) · tag = phase label, text =
+      //     animated dots + phase detail, arrow = "N%". A
+      //     thin lime progress bar lives along the bottom edge
+      //     and fills as the pipeline ticks.
+      const job = this.topicRecs.job;
+      const triggerBusy = !!job;
+      const triggerCard = `
+        <button type="button"
+          class="cmp-starter cmp-recs-trigger-card${triggerBusy ? " is-busy" : ""}"
+          data-cmp-recs-trigger
+          data-topic-rec-progress
+          ${triggerBusy ? "disabled" : ""}
+          title="${this.escape("找你可能感兴趣的话题")}">
+          <div class="cmp-starter-tag" data-trec-label>${this.escape(triggerBusy ? (job.label || "starting…") : "✦ discover")}</div>
+          <div class="cmp-starter-text">
+            ${triggerBusy
+              ? `<span class="cmp-recs-trigger-dots" aria-hidden="true"><i></i><i></i><i></i></span><span data-trec-detail>${this.escape(job.detail || "")}</span>`
+              : `<span>找你可能感兴趣的话题</span>`}
+          </div>
+          <div class="cmp-starter-arrow" data-trec-pct>${this.escape(triggerBusy ? (job.pct ? `${job.pct}%` : "·") : "+")}</div>
+          <div class="cmp-recs-trigger-bar" aria-hidden="true"><div class="cmp-recs-trigger-fill" data-trec-bar style="width: ${triggerBusy ? (job.pct || 0) : 0}%"></div></div>
+        </button>
+      `;
+
+      // Trigger card always leads; suggestions (or legacy
+      // starters as empty-state fallback) follow.
+      const trayCards = triggerCard + (recs.length > 0 ? recCards : starterCards);
+      // Pagination is intentionally OFF — the server keeps only
+      // the latest batch (6 rows). Every fresh generation wipes
+      // the previous batch, so there's never "older" data to
+      // page back to. The "+ N more" surface is gone.
 
       return `
         <section class="cmp">
@@ -8263,16 +9152,14 @@
             </div>
           </div>
 
-          ${starters.length ? `
-            <div class="cmp-starters">
-              <div class="cmp-starters-rule">
-                <span class="cmp-starters-rule-line"></span>
-                <span class="cmp-starters-rule-label">${this.escape(t.starterCaption)}</span>
-                <span class="cmp-starters-rule-line"></span>
-              </div>
-              <div class="cmp-starters-grid">${starterCards}</div>
+          <div class="cmp-starters">
+            <div class="cmp-starters-rule">
+              <span class="cmp-starters-rule-line"></span>
+              <span class="cmp-starters-rule-label">${this.escape(t.starterCaption)}</span>
+              <span class="cmp-starters-rule-line"></span>
             </div>
-          ` : ""}
+            <div class="cmp-starters-grid">${trayCards}</div>
+          </div>
         </section>
       `;
     },
@@ -10871,16 +11758,257 @@
           intensity: state.intensity,
           deliveryMode: state.deliveryMode,
           autoPick: useAutoPick,
+          seedContext: state.seedContext || null,
         });
         // Clear the saved draft now that the room is convened — next
         // visit to "+ New Room" should land on a fresh textarea, not
-        // re-show the just-submitted subject.
+        // re-show the just-submitted subject. Also drop the attached
+        // seedContext — the snippets travelled into the room's
+        // opening message; we don't want them piggy-backing on the
+        // NEXT room the user opens.
         state.subject = "";
+        state.seedContext = null;
         this.saveComposerState();
       } catch (e) {
         if (btn) btn.classList.remove("busy");
         alert("Couldn't convene: " + (e && e.message ? e.message : e));
       }
+    },
+
+    /** Fetch the (single) page of topic recommendations · the
+     *  server keeps only the latest batch (6 rows), so one
+     *  request is the whole story. Idempotent — safe to call
+     *  from renderEmptyState() boot AND after a generation job
+     *  completes. Sets `topicRecs.loaded` so first-paint can
+     *  fall back to legacy hardcoded starters until this
+     *  resolves. */
+    async refreshTopicRecs() {
+      try {
+        const r = await fetch("/api/topic-recs?limit=6");
+        if (!r.ok) {
+          this.topicRecs.loaded = true;
+          this.renderEmptyState();
+          return;
+        }
+        const j = await r.json();
+        this.topicRecs.items = Array.isArray(j.items) ? j.items : [];
+        this.topicRecs.loaded = true;
+        // Re-render only when the user is still on the empty
+        // (composer) state · openRoom paths have already moved
+        // on and an unsolicited re-render would steal focus.
+        if (!this.currentRoomId) this.renderEmptyState();
+      } catch { /* network error · keep stale list, surface nothing */ }
+    },
+
+    /** Derive a short tag from a subject string · used as the
+     *  client-side fallback when a rec row has no `tag` field
+     *  (legacy rows from before migration 035, or the rare
+     *  case where the LLM forgot to include one and the
+     *  orchestrator's safety-net path also fired). Mirrors the
+     *  orchestrator's `deriveTagFromSubject` logic so the
+     *  vocabulary stays consistent across paths. */
+    _deriveTagFromSubject(subject) {
+      const STOP = new Set([
+        "the", "and", "for", "are", "you", "your", "what", "how",
+        "why", "when", "with", "from", "this", "that", "should",
+        "could", "would", "have", "has", "will", "into", "about",
+      ]);
+      const words = (subject || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !STOP.has(w));
+      return words.slice(0, 2).join(" ").slice(0, 28) || "topic";
+    },
+
+    /** Build the HTML for a single topic-rec card. Used both by
+     *  `renderComposerHtml` (initial render) and `loadMoreTopicRecs`
+     *  (in-place append). Keeping the markup in one helper means
+     *  the two paths can't drift in shape or attributes. */
+    topicRecCardHtml(rec) {
+      // Tag priority: synthesiser-produced category > derive
+      // from subject. We NEVER fall back to "web" / "memory"
+      // as the visible tag — those are data-provenance tokens,
+      // not topic categories. The `data-source` attribute still
+      // carries the provenance for CSS to colour-tint with.
+      const tag = (typeof rec.tag === "string" && rec.tag.trim().length > 0)
+        ? rec.tag
+        : this._deriveTagFromSubject(rec.subject);
+      const hint = rec.rationale || "";
+      return `
+        <button type="button" class="cmp-starter cmp-rec" data-cmp-rec="${this.escape(rec.id)}" data-source="${this.escape(rec.source)}">
+          <div class="cmp-starter-tag">${this.escape(tag)}</div>
+          <div class="cmp-starter-text">${this.escape(rec.subject || "")}</div>
+          ${hint ? `<div class="cmp-rec-hint">${this.escape(hint)}</div>` : ""}
+          <div class="cmp-starter-arrow">→</div>
+        </button>
+      `;
+    },
+
+    // (no `loadMoreTopicRecs` — see comments at the
+    //  pagination-removed render block above.)
+
+    /** Kick off a new topic-recommendation generation job and
+     *  attach an SSE stream so the composer's progress strip
+     *  ticks through phases live. On `topic-final` we refresh
+     *  the tray from the API; on error we surface the message
+     *  inline so the user understands why nothing landed. */
+    async startTopicRecJob() {
+      if (this.topicRecs.job) return; // already running · idempotent click
+      // Pre-flight · API gate requires a model key. Surface the
+      // same prompt as Convene so the user fixes it once.
+      if (!(await this.requireModelKey())) return;
+      try {
+        const r = await fetch("/api/topic-recs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          alert("Couldn't start: " + (j.error || r.statusText));
+          return;
+        }
+        const { jobId } = await r.json();
+        this.topicRecs.job = {
+          id: jobId,
+          phase: 0,
+          label: "starting…",
+          pct: 0,
+          detail: "",
+          es: null,
+          error: null,
+        };
+        if (!this.currentRoomId) this.renderEmptyState();
+        this._attachTopicRecJobSSE(jobId);
+      } catch (e) {
+        alert("Couldn't start: " + (e && e.message ? e.message : e));
+      }
+    },
+
+    /** Internal · attach the EventSource for a running job and
+     *  wire each event type to the in-memory job state. */
+    _attachTopicRecJobSSE(jobId) {
+      const url = `/api/topic-recs/jobs/${encodeURIComponent(jobId)}/stream`;
+      const es = new EventSource(url);
+      this.topicRecs.job.es = es;
+      const updateStrip = () => {
+        const el = document.querySelector("[data-topic-rec-progress]");
+        if (!el || !this.topicRecs.job) return;
+        const j = this.topicRecs.job;
+        const labelEl = el.querySelector("[data-trec-label]");
+        if (labelEl) labelEl.textContent = j.label || "";
+        const detailEl = el.querySelector("[data-trec-detail]");
+        if (detailEl) detailEl.textContent = j.detail || "";
+        const pctEl = el.querySelector("[data-trec-pct]");
+        if (pctEl) pctEl.textContent = j.pct ? `${j.pct}%` : "·";
+        const bar = el.querySelector("[data-trec-bar]");
+        if (bar) bar.style.width = `${j.pct || 0}%`;
+      };
+      const terminate = () => {
+        try { es.close(); } catch { /* noop */ }
+        this.topicRecs.job = null;
+        if (!this.currentRoomId) this.renderEmptyState();
+      };
+      es.addEventListener("hello", (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (this.topicRecs.job) {
+            this.topicRecs.job.phase = data.currentPhase || 0;
+            this.topicRecs.job.pct = data.progressPct || 0;
+          }
+          updateStrip();
+        } catch { /* noop */ }
+      });
+      es.addEventListener("topic-phase-start", (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (this.topicRecs.job) {
+            this.topicRecs.job.phase = data.phase;
+            this.topicRecs.job.label = data.label;
+            this.topicRecs.job.detail = "";
+          }
+          updateStrip();
+        } catch { /* noop */ }
+      });
+      es.addEventListener("topic-phase-progress", (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (this.topicRecs.job) {
+            this.topicRecs.job.phase = data.phase;
+            this.topicRecs.job.detail = data.detail || "";
+            this.topicRecs.job.pct = data.progressPct || this.topicRecs.job.pct;
+          }
+          updateStrip();
+        } catch { /* noop */ }
+      });
+      es.addEventListener("topic-phase-end", (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (this.topicRecs.job) {
+            this.topicRecs.job.pct = data.progressPct || this.topicRecs.job.pct;
+          }
+          updateStrip();
+        } catch { /* noop */ }
+      });
+      es.addEventListener("topic-final", () => {
+        // Pull the freshest first page so the new cards land
+        // immediately; closing the EventSource is on the same
+        // tick so the next click doesn't see a stale job.
+        terminate();
+        void this.refreshTopicRecs();
+      });
+      es.addEventListener("topic-error", (ev) => {
+        let msg = "generation failed";
+        try { msg = (JSON.parse(ev.data).message) || msg; } catch { /* noop */ }
+        alert("Topic generation failed: " + msg);
+        terminate();
+      });
+      es.addEventListener("topic-aborted", () => {
+        terminate();
+      });
+      es.onerror = () => {
+        // Transport hiccup · treat as terminal so the UI doesn't
+        // stay stuck on a phantom progress strip.
+        if (this.topicRecs.job) terminate();
+      };
+    },
+
+    /** Click handler on a recommendation card · fetches the
+     *  full row (to recover seedContext) then applies it to the
+     *  composer state so the next Convene carries the snippets
+     *  through to the opening message's meta. */
+    async applyTopicRec(id) {
+      if (!id) return;
+      try {
+        const r = await fetch(`/api/topic-recs/${encodeURIComponent(id)}`);
+        if (!r.ok) return;
+        const row = await r.json();
+        if (!row || typeof row.subject !== "string") return;
+        const state = this.loadComposerState();
+        state.subject = row.subject;
+        state.seedContext = {
+          topicRecId: row.id,
+          // Rationale is the "why this fits you" line the
+          // synthesiser produced · it's hidden from the card
+          // UI but forwarded as background context so the
+          // chair's clarify prompt can ground its first turn
+          // in the same reasoning the recommendation was
+          // built on.
+          rationale: typeof row.rationale === "string" ? row.rationale : "",
+          snippets: Array.isArray(row.seedContext) ? row.seedContext : [],
+        };
+        this.saveComposerState();
+        this.renderEmptyState();
+        setTimeout(() => {
+          const ta = document.querySelector("[data-composer-subject]");
+          if (ta) {
+            ta.focus();
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+            this.autosizeComposerTextarea?.();
+          }
+        }, 50);
+      } catch { /* noop */ }
     },
 
     /** Apply a starter spec into the composer state — fills the
@@ -11546,6 +12674,56 @@
       this.userBubble.dismissed = true;
       this.userBubble.text = "";
       this.userBubble.deadline = 0;
+      this.renderRoundTable();
+    },
+
+    /** Chair clarify bubble · parallel surface to the user bubble.
+     *  Pins the chair's clarifying question to the chair seat with a
+     *  10s border countdown (same conic-gradient mechanic as the
+     *  user bubble). Voice-mode only · in text mode the question
+     *  appears as a normal chat bubble and the user can read it
+     *  inline. Calling again before timeout REPLACES the text and
+     *  resets the deadline. */
+    CHAIR_BUBBLE_TTL_MS: 10000,
+    showChairBubble(text) {
+      const trimmed = String(text || "").trim();
+      if (!trimmed) return;
+      if (this.currentRoom && this.currentRoom.status === "adjourned") return;
+      this.chairBubble.text = trimmed;
+      this.chairBubble.deadline = Date.now() + this.CHAIR_BUBBLE_TTL_MS;
+      this.chairBubble.dismissed = false;
+      if (!this.chairBubble.intervalId) {
+        this.chairBubble.intervalId = setInterval(() => this.tickChairBubble(), 1000);
+      }
+      this.renderRoundTable();
+    },
+
+    /** 1Hz tick · surgical update of the border-progress CSS var.
+     *  Mirrors tickUserBubble exactly · see that method for the
+     *  full reasoning around surgical-vs-full rerender. */
+    tickChairBubble() {
+      if (this.chairBubble.dismissed) return;
+      const now = Date.now();
+      if (now >= this.chairBubble.deadline) {
+        this.dismissChairBubble();
+        return;
+      }
+      const bubbleEl = document.querySelector("[data-rt-chair-bubble]");
+      if (bubbleEl) {
+        const elapsed = this.CHAIR_BUBBLE_TTL_MS - (this.chairBubble.deadline - now);
+        const progress = Math.min(1, Math.max(0, elapsed / this.CHAIR_BUBBLE_TTL_MS));
+        bubbleEl.style.setProperty("--rt-bubble-chair-progress", progress.toFixed(3));
+      }
+    },
+
+    dismissChairBubble() {
+      if (this.chairBubble.intervalId) {
+        clearInterval(this.chairBubble.intervalId);
+        this.chairBubble.intervalId = null;
+      }
+      this.chairBubble.dismissed = true;
+      this.chairBubble.text = "";
+      this.chairBubble.deadline = 0;
       this.renderRoundTable();
     },
 
@@ -13600,6 +14778,19 @@
               `<button type="button" class="rt-bubble-user-close" data-rt-user-bubble-close aria-label="Dismiss">✕</button>` +
               `</div>`;
           }
+        } else if (isChair && this.chairBubble && !this.chairBubble.dismissed
+            && this.chairBubble.text && Date.now() < this.chairBubble.deadline) {
+          // Chair clarify question · pinned to the chair seat with
+          // border countdown. Takes precedence over the "Speaking"
+          // status bubble since the chair has already finished its
+          // turn at this point (message-final flipped streaming off).
+          const cb = this.chairBubble;
+          const elapsed = this.CHAIR_BUBBLE_TTL_MS - (cb.deadline - Date.now());
+          const progress = Math.min(1, Math.max(0, elapsed / this.CHAIR_BUBBLE_TTL_MS));
+          bubble = `<div class="rt-bubble rt-bubble-chair-clarify" data-rt-chair-bubble style="--rt-bubble-chair-progress: ${progress.toFixed(3)}">` +
+            `<span class="rt-bubble-chair-clarify-text">${this.escape(cb.text)}</span>` +
+            `<button type="button" class="rt-bubble-chair-clarify-close" data-rt-chair-bubble-close aria-label="Dismiss">✕</button>` +
+            `</div>`;
         } else if (isSpeaking) {
           bubble = `<div class="${bubbleCls}"><span class="rt-bubble-name">${this.escape(m.name || "")}</span><span class="rt-bubble-status">${this.escape(statusWord)}</span><span class="rt-bubble-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
         }
@@ -13624,6 +14815,11 @@
           : false;
         const isChairBusy = (() => {
           if (this.chairPending === true) return true;
+          // Chair message landed but voice synthesis hasn't reached
+          // the client yet · the popover would otherwise flash for
+          // 0.5-2s before audio kicks in. See `_chairVoiceAwaiting`
+          // doc + the message-appended hook for the full reasoning.
+          if (this._chairVoiceAwaiting && this._chairVoiceAwaiting.size > 0) return true;
           const allMsgs = this.currentMessages || [];
           for (let k = allMsgs.length - 1; k >= 0; k--) {
             const mm = allMsgs[k];
@@ -15443,6 +16639,13 @@
       app.dismissUserBubble();
       return;
     }
+    // Same `×` pattern on the chair clarify bubble.
+    const chairBubbleClose = e.target.closest("[data-rt-chair-bubble-close]");
+    if (chairBubbleClose) {
+      e.preventDefault();
+      app.dismissChairBubble();
+      return;
+    }
     // Web Search · click the badge to expand / collapse the source list
     // beneath the bubble.
     const wsBtn = e.target.closest("[data-msg-ws-toggle]");
@@ -16386,6 +17589,23 @@
       if (Number.isFinite(idx)) app.applyComposerStarter(idx);
       return;
     }
+    // Topic-rec card → apply via /api/topic-recs/:id so the
+    // full seedContext lands in composer state.
+    const composerRec = e.target.closest("[data-cmp-rec]");
+    if (composerRec) {
+      e.preventDefault();
+      const id = composerRec.getAttribute("data-cmp-rec");
+      if (id) app.applyTopicRec(id);
+      return;
+    }
+    // Topic-rec trigger button → start a fresh generation job.
+    if (e.target.closest("[data-cmp-recs-trigger]")) {
+      e.preventDefault();
+      void app.startTopicRecJob();
+      return;
+    }
+    // ("+ N more" pagination removed · tray now always shows
+    //  the latest 6 recs and wipes on each fresh generation.)
     // Delete a room (any state): confirm, then real DELETE on the backend.
     const del = e.target.closest("[data-room-delete]");
     if (del) {
@@ -16394,6 +17614,42 @@
       const shell = del.closest(".session-row-shell");
       const id = shell?.dataset.roomId;
       if (id) app.deleteRoom(id);
+      return;
+    }
+    // Share a saved note · opens the share-card overlay.
+    const noteShare = e.target.closest("[data-note-share]");
+    if (noteShare) {
+      e.preventDefault();
+      e.stopPropagation();
+      const item = noteShare.closest("[data-note-id]");
+      const id = item?.dataset.noteId;
+      if (id) app.openShareCard(id);
+      return;
+    }
+    // Share-card overlay · template chip click swaps the visual.
+    const shareTplBtn = e.target.closest("[data-share-card-template]");
+    if (shareTplBtn) {
+      e.preventDefault();
+      const key = shareTplBtn.getAttribute("data-share-card-template");
+      if (key) app.setShareCardTemplate(key);
+      return;
+    }
+    // Share-card overlay · download.
+    if (e.target.closest("[data-share-card-download]")) {
+      e.preventDefault();
+      app.downloadShareCard();
+      return;
+    }
+    // Share-card overlay · close button.
+    if (e.target.closest("[data-share-card-close]")) {
+      e.preventDefault();
+      app.closeShareCard();
+      return;
+    }
+    // Share-card overlay · backdrop click dismisses (mirrors the
+    // pause-choice / vote-trigger overlay convention).
+    if (e.target.id === "share-card-overlay") {
+      app.closeShareCard();
       return;
     }
     // Delete a saved note from the All Notes list. The button is a
