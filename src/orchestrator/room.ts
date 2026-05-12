@@ -1534,6 +1534,18 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       messageId: placeholder.id,
       finishReason,
     });
+  } else {
+    // Error turns already persisted final body+meta inside the stream loop.
+    // Still emit the same terminal SSE pair as success so clients clear
+    // streaming / voice state without relying on a follow-up poll.
+    if (voiceChunker) {
+      roomBus.emit(roomId, { type: "voice-final", messageId: placeholder.id });
+    }
+    roomBus.emit(roomId, {
+      type: "message-final",
+      messageId: placeholder.id,
+      finishReason: "error",
+    });
   }
   return placeholder.id;
 }

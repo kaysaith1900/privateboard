@@ -1189,8 +1189,39 @@
       this.sse.addEventListener("message-error", (e) => {
         const data = JSON.parse(e.data);
         const msg = this.currentMessages.find((m) => m.id === data.messageId);
-        if (msg) msg.meta = { ...(msg.meta || {}), error: data.message };
-        this.updateMessageBodyDom(data.messageId, msg ? msg.body : `[error: ${data.message}]`, false);
+        const errText =
+          typeof data.message === "string" ? data.message : String(data.message ?? "");
+        if (msg) {
+          msg.meta = {
+            ...(msg.meta || {}),
+            streaming: false,
+            speakerStatus: "final",
+            error: errText,
+          };
+          if (!String(msg.body || "").trim()) {
+            msg.body = `[error: ${errText}]`;
+          }
+        }
+        const vq = this.voiceQueues[data.messageId];
+        if (vq) {
+          if (vq.audio) {
+            try { vq.audio.pause(); } catch (_) {}
+            try { URL.revokeObjectURL(vq.audio.src); } catch (_) {}
+          }
+          delete this.voiceQueues[data.messageId];
+        }
+        // Director (and some chair) failures emit message-error but not
+        // always message-final · without clearing streaming + repaint the
+        // round-table stays on THINKING and voice queues never drain.
+        this.renderRoundTable();
+        this.renderRtSubtitle();
+        this.updateMessageBodyDom(
+          data.messageId,
+          msg ? msg.body : `[error: ${errText}]`,
+          false,
+        );
+        this.refreshRoundEndButton();
+        this.maybeStartContinueCountdown();
       });
 
       this.sse.addEventListener("message-removed", (e) => {
@@ -13782,14 +13813,26 @@
         }
       }
       if (!speakerId) {
+        slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
+        slot.classList.remove("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) {
+          clearTimeout(slot._rtSubtitleEnterTimer);
+          slot._rtSubtitleEnterTimer = null;
+        }
         return;
       }
       const speaker = this.agentsById[speakerId];
       if (!speaker) {
+        slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
+        slot.classList.remove("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) {
+          clearTimeout(slot._rtSubtitleEnterTimer);
+          slot._rtSubtitleEnterTimer = null;
+        }
         return;
       }
       // Clean the body for plain-text caption · drop markdown
@@ -13804,8 +13847,14 @@
         .replace(/\s+/g, " ")
         .trim();
       if (!text) {
+        slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
+        slot.classList.remove("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) {
+          clearTimeout(slot._rtSubtitleEnterTimer);
+          slot._rtSubtitleEnterTimer = null;
+        }
         return;
       }
       // Caption picker · use the EXACT playback-time range for each
@@ -13886,10 +13935,28 @@
         }
         visible = parts.length ? parts[parts.length - 1] : text;
       }
+      const visTrim = visible.trim();
+      const sig =
+        `${speakerId}\x00${replayActive ? "r" : "l"}\x00${String(speaker.name || "")}\x00${visTrim}`;
+      if (!slot.hidden && slot._rtSubtitleSig === sig) return;
+      slot._rtSubtitleSig = sig;
+      const wasHidden = !!slot.hidden;
       slot.hidden = false;
-      slot.innerHTML =
+      const html =
         `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
-        `<p class="rt-sub-text">${this.escape(visible.trim())}</p>`;
+        `<p class="rt-sub-text">${this.escape(visTrim)}</p>`;
+      if (slot.innerHTML !== html) slot.innerHTML = html;
+      if (wasHidden) {
+        slot.classList.remove("is-sub-enter");
+        // Re-trigger enter animation cleanly when re-opening after idle.
+        void slot.offsetWidth;
+        slot.classList.add("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) clearTimeout(slot._rtSubtitleEnterTimer);
+        slot._rtSubtitleEnterTimer = setTimeout(() => {
+          slot.classList.remove("is-sub-enter");
+          slot._rtSubtitleEnterTimer = null;
+        }, 260);
+      }
     },
 
     renderRoundTableHud() {

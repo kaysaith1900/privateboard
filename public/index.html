@@ -7118,11 +7118,11 @@
     margin-bottom: 10px;
   }
 
-  /* Inline @mention / /handle pill. Two flavours so the addressee is
-     glanceable: agent mentions get amber, user mentions get lime.
-     Unscoped so the styling lands in any context (chat bubble, convene
-     opener, brief body, etc.). Fallback rgba sits before color-mix
-     so older engines still tint the background. */
+  /* Inline @-mention pill (legacy /-prefixed handles normalise to @ in chat
+     render). Two flavours so the addressee is glanceable: agent mentions
+     get amber, user mentions get lime. Unscoped so the styling lands in any
+     context (chat bubble, convene opener, brief body, etc.). Fallback rgba
+     sits before color-mix so older engines still tint the background. */
   .msg-mention {
     display: inline-block;
     font-weight: 700;
@@ -8208,6 +8208,10 @@
      Auto-hides when no one's speaking. Width is capped so very
      wide stages don't sprawl the caption across the whole row. */
   .rt-subtitle {
+    /* Local tokens · this card is ALWAYS near-black glass regardless of
+       `data-theme`. Light themes set global `--text` to dark ink for
+       paper panels; inheriting it here makes body copy disappear. */
+    --rt-caption-ink: rgba(237, 234, 228, 0.96);
     position: absolute;
     left: 50%;
     bottom: 14px;
@@ -8220,6 +8224,12 @@
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(2px);
     pointer-events: none;
+  }
+  /* Enter animation · applied only when JS first shows the bar after
+     a stretch hidden, not on every caption token / audio time tick.
+     Putting `animation` on the base `.rt-subtitle` re-triggers noisy
+     repaints alongside `innerHTML` churn and reads as flicker. */
+  .rt-subtitle.is-sub-enter {
     animation: rt-sub-in 0.18s ease-out;
   }
   .rt-subtitle[hidden] { display: none; }
@@ -8234,7 +8244,9 @@
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--lime, #6FB572);
+    /* Solid fallback · `color-mix` unsupported in older Safari builds. */
+    color: #BFE6C4;
+    color: color-mix(in srgb, var(--lime, #6FB572) 88%, rgb(248, 250, 248));
     margin-bottom: 6px;
   }
   .rt-sub-text {
@@ -8242,7 +8254,7 @@
     font-family: var(--font-human);
     font-size: 14px;
     line-height: 1.5;
-    color: var(--text);
+    color: var(--rt-caption-ink);
     word-break: break-word;
     /* The renderer slices `text` to a ~140-char window ending at
        the current TTS cursor (`audio.currentTime / duration`), so
