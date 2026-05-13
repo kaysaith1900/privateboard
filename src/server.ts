@@ -9,10 +9,6 @@ import { existsSync } from "node:fs";
 
 import { agentsRouter } from "./routes/agents.js";
 import { avatarRouter } from "./routes/avatar.js";
-import {
-  briefRenderPreviewGET,
-  briefRenderPreviewPOST,
-} from "./routes/brief-render-preview.js";
 import { briefsRouter } from "./routes/briefs.js";
 import { keysRouter } from "./routes/keys.js";
 import { modelsRouter } from "./routes/models.js";
@@ -25,6 +21,7 @@ import { usageRouter } from "./routes/usage.js";
 import { voicesRouter } from "./routes/voices.js";
 import { publicDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
+import { renderPickerCatalog } from "./utils/render-picker-catalog.js";
 
 interface StartOptions {
   port: number;
@@ -119,10 +116,9 @@ export function createApp() {
     }
   });
 
-  // Adjourn-modal theme preview · registered on the parent app so POST never
-  // misses the nested `/api/rooms` merge and falls through to serveStatic (404).
-  app.get("/api/rooms/:id/brief-render-preview", briefRenderPreviewGET);
-  app.post("/api/rooms/:id/brief-render-preview", briefRenderPreviewPOST);
+  // Spine / house-style allow-list for modal pickers · no LLM (the heavy
+  // `brief-render-preview` Stage-1 preview path has been retired).
+  app.get("/api/render-catalog", (c) => c.json(renderPickerCatalog()));
 
   // /api routers
   app.route("/api/prefs", prefsRouter());

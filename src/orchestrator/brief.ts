@@ -40,12 +40,8 @@ import {
   buildComposerMessages,
   defaultComposition,
   parseComposerOutput,
-  SPINES,
   type ComposerResult,
 } from "../ai/prompts/composer.js";
-import {
-  HOUSE_STYLES,
-} from "../ai/prompts/house-styles.js";
 import {
   extractBriefTitle,
   type BriefStyle,
@@ -58,9 +54,6 @@ import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateB
 import { coerceBriefMode } from "../utils/brief-mode.js";
 import {
   emptyParsedRenderPrefs,
-  pickMagazineVariantFromSeed,
-  pickNewspaperVariantFromSeed,
-  pickPptVariantFromSeed,
   type ParsedRenderPrefs,
   VALID_HOUSE_STYLE_IDS,
   VALID_SPINES,
@@ -2441,115 +2434,4 @@ function buildMethodologyFooter(args: MethodologyArgs): string {
     "",
     "_Domains this writer is not equipped to assess: quantitative forecasting, near-real-time market data, legal/compliance boundaries. Verify those through specialist channels._",
   ].join("\n");
-}
-
-/** Response for POST /api/rooms/:id/brief-render-preview · adjourn modal. */
-export interface BriefRenderPreviewPayload {
-  structured: {
-    ppt: string;
-    magazine: string;
-    newspaper: string;
-  };
-  report: {
-    spine: string;
-    houseStyle: string;
-    rationale: string | null;
-    subjectType: string | null;
-  };
-  catalog: {
-    spines: readonly string[];
-    houseStyles: { id: string; label: string }[];
-  };
-}
-
-const briefRenderPreviewCache = new Map<
-  string,
-  { storedAt: number; payload: BriefRenderPreviewPayload }
->();
-const BRIEF_RENDER_PREVIEW_TTL_MS = 90_000;
-
-export function briefRenderPickerCatalog(): BriefRenderPreviewPayload["catalog"] {
-  return {
-    spines: SPINES,
-    houseStyles: HOUSE_STYLES.map((h) => ({ id: h.id, label: h.label })),
-  };
-}
-
-/**
- * Run Stage-1 extract + composer once for theme recommendations. Does
- * not create brief rows, emit `brief-started`, or touch SSE timelines.
- * Cached per-room for ~90s to avoid duplicate token spend on modal churn.
- */
-export async function previewBriefRender(
-  roomId: string,
-  signal?: AbortSignal,
-): Promise<BriefRenderPreviewPayload> {
-  const now = Date.now();
-  const hit = briefRenderPreviewCache.get(roomId);
-  if (hit && now - hit.storedAt < BRIEF_RENDER_PREVIEW_TTL_MS) return hit.payload;
-
-  const room = getRoom(roomId);
-  if (!room) throw new Error(`room not found: ${roomId}`);
-  if (room.status === "adjourned") throw new Error("room already adjourned");
-
-  const memberRows = listRoomMembers(roomId);
-  const members: Agent[] = memberRows
-    .map((m) => getAgent(m.agentId))
-    .filter((a): a is Agent => a !== null);
-  const directors = members.filter((m) => m.roleKind === "director");
-  const chair = members.find((m) => m.roleKind === "moderator") ?? null;
-  const chairId = chair?.id ?? null;
-  const transcript = listMessages(roomId).filter((m) => m.authorKind !== "system");
-  const language = detectLanguage(room.subject);
-
-  const previewKey = `preview:${roomId}`;
-  const provenance: PipelineProvenance = {
-    composerModel: null,
-    scaffoldModel: null,
-    scaffoldRetries: 0,
-  };
-
-  const perDirectorAssets = await runStage1(
-    roomId,
-    previewKey,
-    directors,
-    transcript,
-    room,
-    language,
-    chairId,
-    undefined,
-    signal,
-  );
-  if (signal?.aborted) throw new Error("aborted");
-
-  const composition = await runComposer({
-    roomId,
-    briefId: previewKey,
-    chairId,
-    room,
-    members,
-    perDirectorAssets,
-    language,
-    supplement: undefined,
-    signal,
-    provenance,
-  });
-
-  const payload: BriefRenderPreviewPayload = {
-    structured: {
-      ppt: pickPptVariantFromSeed(roomId),
-      magazine: pickMagazineVariantFromSeed(roomId),
-      newspaper: pickNewspaperVariantFromSeed(roomId),
-    },
-    report: {
-      spine: composition.spine,
-      houseStyle: composition.houseStyle,
-      rationale: composition.rationale || null,
-      subjectType: composition.subjectType,
-    },
-    catalog: briefRenderPickerCatalog(),
-  };
-
-  briefRenderPreviewCache.set(roomId, { storedAt: now, payload });
-  return payload;
 }

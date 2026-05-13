@@ -444,18 +444,14 @@
   pointer-events: none;
 }
 
-/* Composer-recommended spine + house-style, and structured template
- *  radios · shared between adjourn and supplement overlays (same class prefix). */
+/* Spine / house-style / structured template row · adjourn + supplement. */
 .adjourn-render-themes {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--line-strong, rgba(255, 255, 255, 0.12));
 }
-.adjourn-render-muted {
-  font-size: 11px;
-  color: var(--text-faint, rgba(255, 255, 255, 0.45));
-  margin: 0;
-  line-height: 1.5;
+.adjourn-render-body {
+  margin-top: 10px;
 }
 .adjourn-render-row {
   display: grid;
@@ -482,11 +478,11 @@
   color: var(--text);
   border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.2));
 }
-.adjourn-render-rationale {
+.adjourn-render-hint {
   font-size: 11px;
-  color: var(--text-soft, rgba(255, 255, 255, 0.62));
+  color: var(--text-faint, rgba(255, 255, 255, 0.45));
   margin: 12px 0 0;
-  line-height: 1.55;
+  line-height: 1.5;
 }
 .adjourn-variant-block {
   margin-top: 10px;

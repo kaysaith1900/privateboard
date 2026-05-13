@@ -13,6 +13,29 @@
    their existing handlers.
 */
 (function () {
+  /** Mirror of `src/utils/render-picker-catalog.ts`. If `GET /api/render-catalog`
+   *  fails (old server binary, offline), the adjourn / supplement modal still
+   *  shows the validated allow-list instead of an “Auto-only” dead-end. */
+  const RENDER_CATALOG_FALLBACK = {
+    spines: [
+      "boardroom-dark",
+      "a16z-thesis",
+      "anthropic-essay",
+      "gartner-note",
+      "mckinsey-deck",
+      "openai-paper",
+    ],
+    houseStyles: [
+      { id: "boardroom-default", label: "Boardroom (default)" },
+      { id: "sequoia-memo", label: "Sequoia memo" },
+      { id: "a16z-thesis", label: "a16z thesis" },
+      { id: "anthropic", label: "Anthropic essay" },
+      { id: "bcg-strategy", label: "BCG strategy memo" },
+      { id: "first-round-essay", label: "First Round Review essay" },
+      { id: "gartner-research", label: "Gartner research note" },
+    ],
+  };
+
   /** Display labels for the registry's modelV ids · used to print
    *  "Opus 4.7" next to a director's name in the chat header. Mirror
    *  of src/ai/registry.ts's displayName field. */
@@ -2331,10 +2354,10 @@
     briefModeLabel(b) {
       const mode = (b && b.mode) || "research-note";
       switch (mode) {
-        case "magazine":  return "Magazine";
-        case "newspaper": return "Newspaper";
-        case "ppt":       return "Slides";
-        default:          return "Report";
+        case "magazine":  return this._t("adj_fmt_magazine_title");
+        case "newspaper": return this._t("adj_fmt_newspaper_title");
+        case "ppt":       return this._t("adj_fmt_slides_title");
+        default:          return this._t("adj_fmt_report_title");
       }
     },
 
@@ -2415,119 +2438,80 @@
               <input type="radio" name="brief-mode" value="${value}"${safe === value ? " checked" : ""}>
               <div class="adjourn-mode-icon">${ICONS[value] || ""}</div>
               <div class="adjourn-mode-body">
-                <div class="adjourn-mode-title">${title}</div>
-                <div class="adjourn-mode-deck">${deck}</div>
+                <div class="adjourn-mode-title">${this.escape(title)}</div>
+                <div class="adjourn-mode-deck">${this.escape(deck)}</div>
               </div>
             </label>`;
       return `
         <div class="adjourn-mode-picker" data-mode-picker>
-          <div class="adjourn-mode-label">// report format</div>
+          <div class="adjourn-mode-label">${this.escape(this._t("adj_mode_label_format"))}</div>
           <div class="adjourn-mode-options adjourn-mode-options-4">
-            ${opt("research-note", "Report", "Long-form markdown · bottom line, findings, recommendations.", true)}
-            ${opt("magazine", "Magazine", "Editorial spread · cover line, 5 cards, dark closer.")}
-            ${opt("newspaper", "Newspaper", "Broadsheet · banner masthead, 3-column editorial.")}
-            ${opt("ppt", "Slides", "Slide deck · 7-9 slides, arrow-key navigation, present mode.")}
+            ${opt("research-note", this._t("adj_fmt_report_title"), this._t("adj_fmt_report_deck"), true)}
+            ${opt("magazine", this._t("adj_fmt_magazine_title"), this._t("adj_fmt_magazine_deck"))}
+            ${opt("newspaper", this._t("adj_fmt_newspaper_title"), this._t("adj_fmt_newspaper_deck"))}
+            ${opt("ppt", this._t("adj_fmt_slides_title"), this._t("adj_fmt_slides_deck"))}
           </div>
         </div>`;
     },
 
-    /** Second row under the format gallery · composer-recommended spine /
-     *  house style + structured template picks. Markup only — filled by
-     *  `loadBriefRenderPreviewIntoOverlay` after POST preview. */
+    /** Spine · house-style (report) and template variant (structured).
+     *  `Auto` omits overrides — Composer / room hash decide at runtime.
+     *  Catalog comes from lightweight GET `/api/render-catalog` (no LLM). */
     renderBriefThemeRow() {
+      const auto = this.escape(this._t("adj_render_opt_auto"));
       return `
         <div class="adjourn-render-themes" data-render-themes>
-          <div class="adjourn-mode-label">// look & templates</div>
+          <div class="adjourn-mode-label">${this.escape(this._t("adj_mode_label_look"))}</div>
           <div class="adjourn-render-body" data-render-body>
-            <p class="adjourn-render-muted" data-render-placeholder>Fetching recommendations…</p>
             <div class="adjourn-render-tier" hidden data-tier="research-note">
               <div class="adjourn-render-row">
-                <span class="adjourn-render-field-label">Spine</span>
-                <select data-render-spine class="adjourn-render-select" aria-label="Report spine"></select>
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_field_spine"))}</span>
+                <select data-render-spine class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_spine"))}">
+                  <option value="">${auto}</option>
+                </select>
               </div>
               <div class="adjourn-render-row">
-                <span class="adjourn-render-field-label">House style</span>
-                <select data-render-house-style class="adjourn-render-select" aria-label="House style"></select>
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_field_house_style"))}</span>
+                <select data-render-house-style class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_house_style"))}">
+                  <option value="">${auto}</option>
+                </select>
               </div>
-              <p class="adjourn-render-rationale" data-render-rationale hidden></p>
+              <p class="adjourn-render-hint">${this.escape(this._t("adj_render_hint_rn"))}</p>
             </div>
             <div class="adjourn-render-tier" hidden data-tier="structured">
               <div class="adjourn-variant-block" hidden data-struct="ppt">
-                <span class="adjourn-render-field-label">Slides</span>
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_struct_slides"))}</span>
                 <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="auto" checked><span>${auto}</span></label>
                   <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="keynote"><span>Keynote</span></label>
                   <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="anthropic"><span>Anthropic</span></label>
                 </div>
               </div>
               <div class="adjourn-variant-block" hidden data-struct="magazine">
-                <span class="adjourn-render-field-label">Magazine</span>
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_struct_magazine"))}</span>
                 <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="auto" checked><span>${auto}</span></label>
                   <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="gq"><span>GQ</span></label>
                   <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="vogue"><span>Vogue</span></label>
                 </div>
               </div>
               <div class="adjourn-variant-block" hidden data-struct="newspaper">
-                <span class="adjourn-render-field-label">Newspaper</span>
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_struct_newspaper"))}</span>
                 <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="auto" checked><span>${auto}</span></label>
                   <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="times"><span>Times</span></label>
                   <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="post"><span>Post</span></label>
                 </div>
               </div>
+              <p class="adjourn-render-hint">${this.escape(this._t("adj_render_hint_struct"))}</p>
             </div>
           </div>
         </div>`;
     },
 
-    /** After preview JSON loads · populate selects/radios once. */
-    populateBriefThemeControls(overlayEl, data) {
-      if (!overlayEl || !data || !data.catalog) return;
-      const spineSel = overlayEl.querySelector("[data-render-spine]");
-      const hsSel = overlayEl.querySelector("[data-render-house-style]");
-      if (spineSel && data.catalog.spines) {
-        spineSel.innerHTML = data.catalog.spines
-          .map((s) => `<option value="${this.escape(s)}">${this.escape(s)}</option>`)
-          .join("");
-        if (data.report && data.report.spine) spineSel.value = data.report.spine;
-      }
-      if (hsSel && data.catalog.houseStyles) {
-        hsSel.innerHTML = data.catalog.houseStyles
-          .map((h) => `<option value="${this.escape(h.id)}">${this.escape(h.label)}</option>`)
-          .join("");
-        if (data.report && data.report.houseStyle) hsSel.value = data.report.houseStyle;
-      }
-      const rat = overlayEl.querySelector("[data-render-rationale]");
-      if (rat) {
-        const r = data.report && data.report.rationale;
-        if (r && String(r).trim()) {
-          rat.textContent = String(r).trim();
-          rat.hidden = false;
-        } else {
-          rat.hidden = true;
-          rat.textContent = "";
-        }
-      }
-      const pv = data.structured && data.structured.ppt;
-      if (pv) {
-        const inp = overlayEl.querySelector(`input[name="render-ppt-variant"][value="${pv}"]`);
-        if (inp) inp.checked = true;
-      }
-      const mv = data.structured && data.structured.magazine;
-      if (mv) {
-        const inp = overlayEl.querySelector(`input[name="render-mag-variant"][value="${mv}"]`);
-        if (inp) inp.checked = true;
-      }
-      const nv = data.structured && data.structured.newspaper;
-      if (nv) {
-        const inp = overlayEl.querySelector(`input[name="render-np-variant"][value="${nv}"]`);
-        if (inp) inp.checked = true;
-      }
-    },
-
-    /** Toggle which theme controls are visible · matches the picked format. */
     syncBriefThemeTier(overlayEl) {
-      if (!overlayEl || !overlayEl.querySelector) return;
-      const data = overlayEl._briefRenderPreview;
-      const ph = overlayEl.querySelector("[data-render-placeholder]");
+      if (!overlayEl?.querySelector) return;
+      if (!overlayEl.querySelector("[data-render-themes]")) return;
       const tierRn = overlayEl.querySelector('[data-tier="research-note"]');
       const tierSt = overlayEl.querySelector('[data-tier="structured"]');
       let briefModeInput = overlayEl.querySelector('input[name="brief-mode"]:checked');
@@ -2540,13 +2524,6 @@
       }
       const v = briefModeInput && briefModeInput.value;
       const mode = this.isStructuredBriefMode(v) ? v : "research-note";
-      if (!data) {
-        if (ph) ph.hidden = false;
-        if (tierRn) tierRn.hidden = true;
-        if (tierSt) tierSt.hidden = true;
-        return;
-      }
-      if (ph) ph.hidden = true;
       if (mode === "research-note") {
         if (tierRn) tierRn.hidden = false;
         if (tierSt) tierSt.hidden = true;
@@ -2560,7 +2537,6 @@
       }
     },
 
-    /** Read non-default theme picks for adjourn / regenerate POST bodies. */
     collectRenderPrefs(overlayEl) {
       if (!overlayEl) return null;
       let briefModeInput = overlayEl.querySelector('input[name="brief-mode"]:checked');
@@ -2577,53 +2553,63 @@
       if (mode === "research-note") {
         const spineSel = overlayEl.querySelector("[data-render-spine]");
         const hsSel = overlayEl.querySelector("[data-render-house-style]");
-        if (spineSel && spineSel.value) prefs.reportSpine = spineSel.value;
-        if (hsSel && hsSel.value) prefs.reportHouseStyle = hsSel.value;
+        const sv = spineSel && spineSel.value && String(spineSel.value).trim();
+        const hv = hsSel && hsSel.value && String(hsSel.value).trim();
+        if (sv) prefs.reportSpine = sv;
+        if (hv) prefs.reportHouseStyle = hv;
       } else if (mode === "ppt") {
         const r = overlayEl.querySelector('input[name="render-ppt-variant"]:checked');
-        if (r && r.value) prefs.pptVariant = r.value;
+        if (r && r.value && r.value !== "auto") prefs.pptVariant = r.value;
       } else if (mode === "magazine") {
         const r = overlayEl.querySelector('input[name="render-mag-variant"]:checked');
-        if (r && r.value) prefs.magazineVariant = r.value;
+        if (r && r.value && r.value !== "auto") prefs.magazineVariant = r.value;
       } else if (mode === "newspaper") {
         const r = overlayEl.querySelector('input[name="render-np-variant"]:checked');
-        if (r && r.value) prefs.newspaperVariant = r.value;
+        if (r && r.value && r.value !== "auto") prefs.newspaperVariant = r.value;
       }
       return Object.keys(prefs).length ? prefs : null;
     },
 
-    async loadBriefRenderPreviewIntoOverlay(overlayEl) {
-      if (!overlayEl || !this.currentRoomId || !overlayEl.querySelector("[data-render-themes]")) return;
-      const ph = overlayEl.querySelector("[data-render-placeholder]");
-      if (ph) {
-        ph.hidden = false;
-        ph.textContent = "Fetching recommendations…";
-      }
-      if (!this.hasAnyModelKey()) {
-        if (ph) ph.textContent = "Add a model key in settings to load recommended themes.";
-        return;
-      }
+    async loadRenderCatalogIntoOverlay(overlayEl) {
+      if (!overlayEl?.querySelector) return;
+      const spineSel = overlayEl.querySelector("[data-render-spine]");
+      const hsSel = overlayEl.querySelector("[data-render-house-style]");
+      if (!spineSel || !hsSel) return;
+      const autoLab = this._t("adj_render_opt_auto");
+      let spines = [];
+      let houseStyles = [];
       try {
-        const res = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief-render-preview",
-          { method: "POST" },
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          if (ph) ph.textContent = err.error || ("Preview failed (" + res.status + ")");
-          overlayEl._briefRenderPreview = null;
-          this.syncBriefThemeTier(overlayEl);
-          return;
+        const res = await fetch("/api/render-catalog");
+        if (res.ok) {
+          const data = await res.json();
+          spines = data.spines || data.catalog?.spines || [];
+          houseStyles = data.houseStyles || data.catalog?.houseStyles || [];
         }
-        const data = await res.json();
-        overlayEl._briefRenderPreview = data;
-        this.populateBriefThemeControls(overlayEl, data);
-        this.syncBriefThemeTier(overlayEl);
-      } catch (e) {
-        if (ph) ph.textContent = "Could not load recommendations (offline?)";
-        overlayEl._briefRenderPreview = null;
-        this.syncBriefThemeTier(overlayEl);
+      } catch { /* offline */ }
+      if (!Array.isArray(spines) || spines.length === 0) spines = RENDER_CATALOG_FALLBACK.spines.slice();
+      if (!Array.isArray(houseStyles) || houseStyles.length === 0) {
+        houseStyles = RENDER_CATALOG_FALLBACK.houseStyles.slice();
       }
+      const spineVal = spineSel.value;
+      const hsVal = hsSel.value;
+      spineSel.innerHTML =
+        `<option value="">${this.escape(autoLab)}</option>` +
+        spines
+          .map((s) => `<option value="${this.escape(String(s))}">${this.escape(String(s))}</option>`)
+          .join("");
+      hsSel.innerHTML =
+        `<option value="">${this.escape(autoLab)}</option>` +
+        houseStyles
+          .map((h) => {
+            const id = h.id != null ? String(h.id) : "";
+            const label = h.label != null ? String(h.label) : id;
+            return `<option value="${this.escape(id)}">${this.escape(label)}</option>`;
+          })
+          .join("");
+      const hasSp = Array.prototype.some.call(spineSel.options || [], (o) => o.value === spineVal);
+      spineSel.value = hasSp ? spineVal : "";
+      const hasHs = Array.prototype.some.call(hsSel.options || [], (o) => o.value === hsVal);
+      hsSel.value = hasHs ? hsVal : "";
     },
 
     /** Read the user's last-picked report mode from localStorage so the
@@ -2879,7 +2865,7 @@
        round-end card "Adjourn & file brief" CTA, and the round-prompt
        Adjourn link. Confirms the user wants to terminate the room and
        file a standard report — or opts out entirely with "End without
-       report". No format picker; the report is one standard layout. */
+       report". Format row + render overrides (Auto lets Composer / room hash decide). */
 
     openAdjournOverlay(opts) {
       if (!this.currentRoomId) return;
@@ -2932,7 +2918,7 @@
                   <span class="adjourn-summary-key">${this.escape(this._t("adj_key_subject"))}</span>
                   <div class="adjourn-summary-val adjourn-subject-wrap">
                     <span class="adjourn-subject-text is-clamped" data-adjourn-subject>${this.escape(subjectTxt)}</span>
-                    <button type="button" class="adjourn-subject-toggle" data-adjourn-subject-toggle hidden>Show more</button>
+                    <button type="button" class="adjourn-subject-toggle" data-adjourn-subject-toggle hidden>${this.escape(this._t("adj_subject_more"))}</button>
                   </div>
                 </div>
                 <div class="adjourn-summary-row">
@@ -2985,7 +2971,7 @@
         const adj = document.getElementById("adjourn-overlay");
         if (adj) {
           this.syncBriefThemeTier(adj);
-          this.loadBriefRenderPreviewIntoOverlay(adj);
+          this.loadRenderCatalogIntoOverlay(adj);
         }
       });
       // Esc closes the overlay. Listener auto-detaches on close so
@@ -3080,7 +3066,7 @@
         const sup = document.getElementById("supplement-overlay");
         if (sup) {
           this.syncBriefThemeTier(sup);
-          this.loadBriefRenderPreviewIntoOverlay(sup);
+          this.loadRenderCatalogIntoOverlay(sup);
         }
       }, 30);
     },
@@ -3348,7 +3334,7 @@
               <div class="followup-parent-card">
                 <div class="followup-parent-subject is-clamped" data-followup-subject-text>${this.escape(subjectFull)}</div>
                 <div class="followup-parent-meta-row">
-                  <button type="button" class="followup-parent-subject-toggle" data-followup-subject-toggle hidden>Show more</button>
+                  <button type="button" class="followup-parent-subject-toggle" data-followup-subject-toggle hidden>${this.escape(this._t("adj_subject_more"))}</button>
                   <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
                 </div>
                 <div class="followup-parent-note">${this.escape(t.contextNote)}</div>
@@ -3440,7 +3426,7 @@
           subjBtn.addEventListener("click", (ev) => {
             ev.preventDefault();
             const expanded = subjEl.classList.toggle("is-clamped") === false;
-            subjBtn.textContent = expanded ? "Show less" : "Show more";
+            subjBtn.textContent = expanded ? this._t("adj_subject_less") : this._t("adj_subject_more");
           });
         }
         const sameCheckbox = overlayEl.querySelector("[data-followup-same-cast]");
@@ -8099,6 +8085,49 @@
       }
     },
 
+    /** Batch-download persisted voice MP3s for the current adjourned
+     *  voice room · one file per message that has `message_voice` rows.
+     *  Sequenced with a short delay so the browser doesn't suppress
+     *  multiple download prompts. */
+    async downloadRoomVoiceMp3s() {
+      const roomId = this.currentRoomId;
+      if (!roomId) return;
+      let ids = [];
+      try {
+        const r = await fetch("/api/voices/room/" + encodeURIComponent(roomId) + "/clips");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const j = await r.json();
+        ids = Array.isArray(j.messageIds) ? j.messageIds : [];
+      } catch (e) {
+        alert(this._t("room_voice_mp3_err"));
+        return;
+      }
+      if (ids.length === 0) {
+        alert(this._t("room_voice_mp3_empty"));
+        return;
+      }
+      const room = this.currentRoom;
+      const slug = room && typeof room.number === "number"
+        ? String(room.number)
+        : roomId.replace(/[^a-zA-Z0-9_-]+/g, "").slice(0, 12) || "room";
+      for (let i = 0; i < ids.length; i += 1) {
+        const id = ids[i];
+        const url = "/api/voices/message/" + encodeURIComponent(id) + "/audio";
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const u = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = u;
+          a.download = "privateboard-voice-" + slug + "-" + String(i + 1).padStart(2, "0") + "-" + id.slice(0, 8) + ".mp3";
+          a.click();
+          URL.revokeObjectURL(u);
+          await new Promise((resolve) => setTimeout(resolve, 450));
+        } catch { /* skip broken clip */ }
+      }
+    },
+
     /** DELETE /api/notes/:id · drops a saved excerpt from the index.
      *  Confirmation is light because the action is reversible only by
      *  re-saving the same passage; we keep the prompt as a single
@@ -9530,8 +9559,9 @@
 
     /** Central ceremony glyph · a heptagonal sigil with one node per
      *  stage. As stages complete, nodes light up (lime fill) and the
-     *  chord from the previous node draws. A continuously rotating
-     *  scanner line sweeps from center. The substage-rotating central
+     *  chord from the previous node draws. A scanner line sweeps from
+     *  center (rotation from wall-clock elapsed — not CSS keyframes, so
+     *  it survives the ~600ms sigil re-paints). The substage-rotating central
      *  glyph swaps each tick to feel like the system is "shaping" the
      *  director. Pure SVG — scales cleanly, theme-aware via CSS vars. */
     renderAgentGenSigilSvg(stages, active, elapsed) {
@@ -9571,11 +9601,15 @@
           </g>
         `;
       }).join("");
-      // Center scanner line — rotates continuously (CSS animation). The
-      // angle attribute sets the start rotation; the animation handles
-      // the rest. A separate cross-line gives it a "compass needle" feel.
+      // Center scanner line — rotation must be derived from wall-clock
+      // elapsed time, NOT a CSS keyframe on this node. refreshAgentGenStages()
+      // replaces this SVG every ~600ms; a CSS animation would restart from
+      // 0° each time and the tip would appear "stuck" in the first ~36°
+      // wedge instead of sweeping the ring.
+      const SCAN_PERIOD_SEC = 6;
+      const scanDeg = ((elapsed % SCAN_PERIOD_SEC) / SCAN_PERIOD_SEC) * 360;
       const scanner = `
-        <g class="ag-gen-scanner" transform-origin="${cx} ${cy}">
+        <g class="ag-gen-scanner" transform="rotate(${scanDeg.toFixed(2)} ${cx} ${cy})">
           <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - r}" class="ag-gen-scanner-line"/>
           <circle cx="${cx}" cy="${cy - r}" r="2.5" class="ag-gen-scanner-tip"/>
         </g>
@@ -15378,6 +15412,8 @@
       // user-visible at a time (the other's parent is display:none).
       const btns = document.querySelectorAll("[data-room-rt-toggle]");
       btns.forEach((b) => { b.hidden = !eligible; });
+      const voiceMp3Btn = document.querySelector("[data-room-voice-mp3]");
+      if (voiceMp3Btn) voiceMp3Btn.hidden = !isVoiceRoom;
       if (eligible) {
         const inStage = showStage;
         // Label semantics depend on whether we're in voice mode yet:
@@ -16773,6 +16809,13 @@
       }
       return;
     }
+    if (e.target.closest("[data-room-voice-mp3]")) {
+      e.preventDefault();
+      if (!app.currentRoomId) return;
+      if (!app.currentRoom || app.currentRoom.deliveryMode !== "voice") return;
+      app.downloadRoomVoiceMp3s().catch((err) => alert(String(err && err.message ? err.message : err)));
+      return;
+    }
     // Search view · clear-input button (X) inside the input wrap.
     if (e.target.closest("[data-search-clear]")) {
       e.preventDefault();
@@ -16966,7 +17009,7 @@
       const subjEl = document.querySelector("[data-adjourn-subject]");
       if (subjEl) {
         const expanded = subjEl.classList.toggle("is-clamped") === false;
-        subjToggle.textContent = expanded ? "Show less" : "Show more";
+        subjToggle.textContent = expanded ? app._t("adj_subject_less") : app._t("adj_subject_more");
       }
       return;
     }
