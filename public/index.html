@@ -11714,11 +11714,11 @@
     stroke-width: 0.8;
   }
 
-  /* Rotating compass needle / scanner line. Origin is the sigil
-     center; spins once every ~6s so it feels stately (not jittery). */
+  /* Compass needle / scanner line. Rotation is applied inline in SVG via
+     transform="rotate(…)" from elapsed wall time — see renderAgentGenSigilSvg.
+     (A CSS keyframe here would reset on every sigil re-paint ~600ms.) */
   .ag-gen-scanner {
     transform-origin: 100px 100px;
-    animation: ag-gen-scan-rotate 6s linear infinite;
   }
   .ag-gen-scanner-line {
     stroke: var(--lime);
@@ -11731,11 +11731,6 @@
     opacity: 0.85;
     filter: blur(0.4px);
   }
-  @keyframes ag-gen-scan-rotate {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-
   /* Center glyph — symbolic mark that swaps every tick. Faint enough
      to feel like a watermark, not a focal element. */
   .ag-gen-center-glyph {
@@ -14542,7 +14537,7 @@
               <!-- Action buttons · icon (inline-SVG, currentColor) +
                    label span. The label drops to display:none under
                    the bottom-bar's container query at narrow widths
-                   so all four actions (these three + the Voice Replay
+                   so all five actions (these four + the Voice Replay
                    inline group) stay reachable on a packed adjourned
                    bar. `aria-label` / `title` keep the text in the
                    accessibility tree even when the visual label is
@@ -14563,6 +14558,14 @@
                   <path d="M11 3.5 Q13 7 11 10.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
                 </svg>
                 <span class="ab-label">Voice Replay</span>
+              </a>
+              <a href="#" class="ghost-btn ab-action" data-room-voice-mp3 hidden data-i18n-title="room_voice_mp3_title" aria-label="Voice MP3" title="Download saved voice audio (MP3)">
+                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+                  <path d="M7 1.5 L7 8.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  <path d="M4.5 6 L7 8.5 L9.5 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M3 11.5 H11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+                <span class="ab-label" data-i18n="room_voice_mp3">Voice MP3</span>
               </a>
               <a href="#" class="ghost-btn ab-action" data-room-followup aria-label="Convene Follow-up" title="Convene Follow-up">
                 <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
@@ -15247,8 +15250,8 @@
   })();
 
   /* ─── Adjourned-bar progressive collapse fitter ──────────────────
-     The bar's three action buttons (Export / Voice Replay / Convene
-     Follow-up) carry a label by default. When the bar packs tight,
+     The bar's action buttons (Export / Voice Replay / Voice MP3 /
+     Convene Follow-up) carry a label by default. When the bar packs tight,
      we want as MANY buttons as possible to keep their full
      icon+label, dropping ONLY the leftmost ones to icon-only as
      space requires — so the user sees full labels until the row

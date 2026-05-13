@@ -47,6 +47,7 @@ import briefViewerVariant034 from "./migrations/034_brief_viewer_variant.sql";
 import agentHandleAt035 from "./migrations/035_agent_handle_at_prefix.sql";
 import userTopicRecs036 from "./migrations/036_user_topic_recs.sql";
 import topicRecTag037 from "./migrations/037_topic_rec_tag.sql";
+import messageVoice038 from "./migrations/038_message_voice.sql";
 
 interface Migration {
   name: string;
@@ -91,6 +92,7 @@ const MIGRATIONS: Migration[] = [
   { name: "035_agent_handle_at_prefix.sql", sql: agentHandleAt035 },
   { name: "036_user_topic_recs.sql", sql: userTopicRecs036 },
   { name: "037_topic_rec_tag.sql", sql: topicRecTag037 },
+  { name: "038_message_voice.sql", sql: messageVoice038 },
 ];
 
 let _db: Database.Database | null = null;

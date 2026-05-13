@@ -260,6 +260,7 @@
       if (target.closest("[data-vr-collapse]")) { ev.preventDefault(); toggleCollapsed(); return; }
       if (target.closest("[data-vr-pause]")) { ev.preventDefault(); togglePause(); return; }
       if (target.closest("[data-vr-skip]")) { ev.preventDefault(); skipCurrent(); return; }
+      if (target.closest("[data-vr-download-mp3]")) { ev.preventDefault(); void downloadCurrentClipMp3(); return; }
       if (target.closest("[data-vr-speed]")) { ev.preventDefault(); cycleSpeed(); return; }
       if (target.closest("[data-vr-include-user]")) { ev.preventDefault(); toggleIncludeUser(); return; }
       if (target.closest("[data-vr-config]")) {
@@ -517,6 +518,7 @@
       <div class="vr-controls">
         <button type="button" class="vr-btn" data-vr-pause>${STATE.paused ? "▶ Resume" : "❚❚ Pause"}</button>
         <button type="button" class="vr-btn" data-vr-skip>⏭ Skip</button>
+        <button type="button" class="vr-btn" data-vr-download-mp3 title="${escapeAttr(tReplay("vr_download_mp3_title"))}">${escapeText(tReplay("vr_download_mp3"))}</button>
         <button type="button" class="vr-btn vr-btn-speed" data-vr-speed>${STATE.speed}×</button>
         <label class="vr-toggle">
           <input type="checkbox" data-vr-include-user${STATE.skipUser ? "" : " checked"} aria-label="Include my interjections">
@@ -642,6 +644,24 @@
       return cached;
     }
     const item = STATE.playlist[idx];
+    try {
+      const rBin = await fetch(
+        "/api/voices/message/" + encodeURIComponent(item.messageId) + "/audio",
+        { method: "GET" },
+      );
+      if (rBin.ok) {
+        const blob = await rBin.blob();
+        const ab = await blob.arrayBuffer();
+        const bytes = new Uint8Array(ab);
+        let binary = "";
+        const step = 0x8000;
+        for (let i = 0; i < bytes.length; i += step) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+        }
+        const mime = rBin.headers.get("content-type") || "audio/mpeg";
+        return { audioBase64: btoa(binary), mimeType: mime };
+      }
+    } catch { /* fall through to JSON TTS */ }
     const r = await fetch("/api/voices/by-message/" + encodeURIComponent(item.messageId), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -781,6 +801,45 @@
   function truncatePreview(body) {
     const flat = String(body || "").replace(/\s+/g, " ").trim();
     return flat.length > 240 ? flat.slice(0, 237) + "…" : flat;
+  }
+
+  /** Localised string for replay UI · falls back if I18n not loaded. */
+  function tReplay(key) {
+    try {
+      const I = root.I18n;
+      if (I && typeof I.t === "function") return I.t(key);
+    } catch { /* */ }
+    const fb = {
+      vr_download_mp3: "↓ MP3",
+      vr_download_mp3_title: "Download saved MP3 for this line",
+      vr_download_mp3_none: "No saved audio for this message.",
+    };
+    return fb[key] || key;
+  }
+
+  async function downloadCurrentClipMp3() {
+    const cur = STATE.playlist[STATE.idx];
+    if (!cur) return;
+    const url = "/api/voices/message/" + encodeURIComponent(cur.messageId) + "/audio";
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (e) {
+      alert(tReplay("vr_download_mp3_none"));
+      return;
+    }
+    if (!res.ok) {
+      alert(tReplay("vr_download_mp3_none"));
+      return;
+    }
+    const blob = await res.blob();
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u;
+    const n = STATE.idx + 1;
+    a.download = "voice-" + String(n).padStart(2, "0") + "-" + cur.messageId.slice(0, 8) + ".mp3";
+    a.click();
+    URL.revokeObjectURL(u);
   }
 
   // Public API.

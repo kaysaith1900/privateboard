@@ -5,6 +5,7 @@ import { cleanForSpeech, synthesizeSpeech, voiceProfileForAgent } from "../voice
 import { getAgent, getChairAgent } from "../storage/agents.js";
 import { getMessage } from "../storage/messages.js";
 import type { AgentVoiceProfile } from "../storage/agents.js";
+import { getUsableMessageVoice, listRoomVoiceMessageIds } from "../storage/message-voice.js";
 
 /** In-memory LRU cache for per-message TTS audio · keyed by
  *  `${messageId}:${voice fingerprint}`. Caps at ~50 entries so a
@@ -46,6 +47,27 @@ export function voicesRouter(): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => c.json({ voices: await listAvailableVoices() }));
+
+  /**
+   * Raw MP3 bytes for a message whose live voice stream was persisted
+   * (`message_voice` table). 404 when missing or invalidated.
+   */
+  r.get("/message/:id/audio", (c) => {
+    const messageId = c.req.param("id");
+    const row = getUsableMessageVoice(messageId);
+    if (!row) {
+      return c.notFound();
+    }
+    c.header("Content-Type", row.meta.mimeType || "audio/mpeg");
+    c.header("Cache-Control", "no-store");
+    return c.body(new Uint8Array(row.audioMp3), 200);
+  });
+
+  /** Ordered message IDs in a room that have persisted voice MP3. */
+  r.get("/room/:roomId/clips", (c) => {
+    const roomId = c.req.param("roomId");
+    return c.json({ messageIds: listRoomVoiceMessageIds(roomId) });
+  });
 
   /** Preview/audition a voice configuration — returns base64 MP3 audio. */
   r.post("/preview", async (c) => {
@@ -123,6 +145,26 @@ export function voicesRouter(): Hono {
       profile = voiceProfileForAgent(agent);
     } else {
       return c.json({ error: "system messages aren't speakable", code: "system" }, 422);
+    }
+
+    // Prefer audio captured during the live voice meeting (same bytes the
+    // user heard), when still valid for current body + voice profile.
+    const persisted = getUsableMessageVoice(messageId);
+    if (persisted) {
+      const out = {
+        audioBase64: persisted.audioMp3.toString("base64"),
+        mimeType: persisted.meta.mimeType || "audio/mpeg",
+        voiceProvider: persisted.meta.voice.provider,
+        voiceId: persisted.meta.voice.voiceId,
+      };
+      const key = ttsCacheKey(messageId, profile);
+      ttsCacheSet(key, {
+        audioBase64: out.audioBase64,
+        mimeType: out.mimeType,
+        voiceProvider: out.voiceProvider,
+        voiceId: out.voiceId,
+      });
+      return c.json(out);
     }
 
     // Cache check.

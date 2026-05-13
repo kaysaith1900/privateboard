@@ -7,6 +7,8 @@
  */
 import { EventEmitter } from "node:events";
 
+import { handleVoiceRoomEvent } from "../voice/persistence.js";
+
 export type RoomEvent =
   | {
       type: "message-appended";
@@ -69,6 +71,7 @@ class RoomBus {
 
   emit(roomId: string, event: RoomEvent): void {
     this.get(roomId).emit("event", event);
+    handleVoiceRoomEvent(roomId, event);
   }
 
   /** Subscribe; returns an unsubscribe fn. */
