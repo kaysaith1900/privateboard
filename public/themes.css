@@ -218,40 +218,6 @@
   --magenta: #6E4F73;
 }
 
-/* ─── APPLE · pure-white minimalism · Apple.com aesthetic ─────
-       Light theme inspired by Apple's brand language: pure-white
-       primary background, the iconic #F5F5F7 off-white for cards,
-       Apple's near-black #1D1D1F for text, and system-blue #0071E3
-       mapped onto --lime (the codebase's primary-accent role) so
-       every CTA reads as that signature blue. */
-:root[data-theme="apple"] {
-  --bg: #FFFFFF;
-  --panel: #F5F5F7;
-  --panel-2: #FBFBFD;
-  --panel-3: #ECECEE;
-  --hi: #D2D2D7;
-
-  --line: #E5E5EA;
-  --line-bright: #D2D2D7;
-  --line-strong: #86868B;
-
-  --text: #1D1D1F;
-  --text-soft: #424245;
-  --text-dim: #6E6E73;
-  --text-faint: #86868B;
-
-  --lime: #0071E3;
-  --lime-deep: #0051A8;
-  --lime-dim: #D6E8FA;
-
-  --amber: #FF9500;
-  --amber-dim: #FFE6C2;
-  --red: #FF3B30;
-  --red-dim: #FFE0DC;
-  --cyan: #5AC8FA;
-  --magenta: #BF5AF2;
-}
-
 /* ─── PINTEREST · clean white surface, signature red accent ───
        Light theme inspired by Pinterest's brand: true-white
        background, soft gray cards, neutral grayscale text, and the

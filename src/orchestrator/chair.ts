@@ -22,6 +22,7 @@ import {
   deleteMessage,
   getMessage,
   insertMessage,
+  listMessages,
   listRecentMessages,
   updateMessageBody,
 } from "../storage/messages.js";
@@ -46,7 +47,9 @@ import {
   parseRoundEndOutput,
 } from "./prompt.js";
 import { pickChairClarifyDecision, pickChairWebSearch } from "./skill-picker.js";
+import { extractNegativeSpace } from "./negative-space-extract.js";
 import { runRoundEndSummarization } from "./summarize.js";
+import { insertNegativeSpaceAngles } from "../storage/negative-space.js";
 import { collectUrlsFromHistory, fetchOne, renderUrlContextBlock, type FetchAttemptHook, type UrlExtract } from "../skills/url-fetch.js";
 import { roomBus } from "./stream.js";
 import { waitForVoicePlayback } from "./room.js";
@@ -1223,6 +1226,32 @@ export async function runChairRoundEnd(roomId: string, roundNum: number): Promis
   // best-effort, the room shouldn't block on it. Errors are logged
   // inside runRoundEndSummarization.
   void runRoundEndSummarization(roomId, roundNum);
+
+  // Layer 3.2 · negative-space extraction. Fire-and-forget. Extracts
+  // 1-3 angles this round did NOT touch and persists them so the
+  // next round's director prompts can show "UNEXPLORED ANGLES" as
+  // positive-space breadcrumbs alongside the frame-break negative-
+  // space rules. Errors logged but never block the room.
+  void (async () => {
+    try {
+      const room = getRoom(roomId);
+      if (!room) return;
+      const allMsgs = listMessages(roomId);
+      const roundMsgs = allMsgs.filter((m) => m.roundNum === roundNum);
+      if (roundMsgs.length === 0) return;
+      const angles = await extractNegativeSpace({
+        roundMessages: roundMsgs,
+        roomSubject: room.subject || "",
+      });
+      if (angles.length > 0) {
+        insertNegativeSpaceAngles(roomId, roundNum, angles);
+      }
+    } catch (e) {
+      process.stderr.write(
+        `[chair] negative-space extract failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  })();
 }
 
 /**
@@ -1664,7 +1693,7 @@ export function announceAdjournNoBrief(roomId: string): void {
   const chair = getChairAgent();
   if (!chair) return;
   const body =
-    "Adjourned without filing a brief. The chair (you) declared no report is needed for this session.";
+    "Session adjourned without a report. If you'd like one later, use *Generate report* in the room header.";
   const m = insertMessage({
     roomId,
     authorKind: "agent",

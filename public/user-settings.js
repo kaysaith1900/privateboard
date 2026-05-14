@@ -29,8 +29,6 @@
       swatches: ["#FBFBF7","#F4F2EC","#2E7D32","#1B5E20","#A86C2A","#A8403D","#2E7D7A","#1F1E1A"] },
     { slug: "pinterest",   name: "Pinterest",   desc: "clean white · Pinterest red · light",
       swatches: ["#FFFFFF","#FAFAFA","#E60023","#AD081B","#F4A100","#E60023","#2E7D7A","#111111"] },
-    { slug: "apple",       name: "Apple",       desc: "pure white · system blue · Apple.com aesthetic · light",
-      swatches: ["#FFFFFF","#F5F5F7","#0071E3","#0051A8","#FF9500","#FF3B30","#5AC8FA","#1D1D1F"] },
     { slug: "alanpeabody", name: "Alan Peabody", desc: "cool blue · git-green accents",
       swatches: ["#0E1419","#131A21","#6BAFE0","#3F7AAA","#C8A463","#D67373","#6FB5A8","#C8D0DA"] },
     { slug: "amuse",       name: "Amuse",       desc: "magenta + cyan · playful",
@@ -269,7 +267,7 @@
           <div class="us-row-field">
             <button type="button" class="cmp-dd" data-cmp-dropdown="locale" title="${escape(tr("us_locale_label"))}" data-i18n-aria="aria_language" aria-label="">
               <span class="cmp-dd-label" data-i18n="us_locale_label">${escape(tr("us_locale_label"))}</span>
-              <span class="cmp-dd-value" data-cmp-dd-value="locale">${escape(tr(window.I18n && window.I18n.getLocale && window.I18n.getLocale() === "zh" ? "locale_zh" : "locale_en"))}</span>
+              <span class="cmp-dd-value" data-cmp-dd-value="locale">${escape(tr(`locale_${(window.I18n && window.I18n.getLocale && window.I18n.getLocale()) || "en"}`))}</span>
               <span class="cmp-dd-chevron">▾</span>
             </button>
             <p class="us-locale-deck">${escape(tr("us_locale_deck"))}</p>
@@ -287,6 +285,16 @@
                 <span class="us-switch-label" data-us-sfx-typing-label>off</span>
               </button>
               <span class="us-toggle-deck">a soft keyboard click as directors stream their replies in chat. Brief generation stays silent regardless of this setting.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="us-row">
+          <div class="us-row-label">${escape(tr("us_replay_onb_label"))}</div>
+          <div class="us-row-field">
+            <div class="us-toggle-row">
+              <button type="button" class="us-btn-ghost" data-us-replay-onb>${escape(tr("us_replay_onb_btn"))}</button>
+              <span class="us-toggle-deck">${escape(tr("us_replay_onb_deck"))}</span>
             </div>
           </div>
         </div>
@@ -326,6 +334,32 @@
         // toggled also serves as the gesture the AudioContext needs,
         // so this tick is actually heard.
         if (next) window.boardroomTypingSfx.tick();
+        // Re-evaluate the agent-build ambient · this toggle is the
+        // master gate. Flipping OFF silences any active build BGM;
+        // flipping ON resumes it if a build is currently running on
+        // the user's foreground composer.
+        try { window.app?._syncAgentBuildBgm?.(); } catch { /* ignore */ }
+      });
+    }
+
+    // Replay onboarding · close the settings overlay first so the user
+    // lands on a clean dashboard, then trigger the storyline overlay.
+    // The replay helper in onboarding.js handles step reset + the
+    // once-only composer-hint flag.
+    const replayBtn = paneEl.querySelector("[data-us-replay-onb]");
+    if (replayBtn) {
+      replayBtn.addEventListener("click", () => {
+        try { if (typeof window.closeUserSettings === "function") window.closeUserSettings(); } catch { /* ignore */ }
+        // Settings overlay teardown sets up a 220ms close animation
+        // (see modal close handler); kick off onboarding after that so
+        // the two overlays don't briefly stack.
+        setTimeout(() => {
+          if (typeof window.boardroomReplayOnboarding === "function") {
+            window.boardroomReplayOnboarding();
+          } else if (typeof window.boardroomShowOnboarding === "function") {
+            window.boardroomShowOnboarding();
+          }
+        }, 240);
       });
     }
   }
@@ -1437,24 +1471,19 @@
     fetchAppVersion();
   }
 
-  let _versionCache = null;
   async function fetchAppVersion() {
     const slot = overlay && overlay.querySelector("[data-us-version-value]");
     if (!slot) return;
-    // Use cache if we already have it · the version doesn't change
-    // mid-process. First open does the network round-trip; subsequent
-    // opens repaint from cache instantly.
-    if (_versionCache) {
-      slot.textContent = _versionCache;
-      return;
-    }
+    // No cache · every overlay open hits /api/version so a dev-server
+    // restart (npm version bump + new build) reflects immediately
+    // in the foot without requiring a hard reload. The call is one
+    // tiny round-trip with no DB hit, so it's cheap to repeat.
     try {
-      const r = await fetch("/api/version");
+      const r = await fetch("/api/version", { cache: "no-store" });
       if (!r.ok) return;
       const j = await r.json();
       if (j && typeof j.version === "string") {
-        _versionCache = `v${j.version}`;
-        slot.textContent = _versionCache;
+        slot.textContent = `v${j.version}`;
       }
     } catch { /* swallow · the foot just stays at "·" if offline */ }
   }

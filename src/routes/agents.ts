@@ -505,7 +505,7 @@ export function agentsRouter(): Hono {
     let body: unknown;
     try { body = await c.req.json(); }
     catch { return c.json({ error: "invalid JSON body" }, 400); }
-    const b = (body ?? {}) as { description?: unknown };
+    const b = (body ?? {}) as { description?: unknown; locale?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
     if (description.length < 4) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
@@ -513,7 +513,10 @@ export function agentsRouter(): Hono {
     if (description.length > 1200) {
       return c.json({ error: "description too long (max 1200 chars)" }, 400);
     }
-    const jobId = startPersonaBuild({ description });
+    const localeRaw = typeof b.locale === "string" ? b.locale : "";
+    const locale: "en" | "zh" | "ja" | "es" =
+      localeRaw === "zh" || localeRaw === "ja" || localeRaw === "es" ? localeRaw : "en";
+    const jobId = startPersonaBuild({ description, locale });
     return c.json({ jobId });
   });
 

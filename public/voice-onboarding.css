@@ -1,0 +1,425 @@
+/* ─────────────── Voice-mode onboarding overlay ───────────────
+   Promo overlay that appears when the user clicks the voice
+   toggle in the new-room composer without any voice key
+   configured. Single themed round-table banner + title/deck +
+   CTA → opens user-settings to the MiniMax key row.
+
+   Chrome (classification bar, .vonb-head topbar, lime corner
+   brackets, close button, foot) mirrors `room-settings.css`
+   so the overlay reads as native to the rest of the app's
+   modal vocabulary. The banner area + the scoped .vrp-* /
+   .rt-* primitives are unique to this surface.
+*/
+
+.vonb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 9400;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.vonb-overlay.open {
+  display: flex;
+  animation: vonb-fade 0.14s ease-out;
+}
+@keyframes vonb-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.vonb-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+.vonb-modal {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  max-height: calc(100vh - 48px);
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text, #C8C5BE);
+  animation: vonb-rise 0.18s ease-out;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.vonb-modal > .vonb-classification,
+.vonb-modal > .vonb-head,
+.vonb-modal > .vonb-foot {
+  flex: 0 0 auto;
+}
+.vonb-modal > .vonb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+@keyframes vonb-rise {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+/* Lime corner brackets · same vocabulary as the room-settings modal. */
+.vonb-modal::before, .vonb-modal::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--lime, #6FB572);
+  pointer-events: none;
+}
+.vonb-modal::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.vonb-modal::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+/* ─── Classification strip ─── */
+.vonb-classification {
+  background: var(--panel-2, #1A1A18);
+  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  padding: 5px 14px;
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.vonb-classification .dot { display: inline-block; margin-right: 4px; }
+.vonb-classification .right {
+  color: var(--text-faint, #3A382F);
+  letter-spacing: 0.12em;
+}
+
+/* ─── Topbar · meta line + title + close button ─── */
+.vonb-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px 12px;
+  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.vonb-head-text { min-width: 0; }
+.vonb-head .meta {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  margin-bottom: 4px;
+  font-weight: 700;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.vonb-head .meta .live {
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+}
+.vonb-head .meta .live::before {
+  content: "● ";
+  animation: vonb-pulse 1.6s ease-in-out infinite;
+}
+@keyframes vonb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.vonb-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.vonb-head .title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #C8C5BE);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  font-family: var(--font-human, system-ui, sans-serif);
+}
+.vonb-head .title::before {
+  content: "▸ ";
+  color: var(--lime, #6FB572);
+  font-family: var(--mono);
+}
+.vonb-head .close-btn {
+  width: 24px; height: 24px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-dim, #5C5A52);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--mono);
+  border-radius: 3px;
+  transition: all 0.12s;
+}
+.vonb-head .close-btn:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+
+/* ─── Body · banner + deck ─── */
+.vonb-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.vonb-banner {
+  position: relative;
+  height: 240px;
+  background: var(--bg);
+  border: 0.5px solid var(--line, #1F1E1A);
+  overflow: hidden;
+  display: flex;
+}
+.vonb-banner .voice-room-preview {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  background: var(--bg);
+  overflow: hidden;
+}
+.vonb-banner .vrp-caption {
+  display: none; /* theme name surfaces via .vonb-theme-label below */
+}
+.vonb-body-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vonb-deck {
+  font-family: var(--font-human, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-soft, #8E8B83);
+  margin: 0;
+}
+.vonb-theme-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-dim, #5C5A52);
+  text-transform: uppercase;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.vonb-theme-label .v-name {
+  color: var(--lime, #6FB572);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+.vonb-theme-label .v-deck {
+  color: var(--text-dim, #5C5A52);
+}
+
+/* ─── Foot · single CTA ─── */
+.vonb-foot {
+  padding: 12px 16px 16px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  border-top: 0.5px dashed var(--line-bright, #2A2A26);
+}
+.vonb-btn {
+  padding: 8px 18px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft, #8E8B83);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.vonb-btn:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
+}
+.vonb-btn.primary {
+  background: var(--lime, #6FB572);
+  border-color: var(--lime, #6FB572);
+  color: var(--bg, #0A0A0A);
+  font-weight: 700;
+}
+.vonb-btn.primary:hover {
+  filter: brightness(1.06);
+  color: var(--bg, #0A0A0A);
+}
+
+/* ─── Body scroll lock while overlay open ─── */
+body.vonb-locked {
+  overflow: hidden;
+}
+
+@media (max-width: 600px) {
+  .vonb-overlay { padding: 14px; }
+  .vonb-head { padding: 12px 14px; }
+  .vonb-body { padding: 12px 14px 14px; }
+  .vonb-banner { height: 200px; }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Voice-room preview primitives · scoped to .vonb-banner so
+   the live round-table classes in index.html aren't touched.
+   Source: public/home.html (.vrp-stage / .rt-* rules ~L1455).
+   Keep in sync if home.html's preview palette changes. */
+
+.vonb-banner .vrp-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--floor-bg, #2A2C32);
+  background-image:
+    radial-gradient(ellipse at 50% 50%,
+      transparent 28%,
+      rgba(0, 0, 0, 0.40) 78%,
+      rgba(0, 0, 0, 0.55) 100%),
+    var(--floor-image, none);
+  background-repeat: no-repeat, repeat;
+  background-size: auto, var(--floor-size, 64px 64px);
+  image-rendering: pixelated;
+}
+
+/* Floor variants (data-URIs lifted from home.html). */
+.vonb-banner .voice-room-preview[data-preview-theme="eastwood"] .vrp-stage {
+  --floor-bg: #5E6B47;
+  --floor-size: 64px 64px;
+  --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%235E6B47'/><rect x='0' y='8' width='20' height='16' fill='%234F5C3D'/><rect x='104' y='20' width='20' height='20' fill='%234F5C3D'/><rect x='88' y='64' width='24' height='16' fill='%234F5C3D'/><rect x='0' y='64' width='12' height='20' fill='%234F5C3D'/><rect x='44' y='64' width='16' height='8' fill='%234F5C3D'/><rect x='72' y='8' width='12' height='8' fill='%236E7A52'/><rect x='120' y='80' width='8' height='12' fill='%236E7A52'/><rect x='48' y='84' width='8' height='8' fill='%236E7A52'/><rect x='48' y='24' width='32' height='32' fill='%235C4838'/><rect x='44' y='28' width='4' height='24' fill='%235C4838'/><rect x='80' y='28' width='4' height='24' fill='%235C4838'/><rect x='52' y='20' width='24' height='4' fill='%235C4838'/><rect x='52' y='56' width='20' height='4' fill='%235C4838'/><rect x='56' y='16' width='12' height='4' fill='%235C4838'/><rect x='56' y='32' width='8' height='8' fill='%234A3A28'/><rect x='68' y='40' width='4' height='8' fill='%234A3A28'/><rect x='60' y='24' width='4' height='4' fill='%236E5A48'/><rect x='68' y='48' width='4' height='4' fill='%236E5A48'/><rect x='58' y='44' width='2' height='2' fill='%236B6258'/><rect x='72' y='32' width='2' height='2' fill='%236B6258'/><rect x='50' y='38' width='2' height='2' fill='%236B6258'/><rect x='16' y='96' width='24' height='20' fill='%235C4838'/><rect x='12' y='100' width='4' height='12' fill='%235C4838'/><rect x='40' y='100' width='4' height='12' fill='%235C4838'/><rect x='20' y='92' width='16' height='4' fill='%235C4838'/><rect x='22' y='104' width='8' height='4' fill='%234A3A28'/><rect x='20' y='100' width='4' height='4' fill='%236E5A48'/><rect x='24' y='108' width='2' height='2' fill='%236B6258'/><rect x='32' y='98' width='2' height='2' fill='%236B6258'/><rect x='8' y='40' width='1' height='2' fill='%238FA068'/><rect x='24' y='72' width='1' height='2' fill='%238FA068'/><rect x='104' y='56' width='1' height='2' fill='%238FA068'/><rect x='120' y='104' width='1' height='2' fill='%238FA068'/><rect x='88' y='44' width='1' height='2' fill='%238FA068'/><rect x='4' y='88' width='1' height='2' fill='%238FA068'/><rect x='64' y='88' width='1' height='2' fill='%238FA068'/><rect x='92' y='24' width='1' height='2' fill='%238FA068'/><rect x='44' y='62' width='1' height='2' fill='%238FA068'/><rect x='80' y='120' width='1' height='2' fill='%238FA068'/><rect x='12' y='12' width='1' height='2' fill='%238FA068'/><rect x='112' y='60' width='1' height='2' fill='%238FA068'/></svg>");
+}
+.vonb-banner .voice-room-preview[data-preview-theme="regent"] .vrp-stage {
+  --floor-bg: #2A2C32;
+  --floor-size: 64px 64px;
+  --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%232A2C32'/><rect x='20' y='30' width='30' height='18' fill='%232F3138'/><rect x='75' y='75' width='25' height='25' fill='%2325272D'/><rect x='5' y='90' width='18' height='15' fill='%232D2F36'/><rect x='20' y='25' width='1' height='1' fill='%231F2026'/><rect x='50' y='65' width='1' height='1' fill='%231F2026'/><rect x='90' y='30' width='1' height='1' fill='%231F2026'/><rect x='110' y='100' width='1' height='1' fill='%231F2026'/><rect x='35' y='110' width='1' height='1' fill='%231F2026'/><rect x='65' y='15' width='1' height='1' fill='%231F2026'/><rect x='100' y='55' width='1' height='1' fill='%231F2026'/><rect x='15' y='15' width='1' height='1' fill='%233D4048'/><rect x='40' y='45' width='1' height='1' fill='%233D4048'/><rect x='70' y='35' width='1' height='1' fill='%233D4048'/><rect x='95' y='80' width='1' height='1' fill='%233D4048'/><rect x='25' y='75' width='1' height='1' fill='%233D4048'/><rect x='55' y='100' width='1' height='1' fill='%233D4048'/><rect x='30' y='55' width='1' height='1' fill='%234A4D55'/><rect x='80' y='20' width='1' height='1' fill='%234A4D55'/><rect x='115' y='65' width='1' height='1' fill='%234A4D55'/><rect x='45' y='85' width='2' height='1' fill='%233D4048'/><rect x='100' y='35' width='1' height='2' fill='%233D4048'/><rect x='10' y='50' width='2' height='1' fill='%231F2026'/><rect x='126' y='0' width='2' height='128' fill='%2315161B'/><rect x='0' y='126' width='128' height='2' fill='%2315161B'/></svg>");
+}
+.vonb-banner .voice-room-preview[data-preview-theme="atrium"] .vrp-stage {
+  --floor-bg: #BFBBB0;
+  --floor-size: 64px 64px;
+  --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%23BFBBB0'/><rect x='64' y='0' width='64' height='64' fill='%23B5B0A4'/><rect x='0' y='64' width='64' height='64' fill='%23C4C0B5'/><rect x='63' y='0' width='1' height='128' fill='%23A0998D'/><rect x='0' y='63' width='128' height='1' fill='%23A0998D'/><rect x='10' y='20' width='2' height='6' fill='%238E8A7F'/><rect x='12' y='26' width='6' height='2' fill='%238E8A7F'/><rect x='18' y='28' width='4' height='2' fill='%238E8A7F'/><rect x='22' y='30' width='2' height='4' fill='%238E8A7F'/><rect x='80' y='80' width='8' height='2' fill='%238E8A7F'/><rect x='86' y='82' width='2' height='6' fill='%238E8A7F'/><rect x='88' y='88' width='6' height='2' fill='%238E8A7F'/><rect x='40' y='100' width='2' height='4' fill='%238E8A7F'/><rect x='42' y='104' width='8' height='2' fill='%238E8A7F'/><rect x='90' y='10' width='2' height='4' fill='%238E8A7F'/><rect x='92' y='14' width='6' height='2' fill='%238E8A7F'/></svg>");
+}
+.vonb-banner .voice-room-preview[data-preview-theme="nintendo"] .vrp-stage {
+  --floor-bg: #5A2A2A;
+  --floor-size: 24px 24px;
+  --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' shape-rendering='crispEdges'><rect width='32' height='32' fill='%235A2A2A'/><rect x='14' y='14' width='4' height='4' fill='%237A4040'/><rect x='12' y='15' width='8' height='2' fill='%237A4040'/><rect x='15' y='12' width='2' height='8' fill='%237A4040'/><rect x='15' y='4' width='2' height='4' fill='%23753838'/><rect x='15' y='24' width='2' height='4' fill='%23753838'/><rect x='4' y='15' width='4' height='2' fill='%23753838'/><rect x='24' y='15' width='4' height='2' fill='%23753838'/><rect x='2' y='2' width='1' height='1' fill='%23753838'/><rect x='29' y='2' width='1' height='1' fill='%23753838'/><rect x='2' y='29' width='1' height='1' fill='%23753838'/><rect x='29' y='29' width='1' height='1' fill='%23753838'/></svg>");
+}
+
+/* Round-table primitives (scoped). */
+.vonb-banner .vrp-stage .rt-table {
+  position: absolute;
+  top: 36%;
+  left: 18%;
+  width: 64%;
+  height: 28%;
+  pointer-events: none;
+  shape-rendering: crispEdges;
+}
+.vonb-banner .vrp-stage .rt-seat {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+.vonb-banner .vrp-stage .rt-chair {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 40px;
+  shape-rendering: crispEdges;
+  z-index: 1;
+}
+.vonb-banner .vrp-stage .rt-chair--mod { color: var(--cyan, #6A9B97); }
+.vonb-banner .vrp-stage .rt-bubble {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  background: var(--panel-3, var(--panel));
+  border: 1px solid var(--lime);
+  color: var(--lime);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  z-index: 5;
+  pointer-events: none;
+}
+.vonb-banner .vrp-stage .rt-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--lime);
+}
+.vonb-banner .vrp-stage .rt-seat-speaking .rt-name { display: none; }
+.vonb-banner .vrp-stage .rt-avatar {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 30px;
+  image-rendering: pixelated;
+  z-index: 2;
+  pointer-events: none;
+}
+.vonb-banner .vrp-stage .rt-name {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+  padding: 2px 5px;
+  color: var(--text-soft);
+  background: rgba(10, 10, 10, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.vonb-banner .vrp-stage .rt-seat-chair .rt-name {
+  color: var(--lime);
+  top: auto;
+  bottom: -16px;
+}
+.vonb-banner .voice-room-preview[data-preview-theme="atrium"] .vrp-stage .rt-name {
+  background: rgba(31, 30, 26, 0.78);
+  color: #F4F2EC;
+  border-color: rgba(0, 0, 0, 0.18);
+}
+.vonb-banner .vrp-stage .rt-plant {
+  position: absolute;
+  width: 40px;
+  height: 50px;
+  pointer-events: none;
+  image-rendering: pixelated;
+  shape-rendering: crispEdges;
+  z-index: 2;
+}
+.vonb-banner .vrp-stage .rt-plant-1 { top: 6px; right: 6px; }
+.vonb-banner .vrp-stage .rt-plant-2 { bottom: 6px; left: 6px; }

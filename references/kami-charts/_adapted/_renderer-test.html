@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<!-- Renderer harness · runs renderKamiBar() on sample data and shows
+     the output rendered through the spine CSS. Compare against
+     bar-chart-anthropic.html (the hand-coded reference) — output should
+     match visually. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kami chart renderer · standalone test</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* anthropic-essay spine tokens · subset needed for kami-chart */
+  :root {
+    --paper:       #F4F0E8;
+    --paper-soft:  #EDE6D6;
+    --ink:         #1A1814;
+    --ink-mid:     #6B6359;
+    --ink-soft:    #978C7E;
+    --rule:        #DDD5C8;
+    --rule-soft:   #E8E1D2;
+    --clay:        #CC785C;
+    --clay-deep:   #A85A41;
+    --accent:      var(--clay);
+    --em:          #B65A3A;
+
+    --serif: "Tiempos", "Charter", Georgia, serif;
+    --sans:  -apple-system, "SF Pro Text", "Söhne", "Inter", system-ui, sans-serif;
+    --mono:  "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--paper);
+    color: var(--ink);
+    padding: 48px 32px;
+  }
+  .frame { max-width: 920px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.20em;
+    color: var(--clay-deep);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .eyebrow::before { content: "— "; }
+  h1 {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1.2;
+    margin-bottom: 24px;
+  }
+  h1 em { color: var(--clay-deep); font-style: italic; }
+
+  /* ============= KAMI CHART CSS · mirror from public/report.html ============= */
+  .body .kami-chart {
+    margin: 28px 0 32px;
+    padding: 32px 36px 28px;
+    background: var(--paper-soft, #ECE6DA);
+    border: 1px solid var(--rule, rgba(0,0,0,0.14));
+  }
+  .body .kami-chart .kc-figheader {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding-bottom: 12px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--rule, rgba(0,0,0,0.14));
+  }
+  .body .kami-chart .kc-fignum {
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.18em;
+    color: var(--accent, #6B6660); font-weight: 600;
+  }
+  .body .kami-chart .kc-figtitle {
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.18em;
+    color: var(--ink-mid, #6A655D);
+  }
+  .body .kami-chart svg.kc-svg {
+    display: block; width: 100%; height: auto; overflow: visible;
+  }
+  .body .kami-chart .kc-canvas   { fill: var(--paper-soft, #ECE6DA); }
+  .body .kami-chart .kc-grid     { stroke: var(--rule-soft, rgba(0,0,0,0.08)); stroke-width: 0.8; }
+  .body .kami-chart .kc-baseline { stroke: var(--ink, #2A2724); stroke-width: 0.8; }
+  .body .kami-chart .kc-y-tick {
+    fill: var(--ink-soft, #978C7E); font: 10px var(--sans);
+  }
+  .body .kami-chart .kc-y-unit {
+    fill: var(--ink-soft, #978C7E); font: 9px var(--mono);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .body .kami-chart .kc-bar.kc-series-primary   { fill: var(--accent, #6B6660); }
+  .body .kami-chart .kc-bar.kc-series-secondary { fill: var(--ink-mid, #6A655D); }
+  .body .kami-chart .kc-bar.kc-series-tertiary  { fill: var(--ink-soft, #978C7E); }
+  .body .kami-chart .kc-data-label {
+    fill: var(--ink, #2A2724); font: 10px var(--sans);
+  }
+  .body .kami-chart .kc-data-label.kc-primary { font-weight: 600; }
+  .body .kami-chart .kc-category-label {
+    fill: var(--ink, #2A2724); font: 11px var(--sans);
+  }
+  .body .kami-chart .kc-caption {
+    font-family: var(--serif); font-size: 14px;
+    color: var(--ink-mid, #6A655D); line-height: 1.7;
+    margin-top: 18px; padding-top: 14px;
+    border-top: 1px solid var(--rule, rgba(0,0,0,0.14));
+    max-width: 60ch;
+  }
+  .body .kami-chart .kc-caption em {
+    color: var(--accent, #B65A3A); font-style: italic;
+  }
+  .body .kami-chart-error {
+    margin: 28px 0; padding: 16px 18px;
+    background: var(--paper-soft); border: 1px dashed var(--rule);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <p class="eyebrow">renderer harness · kami-chart JSON → SVG</p>
+  <h1>Renderer output, fed the <em>same data</em> as the hand-coded reference</h1>
+
+  <div class="body" id="mount"></div>
+  <pre id="json" style="margin-top:32px;padding:18px;background:var(--paper-soft);border:1px solid var(--rule);font:11px var(--mono);overflow:auto;color:var(--ink-mid)"></pre>
+</div>
+
+<script>
+// ============= MINIMAL UTILITIES =============
+function escape(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+function inline(s) {
+  // Minimal markdown inline: <em>...</em> for *text*
+  return s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+// ============= KAMI CHART RENDERER · mirror from public/report.html =============
+function renderKamiChart(body) {
+  let parsed;
+  try { parsed = JSON.parse(body); } catch (e) {
+    return `<div class="kami-chart-error" data-err="parse">${escape(body)}</div>`;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return `<div class="kami-chart-error" data-err="shape"></div>`;
+  }
+  const type = typeof parsed.type === "string" ? parsed.type.trim() : "";
+  switch (type) {
+    case "bar":
+    case "bar-chart":
+      return renderKamiBar(parsed);
+    default:
+      return `<div class="kami-chart-error" data-err="type">unsupported: ${escape(type)}</div>`;
+  }
+}
+function kcNiceMax(v) {
+  if (!isFinite(v) || v <= 0) return 10;
+  const exp = Math.floor(Math.log10(v));
+  const pow = Math.pow(10, exp);
+  const norm = v / pow;
+  let nice;
+  if (norm <= 1)   nice = 1;
+  else if (norm <= 1.5) nice = 1.5;
+  else if (norm <= 2)   nice = 2;
+  else if (norm <= 2.5) nice = 2.5;
+  else if (norm <= 3)   nice = 3;
+  else if (norm <= 4)   nice = 4;
+  else if (norm <= 5)   nice = 5;
+  else if (norm <= 7.5) nice = 7.5;
+  else                  nice = 10;
+  return nice * pow;
+}
+function kcFmt(v) {
+  if (!isFinite(v)) return "";
+  if (Number.isInteger(v)) return String(v);
+  return Number(v.toFixed(2)).toString();
+}
+function renderKamiBar(data) {
+  const title = typeof data.title === "string" ? data.title.trim() : "";
+  const yLabel = typeof data.yLabel === "string" ? data.yLabel.trim() : "";
+  const unit = typeof data.unit === "string" ? data.unit.trim() : "";
+  const focal = typeof data.focal === "string" ? data.focal.trim() : "";
+  const caption = typeof data.caption === "string" ? data.caption.trim() : "";
+  const figNum = typeof data.figNum === "string" || typeof data.figNum === "number"
+    ? String(data.figNum) : "";
+  const barsRaw = Array.isArray(data.bars) ? data.bars : [];
+  const bars = [];
+  for (const b of barsRaw) {
+    if (!b || typeof b !== "object") continue;
+    const label = typeof b.label === "string" ? b.label.trim() : "";
+    const value = Number(b.value);
+    if (!label || !isFinite(value)) continue;
+    bars.push({ label, value });
+    if (bars.length >= 8) break;
+  }
+  if (bars.length < 2) {
+    return `<div class="kami-chart-error" data-err="too-few-bars"></div>`;
+  }
+  const X0 = 60, X1 = 620, Y0 = 40, Y1 = 320;
+  const W  = X1 - X0;
+  const H  = Y1 - Y0;
+  const N = bars.length;
+  const groupW = W / N;
+  const barW = Math.min(48, Math.round(groupW * 0.55));
+  const maxV = Math.max(...bars.map((b) => b.value), 0);
+  const yMax = kcNiceMax(maxV);
+  const gridlines = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
+    v: yMax * p,
+    y: Y1 - (Y1 - Y0) * p,
+  }));
+  const barEls = [];
+  const labelEls = [];
+  const dataLabelEls = [];
+  bars.forEach((b, i) => {
+    const cx = X0 + groupW * i + groupW / 2;
+    const bx = Math.round(cx - barW / 2);
+    const bh = Math.round((b.value / yMax) * H);
+    const by = Y1 - bh;
+    const isFocal = focal ? (b.label === focal) : true;
+    const seriesCls = isFocal ? "kc-series-primary" : "kc-series-secondary";
+    barEls.push(
+      `<rect class="kc-bar ${seriesCls}" x="${bx}" y="${by}" width="${barW}" height="${bh}" rx="2"/>`,
+    );
+    const labelTxt = unit ? `${kcFmt(b.value)}${unit}` : kcFmt(b.value);
+    dataLabelEls.push(
+      `<text class="kc-data-label${isFocal ? " kc-primary" : ""}" x="${Math.round(cx)}" y="${by - 4}" text-anchor="middle">${escape(labelTxt)}</text>`,
+    );
+    const catLabel = b.label.length > 18 ? b.label.slice(0, 17) + "…" : b.label;
+    labelEls.push(
+      `<text class="kc-category-label" x="${Math.round(cx)}" y="${Y1 + 20}" text-anchor="middle">${escape(catLabel)}</text>`,
+    );
+  });
+  const gridEls = gridlines.map((g) =>
+    `<line class="kc-grid" x1="${X0}" y1="${g.y}" x2="${X1}" y2="${g.y}"/>`,
+  ).join("");
+  const tickEls = gridlines.map((g) =>
+    `<text class="kc-y-tick" x="${X0 - 8}" y="${g.y + 4}" text-anchor="end">${escape(kcFmt(g.v))}</text>`,
+  ).join("");
+  const yUnitTxt = yLabel || unit;
+  const yUnitEl = yUnitTxt
+    ? `<text class="kc-y-unit" x="16" y="${(Y0 + Y1) / 2}" transform="rotate(-90 16 ${(Y0 + Y1) / 2})" text-anchor="middle">${escape(yUnitTxt.toUpperCase())}</text>`
+    : "";
+  const figHeader =
+    `<div class="kc-figheader">` +
+    `<span class="kc-fignum">Figure${figNum ? " " + escape(figNum) : ""}</span>` +
+    (title ? `<span class="kc-figtitle">${escape(title)}</span>` : "") +
+    `</div>`;
+  const captionEl = caption
+    ? `<p class="kc-caption">${inline(escape(caption))}</p>`
+    : "";
+  return (
+    `<figure class="kami-chart">` +
+      figHeader +
+      `<svg class="kc-svg" viewBox="0 0 680 380" xmlns="http://www.w3.org/2000/svg" aria-label="${escape(title || "Bar chart")}">` +
+        `<rect class="kc-canvas" width="100%" height="100%"/>` +
+        gridEls +
+        tickEls +
+        yUnitEl +
+        `<line class="kc-baseline" x1="${X0}" y1="${Y1}" x2="${X1}" y2="${Y1}"/>` +
+        barEls.join("") +
+        dataLabelEls.join("") +
+        labelEls.join("") +
+      `</svg>` +
+      captionEl +
+    `</figure>`
+  );
+}
+
+// ============= TEST DATA · matches BarChartVisual schema from brief-stages.ts =============
+const SAMPLE_JSON = {
+  type: "bar-chart",
+  title: "Time to ship · weeks per option",
+  yLabel: "Weeks",
+  unit: "w",
+  figNum: "01",
+  focal: "Option A",
+  bars: [
+    { label: "Option A", value: 44 },
+    { label: "Option B", value: 60 },
+    { label: "Option C", value: 72 },
+    { label: "Option D", value: 88 },
+  ],
+  caption: "Option A ships *fastest* at 44 weeks; D is nearly 2× the timeline. The accent picks A as the lane we'd back.",
+};
+document.getElementById("mount").innerHTML = renderKamiChart(JSON.stringify(SAMPLE_JSON));
+document.getElementById("json").textContent = JSON.stringify(SAMPLE_JSON, null, 2);
+</script>
+</body>
+</html>

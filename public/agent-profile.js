@@ -1173,6 +1173,44 @@
         </button>
       </section>`;
   }
+
+  /** Build log card · sibling to the persona dossier. Surfaces a 1-line
+   *  teaser drawn from the narrator's pitch summary plus a CTA that
+   *  opens the build-log modal. Hidden when the agent has no
+   *  `personaSpec.buildLog` (older Full-mode builds without the
+   *  buildLog field; all Signal-mode agents; all seed directors). */
+  function renderBuildLogSection(slug, p) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    const spec = live && live.personaSpec ? live.personaSpec : null;
+    const buildLog = spec && spec.buildLog ? spec.buildLog : null;
+    if (!buildLog) return "";
+    const narrative = typeof buildLog.narrative === "string" ? buildLog.narrative : "";
+    // Teaser · first ~160 chars of the narrative or a localised
+    // fallback if the narrator pass came back empty. The narrative is
+    // plain prose so we just trim on the nearest whitespace.
+    let teaser = narrative.trim();
+    if (teaser.length === 0) {
+      teaser = uiT("ap_build_log_teaser_fallback");
+    } else if (teaser.length > 160) {
+      const cut = teaser.slice(0, 160);
+      const lastSpace = cut.lastIndexOf(" ");
+      teaser = (lastSpace > 80 ? cut.slice(0, lastSpace) : cut).trim() + "…";
+    }
+    return `
+      <section class="ap-block ap-buildlog-block">
+        <header class="ap-block-h">
+          <span class="ap-block-h-title">${escape(uiT("ap_build_log"))}</span>
+          <span class="ap-block-h-tag">${escape(uiT("ap_build_log_kicker"))}</span>
+        </header>
+        <button type="button" class="ap-buildlog-card" data-ap-buildlog-open data-slug="${escape(slug)}" aria-label="${escape(uiT("ap_build_log_open"))}">
+          <p class="ap-buildlog-teaser">${escape(teaser)}</p>
+          <div class="ap-buildlog-card-cta">
+            <span class="ap-buildlog-card-cta-label">${escape(uiT("ap_build_log_open_cta"))}</span>
+          </div>
+        </button>
+      </section>`;
+  }
+
   function renderRulesInner(slug) {
     const rules = rulesForAgent(slug);
     const list = rules.length === 0
@@ -1937,6 +1975,199 @@
       document.removeEventListener("keydown", _personaOverlayEsc, true);
       _personaOverlayEsc = null;
     }
+  }
+
+  /* ─── Build-log overlay ────────────────────────────────
+     Sibling to the persona dossier overlay. Reads the buildLog from
+     window.app.agentsById[slug].personaSpec.buildLog (already on the
+     client — the spec rides the agent payload). Renders:
+       · the narrator's pitch summary (hero block)
+       · a 7-phase timeline rail with per-phase blurbs
+       · dimension-card grid stitched under phase 2 from the
+         `dimension-plan` event + matching `search` events
+       · footer stats: voice-uniqueness · tokens · duration
+     Closed on backdrop click or Escape. */
+  let _buildLogOverlayEsc = null;
+  function openBuildLogOverlay(slug, agentName) {
+    closeBuildLogOverlay();
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    const spec = live && live.personaSpec ? live.personaSpec : null;
+    const buildLog = spec && spec.buildLog ? spec.buildLog : null;
+    if (!buildLog) return; // safety · the entry point is hidden in this case anyway
+
+    const overlay = document.createElement("div");
+    overlay.id = "ap-buildlog-overlay";
+    overlay.className = "ap-buildlog-overlay";
+    overlay.innerHTML = `
+      <div class="ap-buildlog-overlay-backdrop" data-ap-buildlog-close></div>
+      <div class="ap-buildlog-overlay-modal" role="dialog" aria-modal="true" aria-label="${escape(uiT("ap_build_log"))}">
+        <div class="ap-buildlog-overlay-classification">
+          <span><span class="dot">●</span> ${escape(uiT("ap_build_log_kicker"))}</span>
+          <span class="right">${escape(agentName || "")}</span>
+        </div>
+        <div class="ap-buildlog-overlay-head">
+          <div class="ap-buildlog-overlay-title">${escape(uiT("ap_build_log"))}</div>
+          <div class="ap-buildlog-overlay-actions">
+            <button type="button" class="ap-buildlog-overlay-close" data-ap-buildlog-close aria-label="${escape(uiT("ap_build_close"))}">✕</button>
+          </div>
+        </div>
+        <div class="ap-buildlog-overlay-body">
+          ${renderBuildLogBody(buildLog)}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    document.body.classList.add("ap-buildlog-overlay-open");
+    _buildLogOverlayEsc = (ev) => {
+      if (ev.key === "Escape") {
+        ev.stopImmediatePropagation();
+        closeBuildLogOverlay();
+      }
+    };
+    document.addEventListener("keydown", _buildLogOverlayEsc, true);
+  }
+
+  function closeBuildLogOverlay() {
+    const el = document.getElementById("ap-buildlog-overlay");
+    if (el) el.remove();
+    document.body.classList.remove("ap-buildlog-overlay-open");
+    if (_buildLogOverlayEsc) {
+      document.removeEventListener("keydown", _buildLogOverlayEsc, true);
+      _buildLogOverlayEsc = null;
+    }
+  }
+
+  /** Render the modal body · narrative hero + 7-phase timeline +
+   *  dimension cards under phase 2 + footer stats. Pure HTML string. */
+  function renderBuildLogBody(buildLog) {
+    const events = Array.isArray(buildLog.events) ? buildLog.events : [];
+    const narrative = typeof buildLog.narrative === "string" ? buildLog.narrative.trim() : "";
+
+    // Collect dimensions + searches by walking the event log once.
+    let dimensionPlan = [];
+    const searchesByDim = new Map();
+    const topupSearches = [];
+    const phaseEnd = new Map(); // phase → durationMs
+    let divergenceScore = null;
+    for (const e of events) {
+      if (e.kind === "dimension-plan" && Array.isArray(e.dimensions)) {
+        dimensionPlan = e.dimensions;
+      } else if (e.kind === "search") {
+        if (e.topup) {
+          topupSearches.push(e);
+        } else if (e.dimension) {
+          const cur = searchesByDim.get(e.dimension) || { count: 0, sources: 0, queries: [] };
+          cur.count += 1;
+          cur.sources += (typeof e.pagesRead === "number" ? e.pagesRead : 0);
+          cur.queries.push(e.query);
+          searchesByDim.set(e.dimension, cur);
+        }
+      } else if (e.kind === "phase-end" && typeof e.phase === "number") {
+        phaseEnd.set(e.phase, typeof e.durationMs === "number" ? e.durationMs : 0);
+      } else if (e.kind === "divergence") {
+        divergenceScore = (typeof e.score === "number") ? e.score : null;
+      }
+    }
+
+    // Narrative hero. Empty narrative → show a localised fallback line
+    // so the modal doesn't open with an empty top half.
+    const narrativeHTML = narrative.length > 0
+      ? `<div class="ap-buildlog-narrative">${narrative.split(/\n\n+/).map((p) => `<p>${escape(p.trim())}</p>`).join("")}</div>`
+      : `<div class="ap-buildlog-narrative ap-buildlog-narrative-empty"><p>${escape(uiT("ap_build_log_no_narrative"))}</p></div>`;
+
+    // Timeline · 7 cards. Phase 2 expands to a dimension grid
+    // beneath the card. We render all 7 even if some events are
+    // missing (e.g. aborted-then-resumed builds) — missing phases
+    // just don't show a duration.
+    const phaseCards = [1, 2, 3, 4, 5, 6, 7].map((n) => {
+      const num = String(n).padStart(2, "0");
+      const label = escape(uiT("ap_build_phase_" + n));
+      const blurb = escape(uiT("ap_build_phase_" + n + "_blurb"));
+      const dur = phaseEnd.get(n);
+      const durText = (typeof dur === "number" && dur > 0)
+        ? `<span class="ap-buildlog-phase-dur">${Math.max(1, Math.round(dur / 1000))}s</span>`
+        : "";
+      let extras = "";
+      if (n === 2) {
+        // Dimension grid under the research-phase card.
+        const dimCards = dimensionPlan.map((d) => {
+          const stats = searchesByDim.get(d.dimension) || { sources: 0, count: 0 };
+          const why = d.why ? escape(d.why) : escape(d.query || "");
+          const sources = uiT("ap_build_sources_short", { n: stats.sources });
+          return `
+            <div class="ap-buildlog-dim">
+              <div class="ap-buildlog-dim-name">${escape(d.dimension)}</div>
+              <div class="ap-buildlog-dim-why">${why}</div>
+              <div class="ap-buildlog-dim-stat">${escape(sources)}</div>
+            </div>
+          `;
+        }).join("");
+        const topupBlock = topupSearches.length > 0
+          ? `
+            <div class="ap-buildlog-topup">
+              <div class="ap-buildlog-topup-label">${escape(uiT("ap_build_topup_label"))}</div>
+              <ul class="ap-buildlog-topup-list">
+                ${topupSearches.map((t) => `<li>“${escape(t.query)}” · ${escape(uiT("ap_build_sources_short", { n: typeof t.pagesRead === "number" ? t.pagesRead : 0 }))}</li>`).join("")}
+              </ul>
+            </div>`
+          : "";
+        if (dimensionPlan.length > 0 || topupSearches.length > 0) {
+          extras = `
+            <div class="ap-buildlog-phase-extras">
+              ${dimensionPlan.length > 0 ? `
+                <div class="ap-buildlog-dims-label">${escape(uiT("ap_build_dimensions_label"))}</div>
+                <div class="ap-buildlog-dims-grid">${dimCards}</div>
+              ` : ""}
+              ${topupBlock}
+            </div>
+          `;
+        }
+      }
+      return `
+        <li class="ap-buildlog-phase">
+          <div class="ap-buildlog-phase-head">
+            <span class="ap-buildlog-phase-num">${num}</span>
+            <span class="ap-buildlog-phase-label">${label}</span>
+            ${durText}
+          </div>
+          <p class="ap-buildlog-phase-blurb">${blurb}</p>
+          ${extras}
+        </li>
+      `;
+    }).join("");
+
+    // Footer stats.
+    const totalTokens = typeof buildLog.totalTokens === "number" ? buildLog.totalTokens : 0;
+    const totalDurationMs = Array.from(phaseEnd.values()).reduce((a, b) => a + (typeof b === "number" ? b : 0), 0);
+    const totalDurationSec = Math.round(totalDurationMs / 1000);
+    const divergencePct = (divergenceScore === null || typeof divergenceScore !== "number")
+      ? "—"
+      : (Math.round(divergenceScore * 100) + "%");
+    const tokensFmt = totalTokens > 0 ? totalTokens.toLocaleString() : "—";
+    const durFmt = totalDurationSec > 0
+      ? (totalDurationSec >= 60
+        ? `${Math.floor(totalDurationSec / 60)}m ${totalDurationSec % 60}s`
+        : `${totalDurationSec}s`)
+      : "—";
+
+    return `
+      ${narrativeHTML}
+      <ol class="ap-buildlog-timeline">${phaseCards}</ol>
+      <footer class="ap-buildlog-footer">
+        <div class="ap-buildlog-stat">
+          <div class="ap-buildlog-stat-l">${escape(uiT("ap_build_divergence_label"))}</div>
+          <div class="ap-buildlog-stat-v">${escape(divergencePct)}</div>
+        </div>
+        <div class="ap-buildlog-stat">
+          <div class="ap-buildlog-stat-l">${escape(uiT("ap_build_tokens_label"))}</div>
+          <div class="ap-buildlog-stat-v">${escape(tokensFmt)}</div>
+        </div>
+        <div class="ap-buildlog-stat">
+          <div class="ap-buildlog-stat-l">${escape(uiT("ap_build_duration_label"))}</div>
+          <div class="ap-buildlog-stat-v">${escape(durFmt)}</div>
+        </div>
+      </footer>
+    `;
   }
 
   /* ─── Profile · ⋯ menu (top-right of the cover) ─────
@@ -2889,6 +3120,7 @@
             </section>
 
             ${renderPersonaDossierSection(slug, p)}
+            ${renderBuildLogSection(slug, p)}
 
             <section class="ap-block">
               <header class="ap-block-h">
@@ -3364,6 +3596,28 @@
         e.preventDefault();
         e.stopPropagation();
         closePersonaOverlay();
+        return;
+      }
+
+      // Build-log card · open the build-log modal. Mirrors the
+      // persona-dossier open/close pattern. The teaser card is a
+      // <button> so the click can land on any child element.
+      const buildLogOpen = e.target.closest("[data-ap-buildlog-open]");
+      if (buildLogOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        const slug = buildLogOpen.getAttribute("data-slug");
+        if (!slug) return;
+        const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+        const agentName = live && live.name ? live.name : "";
+        openBuildLogOverlay(slug, agentName);
+        return;
+      }
+      const buildLogClose = e.target.closest("[data-ap-buildlog-close]");
+      if (buildLogClose) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeBuildLogOverlay();
         return;
       }
 

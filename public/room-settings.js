@@ -387,6 +387,11 @@
                 </div>
               </div>
 
+              <!-- Divergence report moved out of room settings · it
+                   now lives in its own overlay opened by the
+                   [data-divergence-open] button on the input bar.
+                   See app.js openDivergenceOverlay. -->
+
             </div>
           </div>
 

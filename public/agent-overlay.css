@@ -118,14 +118,14 @@ img[data-agent]:hover { filter: brightness(1.15); }
   letter-spacing: -0.01em;
 }
 .agent-card-id .role {
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--lime, #6FB572);
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 700;
 }
 .agent-card-id .handle {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-faint, #3A382F);
   margin-top: 5px;
   letter-spacing: 0.04em;
@@ -151,7 +151,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 
 .agent-block { margin-bottom: 16px; }
 .agent-block-label {
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.16em;
@@ -170,7 +170,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 }
 .agent-block-label .badge {
   margin-left: auto;
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.12em;
   color: var(--text-faint, #3A382F);
   font-weight: 600;
@@ -194,7 +194,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
   flex-wrap: wrap;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text, #C8C5BE);
   letter-spacing: 0.02em;
 }
@@ -202,7 +202,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
   font-weight: 700;
 }
 .agent-model-provider {
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-soft, #8E8B83);
@@ -219,7 +219,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 .agent-trait {
   border: 0.5px solid var(--line-bright, #2A2A26);
   padding: 3px 8px;
-  font-size: 9.5px;
+  font-size: 10px;
   font-family: var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -266,14 +266,14 @@ img[data-agent]:hover { filter: brightness(1.15); }
 .agent-note-entry:last-child { border-bottom: none; }
 .agent-note-time {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-faint, #3A382F);
   letter-spacing: 0.04em;
   padding-top: 3px;
 }
 .agent-note-body {
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--text-soft, #8E8B83);
   letter-spacing: -0.003em;
@@ -281,7 +281,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 .agent-note-tag {
   display: inline-block;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -321,7 +321,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 }
 .agent-memory-empty .lock-text {
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--text-soft, #8E8B83);
   letter-spacing: -0.003em;
@@ -349,7 +349,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
   line-height: 1;
 }
 .agent-stat .l {
-  font-size: 8.5px;
+  font-size: 8px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-faint, #3A382F);
@@ -366,7 +366,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 }
 .agent-card-foot .meta {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-faint, #3A382F);
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -425,7 +425,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
   font-family: var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 10.5px;
+  font-size: 10px;
   margin-right: 4px;
 }
 .agent-locked .lock-link:hover { text-decoration: underline; }

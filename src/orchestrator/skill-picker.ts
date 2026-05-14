@@ -333,15 +333,43 @@ export async function pickNextSpeaker(opts: {
    *  the chair-note intervention to drift to English in a Chinese
    *  room. Optional so callers can opt in gradually. */
   room?: { subject?: string | null };
+  /** Layer 2.1 · picker mode. Default "lens-gap" matches the
+   *  historical behaviour (find the director whose lens addresses
+   *  the unresolved tension). "dissent-gap" is the divergence-stack
+   *  variant · find the director MOST LIKELY to break the room's
+   *  current frame, scored on the persona's contrarianTakes /
+   *  failureModes against the room's recent fixation. Caller (room.ts)
+   *  flips to dissent-gap when convergence detection (Layer 2.3)
+   *  fires OR every Nth reactive round as a divergence guarantee. */
+  mode?: "lens-gap" | "dissent-gap";
+  /** When `mode === "dissent-gap"`, the convergent terms detected
+   *  by the frame-break / convergence layer are surfaced to the
+   *  picker so it can score each candidate against them. Empty
+   *  array → picker falls back to lens-gap behaviour for this turn. */
+  convergentTerms?: string[];
   signal?: AbortSignal;
 }): Promise<NextSpeakerPick> {
   const { candidates, history, room, signal } = opts;
+  const mode = opts.mode === "dissent-gap" ? "dissent-gap" : "lens-gap";
+  const convergentTerms = (opts.convergentTerms || []).filter(Boolean);
   if (candidates.length < 2) return { agentId: null, rationale: "", intervention: null };
 
   // Build the candidate roster. We include role tag + bio so the picker
   // can match lens to the previous turn's gap, not just remember names.
+  // In dissent-gap mode we ALSO surface up to 3 contrarianTakes per
+  // candidate (when persona-spec is available) so the picker can score
+  // who's most likely to disrupt the convergent frame.
   const roster = candidates
-    .map((a) => `- ${a.id} · ${a.name} (${a.handle}) · ${a.roleTag}\n  ${a.bio}`)
+    .map((a) => {
+      const baseRow = `- ${a.id} · ${a.name} (${a.handle}) · ${a.roleTag}\n  ${a.bio}`;
+      if (mode !== "dissent-gap") return baseRow;
+      const takes = a.personaSpec?.spec?.contrarianTakes?.slice(0, 3) || [];
+      const failures = a.personaSpec?.spec?.failureModes?.slice(0, 1) || [];
+      const extras: string[] = [];
+      if (takes.length > 0) extras.push(`  · contrarian takes: ${takes.join(" · ")}`);
+      if (failures.length > 0) extras.push(`  · failure mode: ${failures[0]}`);
+      return extras.length > 0 ? `${baseRow}\n${extras.join("\n")}` : baseRow;
+    })
     .join("\n");
 
   // Recent transcript · last ~10 messages with handle + body. Enough
@@ -364,6 +392,41 @@ export async function pickNextSpeaker(opts: {
     })
     .join("\n\n");
 
+  const decision1Block = mode === "dissent-gap"
+    ? [
+        "DECISION 1 · Next speaker (DISSENT-GAP MODE).",
+        "The room is converging on a single frame — for THIS pick, the chair",
+        "needs the director MOST LIKELY to break that frame. Score each",
+        "candidate on:",
+        "  · Their `contrarian takes` (listed in the roster) versus the room's",
+        "    detected convergent terms (surfaced in the user message below).",
+        "    Pick whose stated contrarian moves DIRECTLY puncture the cluster.",
+        "  · Their `failure mode` is a NEGATIVE signal — a director whose",
+        "    failure mode is 'gets sucked into specifics' is exactly who you",
+        "    do NOT pick when the room is already lost in specifics.",
+        "  · Lens distance from the convergent frame · pick a lens furthest",
+        "    from the cluster's gravitational center.",
+        "  · Recency · prefer directors who haven't spoken in the last 2 turns",
+        "    when scores are comparable.",
+        "  · If NO candidate is clearly the frame-breaker (e.g. all candidates",
+        "    have already been used recently OR none have relevant contrarian",
+        "    takes), set agent_id=null and let round-robin run.",
+      ].join("\n")
+    : [
+        "DECISION 1 · Next speaker. From the candidates below, pick which",
+        "director should speak NEXT — the one whose lens most sharply",
+        "addresses the unresolved tension, hidden assumption, or missing",
+        "counter-argument in the previous turn.",
+        "  · Match LENS to the gap, not just topic relevance. If the prior",
+        "    turn made a structural claim, pick a director whose role",
+        "    pushes back from a different lens (data → narrative,",
+        "    empirical → first-principles, etc.).",
+        "  · Prefer directors who haven't been quoted yet THIS round when",
+        "    fits are comparable — diversity of voice.",
+        "  · If no candidate clearly fits better than the current head of",
+        "    queue, set agent_id=null and let round-robin run.",
+      ].join("\n");
+
   const sys: LLMMessage = {
     role: "system",
     content: [
@@ -371,18 +434,7 @@ export async function pickNextSpeaker(opts: {
       "a reactive round; one director just finished. You make TWO",
       "decisions in one pass.",
       "",
-      "DECISION 1 · Next speaker. From the candidates below, pick which",
-      "director should speak NEXT — the one whose lens most sharply",
-      "addresses the unresolved tension, hidden assumption, or missing",
-      "counter-argument in the previous turn.",
-      "  · Match LENS to the gap, not just topic relevance. If the prior",
-      "    turn made a structural claim, pick a director whose role",
-      "    pushes back from a different lens (data → narrative,",
-      "    empirical → first-principles, etc.).",
-      "  · Prefer directors who haven't been quoted yet THIS round when",
-      "    fits are comparable — diversity of voice.",
-      "  · If no candidate clearly fits better than the current head of",
-      "    queue, set agent_id=null and let round-robin run.",
+      decision1Block,
       "",
       "DECISION 2 · Intervention (optional · default: null). Read the",
       "prior 2–3 turns. Drop a 1-sentence chair note ONLY if a substantive",
@@ -435,6 +487,13 @@ export async function pickNextSpeaker(opts: {
       // only language signal was "recent transcript" — which a
       // single English chair drift could pollute.
       ...(room?.subject ? [`Room subject: ${room.subject}`, ``] : []),
+      ...(mode === "dissent-gap" && convergentTerms.length > 0
+        ? [
+            `Detected convergent terms (room is over-investing here · the dissent pick should puncture these):`,
+            ...convergentTerms.map((t) => `  · "${t}"`),
+            ``,
+          ]
+        : []),
       `Candidates (queued, in current order):`,
       roster,
       ``,

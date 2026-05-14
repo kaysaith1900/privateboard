@@ -181,7 +181,7 @@
   font-family: var(--mono);
 }
 .us-nav-foot-label {
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -257,7 +257,7 @@
 .us-row-field { min-width: 0; }
 .us-row-meta {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -325,7 +325,7 @@
   outline-offset: 2px;
 }
 .us-switch-label {
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   font-weight: 700;
@@ -341,6 +341,29 @@
   line-height: 1.5;
   flex: 1 1 220px;
   min-width: 0;
+}
+
+/* Ghost button · inline action in a settings row (e.g. "Replay
+   onboarding"). Matches the .onb-btn family — mono uppercase, hairline
+   border, lime on hover — so the affordance reads consistent across
+   the user-settings and onboarding overlays. */
+.us-btn-ghost {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 7px 13px;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: transparent;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.us-btn-ghost:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
 }
 
 /* Preferences → Other · EN / Zh (moved off the sidebar chrome) */
@@ -570,7 +593,7 @@
 .us-theme.active .us-theme-name { color: var(--lime, #6FB572); }
 .us-theme-desc {
   font-family: var(--font-human);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-dim, #5C5A52);
   line-height: 1.4;
   margin-top: 1px;
@@ -618,7 +641,7 @@
   display: inline-block;
   margin-left: 6px;
   padding: 1px 5px;
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -629,7 +652,7 @@
 }
 .us-key-status {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -700,7 +723,7 @@
   border: 0.5px solid var(--line-bright, #2A2A26);
   color: var(--text-soft, #8E8B83);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -814,7 +837,7 @@
   justify-content: space-between;
   align-items: center;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-faint, #3A382F);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -845,7 +868,7 @@
 }
 .us-foot .us-website {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -894,7 +917,7 @@
   line-height: 1;
 }
 .us-usage-empty-text {
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--text-soft, #8E8B83);
   text-align: center;
@@ -918,7 +941,7 @@
   border: 0.5px solid var(--line-bright, #2A2A26);
   color: var(--text-soft, #8E8B83);
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   font-weight: 600;
@@ -957,7 +980,7 @@
   font-family: var(--mono, "Inter", system-ui, sans-serif);
 }
 .us-chart-meta-label {
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1054,7 +1077,7 @@
   margin-top: 4px;
   height: 10px;
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.06em;
   color: var(--text-faint, #3A382F);
   text-align: center;
@@ -1077,14 +1100,14 @@
 }
 .us-day-empty-tag {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-soft, #8E8B83);
   font-weight: 700;
 }
 .us-day-empty-text {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-faint, #3A382F);
 }
 
@@ -1093,7 +1116,7 @@
    kicker so the user knows what scope the head numbers describe. */
 .us-usage-total-scope {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1139,7 +1162,7 @@
   gap: 12px;
   justify-content: flex-end;
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 10.5px;
+  font-size: 10px;
 }
 .us-usage-meta-label {
   color: var(--text-faint, #3A382F);
@@ -1176,7 +1199,7 @@
 .us-usage-section { display: flex; flex-direction: column; gap: 10px; }
 .us-usage-section-tag {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1213,7 +1236,7 @@
 }
 .us-model-provider {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1243,7 +1266,7 @@
   letter-spacing: -0.01em;
 }
 .us-model-pct {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-soft, #8E8B83);
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -1251,7 +1274,7 @@
   text-align: right;
 }
 .us-model-agents {
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1307,7 +1330,7 @@
 .us-agent-bar > span { display: block; height: 100%; }
 .us-agent-tokens {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text, #C8C5BE);
   font-variant-numeric: tabular-nums;
@@ -1317,7 +1340,7 @@
 .us-agent-silent {
   margin-top: 6px;
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1386,7 +1409,7 @@
 }
 .us-key-group-tag {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1448,7 +1471,7 @@
 }
 .us-models-provider-tag {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1503,7 +1526,7 @@
 }
 .us-models-default-label {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -1551,7 +1574,7 @@
 }
 .us-models-default-note {
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);

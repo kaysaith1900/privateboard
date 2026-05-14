@@ -110,14 +110,22 @@ function stageFlagshipList(): ModelV[] {
   return out;
 }
 
-/** Stage 2 retry budget. Keep this deliberately tight: the frontend has
- *  a hard timeout, and a stalled provider stream must not hold the whole
- *  report pipeline hostage. */
-const STAGE_2_RETRIES = 1;
-const STAGE_2_TEMPERATURES = [0.2];
+/** Stage 2 retry budget. Two attempts per model at rising temperature ·
+ *  the 35K-char system prompt + a wide scaffold JSON output puts opus /
+ *  sonnet near their per-call latency budget; a single attempt was
+ *  reliably falling back to the deterministic skeleton when the model
+ *  hit the timeout mid-stream. Two attempts at 0.2 → 0.5 give the
+ *  scaffold a real second swing without holding the pipeline hostage
+ *  (timeout cap below already bounds total wait per model). */
+const STAGE_2_RETRIES = 2;
+const STAGE_2_TEMPERATURES = [0.2, 0.5];
 
 const STAGE_1_CALL_TIMEOUT_MS = 75_000;
-const STAGE_2_CALL_TIMEOUT_MS = 120_000;
+/** Bumped from 120s · opus-fast on a 35K-char system prompt + ~5K-char
+ *  user message + 8K-token JSON output reliably ran past 120s and got
+ *  killed mid-stream, dropping the whole brief to fallback. Match the
+ *  Stage 3 budget (240s) so opus has a real chance to finish. */
+const STAGE_2_CALL_TIMEOUT_MS = 240_000;
 const STAGE_3_CALL_TIMEOUT_MS = 240_000;
 
 function signalWithTimeout(
@@ -574,7 +582,7 @@ function emitStage(
  *     of free-prose generation (constrained-decoding overhead). The
  *     useful tps for our scaffold output is ~40, not 100.
  *   · Opus is similarly slowed when producing rich markdown with tables
- *     and mermaid blocks. Real-world ~25-30 tps.
+ *     and kami-chart blocks. Real-world ~25-30 tps.
  *   · Output token volumes grow super-linearly with section count once
  *     recommendations / risk-register / new questions all kick in.
  *   · Stage 2 retries up to 3× on parse failure — half of slow runs
@@ -598,7 +606,7 @@ const TPS_BY_MODEL: Record<string, number> = {
                 // 2-4 flat-signal output; the asset bundle is 4-5× the
                 // tokens.
   sonnet:  45,  // sonnet-4-6 — structured JSON output, not free prose
-  opus:    28,  // opus-4-7 — rich markdown with tables / mermaid
+  opus:    28,  // opus-4-7 — rich markdown with tables / inline-svg charts
 };
 const BASE_OVERHEAD_S = 1.0;
 const TTFT_S_PER_KT = 0.35;
@@ -1212,7 +1220,16 @@ async function runStage1(
           modelV,
           messages,
           temperature: 0.2,
-          maxTokens: 2200,
+          // 4400 cap (was 2200) · 9-field asset bundle JSON · max 38
+          // entries × ~150 chars per entry ≈ 5700 chars ≈ 2500-3500
+          // output tokens for a dense director. 2200 was right at the
+          // edge for terse models (Gemini Flash) but Anthropic Opus /
+          // Sonnet emit verbose JSON and overflow, producing truncated
+          // output → parser drops to empty assets → `heuristicDirectorAssets`
+          // takes over with weaker signal recovery. Doubling the cap
+          // gives the verbose providers headroom without affecting
+          // the terse ones (they don't hit the cap).
+          maxTokens: 4400,
           signal: timeout.signal,
         });
         if (timeout.timedOut()) throw new Error(`timed out after ${STAGE_1_CALL_TIMEOUT_MS / 1000}s`);
@@ -1733,7 +1750,18 @@ async function runStage2(args: Stage2Args): Promise<BriefScaffold | null> {
           modelV,
           messages: messagesForAttempt(),
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
-          maxTokens: 8000,
+          // 16k cap (was 8k) · the structured scaffold JSON for a dense
+          // room (≥3 directors with rich signals, full visuals + risk
+          // register + perspectives) regularly lands at 10–14k output
+          // tokens. Opus 4.6 Fast hit the 8k ceiling mid-`directorPerspectives`
+          // and emitted truncated JSON · parseScaffold then returned
+          // null and the pipeline dropped to deterministic fallback,
+          // which has no visuals / divergence / risk — wiping every
+          // chart from the brief. Gemini 3 Flash is more terse on the
+          // same prompt so it cleared 8k on most rooms; Anthropic
+          // models reliably overflow. 16k matches Anthropic's max
+          // output cap for the Sonnet/Opus class.
+          maxTokens: 16000,
           signal: timeout.signal,
           onText: (_delta, full) => advanceOnBuffer(full),
         });
@@ -1985,8 +2013,10 @@ async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
 
   // Use the same flagship-first retry strategy as Stage 2 scaffold ·
   // bento is structurally similar (chair LLM producing strict JSON
-  // from the same SIGNALS block). Same retry budget, same temperature
-  // ladder, same maxTokens (bento output is shorter — ≤ 8K is plenty).
+  // from the same SIGNALS block). Same retry budget + temperature
+  // ladder + maxTokens — bento JSON also overflowed 8k on Anthropic
+  // Opus (same failure mode as the scaffold stage), so we now share
+  // the 16k cap.
   emitStage(args.roomId, args.briefId, "write", "active", undefined, undefined, { lo: 8, hi: 24 });
 
   for (const modelV of stageFlagshipList()) {
@@ -1999,7 +2029,7 @@ async function runBentoStage(args: BentoStageArgs): Promise<boolean> {
           modelV,
           messages,
           temperature: STAGE_2_TEMPERATURES[attempt] ?? 0.6,
-          maxTokens: 8000,
+          maxTokens: 16000,
           signal: args.signal,
         })) {
           if (chunk.type === "text") {

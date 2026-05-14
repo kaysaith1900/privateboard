@@ -45,6 +45,9 @@ import roomVoteTrigger032 from "./migrations/032_room_vote_trigger.sql";
 import roomMembersRemovedAt033 from "./migrations/033_room_members_removed_at.sql";
 import userTopicRecs034 from "./migrations/034_user_topic_recs.sql";
 import topicRecTag035 from "./migrations/035_topic_rec_tag.sql";
+import negativeSpace036 from "./migrations/036_negative_space.sql";
+import topicBranches037 from "./migrations/037_topic_branches.sql";
+import qdArchive038 from "./migrations/038_qd_archive.sql";
 
 interface Migration {
   name: string;
@@ -87,6 +90,9 @@ const MIGRATIONS: Migration[] = [
   { name: "033_room_members_removed_at.sql", sql: roomMembersRemovedAt033 },
   { name: "034_user_topic_recs.sql", sql: userTopicRecs034 },
   { name: "035_topic_rec_tag.sql", sql: topicRecTag035 },
+  { name: "036_negative_space.sql", sql: negativeSpace036 },
+  { name: "037_topic_branches.sql", sql: topicBranches037 },
+  { name: "038_qd_archive.sql", sql: qdArchive038 },
 ];
 
 let _db: Database.Database | null = null;

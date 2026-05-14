@@ -57,7 +57,7 @@
 .qcta-btn .ico {
   display: inline-flex;
   align-items: center;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1;
   color: var(--text-soft, #8E8B83);
@@ -101,7 +101,7 @@
   border: 0.5px solid var(--lime, #6FB572);
   color: var(--text, #C8C5BE);
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.04em;
   padding: 9px 16px;
@@ -200,7 +200,7 @@
   font-weight: 700;
 }
 .qask-quote-body {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.55;
   color: var(--text-soft, #8E8B83);
   font-style: italic;
@@ -230,7 +230,7 @@
   border: none;
   background: transparent;
   font-family: var(--font-human, var(--mono));
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--text, #C8C5BE);
   outline: none;
   padding: 9px 12px;

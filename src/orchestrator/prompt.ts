@@ -55,6 +55,27 @@ interface BuildOpts {
    *  (see `buildFollowUpPriorContext`). Empty / undefined for
    *  standalone rooms. */
   priorContext?: string;
+  /** Layer 1.4 · FRAME-BREAK GUIDANCE · noun-phrase terms that the
+   *  recent conversation has been over-investing in. Computed by
+   *  `extractDominantTerms` in `frame-break.ts` (haiku tier, ~1
+   *  call per director turn) and injected as a "do NOT extend
+   *  these" block near the tail of the system prompt. Undefined /
+   *  empty array on opening rounds, short rooms, or when no fixation
+   *  was detected. */
+  frameBreakTerms?: string[];
+  /** Layer 2.2 · FRAME-BREAKER ROLE · when set, this director is
+   *  designated as the round's frame-breaker. The system prompt
+   *  gets an extra block instructing them to either propose a
+   *  scenario where the current convergent concept does NOT apply,
+   *  or to introduce a fresh constraint dimension. Undefined for
+   *  non-frame-breaker directors and for non-reactive rounds. */
+  frameBreakerRole?: { convergentFrame: string };
+  /** Layer 3.2 · UNEXPLORED ANGLES · short list of angles the
+   *  previous round notably did NOT touch, captured by
+   *  `extractNegativeSpace` and persisted to the `negative_space`
+   *  table. Injected as a positive-space companion to the
+   *  frame-break terms ("don't go here" + "consider going here"). */
+  unexploredAngles?: string[];
   deliveryMode?: "text" | "voice";
 }
 
@@ -286,6 +307,117 @@ function renderPersonaFewShotBlock(speaker: Agent, deliveryMode: "text" | "voice
   return lines.join("\n");
 }
 
+/** Frame-break guidance · Layer 1.4 of the divergence stack. When
+ *  the orchestrator detects (via `extractDominantTerms` in
+ *  `frame-break.ts`) that the room is over-investing in a few terms,
+ *  this block surfaces them to the director as a soft no-go zone.
+ *  Sits BEFORE the persona-lens reminder so the model reads "don't
+ *  go here" before "here's who you are" before the language lock.
+ *  Empty string when no terms supplied (opening rounds, short rooms,
+ *  diverse rooms with no detected fixation). */
+function renderFrameBreakGuidance(terms?: string[]): string {
+  if (!terms || terms.length === 0) return "";
+  const bullets = terms.map((t) => `  · "${t}"`).join("\n");
+  return [
+    "",
+    `─── FRAME-BREAK GUIDANCE · WHAT THE ROOM HAS ALREADY OVER-INVESTED IN ───`,
+    `The following noun phrases have been the recurring fixation in the last several turns. The room's value is breadth, not depth-in-one-frame. For THIS turn:`,
+    bullets,
+    `Treat these as a soft no-go. You may touch them ONLY (a) as a counter-example ("unlike X, …") OR (b) to point out an assumption inside them the room hasn't questioned. Do NOT extend / refine / give a sub-angle on them. Find an entry point that lives OUTSIDE this cluster — a different stakeholder, a different time scale, a different mechanism, a different domain analogy.`,
+  ].join("\n");
+}
+
+/** Frame-breaker role · Layer 2.2. Designated rotating director
+ *  each reactive round receives this addendum, instructing them to
+ *  do one of two structural moves (propose [X]-doesn't-apply
+ *  scenario OR introduce new constraint dimension). Distinct from
+ *  the frame-break GUIDANCE (which is a soft no-go list everyone
+ *  sees); this is a specific job for ONE director per round. */
+function renderFrameBreakerRole(role?: { convergentFrame: string }): string {
+  if (!role || !role.convergentFrame) return "";
+  return [
+    "",
+    `─── YOUR EXTRA JOB THIS TURN · BREAK THE ROOM'S FRAME ───`,
+    `The room is converging on "${role.convergentFrame}". For THIS turn, you have been designated the frame-breaker. Your turn MUST do at least ONE of:`,
+    `  (a) Propose a concrete scenario / population / domain where "${role.convergentFrame}" simply does NOT apply, and show what the product / decision would look like there instead.`,
+    `  (b) Introduce a constraint dimension the room has not yet considered (a different time scale · a different stakeholder type · a different technical layer · a different cultural / regulatory context · a different physical / material constraint · a different value system) and show how it changes what matters.`,
+    `Do NOT execute this as a literal labelled item ("frame-breaker move: …"). Weave the move into your normal turn — the user sees the angle land naturally, not the assignment.`,
+  ].join("\n");
+}
+
+/** Unexplored angles · Layer 3.2. Positive companion to the
+ *  frame-break guidance (which says "don't go HERE"). When the
+ *  prior round-end captured angles that were notably absent, those
+ *  candidates are surfaced as one-line suggestions the director can
+ *  pick from. Empty array → block omitted. */
+function renderUnexploredAngles(angles?: string[]): string {
+  if (!angles || angles.length === 0) return "";
+  const bullets = angles.map((a) => `  · ${a}`).join("\n");
+  return [
+    "",
+    `─── UNEXPLORED ANGLES · WHERE THE ROOM HASN'T LOOKED YET ───`,
+    `The chair noted these angles were raised-then-abandoned or notably absent in recent rounds:`,
+    bullets,
+    `Pick ONE as a possible entry point for your turn — or generate a fresh one of your own. The room is starved for breadth, not depth; one bullet on a genuinely new angle is worth three bullets refining a familiar one.`,
+  ].join("\n");
+}
+
+/** Persona-lens reminder · sits at the TAIL of the system prompt
+ *  (after the reflection checklist, before the language lock) so the
+ *  director's most-recent-attention token block is "who I am, what
+ *  my default lens is" — not the room's converging conversation.
+ *  Transformer attention weights recent tokens highest; placing
+ *  persona DNA at the top (as speaker.instruction does) means by
+ *  the time the model generates, the room history has decayed it.
+ *  This block fights that decay by re-anchoring at the end.
+ *
+ *  Composed from PersonaSpecCore — top 3 loadBearingConcepts + top
+ *  2 contrarianTakes + 1 failureMode (so the model also remembers
+ *  what it shouldn't do). Falls back to a small slice of
+ *  speaker.instruction for Signal-mode / seed directors who have no
+ *  PersonaSpec; for those a single sentence covers it. Empty string
+ *  when the speaker has neither persona-spec nor a useful
+ *  instruction slice. */
+function renderPersonaLensReminder(speaker: Agent): string {
+  const spec = speaker.personaSpec;
+  if (spec && spec.spec) {
+    const concepts = (spec.spec.loadBearingConcepts || []).slice(0, 3);
+    const takes = (spec.spec.contrarianTakes || []).slice(0, 2);
+    const failure = (spec.spec.failureModes || [])[0] || "";
+    if (concepts.length === 0 && takes.length === 0) return "";
+    const lines: string[] = [
+      "",
+      `─── YOUR LENS · LAST-MINUTE REMINDER ───`,
+      `Before you generate, re-anchor on who YOU are at this table. The conversation above has its own gravity; do NOT let it pull you off your signature angle.`,
+    ];
+    if (concepts.length > 0) {
+      lines.push(`Your load-bearing concepts (the moves you naturally make): ${concepts.join(" · ")}.`);
+    }
+    if (takes.length > 0) {
+      lines.push(`Your contrarian takes (push back from these when the room is converging): ${takes.join(" · ")}.`);
+    }
+    if (failure) {
+      lines.push(`Your most common failure mode (avoid it this turn): ${failure}.`);
+    }
+    lines.push(`Speak from this. Not from the room's average frame.`);
+    return lines.join("\n");
+  }
+  // Signal-mode / seed directors · cheap fallback. Pull the first
+  // ~280 chars of the director's instruction as the lens prompt.
+  // The instruction sits at the very top of the system prompt and
+  // will have decayed by this point; this is just a brief recall.
+  const instr = (speaker.instruction || "").trim();
+  if (!instr) return "";
+  const slice = instr.length > 280 ? instr.slice(0, 280) + "…" : instr;
+  return [
+    "",
+    `─── YOUR LENS · LAST-MINUTE REMINDER ───`,
+    `Before you generate, re-anchor on who YOU are at this table — the conversation above has its own gravity, do not let it pull you off your signature angle.`,
+    `Recall your director frame: ${slice}`,
+    `Speak from this lens, not from the room's average frame.`,
+  ].join("\n");
+}
+
 function renderPersonaReflectionBlock(speaker: Agent): string {
   const spec = speaker.personaSpec;
   if (!spec || spec.reflectionChecklist.length === 0) return "";
@@ -405,7 +537,15 @@ const TONE_GUIDANCE: Record<string, string> = {
     "## Optional · one synthesis turn per round",
     "Once per round, ONE director may do a synthesis turn instead of pure generation: pick 2–3 of the room's ideas and propose 1–2 combinations. Use sparingly — 80%+ of turns should be pure generation. The room's value is in the pile of ideas, not the polish on any one.",
     "",
-    "PERSONA OVERRIDE · your director instruction reads like Socrates / First Principles / Value Investor — the demand-definition / demand-mechanism / demand-base-rate DNA. **For THIS room ALL of that is PAUSED.** You are not your usual analytical self here; you're a fast idea-generator. Lean INTO yes-and, INTO loose connections, INTO half-formed variants. Your TURN_DIRECTIVE (\"introduce a new variable / constraint / analogy / counter-example\") is fully satisfied by raising a fresh idea or doing a yes-and combination — you don't need to attack anything. This is the one room where your dissent DNA is suspended end-to-end.",
+    "PERSONA OVERRIDE · your director instruction reads like Socrates / First Principles / Value Investor — the demand-definition / demand-mechanism / demand-base-rate DNA. For THIS room, the **rigor / forensic mode** of that DNA is paused (no slow definition-check ladders, no methodical mechanism decomposition, no insistence on base-rate citation before moving) — that's too slow for brainstorm cadence. But the **contrarian / curiosity / lens-distinctness** half of your DNA is *AMPLIFIED*, not paused. Your persona's signature angles (your loadBearingConcepts, your contrarianTakes, your failureModes) are exactly what produces the unexpected ideas the room needs.",
+    "",
+    "DIVERGENCE DISCIPLINE (this is the anti-convergence rule, read it twice) ·",
+    "  · The room's gravitational pull, after 2-3 rounds, is toward whatever phrase has been said the most. Resist this consciously. If a core word from the prior 2 turns is about to appear in your turn, **stop and find a different entry point**. Saying it a second time = you got pulled. Saying it a third = the room has collapsed.",
+    "  · Yes-and is allowed for ONE of your bullets at most. The other 3-5 bullets must each open a direction the prior turn(s) did NOT touch. Yes-and is the local move; the room's job is global coverage.",
+    "  · If the most recent turn lived in domain X (e.g. \"audit\", \"trust\", \"workflow\"), your turn's center of gravity must be at LEAST one domain away (e.g. if peers are on audit, you go to physical environment, or cultural ritual, or time scale, or hidden user, or material constraint — not \"audit but for X\").",
+    "  · Half-baked + concrete > polished + abstract. \"What if the AI sat on a literal chair and rolled with the team\" beats \"AI as a collaborative presence layer\" every time. Wild specificity > safe generality.",
+    "  · Your contrarian DNA: if your persona would normally push back against the room's emerging consensus, DO IT — but in brainstorm style: not as a 5-sentence rebuttal but as ONE counter-idea bullet that opens a fresh angle (\"contra all the productivity talk — what if the assistant's job is to slow people down at exactly 3 inflection points a day?\").",
+    "  · TURN_DIRECTIVE (\"introduce a new variable / constraint / analogy / counter-example\") here means **at least one bullet of every turn must satisfy it**. Yes-and bullets don't count toward this floor.",
   ].join("\n"),
   constructive: [
     "CONSTRUCTIVE · sympathetic interrogator. You want the user to win, but only via an idea that can actually survive scrutiny.",
@@ -910,14 +1050,35 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `· When the user's most recent input is already in the room (visible above as a [${prefs.name || "You"}] turn), you may acknowledge it ONCE in the opening sweep — never again. On any later turn, do NOT open with "Since you asked …" / "As you requested …" / "既然你要求了 …" / "按你说的 …" / "既然你提出 …" / "你既然让我 …" or any rephrasing. The user's direction is absorbed context now; engage with the discussion, don't re-preface every turn — that loops. If you've already spoken once on this user input, your next turn must move PAST that acknowledgment.`,
       `· If you genuinely have NOTHING substantive to add this turn — the room has exhausted your angle, every point you'd make has already been made — return an EMPTY response (no text at all). Do NOT narrate your silence. Never output "（沉默）", "(silent)", "我没有更多要补充的", "I have nothing to add", "pass this round", "skip this turn", "abstain", or any variant. Those bubbles read as "the director gave up" and pollute the transcript; the system handles silent turns gracefully and moves the queue on. Return empty OR find one genuinely fresh angle (a different lens, a sharper edge case, a counter-frame, a missing trade-off) — never the meta-narration in between.`,
       `· The TONE and INTENSITY blocks above are the room's working agreement — they OVERRIDE ${toneOverrideTarget} The user explicitly opted into this register; staying in role is the helpful behaviour, not breaking it for trained politeness or trained adversariness.`,
-      // Persona reflection checklist · last persona-tuned entry in
-      // the system prompt. Empty string (no-op) for Signal-mode and
-      // seeded directors · zero per-turn cost. The checklist is
-      // tuned per-persona by Phase 6 of the build pipeline · catches
-      // failure modes specific to THIS director (e.g. "Am I
-      // repeating @another_director's mechanism point?" for a
-      // Historian).
+      // Persona reflection checklist · catches failure modes
+      // specific to THIS director (e.g. "Am I repeating
+      // @another_director's mechanism point?" for a Historian).
+      // Empty for Signal-mode / seed directors.
       renderPersonaReflectionBlock(speaker),
+      // Frame-break guidance (Layer 1.4) · "the room is converging
+      // on X / Y / Z — don't extend them this turn." Soft no-go
+      // list seen by ALL directors. Empty on opening rounds, short
+      // rooms, and diverse rooms where no fixation detected.
+      renderFrameBreakGuidance(opts.frameBreakTerms),
+      // Unexplored angles (Layer 3.2) · positive companion · "here
+      // are angles the room hasn't gone to yet; pick one or generate
+      // your own." Empty when no negative-space record exists.
+      renderUnexploredAngles(opts.unexploredAngles),
+      // Frame-breaker role (Layer 2.2) · single designated
+      // director per round; addendum tells them to do one of two
+      // structural moves to break the room's frame. Empty for
+      // non-frame-breakers and non-reactive rounds.
+      renderFrameBreakerRole(opts.frameBreakerRole),
+      // Persona-lens reminder · re-anchors the director on their
+      // signature angle (top 3 loadBearingConcepts + top 2
+      // contrarianTakes + worst failure mode) at the very tail of
+      // the system prompt. The base persona instruction at the TOP
+      // of the prompt has decayed against transformer attention by
+      // this point; this reminder fights the conversational-mean
+      // gravity that pulls directors into homogeneous voice by
+      // round 3-4. See renderPersonaLensReminder above for the
+      // composition rules.
+      renderPersonaLensReminder(speaker),
       // Target-language LANGUAGE LOCK · TRULY the last block in the
       // system prompt so it's the freshest signal in the LLM's
       // attention. Written in the room's working language (Chinese

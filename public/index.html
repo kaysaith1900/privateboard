@@ -86,6 +86,93 @@
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
+  /* ─────────── GLOBAL CHECKBOX · themed ───────────
+     Every native checkbox in the app is restyled here · the
+     browser default (blue tick on a sky-blue fill) clashes with
+     every project theme. We take over rendering via
+     `appearance: none`, paint a square hairline box, fill it with
+     the active theme's accent (`--lime`) when checked, and draw
+     a tight checkmark glyph clipped from a polygon so we don't
+     need an inline SVG per checkbox.
+
+     Token mapping:
+       · default border       · var(--line-bright)
+       · default background   · var(--bg)
+       · hover border         · var(--text-soft)
+       · checked fill+border  · var(--lime) (every theme remaps this)
+       · checkmark glyph      · var(--bg)    (dark on lime in dark
+                                              themes · white-ish on
+                                              the saturated lime in
+                                              light themes like
+                                              atrium / pinterest)
+       · focus ring           · 2px var(--lime) at 1px offset
+       · disabled             · 0.45 opacity, no pointer
+
+     Local checkbox styles (followup-checkbox / rs-incognito-check /
+     rs-member-check) only need to override SIZE / spacing now; the
+     visual treatment lives here. Project-wide consistency · zero
+     surface-by-surface drift. */
+  input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    vertical-align: middle;
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    border-radius: 0;
+    transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  }
+  input[type="checkbox"]:hover:not(:disabled):not(:checked) {
+    border-color: var(--text-soft);
+  }
+  input[type="checkbox"]:checked {
+    background: var(--lime);
+    border-color: var(--lime);
+  }
+  input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    background: var(--bg);
+    /* Tight checkmark polygon · sized to fit a 14 px box with
+       2 px inset. Drawn so the stroke reads at 10 px size. */
+    clip-path: polygon(
+      14% 50%, 0 65%, 38% 100%, 100% 30%, 86% 16%, 38% 70%
+    );
+  }
+  input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--lime);
+    outline-offset: 1px;
+  }
+  input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  /* Indeterminate · seldom used in the app today but a tri-state
+     box could land here (e.g. director-picker "partial selection"
+     row). Renders as a horizontal bar in the accent color. */
+  input[type="checkbox"]:indeterminate {
+    background: var(--lime);
+    border-color: var(--lime);
+  }
+  input[type="checkbox"]:indeterminate::after {
+    content: "";
+    position: absolute;
+    left: 2px; right: 2px;
+    top: 50%;
+    height: 2px;
+    transform: translateY(-50%);
+    background: var(--bg);
+    clip-path: none;
+  }
+
   /* ─────────── SYSTEM NOTICE BANNER ───────────
      Dismissible single-line notice that appears above the app shell
      when storage migrations have been applied. Mono micro-type, lime
@@ -100,7 +187,7 @@
     background: var(--panel-2, #1A1A18);
     border-bottom: 0.5px solid var(--lime-dim, #2D5532);
     font-family: var(--mono, "Inter", system-ui, sans-serif);
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-soft, #8E8B83);
     flex-shrink: 0;
   }
@@ -448,7 +535,7 @@
   }
   .sidebar-tab.active .ico { opacity: 1; }
   .sidebar-tab .count {
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-faint);
     font-weight: 400;
     margin-left: 1px;
@@ -499,7 +586,7 @@
     background: var(--bg);
     border: 0.5px solid var(--line-bright);
     padding: 0 5px;
-    font-size: 8.5px;
+    font-size: 8px;
     color: var(--text-dim);
   }
 
@@ -581,13 +668,15 @@
      the full row width minus the hover-revealed pin button). */
   .agent-row .agent-row-subtitle {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-dim);
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   .agent-row .agent-row-status::before {
     content: "● ";
@@ -603,6 +692,7 @@
   }
   .agent-row .agent-row-sep {
     color: var(--line-bright);
+    margin: 0 4px;
   }
 
   /* Chair row · structural moderator pinned to the top of the agents
@@ -680,9 +770,9 @@
     letter-spacing: 0.2em;
     text-transform: uppercase;
     /* Track the active theme's primary accent — `--lime` remaps per
-       theme (gold in regent, blue in apple, red in pinterest,
-       magenta in amuse, etc.). The earlier `--cyan` was static and
-       clashed in themes whose palette didn't include teal. */
+       theme (gold in regent, red in pinterest, magenta in amuse,
+       etc.). The earlier `--cyan` was static and clashed in themes
+       whose palette didn't include teal. */
     color: var(--lime);
     background: transparent;
     border: none;
@@ -760,7 +850,7 @@
   .pb-row-tag {
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--lime);
@@ -772,7 +862,7 @@
   }
   .agent-row.pb-row .agent-row-subtitle {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-soft);
@@ -790,7 +880,7 @@
     background: var(--bg);
     border: 0.5px solid var(--line-bright);
     font-family: var(--mono);
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--text);
   }
   .search-input:focus { outline: none; border-color: var(--lime); background: var(--panel-2); }
@@ -1166,7 +1256,7 @@
   }
   .adjourned-empty-title {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -1230,7 +1320,7 @@
     letter-spacing: -0.005em;
   }
   .row-subtitle {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-dim);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1251,7 +1341,7 @@
     text-align: center;
     padding: 14px 8px 18px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-faint);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -1273,10 +1363,11 @@
   .sidebar-foot {
     border-top: 0.5px solid var(--line-bright);
     padding: 0 10px;
-    /* Pinned to the same min-height as the room's `.adjourned-bar`
-       (the "Convene Follow-up" rail at the bottom of an adjourned
-       room) so the two footers sit on a single visual baseline
-       regardless of which view is showing. */
+    /* Fixed 44px min-height so the sidebar footer sits on a
+       predictable baseline regardless of which main view is
+       showing. The previous coupling with `.adjourned-bar` is no
+       longer relevant — the room's bottom bar is now the floating
+       `.input-bar`, anchored from the chat-col interior. */
     min-height: 44px;
     box-sizing: border-box;
     display: flex;
@@ -1333,7 +1424,7 @@
   }
   .user-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .user-name {
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text);
     line-height: 1.1;
@@ -1373,6 +1464,24 @@
     background: var(--panel-3);
     color: var(--lime);
     border-color: var(--lime);
+  }
+  /* Settings trigger · Lucide Settings (gear) glyph in the same
+     mask-image vocabulary as the .new-btn.nav-* sidebar icons.
+     Keeps the bottom row visually paired with the search /
+     all-notes / all-reports rows above. */
+  .icon-btn[data-user-settings-trigger]::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/><circle cx='12' cy='12' r='3'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/><circle cx='12' cy='12' r='3'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
   }
 
   /* ═══════════════════════════════════════════
@@ -1492,7 +1601,7 @@
   }
   .reports-page-kicker {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.22em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -1501,7 +1610,7 @@
   }
   .reports-page-meta {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-dim);
   }
@@ -1553,7 +1662,7 @@
   .reports-filter-count,
   .notes-filter-count {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-faint);
     font-weight: 400;
     letter-spacing: 0;
@@ -1632,7 +1741,7 @@
     align-items: baseline;
     gap: 6px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -1677,7 +1786,7 @@
   .reports-item-title {
     font-family: var(--font-human);
     font-size: 18px;
-    font-weight: 700;
+    font-weight: 400;
     line-height: 1.3;
     letter-spacing: -0.005em;
     color: var(--text);
@@ -1686,7 +1795,7 @@
   }
   .reports-item-judgement {
     font-family: var(--font-human);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin: 0 0 8px;
@@ -1701,7 +1810,7 @@
     align-items: baseline;
     gap: 6px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -1888,7 +1997,7 @@
   }
   .notes-page-kicker {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.22em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -1897,7 +2006,7 @@
   }
   .notes-page-meta {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-dim);
   }
@@ -2250,7 +2359,7 @@
        to read right. The taller padding also gives the
        hero card more presence. */
     padding: 22px 22px;
-    font-size: 14.5px;
+    font-size: 14px;
     line-height: 1.55;
     letter-spacing: -0.003em;
   }
@@ -2345,7 +2454,7 @@
   .search-page.has-results .search-input-toolbar { display: none; }
   .search-toolbar-hint {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -2409,7 +2518,7 @@
     gap: 4px;
     flex-shrink: 0;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
@@ -2724,7 +2833,7 @@
     gap: 6px;
     flex-wrap: wrap;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -2842,7 +2951,7 @@
     border: 0.5px solid var(--line-bright, #2A2A26);
     color: var(--text-soft, #8E8B83);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     font-weight: 700;
@@ -2898,7 +3007,7 @@
   }
   .share-card-hint {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-faint, #5C5A52);
@@ -2929,7 +3038,7 @@
     bottom: 22px;
     right: 32px;
     font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     opacity: 0.55;
@@ -2953,20 +3062,13 @@
      Reference: https://dribbble.com/userupload/13578237 (WorkOS
      Launch Week 8-bit poster). */
   .share-card[data-share-template="boardroom"] {
-    /* 8 hard-stop bands · near-black purple → deep purple →
-       mauve → rose → coral → orange → peach → cream. Each band
-       is a fixed-percentage stripe so the transitions are sharp
-       (8-bit "no anti-alias" feel), not a smooth gradient. */
-    background: linear-gradient(180deg,
-      #1B0A35 0%,    #1B0A35 5%,
-      #2D1452 5%,    #2D1452 11%,
-      #4A2070 11%,   #4A2070 18%,
-      #6B2B6E 18%,   #6B2B6E 25%,
-      #A03B5E 25%,   #A03B5E 33%,
-      #D85F4C 33%,   #D85F4C 41%,
-      #ED8E48 41%,   #ED8E48 49%,
-      #F4C078 49%,   #F4C078 57%,
-      #F8D898 57%,   #F8D898 100%);
+    /* Flat fallback in case `share-cover-svg-creator.js` failed to
+       load · the renderer normally overrides this with an inline
+       `style="background: <skyGradient>"` 9-stop hard-step
+       gradient (sunset / dawn / midnight / dusk / tropical /
+       aurora). Without an override the card still paints
+       something (deepest sky band of the default palette). */
+    background: #1B0A35;
     color: #1B0A35;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
@@ -2983,7 +3085,7 @@
     justify-content: space-between;
     align-items: baseline;
     font-family: var(--mono, monospace);
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.24em;
     text-transform: uppercase;
     color: #F4D898;
@@ -3013,88 +3115,168 @@
     font-size: 11px;
     transform: translateY(0.5px);
   }
-  /* Wooden 8-bit signpost · cream parchment interior framed by a
-     chunky 8px wood-tone border, with a 2px pixel bevel inside
-     the wood (sun-side highlight + shadow-side darker tone), a
-     2px dark outline outside the wood ("ink line"), and a hard
-     6px drop shadow on the ground for the 8-bit sticker feel.
-     Four pixel "nails" pin the frame at each corner (added
-     inline by the renderer; styled below).
+  /* ASCII PRIVATE BOARD logo · 10-row block-letter art rendered in
+     monospace at the top of the card, just below the brand crumb.
+     Warm cream colour (#F4D898 — same as the header) so it reads on
+     every randomized sky palette (sunset / dawn / midnight / dusk /
+     tropical / aurora). Centred horizontally, anchored at top:84px
+     so it occupies y≈80-260 (clear of the header at y=22-40 and
+     well above the panel's worst-case top edge at y=290). */
+  .share-card[data-share-template="boardroom"] .sc-logo {
+    position: absolute;
+    /* Anchored at y=130 (was 84) so the logo sits midway between
+       the brand-strip header at y=22-40 and the black quote panel
+       at y=290+. At 12px line-height 1.0 the 10-row block spans
+       y=130-250 — 40px of breathing room above the panel. */
+    top: 130px;
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+    white-space: pre;
+    /* Explicit monospace stack · the site's `--mono` token is
+       actually a humanist SANS stack ("Human Sans", "Inter", …),
+       which renders FULL BLOCK chars (█) at inconsistent widths
+       and triggers per-glyph font substitution → the ASCII art
+       comes out garbled. Hard-code the same JetBrains Mono → Menlo
+       fallback chain the terminal template uses so every glyph
+       lines up against every space. */
+    font-family: "JetBrains Mono", "Menlo", "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.0;
+    letter-spacing: 0;
+    font-weight: 400;
+    /* Colour + shadow are fixed across rolls — only the LETTER
+       SHAPES vary (block / slim / thick typeface designs picked by
+       the share-cover-svg-creator). Warm cream on a deep-purple
+       drop-shadow reads on every randomized sky palette. */
+    color: #F4D898;
+    text-shadow: 2px 2px 0 #1B0A35;
+    pointer-events: none;
+    z-index: 2;
+  }
+  /* Pixel-mosaic message panel · a chunky black block with stepped
+     "missing-corner" cuts on all four sides (CSS clip-path polygon
+     of 28 right-angle vertices, all axis-aligned for that authentic
+     8-bit-mosaic feel). White text inside, hard offset drop shadow
+     in a deep purple so it reads as a sticker dropped onto the
+     sunset background. Inspired by the retro-party poster the
+     user shared.
 
-     The tail is intentionally absent — a wooden sign doesn't
-     speech-bubble. The two pseudo-elements that used to draw the
-     tail are hidden. */
+     Decorative colored pixel blocks are rendered inline as
+     `<span class="sc-block">` children with inline `top/right/
+     bottom/left + background` styles (4-8 px squares in pink /
+     yellow / cyan / lime / red, scattered around the panel). */
   .share-card[data-share-template="boardroom"] .sc-bubble {
     position: absolute;
-    top: 200px;
+    /* Centre-anchored at y=460 · pushed further down (from 360)
+       now that the ASCII PRIVATE BOARD logo occupies y=80-260
+       above. Content drives the height via `height: fit-content`
+       and `max-height: 340` caps the growth so worst-case panel
+       bottom (y=630) stays clear of the river (top ~651). As
+       content grows the panel expands SYMMETRICALLY in both
+       directions, keeping the visual centre of gravity stable.
+       Worst-case panel span: y=290-630. */
+    top: 460px;
+    transform: translateY(-50%);
     left: 32px;
     right: 32px;
-    max-height: 260px;
-    min-height: 160px;
-    background: #FFF6D9;
-    /* 8px wood-tone border carries the bevel inset highlights */
-    border: 8px solid #7A5230;
-    box-shadow:
-      inset  2px  2px 0 #C8A877,   /* top-left wood highlight */
-      inset -2px -2px 0 #4A2E18,   /* bottom-right wood shadow */
-      0 0 0 2px #1B0A35,           /* outer ink-line outline */
-      6px 6px 0 0 #1B0A35;         /* 8-bit drop shadow */
-    padding: 24px 28px;
-    color: #1B0A35;
+    height: fit-content;
+    max-height: 340px;
+    background: #0F0813;
+    color: #FFFFFF;
+    padding: 26px 30px;
     font-family: "Tiempos Text", "Charter", "Iowan Old Style", "Georgia", serif;
     font-style: italic;
-    line-height: 1.42;
+    line-height: 1.45;
     text-align: left;
     z-index: 3;
     overflow: hidden;
+    /* 3-step pixel-mosaic corner cuts · all-axis-aligned segments
+       so the silhouette reads as an 8-bit pixelated rectangle. */
+    clip-path: polygon(
+      12px 0, calc(100% - 12px) 0,
+      calc(100% - 12px) 4px, calc(100% - 8px) 4px,
+      calc(100% - 8px) 8px,  calc(100% - 4px) 8px,
+      calc(100% - 4px) 12px, 100% 12px,
+      100% calc(100% - 12px),
+      calc(100% - 4px) calc(100% - 12px),
+      calc(100% - 4px) calc(100% - 8px),
+      calc(100% - 8px) calc(100% - 8px),
+      calc(100% - 8px) calc(100% - 4px),
+      calc(100% - 12px) calc(100% - 4px),
+      calc(100% - 12px) 100%, 12px 100%,
+      12px calc(100% - 4px), 8px calc(100% - 4px),
+      8px calc(100% - 8px),  4px calc(100% - 8px),
+      4px calc(100% - 12px), 0 calc(100% - 12px),
+      0 12px,
+      4px 12px, 4px 8px,
+      8px 8px,  8px 4px,
+      12px 4px
+    );
+    /* `box-shadow` ignores `clip-path`; `filter: drop-shadow` follows
+       the clipped silhouette so the offset shadow keeps the pixel-
+       mosaic stepped edge — exactly the 8-bit "sticker" look. */
+    filter: drop-shadow(4px 4px 0 #1B0A35);
   }
-  /* Tail removed for the wooden plank · clean rectangular frame. */
+  /* Old tail / wood-plank pseudo-elements suppressed. */
   .share-card[data-share-template="boardroom"] .sc-bubble::before,
   .share-card[data-share-template="boardroom"] .sc-bubble::after {
     display: none;
   }
-  /* Pixel nails · 4×4 dark squares pinned to the middle of the
-     8px wood border at each corner. Reads as the iron nails
-     holding the wooden plank together. */
-  .share-card[data-share-template="boardroom"] .sc-nail {
+  /* Decorative colored pixel blocks on the black panel · each one
+     is an inline span whose position + size + color is set via the
+     `style` attribute by the renderer. Sits behind the meta + quote
+     text via z-index. */
+  .share-card[data-share-template="boardroom"] .sc-block {
     position: absolute;
-    width: 4px;
-    height: 4px;
-    background: #1B0A35;
-    z-index: 4;
+    pointer-events: none;
+    z-index: 1;
   }
-  .share-card[data-share-template="boardroom"] .sc-nail.tl { top: 2px;    left: 2px; }
-  .share-card[data-share-template="boardroom"] .sc-nail.tr { top: 2px;    right: 2px; }
-  .share-card[data-share-template="boardroom"] .sc-nail.bl { bottom: 2px; left: 2px; }
-  .share-card[data-share-template="boardroom"] .sc-nail.br { bottom: 2px; right: 2px; }
-  .share-card[data-share-template="boardroom"] .sc-bubble-text { margin: 0; }
-  /* Topic annotation above the quote · small monospace kicker
-     showing what question the room was convened around (the
-     note's `roomSubject`). Reads as a hand-written marginalia /
-     code-comment on the wooden plank: `// re: <subject>`. A
-     1-px dashed underline separates it from the main quote with
-     comfortable padding on both sides so the line never sits
-     flush against the text. No line-clamp · long subjects wrap
-     naturally, and the bubble's font-size tier-down keeps the
-     quote readable even when the meta block takes a few lines. */
+  .share-card[data-share-template="boardroom"] .sc-bubble-name,
+  .share-card[data-share-template="boardroom"] .sc-divider,
+  .share-card[data-share-template="boardroom"] .sc-bubble-text,
   .share-card[data-share-template="boardroom"] .sc-bubble-meta {
-    display: block;
+    position: relative;
+    z-index: 2;
+  }
+  .share-card[data-share-template="boardroom"] .sc-bubble-text {
+    margin: 0;
+    color: #FFFFFF;
+    /* Cap the quote at 5 lines · the JS-driven font-size tier-down
+       still shrinks for long quotes, but the clamp guarantees the
+       panel never blows past its `max-height: 260` even for
+       extreme 200+ char passages. Trailing ellipsis added by
+       `-webkit-line-clamp` when the content overflows. */
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Topic annotation · third (bottom) section of the panel, sits
+     beneath the second `.sc-divider`. Quiet cream-grey marginalia
+     register, regular weight, no own border (the divider above it
+     provides the separation). Capped at 3 lines so long room
+     subjects don't blow the panel's height budget. */
+  .share-card[data-share-template="boardroom"] .sc-bubble-meta {
     font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
-    font-size: 10px;
-    letter-spacing: 0.14em;
+    font-size: 12px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #6B5A48;
+    color: #B5AC9C;
     font-style: normal;
-    /* Annotation reads as quiet marginalia — regular weight, no
-       bold. The CJK override below keeps Chinese in regular
-       weight too (overriding the default `.cjk { weight: 700 }`). */
     font-weight: 400;
     line-height: 1.5;
-    margin: 0 0 16px 0;
-    padding-bottom: 14px;
-    border-bottom: 1px dashed rgba(27, 10, 53, 0.32);
+    margin: 0;
     word-break: break-word;
     overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    position: relative;
+    z-index: 2;
   }
   .share-card[data-share-template="boardroom"] .sc-bubble-meta .cjk {
     font-weight: 400;
@@ -3117,52 +3299,85 @@
     font-style: normal;
     letter-spacing: 0;
   }
-  /* Byline · stone-textured pixel plaque holding the director
-     name. Same three-tone stone palette as the river-bank rocks
-     (mid-grey body / lighter top-left highlight / darker bottom-
-     right rim) plus a 2px dark outline + a 4px hard drop shadow,
-     so the label reads as a chunky 8-bit name-plate carved
-     from the same rock vocabulary. Centred horizontally below
-     the wooden bubble. CJK director names inside it render in
-     PingFang bold via the `.cjk` rule above (italic skew is
-     intentionally not applied to CJK glyphs). */
-  .share-card[data-share-template="boardroom"] .sc-byline {
-    position: absolute;
-    top: 488px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: inline-flex;
-    align-items: center;
-    padding: 8px 22px;
-    background: #7A6F62;
-    border: 2px solid #1B0A35;
-    box-shadow:
-      inset  2px  2px 0 #9F9388,
-      inset -2px -2px 0 #4A4038,
-      4px 4px 0 0 #1B0A35;
-    color: #FFF6D9;
-    font-family: "Tiempos Text", "Charter", "Iowan Old Style", "Georgia", serif;
-    font-style: italic;
-    font-size: 16px;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-    text-align: center;
-    white-space: nowrap;
-    max-width: 380px;
-    z-index: 4;
+  /* Director-name section (first row inside the black panel) ·
+     mono uppercase kicker that opens the message with "Distilled ·
+     <name>" (i18n'd). Bold weight at 12px so it reads as a
+     header label, distinct from the serif italic quote below.
+     CJK names switch to STHeiti bold via the `.cjk` rule. */
+  .share-card[data-share-template="boardroom"] .sc-bubble-name {
+    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
+    font-size: 14px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #FFFFFF;
+    font-weight: 700;
+    line-height: 1.4;
+    margin: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    position: relative;
+    z-index: 2;
+    /* Cap at 2 lines · really long names still don't bleed into
+       the divider / quote below. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  /* Watermark + stamp · dark purple chrome on the warm-cream
-     bottom band so they read like a stamped postal mark. */
+  /* Section divider · thin fading hairline + a small 4×4 pixel
+     pip in the dead centre. Reads as a typographic ornament
+     rather than the noisier dashed-pixel row that used to live
+     here. ::before paints the line (linear-gradient with
+     transparent fades at both ends so the hairline doesn't
+     touch the panel edges), ::after paints the centre square. */
+  .share-card[data-share-template="boardroom"] .sc-divider {
+    position: relative;
+    height: 6px;
+    margin: 16px 0;
+    z-index: 2;
+  }
+  .share-card[data-share-template="boardroom"] .sc-divider::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    margin-top: -0.5px;
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      rgba(255, 255, 255, 0.22) 12%,
+      rgba(255, 255, 255, 0.22) 88%,
+      transparent 100%
+    );
+  }
+  .share-card[data-share-template="boardroom"] .sc-divider::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    background: rgba(255, 255, 255, 0.75);
+  }
+  /* Watermark + stamp · color follows the active ground material's
+     foreground via the `--sc-fg` CSS variable set inline by the
+     renderer (cream on dark grounds like volcanic, dark purple on
+     light grounds like sand / snow / lavender). Fallback `#4A2070`
+     keeps the old dark-purple look if the variable isn't set
+     (e.g. share-cover-svg-creator.js failed to load). */
   .share-card[data-share-template="boardroom"] .share-card-watermark {
-    color: #4A2070;
+    color: var(--sc-fg, #4A2070);
     bottom: 16px;
     left: 28px;
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.22em;
     opacity: 1;
   }
   .share-card[data-share-template="boardroom"] .share-card-stamp {
-    color: #4A2070;
+    color: var(--sc-fg, #4A2070);
     bottom: 16px;
     right: 28px;
     opacity: 0.7;
@@ -3175,161 +3390,148 @@
   .share-card[data-share-template="boardroom"] .mod-gem { fill: var(--cyan, #6A9B97); }
   .share-card[data-share-template="boardroom"] .mod-gem-hi { fill: color-mix(in srgb, var(--cyan, #6A9B97) 50%, #FFFFFF 50%); }
 
-  /* ── Template B · EDITORIAL · warm cream, pull-quote, serif ─── */
-  .share-card[data-share-template="editorial"] {
-    background: #F4EFE3;
-    color: #2A2620;
-    padding: 56px 52px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-  }
-  .share-card[data-share-template="editorial"] .sc-quotemark {
-    font-family: "Tiempos Headline", "Charter", "Georgia", serif;
-    font-size: 120px;
-    line-height: 0.6;
-    color: #B5704A;
-    margin: 0 0 -28px;
-    user-select: none;
-  }
-  .share-card[data-share-template="editorial"] .sc-quote {
-    font-family: "Tiempos Headline", "Charter", "Iowan Old Style", "Georgia", serif;
-    line-height: 1.32;
-    color: #2A2620;
-    margin: 0;
-    font-weight: 500;
-    /* Font-size set inline by the renderer for length-based step-down. */
-  }
-  .share-card[data-share-template="editorial"] .sc-quote em {
-    font-style: italic;
-    color: #B5704A;
-  }
-  .share-card[data-share-template="editorial"] .sc-byline {
-    margin-top: 24px;
-    padding-top: 18px;
-    border-top: 0.5px solid #B5A893;
-    font-family: var(--mono, monospace);
-    font-size: 10.5px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #6F6354;
-  }
-  .share-card[data-share-template="editorial"] .sc-byline strong {
-    color: #B5704A;
-    font-weight: 700;
-  }
-  .share-card[data-share-template="editorial"] .share-card-watermark { color: #6F6354; }
-  .share-card[data-share-template="editorial"] .share-card-stamp { color: #8E8270; }
-
-  /* ── Template C · TERMINAL · monospace CRT ──────────────────── */
+  /* ── Template B · TERMINAL · CLI / code card ────────────────── */
   .share-card[data-share-template="terminal"] {
     background: #0E1414;
-    color: #C9F2C2;
-    padding: 44px 38px;
-    display: flex;
-    flex-direction: column;
-    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
-  }
-  .share-card[data-share-template="terminal"] .sc-frame {
-    flex: 1;
-    border: 1px solid var(--lime, #6FB572);
-    padding: 28px 26px;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-  }
-  .share-card[data-share-template="terminal"] .sc-frame::before {
-    content: "// excerpt";
-    position: absolute;
-    top: -7px;
-    left: 24px;
-    background: #0E1414;
-    color: var(--lime, #6FB572);
-    font-family: var(--mono, monospace);
-    font-size: 10px;
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    padding: 0 8px;
-  }
-  .share-card[data-share-template="terminal"] .sc-prompt {
-    font-family: var(--mono, monospace);
-    font-size: 10.5px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--lime, #6FB572);
-    margin-bottom: 18px;
-  }
-  .share-card[data-share-template="terminal"] .sc-quote {
-    font-family: var(--mono, "JetBrains Mono", "Menlo", monospace);
-    line-height: 1.55;
     color: #DDF6D7;
-    margin: 0;
-    flex: 1;
-    /* Font-size set inline by the renderer for length-based step-down. */
-  }
-  .share-card[data-share-template="terminal"] .sc-byline {
-    margin-top: 22px;
-    font-family: var(--mono, monospace);
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--lime, #6FB572);
-  }
-  .share-card[data-share-template="terminal"] .sc-byline-dim { color: #8E9D89; }
-  .share-card[data-share-template="terminal"] .share-card-watermark { color: var(--lime, #6FB572); left: 24px; bottom: 18px; }
-  .share-card[data-share-template="terminal"] .share-card-stamp { color: #8E9D89; right: 24px; bottom: 18px; }
-
-  /* ── Template D · MAGAZINE · mixed serif + sans, pull-quote ─── */
-  .share-card[data-share-template="magazine"] {
-    background: linear-gradient(180deg, #FFFFFF 0%, #F2EFE9 100%);
-    color: #1A1A1A;
-    padding: 56px 52px;
+    padding: 24px 22px 64px;
     display: flex;
     flex-direction: column;
+    font-family: "JetBrains Mono", "Menlo", "Consolas", "Courier New", monospace;
   }
-  .share-card[data-share-template="magazine"] .sc-stripe {
-    height: 3px;
-    width: 56px;
-    background: #1A1A1A;
-    margin-bottom: 22px;
-  }
-  .share-card[data-share-template="magazine"] .sc-kicker {
-    font-family: var(--mono, monospace);
-    font-size: 10.5px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: #1A1A1A;
-    margin-bottom: 26px;
-  }
-  .share-card[data-share-template="magazine"] .sc-quote {
-    font-family: "Tiempos Headline", "Charter", "Iowan Old Style", "Georgia", serif;
-    line-height: 1.22;
-    color: #0A0A0A;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    margin: 0;
+  .share-card[data-share-template="terminal"] .sc-tt-frame {
     flex: 1;
-    /* Font-size set inline by the renderer for length-based step-down. */
+    border: 1px dashed #3D5A38;
+    padding: 16px 20px 24px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
   }
-  .share-card[data-share-template="magazine"] .sc-byline {
-    margin-top: 24px;
-    padding-top: 18px;
-    border-top: 1px solid #1A1A1A;
-    font-family: var(--mono, monospace);
-    font-size: 10.5px;
+  .share-card[data-share-template="terminal"] .sc-tt-statusbar {
+    display: flex;
+    justify-content: flex-end;
+    font-size: 9px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: #555050;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    color: #8E9D89;
+    padding-bottom: 12px;
   }
-  .share-card[data-share-template="magazine"] .sc-byline strong {
-    color: #1A1A1A;
+  .share-card[data-share-template="terminal"] .sc-tt-version {
+    color: #8E9D89;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-logo {
+    margin: 14px 0 12px;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.0;
+    color: var(--lime, #6FB572);
+    white-space: pre;
+    text-align: center;
+    letter-spacing: 0;
+    font-weight: 400;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-tagline {
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: #F0D848;
+    text-align: center;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-bottom: 1px dashed #3D5A38;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-tagline .cjk {
+    font-family: "STHeiti", "Hiragino Sans GB", "PingFang SC", sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-body {
+    flex: 1;
+    font-family: inherit;
+    line-height: 1.7;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-line {
+    color: #DDF6D7;
+    white-space: pre;
+    font-size: 17px;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-prompt {
+    color: var(--lime, #6FB572);
+    margin-right: 6px;
     font-weight: 700;
   }
-  .share-card[data-share-template="magazine"] .share-card-watermark { color: #1A1A1A; }
-  .share-card[data-share-template="magazine"] .share-card-stamp { color: #777070; }
+  .share-card[data-share-template="terminal"] .sc-tt-quote {
+    color: #FFFFFF;
+    margin: 4px 0 4px 16px;
+    padding: 12px 16px;
+    background: rgba(111, 181, 114, 0.08);
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-family: inherit;
+    font-size: 17px;
+    /* Integer line-height + matching max-height so the 5-line
+     * clamp hits a clean pixel boundary. Global box-sizing is
+     * border-box, so max-height must include the 12 + 12 = 24
+     * of vertical padding on top of the 5 × 26 content rows.
+     * Without the padding allowance the 5th line gets sliced
+     * in half. */
+    line-height: 26px;
+    max-height: 154px;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-quote .cjk {
+    font-family: "STHeiti", "Hiragino Sans GB", "PingFang SC", sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-comment {
+    color: #E26AA0;
+    margin: 0 0 0 16px;
+    font-family: inherit;
+    font-size: 15px;
+    font-style: italic;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-comment .cjk {
+    font-family: "STHeiti", "Hiragino Sans GB", "PingFang SC", sans-serif;
+    font-style: normal;
+    font-weight: 400;
+  }
+  .share-card[data-share-template="terminal"] .sc-tt-cursor {
+    display: inline-block;
+    color: var(--lime, #6FB572);
+    font-weight: 700;
+    animation: sc-tt-blink 1s steps(2, end) infinite;
+  }
+  @keyframes sc-tt-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  .share-card[data-share-template="terminal"] .share-card-watermark {
+    color: var(--lime, #6FB572);
+    left: 30px;
+    bottom: 26px;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+  }
+  .share-card[data-share-template="terminal"] .share-card-stamp {
+    color: #8E9D89;
+    right: 30px;
+    bottom: 26px;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+  }
 
   @media (max-width: 580px) {
     .share-card-modal { padding: 18px 14px 14px; }
@@ -3428,7 +3630,7 @@
   }
   .notes-empty-deck {
     font-family: var(--font-human);
-    font-size: 12.5px;
+    font-size: 12px;
     line-height: 1.6;
     color: var(--text-dim);
     max-width: 540px;
@@ -3437,7 +3639,7 @@
     display: inline-flex;
     align-items: center;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 600;
     padding: 1px 7px;
     margin: 0 1px;
@@ -3476,7 +3678,7 @@
     background: var(--panel-3);
     color: var(--lime);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     display: inline-flex;
     align-items: center;
@@ -3485,7 +3687,7 @@
   }
   .notes-empty-step-text {
     font-family: var(--font-human);
-    font-size: 12.5px;
+    font-size: 12px;
     line-height: 1.55;
     color: var(--text-dim);
   }
@@ -3498,7 +3700,7 @@
     padding-top: 10px;
     border-top: 0.5px dashed var(--line-bright);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     line-height: 1.6;
     color: var(--text-faint);
     max-width: 560px;
@@ -3605,7 +3807,7 @@
     align-items: center;
     gap: 6px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--text-dim);
@@ -3705,7 +3907,7 @@
     border: 0.5px solid var(--line-bright);
     color: var(--text-soft);
     font-family: var(--font-human);
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.55;
     letter-spacing: -0.003em;
     white-space: pre-line;
@@ -3781,7 +3983,7 @@
     background: var(--bg);
     color: var(--lime);
     border: 0.5px solid var(--lime-dim);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -3794,7 +3996,7 @@
     padding: 3px 8px;
     background: var(--bg);
     border: 0.5px solid var(--line-strong);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--lime);
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -3805,7 +4007,7 @@
     color: var(--bg);
     border: 0.5px solid var(--lime);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     cursor: pointer;
     text-decoration: none;
@@ -3823,7 +4025,7 @@
     background: var(--panel-2);
     color: var(--amber);
     border: 0.5px solid var(--amber);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -3833,7 +4035,7 @@
     padding: 3px 8px;
     background: var(--bg);
     border: 0.5px solid var(--line-strong);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-dim);
     letter-spacing: 0.04em;
   }
@@ -3845,7 +4047,7 @@
     color: var(--text);
     border: 0.5px solid var(--amber);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     cursor: pointer;
     text-decoration: none;
@@ -3869,7 +4071,7 @@
     color: var(--bg);
     border: 0.5px solid var(--lime);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     cursor: pointer;
     text-decoration: none;
@@ -3884,8 +4086,8 @@
      here, so we hide them outright. */
   html.no-room .input-bar,
   html.no-room .speaking-queue,
-  html.no-room .paused-bar,
-  html.no-room .adjourned-bar { display: none !important; }
+  html.no-room .paused-strip,
+  html.no-room .adjourned-strip { display: none !important; }
   /* Round-table toggle wrapper · empty row would still show its
      6px top padding even with the hidden button inside. Hide the
      whole stack on no-room so it doesn't add a phantom strip. */
@@ -3944,76 +4146,14 @@
     50%      { opacity: 1; }
   }
 
-  /* Paused footer bar (sits where input-bar would be) — shares the
-     `.adjourned-bar` height so the bottom edge of the room view stays
-     on the same baseline as the sidebar's user footer regardless of
-     which state (paused vs adjourned) is showing. */
-  .paused-bar {
-    border-top: 0.5px solid var(--line-bright);
-    padding: 0 14px;
-    min-height: 44px;
-    box-sizing: border-box;
-    background: var(--panel-2);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .paused-bar-text { font-size: 10.5px; color: var(--text-dim); }
-  .paused-bar-text strong { color: var(--text); font-weight: 700; }
-  .paused-bar-text .lime { color: var(--lime); }
-  .paused-bar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .resume-btn-lg {
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 12px;
-    background: var(--lime);
-    color: var(--bg);
-    border: 0.5px solid var(--lime);
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1.2;
-    cursor: pointer;
-    text-decoration: none;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-  .resume-btn-lg:hover { background: var(--bg); color: var(--lime); }
-
-  /* Adjourn button on the paused-bar · same shape as resume-btn-lg
-     but secondary (ghost) treatment so resume reads as the primary
-     action when both are present. Goes warn-coloured on hover for
-     the destructive cue (matches the input-bar's ib-adjourn). */
-  .adjourn-btn-lg {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 12px;
-    background: transparent;
-    color: var(--text-soft);
-    border: 0.5px solid var(--line-bright);
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1.2;
-    cursor: pointer;
-    text-decoration: none;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
-  }
-  .adjourn-btn-lg .adjourn-glyph {
-    color: var(--text-faint);
-    letter-spacing: -0.04em;
-  }
-  .adjourn-btn-lg:hover {
-    color: var(--red, #C75450);
-    border-color: var(--red, #C75450);
-    background: var(--bg);
-  }
-  .adjourn-btn-lg:hover .adjourn-glyph { color: var(--red, #C75450); }
+  /* .paused-bar CSS removed · the room footer is now a single
+     `.input-bar` that adapts its left-cluster buttons based on
+     room.status. While paused, the left cluster collapses to a
+     single Adjourn button and a quiet `.paused-strip` above the
+     textarea hosts the Resume affordance (mono link rather than
+     a green CTA). Sending while paused routes through
+     `POST /api/rooms/:id/paused-input` to drop supplemental
+     context without resuming the discussion. */
 
   /* ─── Adjourned-state controls (room is archived) ─── */
   .adjourned-pill {
@@ -4024,7 +4164,7 @@
     background: var(--bg);
     color: var(--text-dim);
     border: 0.5px solid var(--line-strong);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -4034,7 +4174,7 @@
     padding: 3px 8px;
     background: var(--bg);
     border: 0.5px solid var(--line-strong);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-dim);
     letter-spacing: 0.04em;
   }
@@ -4044,7 +4184,7 @@
     color: var(--bg);
     border: 0.5px solid var(--lime);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     cursor: pointer;
     text-decoration: none;
@@ -4078,53 +4218,21 @@
     pointer-events: none;
   }
 
-  .adjourned-bar {
-    border-top: 0.5px solid var(--line-bright);
-    padding: 0 14px;
-    /* Same min-height as `.sidebar-foot` so the bottom edges of the
-       sidebar footer and this room footer sit on a single baseline. */
-    min-height: 44px;
-    box-sizing: border-box;
-    background: var(--panel-2);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .adjourned-bar-text { font-size: 10.5px; color: var(--text-dim); }
-  .adjourned-bar-text strong { color: var(--text); font-weight: 700; }
-  .adjourned-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  /* Action button base · icon + label inline-flex pairing. The
-     label drops to display:none under `.adjourned-bar.is-tight`
-     when the bar runs out of horizontal room (toggled by the
-     ResizeObserver below). `aria-label` / `title` on the anchor
-     preserves a11y + hover text when the visual label hides. */
-  .adjourned-bar .ab-action {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .adjourned-bar .ab-action .ab-icon { display: block; flex-shrink: 0; }
-  /* Progressive collapse · the JS fitter near the bottom of this
-     file walks the action buttons LEFT to RIGHT and adds
-     `.is-icon-only` to as many as it takes for the bar to fit on
-     a single row. Right-most buttons keep their labels longest —
-     Convene Follow-up reads as the most action-dense of the three,
-     and the user expects "the destination action" to stay legible
-     even when secondary actions fall back to icon-only. Per-button
-     class · the previous all-or-nothing `.is-tight` collapsed
-     everything at once which felt jarring when only one needed
-     to drop its label. */
-  .adjourned-bar .ab-action.is-icon-only .ab-label { display: none; }
-  .adjourned-bar .ab-action.is-icon-only { padding: 6px 9px; }
+  /* (`.adjourned-bar` CSS removed · the room's bottom bar is now
+     the same floating `.input-bar` used in live/paused. The
+     adjourned-state left cluster swaps to Export / Voice Replay /
+     Convene Follow-up icons via `renderInputBarControls`; the
+     textarea + Send button route through `openFollowUpOverlay`
+     with the typed text prefilled as the follow-up room's
+     subject. The `.ghost-btn` base style + `.followup-btn`
+     accent style below stay — they're reused by other surfaces.) */
   .followup-btn {
     padding: 5px 10px;
     background: var(--lime);
     color: var(--bg);
     border: 0.5px solid var(--lime);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     cursor: pointer;
     text-decoration: none;
@@ -4133,12 +4241,9 @@
   }
   .followup-btn:hover { background: var(--bg); color: var(--lime); }
   .ghost-btn {
-    /* inline-flex + align-items:center so text always centers vertically
-       inside the box even when a flex parent stretches us to match the
-       resume-btn-lg sibling's height. Padding / font-size / weight are
-       lined up with .resume-btn-lg so the buttons read as the same
-       size class — only the fill / border treatment distinguishes the
-       primary lime CTA from a quieter ghost. */
+    /* Pill-shaped secondary action button · matched with .followup-btn
+       so adjacent CTAs read as the same size class, distinguished only
+       by fill / border treatment. */
     display: inline-flex;
     align-items: center;
     padding: 6px 12px;
@@ -4179,7 +4284,7 @@
   .ending-block-foot-line { background: var(--line-bright); }
   .ending-block-label {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--lime);
     letter-spacing: 0.22em;
@@ -4216,7 +4321,7 @@
     background: var(--panel-3, var(--panel));
   }
   .brief-banner-tag {
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -4285,7 +4390,7 @@
   .brief-title {
     font-family: var(--font-human);
     font-size: 15px;
-    font-weight: 700;
+    font-weight: 400;
     color: var(--text);
     letter-spacing: -0.01em;
     line-height: 1.3;
@@ -4346,7 +4451,7 @@
      title or kicker. */
   .brief-meta-type {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -4464,7 +4569,7 @@
     align-items: baseline;
     gap: 10px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -4606,7 +4711,7 @@
     padding-top: 10px;
     border-top: 1px solid var(--line);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-faint);
   }
@@ -4622,7 +4727,7 @@
     gap: 5px;
     padding: 2px 8px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-soft);
     background: transparent;
@@ -4835,7 +4940,7 @@
     color: var(--lime);
     cursor: pointer;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -4915,7 +5020,7 @@
     color: var(--text-faint);
     cursor: pointer;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     white-space: nowrap;
@@ -4962,7 +5067,7 @@
     background: var(--red);
     color: var(--bg);
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     font-weight: 700;
     line-height: 1;
   }
@@ -5021,7 +5126,7 @@
     color: var(--text-faint);
     cursor: pointer;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -5052,9 +5157,24 @@
   .supplement-modal {
     position: relative;
     width: min(560px, calc(100vw - 32px));
+    /* Cap modal height to the viewport (minus a comfortable margin)
+       and lay out as a flex column so the body becomes the
+       scrolling region. Without this, long divergence reports / long
+       follow-up bodies push the modal past the window — classification
+       and foot scroll off-screen and the close button is unreachable. */
+    max-height: calc(100vh - 64px);
+    display: flex;
+    flex-direction: column;
     background: var(--panel);
     border: 0.5px solid var(--line-strong);
     box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+  }
+  /* Pinned chrome · classification / head / foot stay at fixed
+     heights so the scrolling body is sandwiched between them. */
+  .supplement-classification,
+  .supplement-head,
+  .supplement-foot {
+    flex: 0 0 auto;
   }
   .supplement-classification {
     display: flex;
@@ -5064,7 +5184,7 @@
     background: var(--panel-2);
     border-bottom: 0.5px solid var(--line);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -5109,6 +5229,14 @@
   .supplement-close:hover { color: var(--lime); border-color: var(--lime); }
   .supplement-body {
     padding: 16px 22px 12px;
+    /* Scroll region inside the height-capped modal. `min-height: 0`
+       lets the flex child actually shrink below its content height
+       (otherwise the body insists on its intrinsic size and pushes
+       the modal past the viewport again). */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .supplement-input {
     display: block;
@@ -5117,7 +5245,7 @@
     border: 0.5px solid var(--line-strong);
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.55;
     padding: 12px 14px;
     resize: vertical;
@@ -5131,7 +5259,7 @@
   }
   .supplement-hint {
     margin: 10px 0 0;
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--text-faint);
   }
@@ -5145,7 +5273,7 @@
   .supplement-cancel,
   .supplement-confirm {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -5175,6 +5303,272 @@
      chrome — only the inside form differs. */
   .supplement-modal.followup-modal {
     max-width: 640px;
+  }
+
+  /* ─── Divergence report overlay (Layer 3.1 topic tree + Layer 4 QD)
+     Floating read-only modal opened by the `[data-divergence-open]`
+     button in the input bar's left cluster. Reuses the
+     `.supplement-overlay` shell + classification / head / foot
+     chrome; this block scopes the body to its own visualisations. */
+  .supplement-modal.divergence-modal {
+    max-width: 640px;
+  }
+  .dv-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    font-family: var(--font-human);
+  }
+  .dv-loading, .dv-empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    padding: 18px 4px;
+    line-height: 1.6;
+  }
+  /* Top purpose line · plain prose, no all-caps kicker · sets up
+     what the user is looking at before they get to the verdict. */
+  .dv-purpose {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    margin: 0;
+  }
+  .dv-purpose p { margin: 0 0 8px; }
+  .dv-purpose p:last-child { margin-bottom: 0; }
+  .dv-purpose-hint {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  /* Section blocks · friendly headers, prose deck, then content. */
+  .dv-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .dv-section-title {
+    font-family: var(--font-human);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  .dv-section-deck {
+    font-family: var(--font-human);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    margin: 0;
+  }
+  /* Verdict pill + body · the room's headline status. Tones map
+     to four states; only one of these wrappers is rendered. */
+  .dv-verdict {
+    padding: 12px 14px;
+    border: 0.5px solid var(--line);
+    background: var(--panel-2);
+  }
+  .dv-verdict-pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border: 0.5px solid currentColor;
+    margin-bottom: 8px;
+  }
+  .dv-verdict-body {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-soft);
+    margin: 0;
+  }
+  .dv-verdict-healthy   .dv-verdict-pill { color: var(--lime); }
+  .dv-verdict-moderate  .dv-verdict-pill { color: var(--text-soft); }
+  .dv-verdict-narrowing .dv-verdict-pill { color: var(--amber, #d4a347); }
+  .dv-verdict-early     .dv-verdict-pill { color: var(--text-dim); }
+  /* Unexplored angles · prose-y list, each item is a hint the
+     user can take into their next message. */
+  .dv-unexplored-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .dv-unexplored-row {
+    font-family: var(--font-human);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    padding: 8px 12px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+  }
+  .dv-unexplored-row::before {
+    content: "→ ";
+    color: var(--lime);
+    font-weight: 700;
+  }
+  /* Advanced (collapsible) · native <details> · arrow + summary
+     line, body indents under it. Closed by default so most users
+     never see the technical grid. */
+  .dv-advanced {
+    margin-top: 4px;
+    border-top: 0.5px solid var(--line);
+    padding-top: 12px;
+  }
+  .dv-advanced-summary {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 0;
+  }
+  .dv-advanced-summary:hover { color: var(--text-soft); }
+  .dv-advanced-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .dv-branch-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .dv-branch-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr max-content;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 10px;
+    background: var(--panel-2);
+    border: 0.5px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    overflow: hidden;
+  }
+  .dv-branch-bar {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    background: color-mix(in srgb, var(--lime) 12%, transparent);
+    pointer-events: none;
+  }
+  .dv-branch-label {
+    position: relative;
+    z-index: 1;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dv-branch-count {
+    position: relative;
+    z-index: 1;
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .dv-branch-hot .dv-branch-bar { background: color-mix(in srgb, var(--lime) 22%, transparent); }
+  .dv-branch-warm .dv-branch-bar { background: color-mix(in srgb, var(--lime) 14%, transparent); }
+  .dv-branch-cool .dv-branch-bar { background: color-mix(in srgb, var(--lime) 6%, transparent); }
+  .dv-branch-empty {
+    list-style: none;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    padding: 6px 0;
+  }
+  .dv-coverage-kpi {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 4px 0 6px;
+    font-family: var(--mono);
+  }
+  .dv-coverage-num {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--lime);
+    letter-spacing: -0.02em;
+  }
+  .dv-coverage-sep { font-size: 18px; color: var(--text-dim); }
+  .dv-coverage-total {
+    font-size: 15px;
+    color: var(--text-soft);
+    letter-spacing: -0.01em;
+  }
+  .dv-coverage-pct {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+  .dv-coverage-scored {
+    margin-left: auto;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  .dv-hist-row {
+    display: grid;
+    grid-template-columns: 90px max-content 1fr max-content;
+    align-items: end;
+    gap: 8px;
+    padding: 3px 0;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+  .dv-hist-label {
+    color: var(--text-soft);
+    text-transform: uppercase;
+  }
+  .dv-hist-axis { white-space: nowrap; }
+  .dv-hist-axis-right { text-align: right; }
+  .dv-hist-cells {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 32px;
+    padding: 0 6px;
+  }
+  .dv-hist-cell {
+    flex: 1 1 0;
+    min-width: 8px;
+    background: var(--line);
+    display: block;
+  }
+  .dv-hist-cell-filled { background: var(--lime); }
+  .dv-hist-cell-empty { background: color-mix(in srgb, var(--text-faint) 35%, transparent); }
+
+  /* ─── Divergence button in input bar · uses the shared
+     `.ib-action::before` mask-image pipeline · we just set the
+     `--icon` variable that `::before` picks up. Setting mask on
+     the BUTTON itself (the earlier approach) would mask the
+     `::after` tooltip pseudo too, silently hiding the hover tip. */
+  .ib-action.ib-divergence {
+    --icon: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.5" y1="7.5" x2="10.5" y2="10.5"/><line x1="16.5" y1="7.5" x2="13.5" y2="10.5"/><line x1="7.5" y1="16.5" x2="10.5" y2="13.5"/><line x1="16.5" y1="16.5" x2="13.5" y2="13.5"/></svg>');
   }
   .followup-parent-card {
     background: var(--panel-2);
@@ -5222,7 +5616,7 @@
     background: transparent;
     border: none;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-soft);
@@ -5248,7 +5642,7 @@
     padding-top: 8px;
     border-top: 0.5px dashed var(--line-bright);
     font-family: var(--font-human);
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.45;
     color: var(--text-soft);
     letter-spacing: -0.003em;
@@ -5326,33 +5720,12 @@
     cursor: pointer;
     user-select: none;
   }
-  .followup-checkbox input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 12px; height: 12px;
-    border: 0.5px solid var(--line-strong);
-    background: var(--bg);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: border-color 0.1s, background 0.1s;
-    position: relative;
-  }
-  .followup-checkbox input[type="checkbox"]:hover { border-color: var(--text-soft); }
-  .followup-checkbox input[type="checkbox"]:checked {
-    background: var(--lime);
-    border-color: var(--lime);
-  }
-  .followup-checkbox input[type="checkbox"]:checked::after {
-    content: "";
-    position: absolute;
-    inset: 2px;
-    background: var(--bg);
-    clip-path: polygon(14% 50%, 0 65%, 38% 100%, 100% 30%, 86% 16%, 38% 70%);
-  }
-  .followup-checkbox input[type="checkbox"]:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  /* Follow-up overlay's "use same cast" checkbox · size override
+     only · the global `input[type="checkbox"]` rule above handles
+     border / fill / checkmark / hover / focus / disabled across
+     every surface. We just shrink the box to 12 × 12 to fit the
+     overlay's compact row metrics. */
+  .followup-checkbox input[type="checkbox"] { width: 12px; height: 12px; }
   .followup-checkbox:has(input:checked) { color: var(--text); }
 
   /* ─── Follow-up tree · parent banner + child list ─────────────────
@@ -5384,7 +5757,7 @@
     background: var(--panel-3);
   }
   .followup-parent-banner .label {
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-soft);
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -5439,10 +5812,28 @@
      sub-tile padding cut by ~30%. */
   .session-analytics {
     max-width: 760px;
-    margin: 18px auto 10px;
+    /* Section break above the tile is drawn by a separate
+     * sibling element (`.round-open-card.is-adjourned`) that
+     * `renderSessionAnalytics()` inserts right before this
+     * block. Margin here is the gap between that marker chip
+     * and the analytics tile. */
+    margin: 14px auto 10px;
     background: var(--panel-2);
     border: 0.5px solid var(--line-bright);
   }
+  /* Session-end marker — same chip-on-lines pattern as Round 01 /
+   * Round 02 markers, but amber so the eye reads it as "closing
+   * boundary" rather than "another round starting." Sits above
+   * `.session-analytics` and styles the chip / mark / label via
+   * the `is-adjourned` variant. */
+  .round-open-card.is-adjourned {
+    margin: 24px 0 24px;
+  }
+  .round-open-card.is-adjourned .ro-chip {
+    border-color: var(--amber, #C99826);
+  }
+  .round-open-card.is-adjourned .ro-mark { color: var(--amber, #C99826); }
+  .round-open-card.is-adjourned .ro-round { color: var(--amber, #C99826); }
   .sa-banner {
     padding: 5px 14px;
     display: flex;
@@ -5454,7 +5845,7 @@
     background: var(--panel-3);
   }
   .sa-banner-tag {
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -5552,7 +5943,7 @@
     align-items: baseline;
     gap: 8px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-soft);
   }
   .sa-legend-swatch {
@@ -5593,7 +5984,7 @@
     background: var(--bg);
     border: 0.5px solid var(--line-bright);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.06em;
     color: var(--text-soft);
   }
@@ -5641,7 +6032,7 @@
   }
   .sa-point-mark {
     color: var(--lime);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     line-height: 1.4;
   }
@@ -5688,7 +6079,7 @@
     background: var(--panel);
   }
   .followup-child-tile .num {
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-faint);
     letter-spacing: 0.1em;
     text-align: center;
@@ -5703,7 +6094,7 @@
     text-overflow: ellipsis;
   }
   .followup-child-tile .meta {
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-soft);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -5763,11 +6154,9 @@
   html[data-status="live"] .paused-pill,
   html[data-status="live"] .paused-stamp,
   html[data-status="live"] .resume-btn,
-  html[data-status="live"] .paused-bar,
   html[data-status="live"] .adjourned-pill,
   html[data-status="live"] .stamp,
-  html[data-status="live"] .view-report-btn,
-  html[data-status="live"] .adjourned-bar { display: none; }
+  html[data-status="live"] .view-report-btn { display: none; }
 
   /* Paused state: keeps the live messages visible (frozen), appends the paused
      marker, hides input + speaking queue + adjourned chrome */
@@ -5775,25 +6164,33 @@
   html[data-status="paused"] .live-pill,
   html[data-status="paused"] .timer,
   html[data-status="paused"] .pause-btn,
-  html[data-status="paused"] .input-bar,
+  /* `.input-bar` is now KEPT visible during paused state · the
+     textarea + send button stays usable so the user can drop
+     in supplemental context without a separate modal. The
+     left-cluster buttons swap from Pause to Resume via
+     `renderInputBarControls` in app.js. */
   html[data-status="paused"] .speaking-queue,
   html[data-status="paused"] .adjourned-pill,
   html[data-status="paused"] .stamp,
-  html[data-status="paused"] .view-report-btn,
-  html[data-status="paused"] .adjourned-bar { display: none; }
+  html[data-status="paused"] .view-report-btn { display: none; }
 
-  /* Adjourned state: shows the archived transcript + deliverable */
+  /* Adjourned state: archived transcript + deliverable, plus the
+     same floating .input-bar as live/paused (its left cluster
+     swaps to Export / Voice Replay / Convene Follow-up icons via
+     renderInputBarControls; Send routes to the Follow-up overlay
+     with the typed text prefilled as the new room's subject).
+     `.speaking-queue` and `.paused-strip` stay hidden — no live
+     queue or pause indicator makes sense once the room is closed. */
   html[data-status="adjourned"] .state-live,
   html[data-status="adjourned"] .state-paused,
   html[data-status="adjourned"] .live-pill,
   html[data-status="adjourned"] .timer,
   html[data-status="adjourned"] .pause-btn,
-  html[data-status="adjourned"] .input-bar,
   html[data-status="adjourned"] .speaking-queue,
+  html[data-status="adjourned"] .paused-strip,
   html[data-status="adjourned"] .paused-pill,
   html[data-status="adjourned"] .paused-stamp,
-  html[data-status="adjourned"] .resume-btn,
-  html[data-status="adjourned"] .paused-bar { display: none; }
+  html[data-status="adjourned"] .resume-btn { display: none; }
 
   /* Body · single chat column. Live-notes panel was removed, so there's
      no right-side resizer or aside to apportion space for.
@@ -5992,7 +6389,7 @@
     background: var(--panel-3, var(--panel));
   }
   .msg-tool-banner-tag {
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -6127,7 +6524,7 @@
     grid-column: 1;
     color: var(--text-faint);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.12em;
     line-height: 1.55;
@@ -6180,7 +6577,7 @@
     grid-column: 2;
     color: var(--text-faint);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: lowercase;
     overflow: hidden;
@@ -6192,7 +6589,7 @@
     grid-column: 2;
     color: var(--text-soft);
     font-family: var(--font-human);
-    font-size: 11.5px;
+    font-size: 12px;
     letter-spacing: 0.005em;
     line-height: 1.55;
     overflow: hidden;
@@ -6302,7 +6699,7 @@
     padding: 6px 14px;
     background: var(--panel-2);
     border: 0.5px solid var(--line-bright);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -6424,7 +6821,7 @@
   }
   .cp-slot-name {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text);
     letter-spacing: 0.01em;
     font-weight: 600;
@@ -6473,7 +6870,7 @@
     background: var(--panel-2);
     border: 0.5px solid var(--lime);
     color: var(--text-soft);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -6522,7 +6919,7 @@
     padding: 6px 14px;
     background: var(--panel-2);
     border: 0.5px solid var(--line-bright);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -6546,7 +6943,7 @@
      not a label that should compete with the speaker's name. */
   .msg-chair-pick {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 500;
     letter-spacing: 0.14em;
     text-transform: lowercase;
@@ -6578,7 +6975,7 @@
   .chair-direct .cd-rule { display: none; }
   .chair-direct .cd-kicker {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -6604,7 +7001,7 @@
     align-items: baseline;
     gap: 6px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -6649,7 +7046,7 @@
   .chair-intervention .ci-kicker {
     text-align: center;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -6659,7 +7056,7 @@
   }
   .chair-intervention .ci-body {
     font-family: var(--font-agent);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.65;
     color: var(--text-soft);
     text-align: center;
@@ -6691,7 +7088,7 @@
   .chair-pending .cp-kicker {
     text-align: center;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -6705,7 +7102,7 @@
     justify-content: center;
     gap: 10px;
     font-family: var(--font-agent);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.65;
     color: var(--text-soft);
     letter-spacing: -0.005em;
@@ -6735,7 +7132,7 @@
   .chair-billing-notice .cb-kicker {
     text-align: center;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -6745,7 +7142,7 @@
   }
   .chair-billing-notice .cb-body {
     font-family: var(--font-agent);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.65;
     color: var(--text-soft);
     text-align: left;
@@ -6754,112 +7151,6 @@
   }
   .chair-billing-notice .cb-body strong { color: var(--text); font-weight: 600; }
   .chair-billing-notice .cb-body em { color: var(--amber); font-style: normal; font-weight: 500; }
-
-  /* No-brief closing marker · the user adjourned with skipBrief so
-     the chair posts this as the terminal beat. Visually the same
-     family as chat-banner / round-prompt-card.spent (chip + flanking
-     hairlines), but with an amber accent + a small body line giving
-     the user explicit closure. */
-  .no-brief-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    margin: 22px 0 18px;
-    padding: 0;
-    font-family: var(--mono);
-    line-height: 1.4;
-    position: relative;
-  }
-  .no-brief-card::before {
-    content: "";
-    position: absolute;
-    top: 13px;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(
-      to right,
-      transparent 0%,
-      var(--line-bright) 18%,
-      var(--line-bright) 82%,
-      transparent 100%
-    );
-    z-index: 0;
-  }
-  .no-brief-card .nb-chip {
-    position: relative;
-    z-index: 1;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 14px;
-    background: var(--panel-2);
-    border: 0.5px solid var(--amber, #C99826);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--amber, #C99826);
-    white-space: nowrap;
-    line-height: 1;
-  }
-  .no-brief-card .nb-mark { font-weight: 700; line-height: 1; }
-  .no-brief-card .nb-eyebrow { line-height: 1; }
-  .no-brief-card .nb-body {
-    font-family: var(--font-human);
-    font-size: 12.5px;
-    color: var(--text-soft);
-    line-height: 1.5;
-    letter-spacing: -0.003em;
-    text-align: center;
-    max-width: 480px;
-  }
-  .no-brief-card .nb-body strong {
-    color: var(--text);
-    font-weight: 700;
-  }
-  .no-brief-card .nb-meta {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-  }
-  .no-brief-card .nb-actions {
-    margin-top: 4px;
-    display: flex;
-    justify-content: center;
-  }
-  .no-brief-card .nb-cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    padding: 7px 14px;
-    background: transparent;
-    color: var(--text-soft);
-    border: 0.5px solid var(--line-bright);
-    cursor: pointer;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
-  }
-  .no-brief-card .nb-cta-mark { color: var(--lime); font-size: 11px; line-height: 1; }
-  .no-brief-card .nb-cta-text { line-height: 1; }
-  .no-brief-card .nb-cta:hover {
-    color: var(--lime);
-    border-color: var(--lime);
-    background: var(--panel-2);
-  }
-  .no-brief-card .nb-cta:hover .nb-cta-mark { color: var(--lime); }
-  .no-brief-card .nb-cta[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .no-brief-card .nb-cta[disabled] .nb-cta-mark { color: var(--text-faint); }
 
   .msg {
     display: grid;
@@ -6925,7 +7216,7 @@
     align-items: baseline;
     margin-bottom: 5px;
     flex-wrap: wrap;
-    font-size: 10.5px;
+    font-size: 10px;
     font-family: var(--mono);
   }
   .msg-name {
@@ -6946,7 +7237,7 @@
   .msg-excused {
     color: var(--text-faint);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: lowercase;
@@ -6959,7 +7250,7 @@
      so it doesn't compete with the conversation. */
   .msg-model {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: none;
@@ -7074,7 +7365,7 @@
     grid-column: 2 / -1;
     color: var(--text-soft);
     font-family: var(--sans);
-    font-size: 11.5px;
+    font-size: 12px;
     margin-top: 2px;
     line-height: 1.5;
     /* Clamp to 2 lines so long descriptions don't dominate */
@@ -7091,7 +7382,7 @@
     background: transparent;
     /* Default: agent-authored bubbles use the italic Agent face. */
     font-family: var(--font-agent);
-    font-size: 14.5px;
+    font-size: 16px;
     line-height: 1.65;
     color: var(--text-soft);
     letter-spacing: -0.005em;
@@ -7175,7 +7466,7 @@
   .msg-bubble .msg-table em { font-style: normal; color: var(--lime); font-weight: 500; }
   .msg-bubble .msg-table code {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text);
   }
   /* ─── Chair (moderator) styling ───
@@ -7318,7 +7609,7 @@
     padding: 4px 10px;
     color: var(--text-faint);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -7462,7 +7753,7 @@
      near the chat-banner declaration above.) */
   .kp-eyebrow {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -7504,7 +7795,7 @@
     border: 0.5px solid var(--line-strong);
     color: var(--text-soft);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -7536,7 +7827,7 @@
     background: rgba(181, 112, 106, 0.08);
     background: color-mix(in srgb, var(--red) 8%, var(--panel));
   }
-  .kp-vote span:first-child { font-size: 8.5px; line-height: 1; }
+  .kp-vote span:first-child { font-size: 8px; line-height: 1; }
   .kp-ctas {
     display: flex;
     gap: 8px;
@@ -7551,7 +7842,7 @@
     color: var(--text);
     border: 0.5px solid var(--line-strong);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -7577,7 +7868,7 @@
     padding-top: 10px;
     border-top: 0.5px dashed var(--line-bright);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-faint);
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -7598,7 +7889,7 @@
   }
   .kp-shift-eyebrow {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--amber);
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -7609,7 +7900,7 @@
     font-weight: 700;
   }
   .kp-shift-because {
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--text);
     line-height: 1.45;
   }
@@ -7651,7 +7942,7 @@
      after streaming ended. */
   .kp-eyebrow-degraded {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-faint);
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -7745,7 +8036,7 @@
   .typing-bubble::before { content: ". . . "; animation: pulse 1.5s infinite; }
   .typing-name {
     color: var(--text-faint);
-    font-size: 9.5px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-style: italic;
@@ -7794,7 +8085,7 @@
   }
   .config-marker .cm-time {
     color: var(--text-faint);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
   }
   .config-marker .cm-icon {
@@ -7833,7 +8124,7 @@
     padding: 3px 8px;
     background: rgba(111, 181, 114, 0.06);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-dim);
     cursor: pointer;
     transition: background 0.12s;
@@ -7854,7 +8145,7 @@
     text-overflow: ellipsis;
     max-width: 320px;
     font-family: var(--sans);
-    font-size: 11.5px;
+    font-size: 12px;
     letter-spacing: -0.003em;
   }
 
@@ -7933,6 +8224,19 @@
     container-name: rtstage;
   }
   .roundtable-stage[hidden] { display: none !important; }
+  /* Inner wrapper for all stage content (table / plants / HUD /
+     seats / subtitle). Becomes the containing block for the stage's
+     percentage-positioned children, so shrinking its bottom by
+     `--rt-bottom-reserve` lifts every piece of content above the
+     floating .ib-stack while the wood-floor background on the
+     outer .roundtable-stage keeps painting underneath. */
+  .rt-stage-inner {
+    position: absolute;
+    inset: 0 0 var(--rt-bottom-reserve, 0px) 0;
+  }
+  .chat-col:has(.roundtable-stage:not([hidden])) .roundtable-stage {
+    --rt-bottom-reserve: 130px;
+  }
 
   /* ─── brainstorm · SOIL + GRASS floor ────────────────────────
      128×128 tileable terrain · grass base with two irregular dirt
@@ -8190,10 +8494,10 @@
     /* Themed glow · matches the speech-bubble border above this
        seat. Previously hardcoded `rgba(111, 181, 114, 0.55)` (the
        legacy lime green) which stayed green even when the active
-       theme remapped --lime (e.g. Pinterest red, Apple blue,
-       Nintendo Mario red). color-mix folds the live --lime token
-       to 55% alpha so the floor halo always reads as the same
-       accent as the bubble border. */
+       theme remapped --lime (e.g. Pinterest red, Nintendo Mario
+       red). color-mix folds the live --lime token to 55% alpha so
+       the floor halo always reads as the same accent as the
+       bubble border. */
     background: radial-gradient(ellipse at center,
       color-mix(in srgb, var(--lime) 55%, transparent) 0%,
       transparent 70%);
@@ -8879,6 +9183,10 @@
   .rt-subtitle {
     position: absolute;
     left: 50%;
+    /* Subtitle is a child of .rt-stage-inner, which shrinks from
+       the bottom by --rt-bottom-reserve in voice rooms — so this
+       static 14px gap from the inner wrapper's bottom edge is
+       automatically lifted above the floating .ib-stack. */
     bottom: 14px;
     transform: translateX(-50%);
     z-index: 12;
@@ -8927,6 +9235,46 @@
        its own line. */
     max-height: 4.5em;
     overflow: hidden;
+  }
+  /* Thinking state · director's placeholder is streaming but no
+     tokens have landed yet. Shows speaker name + 3-dot lime
+     loading animation so the caption band doesn't pop in/out as
+     the first token lands. Same dot animation as the seat
+     speech-bubble's thinking dots (kinetic vocabulary stays
+     consistent across the stage). */
+  .rt-sub-text.rt-sub-thinking {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .rt-sub-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .rt-sub-dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--lime);
+    display: inline-block;
+    animation: rt-sub-dot 1.1s ease-in-out infinite;
+  }
+  .rt-sub-dots i:nth-child(2) { animation-delay: 0.18s; }
+  .rt-sub-dots i:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes rt-sub-dot {
+    0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
+    40%           { opacity: 1;    transform: scale(1);   }
+  }
+  .rt-sub-thinking-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(216, 216, 220, 0.78);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rt-sub-dots i { animation: none; opacity: 0.7; }
   }
   /* Pixel corner welds · 4×4 lime squares pinning the panel to the
      stage. Rendered as inline DOM children (`.rt-hud-corner`) so we
@@ -9306,7 +9654,7 @@
   }
   .rt-vote-pop.rt-vote-pop-card .kp-cta {
     padding: 6px 10px;
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.08em;
   }
   /* Down-pointing tail anchored to the chair's head. */
@@ -9684,7 +10032,7 @@
   }
   .ib-rt-preview-kicker {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -9734,28 +10082,208 @@
     }
   }
 
-  /* ─── Speaking queue (KTV-style cue sheet) ─────────────────
-     Floats above the input bar; collapsible.
-     Layout-wise it sits as a sibling of .chat inside .chat-col,
-     so it stays pinned right above .input-bar regardless of
-     scroll position. */
+  /* ─── Speaking queue · info-bar above the input card ──────
+     Sits directly above .input-bar / .paused-bar as a thin
+     floating strip, mimicking the Claude-style info-bar that
+     surfaces session-level context just above the textarea.
+     Two states:
+       · Collapsed (default · `.speaking-queue.collapsed`) — one-
+         line summary "▶ Speaker · speaking · ↪ Next + N queued"
+       · Expanded — full ordered list with positions, status,
+         context counts.
+     The bar auto-flips between states based on info necessity
+     (see `_autoToggleQueueStrip` in app.js): expands when the
+     user needs the full cast preview (clarify / continue / new
+     queue), collapses when a single director is streaming and
+     the one-liner is enough.
+
+     Layout-wise it's a sibling of `.chat` inside `.chat-col`,
+     same `margin: 0 14px` as `.input-bar` so the two cards align
+     horizontally with consistent gutters. */
+  /* Width cap matches `.chat > [data-chat-messages]` (max-width
+     960px) so the input stack lines up with the body prose on
+     wide monitors. Auto margins centre the strip; the 14px
+     side-cushion is preserved via `calc(100% - 28px)` so narrow
+     viewports still have a gutter to the chat-col edges. */
   .speaking-queue {
     flex: 0 0 auto;
-    border-top: 0.5px solid var(--line-bright);
-    border-bottom: 0.5px solid var(--line-bright);
+    width: calc(100% - 28px);
+    max-width: 960px;
+    margin: 0 auto;
+    border: 0.5px solid var(--line-strong);
+    border-radius: 12px;
     background: var(--panel-2);
+    box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
     position: relative;
+    overflow: hidden;
+    transition: border-color 0.12s;
   }
-  .speaking-queue::before, .speaking-queue::after {
-    content: "";
-    position: absolute;
-    width: 6px; height: 6px;
-    border: 0.5px solid var(--lime-dim);
-    pointer-events: none;
-    z-index: 1;
+  /* Visually conjoin with the input-bar sitting just below · flat
+     bottom corners, no bottom margin, no bottom border. The input-
+     bar's top border below becomes the SINGLE hairline divider —
+     no transparent gap, no doubled rule. */
+  .speaking-queue {
+    margin-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: none;
   }
-  .speaking-queue::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
-  .speaking-queue::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+  /* Top-touching .input-bar then loses its top corners too so
+     the joint reads as one continuous frame. The CSS combinator
+     scopes this to ONLY when the queue precedes the input-bar
+     (live state). When paused, .speaking-queue is hidden by
+     html[data-status=paused] so this rule no-ops naturally. */
+  .speaking-queue + .input-bar {
+    margin-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  /* ─── Paused state strip · sits where the speaking-queue would ──
+     A subdued info bar that replaces the speaking-queue while the
+     room is paused. Same conjoined-card geometry as the queue:
+     shares margin / border / radii with `.input-bar` so the two
+     read as a single stacked surface. The Resume affordance lives
+     here as a quiet text link — NOT a green button — so it doesn't
+     compete visually with the textarea below. */
+  .paused-strip {
+    display: none;
+    flex: 0 0 auto;
+    width: calc(100% - 28px);
+    max-width: 960px;
+    margin: 0 auto;
+    border: 0.5px solid var(--line-strong);
+    border-bottom: none;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    background: var(--panel-2);
+    box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+  }
+  html[data-status="paused"] .paused-strip { display: block; }
+  .paused-strip + .input-bar {
+    margin-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+  .paused-strip-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 14px;
+    min-height: 28px;
+  }
+  .paused-strip-kicker {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+  /* Resume is the load-bearing action of the paused state · room
+     is frozen, every other UI element dim, so the link reads as
+     accent (lime) by default to signal "this is the way forward".
+     Hover deepens the tone for click feedback without introducing
+     a new colour. */
+  .paused-strip-resume {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--lime);
+    text-decoration: none;
+    font-weight: 700;
+    transition: color 0.12s;
+  }
+  .paused-strip-resume:hover,
+  .paused-strip-resume:focus-visible {
+    color: var(--lime-deep, var(--lime));
+    outline: none;
+  }
+
+  /* ─── Adjourned state strip · twin of .paused-strip ─────────────
+     Same conjoined-card geometry — sits above the input-bar with
+     shared margins, shared border, flat bottom corners — so the
+     two read as one stacked surface. Shows a mono kicker on the
+     left and a relative-time meta on the right (e.g. "filed 2h").
+     The frosted-glass treatment from .chat-col:has(...) on voice
+     rooms is inherited via the `.speaking-queue, .paused-strip`
+     selector list below. */
+  .adjourned-strip {
+    display: none;
+    flex: 0 0 auto;
+    width: calc(100% - 28px);
+    max-width: 960px;
+    margin: 0 auto;
+    border: 0.5px solid var(--line-strong);
+    border-bottom: none;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    background: var(--panel-2);
+    box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+  }
+  html[data-status="adjourned"] .adjourned-strip { display: block; }
+  .adjourned-strip + .input-bar {
+    margin-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+  .adjourned-strip-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 14px;
+    min-height: 28px;
+  }
+  .adjourned-strip-kicker {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+  .adjourned-strip-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .adjourned-strip-meta:empty { display: none; }
+  /* Right-side cluster of the adjourned strip head · groups the
+     filed-time meta with the prominent voice-replay action so the
+     kicker keeps its left edge and the action sits flush right. */
+  .adjourned-strip-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  /* Voice replay · the load-bearing affordance of an adjourned
+     room. Mirrors `.paused-strip-resume` exactly so the two state
+     strips share one action vocabulary: quiet mono text in the
+     accent (lime), no chrome, hover deepens tone. */
+  .adjourned-strip-replay {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--lime);
+    text-decoration: none;
+    font-weight: 700;
+    transition: color 0.12s;
+    white-space: nowrap;
+  }
+  .adjourned-strip-replay:hover,
+  .adjourned-strip-replay:focus-visible {
+    color: var(--lime-deep, var(--lime));
+    outline: none;
+  }
 
   .queue-head {
     display: grid;
@@ -9763,9 +10291,14 @@
     align-items: center;
     gap: 10px;
     padding: 6px 10px 6px 12px;
+    background: transparent;
+    min-height: 28px;
+  }
+  /* Expanded state · let the full list breathe with a hairline
+     separator under the head. Collapsed mode drops the rule so
+     the strip reads as a single line. */
+  .speaking-queue:not(.collapsed) .queue-head {
     border-bottom: 0.5px dashed var(--line-bright);
-    background: var(--bg);
-    min-height: 30px;
   }
   /* Two head modes: expanded (full label + mode) vs collapsed (compact summary) */
   .queue-head-expanded,
@@ -9817,7 +10350,7 @@
   }
   .queue-head-collapsed .sum-who {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--lime);
     text-transform: uppercase;
@@ -9836,7 +10369,7 @@
   .queue-head-collapsed .sum-next-label { color: var(--lime); font-weight: 700; }
   .queue-head-collapsed .sum-next {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text);
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -9852,36 +10385,42 @@
     white-space: nowrap;
   }
 
-  /* Toggle button */
+  /* Toggle button · borderless icon. The square hairline border read
+     as a hard rectangle inside the topbar's rounded chrome, so the
+     button is now icon-only — clickable via its padding, with hover
+     deepening the icon to the accent. Icon swap (chevron ↔ list)
+     handles state legibility. */
   .queue-toggle {
     width: 22px; height: 22px;
     background: transparent;
-    border: 0.5px solid var(--line-strong);
+    border: 0;
+    padding: 0;
     color: var(--text-dim);
-    font-size: 9px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     line-height: 1;
-    font-family: var(--mono);
-    transition: all 0.12s;
+    transition: color 0.12s;
   }
-  .queue-toggle:hover {
-    border-color: var(--lime);
+  .queue-toggle:hover,
+  .queue-toggle:focus-visible {
     color: var(--lime);
+    outline: none;
   }
-  .queue-toggle .chev {
-    transition: transform 0.18s;
-    display: inline-block;
+  .queue-toggle .qt-icon {
+    display: block;
+    transition: opacity 0.12s;
   }
-  .speaking-queue.collapsed .queue-toggle .chev {
-    transform: rotate(180deg);
-  }
+  /* Default (expanded) state · show the fold chevron, hide the list
+     icon. `.speaking-queue.collapsed` flips them so the list icon
+     becomes the "click to open the queue" affordance. */
+  .queue-toggle .qt-open { display: none; }
+  .speaking-queue.collapsed .queue-toggle .qt-fold { display: none; }
+  .speaking-queue.collapsed .queue-toggle .qt-open { display: block; }
 
-  /* Collapse — hide the list and footer */
-  .speaking-queue.collapsed .queue-list,
-  .speaking-queue.collapsed .queue-foot {
+  /* Collapse — hide the queue list (the foot was removed). */
+  .speaking-queue.collapsed .queue-list {
     display: none;
   }
   .speaking-queue.collapsed .queue-head {
@@ -9951,7 +10490,7 @@
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    font-size: 10.5px;
+    font-size: 10px;
   }
   .queue-row.speaking .who { color: var(--lime); }
   .queue-row.next .who { color: var(--text); }
@@ -10068,21 +10607,10 @@
     color: var(--red);
   }
 
-  .queue-foot {
-    padding: 8px 12px;
-    border-top: 0.5px dashed var(--line-bright);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .queue-foot-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
+  /* (`.queue-foot` / `.queue-foot-actions` removed · the foot hint
+     was never reused, and the wrap/continue affordances live in
+     the chat round-prompt now, not in the speaking-queue foot.) */
+
   /* Manual round-wrap button · the user's signal that they want the
      chair to summarise + open the key-point vote. Disabled when nothing
      to summarise (no director has spoken since the last wrap) or when
@@ -10171,25 +10699,8 @@
     transition: width 0.95s linear;
   }
   .qw-mark { font-size: 11px; line-height: 1; }
-  .queue-foot-hint {
-    font-family: var(--mono);
-    font-size: 9px;
-    color: var(--text-faint);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-  }
-  .queue-foot kbd {
-    font-family: var(--mono);
-    color: var(--text-dim);
-    background: var(--bg);
-    border: 0.5px solid var(--line-bright);
-    padding: 0 4px;
-    margin: 0 2px;
-    font-size: 9px;
-    letter-spacing: 0.04em;
-  }
 
-  .empty-state-mini { padding: 16px 12px; font-family: var(--font-human); font-size: 11.5px; color: var(--text-dim); text-align: center; letter-spacing: -0.003em; }
+  .empty-state-mini { padding: 16px 12px; font-family: var(--font-human); font-size: 12px; color: var(--text-dim); text-align: center; letter-spacing: -0.003em; }
   /* Streaming director message gets a subtle pulse */
   .msg.streaming .msg-bubble::after {
     content: "▍";
@@ -10252,7 +10763,7 @@
   }
   .pc-tag {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -10270,7 +10781,7 @@
   }
   .pc-deck {
     font-family: var(--font-human);
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--text-soft);
     line-height: 1.55;
     margin: 0;
@@ -10309,7 +10820,7 @@
   .pc-choice.ghost   .pc-choice-mark { color: var(--text-soft); }
   .pc-choice-deck {
     font-family: var(--font-human);
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-dim);
     letter-spacing: -0.003em;
     line-height: 1.5;
@@ -10326,7 +10837,7 @@
   .starter-head { margin-bottom: 18px; padding: 0 4px; }
   .starter-eyebrow {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -10379,7 +10890,7 @@
     align-self: start;
     padding-top: 2px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -10395,7 +10906,7 @@
   }
   .starter-text {
     font-family: var(--font-human);
-    font-size: 14.5px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text);
     letter-spacing: -0.005em;
@@ -10403,7 +10914,7 @@
   }
   .starter-hint {
     font-family: var(--font-human);
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-soft);
     line-height: 1.4;
   }
@@ -10449,7 +10960,7 @@
   }
   .starter-name {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--text-soft);
     letter-spacing: 0.04em;
@@ -10494,7 +11005,7 @@
     background: var(--bg);
     color: var(--lime);
   }
-  .starter-start-arrow { font-size: 8.5px; line-height: 1; }
+  .starter-start-arrow { font-size: 8px; line-height: 1; }
   .starter-start-label { letter-spacing: 0.14em; }
   .starter-foot {
     margin-top: 18px;
@@ -10505,7 +11016,7 @@
     border: 0.5px dashed var(--line-strong);
     color: var(--text-soft);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -10727,7 +11238,7 @@
     outline: none;
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 14.5px;
+    font-size: 14px;
     line-height: 1.55;
     letter-spacing: -0.003em;
     resize: none;
@@ -11015,7 +11526,7 @@
      reads as a header without consuming a real row's worth of space. */
   .cmp-dd-group {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -11094,7 +11605,7 @@
   }
   .cmp-dd-opt-label {
     font-family: var(--font-human);
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text);
     letter-spacing: -0.005em;
@@ -11104,7 +11615,7 @@
   .cmp-dd-opt.active .cmp-dd-opt-label { color: var(--lime); }
   .cmp-dd-opt-hint {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     /* Was text-faint · the dropdown option hints (yes-and / push &
@@ -11125,7 +11636,7 @@
     margin-left: auto;
     padding: 2px 6px;
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--text-soft);
@@ -11212,7 +11723,7 @@
   .cmp-starter {
     display: grid;
     grid-template-columns: 130px 1fr 16px;
-    gap: 16px;
+    gap: 6px;
     align-items: center;
     width: 100%;
     padding: 10px 4px;
@@ -11228,7 +11739,7 @@
   .cmp-starter:hover { color: var(--text); }
   .cmp-starter-tag {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -11238,7 +11749,7 @@
   .cmp-starter:hover .cmp-starter-tag { color: var(--lime); }
   .cmp-starter-text {
     font-family: var(--font-human);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.45;
     letter-spacing: -0.003em;
     display: -webkit-box;
@@ -11369,13 +11880,12 @@
     grid-column: 2;
     margin-top: 4px;
     font-family: var(--font-human);
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.4;
     color: var(--text-faint);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     font-style: italic;
   }
   /* ─── New-agent composer · variant of the new-room composer.
@@ -11484,7 +11994,7 @@
   }
   .ag-gen-error-kicker {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--amber, #B59560);
@@ -11500,14 +12010,14 @@
   }
   .ag-gen-error-hint {
     font-family: var(--font-human);
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin: 0 0 12px;
   }
   .ag-gen-error-detail {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     line-height: 1.55;
     color: var(--text-faint);
     background: var(--bg);
@@ -11525,7 +12035,7 @@
   }
   .ag-gen-error-desc-label {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -11574,7 +12084,7 @@
     border: 0.5px solid var(--line-bright);
     padding: 9px 16px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -11833,7 +12343,7 @@
   }
   .ag-gen-elapsed {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -11946,7 +12456,7 @@
   }
   .ag-persona-rounds-tag {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -11965,7 +12475,7 @@
     grid-template-columns: 22px 1fr auto;
     gap: 10px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-soft);
   }
   .ag-persona-round-num {
@@ -12072,6 +12582,19 @@
     padding: 16px 0 32px;
     color: var(--text);
   }
+  /* Persona-builder layout · default behaviour is the SAME as the
+     new-room / new-agent hero: vertically centred by
+     `.chat.chat--composer { align-content: center }`. When the
+     dashboard's natural height exceeds 90% of the viewport (the
+     overflow trigger for pb-stage · `updateComposerOverflow` in
+     app.js switches its threshold from 70% of chat height to 90%
+     of `window.innerHeight` when a `.pb-stage` is present),
+     `.chat--composer-overflow` kicks in and we reduce the default
+     120 px top offset to 50 px so the dashboard pins comfortably
+     near the top of the panel rather than getting shoved down. */
+  .chat.chat--composer.chat--composer-overflow:has(.pb-stage) .cmp {
+    padding-top: 50px !important;
+  }
   .pb-stage-head {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -12115,7 +12638,7 @@
     justify-content: space-between;
     gap: 10px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.06em;
   }
   .pb-meta-l {
@@ -12261,7 +12784,7 @@
     align-items: center;
     gap: 6px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.18em;
     color: var(--lime);
   }
@@ -12325,7 +12848,7 @@
   }
   .pb-phase-label {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 12px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-soft);
@@ -12333,14 +12856,14 @@
   }
   .pb-phase-hint {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-faint);
     letter-spacing: 0.04em;
   }
   .pb-phase-detail {
     margin-top: 6px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text);
     letter-spacing: 0.02em;
   }
@@ -12361,7 +12884,7 @@
     align-items: baseline;
     gap: 8px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-soft);
     letter-spacing: 0.02em;
     min-width: 0;
@@ -12374,7 +12897,7 @@
     color: var(--lime);
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    font-size: 9.5px;
+    font-size: 10px;
   }
   .pb-dim-query {
     color: var(--text);
@@ -12385,7 +12908,7 @@
   }
   .pb-dim-meta {
     color: var(--text-faint);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     white-space: nowrap;
   }
@@ -12395,7 +12918,7 @@
   .pb-dim-done .pb-dim-icon { color: var(--lime); }
   .pb-phase-counter {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--lime);
@@ -12566,7 +13089,7 @@
   }
   .pb-feed-meta {
     color: var(--text-faint);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     padding-left: 16px;
@@ -12615,7 +13138,7 @@
   }
   .pb-foot-hint {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.06em;
     color: var(--text-faint);
     text-transform: uppercase;
@@ -12634,7 +13157,7 @@
   }
   .ag-persona-round-meta {
     color: var(--text-faint);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
   }
 
@@ -12697,7 +13220,7 @@
     font-family: var(--mono);
   }
   .ag-persona-report-tag {
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -12738,7 +13261,7 @@
     grid-template-columns: 1fr auto;
     gap: 10px;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-soft);
     padding: 2px 0;
   }
@@ -12876,7 +13399,7 @@
   }
   .ag-gen-stage-label {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     line-height: 1.35;
     letter-spacing: 0.02em;
   }
@@ -12886,7 +13409,7 @@
   }
   .ag-gen-stage-sub {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-soft);
     line-height: 1.45;
@@ -12908,7 +13431,7 @@
   }
   .ag-prev-kicker {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -13078,7 +13601,7 @@
   }
   .ag-prev-radar-axis-label {
     font-family: var(--mono);
-    font-size: 6.5px;
+    font-size: 6px;
     letter-spacing: 0.1em;
     fill: var(--text-faint);
     text-transform: uppercase;
@@ -13098,7 +13621,7 @@
   }
   .ag-prev-label {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -13128,7 +13651,7 @@
   }
   .ag-prev-instr {
     font-family: "SF Mono", Menlo, Consolas, monospace;
-    font-size: 12.5px;
+    font-size: 12px;
     line-height: 1.55;
     min-height: 200px;
   }
@@ -13162,7 +13685,7 @@
     border: 0.5px solid var(--lime);
     color: var(--bg);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -13210,7 +13733,7 @@
   }
   .composer-pick-title {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -13236,9 +13759,10 @@
     transition: background 0.1s;
   }
   .composer-pick-row:hover { background: var(--panel-2); }
+  /* Director-picker row checkbox · size override only; visual
+     treatment comes from the global `input[type="checkbox"]`
+     rule at the top of this file. */
   .composer-pick-row input[type=checkbox] {
-    accent-color: var(--lime);
-    cursor: pointer;
     margin: 0;
     width: 12px; height: 12px;
   }
@@ -13262,7 +13786,7 @@
   }
   .composer-pick-name {
     font-family: var(--font-human);
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--text);
     letter-spacing: -0.005em;
     white-space: nowrap;
@@ -13271,7 +13795,7 @@
   }
   .composer-pick-tag {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     /* Director role tag · was text-faint (~2:1) and the role
@@ -13284,7 +13808,7 @@
   }
   .composer-pick-model {
     font-family: var(--mono);
-    font-size: 8.5px;
+    font-size: 8px;
     letter-spacing: 0.04em;
     color: var(--text-soft);
     padding: 1px 5px;
@@ -13321,29 +13845,6 @@
     font-size: 10px;
     color: var(--text-faint);
   }
-  .composer-pick-foot {
-    padding: 6px 10px;
-    border-top: 0.5px solid var(--line);
-    display: flex;
-    justify-content: flex-end;
-  }
-  .composer-pick-done {
-    background: var(--lime);
-    border: 0.5px solid var(--lime);
-    color: var(--bg);
-    font-family: var(--mono);
-    font-size: 9.5px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    padding: 5px 12px;
-    cursor: pointer;
-  }
-  .composer-pick-done:hover {
-    background: transparent;
-    color: var(--lime);
-  }
-
   /* ─── Brief picker popover · the [View Report] click target on
      multi-brief rooms. Anchored under the room-head's button via
      position: fixed and right-aligned so it visually drops out of
@@ -13434,7 +13935,7 @@
   }
   .brief-picker-time {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-faint);
     white-space: nowrap;
@@ -13477,7 +13978,7 @@
   .convene-opener::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
   .convene-eyebrow {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -13487,7 +13988,7 @@
   .convene-body {
     font-family: var(--font-human);
     font-size: 19px;
-    font-weight: 700;
+    font-weight: 400;
     color: var(--text);
     letter-spacing: -0.012em;
     line-height: 1.32;
@@ -13516,6 +14017,11 @@
     background: linear-gradient(to bottom, transparent, var(--panel-2));
     pointer-events: none;
   }
+  /* The Show more / less toggle sits inline at the right end of the
+   * meta row (instead of on its own line above) so the opener takes
+   * one fewer baseline of vertical space. `margin-left: auto`
+   * pushes it past the `.convene-meta-info` span which holds the
+   * who · time · cast crumb on the left. */
   .convene-toggle {
     appearance: none;
     background: transparent;
@@ -13527,8 +14033,9 @@
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    padding: 4px 0 6px;
-    margin: 4px 0 6px;
+    padding: 0;
+    margin-left: auto;
+    flex-shrink: 0;
     transition: color 0.12s;
   }
   .convene-toggle:hover { color: var(--lime); }
@@ -13539,8 +14046,14 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     display: flex;
-    gap: 6px;
+    align-items: center;
+    gap: 10px;
+  }
+  .convene-meta-info {
+    display: inline-flex;
     flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
   }
   .convene-meta .convene-by { color: var(--text-soft); }
   .convene-meta .convene-time { color: var(--text-faint); }
@@ -13560,7 +14073,7 @@
     background: var(--bg);
     border: 0.5px solid var(--line-bright);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     color: var(--text-soft);
     text-decoration: none;
@@ -13595,7 +14108,7 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-weight: 600;
-    font-size: 9.5px;
+    font-size: 10px;
   }
   .convene-origin-room {
     color: var(--lime);
@@ -13642,7 +14155,7 @@
   }
   .convening-card .conv-eyebrow {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -13808,6 +14321,49 @@
     40%           { opacity: 1;   transform: translateY(-3px); background: var(--lime); }
   }
 
+  /* Bottom input stack · groups speaking-queue + paused-strip +
+     input-bar so they can be repositioned as a unit. In default
+     (chat) view it stays in flex flow (display: contents so it's
+     transparent to flex layout · the three children keep their
+     direct relationships with `.chat-col` for adjacency selectors
+     to still work). In voice-room (stage visible) view it absolute-
+     positions over the bottom of the stage so the stage occupies
+     the full height instead of being squished above the input. */
+  .ib-stack {
+    display: contents;
+  }
+  .chat-col:has(.roundtable-stage:not([hidden])) .ib-stack {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    /* The children still self-position horizontally via their own
+       `margin: 0 14px` so the gutters match the live-chat layout. */
+  }
+  /* Voice room · frosted-glass treatment on the floating input
+     group. The blur is heavy (24px) and the panel tint blends with
+     `--bg` rather than transparent so the surface reads as a
+     denser, darker pane of glass — the wood floor still bleeds
+     through behind, but the input chrome dominates visually
+     instead of looking like a thin overlay. Saturate boosts what's
+     visible under the haze so the floor tones still register. */
+  .chat-col:has(.roundtable-stage:not([hidden])) .input-bar {
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+  .chat-col:has(.roundtable-stage:not([hidden])) .speaking-queue,
+  .chat-col:has(.roundtable-stage:not([hidden])) .paused-strip,
+  .chat-col:has(.roundtable-stage:not([hidden])) .adjourned-strip {
+    background: color-mix(in srgb, var(--panel-2) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-2) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+
   /* Chat column wraps the message stream + input bar. */
   .chat-col {
     display: flex;
@@ -13829,21 +14385,312 @@
     position: relative;
   }
 
-  /* Input bar — sits inside the chat column. Live state hosts a
-     small action toolbar (pause / adjourn) on the left, then the
-     input pill which grows to fill remaining width. */
+  /* Input bar — floating Claude-style card. Two stacked rows:
+     `.ib-text-row` on top hosts the textarea (live state) or the
+     paused-status text (paused state). `.ib-controls-row` on the
+     bottom hosts session actions (pause / adjourn / vote) on the
+     left and toggles + send on the right. The bar floats with
+     margins from the chat edges instead of stretching edge-to-
+     edge so it reads as a discrete control surface, matching the
+     visual register Claude's input uses. */
   .input-bar {
     flex: 0 0 auto;
-    border-top: 0.5px solid var(--line-bright);
-    padding: 8px 14px;
-    background: var(--panel-2);
+    /* Match the chat-body width cap (max-width 960px on
+       `.chat > [data-chat-messages]`) so the input card lines up
+       with the prose column on wide monitors. The 14px gutter is
+       preserved via `calc(100% - 28px)` for narrow viewports. */
+    width: calc(100% - 28px);
+    max-width: 960px;
+    margin: 8px auto 14px;
+    padding: 6px 8px 8px;
+    border: 0.5px solid var(--line-strong);
+    border-radius: 14px;
+    /* Bump up a notch from the chat surface · the chat scroller
+       sits on var(--bg) / var(--panel), so panel-3 (one tier
+       lighter on dark themes / one tier darker on light themes)
+       gives the floating card enough contrast to read as a
+       separate surface without going overbright. */
+    background: var(--panel-3);
+    box-shadow: 0 14px 32px -20px rgba(0, 0, 0, 0.55);
     display: flex;
-    align-items: stretch;
-    gap: 10px;
+    flex-direction: column;
+    gap: 4px;
+    transition: border-color 0.12s, box-shadow 0.12s;
   }
-  /* Session-control icons · sit to the LEFT of the input pill as
-     bare glyph buttons. Borderless in the resting state so they
-     don't compete with the input pill's hairline frame.
+  .input-bar:focus-within {
+    border-color: var(--lime-dim, var(--line-strong));
+    box-shadow: 0 16px 36px -18px rgba(0, 0, 0, 0.6);
+  }
+  /* Top row · textarea (live) or paused-status text. */
+  .ib-text-row {
+    display: flex;
+    align-items: flex-start;
+    padding: 6px 8px 0;
+    min-height: 32px;
+  }
+  /* The textarea itself · borderless, transparent so the card's
+     rounded outer frame is the only visible boundary. Auto-grows
+     up to a sensible cap; scrolls internally past that. */
+  .ib-textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--text);
+    outline: none;
+    padding: 4px 0;
+    resize: none;
+    min-height: 24px;
+    max-height: 200px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    /* Scrollbar idle-hidden · revealed only while actively
+       scrolling. The JS in app.js (`bindTextareaScrollbarHide`) adds
+       `.is-scrolling` on the `scroll` event and removes it ~800 ms
+       after the last scroll. Default behaviour is "no visible
+       scrollbar at all" so the textarea stays clean even when
+       content overflows the 200 px max-height. */
+    scrollbar-width: none;
+  }
+  .ib-textarea::-webkit-scrollbar { width: 0; height: 0; }
+  .ib-textarea.is-scrolling { scrollbar-width: thin; }
+  .ib-textarea.is-scrolling::-webkit-scrollbar { width: 5px; }
+  .ib-textarea.is-scrolling::-webkit-scrollbar-thumb {
+    background: var(--line-bright);
+  }
+  .ib-textarea.is-scrolling::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .ib-textarea::placeholder {
+    color: var(--text-faint);
+    font-family: var(--sans);
+    font-size: 14px;
+  }
+  /* Bottom row · session controls on the left, toggles + send on
+     the right. */
+  .ib-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px 0 4px;
+  }
+  .ib-controls-left {
+    display: flex;
+    align-items: center;
+    /* Tight cluster · pause / adjourn / vote belong to the same
+       action family, packed close together like a button group. */
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .ib-controls-right {
+    display: flex;
+    align-items: center;
+    /* Breathable spacing between the mixed icon/label tools on
+       the right — matches the reference layout's natural rhythm
+       between e.g. "Apps ⌄ · Thinking · mic · send". */
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+  /* Stay-hidden helper · the toggle's `hidden` attribute is set
+     by JS when no key / wrong delivery mode etc. Keep flex layout
+     stable when the slot empties. */
+  .ib-controls-right [hidden] { display: none !important; }
+
+  /* ─── Inline-tool register inside the input / paused bar ───
+     The reference design (icons/bar.png) places ALL controls
+     below the textarea as borderless, fill-less inline tools ·
+     just icons (or icon + label) spaced naturally, with state
+     conveyed by COLOUR alone — no chip borders, no hover-fill
+     boxes, no per-item frames competing with the textarea
+     card's outer frame. The primary action lives at the far
+     right as a single solid-filled circular button — the only
+     element in the row carrying a fill, so the eye lands on it
+     automatically.
+
+     This is intentionally minimal · a row of clean tools, not a
+     button mosaic. The textarea card IS the visible frame; the
+     controls inside read as "actions belonging to the card". */
+
+  /* All inline controls share the same baseline · 32px tall,
+     transparent surface, colour-only states. The `!important`
+     overrides are scoped to `.ib-controls-row` so they don't
+     leak into the paused-bar variant or the head-rt-toggle's
+     other (out-of-context) mounts. */
+  .ib-controls-row .ib-action,
+  .ib-controls-row .head-rt-toggle {
+    height: 32px;
+    width: 32px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-soft);
+    transition: color 0.12s, background 0.12s;
+  }
+  /* Icon + label variant · mirrors the Voice toggle's register
+     (and the reference's "Agent" / "Apps" pattern in icons/bar.png):
+     icon glyph on the left, mono small-caps label on the right, no
+     border / fill — state lives in colour alone. Used for Adjourn
+     and the round-table toggle; bare icon-only Pause / Vote stay
+     icon-only by convention (universally readable glyphs). */
+  .ib-controls-row .ib-action.has-label,
+  .ib-controls-row .head-rt-toggle.has-label {
+    width: auto;
+    padding: 0 8px;
+    gap: 6px;
+  }
+  /* Suppress the hover tooltip when a visible label already
+     names the action — keeps the row clean of redundant chrome. */
+  .ib-controls-row .ib-action.has-label::after { content: none; }
+  .ib-action-label,
+  .ib-rt-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: inherit;
+    white-space: nowrap;
+  }
+  /* Hover background · subtle theme-adaptive tint so the affordance
+     reads under the cursor. Icon-only buttons get a circle (the
+     32×32 frame becomes a perfect dot); labeled buttons get a pill.
+     Both use color-mix on --text so the same rule works in light
+     and dark themes without per-theme overrides. */
+  .ib-controls-row .ib-action:hover,
+  .ib-controls-row .head-rt-toggle:hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text);
+    border-radius: 50%;
+  }
+  .ib-controls-row .ib-action.has-label:hover,
+  .ib-controls-row .head-rt-toggle.has-label:hover {
+    border-radius: 999px;
+  }
+  .ib-controls-row .ib-action:active,
+  .ib-controls-row .head-rt-toggle:active {
+    background: color-mix(in srgb, var(--lime) 14%, transparent);
+    color: var(--lime);
+  }
+  /* Manual-vote · already lime-coloured in the global styles,
+     keeps that load-bearing accent. */
+  .ib-controls-row .ib-vote { color: var(--lime); }
+  .ib-controls-row .ib-vote:hover { color: var(--lime); }
+
+  /* Round-table toggle glyph · the inner framed square is gone
+     in this context. The SVG icon sits bare inside the chip,
+     same visual weight as the .ib-action icons. */
+  .ib-controls-row .head-rt-toggle .ib-rt-glyph {
+    width: 18px;
+    height: 18px;
+    background: transparent;
+    border: none;
+    animation: none;
+    color: inherit;
+  }
+  .ib-controls-row .head-rt-toggle:hover .ib-rt-glyph {
+    background: transparent;
+    border: none;
+    color: var(--text);
+  }
+  /* Active state · color-only (no background pill). Matches the
+     reference's `bar.png` "Agent selected" treatment — the lime
+     ink on icon + label IS the entire cue. On hover, the pale-lime
+     pill appears AND the icon swaps to × so the click reads as
+     "dismiss this view" (mirrors `close.png`). */
+  .ib-controls-row .head-rt-toggle[aria-pressed="true"] {
+    color: var(--lime);
+  }
+  .ib-controls-row .head-rt-toggle[aria-pressed="true"]:hover {
+    background: color-mix(in srgb, var(--lime) 14%, transparent);
+    color: var(--lime);
+    border-radius: 999px;
+  }
+  .ib-controls-row .head-rt-toggle[aria-pressed="true"] .ib-rt-glyph,
+  .ib-controls-row .head-rt-toggle[aria-pressed="true"]:hover .ib-rt-glyph {
+    background: transparent;
+    border: none;
+    color: var(--lime);
+  }
+  /* Hover when pressed · hide the destination glyph SVG and reveal
+     a × close mark via mask-image. The mask inherits currentColor
+     so the × picks up the lime accent automatically. */
+  .ib-controls-row .head-rt-toggle[aria-pressed="true"]:hover .ib-rt-glyph > svg {
+    display: none;
+  }
+  .ib-controls-row .head-rt-toggle[aria-pressed="true"]:hover .ib-rt-glyph::before {
+    content: "";
+    display: block;
+    width: 14px;
+    height: 14px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: contain;
+            mask-size: contain;
+  }
+
+
+  /* Send · the ONE filled element in the row. Solid lime circle,
+     centred send-arrow glyph. The visible text ("[ Send ]") is
+     replaced by the arrow icon in this context; the original
+     i18n textContent stays in the accessibility tree (browsers
+     still expose the button's name as "[ Send ]"). */
+  .ib-controls-row .send-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    border: none;
+    background: var(--lime);
+    color: var(--bg);
+    /* Hide the textual "[ Send ]" content visually but keep it
+       in the accessibility tree · screen readers still announce
+       the button by its name. The ::before glyph below is the
+       visible mark. */
+    font-size: 0;
+    line-height: 0;
+    overflow: hidden;
+    position: relative;
+    transition: background 0.12s, transform 0.12s;
+  }
+  .ib-controls-row .send-btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='19' x2='12' y2='5'/><polyline points='5 12 12 5 19 12'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='19' x2='12' y2='5'/><polyline points='5 12 12 5 19 12'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
+  }
+  .ib-controls-row .send-btn:hover {
+    background: var(--lime-deep, var(--lime));
+    transform: scale(1.04);
+  }
+  .ib-controls-row .send-btn:active {
+    transform: scale(0.96);
+  }
+
+  /* Session-control icons · sit on the LEFT of the bottom row
+     of the input card as bare glyph buttons. Borderless in the
+     resting state so they don't compete with the card frame.
      ──────────────────────────────────────────────────────────────
      Visual vocabulary mirrors the sidebar's nav icons (Lucide-style
      stroked SVG, 16px, mask-image fill via currentColor). Hover
@@ -13851,7 +14698,7 @@
      colour shift, no accent tint. The destructive cue for adjourn
      lives in the confirm overlay, not in the icon, so neither
      button needs an accent colour to broadcast severity here. Hit
-     target 32×32; icon 16×16 sits centred inside it. */
+     target 30×30; icon 16×16 sits centred inside it. */
   .input-bar-actions {
     display: flex;
     align-items: center;
@@ -13943,6 +14790,41 @@
   .ib-adjourn {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/></svg>");
   }
+  /* Export · downward arrow over a baseline. Mirrors the SVG that
+     lived in the adjourned-bar's .ab-action[data-room-export] so
+     the glyph reads identically after the migration. */
+  .ib-export {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M7 2 L7 9'/><polyline points='4,6.5 7,9.5 10,6.5'/><path d='M2.5 11.5 L11.5 11.5'/></svg>");
+  }
+  /* Voice Replay · speaker + sound waves. Mirrors the
+     [data-room-replay] glyph from the old adjourned-bar. */
+  .ib-replay {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none'><path d='M3 5.5 L3 8.5 L5 8.5 L7.5 10.5 L7.5 3.5 L5 5.5 Z' fill='black'/><path d='M9.5 5 Q11 7 9.5 9' stroke='black' stroke-width='1.2' stroke-linecap='round'/><path d='M11 3.5 Q13 7 11 10.5' stroke='black' stroke-width='1.2' stroke-linecap='round'/></svg>");
+  }
+  /* Convene Follow-up · branch trunk turning into a forward arrow.
+     Mirrors the [data-room-followup] glyph from the old bar. */
+  .ib-followup {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11 L3 6 Q3 4 5 4 L11 4'/><polyline points='8.5,2 11,4 8.5,6'/></svg>");
+  }
+  /* Voice-replay inline controls (Next / Pause / Stop / Expand)
+     reuse `.ib-action` for the cluster's 32×32 hover-circle frame
+     + tooltip register, but they ship their own inline child SVG
+     instead of a `--icon` mask. Suppress the empty mask pseudo so
+     the unmasked currentColor block doesn't render as a solid
+     square next to the inline SVG. */
+  .ib-action.vr-inline-btn::before,
+  .ib-action.vr-inline-btn::after { content: none; }
+  /* Jump-to-opener · Lucide arrow-up-to-line. Single-tap nav back
+     to the user's original convene question — useful when a long
+     room has scrolled the opener many screens up. Hidden in the
+     voice-mode stage view (the chat isn't visible / scrollable
+     there); the round-table-stage selector below scopes it. */
+  .ib-jump-top {
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 3h14'/><path d='m18 13-6-6-6 6'/><path d='M12 7v14'/></svg>");
+  }
+  .chat-col:has(.roundtable-stage:not([hidden])) .ib-jump-top {
+    display: none;
+  }
   /* Manual vote trigger · Lucide gavel — semantically the chair
      calling the vote (mallet head + sounding-block tablet). Visible
      only when room.voteTrigger === "manual"; drives the chair's
@@ -14003,49 +14885,22 @@
     max-width: none;
   }
 
-  .input-wrap {
-    flex: 1 1 auto;
-    min-width: 0;
-    background: var(--bg);
-    border: 0.5px solid var(--line-strong);
-    padding: 0 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .input-wrap:focus-within { border-color: var(--lime); }
-  .input-wrap::before {
-    content: ">";
-    color: var(--lime);
-    font-weight: 700;
-    font-size: 13px;
-  }
-  .input-wrap input {
-    flex: 1;
-    border: none;
-    background: transparent;
-    font-family: var(--sans);
-    font-size: 14px;
-    color: var(--text);
-    outline: none;
-    padding: 9px 0;
-  }
-  .input-wrap input::placeholder {
-    color: var(--text-faint);
-    font-family: var(--sans);
-    font-size: 14px;
-  }
+  /* Send button · sits at the far right of the controls row.
+     Lime fill / panel-2 inverse on hover, mono uppercase like
+     the rest of the system buttons. */
   .send-btn {
-    padding: 6px 12px;
+    padding: 6px 14px;
     background: var(--lime);
     color: var(--bg);
     border: 0.5px solid var(--lime);
+    border-radius: 8px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 700;
     cursor: pointer;
     text-transform: uppercase;
     letter-spacing: 0.1em;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
   }
   .send-btn:hover { background: var(--bg); color: var(--lime); }
 
@@ -14083,15 +14938,27 @@
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
 <script src="onboarding.js" defer></script>
+<link rel="stylesheet" href="voice-onboarding.css">
+<script src="voice-onboarding.js" defer></script>
 <link rel="stylesheet" href="quote-cta.css">
 <script src="quote-cta.js" defer></script>
 <script src="typing-sfx.js" defer></script>
+<script src="agent-build-bgm.js" defer></script>
+<script src="share-cover-svg-creator.js" defer></script>
 <script src="app.js" defer></script>
 <script>
   /* FOUC-prevention: apply saved theme synchronously before paint */
   (function () {
     try {
       var t = localStorage.getItem("boardroom.theme") || "regent";
+      // Apple theme was retired · migrate any persisted "apple" pick
+      // to "pinterest" (the closest light-theme analog — also
+      // white-surface with a single accent color) so users who'd
+      // selected it don't drop onto the bare `:root` fallback.
+      if (t === "apple") {
+        t = "pinterest";
+        try { localStorage.setItem("boardroom.theme", t); } catch (e) {}
+      }
       document.documentElement.setAttribute("data-theme", t);
     } catch (e) {}
   })();
@@ -14215,7 +15082,7 @@
             <div class="user-meta" data-user-meta data-i18n="sidebar_host">// host</div>
           </div>
         </a>
-        <a href="#" class="icon-btn" data-i18n-title="settings_title" data-user-settings-trigger>⚙</a>
+        <a href="#" class="icon-btn" data-i18n-title="settings_title" data-user-settings-trigger aria-label="Settings"></a>
       </div>
 
     </aside>
@@ -14246,6 +15113,16 @@
                position survives toggles, and the ~20 write sites that
                target [data-chat-messages] keep working unchanged. -->
           <div class="roundtable-stage" data-roundtable-stage role="img" hidden>
+            <!-- Stage content wrapper · the floor + vignette stay on
+                 the outer .roundtable-stage so they cover the full
+                 chat-col area. This inner element holds every other
+                 element (table, plants, HUD, seats, subtitle) and is
+                 shrunk from the bottom by `--rt-bottom-reserve` when
+                 the input-bar group floats over the stage in voice
+                 rooms — pushing all percentage-positioned content up
+                 above the floating textarea while the wood floor
+                 keeps painting underneath. -->
+            <div class="rt-stage-inner">
             <!-- 8-bit pixel-art conference table · rim, mid wood,
                  top highlight, three grain stripes, bottom shadow
                  band, corner caps, ground shadow underneath. Drawn
@@ -14453,8 +15330,16 @@
                  or the voice clip plays. Hidden when no one is
                  speaking. Mounted by app.renderRtSubtitle. -->
             <div class="rt-subtitle" data-rt-subtitle hidden aria-live="polite" aria-atomic="false"></div>
+            </div><!-- /.rt-stage-inner -->
           </div>
 
+          <!-- Bottom input stack opens here · its closing </div>
+               comes right after the input-bar. Wrapping these three
+               siblings (speaking-queue, paused-strip, input-bar)
+               lets us float the whole group as a single unit over
+               the round-table stage in voice rooms via
+               `.chat-col:has(.roundtable-stage:not([hidden])) .ib-stack`. -->
+          <div class="ib-stack">
           <!-- Speaking queue — floats above the input bar, collapsible -->
           <div class="speaking-queue" id="speaking-queue">
             <div class="queue-head">
@@ -14467,107 +15352,127 @@
                      the real queue: speaking, pending, or idle. -->
               </div>
               <button type="button" class="queue-toggle" data-i18n-title="queue_toggle" aria-expanded="true">
-                <span class="chev">▼</span>
+                <!-- Expanded state · chevron-up = "fold the queue".
+                     Collapsed state · list-rows = "open the queue".
+                     Visibility is swapped by `.speaking-queue.collapsed`
+                     so the affordance reads correctly at a glance. -->
+                <svg class="qt-icon qt-fold" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 9 L7 5 L11 9"/>
+                </svg>
+                <svg class="qt-icon qt-open" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                  <path d="M2.5 4 L11.5 4"/>
+                  <path d="M2.5 7 L9 7"/>
+                  <path d="M2.5 10 L10.5 10"/>
+                </svg>
               </button>
             </div>
             <ul class="queue-list" data-queue-list></ul>
-            <div class="queue-foot" data-queue-foot>
-              <span class="queue-foot-hint" data-queue-foot-hint data-i18n-html="queue_foot_hint">type to interject · <kbd>@</kbd> to direct · the chair files the round-end vote in chat</span>
+          </div>
+
+          <!-- Paused-state info strip · takes the speaking-queue's
+               slot above the input card while the room is paused.
+               Quieter than a button: mono kicker + low-key resume
+               link, conjoined with the textarea below so it reads
+               as a state indicator rather than a fresh CTA.
+               Visibility scoped to html[data-status="paused"]. -->
+          <div class="paused-strip" id="paused-strip">
+            <div class="paused-strip-head">
+              <span class="paused-strip-kicker" data-i18n="paused_strip_kicker">// paused</span>
+              <a href="#" class="paused-strip-resume" data-resume data-i18n="paused_strip_resume">▸ Resume discussion</a>
             </div>
           </div>
 
+          <!-- Adjourned-state info strip · takes the speaking-queue's
+               slot above the input card while the room is archived.
+               Mono kicker + relative-time meta (e.g., "filed 2h"),
+               same conjoined-card chrome as `.paused-strip`. The
+               meta value is filled in by `renderInputBarControls`
+               when status === "adjourned" (room.adjournedAt → relTime).
+               Visibility scoped to html[data-status="adjourned"]. -->
+          <div class="adjourned-strip" id="adjourned-strip">
+            <div class="adjourned-strip-head">
+              <span class="adjourned-strip-kicker" data-i18n="adjourned_strip_kicker">// adjourned</span>
+              <div class="adjourned-strip-right">
+                <span class="adjourned-strip-meta" data-adjourned-strip-meta></span>
+                <a href="#" class="adjourned-strip-replay" data-room-replay
+                   data-i18n="adjourned_strip_replay"
+                   data-i18n-aria="adj_replay_label"
+                   data-i18n-title="adj_replay_tip">▸ Voice replay</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input bar · floating Claude-style card. Two stacked
+               sections: the textarea on top, the action row
+               (session controls + toggles + send) on the bottom.
+               Replaces the old edge-to-edge strip that pushed
+               icons / textarea / send into a single horizontal
+               pill. The card is hidden by CSS in non-live states
+               (html.no-room / data-status="paused" / "adjourned"). -->
           <footer class="input-bar">
-            <!-- Session-control toolbar · pause + adjourn live left of
-                 the input pill so they're reachable without leaving
-                 the typing area. Both reuse the existing data-pause /
-                 data-adjourn handlers; no new backend routes. The
-                 visual grammar matches head-actions (mono caps,
-                 brackets) but at a tighter scale. Adjourn turns warn
-                 on hover to flag its destructiveness. -->
-            <div class="input-bar-actions">
-              <button type="button" class="ib-action ib-pause" data-pause data-i18n-title="ib_pause_tip" data-i18n-aria="ib_pause_label" data-i18n-tip="ib_pause_tip"></button>
-              <button type="button" class="ib-action ib-adjourn" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label" data-i18n-tip="ib_adjourn_tip"></button>
-              <!-- Manual vote trigger · visible only when the room's
-                   voteTrigger setting is "manual" and the room is
-                   live + idle (not clarifying / not already voting).
-                   Click fires app.requestRoundEnd() — same path the
-                   chat round-prompt's "Open vote" button uses. -->
-              <button type="button" class="ib-action ib-vote" data-room-end-manual hidden
-                data-i18n-title="ib_vote_tip" data-i18n-aria="ib_vote_label" data-i18n-tip="ib_vote_tip"></button>
+            <div class="ib-text-row">
+              <textarea class="ib-textarea" data-send-input rows="1"
+                data-i18n-placeholder="send_placeholder"
+                placeholder="interject anytime · @first_p to direct a director..."></textarea>
             </div>
-            <!-- Round-table view toggle · sits left of the input
-                 pill in the LIVE state. There's a TWIN toggle in
-                 the paused-bar below for the paused state (this one
-                 is hidden together with .input-bar when paused).
-                 Both buttons share the same data-room-rt-toggle
-                 attribute so the click handler + applyRoundTable-
-                 Visibility update them in lockstep. -->
-            <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
-            <div class="input-wrap">
-              <input type="text" data-i18n-placeholder="send_placeholder" placeholder="interject anytime · @first_p to direct a director..." data-send-input>
-              <button class="send-btn" data-send-button data-i18n="send_button">[ Send ]</button>
+            <div class="ib-controls-row">
+              <div class="ib-controls-left">
+                <button type="button" class="ib-action ib-pause" data-pause data-i18n-title="ib_pause_tip" data-i18n-aria="ib_pause_label" data-i18n-tip="ib_pause_tip"></button>
+                <!-- Round-table toggle · owns the text↔voice flip in
+                     text rooms (label "Voice mode") AND the
+                     stage↔transcript flip in voice rooms. Hidden when
+                     the room isn't eligible. Sits before Adjourn in
+                     the left cluster as a mode-related control. -->
+                <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
+                <button type="button" class="ib-action ib-adjourn has-label" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label"><span class="ib-action-label" data-i18n="ib_adjourn_text">Adjourn</span></button>
+                <!-- Manual vote trigger · visible only when
+                     room.voteTrigger === "manual" and the room is
+                     live + idle. Click fires app.requestRoundEnd()
+                     — same path the chat round-prompt's "Open
+                     vote" button uses. -->
+                <button type="button" class="ib-action ib-vote" data-room-end-manual hidden
+                  data-i18n-title="ib_vote_tip" data-i18n-aria="ib_vote_label" data-i18n-tip="ib_vote_tip"></button>
+                <!-- Divergence report · opens a read-only overlay
+                     showing the room's topic-tree branches + QD
+                     behavioural-cell coverage. Available across
+                     all room states (live / paused / adjourned);
+                     renderInputBarControls re-mounts an identical
+                     button when status flips. `data-tip` feeds the
+                     fast hover tooltip via `.ib-action::after`. -->
+                <button type="button" class="ib-action ib-divergence" data-divergence-open
+                  title="Coverage check"
+                  aria-label="Coverage check"
+                  data-tip="See how widely the room has explored your question"></button>
+                <!-- Jump-to-opener · scrolls the chat back to the
+                     original user question that opened this room.
+                     Hidden by CSS in voice-mode stage view (no chat
+                     to scroll). Click handler dispatches via
+                     [data-jump-to-opener] event delegation. -->
+                <button type="button" class="ib-action ib-jump-top" data-jump-to-opener
+                  data-i18n-title="ib_jump_top_tip" data-i18n-aria="ib_jump_top_label" data-i18n-tip="ib_jump_top_tip"></button>
+              </div>
+              <div class="ib-controls-right">
+                <button class="send-btn" data-send-button data-i18n="send_button">[ Send ]</button>
+              </div>
             </div>
           </footer>
 
-          <footer class="paused-bar">
-            <!-- Round-table view toggle · twin of the input-bar
-                 button. Sits leftmost so it stays accessible while
-                 the room is paused (the input-bar's twin is hidden
-                 alongside .input-bar in the paused state). -->
-            <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
-            <div class="paused-bar-text">
-              <strong>// discussion paused.</strong> last input — your message at 04:28. next turn: <span class="lime">value_inv</span>.
-            </div>
-            <div class="paused-bar-actions">
-              <a href="?status=live" class="resume-btn-lg">[ ▶ Resume Discussion ]</a>
-              <a href="#" class="adjourn-btn-lg" data-adjourn>[ <span class="adjourn-glyph">⏏</span> Adjourn ]</a>
-            </div>
-          </footer>
+          <!-- (`.paused-bar` removed · the `.input-bar` above now
+               adapts its left-cluster buttons via
+               `renderInputBarControls` to show Resume + Adjourn
+               in place of Pause + Adjourn + Vote when the room
+               is paused. Textarea stays usable; Send routes
+               through the supplement endpoint while paused.) -->
 
-          <footer class="adjourned-bar">
-            <!-- Round-table view toggle · third twin alongside the
-                 input-bar and paused-bar buttons. Stays available
-                 after adjourn so the user can flip between the
-                 archived transcript and the round-table snapshot.
-                 Hidden by applyRoundTableVisibility when delivery-
-                 Mode !== "voice". -->
-            <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
-            <div class="adjourned-bar-actions">
-              <!-- Action buttons · icon (inline-SVG, currentColor) +
-                   label span. The label drops to display:none under
-                   the bottom-bar's container query at narrow widths
-                   so all four actions (these three + the Voice Replay
-                   inline group) stay reachable on a packed adjourned
-                   bar. `aria-label` / `title` keep the text in the
-                   accessibility tree even when the visual label is
-                   hidden. -->
-              <a href="#" class="ghost-btn ab-action" data-room-export aria-label="Export" title="Export">
-                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
-                  <path d="M7 2 L7 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                  <polyline points="4,6.5 7,9.5 10,6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M2.5 11.5 L11.5 11.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                </svg>
-                <span class="ab-label">Export</span>
-              </a>
-              <a href="#" class="ghost-btn ab-action" data-room-replay aria-label="Voice Replay" title="Voice Replay">
-                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
-                  <!-- Stylised speaker · square body + outward sound waves -->
-                  <path d="M3 5.5 L3 8.5 L5 8.5 L7.5 10.5 L7.5 3.5 L5 5.5 Z" fill="currentColor"/>
-                  <path d="M9.5 5 Q11 7 9.5 9" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                  <path d="M11 3.5 Q13 7 11 10.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                </svg>
-                <span class="ab-label">Voice Replay</span>
-              </a>
-              <a href="#" class="ghost-btn ab-action" data-room-followup aria-label="Convene Follow-up" title="Convene Follow-up">
-                <svg class="ab-icon" viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
-                  <!-- Branch arrow · trunk turning into a forward arrow -->
-                  <path d="M3 11 L3 6 Q3 4 5 4 L11 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                  <polyline points="8.5,2 11,4 8.5,6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span class="ab-label">Convene Follow-up</span>
-              </a>
-            </div>
-          </footer>
+          </div><!-- /.ib-stack -->
+
+          <!-- (`.adjourned-bar` removed · the `.input-bar` above now
+               adapts its left-cluster buttons via
+               `renderInputBarControls` to show Export + Voice Replay
+               + Convene Follow-up icons when the room is adjourned.
+               Send routes the typed text through
+               `openFollowUpOverlay({ subject })` to prefill the
+               follow-up room's subject.) -->
         </div>
 
       </div>
@@ -14723,28 +15628,28 @@
     });
   })();
 
-  /* ─── Speaking queue: collapse / expand persistence ───
-     The queue rows + collapsed summary are now rendered dynamically by
-     app.js (renderQueue / renderQueueCollapsed). This block only owns
-     the collapse-state localStorage + the toggle button. */
+  /* ─── Speaking queue · manual collapse / expand handler ───
+     Auto state is driven by `app._applyQueueAutoState` on every
+     `renderQueue` (collapse by default; expand on clarify /
+     continue / pendingUserMessage). This handler captures user
+     clicks and sets `_queueUserOverride` so the next render
+     respects the user's pick — until the auto baseline flips,
+     at which point the override resets and the new auto state
+     wins. No localStorage anymore: the auto-logic is the source
+     of truth, not a sticky preference. */
   (function () {
     const queue = document.getElementById("speaking-queue");
     if (!queue) return;
     const toggleBtn = queue.querySelector(".queue-toggle");
     if (!toggleBtn) return;
-    const STORAGE_KEY = "boardroom.queue.collapsed";
-
-    try {
-      if (localStorage.getItem(STORAGE_KEY) === "1") {
-        queue.classList.add("collapsed");
-        toggleBtn.setAttribute("aria-expanded", "false");
-      }
-    } catch (e) {}
     toggleBtn.addEventListener("click", () => {
       queue.classList.toggle("collapsed");
       const collapsed = queue.classList.contains("collapsed");
       toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      try { localStorage.setItem(STORAGE_KEY, collapsed ? "1" : "0"); } catch (e) {}
+      // Mark this as a user override · next renderQueue will
+      // honour the inverse of auto until the auto baseline
+      // changes (see app._applyQueueAutoState).
+      if (window.app) window.app._queueUserOverride = true;
     });
   })();
 
@@ -15240,99 +16145,322 @@
     };
   })();
 
-  /* ─── Adjourned-bar progressive collapse fitter ──────────────────
-     The bar's three action buttons (Export / Voice Replay / Convene
-     Follow-up) carry a label by default. When the bar packs tight,
-     we want as MANY buttons as possible to keep their full
-     icon+label, dropping ONLY the leftmost ones to icon-only as
-     space requires — so the user sees full labels until the row
-     would actually wrap.
-
-     Algorithm (each fit cycle):
-       1. Restore every action to label-visible.
-       2. Force a synchronous layout read (bar.offsetHeight).
-       3. If the bar is still on a single row, we're done.
-       4. Otherwise, collapse the LEFTMOST not-yet-collapsed
-          button to `.is-icon-only`. Re-measure. Repeat until
-          either the bar fits on one row or every action is
-          icon-only.
-
-     Wrap detection uses `bar.offsetHeight > FIT_HEIGHT`. The bar's
-     `min-height: 44px` keeps a single row at 44px exactly; any
-     wrap pushes it to ~70px+ (two rows of ~26px). FIT_HEIGHT is
-     50px to give a small slack for padding / sub-pixel rounding.
-
-     Container queries can't drive this — the bar's own inline-size
-     matches its parent, so `@container` only fires when the parent
-     shrinks past a fixed threshold. The progressive nature of the
-     collapse needs a real measurement after each step anyway. */
-  (function () {
-    const FIT_HEIGHT = 50; // bar.offsetHeight ≤ this · single row
-    let attached = null;
-    let ro = null;
-    let scheduled = false;
-
-    function fit() {
-      scheduled = false;
-      const bar = attached;
-      if (!bar) return;
-      // Bar can be display:none in non-adjourned states (CSS keys
-      // off html[data-status]). Skip when not laid out — else
-      // offsetHeight is 0 and we'd thrash the buttons unnecessarily.
-      if (bar.offsetParent === null) return;
-      const buttons = Array.from(bar.querySelectorAll(".ab-action"));
-      if (buttons.length === 0) return;
-      // Step 1 · restore every button so we measure the maximal
-      // (label-visible) layout. If everything fits, we're done.
-      buttons.forEach((b) => b.classList.remove("is-icon-only"));
-      // Force layout · reading offsetHeight is the canonical way
-      // to flush pending style/layout work synchronously.
-      let h = bar.offsetHeight;
-      // Step 2-4 · collapse leftmost while wrapped.
-      for (let i = 0; i < buttons.length && h > FIT_HEIGHT; i++) {
-        buttons[i].classList.add("is-icon-only");
-        h = bar.offsetHeight;
-      }
-    }
-
-    function scheduleFit() {
-      if (scheduled) return;
-      scheduled = true;
-      // rAF throttles the fit work to once per frame — drag-resize
-      // can fire ResizeObserver entries faster than paint, and we
-      // only need to settle on the final size each frame.
-      requestAnimationFrame(fit);
-    }
-
-    function attach() {
-      const bar = document.querySelector(".adjourned-bar");
-      if (!bar || bar === attached) return;
-      if (ro) { try { ro.disconnect(); } catch (_) {} ro = null; }
-      attached = bar;
-      scheduleFit();
-      try {
-        ro = new ResizeObserver(() => scheduleFit());
-        ro.observe(bar);
-      } catch (_) {
-        // ResizeObserver unsupported · fall back to window-resize.
-        window.addEventListener("resize", scheduleFit);
-      }
-    }
-
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", attach);
-    } else {
-      attach();
-    }
-    // Re-attach + re-fit periodically · catches layout rebuilds
-    // (room state flip live → adjourned, sidebar collapse, brief
-    // banner mount) that change which siblings share the bar.
-    // Cheaper than a MutationObserver fanning over chat appends.
-    setInterval(() => { attach(); scheduleFit(); }, 1000);
-  })();
+  /* (Adjourned-bar progressive collapse fitter removed · the bar
+     itself is gone. The input-bar's icon buttons are icon-only by
+     default, so no progressive collapse is needed.) */
 
 
 </script>
+
+<!-- ═══════════════ Voice-mode onboarding overlay ═══════════════
+     Shown by `window.openVoiceOnboarding()` when the user clicks
+     the voice toggle in the new-room composer without any voice
+     key configured. The themed previews + sprite below are lifted
+     from `public/home.html` (the marketing page). Keep them in
+     sync if the home preview palette ever evolves.
+
+     Important: the sprite lives in the live DOM (NOT inside the
+     <template>) so cloned <use href="#vrp-*"> inside the inserted
+     preview resolves correctly. -->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute" id="vonb-sprite">
+  <defs>
+    <symbol id="vrp-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet">
+      <rect fill="#C8A877" x="8"  y="4"  width="16" height="4"/>
+      <rect fill="#C8A877" x="7"  y="8"  width="18" height="14"/>
+      <rect fill="#A0814F" x="7"  y="22" width="18" height="2"/>
+      <rect fill="#5A3A22" x="6"  y="4"  width="1"  height="20"/>
+      <rect fill="#5A3A22" x="25" y="4"  width="1"  height="20"/>
+      <rect fill="#A0814F" x="7"  y="4"  width="1"  height="20"/>
+      <rect fill="#A0814F" x="24" y="4"  width="1"  height="20"/>
+      <rect fill="#8B5E3B" x="5"  y="22" width="22" height="8"/>
+      <rect fill="#5A3A22" x="5"  y="28" width="22" height="2"/>
+      <rect fill="#5A3A22" x="7"  y="30" width="2"  height="8"/>
+      <rect fill="#5A3A22" x="23" y="30" width="2"  height="8"/>
+    </symbol>
+    <symbol id="vrp-chair-mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet">
+      <rect fill="#C8A877" x="8"  y="4"  width="16" height="4"/>
+      <rect fill="#C8A877" x="7"  y="8"  width="18" height="14"/>
+      <rect fill="#A0814F" x="7"  y="22" width="18" height="2"/>
+      <rect fill="#5A3A22" x="6"  y="4"  width="1"  height="20"/>
+      <rect fill="#5A3A22" x="25" y="4"  width="1"  height="20"/>
+      <rect fill="#A0814F" x="7"  y="4"  width="1"  height="20"/>
+      <rect fill="#A0814F" x="24" y="4"  width="1"  height="20"/>
+      <rect fill="#8B5E3B" x="5"  y="22" width="22" height="8"/>
+      <rect fill="#5A3A22" x="5"  y="28" width="22" height="2"/>
+      <rect fill="#5A3A22" x="7"  y="30" width="2"  height="8"/>
+      <rect fill="#5A3A22" x="23" y="30" width="2"  height="8"/>
+      <rect fill="currentColor" x="5"  y="8" width="1" height="14"/>
+      <rect fill="currentColor" x="26" y="8" width="1" height="14"/>
+      <rect fill="currentColor" x="15" y="6" width="2" height="2"/>
+      <rect fill="#B8E5E0"      x="15" y="6" width="1" height="1"/>
+    </symbol>
+    <symbol id="vrp-plant-1" viewBox="0 0 48 60" preserveAspectRatio="xMidYMid meet">
+      <rect x="22" y="0"  width="4"  height="3"  fill="#2A4F1D"/>
+      <rect x="21" y="3"  width="6"  height="3"  fill="#3D6E2F"/>
+      <rect x="9"  y="6"  width="30" height="3"  fill="#2A4F1D"/>
+      <rect x="6"  y="9"  width="36" height="3"  fill="#2A4F1D"/>
+      <rect x="3"  y="12" width="42" height="12" fill="#2A4F1D"/>
+      <rect x="6"  y="24" width="36" height="3"  fill="#2A4F1D"/>
+      <rect x="9"  y="27" width="30" height="3"  fill="#2A4F1D"/>
+      <rect x="12" y="9"  width="24" height="3"  fill="#3D6E2F"/>
+      <rect x="9"  y="12" width="30" height="9"  fill="#3D6E2F"/>
+      <rect x="12" y="21" width="24" height="3"  fill="#3D6E2F"/>
+      <rect x="12" y="24" width="24" height="3"  fill="#1F3A14"/>
+      <rect x="15" y="12" width="6"  height="3"  fill="#6BAA48"/>
+      <rect x="24" y="9"  width="6"  height="3"  fill="#6BAA48"/>
+      <rect x="9"  y="15" width="3"  height="3"  fill="#6BAA48"/>
+      <rect x="33" y="15" width="3"  height="3"  fill="#6BAA48"/>
+      <rect x="21" y="18" width="6"  height="3"  fill="#6BAA48"/>
+      <rect x="22" y="30" width="4"  height="3"  fill="#5A3A1F"/>
+      <rect x="12" y="32" width="24" height="1"  fill="#5A2D14"/>
+      <rect x="9"  y="33" width="30" height="2"  fill="#5A2D14"/>
+      <rect x="12" y="35" width="24" height="3"  fill="#3D2418"/>
+      <rect x="9"  y="38" width="30" height="3"  fill="#A86348"/>
+      <rect x="12" y="41" width="24" height="1"  fill="#A86348"/>
+      <rect x="12" y="42" width="24" height="9"  fill="#8C4A2F"/>
+      <rect x="12" y="42" width="3"  height="9"  fill="#A86348"/>
+      <rect x="33" y="42" width="3"  height="9"  fill="#5A2D14"/>
+      <rect x="15" y="51" width="18" height="3"  fill="#5A2D14"/>
+      <rect x="12" y="54" width="24" height="1"  fill="rgba(0,0,0,0.35)"/>
+      <rect x="9"  y="55" width="30" height="2"  fill="rgba(0,0,0,0.35)"/>
+      <rect x="12" y="57" width="24" height="1"  fill="rgba(0,0,0,0.25)"/>
+    </symbol>
+    <symbol id="vrp-plant-2" viewBox="0 0 48 60" preserveAspectRatio="xMidYMid meet">
+      <rect x="22" y="0"  width="4"  height="3"  fill="#2A4F1D"/>
+      <rect x="20" y="3"  width="8"  height="29" fill="#2A4F1D"/>
+      <rect x="21" y="3"  width="6"  height="29" fill="#3D6E2F"/>
+      <rect x="23" y="6"  width="2"  height="23" fill="#6BAA48"/>
+      <rect x="14" y="6"  width="3"  height="3"  fill="#2A4F1D"/>
+      <rect x="11" y="9"  width="8"  height="23" fill="#2A4F1D"/>
+      <rect x="12" y="9"  width="6"  height="23" fill="#3D6E2F"/>
+      <rect x="13" y="12" width="2"  height="17" fill="#6BAA48"/>
+      <rect x="31" y="6"  width="3"  height="3"  fill="#2A4F1D"/>
+      <rect x="29" y="9"  width="8"  height="23" fill="#2A4F1D"/>
+      <rect x="30" y="9"  width="6"  height="23" fill="#3D6E2F"/>
+      <rect x="33" y="12" width="2"  height="17" fill="#6BAA48"/>
+      <rect x="12" y="32" width="24" height="1"  fill="#5A2D14"/>
+      <rect x="9"  y="33" width="30" height="2"  fill="#5A2D14"/>
+      <rect x="12" y="35" width="24" height="3"  fill="#3D2418"/>
+      <rect x="9"  y="38" width="30" height="3"  fill="#A86348"/>
+      <rect x="12" y="41" width="24" height="1"  fill="#A86348"/>
+      <rect x="12" y="42" width="24" height="9"  fill="#8C4A2F"/>
+      <rect x="12" y="42" width="3"  height="9"  fill="#A86348"/>
+      <rect x="33" y="42" width="3"  height="9"  fill="#5A2D14"/>
+      <rect x="15" y="51" width="18" height="3"  fill="#5A2D14"/>
+      <rect x="12" y="54" width="24" height="1"  fill="rgba(0,0,0,0.35)"/>
+      <rect x="9"  y="55" width="30" height="2"  fill="rgba(0,0,0,0.35)"/>
+      <rect x="12" y="57" width="24" height="1"  fill="rgba(0,0,0,0.25)"/>
+    </symbol>
+    <symbol id="vrp-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet">
+      <ellipse cx="50" cy="27" rx="44" ry="1.5" fill="#000" opacity="0.42"/>
+      <rect fill="#3A2410" x="2"  y="3"  width="96" height="22" rx="3" ry="3"/>
+      <rect fill="#7A5230" x="4"  y="5"  width="92" height="18" rx="2" ry="2"/>
+      <rect fill="#B8884E" x="6"  y="6"  width="88" height="2"/>
+      <rect fill="#5C3A1F" x="10" y="11" width="80" height="1"/>
+      <rect fill="#5C3A1F" x="10" y="15" width="80" height="1"/>
+      <rect fill="#5C3A1F" x="10" y="19" width="80" height="1"/>
+      <rect fill="#4A2E18" x="6"  y="20" width="88" height="2"/>
+      <rect fill="#D4B07A" x="4"  y="5"  width="3"  height="2"/>
+      <rect fill="#D4B07A" x="93" y="5"  width="3"  height="2"/>
+      <rect fill="#2A2A2A" x="46"   y="20"   width="6"   height="0.8"/>
+      <rect fill="#4A4A4A" x="48.6" y="14"   width="0.8" height="6"/>
+      <rect fill="#1F1F1F" x="46.5" y="11.5" width="5"   height="2.8"/>
+      <rect fill="#6A6A6A" x="47"   y="12.2" width="4"   height="1.5"/>
+      <rect fill="#A8A8A8" x="47.5" y="12.6" width="0.8" height="0.4"/>
+    </symbol>
+  </defs>
+</svg>
+
+<template id="vonb-themes">
+  <article class="voice-room-preview" data-preview-theme="eastwood"
+           style="--bg:#0A0A0A; --panel:#131312; --panel-2:#1A1A18; --panel-3:#21211E; --lime:#6FB572; --cyan:#6A9B97; --text:#C8C5BE; --text-soft:#8E8B83; --line-bright:#3A3934;">
+    <div class="vrp-stage">
+      <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet"><use href="#vrp-table"/></svg>
+      <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60"><use href="#vrp-plant-1"/></svg>
+      <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
+      <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
+        <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
+        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <div class="rt-name">CHAIR</div>
+      </div>
+      <div class="rt-seat" style="left:14.89%; top:43.11%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <div class="rt-name">SOCRATES</div>
+      </div>
+      <div class="rt-seat rt-seat-speaking" style="left:35.45%; top:33.37%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <div class="rt-bubble">Speaking</div>
+      </div>
+      <div class="rt-seat" style="left:64.55%; top:33.37%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <div class="rt-name">INVESTOR</div>
+      </div>
+      <div class="rt-seat" style="left:85.11%; top:43.11%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/historian.svg" alt="">
+        <div class="rt-name">HISTORIAN</div>
+      </div>
+    </div>
+    <div class="vrp-caption">
+      <span class="vrp-caption-name">Brainstorm</span>
+      <span class="vrp-caption-deck">soil + grass · open ground</span>
+    </div>
+  </article>
+
+  <article class="voice-room-preview" data-preview-theme="regent"
+           style="--bg:#0A0A0A; --panel:#131312; --panel-2:#1A1A18; --panel-3:#21211E; --lime:#C9A46B; --cyan:#6A9B97; --text:#C8C5BE; --text-soft:#8E8B83; --line-bright:#3A3934;">
+    <div class="vrp-stage">
+      <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet"><use href="#vrp-table"/></svg>
+      <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60"><use href="#vrp-plant-1"/></svg>
+      <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
+      <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
+        <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
+        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <div class="rt-name">CHAIR</div>
+      </div>
+      <div class="rt-seat" style="left:13.86%; top:44.44%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <div class="rt-name">SOCRATES</div>
+      </div>
+      <div class="rt-seat" style="left:27.66%; top:35.44%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <div class="rt-name">PRINCIPLES</div>
+      </div>
+      <div class="rt-seat" style="left:50%; top:32%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <div class="rt-name">INVESTOR</div>
+      </div>
+      <div class="rt-seat rt-seat-speaking" style="left:72.34%; top:35.44%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/historian.svg" alt="">
+        <div class="rt-bubble">Speaking</div>
+      </div>
+      <div class="rt-seat" style="left:86.14%; top:44.44%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/long-horizon.svg" alt="">
+        <div class="rt-name">HORIZON</div>
+      </div>
+    </div>
+    <div class="vrp-caption">
+      <span class="vrp-caption-name">Constructive</span>
+      <span class="vrp-caption-deck">graphite marble · executive</span>
+    </div>
+  </article>
+
+  <article class="voice-room-preview" data-preview-theme="atrium"
+           style="--bg:#FBFBF7; --panel:#F4F2EC; --panel-2:#EAE7DD; --panel-3:#DBD7CA; --lime:#2E7D32; --cyan:#2E7D7A; --text:#1F1E1A; --text-soft:#4A4842; --line-bright:#D2CDB9;">
+    <div class="vrp-stage">
+      <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet"><use href="#vrp-table"/></svg>
+      <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60"><use href="#vrp-plant-1"/></svg>
+      <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
+      <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
+        <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
+        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <div class="rt-name">CHAIR</div>
+      </div>
+      <div class="rt-seat" style="left:17.09%; top:41%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <div class="rt-name">SOCRATES</div>
+      </div>
+      <div class="rt-seat rt-seat-speaking" style="left:50%; top:32%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <div class="rt-bubble">Speaking</div>
+      </div>
+      <div class="rt-seat" style="left:82.91%; top:41%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <div class="rt-name">INVESTOR</div>
+      </div>
+    </div>
+    <div class="vrp-caption">
+      <span class="vrp-caption-name">Research</span>
+      <span class="vrp-caption-deck">light marble · scholarly</span>
+    </div>
+  </article>
+
+  <article class="voice-room-preview" data-preview-theme="nintendo"
+           style="--bg:#181820; --panel:#22222C; --panel-2:#2A2A38; --panel-3:#34344A; --lime:#E60012; --cyan:#5BC0EB; --text:#FCFCFC; --text-soft:#C8C8D8; --line-bright:#44445A;">
+    <div class="vrp-stage">
+      <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet"><use href="#vrp-table"/></svg>
+      <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60"><use href="#vrp-plant-1"/></svg>
+      <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
+      <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
+        <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
+        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <div class="rt-name">CHAIR</div>
+      </div>
+      <div class="rt-seat rt-seat-speaking" style="left:14.89%; top:43.11%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <div class="rt-bubble">Speaking</div>
+      </div>
+      <div class="rt-seat" style="left:35.45%; top:33.37%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <div class="rt-name">PRINCIPLES</div>
+      </div>
+      <div class="rt-seat" style="left:64.55%; top:33.37%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <div class="rt-name">INVESTOR</div>
+      </div>
+      <div class="rt-seat" style="left:85.11%; top:43.11%;">
+        <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
+        <img class="rt-avatar" src="avatars/phenomenologist.svg" alt="">
+        <div class="rt-name">PHENOM</div>
+      </div>
+    </div>
+    <div class="vrp-caption">
+      <span class="vrp-caption-name">Critique</span>
+      <span class="vrp-caption-deck">burgundy carpet · formal</span>
+    </div>
+  </article>
+</template>
+
+<div class="vonb-overlay" id="vonb-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="vonb-backdrop" data-vonb-close></div>
+  <div class="vonb-modal" role="document">
+
+    <div class="vonb-classification">
+      <span><span class="dot">●</span> <span data-i18n="vonb_classification_left">voice mode · onboarding</span></span>
+      <span class="right" data-i18n="vonb_classification_right">// preview</span>
+    </div>
+
+    <header class="vonb-head">
+      <div class="vonb-head-text">
+        <div class="meta">
+          <span data-i18n="vonb_meta_label">// promo</span>
+          <span>·</span>
+          <span class="live" data-i18n="vonb_meta_live">live preview</span>
+        </div>
+        <div class="vonb-title-wrap">
+          <div class="title" data-i18n="vonb_title">Hear your boardroom.</div>
+        </div>
+      </div>
+      <button type="button" class="close-btn" data-vonb-close aria-label="Close">✕</button>
+    </header>
+
+    <div class="vonb-body">
+      <div class="vonb-banner" data-vonb-banner></div>
+      <div class="vonb-body-text">
+        <div class="vonb-deck" data-i18n="vonb_deck">Directors speak aloud at the round table. Configure a voice-model API key below and convene a live session.</div>
+        <div class="vonb-theme-label" data-vonb-theme-label></div>
+      </div>
+    </div>
+
+    <footer class="vonb-foot">
+      <button type="button" class="vonb-btn primary" data-vonb-cta data-i18n="vonb_cta">Configure voice keys</button>
+    </footer>
+  </div>
+</div>
 
 </body>
 </html>

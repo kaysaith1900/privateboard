@@ -52,7 +52,7 @@
   top: 10px;
   left: 14px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-soft);
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -109,7 +109,7 @@
 }
 .agent-page-id .role-tag {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -120,7 +120,7 @@
 }
 .agent-page-id .status-pill {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -141,7 +141,7 @@
 }
 .agent-page-id .bio-line {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.6;
   letter-spacing: -0.003em;
@@ -166,7 +166,7 @@
   background: var(--panel);
   border: 0.5px solid var(--lime-dim);
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.65;
   letter-spacing: -0.003em;
@@ -253,7 +253,7 @@
   line-height: 1;
 }
 .agent-page-metrics .v.text {
-  font-size: 13.5px;
+  font-size: 14px;
   letter-spacing: -0.005em;
 }
 .agent-page-metrics .v .unit {
@@ -265,7 +265,7 @@
 }
 .agent-page-metrics .deck {
   font-family: var(--font-human);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-dim);
   letter-spacing: -0.003em;
 }
@@ -303,7 +303,7 @@
 }
 .ap-sec-head .eyebrow {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -317,7 +317,7 @@
 }
 .ap-sec-head .deck {
   font-family: var(--font-human);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
   letter-spacing: -0.003em;
   margin-top: 4px;
@@ -343,7 +343,7 @@
 .ap-bio-block .bio-tag {
   display: block;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--lime);
@@ -373,7 +373,7 @@
 .ap-instr-doc .meta-strip::before { content: "🔒 "; font-size: 9px; }
 .ap-instr-section .lbl {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.16em;
@@ -382,7 +382,7 @@
 }
 .ap-instr-section p {
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.65;
   letter-spacing: -0.003em;
@@ -409,7 +409,7 @@
 .about-you-card::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
 .about-you-card .headline {
   font-family: var(--font-human);
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--text);
   line-height: 1.55;
   letter-spacing: -0.005em;
@@ -418,7 +418,7 @@
 }
 .about-you-card .summary {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.65;
   letter-spacing: -0.003em;
@@ -435,7 +435,7 @@
 @media (max-width: 700px) { .about-you-card .grid { grid-template-columns: 1fr; } }
 .about-you-card .group .lbl {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.16em;
@@ -453,7 +453,7 @@
 }
 .about-you-card .group li {
   font-family: var(--font-human);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.55;
   letter-spacing: -0.003em;
@@ -483,7 +483,7 @@
   flex-wrap: wrap;
   gap: 24px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-dim);
   letter-spacing: 0.04em;
 }
@@ -498,7 +498,7 @@
 .about-you-card .relationship .cell .v {
   font-family: var(--mono);
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.005em;
 }
@@ -532,7 +532,7 @@
 }
 .room-mem-card .num {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--lime);
   letter-spacing: 0.06em;
   font-weight: 700;
@@ -553,7 +553,7 @@
 .room-mem-card .stats .v { color: var(--text-soft); }
 .room-mem-card .summary {
   font-family: var(--font-human);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-dim);
   line-height: 1.55;
   letter-spacing: -0.003em;
@@ -571,7 +571,7 @@
 }
 .room-mem-card .lessons li {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.5;
   letter-spacing: -0.003em;
@@ -635,7 +635,7 @@
 }
 .ap-know-drop .pill {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -696,7 +696,7 @@
 }
 .ap-know-row .meta {
   font-family: var(--font-human);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-faint);
   margin-top: 2px;
   letter-spacing: 0.02em;
@@ -885,7 +885,7 @@
 }
 .ap-block-h-tag {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-dim);
@@ -1126,7 +1126,7 @@
 }
 .dream-caption-foot {
   font-family: var(--font-human);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-soft);
   letter-spacing: -0.003em;
   font-style: italic;
@@ -1195,7 +1195,7 @@
   grid-template-columns: 64px 1fr;
   align-items: center;
   gap: 10px;
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -1338,7 +1338,7 @@
 }
 .dream-hero-sub {
   font-family: var(--font-human);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-soft);
   letter-spacing: -0.003em;
 }
@@ -1423,7 +1423,7 @@
   letter-spacing: -0.01em;
 }
 .dream-tile-l {
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -1505,7 +1505,7 @@
   color: var(--text-soft);
   padding: 6px 16px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -1586,7 +1586,7 @@
   border-bottom: 0.5px solid var(--line-bright);
   color: var(--text);
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
@@ -1697,7 +1697,7 @@
 .ap-id-dot { color: var(--text-faint); font-size: 10px; }
 .ap-id-handle {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-faint);
   letter-spacing: 0.02em;
 }
@@ -1710,7 +1710,7 @@
   border: 0.5px solid var(--line-bright);
   color: var(--text-soft);
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1742,7 +1742,7 @@
 }
 .ap-sec h3 {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -1797,7 +1797,7 @@
 .ap-intel-view,
 .ap-intel-body {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--text);
   letter-spacing: -0.003em;
@@ -1813,7 +1813,7 @@
 }
 .ap-skill-label {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -1943,7 +1943,7 @@
 .ap-skill-row-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.005em;
@@ -1958,7 +1958,7 @@
   align-items: baseline;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.02em;
   color: var(--text-soft);
   white-space: nowrap;
@@ -2017,7 +2017,7 @@
   border: 0.5px dashed var(--line-bright);
   color: var(--text-soft);
   font-family: var(--font-human);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: -0.003em;
   cursor: pointer;
@@ -2069,7 +2069,7 @@
   gap: 10px;
 }
 .ap-skill-info-head {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.008em;
@@ -2077,7 +2077,7 @@
 }
 .ap-skill-info-sub {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   color: var(--text-faint);
   margin-top: -6px;
@@ -2091,7 +2091,7 @@
 .ap-skill-info-when,
 .ap-skill-info-ability,
 .ap-skill-info-tips-wrap {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text);
   line-height: 1.5;
 }
@@ -2100,7 +2100,7 @@
 .ap-skill-info-tips-wrap .lbl {
   display: block;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -2112,7 +2112,7 @@
   flex-wrap: wrap;
   gap: 10px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
 }
 .ap-skill-info-tips {
   list-style: none;
@@ -2125,7 +2125,7 @@
 .ap-skill-info-tips li {
   position: relative;
   padding-left: 12px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-soft);
   line-height: 1.5;
 }
@@ -2137,7 +2137,7 @@
   font-weight: 700;
 }
 .ap-skill-info-empty {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-faint);
   font-style: italic;
 }
@@ -2176,7 +2176,7 @@
   margin-left: 8px;
   padding: 1px 6px;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -2190,7 +2190,7 @@
   margin-left: 8px;
   padding: 2px 7px;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -2258,7 +2258,7 @@
 }
 .ap-foot-meta {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -2329,7 +2329,7 @@
 .ap-model-trigger-name {
   flex: 1 1 auto;
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.005em;
@@ -2435,7 +2435,7 @@
   gap: 10px;
   padding: 22px 12px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -2461,7 +2461,7 @@
    uppercase, hairline divider above (suppressed on the first one). */
 .ap-model-group {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -2494,7 +2494,7 @@
 .ap-model-opt.active { background: var(--panel-3); }
 .ap-model-opt-label {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.005em;
@@ -2508,7 +2508,7 @@
 .ap-model-opt.active .ap-model-opt-label { color: var(--lime); }
 .ap-model-opt-hint {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   /* `--text-dim` (not `--text-faint`) because the deck — "fast · cheap
@@ -2530,7 +2530,7 @@
   margin-left: auto;
   padding: 1px 5px;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.04em;
   color: var(--text-soft);
   background: var(--panel-2);
@@ -2555,7 +2555,7 @@
   margin-top: 6px;
   padding: 4px 8px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   color: var(--text-soft);
   background: var(--panel-2);
@@ -2678,7 +2678,7 @@
 .ap-skill-slot.empty:hover .ap-skill-icon { color: var(--text-soft); }
 .ap-skill-slot .ap-skill-name {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2690,7 +2690,7 @@
 }
 .ap-skill-meta {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-faint);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2737,7 +2737,7 @@
 .ap-instr { display: flex; flex-direction: column; gap: 0; }
 .ap-instr-view {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--text);
   /* Collapsed default · ~12 lines of body copy. JS adds an
@@ -2773,7 +2773,7 @@
   align-self: flex-start;
   margin-top: 10px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -2801,7 +2801,7 @@
 }
 .ap-instr-view h4 {
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text);
   margin: 12px 0 4px;
@@ -2809,7 +2809,7 @@
 }
 .ap-instr-view h5 {
   font-family: var(--font-human);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-soft);
   margin: 10px 0 4px;
@@ -2824,7 +2824,7 @@
 .ap-instr-view em { color: var(--text-soft); font-style: italic; }
 .ap-instr-view code {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 13px;
   background: var(--bg);
   border: 0.5px solid var(--line-bright);
   padding: 1px 5px;
@@ -2841,7 +2841,7 @@
   background: transparent;
   border: none;
   padding: 0;
-  font-size: 11.5px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -2871,7 +2871,7 @@
 }
 .ap-instr-edit-hint {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -2880,7 +2880,7 @@
 .ap-instr-cancel,
 .ap-instr-save {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -2907,7 +2907,7 @@
   border: 0.5px solid var(--line-bright);
   color: var(--text);
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.5;
   padding: 10px 14px;
   min-height: 64px;
@@ -2927,7 +2927,7 @@
 }
 .ap-intel-edit-hint {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -2958,7 +2958,7 @@
 .ap-rule:focus-within { border-color: var(--text-soft); }
 .ap-rule-num {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text-soft);
   text-align: center;
@@ -2968,7 +2968,7 @@
   border: none;
   color: var(--text);
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.4;
   padding: 4px 0;
   width: 100%;
@@ -2991,7 +2991,7 @@
 .ap-rule-rm:hover { color: var(--red); }
 .ap-rule-empty {
   font-family: var(--font-human);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-faint);
   padding: 8px 10px;
   border: 0.5px dashed var(--line-bright);
@@ -3024,7 +3024,7 @@
 .ap-memory-add[hidden] { display: none; }
 .ap-memory-add-cancel {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -3045,7 +3045,7 @@
   border: 0.5px solid var(--line-bright);
   color: var(--text);
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   padding: 9px 12px;
   outline: none;
   letter-spacing: -0.003em;
@@ -3055,7 +3055,7 @@
 .ap-memory-add-input::placeholder { color: var(--text-faint); }
 .ap-memory-add-btn {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -3160,7 +3160,7 @@
 
 .ap-memory-content {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   letter-spacing: -0.003em;
@@ -3182,7 +3182,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -3197,7 +3197,7 @@
   border: 0.5px solid var(--text-soft);
   color: var(--text);
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.5;
   padding: 8px 10px;
   outline: none;
@@ -3355,7 +3355,7 @@
 }
 .ap-memory-tile-num::before {
   content: attr(data-label);
-  font-size: 8.5px;
+  font-size: 8px;
   color: var(--text-faint);
   letter-spacing: 0.28em;
   margin-bottom: 4px;
@@ -3541,7 +3541,7 @@
 }
 .ap-memory-detail-stats {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-faint);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -3549,14 +3549,14 @@
 }
 .ap-memory-detail-summary {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--text);
   margin: 0;
 }
 .ap-memory-detail-body {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--text);
 }
@@ -3572,7 +3572,7 @@
 }
 .ap-memory-detail-lessons li {
   font-family: var(--font-human);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text);
   line-height: 1.5;
   padding-left: 16px;
@@ -4126,7 +4126,7 @@
 .ap-persona-card-id { min-width: 0; }
 .ap-persona-card-kicker {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--lime);
@@ -4163,7 +4163,7 @@
 }
 .ap-persona-card-score-l {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -4259,7 +4259,7 @@
   background: var(--panel-2);
   border-bottom: 0.5px solid var(--line);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -4331,7 +4331,7 @@
 .ap-persona-overlay-error { color: var(--ink, #c97373); }
 .ap-persona-overlay-md {
   font-family: var(--font-human);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.65;
   color: var(--text);
 }
@@ -4353,7 +4353,7 @@
 }
 .ap-persona-overlay-md h4 {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--lime);
@@ -4387,7 +4387,328 @@
   margin: 10px 0;
   border: 0.5px solid var(--line);
 }
-.ap-persona-overlay-md pre code { background: transparent; padding: 0; font-size: 11.5px; }
+.ap-persona-overlay-md pre code { background: transparent; padding: 0; font-size: 12px; }
 .ap-persona-overlay-md strong { color: var(--text); font-weight: 700; }
 .ap-persona-overlay-md em { color: var(--lime); font-style: italic; }
 body.ap-persona-overlay-open { overflow: hidden; }
+
+/* ────────────────────────────────────────────────────────────
+   Build log · entry card on the agent profile.
+   Sibling block to .ap-persona-block, only mounted when the
+   agent has `personaSpec.buildLog`. The teaser shows a 160-char
+   snippet of the narrator's pitch summary; clicking opens the
+   build-log overlay. The card mirrors .ap-persona-card's spacing
+   + interaction model but drops the diagonal hatch overlay and
+   the stat grid — it's a one-line invitation, not a dossier.
+   ──────────────────────────────────────────────────────────── */
+.ap-buildlog-block .ap-block-h-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-buildlog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.ap-buildlog-card:hover {
+  border-color: var(--lime);
+  background: var(--panel-3, var(--panel-2));
+}
+.ap-buildlog-card:active { transform: translateY(1px); }
+.ap-buildlog-card:focus-visible {
+  outline: 1px solid var(--lime);
+  outline-offset: 2px;
+}
+.ap-buildlog-teaser {
+  margin: 0;
+  font-family: var(--font-human);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+.ap-buildlog-card-cta {
+  display: flex;
+  justify-content: flex-start;
+}
+.ap-buildlog-card-cta-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+  font-weight: 600;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Build log overlay · narrative hero + 7-phase timeline + grid
+   ──────────────────────────────────────────────────────────── */
+.ap-buildlog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ap-buildlog-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  cursor: pointer;
+}
+.ap-buildlog-overlay-modal {
+  position: relative;
+  width: min(820px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong, var(--line));
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+}
+.ap-buildlog-overlay-classification {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 18px;
+  background: var(--panel-2);
+  border-bottom: 0.5px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ap-buildlog-overlay-classification .dot { color: var(--lime); margin-right: 4px; }
+.ap-buildlog-overlay-classification .right { color: var(--text-soft); }
+.ap-buildlog-overlay-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  border-bottom: 0.5px solid var(--line);
+}
+.ap-buildlog-overlay-title {
+  font-family: var(--font-human);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.ap-buildlog-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ap-buildlog-overlay-close {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 0.5px solid var(--line);
+  color: var(--text-soft);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.ap-buildlog-overlay-close:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
+.ap-buildlog-overlay-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 28px 28px;
+}
+
+/* Narrative hero · the pitch summary. Serif body, generous
+   leading, wide enough to read but capped so long lines don't
+   wreck rhythm. Empty-state variant nudges the user to scroll
+   to the timeline. */
+.ap-buildlog-narrative {
+  max-width: 640px;
+  margin: 0 auto 28px;
+}
+.ap-buildlog-narrative p {
+  font-family: var(--font-human);
+  font-size: 15px;
+  line-height: 1.72;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+.ap-buildlog-narrative p:last-child { margin-bottom: 0; }
+.ap-buildlog-narrative-empty p {
+  color: var(--text-faint);
+  font-style: italic;
+  text-align: center;
+}
+
+/* Timeline · 7 phase cards. Mono kicker number, friendly serif
+   label, one-line blurb. Phase 2 carries a dimension grid below
+   the blurb that visualises the angles researched. */
+.ap-buildlog-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.ap-buildlog-phase {
+  padding: 14px 0;
+  border-top: 0.5px solid var(--line);
+}
+.ap-buildlog-phase:first-child { border-top: none; }
+.ap-buildlog-phase-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.ap-buildlog-phase-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+  font-weight: 600;
+  min-width: 22px;
+}
+.ap-buildlog-phase-label {
+  font-family: var(--font-human);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ap-buildlog-phase-dur {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.ap-buildlog-phase-blurb {
+  margin: 0;
+  font-family: var(--font-human);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  padding-left: 34px;
+}
+
+/* Dimension grid · only renders under phase 2 when the
+   dimension-plan event captured 4–6 angles. */
+.ap-buildlog-phase-extras { padding: 14px 0 4px 34px; }
+.ap-buildlog-dims-label,
+.ap-buildlog-topup-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.ap-buildlog-dims-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.ap-buildlog-dim {
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+}
+.ap-buildlog-dim-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 4px;
+}
+.ap-buildlog-dim-why {
+  font-family: var(--font-human);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.ap-buildlog-dim-stat {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.ap-buildlog-topup {
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+}
+.ap-buildlog-topup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ap-buildlog-topup-list li {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+/* Footer stats · 3-up grid. Mirrors the cinematic dossier
+   stat grid pattern but lighter (no inner row borders). */
+.ap-buildlog-footer {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 22px;
+  border-top: 0.5px solid var(--line);
+  padding-top: 14px;
+}
+.ap-buildlog-stat {
+  text-align: center;
+  padding: 4px 8px;
+  border-right: 0.5px solid var(--line);
+}
+.ap-buildlog-stat:last-child { border-right: none; }
+.ap-buildlog-stat-l {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.ap-buildlog-stat-v {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 720px) {
+  .ap-buildlog-overlay-body { padding: 18px 18px 22px; }
+  .ap-buildlog-dims-grid { grid-template-columns: 1fr; }
+  .ap-buildlog-phase-blurb { padding-left: 0; }
+  .ap-buildlog-phase-extras { padding-left: 0; }
+}
+
+body.ap-buildlog-overlay-open { overflow: hidden; }

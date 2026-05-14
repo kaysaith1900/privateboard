@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════
-   ONBOARDING OVERLAY · first-run wizard
-   4 steps: name → theme → API key → done/demo
+   ONBOARDING OVERLAY · first-run storyline (v2)
+   4 beats: name → what → key → cast → (composer + hint)
    ═══════════════════════════════════════════ */
 
 .onb-overlay {
@@ -31,20 +31,16 @@
 .onb-modal {
   position: relative;
   width: 100%;
-  max-width: 720px;
+  max-width: 640px;
   background: var(--panel, #131312);
   border: 0.5px solid var(--lime, #6FB572);
   color: var(--text, #C8C5BE);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* Cap the modal so the final step (5 starter cards + final
-     card) doesn't stretch the modal close to viewport height.
-     The body inside is overflow-y: auto, so anything taller than
-     this cap simply scrolls within. */
-  max-height: min(calc(100vh - 48px), 680px);
-  /* Soft outer glow · separates the modal from the blurred dashboard
-     behind it without the heavy black backdrop carrying the contrast. */
+  /* Cap modal height — body inside scrolls. */
+  max-height: min(calc(100vh - 48px), 620px);
+  /* Soft outer separation from the blurred dashboard. */
   box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.25);
   animation: onb-rise 0.24s ease-out;
 }
@@ -79,18 +75,18 @@
 .onb-classification .right { color: var(--text-faint, #3A382F); letter-spacing: 0.12em; }
 
 .onb-head {
-  padding: 18px 24px 10px;
+  padding: 22px 28px 14px;
   border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
   flex: 0 0 auto;
 }
 .onb-tag {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--lime, #6FB572);
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 .onb-title {
   font-family: var(--font-human, var(--mono));
@@ -101,18 +97,29 @@
   line-height: 1.22;
   margin-bottom: 6px;
 }
+/* Story-beat headings · serif, italic-friendly, larger than the
+   mono headline above. Carries the conversational tone of the
+   storyline link. */
+.onb-title-serif {
+  font-family: "Tiempos Text", "Charter", Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.28;
+  letter-spacing: -0.012em;
+}
 .onb-deck {
   font-family: var(--font-human, var(--mono));
   font-size: 13px;
   color: var(--text-soft, #8E8B83);
   line-height: 1.55;
+  margin-top: 8px;
 }
 
 /* Progress dots */
 .onb-progress {
   display: flex;
   gap: 6px;
-  padding: 10px 24px;
+  padding: 10px 28px;
   border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
   flex: 0 0 auto;
 }
@@ -130,7 +137,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 24px 18px;
+  padding: 22px 28px 22px;
 }
 
 /* Inputs */
@@ -146,7 +153,7 @@
 }
 .onb-field-hint {
   font-family: var(--font-human, var(--mono));
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim, #5C5A52);
   line-height: 1.5;
   margin-top: 5px;
@@ -188,10 +195,16 @@
   width: 100%;
 }
 .onb-input::placeholder { color: var(--text-faint, #3A382F); }
+/* Serif variant used by the name field on step 0. */
+.onb-input-serif {
+  font-family: "Tiempos Text", "Charter", Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 20px;
+  padding: 12px 12px;
+  letter-spacing: -0.005em;
+}
 
-/* Show / hide toggle for the API-key input. Sits inside .onb-input-wrap
-   on the right edge — flat, mono, lowercase so it reads as an
-   inline affordance rather than a primary action. */
+/* Show / hide toggle for the API-key input */
 .onb-input-reveal {
   background: none;
   border: 0;
@@ -208,12 +221,7 @@
 .onb-input-reveal:hover { color: var(--text-soft, #8E8B83); }
 .onb-input-reveal[aria-pressed="true"] { color: var(--lime, #6FB572); }
 
-/* Prevent browser autofill (Chrome / Edge / Safari) from painting the
-   API-key input with a white/yellow background under dark themes.
-   Autofill ignores `background: transparent`, so we use a long inset
-   box-shadow set to the active theme's bg, plus a -webkit-text-fill-
-   color override so the typed text colour stays correct. Mirrors
-   `.us-input` in user-settings.css. */
+/* Autofill suppression (mirrors user-settings.css) */
 .onb-input:-webkit-autofill,
 .onb-input:-webkit-autofill:hover,
 .onb-input:-webkit-autofill:focus,
@@ -223,338 +231,344 @@
   caret-color: var(--text, #C8C5BE);
   transition: background-color 0s 9999s;
 }
-/* Match form-control color-scheme to the active theme so the password-
-   reveal icon and other native chrome don't render against a light
-   background under dark themes. Atrium (the only light theme) opts
-   back to light. */
 :root .onb-input { color-scheme: dark; }
 :root[data-theme="atrium"] .onb-input,
-:root[data-theme="pinterest"] .onb-input,
-:root[data-theme="apple"] .onb-input { color-scheme: light; }
+:root[data-theme="pinterest"] .onb-input { color-scheme: light; }
 
-/* Theme grid (mirrors Preference) */
-.onb-theme-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+/* ── step 1 · narrative ──────────────────────────────── */
+.onb-narrative {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 540px;
 }
-@media (max-width: 500px) { .onb-theme-grid { grid-template-columns: 1fr; } }
-.onb-theme {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 9px 10px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  cursor: pointer;
-  text-decoration: none;
-  color: var(--text, #C8C5BE);
-  transition: all 0.12s;
+.onb-narrative-p {
+  font-family: var(--font-human, "Inter", system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-soft, #8E8B83);
+  margin: 0;
 }
-.onb-theme:hover { border-color: var(--lime-dim, #2D5532); }
-.onb-theme.active {
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
+.onb-narrative-note {
+  font-family: var(--font-human, "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim, #5C5A52);
+  margin: 0;
+  padding-left: 12px;
+  border-left: 0;
+  position: relative;
 }
-.onb-theme-swatch {
-  display: inline-grid;
-  grid-template-columns: repeat(4, 6px);
-  grid-template-rows: repeat(2, 6px);
-  gap: 1px;
-  padding: 3px;
+.onb-narrative-note::before {
+  content: "// note";
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  margin-bottom: 4px;
+  padding-left: 0;
+}
+
+/* ── step 3 · cast preview ───────────────────────────── */
+/* ── step 3 · voice / TTS (optional) ──────────────────
+   Reuses the room-preview rendering scoped under `.vonb-banner`
+   in voice-onboarding.css — we mount the cloned preview into a
+   wrapper that carries that class so the existing CSS just works.
+   Compact 180px banner (shorter than the 240px in the marketing
+   overlay) to leave room for the provider chips + key input. */
+.onb-voice { display: flex; flex-direction: column; gap: 14px; }
+.onb-voice-banner {
+  height: 180px;
   border: 0.5px solid var(--line-bright, #2A2A26);
   background: var(--bg, #0A0A0A);
 }
-.onb-theme-swatch span { width: 6px; height: 6px; display: block; }
-.onb-theme-name {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--text, #C8C5BE);
-}
-.onb-theme.active .onb-theme-name { color: var(--lime, #6FB572); }
-.onb-theme-desc {
-  font-family: var(--font-human);
-  font-size: 10.5px;
-  color: var(--text-dim);
-  margin-top: 1px;
-}
-
-/* Starter-question list — shown on the final onboarding step.
-   Each row is a full-width card with the question prominent. */
-.onb-starters {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-/* Three-column grid keeps the title, hint, meta tags, and avatar block
-   aligned at the same horizontal position on every card. */
-.onb-starter {
-  display: grid;
-  grid-template-columns: 92px 1fr 280px;
-  column-gap: 16px;
-  padding: 13px 18px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.12s;
-  position: relative;
-  color: var(--text, #C8C5BE);
-  min-height: 96px;
-}
-.onb-starter:hover {
-  border-color: var(--lime, #6FB572);
+.onb-voice-banner-fallback {
+  width: 100%;
+  height: 100%;
   background: var(--panel-2, #1A1A18);
 }
-.onb-starter-tag {
-  align-self: start;
-  padding-top: 2px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--lime, #6FB572);
-  white-space: nowrap;
-}
-/* All title-aligned content (title, hint, meta tags) stacks here so the
-   left edge is identical regardless of tag width. */
-.onb-starter-main {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.onb-starter-text {
-  font-family: var(--font-human);
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--text, #C8C5BE);
-  letter-spacing: -0.005em;
-  line-height: 1.35;
-}
-.onb-starter-hint {
-  font-family: var(--font-human);
-  font-size: 11.5px;
+.onb-voice-pitch {
+  font-family: var(--font-human, "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--text-soft, #8E8B83);
-  line-height: 1.4;
+  margin: 0;
 }
-.onb-starter-meta {
+.onb-voice-providers { margin-top: 2px; }
+.onb-voice-field { margin-bottom: 0; }
+
+/* On step 3 the footer carries TWO right-side buttons (Skip · Continue)
+   instead of one — let them sit side-by-side with a tight gap. The
+   .onb-foot-right flex already handles it, but the ghost Skip needs
+   slightly different emphasis vs. the primary. */
+.onb-foot-right .onb-btn + .onb-btn { margin-left: 6px; }
+
+.onb-cast { display: flex; flex-direction: column; gap: 14px; }
+
+/* Three-stage microflow under the cast grid · disambiguates the CTA
+   by previewing what actually happens at the composer next. Mono
+   numerals on the left, sans label on the right, arrows between.
+   Wraps to one-per-row on narrow widths so the labels stay readable. */
+.onb-cast-next { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.onb-cast-next-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+}
+.onb-cast-next-flow {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 2px;
-}
-/* Cast lives in the third grid column at a fixed width, so the avatar
-   block lines up at the same x-position across every card regardless of
-   how long the tag or title is. */
-.onb-starter-cast {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  align-items: start;
-  align-self: start;
+  align-items: stretch;
   gap: 8px;
-  width: 100%;
 }
-.onb-starter-agent {
+.onb-cast-next-step {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.onb-cast-next-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--lime, #6FB572);
+  flex-shrink: 0;
+}
+.onb-cast-next-label {
+  font-family: var(--font-human, "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text, #C8C5BE);
+}
+.onb-cast-next-arrow {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-faint, #3A382F);
+  align-self: center;
+  flex-shrink: 0;
+}
+@media (max-width: 520px) {
+  .onb-cast-next-flow { flex-direction: column; }
+  .onb-cast-next-arrow { transform: rotate(90deg); align-self: center; }
+}
+.onb-cast-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint, #3A382F);
+}
+.onb-cast-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .onb-cast-grid { grid-template-columns: repeat(3, 1fr); }
+}
+/* Lineup-style cell · NO border / background, otherwise the cells
+   read as clickable picker buttons (which they are not — selection
+   happens later in the composer). Inherits the modal panel bg, just
+   the avatar floats above its name + role. cursor: default + the
+   `aria-disabled`-like styling reinforces "this is a portrait, not
+   a button." */
+.onb-cast-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   text-align: center;
+  padding: 4px 2px;
+  background: transparent;
+  border: 0;
+  cursor: default;
   min-width: 0;
 }
-.onb-starter-av {
-  width: 52px;
-  height: 52px;
+.onb-cast-av {
+  width: 56px;
+  height: 56px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  background: var(--bg, #0A0A0A);
-  transition: transform 0.12s, border-color 0.12s;
+  background: transparent;
 }
-.onb-starter-agent:hover .onb-starter-av {
-  border-color: var(--lime, #6FB572);
-  transform: translateY(-1px);
-}
-.onb-starter-name {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  color: var(--text-soft, #8E8B83);
-  letter-spacing: 0.04em;
-  line-height: 1.2;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.onb-starter-agent:hover .onb-starter-name { color: var(--lime, #6FB572); }
-/* Start button hovers in the bottom-right of the card, so it doesn't
-   nudge the cast or the title row. */
-.onb-starter-start {
-  position: absolute;
-  bottom: 12px;
-  right: 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--lime, #6FB572);
-  padding: 5px 10px;
+.onb-cast-name {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  cursor: pointer;
-  opacity: 0;
-  transform: translateX(6px);
-  transition: opacity 0.12s, transform 0.12s, background 0.12s, color 0.12s;
-  pointer-events: none;
+  letter-spacing: 0.04em;
+  color: var(--text, #C8C5BE);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
 }
-.onb-starter:hover .onb-starter-start {
-  opacity: 1;
-  transform: translateX(0);
-  pointer-events: auto;
+.onb-cast-role {
+  font-family: var(--font-human);
+  font-style: italic;
+  font-size: 10px;
+  color: var(--text-dim, #5C5A52);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
 }
-.onb-starter-start:hover {
+
+/* ── step 2 · key picker ─────────────────────────────
+   Visual hierarchy:
+     (1) Recommended card · OpenRouter · multi-model board
+     (2) "// or" divider
+     (3) Direct provider chips · single-model board
+   Selecting either path drives the single input below. */
+.onb-key-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Recommended card · OpenRouter. Lime-accented border when active,
+   muted but readable when the user has picked a direct provider
+   instead (so they still see the trade-off they made). */
+.onb-key-recommend {
+  position: relative;
+  display: block;
+  text-align: left;
   background: var(--bg, #0A0A0A);
-  color: var(--lime, #6FB572);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-soft, #8E8B83);
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
 }
-.onb-starter-start-arrow { font-size: 8.5px; line-height: 1; }
-.onb-final-divider {
-  text-align: center;
-  margin: 14px 0 10px;
+.onb-key-recommend:hover {
+  border-color: var(--lime-dim, #2D5532);
+}
+.onb-key-recommend.active {
+  border-color: var(--lime, #6FB572);
+  color: var(--text, #C8C5BE);
+  background: var(--panel-2, #1A1A18);
+}
+.onb-key-recommend-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.onb-key-recommend-badge {
   font-family: var(--mono);
   font-size: 9px;
-  letter-spacing: 0.2em;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
-  position: relative;
+  color: var(--lime, #6FB572);
 }
-.onb-final-divider::before,
-.onb-final-divider::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: calc(50% - 18px);
+.onb-key-recommend-name {
+  font-family: var(--font-human);
+  font-size: 14px;
+  font-weight: 600;
+  color: inherit;
+  letter-spacing: -0.005em;
+}
+.onb-key-recommend.active .onb-key-recommend-name {
+  color: var(--text, #C8C5BE);
+}
+.onb-key-recommend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime, #6FB572);
+  display: inline-block;
+  font-size: 0;
+  line-height: 0;
+  margin-left: auto;
+}
+.onb-key-recommend-body {
+  font-family: var(--font-human);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim, #5C5A52);
+}
+.onb-key-recommend.active .onb-key-recommend-body {
+  color: var(--text-soft, #8E8B83);
+}
+
+/* "// or" divider · mono kicker between recommend card and direct
+   chips. Hairlines on either side keep it light. */
+.onb-key-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 -4px;
+}
+.onb-key-or-line {
+  flex: 1;
   height: 1px;
   background: var(--line-bright, #2A2A26);
 }
-.onb-final-divider::before { left: 0; }
-.onb-final-divider::after { right: 0; }
-.onb-final-divider span { padding: 0 10px; }
-
-/* Final step "two cards" */
-.onb-final {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-@media (max-width: 500px) { .onb-final { grid-template-columns: 1fr; } }
-.onb-final-card {
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  padding: 16px 16px 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.14s;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  position: relative;
-  font-family: inherit;
-  width: 100%;
-  color: var(--text, #C8C5BE);
-}
-.onb-final-card:hover {
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
-}
-.onb-final-card.primary { border-color: var(--lime-dim, #2D5532); }
-.onb-final-mark {
+.onb-key-or-text {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--text-faint, #3A382F);
 }
-.onb-final-card.primary .onb-final-mark { color: var(--lime, #6FB572); }
-.onb-final-title {
-  font-family: var(--font-human);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text, #C8C5BE);
-  letter-spacing: -0.005em;
-}
-.onb-final-deck {
+.onb-key-or-body {
   font-family: var(--font-human);
   font-size: 12px;
-  color: var(--text-soft, #8E8B83);
-  line-height: 1.5;
+  line-height: 1.55;
+  color: var(--text-dim, #5C5A52);
+  margin: 0;
 }
 
-/* Provider selector · inline label row that declares which provider
-   the single input below is for. Intentionally NOT styled as cards —
-   no backgrounds, no borders — so the row reads as a label/legend,
-   not a second set of input fields. */
-.onb-key-tabs {
+/* Direct provider chips · the three same-model options. Smaller
+   visual weight than the recommended card. */
+.onb-key-directs {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 18px;
-  margin-bottom: 14px;
+  gap: 8px;
 }
-.onb-key-tab {
+.onb-key-direct {
   position: relative;
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 4px 0 4px 14px;
-  background: none;
-  border: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong, #3A3A35);
   color: var(--text-dim, #5C5A52);
   cursor: pointer;
-  text-align: left;
   font-family: var(--font-human, "Inter", system-ui, sans-serif);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: -0.005em;
   line-height: 1.2;
-  transition: color 0.12s;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.onb-key-tab:hover {
+.onb-key-direct:hover {
+  border-color: var(--lime-dim, #2D5532);
   color: var(--text-soft, #8E8B83);
 }
-.onb-key-tab.active {
+.onb-key-direct.active {
+  border-color: var(--lime, #6FB572);
   color: var(--text, #C8C5BE);
+  background: var(--panel-2, #1A1A18);
   font-weight: 600;
 }
-.onb-key-tab.active::before {
-  content: "▸";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--mono, monospace);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--lime, #6FB572);
-}
-.onb-key-tab-label { font: inherit; }
-.onb-key-tab-sub { display: none; }
-/* Configured · single small lime dot trailing the label. With the
-   single-provider invariant on this step, at most one tab carries
-   the dot at any time. */
-.onb-key-tab-dot {
+.onb-key-direct-label { font: inherit; }
+.onb-key-direct-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -562,9 +576,7 @@
   display: inline-block;
   font-size: 0;
   line-height: 0;
-  opacity: 0.85;
 }
-.onb-key-tab.active .onb-key-tab-dot { opacity: 1; }
 
 /* Status chip on the API key field */
 .onb-key-status {
@@ -625,4 +637,70 @@
 /* When onboarding is open, prevent the rest of the dashboard from scrolling */
 .onb-locked {
   overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────
+   ONE-SHOT COMPOSER HINT
+   Floats over the composer textarea on first run only.
+   ───────────────────────────────────────────── */
+.onb-composer-hint {
+  position: fixed;
+  z-index: 1400;
+  max-width: 320px;
+  padding: 14px 16px 12px;
+  background: var(--panel, #131312);
+  border: 0.5px solid var(--lime, #6FB572);
+  color: var(--text, #C8C5BE);
+  font-family: var(--font-human, "Inter", system-ui, sans-serif);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+  pointer-events: auto;
+}
+.onb-composer-hint.open { opacity: 1; transform: translateY(0); }
+.onb-composer-hint-arrow {
+  position: absolute;
+  top: -7px;
+  left: 28px;
+  width: 12px;
+  height: 12px;
+  background: var(--panel, #131312);
+  border-top: 0.5px solid var(--lime, #6FB572);
+  border-left: 0.5px solid var(--lime, #6FB572);
+  transform: rotate(45deg);
+}
+.onb-composer-hint-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  margin-bottom: 8px;
+}
+.onb-composer-hint-body {
+  font-family: "Tiempos Text", "Charter", Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  color: var(--text, #C8C5BE);
+  margin-bottom: 10px;
+}
+.onb-composer-hint-dismiss {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  background: transparent;
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.onb-composer-hint-dismiss:hover {
+  border-color: var(--lime, #6FB572);
+  color: var(--lime, #6FB572);
 }

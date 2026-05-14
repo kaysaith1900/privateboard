@@ -4,14 +4,14 @@
  * Triggered when the user clicks "找你可能感兴趣的话题" on the
  * home composer. Mines the chair's long-term memory about the
  * user, optionally cross-references the keywords against x.com /
- * web search, and synthesises 5–10 room subjects the user is
+ * web search, and synthesises 5 room subjects the user is
  * likely to want to convene around.
  *
  * Phases:
  *   1. Read     · pull chair memories (no LLM)
  *   2. Distil   · LLM picks top 10 recency-weighted keywords
  *   3. Web sweep· parallel runWebSearch per keyword (skipped when no key)
- *   4. Synth    · LLM produces 5–10 topics with rationale + citations
+ *   4. Synth    · LLM produces 5 topics with rationale + citations
  *
  * Modelled on `src/orchestrator/persona-builder.ts` — same
  * AbortController + in-memory job state + SSE event bus pattern.
@@ -516,12 +516,12 @@ async function synthesiseTopics(
     "You recommend boardroom discussion topics to a user, based on (a) the " +
     "chair's long-term memory of who they are + what they care about, and " +
     "optionally (b) a set of currently-trending web/x.com snippets keyed off " +
-    "the user's recent interests. Produce EXACTLY 6 distinct topics — not " +
-    "5, not 7, six. Each topic is a subject line a user could plausibly " +
+    "the user's recent interests. Produce EXACTLY 5 distinct topics — not " +
+    "4, not 6, five. Each topic is a subject line a user could plausibly " +
     "drop into the convene composer.\n\n" +
-    "The 6 topics MUST span DIFFERENT dimensions/categories — don't return " +
-    "six pricing topics. Use the 10 keywords as a multi-dimensional search " +
-    "index; the 6 final topics should distil ACROSS those dimensions so the " +
+    "The 5 topics MUST span DIFFERENT dimensions/categories — don't return " +
+    "five pricing topics. Use the 10 keywords as a multi-dimensional search " +
+    "index; the 5 final topics should distil ACROSS those dimensions so the " +
     "picker reads as a balanced board agenda, not a single-angle obsession. " +
     "Each topic gets a different `tag`.\n\n" +
     "Voice: tight, specific, opinionated. Avoid corporate-speak. Skew toward " +
@@ -548,7 +548,7 @@ async function synthesiseTopics(
     `# Keywords distilled from chair memory\n${keywords.map((k, i) => `K${i + 1}. ${k}`).join("\n")}\n\n` +
     `# Memory excerpts\n${memorySummary}\n\n` +
     `# Web snippets ${hasWeb ? "(use these to ground at least some recs as source=web)" : "(none — synthesise from memory only)"}\n${snippetBlock}\n\n` +
-    `Return EXACTLY 6 topics as JSON, each with a different tag, spanning different dimensions.`;
+    `Return EXACTLY 5 topics as JSON, each with a different tag, spanning different dimensions.`;
 
   const raw = await callPhaseLLM(state, modelV, [
     { role: "system", content: system },

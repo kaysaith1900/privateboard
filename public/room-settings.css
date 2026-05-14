@@ -69,7 +69,7 @@
   background: var(--panel-2, #1A1A18);
   border-bottom: 0.5px solid var(--line-bright, #2A2A26);
   padding: 5px 14px;
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--lime, #6FB572);
@@ -143,7 +143,7 @@
   background: transparent;
   border: none;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-soft, #8E8B83);
@@ -306,7 +306,7 @@
   border: 0.5px solid var(--line-strong, #3A3A35);
   padding: 10px 12px;
   font-family: var(--font-human);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
   color: var(--text-soft, #8E8B83);
   letter-spacing: -0.005em;
@@ -371,7 +371,7 @@
   align-items: center;
   justify-content: center;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0;
   background: var(--panel-2, #1A1A18);
@@ -414,7 +414,7 @@
 }
 .rs-cast-title {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -422,7 +422,7 @@
 }
 .rs-cast-hint {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -451,10 +451,13 @@
   transition: border-color 0.12s, background 0.12s;
 }
 .rs-toggle-row:hover { border-color: var(--text-faint, #3A382F); }
+/* `.rs-toggle-row .rs-incognito-check` only needs spacing here;
+   the global `input[type="checkbox"]` rule in index.html now
+   owns appearance / border / fill / hover / focus / disabled
+   for every checkbox in the app. Size matches the row's 13 px
+   metric (the global default is 14 px, slightly cramped here). */
 .rs-toggle-row .rs-incognito-check {
   margin: 0;
-  accent-color: var(--lime, #6FB572);
-  cursor: pointer;
   width: 13px;
   height: 13px;
 }
@@ -556,7 +559,7 @@
 }
 .rs-label .count {
   margin-left: auto;
-  font-size: 8.5px;
+  font-size: 8px;
   color: var(--text-faint, #3A382F);
   letter-spacing: 0.1em;
   font-weight: 600;
@@ -603,7 +606,7 @@
 .rs-members::-webkit-scrollbar-thumb { background: var(--line-strong); }
 
 .rs-member-section-label {
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint, #3A382F);
@@ -630,11 +633,12 @@
 .rs-member.on { background: var(--panel-3, #21211E); }
 .rs-member.on .rs-member-name { color: var(--lime, #6FB572); }
 
+/* Director picker checkbox · 12 × 12 to fit the dense member-row
+   grid. Visual treatment comes from the global checkbox rule
+   in index.html; only the size override lives here. */
 .rs-member-check {
   margin: 0;
   width: 12px; height: 12px;
-  accent-color: var(--lime, #6FB572);
-  cursor: pointer;
 }
 
 .rs-member-img {
@@ -663,7 +667,7 @@
 }
 .rs-member-name {
   font-family: var(--font-human);
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text, #C8C5BE);
   letter-spacing: -0.005em;
   white-space: nowrap;
@@ -672,7 +676,7 @@
 }
 .rs-member-tag {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   /* Was text-faint · same readability problem as
@@ -686,7 +690,7 @@
 
 .rs-member-model {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.04em;
   color: var(--text-soft, #8E8B83);
   padding: 1px 5px;
@@ -761,15 +765,15 @@
 .rs-history-row .h-icon {
   font-weight: 700;
   text-align: center;
-  font-size: 10.5px;
+  font-size: 10px;
 }
 .rs-history-row .h-label {
   color: var(--text, #C8C5BE);
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .rs-history-row .h-who {
-  font-size: 8.5px;
+  font-size: 8px;
   color: var(--text-faint, #3A382F);
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -811,10 +815,11 @@
   transition: border-color 0.12s, background 0.12s;
 }
 .rs-incognito-row:hover { border-color: var(--text-faint); }
+/* Standalone incognito row · 2 px top margin to optically align
+   the checkbox with the title text's first line. Visual treatment
+   handled by the global checkbox rule. */
 .rs-incognito-check {
   margin: 2px 0 0;
-  accent-color: var(--lime);
-  cursor: pointer;
 }
 .rs-incognito-text {
   display: flex;
@@ -829,7 +834,7 @@
   letter-spacing: -0.005em;
 }
 .rs-incognito-desc {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-faint);
   line-height: 1.4;
 }
@@ -842,7 +847,7 @@
   color: var(--lime);
 }
 .rs-config-item-label {
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -884,7 +889,7 @@
 }
 .rs-stat .v {
   font-family: var(--mono);
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--lime, #6FB572);
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -936,7 +941,7 @@
 .rs-action {
   text-decoration: none;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -998,3 +1003,166 @@
   .rs-foot { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
   .rs-foot > * { text-align: center; }
 }
+
+/* ─── Divergence report panel (Layer 3.1 + Layer 4) ──────────────
+   Read-only block · topic branches above, behavioural-cell coverage
+   below. Sits at the bottom of the config column so it doesn't push
+   the editable controls below the fold. Spans both grid columns so
+   the topic-map list + histograms get full width to breathe. */
+.rs-diversity-row {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  padding-top: 14px;
+}
+.rs-diversity-row .rs-config-row-label {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rs-diversity-body { width: 100%; }
+.rs-diversity-loading {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 6px 0;
+}
+.rs-diversity-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rs-diversity-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Topic map · branch list */
+.rs-branch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rs-branch-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr max-content;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 8px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+}
+.rs-branch-bar {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: color-mix(in srgb, var(--lime) 12%, transparent);
+  pointer-events: none;
+}
+.rs-branch-label {
+  position: relative;
+  z-index: 1;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rs-branch-count {
+  position: relative;
+  z-index: 1;
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.rs-branch-hot .rs-branch-bar { background: color-mix(in srgb, var(--lime) 22%, transparent); }
+.rs-branch-warm .rs-branch-bar { background: color-mix(in srgb, var(--lime) 14%, transparent); }
+.rs-branch-cool .rs-branch-bar { background: color-mix(in srgb, var(--lime) 6%, transparent); }
+.rs-branch-empty {
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  padding: 6px 0;
+}
+
+/* Coverage KPI */
+.rs-coverage-kpi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0 6px;
+  font-family: var(--mono);
+}
+.rs-coverage-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--lime);
+  letter-spacing: -0.02em;
+}
+.rs-coverage-sep { font-size: 16px; color: var(--text-dim); }
+.rs-coverage-total {
+  font-size: 14px;
+  color: var(--text-soft);
+  letter-spacing: -0.01em;
+}
+.rs-coverage-pct {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.rs-coverage-scored {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+/* Per-axis bucket histograms */
+.rs-hist-row {
+  display: grid;
+  grid-template-columns: 78px max-content 1fr max-content;
+  align-items: end;
+  gap: 8px;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.rs-hist-label {
+  color: var(--text-soft);
+  text-transform: uppercase;
+}
+.rs-hist-axis { white-space: nowrap; }
+.rs-hist-axis-right { text-align: right; }
+.rs-hist-cells {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 30px;
+  padding: 0 6px;
+}
+.rs-hist-cell {
+  flex: 1 1 0;
+  min-width: 6px;
+  background: var(--line);
+  display: block;
+}
+.rs-hist-cell-filled { background: var(--lime); }
+.rs-hist-cell-empty { background: color-mix(in srgb, var(--text-faint) 35%, transparent); }
+
