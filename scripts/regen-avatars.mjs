@@ -32,6 +32,9 @@ if (!AvatarSkill || typeof AvatarSkill.generate !== "function") {
 // Director ids in directors.ts + chair · seed deterministically by id
 // so re-runs produce the same artwork. Add new entries here when a
 // new seed director ships.
+//
+// Chair locks to BRICK CLASSIC via opts.variant — the chair's identity is
+// structural and shouldn't roll random hats / glasses on every regen.
 const SEEDS = [
   { id: "socrates",          file: "socrates.svg" },
   { id: "first-principles",  file: "first-principles.svg" },
@@ -40,7 +43,7 @@ const SEEDS = [
   { id: "user-empathy",      file: "user-empathy.svg" },
   { id: "long-horizon",      file: "long-horizon.svg" },
   { id: "phenomenologist",   file: "phenomenologist.svg" },
-  { id: "chair",             file: "chair.svg" },
+  { id: "chair",             file: "chair.svg",          opts: { variant: "classic" } },
 ];
 
 /** Strip any isolated white pixel (`#FFFFFF`, `#fff`) that has no
@@ -84,7 +87,7 @@ function stripIsolatedWhite(svg) {
 let total = 0;
 let stripped = 0;
 for (const seed of SEEDS) {
-  const raw = AvatarSkill.generate(seed.id);
+  const raw = AvatarSkill.generate(seed.id, seed.opts);
   const cleaned = stripIsolatedWhite(raw);
   if (cleaned.length < raw.length) stripped += 1;
   const out = join(avatarsDir, seed.file);

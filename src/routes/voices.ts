@@ -6,6 +6,30 @@ import { getAgent, getChairAgent } from "../storage/agents.js";
 import { getMessage } from "../storage/messages.js";
 import type { AgentVoiceProfile } from "../storage/agents.js";
 
+/** Unwrap a network-layer fetch error so callers see the actual cause
+ *  instead of Node's bare "fetch failed" string. Undici stashes the
+ *  real reason on `e.cause` (e.g. `getaddrinfo ENOTFOUND`, `connect
+ *  ECONNREFUSED`, `unable to verify the first certificate`); without
+ *  this, the user just sees "fetch failed" and can't tell whether
+ *  it's DNS, TLS, blocked host, or wrong key.
+ *
+ *  Stderr logs the full chain (including the cause's code if present)
+ *  so server-side diagnosis stays possible even when the response is
+ *  trimmed for the UI. */
+function ttsErrorMessage(e: unknown, providerLabel: string): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as { cause?: unknown }).cause;
+  if (cause && cause instanceof Error) {
+    const code = (cause as { code?: unknown }).code;
+    const tail = code ? ` (${String(code)})` : "";
+    const full = `${e.message}: ${cause.message}${tail}`;
+    process.stderr.write(`[tts-preview] ${providerLabel} fetch error · ${full}\n`);
+    return full;
+  }
+  process.stderr.write(`[tts-preview] ${providerLabel} error · ${e.message}\n`);
+  return e.message;
+}
+
 /** In-memory LRU cache for per-message TTS audio · keyed by
  *  `${messageId}:${voice fingerprint}`. Caps at ~50 entries so a
  *  long replay session reuses the same audio when the user hits
@@ -77,7 +101,15 @@ export function voicesRouter(): Hono {
       }
       return c.json({ audioBase64: chunk.audioBase64, mimeType: chunk.mimeType });
     } catch (e) {
-      return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+      // Propagate structured fields (code / provider / upgradeUrl) when
+      // the synthesizer tagged the error · the client uses these to
+      // route into the upgrade-overlay panel instead of a plain alert.
+      const tagged = (e ?? {}) as { code?: unknown; provider?: unknown; upgradeUrl?: unknown };
+      const payload: Record<string, unknown> = { error: ttsErrorMessage(e, profile.provider) };
+      if (typeof tagged.code === "string") payload.code = tagged.code;
+      if (typeof tagged.provider === "string") payload.provider = tagged.provider;
+      if (typeof tagged.upgradeUrl === "string") payload.upgradeUrl = tagged.upgradeUrl;
+      return c.json(payload, 502);
     }
   });
 
@@ -148,7 +180,7 @@ export function voicesRouter(): Hono {
       ttsCacheSet(key, out);
       return c.json(out);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = ttsErrorMessage(e, profile.provider);
       // Heuristic: missing key surfaces as a fetch error to the
       // provider domain. The frontend uses the `code` to decide
       // whether to deep-link to settings.

@@ -1,47 +1,30 @@
 /* ═══════════════════════════════════════════
    USER SETTINGS OVERLAY · 2-column layout
    ═══════════════════════════════════════════
-   Left rail: User · Theme · API Key
+   Left rail: User · API Key · Default Model · Usage · Other settings
    Right panel: section content for the selected rail item
    Triggered by any element with [data-user-settings-trigger].
 
    Persistence:
-     theme       → localStorage  (UI-only preference, no need to round-trip)
+     appearance  → localStorage  (dark / light / system · resolved by
+                    the FOUC bootstrap in index.html + home.html; this
+                    overlay just writes the chosen value, the bootstrap
+                    listens to the `storage` event and re-applies)
      user (name/intro/avatarSeed) → /api/prefs (SQLite-backed)
-     api keys    → localStorage   (will move to /api/keys in M2/M3)
+     api keys    → server-encrypted via keys-store.js
 
    The keys object is exposed on window.boardroomKeys() so other modules
    (new-agent.js) can show provider configuration status next to model rows.
 */
 (function () {
-  const THEME_KEY = "boardroom.theme";
+  // Appearance preference owned by the FOUC bootstrap. We only read /
+  // write it here; the data-theme attribute is the bootstrap's job.
+  const APPEARANCE_KEY = "boardroom.appearance";
+  const APPEARANCE_MODES = ["dark", "light", "system"];
 
   // /api/prefs is async; cache the latest value at module bootstrap so the
   // synchronous render code below stays simple. saveUser writes through.
   let _prefsCache = { name: "You", intro: "", avatarSeed: null, webSearchProvider: "brave", minimaxRegion: "cn" };
-
-  const THEMES = [
-    { slug: "regent",      name: "Regent",      desc: "warm gold on dark · default · the boardroom premium",
-      swatches: ["#0A0A0A","#131312","#C9A46B","#9A7B40","#A57843","#B5706A","#6A9B97","#C8C5BE"] },
-    { slug: "eastwood",    name: "Eastwood",    desc: "calm forest green",
-      swatches: ["#0A0A0A","#131312","#6FB572","#427A48","#B59560","#B5706A","#6A9B97","#C8C5BE"] },
-    { slug: "atrium",      name: "Atrium",      desc: "warm paper · light · the only daylight theme",
-      swatches: ["#FBFBF7","#F4F2EC","#2E7D32","#1B5E20","#A86C2A","#A8403D","#2E7D7A","#1F1E1A"] },
-    { slug: "pinterest",   name: "Pinterest",   desc: "clean white · Pinterest red · light",
-      swatches: ["#FFFFFF","#FAFAFA","#E60023","#AD081B","#F4A100","#E60023","#2E7D7A","#111111"] },
-    { slug: "alanpeabody", name: "Alan Peabody", desc: "cool blue · git-green accents",
-      swatches: ["#0E1419","#131A21","#6BAFE0","#3F7AAA","#C8A463","#D67373","#6FB5A8","#C8D0DA"] },
-    { slug: "amuse",       name: "Amuse",       desc: "magenta + cyan · playful",
-      swatches: ["#1A0E14","#21121A","#D67BC0","#9C4884","#DCBE5D","#E07F84","#6FBFC2","#DECBD2"] },
-    { slug: "jtriley",     name: "JTriley",     desc: "bright lime + yellow · punchy",
-      swatches: ["#0A0F0A","#131914","#B5DA40","#6E8E27","#F0CC4E","#D67762","#6FBE9A","#C8D6BE"] },
-    { slug: "nebirhos",    name: "Nebirhos",    desc: "teal · warm orange highlights",
-      swatches: ["#0A1414","#11201F","#5EB1A6","#357770","#DD9258","#D87060","#6FBEC2","#B8D4D0"] },
-    { slug: "wedisagree",  name: "We Disagree", desc: "argumentative orange · subtle green",
-      swatches: ["#14110E","#1F1A14","#DD7B40","#A8521E","#E6B872","#E26060","#6FB28A","#D8CBBC"] },
-    { slug: "nintendo",    name: "8-bit",       desc: "NES palette · Mario red · coin gold · sky cyan",
-      swatches: ["#181820","#22222C","#E60012","#A40009","#FBC000","#FC4438","#5BC0EB","#FCFCFC"] }
-  ];
 
   const PROVIDERS = [
     { id: "openrouter", label: "OpenRouter",  hint: "default · routes any model · sk-or-…",         placeholder: "sk-or-v1-…",  group: "llm" },
@@ -69,11 +52,24 @@
   }
 
   /* ── Storage helpers ───────────────────────────────────────── */
-  function getTheme() { try { return localStorage.getItem(THEME_KEY) || "regent"; } catch (e) { return "regent"; } }
-  function setTheme(slug) {
-    const theme = slug || "regent";
-    document.documentElement.setAttribute("data-theme", theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+  function getAppearance() {
+    try {
+      const v = localStorage.getItem(APPEARANCE_KEY);
+      return APPEARANCE_MODES.indexOf(v) >= 0 ? v : "system";
+    } catch (e) { return "system"; }
+  }
+  function setAppearance(mode) {
+    const next = APPEARANCE_MODES.indexOf(mode) >= 0 ? mode : "system";
+    try { localStorage.setItem(APPEARANCE_KEY, next); } catch (e) {}
+    // The FOUC bootstrap subscribes to `storage` events for cross-tab
+    // sync, but same-tab writes don't fire that event. Resolve and
+    // apply data-theme directly so the swap is instant on this tab too.
+    let resolved = next;
+    if (next === "system") {
+      try { resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+      catch (e) { resolved = "dark"; }
+    }
+    document.documentElement.setAttribute("data-theme", resolved);
   }
 
   async function fetchPrefs() {
@@ -177,9 +173,8 @@
 
   // Public — other modules read provider configuration via this
   window.boardroomKeys = getKeys;
-
-  // Apply theme on script init (FOUC fallback)
-  setTheme(getTheme());
+  // Appearance is applied by the inline FOUC bootstrap in index.html /
+  // home.html before this script loads; no init pass needed here.
 
   /* ── Section content renderers ────────────────────────────── */
   function userSectionHTML() {
@@ -225,43 +220,36 @@
     `;
   }
 
-  function themeSectionHTML() {
-    const current = getTheme();
-    const swatchSpans = (cs) => cs.map((c) => `<span style="background:${c}"></span>`).join("");
-    return `
-      <div class="us-pane-head">
-        <div class="us-pane-tag">${tr("us_theme_tag")}</div>
-        <div class="us-pane-deck">${tr("us_theme_deck")}</div>
-      </div>
-
-      <div class="us-pane-body">
-        <div class="us-theme-grid">
-          ${THEMES.map((t) => `
-            <a href="#" class="us-theme${t.slug === current ? " active" : ""}" data-theme-slug="${t.slug}">
-              <span class="us-theme-swatch">${swatchSpans(t.swatches)}</span>
-              <span class="us-theme-info">
-                <span class="us-theme-name">${escape(t.name)}</span>
-                <span class="us-theme-desc">${escape(t.desc)}</span>
-              </span>
-              <span class="us-theme-check"></span>
-            </a>
-          `).join("")}
-        </div>
-      </div>
-    `;
+  /* ── Other settings · misc per-user toggles that don't fit a
+        dedicated section. Appearance · interface language · typing-
+        sound effect; natural home for future small ambient / UX prefs. */
+  function appearanceSegmentsHTML() {
+    const cur = getAppearance();
+    return APPEARANCE_MODES.map((mode) => {
+      const label = tr(`us_appearance_${mode}`);
+      const cls = "us-seg-btn" + (mode === cur ? " active" : "");
+      return `<button type="button" class="${cls}" data-appearance="${mode}" role="radio" aria-checked="${mode === cur ? "true" : "false"}">${escape(label)}</button>`;
+    }).join("");
   }
 
-  /* ── Other settings · misc per-user toggles that don't fit a
-        dedicated section. Interface language · typing-sound effect;
-        natural home for future small ambient / UX preferences. */
   function otherSettingsSectionHTML() {
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Other settings</div>
-        <div class="us-pane-deck">small UX preferences that don't fit elsewhere. All persisted locally.</div>
+        <div class="us-pane-tag">${tr("us_other_tag")}</div>
+        <div class="us-pane-deck">${tr("us_other_deck")}</div>
       </div>
 
       <div class="us-pane-body">
+        <div class="us-row">
+          <div class="us-row-label">${tr("us_appearance_label")}</div>
+          <div class="us-row-field">
+            <div class="us-seg" role="radiogroup" aria-label="${escape(tr("us_appearance_label"))}" data-us-appearance>
+              ${appearanceSegmentsHTML()}
+            </div>
+            <p class="us-locale-deck">${escape(tr("us_appearance_deck"))}</p>
+          </div>
+        </div>
+
         <div class="us-row">
           <div class="us-row-label">${tr("us_locale_label")}</div>
           <div class="us-row-field">
@@ -309,6 +297,25 @@
     }
     if (window.I18n && typeof window.I18n.syncLocaleControls === "function") {
       window.I18n.syncLocaleControls();
+    }
+
+    // Appearance segmented control · dark / light / system. setAppearance
+    // writes the localStorage key AND applies data-theme immediately so
+    // the swap is instant; the FOUC bootstrap continues to handle live
+    // OS-level changes when "system" is selected.
+    const apGroup = paneEl.querySelector("[data-us-appearance]");
+    if (apGroup) {
+      apGroup.addEventListener("click", (e) => {
+        const btn = e.target.closest(".us-seg-btn[data-appearance]");
+        if (!btn) return;
+        const next = btn.dataset.appearance;
+        setAppearance(next);
+        apGroup.querySelectorAll(".us-seg-btn").forEach((el) => {
+          const on = el.dataset.appearance === next;
+          el.classList.toggle("active", on);
+          el.setAttribute("aria-checked", on ? "true" : "false");
+        });
+      });
     }
     // Typing-sound toggle · the persistence + audio context lives in
     // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
@@ -1117,7 +1124,6 @@
           <div class="us-frame">
             <nav class="us-nav" role="tablist">
               <a href="#" class="us-nav-item active" data-section="user"    role="tab" aria-selected="true" data-i18n="us_nav_user"></a>
-              <a href="#" class="us-nav-item"        data-section="theme"   role="tab" aria-selected="false" data-i18n="us_nav_theme"></a>
               <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false" data-i18n="us_nav_usage"></a>
               <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false" data-i18n="us_nav_api_key"></a>
               <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false" data-i18n="us_default_model_title"></a>
@@ -1150,7 +1156,6 @@
   function renderSection(id) {
     currentSection = id;
     if (id === "user")        paneEl.innerHTML = userSectionHTML();
-    else if (id === "theme")  paneEl.innerHTML = themeSectionHTML();
     else if (id === "usage")  paneEl.innerHTML = usageSectionHTML();
     else if (id === "keys")   paneEl.innerHTML = keysSectionHTML();
     else if (id === "default") paneEl.innerHTML = defaultModelSectionHTML();
@@ -1563,28 +1568,21 @@
       renderSection(item.dataset.section);
     });
 
-    // Theme rows (delegated since pane re-renders)
-    modal.addEventListener("click", (e) => {
-      const row = e.target.closest(".us-theme");
-      if (!row) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const slug = row.dataset.themeSlug;
-      paneEl.querySelectorAll(".us-theme").forEach((el) => el.classList.remove("active"));
-      row.classList.add("active");
-      setTheme(slug);
-    });
-
-    // Cross-tab theme sync
+    // Cross-tab sync for the appearance segmented control · the
+    // FOUC bootstrap in index.html / home.html re-applies data-theme on
+    // a `storage` event already; this listener only refreshes the
+    // segmented-control's active state when the "Other settings" pane
+    // happens to be open.
     window.addEventListener("storage", (e) => {
-      if (e.key === THEME_KEY && e.newValue) {
-        setTheme(e.newValue);
-        if (paneEl && currentSection === "theme") {
-          paneEl.querySelectorAll(".us-theme").forEach((el) => {
-            el.classList.toggle("active", el.dataset.themeSlug === e.newValue);
-          });
-        }
-      }
+      if (e.key !== APPEARANCE_KEY || !e.newValue) return;
+      if (!paneEl || currentSection !== "other") return;
+      const group = paneEl.querySelector("[data-us-appearance]");
+      if (!group) return;
+      group.querySelectorAll(".us-seg-btn").forEach((el) => {
+        const on = el.dataset.appearance === e.newValue;
+        el.classList.toggle("active", on);
+        el.setAttribute("aria-checked", on ? "true" : "false");
+      });
     });
 
     // Initial pane
@@ -1616,7 +1614,6 @@
     }
   };
   window.closeUserSettings = close;
-  window.applyTheme        = setTheme;
 
   // Bootstrap: prefetch prefs and key meta so the first render has real
   // values, then init.

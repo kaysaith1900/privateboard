@@ -16,6 +16,7 @@ function minimaxBaseUrl(): string {
 }
 
 const ELEVENLABS_API = "https://api.elevenlabs.io/v1";
+const OPENAI_API = "https://api.openai.com/v1";
 
 export interface TtsChunk {
   provider: string;
@@ -113,6 +114,7 @@ export function voiceProfileForAgent(agent: Agent): AgentVoiceProfile {
 export async function synthesizeSpeech(text: string, profile: AgentVoiceProfile, signal?: AbortSignal): Promise<TtsChunk> {
   if (profile.provider === "minimax") return synthesizeMiniMax(text, profile, signal);
   if (profile.provider === "elevenlabs") return synthesizeElevenLabs(text, profile, signal);
+  if (profile.provider === "openai") return synthesizeOpenAI(text, profile, signal);
   // Browser and not-yet-implemented providers: text-only chunk.
   return {
     provider: profile.provider,
@@ -316,10 +318,55 @@ async function synthesizeMiniMax(text: string, profile: AgentVoiceProfile, signa
       },
     }),
   });
-  if (!res.ok) throw new Error(`MiniMax TTS HTTP ${res.status}: ${await res.text()}`);
-  const json = await res.json() as { data?: { audio?: string }; audio?: string };
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 402 || /insufficient[ _-]?(?:balance|quota|credit|fund)|余额不足|余额[^a-zA-Z]?(?:不足|不够)/i.test(errText)) {
+      const err = new Error(
+        "Your MiniMax account balance is insufficient for TTS. " +
+        "Top up your account in the MiniMax console and try again.",
+      ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
+      err.code = "paid-plan-required";
+      err.provider = "minimax";
+      // Pick the right console URL by region · CN keys can't sign in
+      // on the .io console and vice-versa, so the deep-link respects
+      // the user's minimaxRegion preference.
+      err.upgradeUrl = getPrefs().minimaxRegion === "intl"
+        ? "https://platform.minimax.io/user-center/billing/overview"
+        : "https://platform.minimaxi.com/user-center/payment";
+      throw err;
+    }
+    throw new Error(`MiniMax TTS HTTP ${res.status}: ${errText}`);
+  }
+  const json = await res.json() as {
+    data?: { audio?: string };
+    audio?: string;
+    base_resp?: { status_code?: number; status_msg?: string };
+  };
+  // MiniMax returns 200 with a non-zero base_resp.status_code on a
+  // logical failure (insufficient balance shows up here, not as
+  // HTTP 402). Surface the same paid-plan-required tagging so the
+  // frontend can route into the upgrade overlay.
+  const status = json.base_resp?.status_code ?? 0;
+  const statusMsg = json.base_resp?.status_msg || "";
+  if (status !== 0 && (status === 1008 || /insufficient[ _-]?(?:balance|quota|credit|fund)|余额不足|余额[^a-zA-Z]?(?:不足|不够)/i.test(statusMsg))) {
+    const err = new Error(
+      "Your MiniMax account balance is insufficient for TTS. " +
+      "Top up your account in the MiniMax console and try again.",
+    ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
+    err.code = "paid-plan-required";
+    err.provider = "minimax";
+    err.upgradeUrl = getPrefs().minimaxRegion === "intl"
+      ? "https://platform.minimax.io/user-center/billing/overview"
+      : "https://platform.minimaxi.com/user-center/payment";
+    throw err;
+  }
   const hex = json.data?.audio ?? json.audio ?? "";
-  if (!hex) throw new Error("MiniMax TTS returned no audio");
+  if (!hex) {
+    if (status !== 0 && statusMsg) {
+      throw new Error(`MiniMax TTS failed (${status}): ${statusMsg}`);
+    }
+    throw new Error("MiniMax TTS returned no audio");
+  }
   return {
     provider: "minimax",
     model,
@@ -327,6 +374,64 @@ async function synthesizeMiniMax(text: string, profile: AgentVoiceProfile, signa
     text,
     mimeType: "audio/mpeg",
     audioBase64: Buffer.from(hex, "hex").toString("base64"),
+  };
+}
+
+/**
+ * OpenAI Text-to-Speech · single-shot synthesis.
+ *
+ * Endpoint: POST {OPENAI_API}/audio/speech
+ *   body: { model, input, voice, response_format: "mp3", speed }
+ *   returns: binary MP3 (no streaming over HTTP for this endpoint —
+ *   the response is the complete audio in one shot).
+ *
+ * Model defaults to `gpt-4o-mini-tts` (the model the registry lists
+ * its voices under: marin / cedar / alloy / nova / onyx / shimmer).
+ * Speed is clamped to OpenAI's documented 0.25–4.0 window; pitch /
+ * volume aren't honoured by this endpoint (the model controls those
+ * via `voice` + future `instructions` field), so they're silently
+ * dropped here — the picker's pitch/volume sliders are still useful
+ * for MiniMax / ElevenLabs agents.
+ */
+async function synthesizeOpenAI(text: string, profile: AgentVoiceProfile, signal?: AbortSignal): Promise<TtsChunk> {
+  const key = getKey("openai");
+  if (!key) {
+    return { provider: "browser", model: "speechSynthesis", voiceId: "system-default", text };
+  }
+  const model = profile.model?.trim() || "gpt-4o-mini-tts";
+  const voice = profile.voiceId?.trim() || "marin";
+  const speed = Math.min(4, Math.max(0.25, profile.speed ?? 1));
+  const res = await fetch(`${OPENAI_API}/audio/speech`, {
+    method: "POST",
+    signal,
+    headers: {
+      "authorization": `Bearer ${key}`,
+      "content-type": "application/json",
+      "accept": "audio/mpeg",
+    },
+    body: JSON.stringify({
+      model,
+      input: text,
+      voice,
+      response_format: "mp3",
+      speed,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`OpenAI TTS HTTP ${res.status}: ${errText.slice(0, 400)}`);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length === 0) {
+    throw new Error("OpenAI TTS returned empty body");
+  }
+  return {
+    provider: "openai",
+    model,
+    voiceId: voice,
+    text,
+    mimeType: "audio/mpeg",
+    audioBase64: buf.toString("base64"),
   };
 }
 
@@ -353,6 +458,20 @@ async function synthesizeElevenLabs(text: string, profile: AgentVoiceProfile, si
   });
   if (!res.ok) {
     const errText = await res.text();
+    // 402 paid_plan_required · ElevenLabs free-tier API blocks
+    // "library/premade" voices (Rachel, George, Adam, etc.). Surface
+    // a friendlier message than the raw JSON so users know to either
+    // (a) clone their own voice, or (b) upgrade their ElevenLabs plan.
+    if (res.status === 402 && /paid_plan_required|library voices/i.test(errText)) {
+      const err = new Error(
+        "ElevenLabs library voices (Rachel, George, etc.) require a paid plan to use via the API. " +
+        "Either upgrade your ElevenLabs subscription, or clone your own voice in the ElevenLabs dashboard and pick it here.",
+      ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
+      err.code = "paid-plan-required";
+      err.provider = "elevenlabs";
+      err.upgradeUrl = "https://elevenlabs.io/pricing";
+      throw err;
+    }
     throw new Error(`ElevenLabs TTS HTTP ${res.status}: ${errText.slice(0, 400)}`);
   }
   const buf = Buffer.from(await res.arrayBuffer());
@@ -394,6 +513,16 @@ async function* synthesizeElevenLabsStream(
   });
   if (!res.ok) {
     const errText = await res.text();
+    if (res.status === 402 && /paid_plan_required|library voices/i.test(errText)) {
+      const err = new Error(
+        "ElevenLabs library voices (Rachel, George, etc.) require a paid plan to use via the API. " +
+        "Either upgrade your ElevenLabs subscription, or clone your own voice in the ElevenLabs dashboard and pick it here.",
+      ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
+      err.code = "paid-plan-required";
+      err.provider = "elevenlabs";
+      err.upgradeUrl = "https://elevenlabs.io/pricing";
+      throw err;
+    }
     throw new Error(`ElevenLabs TTS stream HTTP ${res.status}: ${errText.slice(0, 400)}`);
   }
   const body = res.body;

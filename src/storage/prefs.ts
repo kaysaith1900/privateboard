@@ -12,7 +12,6 @@ export interface Prefs {
   name: string;
   intro: string;
   avatarSeed: string | null;
-  theme: string;
   defaultModelV: string | null;
   /** Active search backend preference (honoured only when both keys exist). */
   webSearchProvider: WebSearchProviderPref;
@@ -26,7 +25,6 @@ interface Row {
   name: string;
   intro: string;
   avatar_seed: string | null;
-  theme: string;
   default_model_v: string | null;
   web_search_provider: string;
   minimax_region: string;
@@ -47,7 +45,6 @@ function mapRow(row: Row): Prefs {
     name: row.name,
     intro: row.intro,
     avatarSeed: row.avatar_seed,
-    theme: row.theme,
     defaultModelV: row.default_model_v,
     webSearchProvider: normalizeWebSearchProviderPref(row.web_search_provider),
     minimaxRegion: normalizeMinimaxRegion(row.minimax_region),
@@ -59,7 +56,7 @@ function mapRow(row: Row): Prefs {
 export function getPrefs(): Prefs {
   const row = getDb()
     .prepare(
-      `SELECT name, intro, avatar_seed, theme, default_model_v,
+      `SELECT name, intro, avatar_seed, default_model_v,
               COALESCE(web_search_provider, 'brave') AS web_search_provider,
               COALESCE(minimax_region, 'cn') AS minimax_region,
               created_at, updated_at FROM prefs WHERE id = 1`,
@@ -76,7 +73,6 @@ export interface PrefsPatch {
   name?: string;
   intro?: string;
   avatarSeed?: string | null;
-  theme?: string;
   defaultModelV?: string | null;
   webSearchProvider?: WebSearchProviderPref;
   minimaxRegion?: MinimaxRegion;
@@ -88,7 +84,6 @@ export function updatePrefs(patch: PrefsPatch): Prefs {
   if (patch.name !== undefined)           { fields.push("name = ?");            values.push(patch.name); }
   if (patch.intro !== undefined)          { fields.push("intro = ?");           values.push(patch.intro); }
   if (patch.avatarSeed !== undefined)     { fields.push("avatar_seed = ?");     values.push(patch.avatarSeed); }
-  if (patch.theme !== undefined)          { fields.push("theme = ?");           values.push(patch.theme); }
   if (patch.defaultModelV !== undefined)  { fields.push("default_model_v = ?"); values.push(patch.defaultModelV); }
   if (patch.webSearchProvider !== undefined) {
     fields.push("web_search_provider = ?");

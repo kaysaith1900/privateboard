@@ -26,10 +26,15 @@ const OPENAI_VOICES: VoiceOption[] = [
   { provider: "openai", model: "gpt-4o-mini-tts", voiceId: "shimmer", label: "Shimmer", configured: false },
 ];
 
-// Small built-in subset. MiniMax exposes 300+ system voices and custom voices
-// via get_voice; this list keeps the picker useful even before the dynamic
-// call succeeds.
-/** Built-in defaults when the ElevenLabs key is set · expanded via GET /v1/voices. */
+// Built-in library voices · seed defaults so the picker has something
+// the moment the user adds an ElevenLabs key, before the dynamic
+// GET /v1/voices fetch round-trips (or when it fails / is blocked by
+// the network). These are "premade" voices in ElevenLabs's catalogue
+// — paid plans synthesize them fine; free-tier API hits return 402
+// `paid_plan_required` which synthesizeElevenLabs translates into a
+// human-readable "library voices need a paid plan" message. So the
+// picker stays populated regardless of plan tier; the failure surface
+// is at preview/play time, where the error message is actionable.
 const ELEVENLABS_DEFAULT_VOICES: VoiceOption[] = [
   {
     provider: "elevenlabs",
@@ -117,32 +122,142 @@ export async function listAvailableVoices(): Promise<VoiceOption[]> {
 
   const elKey = getKey("elevenlabs");
   if (elKey) {
-    try {
-      const res = await fetch("https://api.elevenlabs.io/v1/voices", {
-        headers: { "xi-api-key": elKey },
-      });
-      if (res.ok) {
-        const json = await res.json() as { voices?: unknown };
-        const rows = elevenLabsVoiceRows(json.voices);
-        if (rows.length > 0) {
-          const nonEl = voices.filter((v) => v.provider !== "elevenlabs");
-          voices = [
-            ...nonEl,
-            ...rows.map((r) => ({
-              provider: "elevenlabs" as const,
-              model: "eleven_multilingual_v2",
-              voiceId: r.voiceId,
-              label: r.label,
-              language: r.category,
-              configured: true,
-            })),
-          ];
+    // Pull TWO sources in parallel so a paid user gets the full picture:
+    //   (a) /v1/voices  — voices in their personal library (clones,
+    //       premade defaults, voices they've previously added). For a
+    //       fresh paid account this is typically ~10 voices.
+    //   (b) /v1/shared-voices  — the public ElevenLabs Voice Library
+    //       (community + featured voices). Paid users can synthesize
+    //       these directly via /text-to-speech/{voice_id}. We pull the
+    //       most popular first page (100 voices) so the picker has a
+    //       useful catalogue without forcing the user to "add to library"
+    //       first.
+    //
+    // Errors on either fetch are logged to stderr (no longer silently
+    // swallowed) so when the picker shows the bare 2 defaults it's clear
+    // from server logs why. `show_legacy=true` keeps the picker compatible
+    // with users whose accounts still carry legacy voice IDs.
+    const personal: Array<{ voiceId: string; label: string; category: string }> = [];
+    const shared: Array<{ voiceId: string; label: string; category: string; language?: string }> = [];
+
+    await Promise.all([
+      (async () => {
+        try {
+          const res = await fetch(
+            "https://api.elevenlabs.io/v1/voices?show_legacy=true&include_total_count=true",
+            { headers: { "xi-api-key": elKey } },
+          );
+          if (!res.ok) {
+            const errText = await res.text();
+            process.stderr.write(
+              `[voice-registry] elevenlabs /v1/voices HTTP ${res.status}: ${errText.slice(0, 300)}\n`,
+            );
+            return;
+          }
+          const json = await res.json() as { voices?: unknown };
+          const rows = elevenLabsVoiceRows(json.voices);
+          process.stderr.write(`[voice-registry] elevenlabs /v1/voices · ${rows.length} voices in personal library\n`);
+          personal.push(...rows);
+        } catch (e) {
+          const cause = e instanceof Error ? (e as { cause?: { message?: string } }).cause : null;
+          const detail = cause?.message ? `: ${cause.message}` : "";
+          process.stderr.write(
+            `[voice-registry] elevenlabs /v1/voices fetch failed${detail} · ${e instanceof Error ? e.message : String(e)}\n`,
+          );
         }
-      }
-    } catch { /* keep voices */ }
+      })(),
+      (async () => {
+        try {
+          // page_size capped at 100 by ElevenLabs; that's enough for the
+          // picker without paginating. Sorted by `usage_character_count`
+          // (default) so the most popular voices surface first.
+          const res = await fetch(
+            "https://api.elevenlabs.io/v1/shared-voices?page_size=100",
+            { headers: { "xi-api-key": elKey } },
+          );
+          if (!res.ok) {
+            const errText = await res.text();
+            process.stderr.write(
+              `[voice-registry] elevenlabs /v1/shared-voices HTTP ${res.status}: ${errText.slice(0, 300)}\n`,
+            );
+            return;
+          }
+          const json = await res.json() as { voices?: unknown };
+          const rows = elevenLabsSharedVoiceRows(json.voices);
+          process.stderr.write(`[voice-registry] elevenlabs /v1/shared-voices · ${rows.length} voices from public library\n`);
+          shared.push(...rows);
+        } catch (e) {
+          const cause = e instanceof Error ? (e as { cause?: { message?: string } }).cause : null;
+          const detail = cause?.message ? `: ${cause.message}` : "";
+          process.stderr.write(
+            `[voice-registry] elevenlabs /v1/shared-voices fetch failed${detail} · ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+      })(),
+    ]);
+
+    if (personal.length > 0 || shared.length > 0) {
+      const nonEl = voices.filter((v) => v.provider !== "elevenlabs");
+      const personalIds = new Set(personal.map((r) => r.voiceId));
+      // Dedupe · a voice the user has already added from the library
+      // shows up in BOTH /v1/voices (as "owned") and /v1/shared-voices.
+      // Prefer the personal-library row so its category label is honest.
+      const sharedDeduped = shared.filter((r) => !personalIds.has(r.voiceId));
+      const personalMapped = personal.map((r) => ({
+        provider: "elevenlabs" as const,
+        model: "eleven_multilingual_v2",
+        voiceId: r.voiceId,
+        label: r.label,
+        // Personal-library rows keep their actual category
+        // ("premade", "cloned", "professional", "generated").
+        language: r.category,
+        configured: true,
+      }));
+      const sharedMapped = sharedDeduped.map((r) => ({
+        provider: "elevenlabs" as const,
+        model: "eleven_multilingual_v2",
+        voiceId: r.voiceId,
+        // Prefix shared-library voices so users can tell at a glance
+        // which set they're picking from. The dropdown's group header
+        // already says "elevenlabs", so the per-row prefix is the
+        // tightest signal we have for personal-vs-shared.
+        label: `${r.label} · shared`,
+        language: r.language || r.category,
+        configured: true,
+      }));
+      voices = [...nonEl, ...personalMapped, ...sharedMapped];
+    }
   }
 
   return voices;
+}
+
+/** Parse one voice row from the ElevenLabs /v1/shared-voices response.
+ *  Schema differs from /v1/voices: shared rows use `name` for the
+ *  display label, `category` carries "professional" / "high_quality",
+ *  and there's a `language` field that's nice to surface to the user. */
+function elevenLabsSharedVoiceRows(
+  raw: unknown,
+): Array<{ voiceId: string; label: string; category: string; language?: string }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ voiceId: string; label: string; category: string; language?: string }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    const voiceId = typeof obj.voice_id === "string" ? obj.voice_id : "";
+    if (!voiceId) continue;
+    const label = typeof obj.name === "string" && obj.name.trim()
+      ? obj.name.trim()
+      : voiceId;
+    const category = typeof obj.category === "string" && obj.category.trim()
+      ? obj.category.trim()
+      : "shared";
+    const language = typeof obj.language === "string" && obj.language.trim()
+      ? obj.language.trim()
+      : undefined;
+    out.push({ voiceId, label, category, language });
+  }
+  return out;
 }
 
 function elevenLabsVoiceRows(raw: unknown): Array<{ voiceId: string; label: string; category: string }> {

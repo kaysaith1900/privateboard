@@ -533,11 +533,11 @@
   caret-color: var(--text, #C8C5BE);
   transition: background-color 0s 9999s;
 }
-/* Match form-control color-scheme to the active theme so the password-reveal
-   icon, scrollbars, and other native chrome don't render against a light
-   background under our dark themes. atrium (the only light theme) opts out. */
-:root .us-input { color-scheme: dark; }
-:root[data-theme="atrium"] .us-input { color-scheme: light; }
+/* Match form-control color-scheme to the active appearance so native
+   chrome (password-reveal icon, scrollbars) doesn't render against the
+   wrong background. */
+:root[data-theme="dark"] .us-input  { color-scheme: dark; }
+:root[data-theme="light"] .us-input { color-scheme: light; }
 .us-input-wrap textarea.us-input {
   resize: vertical;
   min-height: 70px;
@@ -545,77 +545,38 @@
 }
 .us-input-wrap.tall textarea.us-input { min-height: 90px; }
 
-/* ─── Theme picker (kept similar to before) ─── */
-.us-theme-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-@media (max-width: 600px) { .us-theme-grid { grid-template-columns: 1fr; } }
-
-.us-theme {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 9px 10px;
-  background: var(--bg, #0A0A0A);
+/* ─── Appearance segmented control · dark / light / system ─── */
+.us-seg {
+  display: inline-flex;
+  align-items: stretch;
   border: 0.5px solid var(--line-strong, #3A3A35);
-  cursor: pointer;
-  text-decoration: none;
-  color: var(--text, #C8C5BE);
-  transition: border-color 0.12s, background 0.12s;
+  background: var(--bg, #0A0A0A);
 }
-.us-theme:hover { border-color: var(--lime-dim, #2D5532); }
-.us-theme.active {
-  border-color: var(--lime, #6FB572);
+.us-seg-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-right: 0.5px solid var(--line-strong, #3A3A35);
+  padding: 7px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text-soft, #8E8B83);
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.us-seg-btn:last-child { border-right: 0; }
+.us-seg-btn:hover { color: var(--text, #C8C5BE); }
+.us-seg-btn.active {
+  color: var(--lime, #C9A46B);
   background: var(--panel-2, #1A1A18);
 }
-.us-theme-swatch {
-  display: inline-grid;
-  grid-template-columns: repeat(4, 6px);
-  grid-template-rows: repeat(2, 6px);
-  gap: 1px;
-  padding: 3px;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+.us-seg-btn:focus-visible {
+  outline: none;
+  color: var(--lime, #C9A46B);
+  background: var(--panel-2, #1A1A18);
 }
-.us-theme-swatch span { width: 6px; height: 6px; display: block; }
-.us-theme-info { min-width: 0; }
-.us-theme-name {
-  font-family: var(--mono);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text, #C8C5BE);
-  letter-spacing: -0.005em;
-  line-height: 1.2;
-}
-.us-theme.active .us-theme-name { color: var(--lime, #6FB572); }
-.us-theme-desc {
-  font-family: var(--font-human);
-  font-size: 10px;
-  color: var(--text-dim, #5C5A52);
-  line-height: 1.4;
-  margin-top: 1px;
-}
-.us-theme-check {
-  width: 18px; height: 18px;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: transparent;
-  transition: all 0.12s;
-}
-.us-theme.active .us-theme-check {
-  border-color: var(--lime, #6FB572);
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
-}
-.us-theme.active .us-theme-check::before { content: "✓"; }
 
 /* ─── API Key section ─── */
 .us-key-row {

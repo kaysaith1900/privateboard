@@ -231,9 +231,8 @@
   caret-color: var(--text, #C8C5BE);
   transition: background-color 0s 9999s;
 }
-:root .onb-input { color-scheme: dark; }
-:root[data-theme="atrium"] .onb-input,
-:root[data-theme="pinterest"] .onb-input { color-scheme: light; }
+:root[data-theme="dark"] .onb-input  { color-scheme: dark; }
+:root[data-theme="light"] .onb-input { color-scheme: light; }
 
 /* ── step 1 · narrative ──────────────────────────────── */
 .onb-narrative {

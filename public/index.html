@@ -5,6 +5,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PRIVATEBOARD // CONTROL</title>
+<script>
+  // Mark Electron runs before the first paint so CSS can hide the sidebar
+  // logo + reserve runway for the native macOS traffic lights. `privateboard`
+  // is injected by electron/preload.ts and is absent in the browser build.
+  (function () {
+    var pb = window.privateboard;
+    if (!pb || !pb.versions || !pb.versions.electron) return;
+    document.documentElement.classList.add("is-electron");
+    if (pb.platform === "darwin") {
+      document.documentElement.classList.add("is-electron-mac");
+    }
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -25,9 +38,9 @@
     --text-dim: #5C5A52;
     --text-faint: #5C5A4D;
 
-    --lime: #6FB572;
-    --lime-deep: #427A48;
-    --lime-dim: #2D5532;
+    --lime: #C9A46B;
+    --lime-deep: #9A7B40;
+    --lime-dim: #5C4422;
     --amber: #B59560;
     --amber-dim: #6B5A3A;
     --red: #B5706A;
@@ -229,7 +242,13 @@
     grid-template-rows: 1fr;
     flex: 1 1 auto;
     min-height: 0;
-    padding: 8px;
+    /* Window inset · the gap between the app's outer frame and the
+       sidebar / main panels. If you change this, also update
+       `trafficLightPosition` in `electron/main.ts` by the same delta
+       so the macOS cluster stays vertically aligned with the
+       `.sidebar-collapse-btn` (sidebar slides in by this padding,
+       so the traffic lights must too). */
+    padding: 10px;
   }
 
   /* ─── Brand mark · 16-pixel "PrivateBoard" logo ───
@@ -253,7 +272,7 @@
      ═══════════════════════════════════════════ */
   .body-grid {
     display: grid;
-    grid-template-columns: var(--sidebar-w) 8px 1fr;
+    grid-template-columns: var(--sidebar-w) 1px 1fr;
     grid-template-rows: 1fr;
     gap: 0;
     overflow: hidden;
@@ -279,22 +298,25 @@
     cursor: col-resize;
     user-select: none;
     -webkit-user-select: none;
-    background: transparent;
+    /* 1 px-wide column · fills with `--panel` at rest so the seam
+       between sidebar and main blends into the adjacent panel surfaces
+       and reads as a single connected slab. Hover / dragging paints
+       lime to surface the drag affordance. */
+    background: var(--panel);
     transition: background 0.12s;
     z-index: 5;
     touch-action: none;
   }
-  /* Resizer is now 1px wide (column width) so its own background fills
-     the entire visible width — no separate inner divider needed. The
-     ::before extends a ±3px transparent hit area so the user can still
-     grab a 1px column with the cursor. */
+  /* ::before extends a ±4px transparent hit area so the 1px column
+     is still grabbable by the cursor. Total drag hit-strip is 9px
+     centered on the visible line. */
   .col-resizer::before {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    left: -3px;
-    right: -3px;
+    left: -4px;
+    right: -4px;
     cursor: col-resize;
   }
   .col-resizer:hover,
@@ -324,7 +346,14 @@
      ═══════════════════════════════════════════ */
   .sidebar {
     background: var(--panel);
+    /* Right edge owns the region divider · brighter than the other
+       three sides (--line-bright vs --line) so the sidebar reads as
+       visually distinct from the main column. Pairs with
+       `.main { border-left: none }` and `.col-resizer`'s panel-fill
+       at rest so the divider lands as a single crisp hairline
+       instead of a stack of seams plus a 1 px gap. */
     border: 0.5px solid var(--line);
+    border-right: 0.5px solid var(--line-bright);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -385,13 +414,256 @@
     justify-content: center;
     transition: color 0.12s, background 0.12s, border-color 0.12s;
     flex-shrink: 0;
+    /* position:relative anchors the ::after hit-area expander below.
+       The visual chrome stays 24×22, but the click region is enlarged
+       to 40×38 so the cursor doesn't have to land precisely on the
+       small button — a frequent miss with a 16px chevron in a 24×22
+       hit box. */
+    position: relative;
   }
   .sidebar-collapse-btn::before { content: "‹"; }
   body.sidebar-collapsed .sidebar-collapse-btn::before { content: "›"; }
+  /* Invisible hit-area expander · ::before is taken by the chevron
+     glyph, so ::after provides the larger click rectangle. `inset:-16px`
+     extends 16px beyond every edge (24+32=56 wide, 22+32=54 tall) so
+     the cursor doesn't have to land precisely on a 16px chevron — a
+     frequent miss the user has flagged twice. The pseudo-element is
+     part of the button's render box, so hover and click in this
+     enlarged area still fire on the button itself and trigger
+     `:hover` styles normally — no extra JS needed. */
+  .sidebar-collapse-btn::after {
+    content: "";
+    position: absolute;
+    inset: -16px;
+  }
   .sidebar-collapse-btn:hover {
     color: var(--lime);
     border-color: var(--lime-dim);
     background: var(--panel-2);
+  }
+
+  /* ─── Electron (macOS) · cede the sidebar-head logo slot to the native
+     traffic lights and turn the strip into a window-drag handle.
+     trafficLightPosition in electron/main.ts pins the buttons at x:14 y:14,
+     so we reserve ~72px of left padding (60px button cluster + 12px gap)
+     and hide the brand link. Visibility of the buttons themselves is
+     toggled at runtime via setWindowButtonVisibility — see
+     `syncElectronTrafficLights` further down. */
+  html.is-electron-mac .sidebar-head .sidebar-brand { display: none; }
+  /* The whole sidebar is explicit `no-drag` so that when it floats as
+     a peek overlay on top of a main-view with its own drag region
+     (e.g. `.ap-cover` in the agent profile, the empty `.room-head`
+     on the new-room composer), the sidebar's rectangle CARVES that
+     drag region away. Default no-drag (the absence of a value) does
+     not subtract from a drag rect, only explicit no-drag does — so
+     without this, sidebar tabs / rows under those overlays read as
+     window-drag and clicks never reach the DOM. `.sidebar-head` adds
+     its own drag back below for the window-grab strip behaviour. */
+  html.is-electron-mac .sidebar {
+    -webkit-app-region: no-drag;
+  }
+  html.is-electron-mac .sidebar-head {
+    padding-left: 72px;
+    -webkit-app-region: drag;
+  }
+  html.is-electron-mac .sidebar-head .sidebar-collapse-btn {
+    -webkit-app-region: no-drag;
+    /* Push to the right edge. With the brand hidden, the collapse-btn
+       would otherwise be the only flex item and sit at the start of
+       the head — i.e. immediately to the right of the traffic-light
+       padding. `margin-left: auto` consumes the remaining width so it
+       anchors to the right edge instead, leaving the drag region
+       between the traffic lights and the button. */
+    margin-left: auto;
+  }
+  /* The ::after `inset: -16px` halo paints OUTSIDE the button's layout
+     box, so Chromium does NOT inherit the button's `no-drag` onto it —
+     the halo falls through to the parent `.sidebar-head { drag }` and
+     gets eaten by the window drag handler. The halo is its own paint
+     layer (`position: absolute`), so we can stamp `no-drag` directly
+     on the pseudo to preserve the expanded hit area without touching
+     the visible chrome. */
+  html.is-electron-mac .sidebar-head .sidebar-collapse-btn::after {
+    -webkit-app-region: no-drag;
+  }
+  /* macOS Electron · the entire top header strip drags the window,
+     not just the sidebar header. `.room-head` is the main column's
+     header (rendered by `renderHeader` in app.js around line 12740);
+     making it drag-sensitive means a user can grab the window from
+     any blank area at the top — title space, kicker margin, etc. —
+     matching how Finder / Safari / Mail let you drag from anywhere
+     along their toolbar.
+     Interactive children (button, a, input, textarea, [contenteditable])
+     are opt-ed back out via `no-drag` so clicks on the in-header
+     buttons (expand toggle, adjourn, vote, etc.) keep firing.
+     `.head-cast img` is the cast-avatar cascade — bare <img> tags that
+     open the lightweight agent overlay on click; without an explicit
+     no-drag the macOS window-drag region swallows their clicks. */
+  html.is-electron-mac .room-head {
+    -webkit-app-region: drag;
+  }
+  html.is-electron-mac .room-head button,
+  html.is-electron-mac .room-head a,
+  html.is-electron-mac .room-head input,
+  html.is-electron-mac .room-head textarea,
+  html.is-electron-mac .room-head select,
+  html.is-electron-mac .room-head [contenteditable="true"],
+  html.is-electron-mac .room-head [role="button"],
+  html.is-electron-mac .room-head .head-cast img {
+    -webkit-app-region: no-drag;
+  }
+  /* ─── macOS Electron · top-strip drag coverage for non-room views.
+     When the room view is hidden (All Reports / All Notes / Search /
+     Agent Profile) or the room view is shown with no current room (the
+     new-room / new-agent composer), `.room-head` no longer carries the
+     drag region — these rules extend it to every other top container.
+
+     `:empty` room-head · normally hidden in `html.no-room` further
+     down. In electron-mac we override to a 36px transparent drag-only
+     strip so the composer's top region grabs the window.
+
+     `.reports-page-head` / `.notes-page-head` · the section headers
+     rendered by app.js inside the reports / notes main-views.
+
+     `.ap-cover` · the decorative cover-art block at the top of the
+     agent-profile card (agent-profile.js). No interactive descendants,
+     so the no-drag exception below mostly no-ops for it.
+
+     `.main-view[data-main-view="search"]` · the search view has no
+     native page-head element. The pseudo `::before` becomes a sticky
+     36px drag overlay at the top of the scrolling container; the
+     `.search-page` gets matching top padding (only in electron) so
+     content sits below the strip instead of underneath it. */
+  /* `position: absolute` so the 36px drag strip floats above
+     `.chat-col` without taking a grid-row of vertical space. Without
+     this, the new-room / new-agent composer (and its `.cmp-bg-deco`
+     pixel backdrop, anchored to `.chat-col` top) were both pushed down
+     by 36px — the deco's top band ended up clipped below the visible
+     area. The strip stays transparent (`background: transparent`) so
+     the deco shows through, and `pointer-events: none` lets clicks
+     fall through to the composer below — the drag region itself
+     activates via `-webkit-app-region: drag` which Electron handles
+     before the renderer's hit-testing. */
+  html.is-electron-mac.no-room .room-head:empty {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    pointer-events: none;
+    -webkit-app-region: drag;
+    z-index: 50;
+  }
+  html.is-electron-mac .reports-page-head,
+  html.is-electron-mac .notes-page-head,
+  html.is-electron-mac .ap-cover {
+    -webkit-app-region: drag;
+  }
+  html.is-electron-mac .reports-page-head button,
+  html.is-electron-mac .reports-page-head a,
+  html.is-electron-mac .reports-page-head input,
+  html.is-electron-mac .reports-page-head textarea,
+  html.is-electron-mac .reports-page-head select,
+  html.is-electron-mac .reports-page-head [role="button"],
+  html.is-electron-mac .reports-page-head [contenteditable="true"],
+  html.is-electron-mac .notes-page-head button,
+  html.is-electron-mac .notes-page-head a,
+  html.is-electron-mac .notes-page-head input,
+  html.is-electron-mac .notes-page-head textarea,
+  html.is-electron-mac .notes-page-head select,
+  html.is-electron-mac .notes-page-head [role="button"],
+  html.is-electron-mac .notes-page-head [contenteditable="true"] {
+    -webkit-app-region: no-drag;
+  }
+  html.is-electron-mac .main-view[data-main-view="search"] {
+    position: relative;
+  }
+  html.is-electron-mac .main-view[data-main-view="search"]::before {
+    content: "";
+    position: sticky;
+    top: 0;
+    display: block;
+    width: 100%;
+    height: 36px;
+    margin-bottom: -36px;
+    background: transparent;
+    -webkit-app-region: drag;
+    z-index: 50;
+  }
+  html.is-electron-mac .main-view[data-main-view="search"] .search-page {
+    padding-top: 36px;
+  }
+  /* When the sidebar is floating as a peek overlay, every drag region
+     declared above for the main-view's top strip MUST be suppressed.
+     drag regions are computed as bounding rectangles regardless of
+     z-index — without these overrides the OS sees the `.ap-cover` /
+     `.room-head` / `.reports-page-head` / `.notes-page-head` / search
+     pseudo rectangle extending UNDER the peeked sidebar, treats clicks
+     on sidebar tabs as window-drag (because Electron's drag-region
+     calc walks DOM order: sidebar's children walk BEFORE main's, so a
+     no-drag declared on `.sidebar` can't subtract from a `.ap-cover`
+     drag added later). Stripping those drag regions while
+     `body.sidebar-peek` is set is the only ordering-independent fix.
+
+     The user can still grab the window from anywhere along the main-
+     view's top strip when the peek is NOT showing — peek-active is
+     transient hover-only state, and during it the sidebar's own
+     `.sidebar-head` keeps the window-drag affordance. */
+  html.is-electron-mac body.sidebar-peek .ap-cover,
+  html.is-electron-mac body.sidebar-peek .room-head,
+  html.is-electron-mac body.sidebar-peek .reports-page-head,
+  html.is-electron-mac body.sidebar-peek .notes-page-head {
+    -webkit-app-region: no-drag;
+  }
+  /* `.room-head:empty` (new-room / new-agent composer drag strip)
+     needs a higher-specificity override because the rule that turns
+     it INTO a drag strip is `html.is-electron-mac.no-room .room-head:empty`
+     → specificity (0, 4, 1). A plain `body.sidebar-peek .room-head`
+     override is only (0, 3, 2) and loses on class count, so the empty
+     room-head stays drag and its 36px rectangle re-adds drag area on
+     top of the `.sidebar-collapse-btn` — the top half of the 56×54
+     button sits inside the strip, OS captures clicks as window-drag.
+     Matching specificity by chaining `:empty` here lifts the no-drag
+     to (0, 4, 2) so it wins on type count. */
+  html.is-electron-mac body.sidebar-peek .room-head:empty {
+    -webkit-app-region: no-drag;
+  }
+  html.is-electron-mac body.sidebar-peek .main-view[data-main-view="search"]::before {
+    -webkit-app-region: no-drag;
+  }
+  /* macOS Electron · round the four outer corners of the entire
+     `.body-grid` (sidebar + 8px resizer + main as one rectangle), not
+     each panel individually. The grid already has `overflow: hidden`
+     so the corner clip propagates to child painting: sidebar's
+     outward-facing corners (top-left, bottom-left) get clipped to the
+     arc, main's outward-facing corners (top-right, bottom-right)
+     likewise — and the two corners that face the central 8px gap stay
+     square automatically (they're nowhere near the grid's edge).
+     This reads as "one rounded card with an internal split" instead
+     of "two rounded cards floating side-by-side" — and the visual
+     stays correct across collapse (main goes full-width, 4 rounded
+     corners), peek (sidebar floats inside the same clip), and
+     expanded states, with no state-dependent CSS. */
+  html.is-electron-mac .body-grid {
+    border-radius: 10px;
+  }
+  /* macOS Electron · let the BrowserWindow's `vibrancy: "under-window"`
+     layer show through. The vibrancy lives behind the renderer, so
+     anything painted with a fully opaque background covers it. We
+     null out the root surfaces here; `.sidebar` and `.main` keep
+     their solid `var(--panel)` fill (text legibility), so vibrancy
+     is visible only in the .control padding ring and the 8px gap
+     between sidebar and main — which is exactly the "frosted edge"
+     look native macOS apps (Mail, Settings) use. */
+  html.is-electron-mac,
+  html.is-electron-mac body,
+  html.is-electron-mac .control {
+    background: transparent;
   }
 
   /* ─── Collapsed state · sidebar fully hidden ───
@@ -407,6 +679,41 @@
   }
   body.sidebar-collapsed .sidebar,
   body.sidebar-collapsed .col-resizer {
+    display: none;
+  }
+  /* ─── Hover peek · floating sidebar while collapsed ───
+     When the user hovers the collapsed-state trigger (the floating
+     `.sidebar-expand-btn` or the in-header `.room-head-expand`), JS
+     adds `.sidebar-peek` to body. The sidebar reappears as a floating
+     overlay anchored to the body-grid's top-left edge so it sits ABOVE
+     the chat content without re-flowing the grid. Mouseleave (with
+     short grace) drops the class and the sidebar disappears again.
+     This is purely an addition to the collapsed state — the column
+     never reclaims its grid track. */
+  body.sidebar-collapsed.sidebar-peek .sidebar {
+    display: flex;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    z-index: 220;
+    box-shadow: 8px 0 24px -8px rgba(0, 0, 0, 0.5);
+    animation: sidebar-peek-in 0.16s ease-out;
+  }
+  @keyframes sidebar-peek-in {
+    from { transform: translateX(-10px); opacity: 0; }
+    to   { transform: translateX(0);     opacity: 1; }
+  }
+  /* While peeked, take the floating expand-btn entirely out of layout
+     AND hit-test — not just `pointer-events: none`. With the latter,
+     the button still occupies its box and the browser keeps it as a
+     hit candidate during the 0.16s peek-in animation; on micro mouse
+     moves the cursor can momentarily resolve to it again and restart
+     the open/close cycle, producing strobing. `display: none` removes
+     it from hit-test entirely so the cursor falls directly to the
+     sidebar that's sliding in to cover the same area. */
+  body.sidebar-collapsed.sidebar-peek .sidebar-expand-btn {
     display: none;
   }
 
@@ -449,7 +756,42 @@
     border-color: var(--lime-dim);
     background: rgba(8, 8, 8, 0.72);
   }
+  /* Hit-area expander · the visible button is 34×34, but ::after
+     stretches 18px past every edge so the click target is 70×70 even
+     though the chrome stays compact. Same rationale as the collapse
+     counterpart above: a small button at a corner is hard to land.
+     The mousemove handler also short-circuits the edge-peek trigger
+     when the cursor sits inside this hit area — otherwise approaching
+     the button from the left edge fires the peek, `display: none`s
+     the button, and the click lands on empty air. */
+  .sidebar-expand-btn::after {
+    content: "";
+    position: absolute;
+    inset: -18px;
+  }
+  /* SVG glyph ignores hit-test so the button presents a uniform 34×34
+     hit rectangle. The hamburger lines (stroke-width 1.5, fill none)
+     only paint ~4.5px out of 16px vertically; default `visiblePainted`
+     turns the gaps into hit-test holes that fire stray mouseover /
+     mouseout pairs on each `<line>` as the cursor wiggles, feeding
+     the peek state machine bogus enter/leave events. */
+  .sidebar-expand-btn svg,
+  .sidebar-expand-btn svg * { pointer-events: none; }
   .sidebar-expand-btn svg { display: block; }
+
+  /* Electron drag-region fix · the floating hamburger sits on top of
+     the `.room-head:empty` 36px drag strip (no-room state) which has
+     `-webkit-app-region: drag`. Without `no-drag`, clicks on the
+     button get eaten by the window drag handler. The ::after halo
+     (inset: -18px) paints outside the button box and falls back to
+     the drag region. Visible chrome stays 34×34; halo extends the
+     click area to ~70×70 — both get explicit no-drag. */
+  html.is-electron-mac .sidebar-expand-btn {
+    -webkit-app-region: no-drag;
+  }
+  html.is-electron-mac .sidebar-expand-btn::after {
+    -webkit-app-region: no-drag;
+  }
 
   /* ─── In-header expand button ───
      Lives at the leading edge of `.room-head` (rendered by
@@ -471,6 +813,9 @@
     font-family: var(--mono);
     font-size: 16px;
     font-weight: 700;
+    /* position: relative so the ::after tooltip anchors to the
+       button rather than escaping into the room-head's layout. */
+    position: relative;
     display: none;
     align-items: center;
     justify-content: center;
@@ -485,10 +830,6 @@
     color: var(--lime);
     border-color: var(--lime-dim);
     background: var(--panel-2);
-  }
-  .room-head-expand:hover {
-    color: var(--lime);
-    background: var(--panel-3);
   }
 
   /* ─── Sidebar tabs (Rooms / Agents) — segmented control with icon ─── */
@@ -1492,7 +1833,11 @@
     grid-template-rows: 1fr;
     overflow: hidden;
     background: var(--panel);
+    /* No left border · pairs with `.sidebar { border-right: none }`
+       so the seam at the col-resizer column reads as a continuous
+       panel surface instead of a doubled hairline. */
     border: 0.5px solid var(--line);
+    border-left: none;
     position: relative;
   }
   .main-view {
@@ -2230,26 +2575,37 @@
     max-width: 760px;
     margin: 0 auto;
     box-sizing: border-box;
-    /* Mirror the new-room composer's `.cmp-input-frame` (line
-       ~9989) — the frame is black (`var(--bg)`), the input
-       inside is transparent so it inherits the black, and the
-       toolbar at the bottom is `panel-2` (lighter). The two
-       tones plus the hairline divider make it read as one
-       designed input object. `overflow: hidden` is load-bearing
-       so the panel-2 toolbar doesn't bleed past the frame's
-       hairline border. */
-    background: var(--bg);
+    /* Match the new-room composer's `.cmp-input-frame` vocabulary
+       beat-for-beat: frosted-glass surface from a panel-3/bg color-mix
+       behind a `backdrop-filter` blur, hairline `--line-strong`
+       border, 14 px rounded corners, lifted card shadow. The input
+       wrap inside inherits the frosted bg via `transparent`, and the
+       bottom hint toolbar is `--panel-2` (lighter) so the two tones
+       alone separate the action row from the typing zone — no
+       hairline divider needed. `overflow: hidden` keeps the panel-2
+       toolbar flush with the rounded corners. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     border: 0.5px solid var(--line-strong);
+    border-radius: 14px;
+    /* No drop shadow · mirrors cmp-input-frame after the lifted
+       card shadow was removed there. The frosted surface + hairline
+       border alone delineate the input card. */
     overflow: hidden;
     transition:
       border-color 0.18s,
-      background 0.18s,
       max-width 0.22s ease,
       margin 0.22s ease,
       padding 0.22s ease;
   }
   .search-card:focus-within {
-    border-color: var(--lime);
+    /* Match cmp-input-frame's focus register · softer lime ring (the
+       `--lime-dim` rim) instead of a hard lime border, so the
+       focused state reads as "warmed" rather than "selected
+       outline". */
+    border-color: var(--lime-dim, var(--lime));
   }
   .search-page.has-results .search-card {
     display: flex;
@@ -2349,16 +2705,15 @@
     transition: padding 0.22s ease, font-size 0.22s ease;
   }
   .search-page.is-initial .search-input {
-    /* Same type spec as `.cmp-input` (14.5px sans, line-height
-       1.55, letter-spacing -0.003em) so the family register
-       matches the new-room composer. SYMMETRIC vertical
-       padding (22 top / 22 bottom) instead of the cmp's
-       20/12 — the cmp is a TEXTAREA where text starts at
-       the top, but our search-input is a SINGLE-LINE input
-       so the text/placeholder must vertical-centre for it
-       to read right. The taller padding also gives the
-       hero card more presence. */
-    padding: 22px 22px;
+    /* Type spec matches `.cmp-input` (14 px sans / line-height 1.55 /
+       -0.003em letter-spacing) and we reuse the same `14 px`
+       horizontal padding. No `min-height` here · an `<input>` always
+       vertical-centres its text content, so a forced 84 px height
+       (which works for the cmp's textarea where text top-aligns)
+       just leaves a tall band of empty space above the cursor. The
+       hero card's presence comes from the bottom toolbar + frame
+       padding, not from a stretched input. */
+    padding: 8px 14px 12px;
     font-size: 14px;
     line-height: 1.55;
     letter-spacing: -0.003em;
@@ -2435,30 +2790,9 @@
      Mono hint on the left, lime send button on the right.
      Hidden entirely in has-results (the card is collapsed
      to a head row by then). */
-  .search-input-toolbar {
-    /* Mirror `.cmp-toolbar` (line ~10028) — same padding /
-       min-height / hairline-divider / panel-2 surface so the
-       two-tone frame reads as one designed input. The panel-2
-       tone is the visual cue that "this is the action row."
-       It's slightly lighter than the input area's black so
-       the eye registers it as a distinct band without a heavy
-       border. */
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 8px 8px 14px;
-    min-height: 48px;
-    border-top: 0.5px solid var(--line);
-    background: var(--panel-2);
-  }
-  .search-page.has-results .search-input-toolbar { display: none; }
-  .search-toolbar-hint {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-  }
+  /* `.search-input-toolbar` and its mono "keyword · message body ·
+     room name" hint were retired · the frosted card alone is the
+     affordance, no extra footer-bar needed. */
   /* Starter chips · static suggestions below the card in
      is-initial. Click → pre-fill the input + trigger search.
      Hidden in has-results. */
@@ -3173,17 +3507,27 @@
     /* Centre-anchored at y=460 · pushed further down (from 360)
        now that the ASCII PRIVATE BOARD logo occupies y=80-260
        above. Content drives the height via `height: fit-content`
-       and `max-height: 340` caps the growth so worst-case panel
-       bottom (y=630) stays clear of the river (top ~651). As
+       and `max-height: 370` caps the growth so worst-case panel
+       bottom (y=645) stays clear of the river (top ~651). As
        content grows the panel expands SYMMETRICALLY in both
        directions, keeping the visual centre of gravity stable.
-       Worst-case panel span: y=290-630. */
+       Worst-case panel span: y=275-645.
+
+       Why 370 (was 340) · with name + 6-line quote + 3-line
+       annotation + two dividers + 26px top/bottom padding, the
+       stack can reach ~315-330 px of content. At max-height 340
+       the annotation's last line was getting clipped against
+       the bubble's bottom edge — and the clip-path stair-corner
+       compounded the visual mess. Tighter dividers (12 instead
+       of 16) buy another 8 px each, and the extra 30 px here
+       leaves comfortable headroom even when the director name
+       wraps to 2 lines. */
     top: 460px;
     transform: translateY(-50%);
     left: 32px;
     right: 32px;
     height: fit-content;
-    max-height: 340px;
+    max-height: 370px;
     background: #0F0813;
     color: #FFFFFF;
     padding: 26px 30px;
@@ -3244,13 +3588,13 @@
   .share-card[data-share-template="boardroom"] .sc-bubble-text {
     margin: 0;
     color: #FFFFFF;
-    /* Cap the quote at 5 lines · the JS-driven font-size tier-down
+    /* Cap the quote at 6 lines · the JS-driven font-size tier-down
        still shrinks for long quotes, but the clamp guarantees the
-       panel never blows past its `max-height: 260` even for
+       panel never blows past its `max-height: 340` even for
        extreme 200+ char passages. Trailing ellipsis added by
        `-webkit-line-clamp` when the content overflows. */
     display: -webkit-box;
-    -webkit-line-clamp: 5;
+    -webkit-line-clamp: 6;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -3333,7 +3677,12 @@
   .share-card[data-share-template="boardroom"] .sc-divider {
     position: relative;
     height: 6px;
-    margin: 16px 0;
+    /* 12 px (was 16) so two stacked dividers reclaim 16 px of vertical
+       budget. Combined with the bubble's bumped `max-height: 360`, the
+       annotation's last line no longer collides with the bubble's
+       bottom edge / clip-path stair when both quote AND annotation
+       are at their respective line-clamp ceilings. */
+    margin: 12px 0;
     z-index: 2;
   }
   .share-card[data-share-template="boardroom"] .sc-divider::before {
@@ -3389,149 +3738,6 @@
   .share-card[data-share-template="boardroom"] .mod-rail-hi { fill: color-mix(in srgb, var(--cyan, #6A9B97) 60%, #FFFFFF 40%); }
   .share-card[data-share-template="boardroom"] .mod-gem { fill: var(--cyan, #6A9B97); }
   .share-card[data-share-template="boardroom"] .mod-gem-hi { fill: color-mix(in srgb, var(--cyan, #6A9B97) 50%, #FFFFFF 50%); }
-
-  /* ── Template B · TERMINAL · CLI / code card ────────────────── */
-  .share-card[data-share-template="terminal"] {
-    background: #0E1414;
-    color: #DDF6D7;
-    padding: 24px 22px 64px;
-    display: flex;
-    flex-direction: column;
-    font-family: "JetBrains Mono", "Menlo", "Consolas", "Courier New", monospace;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-frame {
-    flex: 1;
-    border: 1px dashed #3D5A38;
-    padding: 16px 20px 24px;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-statusbar {
-    display: flex;
-    justify-content: flex-end;
-    font-size: 9px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: #8E9D89;
-    padding-bottom: 12px;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-version {
-    color: #8E9D89;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-logo {
-    margin: 14px 0 12px;
-    font-family: inherit;
-    font-size: 14px;
-    line-height: 1.0;
-    color: var(--lime, #6FB572);
-    white-space: pre;
-    text-align: center;
-    letter-spacing: 0;
-    font-weight: 400;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-tagline {
-    font-family: inherit;
-    font-size: 10px;
-    letter-spacing: 0.20em;
-    text-transform: uppercase;
-    color: #F0D848;
-    text-align: center;
-    padding-bottom: 16px;
-    margin-bottom: 16px;
-    border-bottom: 1px dashed #3D5A38;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-tagline .cjk {
-    font-family: "STHeiti", "Hiragino Sans GB", "PingFang SC", sans-serif;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-body {
-    flex: 1;
-    font-family: inherit;
-    line-height: 1.7;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-line {
-    color: #DDF6D7;
-    white-space: pre;
-    font-size: 17px;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-prompt {
-    color: var(--lime, #6FB572);
-    margin-right: 6px;
-    font-weight: 700;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-quote {
-    color: #FFFFFF;
-    margin: 4px 0 4px 16px;
-    padding: 12px 16px;
-    background: rgba(111, 181, 114, 0.08);
-    white-space: pre-wrap;
-    word-break: break-word;
-    display: -webkit-box;
-    -webkit-line-clamp: 5;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    font-family: inherit;
-    font-size: 17px;
-    /* Integer line-height + matching max-height so the 5-line
-     * clamp hits a clean pixel boundary. Global box-sizing is
-     * border-box, so max-height must include the 12 + 12 = 24
-     * of vertical padding on top of the 5 × 26 content rows.
-     * Without the padding allowance the 5th line gets sliced
-     * in half. */
-    line-height: 26px;
-    max-height: 154px;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-quote .cjk {
-    font-family: "STHeiti", "Hiragino Sans GB", "PingFang SC", sans-serif;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-comment {
-    color: #E26AA0;
-    margin: 0 0 0 16px;
-    font-family: inherit;
-    font-size: 15px;
-    font-style: italic;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    word-break: break-word;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-comment .cjk {
-    font-family: "STHeiti", "Hiragino Sans GB", "PingFang SC", sans-serif;
-    font-style: normal;
-    font-weight: 400;
-  }
-  .share-card[data-share-template="terminal"] .sc-tt-cursor {
-    display: inline-block;
-    color: var(--lime, #6FB572);
-    font-weight: 700;
-    animation: sc-tt-blink 1s steps(2, end) infinite;
-  }
-  @keyframes sc-tt-blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
-  }
-  .share-card[data-share-template="terminal"] .share-card-watermark {
-    color: var(--lime, #6FB572);
-    left: 30px;
-    bottom: 26px;
-    font-size: 10px;
-    letter-spacing: 0.22em;
-  }
-  .share-card[data-share-template="terminal"] .share-card-stamp {
-    color: #8E9D89;
-    right: 30px;
-    bottom: 26px;
-    font-size: 9px;
-    letter-spacing: 0.18em;
-  }
 
   @media (max-width: 580px) {
     .share-card-modal { padding: 18px 14px 14px; }
@@ -3936,18 +4142,35 @@
      room-settings overlay. */
 
   .head-actions { display: flex; align-items: center; gap: 6px; }
-  .head-cast { display: flex; align-items: center; }
-  /* Avatar size aligned with the new compact header rhythm (22px) ·
-     keeps the toolbar height in proportion to the 14px title. */
+  .head-cast { display: flex; align-items: center; margin-right: 4px; }
+  /* Avatar size · 26px to read at parity with the head-icon-btn glyphs
+     (Lucide-style 16px masks in 26px slots) sitting to the right.
+     Slightly larger than the prior 22px so the director portraits get
+     a bit more presence in the adjourned-room toolbar without breaking
+     the single-line header rhythm. */
   .head-cast img {
-    width: 22px; height: 22px;
+    width: 26px; height: 26px;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     border: 0.5px solid var(--line-strong);
     margin-left: -4px;
     background: var(--bg);
+    /* Each tile opens the agent profile drawer (data-agent-profile is
+       wired in app.js renderHeader). Lift it slightly on hover so the
+       stacked cascade telegraphs which director is being aimed at. */
+    cursor: pointer;
+    transition: border-color 0.12s, transform 0.12s;
+    position: relative;
+    z-index: 0;
   }
   .head-cast img:first-child { margin-left: 0; }
+  .head-cast img:hover,
+  .head-cast img:focus-visible {
+    border-color: var(--lime);
+    transform: translateY(-1px);
+    outline: none;
+    z-index: 2;
+  }
   .head-cast img.speaking {
     border-color: var(--lime);
     box-shadow: 0 0 0 1px var(--lime);
@@ -3955,8 +4178,8 @@
   /* Stacked count tile · sits at the end of the avatar cascade and
      matches the avatar height so the row stays flush. */
   .head-cast .cast-count {
-    height: 22px;
-    min-width: 22px;
+    height: 26px;
+    min-width: 26px;
     padding: 0 5px;
     background: var(--panel-3);
     /* Was `var(--text)` (the brightest text token) which read as a
@@ -4102,7 +4325,11 @@
   /* Room-head is empty on the zero-room starter panel — hide it entirely
      so the panel's own welcome heading isn't doubled by a "No room
      selected" banner above. */
-  html.no-room .room-head:empty { display: none; }
+  /* `:not(.is-electron-mac)` lets the electron-mac override (~line 502)
+     keep the empty room-head visible as a 36px drag strip. Without this
+     guard the later rule wins and there's no draggable region at the
+     top of the new-room / new-agent composer view. */
+  html.no-room:not(.is-electron-mac) .room-head:empty { display: none; }
 
   /* ─── Pause-pending state ───
      Set on <html> the moment the user picks "After they finish". The
@@ -6156,7 +6383,9 @@
   html[data-status="live"] .resume-btn,
   html[data-status="live"] .adjourned-pill,
   html[data-status="live"] .stamp,
-  html[data-status="live"] .view-report-btn { display: none; }
+  html[data-status="live"] .view-report-btn,
+  html[data-status="live"] .head-view-report,
+  html[data-status="live"] .head-followup { display: none; }
 
   /* Paused state: keeps the live messages visible (frozen), appends the paused
      marker, hides input + speaking queue + adjourned chrome */
@@ -6172,7 +6401,9 @@
   html[data-status="paused"] .speaking-queue,
   html[data-status="paused"] .adjourned-pill,
   html[data-status="paused"] .stamp,
-  html[data-status="paused"] .view-report-btn { display: none; }
+  html[data-status="paused"] .view-report-btn,
+  html[data-status="paused"] .head-view-report,
+  html[data-status="paused"] .head-followup { display: none; }
 
   /* Adjourned state: archived transcript + deliverable, plus the
      same floating .input-bar as live/paused (its left cluster
@@ -6224,7 +6455,15 @@
     min-height: 0;
     overflow-y: auto;
     background: var(--panel);
-    padding: 14px 20px 18px;
+    /* Bottom padding leaves room for the floating `.ib-stack`
+       (input-bar + any speaking-queue / paused / adjourned strip
+       above it). The stack absolute-positions at the chat-col
+       bottom, so without this padding the last message would
+       scroll permanently under the glass. ~140px covers the
+       common case (textarea + one strip); tall textarea +
+       multiple strips can still cover the bottom message, the
+       user scrolls a touch — acceptable. */
+    padding: 14px 20px 140px;
     transition: opacity 0.18s ease-out;
   }
   /* Note-jump loading state · the user clicked a note in the All
@@ -8536,6 +8775,21 @@
     image-rendering: crisp-edges;
     z-index: 2;
     pointer-events: none;
+  }
+  /* Director / chair avatars carry `data-agent` so clicks open the
+     lightweight overlay (see public/agent-overlay.js). Re-enable
+     pointer-events on this variant — the base `.rt-avatar` is
+     pointer-events:none so the sprite doesn't block clicks on the
+     chair / table beneath, but the tagged avatars need to receive
+     clicks themselves. User seat is a `<div>`, not `<img>`, so it
+     never carries data-agent and stays click-through. */
+  .rt-avatar[data-agent] {
+    pointer-events: auto;
+    cursor: pointer;
+    transition: filter 0.12s ease;
+  }
+  .rt-avatar[data-agent]:hover {
+    filter: brightness(1.18);
   }
 
   /* Name plate · small mono caption ABOVE the avatar (was below,
@@ -11217,18 +11471,32 @@
     max-width: 620px;
   }
 
-  /* Input frame · the focal point. Hairline border that gains a lime
-     edge on focus. Toolbar sits inside the bottom of the same frame so
-     the input feels like one designed object. */
+  /* Input frame · the focal point. Mirrors the in-room `.input-bar`
+     register (frosted glass · hairline border · 14px radius · soft
+     elevation) so the new-room / new-agent composer reads as the same
+     control surface family as the in-room textarea. Background recipe
+     (layered color-mix → backdrop-filter) is borrowed verbatim from
+     `.input-bar` (~line 14612). `overflow: hidden` keeps the toolbar
+     flush with the rounded corners; focus lifts to a brighter lime
+     border + slightly deeper shadow, matching input-bar's focus
+     vocabulary. */
   .cmp-input-frame {
     position: relative;
-    background: var(--bg);
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     border: 0.5px solid var(--line-strong);
+    border-radius: 14px;
+    /* No drop shadow · the frosted-glass surface + hairline border
+       already feel like a discrete card. The earlier lifted shadow
+       (`0 14px 32px -20px rgba(0,0,0,.55)`) made the composer look
+       like a floating modal, which fought with the deco backdrop. */
     transition: border-color 0.18s;
     overflow: hidden;
   }
   .cmp-input-frame:focus-within {
-    border-color: var(--lime);
+    border-color: var(--lime-dim, var(--lime));
   }
   .cmp-input {
     display: block;
@@ -11244,27 +11512,195 @@
     resize: none;
     overflow-y: auto;
     min-height: 84px;
-    padding: 20px 22px 12px;
+    /* Tighter inner padding · 14 px horizontal (was 22 px) so the
+       textarea text sits closer to the frame's edge and aligns
+       better with the bottom-toolbar buttons (which use 10 px
+       padding). The topbar above already provides 6 px vertical
+       breathing room, so the 8 px top here keeps the cursor a
+       hair away from the topbar's underside. */
+    padding: 8px 14px 12px;
   }
   .cmp-input::placeholder {
     color: var(--text-faint);
     font-weight: 400;
   }
 
-  /* Toolbar inside input frame · cast on left, tune in the middle,
-     convene on the right. Hairline divider above. min-height pinned
-     to the room composer's natural height (driven by the 22px cast
-     avatars + button padding) so the agent composer's toolbar — which
-     has no avatar-bearing button — grows to match. Without this the
-     agent input frame is a few pixels shorter than the room frame.
-     Box-sizing is border-box (universal in this project), so the
-     min-height includes the 8px+8px vertical padding. */
+  /* Topbar inside input frame · room configuration controls (cast
+     picker / tone / intensity for the new-room composer; build mode
+     + manual escape for the new-agent composer). Sits ABOVE the
+     textarea so the room/agent identity is set before the user starts
+     typing the subject. Panel-2 background + bottom hairline gives the
+     tray a distinct visual zone — the textarea sits between two
+     control trays (top + bottom) on the frosted-glass middle band.
+     `align-items: center` keeps cast / dd / manual vertically lined up
+     even though their natural heights differ slightly. */
+  /* Right-cluster inside the topbar · `margin-left: auto` pushes the
+     tone + intensity dropdowns to the trailing edge so the bar reads
+     left-to-right as [cast picker] ........ [tone] [intensity]. The
+     row's own `flex-wrap: wrap` still kicks in on tight widths;
+     wrapping the right cluster keeps tone / intensity together on the
+     wrapped line instead of getting orphaned. */
+  .cmp-topbar-right {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .cmp-topbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--panel-2);
+    border-bottom: 0.5px solid var(--line);
+    min-height: 44px;
+  }
+  /* Topbar buttons adopt the in-room input-bar's
+     `.head-rt-toggle.has-label` vocabulary · borderless 32px hit
+     target, icon (or avatar / value) + mono label, subtle text-tinted
+     pill background on hover. Overrides the `.cmp-cast-btn` /
+     `.cmp-dd` / `.ag-cmp-manual` per-family chrome (visible borders +
+     border-color hover) so the row reads as a unified control tray
+     regardless of which family each button belongs to. The original
+     `.cmp-dd` baseline alignment is also flipped to `center` so the
+     label / value / chevron sit visually centred in the 32px box
+     instead of dropping to the baseline of a forced taller row. */
+  .cmp-topbar > .cmp-cast-btn,
+  .cmp-topbar > .cmp-dd,
+  .cmp-topbar > .ag-cmp-manual,
+  .cmp-topbar .cmp-topbar-right > .cmp-dd {
+    height: 32px;
+    padding: 0 10px;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-soft);
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s, border-radius 0.12s;
+  }
+  .cmp-topbar > .cmp-cast-btn:hover,
+  .cmp-topbar > .cmp-dd:hover,
+  .cmp-topbar > .ag-cmp-manual:hover,
+  .cmp-topbar .cmp-topbar-right > .cmp-dd:hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text);
+    border-radius: 999px;
+  }
+  /* Open state · the dd's picker popover is showing. Adopt the same
+     pill shape as hover but with a lime tint so the actively engaged
+     control is obvious. Tone + intensity (nested in `.cmp-topbar-right`)
+     are matched explicitly so the open-state lime pill still fires
+     once they're no longer direct children of `.cmp-topbar`. */
+  .cmp-topbar > .cmp-dd.open,
+  .cmp-topbar .cmp-topbar-right > .cmp-dd.open {
+    background: color-mix(in srgb, var(--lime) 14%, transparent);
+    color: var(--lime);
+    border-radius: 999px;
+  }
+  /* Drop the cmp-tune wrapper · no longer used now that tone /
+     intensity render directly as flex children of `.cmp-topbar`.
+     Voice toggle moved to bottombar (`.cmp-toolbar`). */
+  /* Toolbar (bottombar) inside input frame · delivery toggle on the
+     left (voice for new-room, web search for new-agent), Send /
+     Convene button on the right. Same panel-2 tray treatment as
+     the topbar so the textarea reads as the only "open" zone in
+     the card; top hairline mirrors the topbar's bottom hairline,
+     framing the textarea. */
+  /* Build-mode toggle · borrows the round-table toggle's icon+label
+     register (borderless, mono small-caps, aria-pressed lime). Lives
+     in the new-agent composer's bottombar, immediately to the LEFT of
+     the web-search toggle. Click is a binary flip: full-persona on
+     (aria-pressed="true", lime ink + soft lime pill) ↔ off (text-soft
+     ink, ghost). The button itself is the only state cue · no badge,
+     no checkbox, no dropdown. */
+  .cmp-build-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-soft);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s, border-radius 0.12s;
+    border-radius: 999px;
+  }
+  .cmp-build-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    color: inherit;
+  }
+  .cmp-build-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: inherit;
+    white-space: nowrap;
+  }
+  .cmp-build-toggle:hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text);
+  }
+  /* Selected · "Full persona" mode is on. Lime ink + faint lime pill
+     bg so the chip reads as actively engaged without needing a
+     dedicated badge / dot. Mirrors the round-table toggle's pressed
+     state at `.head-rt-toggle[aria-pressed="true"]`. */
+  .cmp-build-toggle[aria-pressed="true"] {
+    color: var(--lime);
+    background: color-mix(in srgb, var(--lime) 12%, transparent);
+  }
+  .cmp-build-toggle[aria-pressed="true"]:hover {
+    background: color-mix(in srgb, var(--lime) 18%, transparent);
+    color: var(--lime);
+  }
+  /* When selected + hovered, swap the ✦ sparkle for a × close mark so
+     the click reads as "deselect". Mirrors the round-table toggle's
+     `.head-rt-toggle[aria-pressed="true"]:hover .ib-rt-glyph` pattern
+     at index.html ~line 15050: hide the inner SVG, paint a ×
+     mask-image via the glyph slot's ::before. currentColor inheritance
+     keeps the × in the same lime as the rest of the chip. */
+  .cmp-build-toggle[aria-pressed="true"]:hover .cmp-build-glyph > svg {
+    display: none;
+  }
+  .cmp-build-toggle[aria-pressed="true"]:hover .cmp-build-glyph::before {
+    content: "";
+    display: block;
+    width: 14px;
+    height: 14px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: contain;
+            mask-size: contain;
+  }
   .cmp-toolbar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 8px 8px 14px;
-    border-top: 0.5px solid var(--line);
+    gap: 8px;
+    padding: 6px 10px;
+    /* No hairline divider between textarea and bottombar · the
+       `--panel-2` toolbar tray plus the textarea's own focused-border
+       already telegraph the boundary; the extra rule read as visual
+       noise pinning the bottom of the card. */
     background: var(--panel-2);
     min-height: 48px;
     /* Establish a size container · child elements (notably the
@@ -11657,11 +12093,19 @@
      .cmp-ws-toggle` above already covers the voice toggle since
      they share the same class set. */
 
+  /* Send · the ONE filled element in the toolbar. Mirrors the in-room
+     `.send-btn` (lime circle 32×32 + currentColor glyph) so the
+     composer's "submit" and the in-room textarea's "send" read as
+     the same control vocabulary. `margin-left: auto` keeps it pinned
+     to the right of the bottombar regardless of how many controls
+     are on the left (currently just the voice / web-search toggle). */
   .cmp-go {
     flex-shrink: 0;
-    width: 36px; height: 36px;
+    margin-left: auto;
+    width: 32px; height: 32px;
     background: var(--lime);
     border: none;
+    border-radius: 50%;
     color: var(--bg);
     cursor: pointer;
     display: inline-flex;
@@ -11670,8 +12114,11 @@
     transition: background 0.15s, transform 0.12s;
   }
   .cmp-go:hover {
-    background: var(--text);
-    transform: translateX(1px);
+    background: var(--lime-deep, var(--lime));
+    transform: scale(1.04);
+  }
+  .cmp-go:active {
+    transform: scale(0.96);
   }
   .cmp-go.busy { opacity: 0.55; pointer-events: none; }
   /* SVG icon · both the room composer's "Convene" button and the
@@ -14322,17 +14769,13 @@
   }
 
   /* Bottom input stack · groups speaking-queue + paused-strip +
-     input-bar so they can be repositioned as a unit. In default
-     (chat) view it stays in flex flow (display: contents so it's
-     transparent to flex layout · the three children keep their
-     direct relationships with `.chat-col` for adjacency selectors
-     to still work). In voice-room (stage visible) view it absolute-
-     positions over the bottom of the stage so the stage occupies
-     the full height instead of being squished above the input. */
+     input-bar so they can be repositioned as a unit. Floats at the
+     bottom of `.chat-col` (which is position: relative) in BOTH
+     text and voice rooms — text rooms get the same translucent
+     "input glass" treatment as the voice stage, and the chat
+     scrolls behind it for the blur to read as actual frosted
+     glass rather than a flat translucent panel. */
   .ib-stack {
-    display: contents;
-  }
-  .chat-col:has(.roundtable-stage:not([hidden])) .ib-stack {
     display: block;
     position: absolute;
     left: 0;
@@ -14341,27 +14784,6 @@
     z-index: 5;
     /* The children still self-position horizontally via their own
        `margin: 0 14px` so the gutters match the live-chat layout. */
-  }
-  /* Voice room · frosted-glass treatment on the floating input
-     group. The blur is heavy (24px) and the panel tint blends with
-     `--bg` rather than transparent so the surface reads as a
-     denser, darker pane of glass — the wood floor still bleeds
-     through behind, but the input chrome dominates visually
-     instead of looking like a thin overlay. Saturate boosts what's
-     visible under the haze so the floor tones still register. */
-  .chat-col:has(.roundtable-stage:not([hidden])) .input-bar {
-    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
-    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-  }
-  .chat-col:has(.roundtable-stage:not([hidden])) .speaking-queue,
-  .chat-col:has(.roundtable-stage:not([hidden])) .paused-strip,
-  .chat-col:has(.roundtable-stage:not([hidden])) .adjourned-strip {
-    background: color-mix(in srgb, var(--panel-2) 78%, var(--bg) 22%);
-    background: color-mix(in srgb, color-mix(in srgb, var(--panel-2) 78%, var(--bg) 22%) 88%, transparent);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
   }
 
   /* Chat column wraps the message stream + input bar. */
@@ -14405,12 +14827,18 @@
     padding: 6px 8px 8px;
     border: 0.5px solid var(--line-strong);
     border-radius: 14px;
-    /* Bump up a notch from the chat surface · the chat scroller
-       sits on var(--bg) / var(--panel), so panel-3 (one tier
-       lighter on dark themes / one tier darker on light themes)
-       gives the floating card enough contrast to read as a
-       separate surface without going overbright. */
-    background: var(--panel-3);
+    /* Frosted glass · the input-bar floats above the chat scroller
+       (via `.ib-stack`'s absolute layout), so the chat content
+       streams behind the card. Panel-3 mixed with bg gives the
+       glass a denser tint than pure transparent — the prose
+       behind softens but the chrome still dominates visually.
+       Heavy blur (24px) + saturate boost keeps colors lively
+       under the haze. Voice-room wood-floor and text-room chat
+       both read through this surface. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     box-shadow: 0 14px 32px -20px rgba(0, 0, 0, 0.55);
     display: flex;
     flex-direction: column;
@@ -14904,6 +15332,206 @@
   }
   .send-btn:hover { background: var(--bg); color: var(--lime); }
 
+  /* ═══════════════════════════════════════════════════════════
+     Sidebar mini-player
+     Floats above .sidebar-foot in the sidebar column. Compact
+     2-row layout sized to fit the ~280px sidebar width:
+       Row 1: room name (1fr)  +  jump-to-room icon button
+       Row 2: waveform animation (full width)
+     The bar is purely an "audio is playing elsewhere, tap to
+     jump back" affordance — pause / close / speaker name all
+     live inside the room itself. A bottom margin keeps a clear
+     gap to the user-block in .sidebar-foot beneath it.
+     ═══════════════════════════════════════════════════════════ */
+  .sidebar-mini-player {
+    /* Floats inside the sidebar (which is position: relative)
+       just above .sidebar-foot — the rooms / agents list scrolls
+       behind it so the frosted-glass surface can show the text
+       passing underneath. Out of flow on purpose: the bar should
+       overlay content, not push it. */
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 56px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 10px 7px;
+    /* Frosted-glass surface · semi-transparent panel-2 + backdrop
+       blur, so text scrolling beneath bleeds through softly. The
+       color-mix tracks the active theme without per-theme overrides. */
+    background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+    isolation: isolate;
+    /* Whole bar is a click target · routes to navigateToRoom in
+       the global handler. The inner jump button stays for
+       keyboard focus + visible affordance, but mouse users can
+       click anywhere on the surface. */
+    cursor: pointer;
+    transition: background 0.12s, box-shadow 0.12s;
+  }
+  .sidebar-mini-player:hover {
+    background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  }
+  .sidebar-mini-player[hidden] { display: none !important; }
+  /* When the mini-player is open, the rooms / agents scroll area
+     needs bottom padding so the last item isn't permanently buried
+     behind the floating bar. Uses :has() so no JS coupling. */
+  .sidebar:has(.sidebar-mini-player:not([hidden])) .sessions-scroll,
+  .sidebar:has(.sidebar-mini-player:not([hidden])) .agents-scroll {
+    padding-bottom: 70px;
+  }
+
+  /* Top row · room name + jump button */
+  .sidebar-mini-player .mp-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .sidebar-mini-player .mp-room-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    /* Theme accent · `--lime` is the per-theme primary token
+       (swapped by every theme in themes.css). Sits on the
+       frosted glass, so the accent does the work of "this is
+       the focal label" — var(--text) read as muted on the blur. */
+    color: var(--lime);
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+  }
+  .sidebar-mini-player .mp-room-name:empty { display: none; }
+
+  /* Bottom row · waveform sits inside the same horizontal padding
+     as the top row, so the bar's left / right edges align with the
+     room-name + jump-button row above it. No negative margin. */
+  .sidebar-mini-player .mp-bottom {
+    display: flex;
+    align-items: center;
+    height: 12px;
+  }
+  .sidebar-mini-player .mp-wave {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  .sidebar-mini-player .mp-wave-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .sidebar-mini-player .mp-wave-bg span,
+  .sidebar-mini-player .mp-wave-fg span {
+    display: inline-block;
+    flex: 1 1 0;
+    min-width: 1px;
+    /* No max-width · 40 bars share the wave's full width via
+       flex: 1 1 0, so each bar grows to fill the bar's interior
+       and the waveform reads as edge-to-edge. */
+    height: calc(var(--h, 30) * 1%);
+    border-radius: 1px;
+    transform-origin: center;
+  }
+  .sidebar-mini-player .mp-wave-bg span { background: var(--text-faint); opacity: 0.3; }
+  .sidebar-mini-player .mp-wave-fg {
+    clip-path: inset(0 calc((1 - var(--mp-progress, 0)) * 100%) 0 0);
+    transition: clip-path 0.18s linear;
+  }
+  .sidebar-mini-player .mp-wave-fg span { background: var(--lime); }
+  /* Animate bars while audio plays · staggered scaleY pulse. */
+  .sidebar-mini-player[data-mini-player-kind="live"]:not([data-paused="true"]) .mp-wave-bg span,
+  .sidebar-mini-player[data-mini-player-kind="live"]:not([data-paused="true"]) .mp-wave-fg span,
+  .sidebar-mini-player[data-mini-player-kind="replay"]:not([data-paused="true"]) .mp-wave-bg span,
+  .sidebar-mini-player[data-mini-player-kind="replay"]:not([data-paused="true"]) .mp-wave-fg span {
+    animation: mp-wave-bounce 0.9s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 30ms);
+  }
+  @keyframes mp-wave-bounce {
+    0%, 100% { transform: scaleY(1);    }
+    50%      { transform: scaleY(0.45); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar-mini-player .mp-wave-bg span,
+    .sidebar-mini-player .mp-wave-fg span { animation: none !important; }
+  }
+
+  /* Jump-to-room button · single right-side affordance. Sized
+     and styled to read as a peer to the sidebar's nav-* buttons
+     (New room / All Reports / Search) above — same Lucide stroke
+     icon vocabulary, same 16px footprint, same currentColor mask
+     so hover cascades to lime. */
+  .sidebar-mini-player .mp-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-soft, var(--text));
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.12s, background 0.12s, transform 0.08s;
+  }
+  .sidebar-mini-player .mp-btn:active { transform: scale(0.92); }
+  .sidebar-mini-player .mp-btn:hover {
+    background: var(--panel-3);
+    color: var(--lime);
+  }
+  /* Jump glyph · Lucide ArrowUpRight (24×24 viewBox, stroke 2,
+     rounded caps) — same line-icon register as `.new-btn` nav
+     icons (Search, All Notes, All Reports, New room). Mask-based
+     so it inherits the button's currentColor. */
+  .sidebar-mini-player .mp-jump-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask: var(--mp-jump-icon) center / 16px 16px no-repeat;
+            mask: var(--mp-jump-icon) center / 16px 16px no-repeat;
+    --mp-jump-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 17 17 7'/><path d='M7 7h10v10'/></svg>");
+  }
+
+  /* State signaling lives in the waveform alone now — the room
+     name stays as a plain room title across live / idle / thinking
+     so the bar reads as "audio is happening in this room." The
+     thinking-state amber tint on the wave still signals "warming
+     up", below. */
+  .sidebar-mini-player[data-mini-player-kind="thinking"] .mp-wave-bg span,
+  .sidebar-mini-player[data-mini-player-kind="thinking"] .mp-wave-fg span {
+    animation: mp-wave-breath 1.6s ease-in-out infinite !important;
+    animation-delay: 0s !important;
+  }
+  .sidebar-mini-player[data-mini-player-kind="thinking"] .mp-wave-fg {
+    clip-path: inset(0 calc(100% - 14%) 0 0);
+  }
+  .sidebar-mini-player[data-mini-player-kind="thinking"] .mp-wave-fg span {
+    background: var(--amber, #d8a04a);
+  }
+  @keyframes mp-wave-breath {
+    0%, 100% { transform: scaleY(0.55); }
+    50%      { transform: scaleY(0.85); }
+  }
+
   /* Responsive */
   @media (max-width: 900px) {
     .body-grid { grid-template-columns: 1fr; }
@@ -14947,20 +15575,66 @@
 <script src="share-cover-svg-creator.js" defer></script>
 <script src="app.js" defer></script>
 <script>
-  /* FOUC-prevention: apply saved theme synchronously before paint */
+  /* FOUC-prevention: apply saved appearance preference synchronously
+     before paint, then live-update if the user is in "system" mode.
+
+     Stored value (`boardroom.appearance`) is one of:
+       "dark"   → always dark (regent)
+       "light"  → always light (atrium)
+       "system" → follow prefers-color-scheme (default for new installs)
+
+     Legacy values written by older builds (the ten-theme picker:
+     "regent" / "eastwood" / "atrium" / "pinterest" / etc.) are
+     migrated to "dark" so the persisted choice still resolves to a
+     valid mode.
+
+     The matchMedia subscription is owned by the bootstrap so the
+     follow-system mode reacts instantly when the OS theme toggles,
+     without needing the settings UI to be mounted. */
   (function () {
+    var KEY = "boardroom.appearance";
+    var LEGACY_KEY = "boardroom.theme";
+    var LIGHT_LEGACY = { atrium: 1, pinterest: 1 };
+    function migrate() {
+      try {
+        var existing = localStorage.getItem(KEY);
+        if (existing === "dark" || existing === "light" || existing === "system") return existing;
+        var legacy = localStorage.getItem(LEGACY_KEY);
+        var next = "system";
+        if (legacy) next = LIGHT_LEGACY[legacy] ? "light" : "dark";
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+        return next;
+      } catch (e) { return "system"; }
+    }
+    function systemPrefersDark() {
+      try { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
+      catch (e) { return true; }
+    }
+    function resolve(pref) {
+      if (pref === "dark" || pref === "light") return pref;
+      return systemPrefersDark() ? "dark" : "light";
+    }
+    function apply(pref) {
+      document.documentElement.setAttribute("data-theme", resolve(pref));
+    }
+    var pref = migrate();
+    apply(pref);
+    // Live-track the OS theme while the user is in "system" mode.
+    // Re-reads the stored value each tick so a later switch to
+    // explicit dark/light short-circuits without needing to unhook.
     try {
-      var t = localStorage.getItem("boardroom.theme") || "regent";
-      // Apple theme was retired · migrate any persisted "apple" pick
-      // to "pinterest" (the closest light-theme analog — also
-      // white-surface with a single accent color) so users who'd
-      // selected it don't drop onto the bare `:root` fallback.
-      if (t === "apple") {
-        t = "pinterest";
-        try { localStorage.setItem("boardroom.theme", t); } catch (e) {}
-      }
-      document.documentElement.setAttribute("data-theme", t);
+      var mq = window.matchMedia("(prefers-color-scheme: dark)");
+      var handler = function () {
+        var cur = localStorage.getItem(KEY) || "system";
+        if (cur === "system") apply("system");
+      };
+      if (typeof mq.addEventListener === "function") mq.addEventListener("change", handler);
+      else if (typeof mq.addListener === "function") mq.addListener(handler);
     } catch (e) {}
+    // Cross-tab sync · settings overlay in another tab updates the key.
+    window.addEventListener("storage", function (e) {
+      if (e.key === KEY && e.newValue) apply(e.newValue);
+    });
   })();
   /* Default status to 'live' before app.js takes over; it'll set the real
      value once the current room loads (or 'live' for the empty state). */
@@ -15073,6 +15747,34 @@
           <div data-agents-list></div>
         </div>
       </div><!-- /agents panel -->
+
+      <!-- ─── Mini-player · floating above sidebar-foot ──────────
+           Surfaces when a voice room is in progress. Compact 2-row
+           layout sized to fit the sidebar's ~280px width:
+             Row 1: room name (1fr)  +  jump-to-room button
+             Row 2: waveform animation (full width)
+           The avatar / speaker name / pause / close affordances
+           live inside the room itself once the user jumps in — the
+           sidebar bar is purely "audio is playing over there, tap
+           to return." Jump icon uses the Lucide stroke vocabulary
+           that the New room / Search / All Notes nav buttons above
+           also use, so it reads as part of the same sidebar set.
+           ─────────────────────────────────────────────────────── -->
+      <aside class="sidebar-mini-player mini-player" data-mini-player hidden aria-live="polite">
+        <div class="mp-top">
+          <span class="mp-room-name" data-mini-player-room-name></span>
+          <button type="button" class="mp-btn mp-jump-btn" data-mini-player-jump
+            data-i18n-aria="mini_player_jump" data-i18n-title="mini_player_jump">
+            <span class="mp-jump-icon" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="mp-bottom">
+          <div class="mp-wave" data-mini-player-wave aria-hidden="true">
+            <div class="mp-wave-layer mp-wave-bg" data-mini-player-wave-bg></div>
+            <div class="mp-wave-layer mp-wave-fg" data-mini-player-wave-fg></div>
+          </div>
+        </div>
+      </aside>
 
       <div class="sidebar-foot">
         <a href="#" class="user-block">
@@ -15501,6 +16203,7 @@
         <div class="search-page" data-search-page></div>
       </div>
 
+
     </main>
 
     <!-- Floating expand affordance · only visible when the sidebar is
@@ -15510,7 +16213,7 @@
          below the topbar / brand logo, where the sidebar's own header
          sat before collapse. Frosted black glass with a 3-line
          hamburger glyph. -->
-    <button type="button" class="sidebar-expand-btn" data-sidebar-expand data-i18n-title="sidebar_expand">
+    <button type="button" class="sidebar-expand-btn" data-sidebar-expand data-i18n-title="sidebar_expand" data-i18n-tip="sidebar_expand">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
         <line x1="2.5" y1="4.25"  x2="13.5" y2="4.25"/>
         <line x1="2.5" y1="8"     x2="13.5" y2="8"/>
@@ -15601,8 +16304,20 @@
     //     room-head to host the in-header button)
     // All flip `body.sidebar-collapsed` and persist to localStorage.
     const COLLAPSE_KEY = "boardroom.sidebar.collapsed";
+    // Native macOS traffic lights follow sidebar visibility (Arc-style).
+    // Web build: no `privateboard` global → no-op. Non-mac Electron:
+    // setWindowButtonVisibility is a no-op in main, so the call is cheap.
+    function syncElectronTrafficLights() {
+      const pb = window.privateboard;
+      if (!pb || typeof pb.setTrafficLightsVisible !== "function") return;
+      if (pb.platform !== "darwin") return;
+      const collapsed = document.body.classList.contains("sidebar-collapsed");
+      const peek = document.body.classList.contains("sidebar-peek");
+      pb.setTrafficLightsVisible(!collapsed || peek);
+    }
     function applySidebarCollapsed(collapsed) {
       document.body.classList.toggle("sidebar-collapsed", collapsed);
+      syncElectronTrafficLights();
     }
     function readSidebarCollapsed() {
       try { return localStorage.getItem(COLLAPSE_KEY) === "1"; }
@@ -15615,17 +16330,145 @@
     document.addEventListener("click", (e) => {
       if (e.target.closest("[data-sidebar-collapse]")) {
         e.preventDefault();
-        applySidebarCollapsed(true);
-        writeSidebarCollapsed(true);
+        // Real toggle · the button's glyph flips between `‹` (sidebar
+        // open · click to collapse) and `›` (sidebar collapsed · click
+        // to expand). Hard-coding `true` made the peek's visible `›`
+        // dishonest: clicking it on a peeked sidebar just dismissed
+        // the float without locking it open. Now "currently collapsed
+        // → expand" matches what the arrow promises.
+        const nextCollapsed = !document.body.classList.contains("sidebar-collapsed");
+        applySidebarCollapsed(nextCollapsed);
+        writeSidebarCollapsed(nextCollapsed);
+        clearSidebarPeek();
         return;
       }
       if (e.target.closest("[data-sidebar-expand]")) {
         e.preventDefault();
         applySidebarCollapsed(false);
         writeSidebarCollapsed(false);
+        clearSidebarPeek();
         return;
       }
     });
+
+    // ─── Sidebar edge-peek · Arc-browser style ───
+    // When the sidebar is collapsed, moving the cursor to within
+    // EDGE_TRIGGER_PX of the viewport's left edge reveals the sidebar
+    // as a floating overlay (animated in from the left). Move the
+    // cursor off the edge AND out of the sidebar to dismiss after a
+    // short grace.
+    //
+    // Buttons (`[data-sidebar-collapse]` / `[data-sidebar-expand]`)
+    // continue to drive the *persisted* collapsed/expanded state via
+    // the click handler above — peek is purely an ambient hover
+    // affordance and never writes to localStorage.
+    let peekTimer = null;
+    // Defensive lock · once peek opens, ignore any auto-close attempts
+    // for the duration of the peek-in animation (0.16s) plus a small
+    // grace. User-initiated closes (click on a sidebar row →
+    // `clearSidebarPeek`, or click on the collapse toggle) call
+    // `setPeek(false)` directly and bypass this gate — only the
+    // auto-leave timer respects it.
+    const PEEK_OPEN_LOCK_MS = 220;
+    let peekLockedUntil = 0;
+    function setPeek(on) {
+      // Idempotent · `mousemove` fires every frame the cursor is in or
+      // near the trigger zone; without this guard we'd invoke
+      // `syncElectronTrafficLights()` (IPC to main) hundreds of times
+      // per second while hovering inside the sidebar.
+      const have = document.body.classList.contains("sidebar-peek");
+      if (have === !!on) return;
+      document.body.classList.toggle("sidebar-peek", on);
+      syncElectronTrafficLights();
+    }
+    function clearSidebarPeek() {
+      if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+      peekLockedUntil = 0;
+      setPeek(false);
+    }
+    function isCollapsed() {
+      return document.body.classList.contains("sidebar-collapsed");
+    }
+    function schedulePeekOn() {
+      if (!isCollapsed()) return;
+      if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+      // Refresh the open-lock on every call — including in-sidebar
+      // mousemoves. This keeps the panel pinned while the cursor
+      // traverses the edge→sidebar path, where hit-test can briefly
+      // miss `.sidebar` during the open animation. Immediate close on
+      // exit is handled by the in→out transition branch below, which
+      // bypasses this lock.
+      setPeek(true);
+      peekLockedUntil = Date.now() + PEEK_OPEN_LOCK_MS;
+    }
+    function schedulePeekOff() {
+      // Open-lock still applies — during the peek-in animation, any
+      // stray close attempt is suppressed. After the lock expires we
+      // close immediately, no grace window: the prior 140ms felt
+      // sluggish, and edge-trigger semantics don't need a re-entry
+      // window the way the old hover-on-button trigger did (there's
+      // no gap between a trigger and the panel for the cursor to
+      // traverse — moving back to the viewport edge re-opens).
+      if (Date.now() < peekLockedUntil) return;
+      if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+      setPeek(false);
+    }
+    // Edge-trigger zone · 6px from the left of the viewport. Wider
+    // than 1-2px so the cursor doesn't have to "stick" to the bezel,
+    // narrower than ~12px so normal navigation to UI in the left
+    // third of the screen doesn't accidentally pop the sidebar.
+    const EDGE_TRIGGER_PX = 6;
+    // Track whether the cursor was inside the sidebar on the previous
+    // mousemove. The in→out transition is what fires the immediate
+    // close (no lock, no grace) — that's the signal we want, not a
+    // generic "cursor is not at edge" tick.
+    let cursorInSidebar = false;
+    document.addEventListener("mousemove", (e) => {
+      if (!isCollapsed()) return;
+      const inSidebar = !!(e.target && e.target.nodeType === 1 && e.target.closest(".sidebar"));
+      // The floating expand-btn's hit area (extended via ::after) reaches
+      // the body-grid's top-left corner, where it overlaps the edge-peek
+      // trigger zone. Without this guard, moving the cursor toward the
+      // button from the left edge fires the peek, the button gets
+      // `display: none`'d, and the user's click falls through. Treating
+      // the button as "not at edge" lets the click resolve to the button.
+      const overExpandBtn = !!(e.target && e.target.nodeType === 1 && e.target.closest("[data-sidebar-expand]"));
+      const atEdge = !overExpandBtn && e.clientX <= EDGE_TRIGGER_PX;
+      const wasInSidebar = cursorInSidebar;
+      cursorInSidebar = inSidebar;
+      if (atEdge || inSidebar) {
+        schedulePeekOn();
+      } else if (document.body.classList.contains("sidebar-peek")) {
+        if (wasInSidebar) {
+          // Cursor just crossed the sidebar's right boundary out into
+          // the main view — close instantly. Lock guards strobing
+          // during the open animation, not a deliberate exit.
+          if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+          setPeek(false);
+        } else {
+          schedulePeekOff();
+        }
+      }
+    });
+    // Cursor leaves the window entirely (e.g. swiped onto another app
+    // or the menu bar) · drop peek so it doesn't sit forever waiting
+    // for a mousemove that won't come.
+    document.documentElement.addEventListener("mouseleave", () => {
+      if (!isCollapsed()) return;
+      if (document.body.classList.contains("sidebar-peek")) {
+        schedulePeekOff();
+      }
+    });
+    // Clicks inside the peeked sidebar do NOT close the peek anymore.
+    // The previous behaviour auto-closed on any non-button click (e.g.
+    // clicking an `<a>` row that navigates) which made empty-space
+    // clicks dismiss the panel unexpectedly. Closing is owned by
+    // mouseleave (handled by the mousemove tracker above — when the
+    // cursor leaves the sidebar's right boundary, peek closes
+    // immediately) and by the explicit collapse-toggle / expand
+    // buttons. Navigation clicks still route the renderer; the
+    // sidebar simply stays peeked until the cursor moves off it,
+    // which is what the user is doing next anyway.
   })();
 
   /* ─── Speaking queue · manual collapse / expand handler ───
@@ -16273,7 +17116,7 @@
 
 <template id="vonb-themes">
   <article class="voice-room-preview" data-preview-theme="eastwood"
-           style="--bg:#0A0A0A; --panel:#131312; --panel-2:#1A1A18; --panel-3:#21211E; --lime:#6FB572; --cyan:#6A9B97; --text:#C8C5BE; --text-soft:#8E8B83; --line-bright:#3A3934;">
+           style="--bg:#0A0A0A; --panel:#131312; --panel-2:#1A1A18; --panel-3:#21211E; --lime:#C9A46B; --cyan:#6A9B97; --text:#C8C5BE; --text-soft:#8E8B83; --line-bright:#3A3934;">
     <div class="vrp-stage">
       <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet"><use href="#vrp-table"/></svg>
       <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60"><use href="#vrp-plant-1"/></svg>

@@ -4303,6 +4303,7 @@
   color: var(--bg, #0c0c0c);
 }
 .ap-persona-overlay-close {
+  position: relative;
   width: 30px;
   height: 30px;
   background: transparent;
@@ -4312,7 +4313,43 @@
   cursor: pointer;
   transition: color 0.12s, border-color 0.12s;
 }
+/* Hit-area expansion · keep the visible 30×30 chrome unchanged but
+   widen the clickable rect to ~50×50 so the close button is easier to
+   grab under a coarse pointer / quick drag. The pseudo is part of the
+   button's hit-test bounds, so clicks on it still route to the close
+   handler. */
+.ap-persona-overlay-close::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
 .ap-persona-overlay-close:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
+
+/* Electron drag-region conflict · when the modal is tall enough that
+   its top edge overlaps the `.room-head { -webkit-app-region: drag }`
+   strip behind the overlay, the close button's `::before` halo (which
+   paints OUTSIDE the button's layout box) is eaten by the window
+   drag handler — Chromium computes app-region per-element from the
+   layout box and treats the halo as the parent drag region. Cursor
+   in the halo doesn't fire clicks on the button.
+   Fix: keep the visible 30×30 chrome (no visual change) but stamp
+   `no-drag` on both the button itself AND its ::before halo. The
+   halo is its own paint layer when absolutely positioned, so the
+   app-region property applies independently of the button. Plus
+   explicit `no-drag` on the download sibling and backdrop guards
+   against any flex-gap / overlay-area drag bleed. */
+html.is-electron-mac .ap-persona-overlay-close {
+  -webkit-app-region: no-drag;
+}
+html.is-electron-mac .ap-persona-overlay-close::before {
+  -webkit-app-region: no-drag;
+}
+html.is-electron-mac .ap-persona-overlay-dl {
+  -webkit-app-region: no-drag;
+}
+html.is-electron-mac .ap-persona-overlay-backdrop {
+  -webkit-app-region: no-drag;
+}
 .ap-persona-overlay-body {
   flex: 1;
   min-height: 0;

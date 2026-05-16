@@ -229,6 +229,11 @@
             <div class="agent-traits"></div>
           </div>
 
+          <div class="agent-block agent-voice-block private-only">
+            <div class="agent-block-label" data-i18n="ap_voice_section">Voice Setup</div>
+            <div data-agent-voice-slot></div>
+          </div>
+
           <div class="agent-block private-only">
             <div class="agent-block-label">
               <span data-i18n="ao_memory_room">In-Room Memory</span>
@@ -402,6 +407,16 @@
       card.querySelector(".agent-traits").innerHTML = (a.traits || [])
         .map((t) => `<span class="agent-trait">${t}</span>`).join("");
 
+      // Voice config block · reuses agent-profile.js's `renderVoiceBlock`
+      // so the locked-state CTA, picker, emotion + sliders all read
+      // identically to the full profile page. The block is private-only
+      // (hidden by CSS in `.public` overlay mode) and only mounts when
+      // both the AgentProfileVoice surface AND window.app are present
+      // (the landing-page overlay has neither, so the slot stays empty).
+      // All change handlers are document-level in agent-profile.js so
+      // events from the overlay's mount fire the same code paths.
+      renderVoiceSlot(slug);
+
       // In-room notes — what THIS agent has said in the current room,
       // styled like the live-notes panel: timestamp + tag + claim/obs.
       // Replaces the old hardcoded "last 3 rooms" memory list.
@@ -569,6 +584,37 @@
       document.body.style.overflow = "";
     }
 
+    // Public surface · other modules (e.g. agent-profile.js's voice
+    // unlock CTA) need to dismiss the overlay before opening their
+    // own modal, so we expose `close` and an `isOpen` predicate.
+    window.AgentOverlay = {
+      close,
+      isOpen: () => overlay.classList.contains("open"),
+    };
+
+    /** Populate the voice slot inside the overlay card. Three states:
+     *   - no app surface (landing page) → hide the block entirely
+     *   - has app but no MiniMax/ElevenLabs key → locked CTA (the
+     *     `renderVoiceBlock` helper returns the locked card markup,
+     *     same `data-ap-voice-unlock` button used on the profile page,
+     *     which deep-links to user-settings → keys → minimax)
+     *   - has key → full picker + emotion + sliders, identical to the
+     *     profile page version */
+    function renderVoiceSlot(slug) {
+      const block = card.querySelector(".agent-voice-block");
+      const slot = block?.querySelector("[data-agent-voice-slot]");
+      if (!block || !slot) return;
+      const api = window.AgentProfileVoice;
+      const hasApp = !!window.app;
+      if (!api || typeof api.renderVoiceBlock !== "function" || !hasApp) {
+        block.style.display = "none";
+        slot.innerHTML = "";
+        return;
+      }
+      block.style.display = "";
+      slot.innerHTML = api.renderVoiceBlock(slug);
+    }
+
     document.addEventListener("boardroom:locale", () => {
       if (!overlay.classList.contains("open") || !overlayOpenSlug) return;
       if (window.I18n && typeof window.I18n.applyDom === "function") {
@@ -576,6 +622,9 @@
       }
       renderTrackRecord(overlayOpenSlug);
       renderRoomNotes(overlayOpenSlug);
+      // Voice block carries its own localised copy (locked CTA, emotion
+      // labels, advanced-tuning labels) so it must re-render too.
+      renderVoiceSlot(overlayOpenSlug);
     });
 
     document.addEventListener("click", (e) => {

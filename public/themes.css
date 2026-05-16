@@ -1,14 +1,18 @@
 /* ═══════════════════════════════════════════
-   THEMES — 5 zsh-inspired palettes + light Atrium
-   Plus: chat-content typeface (PPLX Sans variable).
+   APPEARANCE · dark + light (the only two themes)
    ═══════════════════════════════════════════
-   The default (no [data-theme] attribute) is "eastwood"
-   and is defined inline in each page's :root block. The
-   themes below override the same variables when
-   <html data-theme="..."> is set.
+   The product previously shipped ten zsh-inspired palettes. That
+   was reduced to a single dark / light pair so the colour system
+   carries one product opinion instead of ten tastes.
 
-   Specificity note: :root[data-theme="…"] is (0,1,1),
-   beats plain :root (0,0,1) regardless of source order.
+   - data-theme="dark"  → regent (warm gold on near-black)
+   - data-theme="light" → atrium (warm paper, forest-green primary)
+
+   `:root[data-theme="…"]` has specificity (0,1,1), beating any plain
+   `:root` fallback declared inline in the host page regardless of
+   source order. The bootstrap script in index.html / home.html sets
+   the attribute synchronously before paint based on the saved
+   appearance preference (dark / light / system).
 */
 
 /* ─── Chat typography: humans vs agents ───
@@ -69,128 +73,42 @@
   --sans: var(--font-human);
 }
 
-/* ─── ALANPEABODY · cool blue with green git ─── */
-:root[data-theme="alanpeabody"] {
-  --bg: #0E1419;
-  --panel: #131A21;
-  --panel-2: #1A2128;
-  --panel-3: #212931;
-  --hi: #2A323B;
+/* ─── DARK · regent · warm gold on near-black ───
+       The product's default. Token names use the `--lime*` slot for
+       the primary accent so every call-site that references the
+       primary keeps working — the actual hue is gold (#C9A46B). */
+:root[data-theme="dark"] {
+  --bg: #0A0A0A;
+  --panel: #131312;
+  --panel-2: #1A1A18;
+  --panel-3: #21211E;
+  --hi: #2A2A26;
 
-  --line: #1B232C;
-  --line-bright: #2A323B;
-  --line-strong: #3A434E;
+  --line: #26241F;
+  --line-bright: #3A3934;
+  --line-strong: #4D4B45;
 
-  --text: #C8D0DA;
-  --text-soft: #8E96A0;
-  --text-dim: #5C6470;
-  --text-faint: #3A4148;
+  --text: #C8C5BE;
+  --text-soft: #8E8B83;
+  --text-dim: #5C5A52;
+  --text-faint: #5C5A4D;
 
-  --lime: #6BAFE0;
-  --lime-deep: #3F7AAA;
-  --lime-dim: #285678;
-
-  --amber: #C8A463;
-  --amber-dim: #74603A;
-  --red: #D67373;
-  --red-dim: #6E3A3A;
-  --cyan: #6FB5A8;
-  --magenta: #9B7FB5;
+  --lime: #C9A46B;
+  --lime-deep: #9A7B40;
+  --lime-dim: #5C4422;
+  --amber: #A57843;
+  --amber-dim: #5E441F;
+  --red: #B5706A;
+  --red-dim: #6B4540;
+  --cyan: #6A9B97;
+  --magenta: #8E7A8E;
 }
 
-/* ─── AMUSE · magenta + cyan ─── */
-:root[data-theme="amuse"] {
-  --bg: #1A0E14;
-  --panel: #21121A;
-  --panel-2: #29161E;
-  --panel-3: #311A23;
-  --hi: #391E29;
-
-  --line: #2B1822;
-  --line-bright: #391E29;
-  --line-strong: #4D2B3A;
-
-  --text: #DECBD2;
-  --text-soft: #A38B95;
-  --text-dim: #6B585F;
-  --text-faint: #443239;
-
-  --lime: #D67BC0;
-  --lime-deep: #9C4884;
-  --lime-dim: #6B2F58;
-
-  --amber: #DCBE5D;
-  --amber-dim: #75643A;
-  --red: #E07F84;
-  --red-dim: #743F44;
-  --cyan: #6FBFC2;
-  --magenta: #D67BC0;
-}
-
-/* ─── JTRILEY · bright lime + yellow ─── */
-:root[data-theme="jtriley"] {
-  --bg: #0A0F0A;
-  --panel: #131914;
-  --panel-2: #1A211B;
-  --panel-3: #212822;
-  --hi: #29322B;
-
-  --line: #1A211B;
-  --line-bright: #29322B;
-  --line-strong: #3A463D;
-
-  --text: #C8D6BE;
-  --text-soft: #8E9C84;
-  --text-dim: #5C6A52;
-  --text-faint: #3A422F;
-
-  --lime: #B5DA40;
-  --lime-deep: #6E8E27;
-  --lime-dim: #4A5F1C;
-
-  --amber: #F0CC4E;
-  --amber-dim: #80692C;
-  --red: #D67762;
-  --red-dim: #6E3D32;
-  --cyan: #6FBE9A;
-  --magenta: #B57FCB;
-}
-
-/* ─── NEBIRHOS · teal-heavy with warm orange ─── */
-:root[data-theme="nebirhos"] {
-  --bg: #0A1414;
-  --panel: #11201F;
-  --panel-2: #142724;
-  --panel-3: #1B2E2C;
-  --hi: #243938;
-
-  --line: #1B2E2C;
-  --line-bright: #243938;
-  --line-strong: #314E4B;
-
-  --text: #B8D4D0;
-  --text-soft: #7E9692;
-  --text-dim: #4F6663;
-  --text-faint: #2F4543;
-
-  --lime: #5EB1A6;
-  --lime-deep: #357770;
-  --lime-dim: #1F4F4A;
-
-  --amber: #DD9258;
-  --amber-dim: #774E30;
-  --red: #D87060;
-  --red-dim: #6E3B33;
-  --cyan: #6FBEC2;
-  --magenta: #B58FA6;
-}
-
-/* ─── ATRIUM · the only light theme · OpenAI-inspired
-       Warm off-white paper, dark forest-green primary.
-       Inverts the brightness ordering of the green family:
-       on light bg, "dim" must be a paler tint (low contrast)
-       while "lime" / "lime-deep" become the dark accents. */
-:root[data-theme="atrium"] {
+/* ─── LIGHT · atrium · warm paper, forest-green primary ───
+       Inverts the brightness ordering of the green family: on light
+       bg, "dim" must be a paler tint (low contrast) while "lime" /
+       "lime-deep" become the dark accents. */
+:root[data-theme="light"] {
   --bg: #FBFBF7;
   --panel: #F4F2EC;
   --panel-2: #EAE7DD;
@@ -216,140 +134,4 @@
   --red-dim: #DBA8A6;
   --cyan: #2E7D7A;
   --magenta: #6E4F73;
-}
-
-/* ─── PINTEREST · clean white surface, signature red accent ───
-       Light theme inspired by Pinterest's brand: true-white
-       background, soft gray cards, neutral grayscale text, and the
-       classic Pinterest red mapped onto --lime (the codebase's
-       primary-accent role) so every CTA / selection / live dot reads
-       as that signature red. */
-:root[data-theme="pinterest"] {
-  --bg: #FFFFFF;
-  --panel: #FAFAFA;
-  --panel-2: #F1F1F1;
-  --panel-3: #E9E9E9;
-  --hi: #DDDDDD;
-
-  --line: #EFEFEF;
-  --line-bright: #E2E2E2;
-  --line-strong: #B8B8B8;
-
-  --text: #111111;
-  --text-soft: #5F5F5F;
-  --text-dim: #767676;
-  --text-faint: #B5B5B5;
-
-  --lime: #E60023;
-  --lime-deep: #AD081B;
-  --lime-dim: #FFD1D8;
-
-  --amber: #F4A100;
-  --amber-dim: #FCE5A8;
-  --red: #E60023;
-  --red-dim: #FFD1D8;
-  --cyan: #2E7D7A;
-  --magenta: #D33682;
-}
-
-/* ─── WEDISAGREE · orange/red-leaning, literal name ─── */
-:root[data-theme="wedisagree"] {
-  --bg: #14110E;
-  --panel: #1F1A14;
-  --panel-2: #2B231A;
-  --panel-3: #352B20;
-  --hi: #3D3225;
-
-  --line: #2B231A;
-  --line-bright: #3D3225;
-  --line-strong: #574635;
-
-  --text: #D8CBBC;
-  --text-soft: #A09280;
-  --text-dim: #6F6354;
-  --text-faint: #463E33;
-
-  --lime: #DD7B40;
-  --lime-deep: #A8521E;
-  --lime-dim: #703613;
-
-  --amber: #E6B872;
-  --amber-dim: #76603A;
-  --red: #E26060;
-  --red-dim: #7A3535;
-  --cyan: #6FB28A;
-  --magenta: #C5839E;
-}
-
-/* ─── NINTENDO · 8-bit NES palette · Mario red on dark sky ───
-       Built from the classic NES title-screen vocabulary: deep
-       night-sky background, pure-white NES title text, Mario red
-       as the primary accent (the slot called `--lime*` in this
-       codebase), coin-block gold for amber, fire-flower red for
-       warnings, and sky-cloud cyan for the moderator accent. Every
-       swatch is high-saturation / high-contrast in the NES family —
-       no muted desaturated tones (those don't belong in 8-bit). */
-:root[data-theme="nintendo"] {
-  --bg: #181820;
-  --panel: #22222C;
-  --panel-2: #2A2A38;
-  --panel-3: #34344A;
-  --hi: #44445A;
-
-  --line: #2C2C3A;
-  --line-bright: #44445A;
-  --line-strong: #5C5C72;
-
-  --text: #FCFCFC;
-  --text-soft: #C8C8D8;
-  --text-dim: #8E8EA0;
-  --text-faint: #5C5C70;
-
-  /* Primary accent · Mario red. Token names stay `--lime*` so every
-     callsite that already references the primary keeps working. */
-  --lime: #E60012;
-  --lime-deep: #A40009;
-  --lime-dim: #4F0007;
-
-  --amber: #FBC000;        /* coin / question block */
-  --amber-dim: #6B4D00;
-  --red: #FC4438;          /* fire flower */
-  --red-dim: #6E1A14;
-  --cyan: #5BC0EB;         /* Mario sky / chair moderator */
-  --magenta: #FC74FC;      /* princess pink / power-up */
-}
-
-/* ─── REGENT · gold-on-warm-dark · the eastwood twin
-       The same warm dark palette as the default eastwood, with the
-       primary forest-green accent swapped for the warm gold used by
-       the report's italic-em mark (#C9A46B). Built for the 私董会
-       brand — gold reads "premium / dignified" without shouting. */
-:root[data-theme="regent"] {
-  --bg: #0A0A0A;
-  --panel: #131312;
-  --panel-2: #1A1A18;
-  --panel-3: #21211E;
-  --hi: #2A2A26;
-
-  --line: #26241F;
-  --line-bright: #3A3934;
-  --line-strong: #4D4B45;
-
-  --text: #C8C5BE;
-  --text-soft: #8E8B83;
-  --text-dim: #5C5A52;
-  --text-faint: #5C5A4D;
-
-  /* Primary accent (the slot that holds the green in eastwood) is now
-     gold. Token names stay `--lime*` so every callsite that already
-     references the primary accent keeps working without rewrites. */
-  --lime: #C9A46B;
-  --lime-deep: #9A7B40;
-  --lime-dim: #5C4422;
-  --amber: #A57843;
-  --amber-dim: #5E441F;
-  --red: #B5706A;
-  --red-dim: #6B4540;
-  --cyan: #6A9B97;
-  --magenta: #8E7A8E;
 }

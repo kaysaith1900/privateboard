@@ -64,6 +64,11 @@
      *  next message is being fetched / synthesised, then "speaking"
      *  once audio.play resolves. Cleared on close + on playlist end. */
     active: null, // { messageId, authorId, kind, state, body }
+    /** Room id the replay belongs to · captured from `open()` so
+     *  the floating mini-player can jump back to the source room
+     *  and so cross-room navigation knows whose audio is playing.
+     *  Null when no replay is active. */
+    roomId: null,
   };
 
   function isOpen() {
@@ -82,6 +87,27 @@
    *  playhead — there's no per-chunk timing metadata available. */
   function getActiveAudio() {
     return STATE.audio || null;
+  }
+
+  function getRoomId() {
+    return STATE.roomId || null;
+  }
+
+  /** Fire a "boardroom:replay-state" event so listeners (the cross-
+   *  room mini-player in app.js) can sync the play/pause glyph
+   *  without polling the audio element. Composed bubbling event so
+   *  doc-level listeners catch it. */
+  function emitStateChanged() {
+    try {
+      document.dispatchEvent(new CustomEvent("boardroom:replay-state", {
+        detail: {
+          open: isOpen(),
+          paused: !!(STATE.audio && STATE.audio.paused),
+          roomId: STATE.roomId || null,
+        },
+        bubbles: true,
+      }));
+    } catch { /* old browsers · noop */ }
   }
 
   /** Fire a DOM event so listeners (the room view's renderRoundTable
@@ -164,6 +190,7 @@
     const chair = (opts && opts.chair) || null;
     STATE.members = members;
     STATE.chair = chair;
+    STATE.roomId = (opts && opts.roomId) || null;
     STATE.skipUser = true;
     STATE.speed = 1;
     STATE.paused = false;
@@ -210,7 +237,9 @@
     removeInlineExpand(); // any inline pill in the input-bar drops too
     STATE.playlist = [];
     STATE.prefetched = new Map();
+    STATE.roomId = null;
     setActive(null); // round-table stage clears its replay seat / subtitle
+    emitStateChanged(); // cross-room mini-player drops too
   }
 
   // ─── Mount + render ──────────────────────────────────────────
@@ -569,6 +598,12 @@
     STATE.audio.playbackRate = STATE.speed;
     STATE.audio.addEventListener("ended", () => advance());
     STATE.audio.addEventListener("error", () => advance());
+    // Cross-room mini-player sync · its play/pause glyph keys off
+    // audio.paused. A new Audio is created per message so listeners
+    // must re-attach on every playCurrent. Also fires on the FIRST
+    // attached state so the mini-player surfaces immediately.
+    STATE.audio.addEventListener("play",  () => emitStateChanged());
+    STATE.audio.addEventListener("pause", () => emitStateChanged());
     // Tick out a DOM event on every timeupdate (~4 Hz) so the
     // round-table stage's subtitle bar can poll currentTime /
     // duration and interpolate which sentence is being read. We
@@ -791,6 +826,8 @@
     isOpen: isOpen,
     getActive: getActive,
     getActiveAudio: getActiveAudio,
+    getRoomId: getRoomId,
+    togglePause: togglePause,
     // Exposed for testing.
     _internals: { buildPlaylist, PROCEDURAL_KINDS },
   };

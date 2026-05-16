@@ -1,6 +1,11 @@
 /**
- * /api/prefs · the user's local profile (name, intro, theme, avatar seed).
+ * /api/prefs · the user's local profile (name, intro, avatar seed,
+ * default model, search-provider + minimax-region prefs).
  * Single-row resource — there's no list, just GET + PATCH.
+ *
+ * Note: appearance (dark / light / system) is purely client-side —
+ * it lives in localStorage so the FOUC bootstrap can apply it
+ * synchronously before paint. No round-trip here.
  */
 import { Hono } from "hono";
 
@@ -28,7 +33,6 @@ export function prefsRouter(): Hono {
 
     if (typeof b.name === "string")  patch.name = b.name.trim().slice(0, 64);
     if (typeof b.intro === "string") patch.intro = b.intro.slice(0, 320);
-    if (typeof b.theme === "string") patch.theme = b.theme.trim().slice(0, 32);
     if (b.avatarSeed === null || typeof b.avatarSeed === "string") {
       patch.avatarSeed = b.avatarSeed as string | null;
     }

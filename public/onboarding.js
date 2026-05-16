@@ -225,7 +225,7 @@
 
   // ── State ──────────────────────────────────────────────
   let currentStep = 0;
-  let prefsCache = { name: "", intro: "", theme: "regent" };
+  let prefsCache = { name: "", intro: "" };
   let providerConfigured = {
     openrouter: false,
     anthropic: false,
@@ -262,7 +262,7 @@
       ]);
       if (prefsRes.ok) {
         const p = await prefsRes.json();
-        prefsCache = { name: p.name === "You" ? "" : (p.name || ""), intro: p.intro || "", theme: p.theme || "regent" };
+        prefsCache = { name: p.name === "You" ? "" : (p.name || ""), intro: p.intro || "" };
       }
       if (keysRes.ok) {
         const k = await keysRes.json();

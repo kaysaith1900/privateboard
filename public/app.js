@@ -122,6 +122,13 @@
     currentChair: null,            // chair agent for the current room
     currentQueue: [],
     voiceQueues: {},
+    /** Mini-player anchor · when set, the cross-room bar persists
+     *  for this voice room throughout its whole live/paused life
+     *  (between speakers, during votes / clarify, idle phases) —
+     *  not just while audio happens to be playing. Set on
+     *  openRoom(voice) and on each enqueueVoiceChunk; cleared on
+     *  SSE room-adjourned and on the bar's close button. */
+    _activeVoiceRoomId: null,
     /** Speaking-queue strip · auto expand/collapse state machine.
      *  `_queueAutoCollapsed` is what the auto-logic computed last
      *  paint (true = collapsed). `_queueUserOverride` is set true
@@ -377,8 +384,21 @@
       // HUD's REPLAY pill stays in sync. Cheap to call · renderRound-
       // Table bails fast when the stage isn't currently visible.
       document.addEventListener("boardroom:replay-active", () => {
+        // Always refresh the cross-room mini-player · the bar needs
+        // to surface even when the user has navigated away (no
+        // currentRoomId). Stage repaint still bails out when no
+        // room is open, since the stage DOM isn't mounted there.
+        this.refreshMiniPlayer();
         if (!this.currentRoomId) return;
         this.renderRoundTable();
+      });
+      // Replay state · play / pause transitions on the replay audio
+      // element OR replay close. Fired by voice-replay.js. We only
+      // care about keeping the mini-player's glyph + visibility in
+      // sync; the round-table stage already listens to replay-active
+      // for seat changes, which is a different signal.
+      document.addEventListener("boardroom:replay-state", () => {
+        this.refreshMiniPlayer();
       });
       // Replay drives playback of pre-rendered audio clips (not the
       // chunk-streamed pipeline), so it has its own timeupdate event
@@ -386,11 +406,29 @@
       // subtitle's sentence-of-the-cursor sync · cheap DOM update,
       // safe to fire ~4 Hz.
       document.addEventListener("boardroom:replay-tick", () => {
+        // Mini-player ticks even when no room is open · the lyric
+        // line + progress bar both feed off audio.currentTime, and
+        // the user is most likely on the new-room/agents view when
+        // they want this signal.
+        this.refreshMiniPlayer();
         if (!this.currentRoomId) return;
         this.renderRtSubtitle();
       });
       window.addEventListener("hashchange", () => this.handleRoute());
       this.handleRoute();
+
+      // Native menu (Electron) · `electron/preload.cts` rebroadcasts the
+      // main-process IPC pushes as `boardroom:menu-*` DOM events. In the
+      // web build these listeners are harmless no-ops because no
+      // ipcRenderer is wired to dispatch them.
+      window.addEventListener("boardroom:menu-new-room", () => {
+        // Empty hash → handleRoute lands on the new-room composer
+        // (the same destination as sidebar "New room").
+        location.hash = "";
+      });
+      window.addEventListener("boardroom:menu-toggle-sidebar", () => {
+        document.querySelector("[data-sidebar-collapse]")?.click();
+      });
 
       // Sidebar count badges · refresh on boot.
       // Notes: also refreshed on every note:created / note:deleted
@@ -488,9 +526,18 @@
       if (lastSeen === latest) return;
 
       // Find migrations newer than lastSeen — by index in the list,
-      // since order is applied_at ASC.
+      // since order is applied_at ASC. If lastSeen isn't present in
+      // the current list (the migration was reverted before reaching
+      // production), treat it as orphaned and silently realign to the
+      // current latest. Without this guard, a stray localStorage value
+      // would surface every existing migration as "new" and trigger
+      // a permanent banner that the user can never dismiss away.
       const lastIdx = migrations.findIndex((m) => m.name === lastSeen);
-      const fresh = lastIdx >= 0 ? migrations.slice(lastIdx + 1) : migrations;
+      if (lastIdx === -1) {
+        try { localStorage.setItem(KEY, latest); } catch { /* */ }
+        return;
+      }
+      const fresh = migrations.slice(lastIdx + 1);
       if (fresh.length === 0) {
         try { localStorage.setItem(KEY, latest); } catch { /* */ }
         return;
@@ -717,6 +764,16 @@
 
     // ── Room lifecycle ────────────────────────────────────────
     async openRoom(roomId) {
+      // Hand off SSE to a background tracker BEFORE closing the
+      // foreground · openRoom is the room-to-room nav path
+      // (closeRoom only fires when going back to "no room") so
+      // without this hook the foreground SSE for the tracked
+      // voice room dies the moment the user clicks another room.
+      // The bg SSE picks up voice-chunk + voice-final events for
+      // subsequent speakers so the audio chain doesn't break.
+      // This awaits the bg's "hello" event so the server has its
+      // subscription registered before we drop foreground's.
+      await this._handoffSseToBg(roomId);
       this.disconnectSSE();
 
       // Capture whether this open came from a note jump · this LOCAL
@@ -1005,6 +1062,10 @@
           }
         }
       });
+      // If the user is re-entering the room the mini-player was
+      // tracking, drop the background SSE · the foreground SSE we
+      // open below will deliver voice-chunk events directly.
+      if (this._bgSseRoomId === roomId) this._stopBgSse();
       this.connectSSE(roomId);
       // Fresh room · force-scroll to the latest message and start
       // the scroll watcher so subsequent auto-scrolls respect the
@@ -1023,9 +1084,27 @@
         this.scrollChatToBottom(true);
       }
       this.bindChatScrollWatch();
+      // Mini-player anchor · opening a non-adjourned voice room
+      // re-arms the bar to track it. The bar will surface the
+      // moment the user navigates away. Adjourned voice rooms
+      // don't qualify — there's no live state to monitor.
+      const r = this.currentRoom;
+      if (r && r.deliveryMode === "voice" && r.status !== "adjourned") {
+        this._activeVoiceRoomId = roomId;
+      }
+      // Mini-player · entering a room may match the room
+      // whose audio is playing (in which case the bar hides) or
+      // leave a different room playing (the bar stays/appears).
+      this.refreshMiniPlayer();
     },
 
-    closeRoom() {
+    async closeRoom() {
+      // Hand off SSE to the background tracker first (awaits "hello"
+      // so the server-side subscription is registered before we
+      // drop the foreground one — no events can fall into the gap).
+      // openRoom does its own _handoffSseToBg too; this branch
+      // covers the no-room navigation path.
+      await this._handoffSseToBg(null);
       this.disconnectSSE();
       this.cancelContinueCountdown();
       // Thinking SFX loop is bound to a director thinking in THIS
@@ -1106,6 +1185,12 @@
       if (rtStage) rtStage.hidden = true;
       this.renderEmptyState();
       this.markActiveRoom(null);
+      // Floating mini-player · the user just left a room. If audio
+      // is still mid-playback (voice room → settings / agents / +
+      // New Room), surface the cross-room bar so they can pause /
+      // close / jump back. Idempotent — hides itself when no
+      // cross-room playback is active.
+      this.refreshMiniPlayer();
     },
 
     // ── SSE ───────────────────────────────────────────────────
@@ -1298,6 +1383,15 @@
         if (!msg) return;
         const wasEmpty = !String(msg.body || "").trim();
         msg.body += data.delta;
+        // Mirror the body onto any voiceQueue for this message so
+        // the cross-room mini-player can still show the "lyrics"
+        // line after the user navigates away (SSE disconnects, but
+        // the cached body keeps reading from the last frozen state).
+        const vq = this.voiceQueues && this.voiceQueues[data.messageId];
+        if (vq) {
+          vq.cachedBody = msg.body;
+          if (!vq.authorId && msg.authorId) vq.authorId = msg.authorId;
+        }
         this.updateMessageBodyDom(data.messageId, msg.body, true);
         this.scrollChatToBottom();
         // Round-table stage · the very first token transitions the
@@ -1371,6 +1465,7 @@
         if (vq) {
           if (vq.audio) { try { vq.audio.pause(); } catch(_) {} }
           delete this.voiceQueues[data.messageId];
+          this.refreshMiniPlayer();
         }
         // Drop the empty placeholder bubble.
         this.currentMessages = this.currentMessages.filter((m) => m.id !== data.messageId);
@@ -1530,9 +1625,20 @@
             this.currentRoom.status = "adjourned";
             this.currentRoom.adjournedAt = ts;
           }
+          // Mini-player · the room we were tracking just adjourned.
+          // Drop the anchor so the bar hides next refresh (audio
+          // may keep playing for a few seconds via buffered chunks
+          // — the live source check still surfaces during that
+          // window; idle persistence ends here). Background SSE
+          // (if any) is also torn down for symmetry.
+          if (this._activeVoiceRoomId === this.currentRoomId) {
+            this._activeVoiceRoomId = null;
+            this._stopBgSse();
+          }
           document.documentElement.setAttribute("data-status", "adjourned");
           this.renderHeader();
           syncSidebar({ status: "adjourned", adjournedAt: ts });
+          this.refreshMiniPlayer();
           // Adjourning from the round-end vote overlay's "Adjourn &
           // file" path skips round-resumed — drop the overlay here
           // so it doesn't linger over the brief-loading screen.
@@ -2168,6 +2274,202 @@
       // Drop the brief watcher · the brief belongs to a room and the
       // watcher would otherwise keep ticking against a stale id.
       this.stopBriefStallWatch();
+    },
+
+    /** Background SSE for the cross-room mini-player.
+     *  When the user navigates away from a voice room that's still
+     *  in progress, the foreground SSE closes — which means the
+     *  next director's voice-chunk events never reach the client
+     *  and audio dies between speakers. This keeps a lightweight
+     *  SSE open just for that room so audio + the bar's metadata
+     *  stay live. Subset of the foreground handler · only the
+     *  events the mini-player actually consumes.
+     *
+     *  Called from closeRoom when _activeVoiceRoomId is the room
+     *  being left. Stopped when the user re-enters that room
+     *  (foreground takes over) or when the bar is dismissed. */
+    _startBgSse(roomId, onReady) {
+      if (!roomId) {
+        if (typeof onReady === "function") onReady();
+        return;
+      }
+      // Idempotent · re-arming for the same room is a no-op so
+      // rapid navigate-away/back doesn't spawn duplicates.
+      if (this._bgSse && this._bgSseRoomId === roomId) {
+        if (typeof onReady === "function") onReady();
+        return;
+      }
+      this._stopBgSse();
+      let es;
+      try {
+        es = new EventSource("/api/rooms/" + encodeURIComponent(roomId) + "/stream");
+      } catch (e) {
+        if (typeof onReady === "function") onReady();
+        return;
+      }
+      this._bgSse = es;
+      this._bgSseRoomId = roomId;
+      // hello · server has subscribed to roomBus(roomId) and is
+      // about to start streaming events. Critical signal · the
+      // handoff awaits this before closing the foreground SSE so
+      // no events are missed in the window between sub/unsub.
+      es.addEventListener("hello", () => {
+        if (typeof onReady === "function") onReady();
+      });
+      // voice-chunk · the event the user is actually here for · feeds
+      // the existing voice queue so the next speaker's TTS plays.
+      es.addEventListener("voice-chunk", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          this.enqueueVoiceChunk(roomId, data);
+        } catch { /* swallow malformed payloads */ }
+      });
+      // voice-final · CRITICAL · without this the MediaSource never
+      // gets `endOfStream`, the audio's "ended" event never fires,
+      // _fireVoiceDone never POSTs /voice-done, and the orchestrator
+      // parks at waitForVoicePlayback — meaning the next director
+      // never starts. This is the missing event that broke the
+      // user-reported "Director 1 finishes then nothing" scenario.
+      es.addEventListener("voice-final", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const q = this.voiceQueues[data.messageId]
+            || (this.voiceQueues[data.messageId] = { chunks: [], final: false, scheduled: false, roomId, messageId: data.messageId });
+          q.final = true;
+          q.messageId = data.messageId;
+          q.roomId = roomId;
+          this.drainVoiceQueue(roomId, data.messageId);
+        } catch { /* swallow */ }
+      });
+      // message-appended · stash author info so refreshMiniPlayer
+      // can resolve the speaker name + avatar when the queue lands
+      // (the queue's authorId/cachedBody fields are populated by
+      // enqueueVoiceChunk via this room's currentMessages, which
+      // we DON'T own here — so seed a parallel cache on the queue
+      // when its first chunk arrives, by mirroring the appended
+      // message body into a per-room map).
+      es.addEventListener("message-appended", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.authorKind !== "agent") return;
+          if (!this._bgMessages) this._bgMessages = {};
+          // streaming flag · drives the mini-player's "thinking"
+          // source detection (this director appeared but TTS hasn't
+          // started yet). Cleared by message-final.
+          const streaming = !!(data.meta && data.meta.streaming === true);
+          this._bgMessages[data.messageId] = {
+            authorId: data.authorId || null,
+            body: data.body || "",
+            streaming,
+            appendedAt: data.createdAt || Date.now(),
+          };
+          // The "thinking" state needs an immediate refresh so the
+          // bar doesn't sit on its previous (now-stale) speaker info
+          // for the few seconds between speakers.
+          this.refreshMiniPlayer();
+        } catch { /* swallow */ }
+      });
+      // message-token · grow the cached body so the lyric line
+      // tracks the streaming text. Mirrored onto the voice queue
+      // (if one exists) AND the parallel _bgMessages map.
+      es.addEventListener("message-token", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (this._bgMessages && this._bgMessages[data.messageId]) {
+            this._bgMessages[data.messageId].body += data.delta;
+          }
+          const vq = this.voiceQueues && this.voiceQueues[data.messageId];
+          if (vq) {
+            vq.cachedBody = (vq.cachedBody || "") + data.delta;
+            if (!vq.authorId && this._bgMessages && this._bgMessages[data.messageId]) {
+              vq.authorId = this._bgMessages[data.messageId].authorId;
+            }
+          }
+        } catch { /* swallow */ }
+      });
+      // message-final · streaming has finished, audio may still be
+      // playing through the buffered chunks. Clear the streaming
+      // flag so the thinking-source detection stops matching this
+      // message (audio takes over via the live source).
+      es.addEventListener("message-final", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (this._bgMessages && this._bgMessages[data.messageId]) {
+            this._bgMessages[data.messageId].streaming = false;
+          }
+        } catch { /* swallow */ }
+      });
+      // room-adjourned · the tracked room ended · drop the anchor
+      // so the bar hides at the next refresh, and tear down this
+      // background connection so we stop receiving its events.
+      es.addEventListener("config-event", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const kind = data.kind;
+          if (kind === "room-adjourned") {
+            // Reflect onto the rooms list so the bar's idle source
+            // check hides cleanly.
+            const r = (this.rooms || []).find((x) => x.id === roomId);
+            if (r) {
+              r.status = "adjourned";
+              r.adjournedAt = (data.payload && data.payload.adjournedAt) || Date.now();
+            }
+            if (this._activeVoiceRoomId === roomId) {
+              this._activeVoiceRoomId = null;
+            }
+            this._stopBgSse();
+            this.refreshMiniPlayer();
+          } else if (kind === "room-paused") {
+            const r = (this.rooms || []).find((x) => x.id === roomId);
+            if (r) r.status = "paused";
+            this.refreshMiniPlayer();
+          } else if (kind === "room-resumed") {
+            const r = (this.rooms || []).find((x) => x.id === roomId);
+            if (r) r.status = "live";
+            this.refreshMiniPlayer();
+          }
+        } catch { /* swallow */ }
+      });
+      es.onerror = () => { /* EventSource auto-reconnects */ };
+    },
+
+    _stopBgSse() {
+      if (this._bgSse) {
+        try { this._bgSse.close(); } catch { /* */ }
+        this._bgSse = null;
+      }
+      this._bgSseRoomId = null;
+      this._bgMessages = null;
+    },
+
+    /** SSE handoff for room-to-room navigation. Called from openRoom
+     *  BEFORE disconnectSSE. Three cases:
+     *    · No tracked voice room · nothing to do.
+     *    · Re-entering the tracked room · drop the bg SSE if one
+     *      was running (foreground will take over).
+     *    · Navigating to a DIFFERENT room while currently on the
+     *      tracked one · open a bg SSE for the tracked room and
+     *      AWAIT its "hello" event before resolving. The await
+     *      guarantees the server has registered the bg subscription
+     *      before the caller closes the foreground · no events
+     *      (especially voice-final, which is the critical one for
+     *      advancing to the next director) can fall into the gap. */
+    async _handoffSseToBg(nextRoomId) {
+      if (!this._activeVoiceRoomId) return;
+      if (this._activeVoiceRoomId === nextRoomId) {
+        this._stopBgSse();
+        return;
+      }
+      if (this._activeVoiceRoomId !== this.currentRoomId) return;
+      const trackedRoom = this._activeVoiceRoomId;
+      await new Promise((resolve) => {
+        let resolved = false;
+        const done = () => { if (resolved) return; resolved = true; resolve(); };
+        this._startBgSse(trackedRoom, done);
+        // Safety timeout · don't block navigation if hello never
+        // fires (network blip, offline, etc.).
+        setTimeout(done, 1200);
+      });
     },
 
     // ── Actions ───────────────────────────────────────────────
@@ -4201,6 +4503,15 @@
           // visibility immediately. Without this, flipping voice OFF
           // on a live room would leave the stage visible.
           this.applyRoundTableVisibility(this.currentRoomId);
+          // Mini-player anchor · flipping ON arms the bar for this
+          // room; flipping OFF clears it (text rooms don't qualify
+          // and the background SSE — if any — should drop too).
+          if (next === "voice" && this.currentRoom.status !== "adjourned") {
+            this._activeVoiceRoomId = this.currentRoomId;
+          } else if (next !== "voice" && this._activeVoiceRoomId === this.currentRoomId) {
+            this._activeVoiceRoomId = null;
+            this._stopBgSse();
+          }
         }
       } catch (_) { /* offline */ }
     },
@@ -7353,9 +7664,6 @@
             <button type="button" data-search-sort-by="oldest">Oldest</button>
           </div>
           <span class="search-results-meta" data-search-results-meta></span>
-          <div class="search-input-toolbar">
-            <span class="search-toolbar-hint">keyword · message body · room name</span>
-          </div>
         </div>
         <!-- Static starter chips · one click pre-fills the input
              and triggers the search. Hidden once the user types
@@ -7773,7 +8081,7 @@
      *  export captures at pixelRatio = 800/540 so the saved file
      *  comes out at exactly 800 × 1185 (moderate-size PNG, easy to
      *  share without being unwieldy). */
-    SHARE_CARD_TEMPLATES: ["boardroom", "terminal"],
+    SHARE_CARD_TEMPLATES: ["boardroom"],
     DEFAULT_SHARE_CARD_TEMPLATE: "boardroom",
 
     /** Open the share-card overlay for a given note id. Resolves the
@@ -7836,16 +8144,18 @@
             <button type="button" class="close-btn" data-share-card-close aria-label="Close">✕</button>
           </header>
           <div class="rs-body">
-            <div class="share-card-templates" role="tablist" aria-label="Card template">
-              ${this.SHARE_CARD_TEMPLATES.map((t) => `
-                <button type="button"
-                        class="share-card-template-chip${t === this._shareCardTemplate ? " active" : ""}"
-                        data-share-card-template="${t}"
-                        role="tab"
-                        aria-selected="${t === this._shareCardTemplate ? "true" : "false"}"
-                >${this.escape(t)}</button>
-              `).join("")}
-            </div>
+            ${this.SHARE_CARD_TEMPLATES.length > 1 ? `
+              <div class="share-card-templates" role="tablist" aria-label="Card template">
+                ${this.SHARE_CARD_TEMPLATES.map((t) => `
+                  <button type="button"
+                          class="share-card-template-chip${t === this._shareCardTemplate ? " active" : ""}"
+                          data-share-card-template="${t}"
+                          role="tab"
+                          aria-selected="${t === this._shareCardTemplate ? "true" : "false"}"
+                  >${this.escape(t)}</button>
+                `).join("")}
+              </div>
+            ` : ""}
             <div class="share-card-preview" data-share-card-preview>
               <div class="share-card-preview-inner" data-share-card-preview-inner>
                 ${this.renderShareCardHtml(note, this._shareCardTemplate)}
@@ -7937,11 +8247,8 @@
      *  Quotes never get truncated — instead the font shrinks so the
      *  full passage fits. Returns the font-size in px for a given
      *  template at the supplied character count. Tiers were tuned
-     *  empirically against each template's content area: the
-     *  boardroom bubble is the smallest box (≈424 × 200); the
-     *  terminal card's tinted code-block has roughly the same
-     *  width but runs slightly shorter to leave room for the
-     *  ASCII logo / status bar / cursor lines above and below.
+     *  empirically against the boardroom bubble's content area
+     *  (≈424 × 200). Unknown templates fall through to the same tiers.
      *
      *  Length tiers are deliberately coarse — 5-6 buckets keep the
      *  output predictable and avoid the "text snaps a pixel smaller
@@ -7991,24 +8298,14 @@
       const tpl = templateKey || this.DEFAULT_SHARE_CARD_TEMPLATE;
       const quote = String(n.quoteText || "").trim();
       const author = (n.authorName || "Director").trim();
-      const roomNum = n.roomNumber != null ? `#${String(n.roomNumber).padStart(3, "0")}` : "";
       const stampDate = n.createdAt
         ? new Date(n.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
         : "";
       const esc = (s) => this.escape(String(s || ""));
 
-      // Template-specific markup · "boardroom" renders the
-      // 8-bit pixel-art scene, "terminal" renders a CLI / code
-      // card with an ASCII PRIVATE BOARD logo. Watermark on
-      // every template is the domain `Privateboard.ai`
-      // (lowercased / capitalised by the template's
-      // text-transform).
+      // Watermark on the share card · domain string rendered in
+      // each template's footer (text-transform handled in CSS).
       const DOMAIN = "Privateboard.ai";
-      // ISO-style date for the terminal status bar — looks more
-      // like real CLI output than a localised "May 12, 2026".
-      const isoDate = n.createdAt
-        ? new Date(n.createdAt).toISOString().slice(0, 10)
-        : "";
 
       // Block-letter "PRIVATE BOARD" ASCII title — three typeface
       // variants. All use the FULL BLOCK char (█) so the texture
@@ -8066,111 +8363,74 @@
       const qFont = this.shareCardQuoteSize(tpl, qLen);
       const qStyle = `font-size: ${qFont}px;`;
 
-      if (tpl === "boardroom") {
-        // Boardroom cover · randomized 8-bit landscape generated by
-        // the standalone `share-cover-svg-creator.js` skill. The
-        // module yields a fresh roll (sky palette, river curve,
-        // stones, flowers, dirt patches, ground material) once per
-        // `openShareCard()` and the result is cached on
-        // `this._shareCardCover`, so chip-switching between templates
-        // in the same modal keeps the SAME boardroom variation
-        // visible. If the module didn't load, fall back to an empty
-        // SVG layer + the CSS background-color set on `.share-card`.
-        const cover = this._shareCardCover || {
-          skyGradient: "",
-          skyDeco: "",
-          groundDeco: "",
-          groundFg: "",
-        };
-        // Inline style carries two things:
-        //   1. The randomized sky-gradient (overrides the flat
-        //      fallback color in CSS).
-        //   2. A `--sc-fg` CSS variable holding a watermark/stamp
-        //      color picked to stay legible against whatever ground
-        //      material rolled (dark cream on volcanic-dark grounds,
-        //      dark purple on light grounds).
-        const styleParts = [];
-        if (cover.skyGradient) styleParts.push(`background: ${cover.skyGradient}`);
-        if (cover.groundFg)    styleParts.push(`--sc-fg: ${cover.groundFg}`);
-        const bgStyle = styleParts.length
-          ? ` style="${styleParts.join("; ")}"`
-          : "";
-        // Per-roll ASCII-logo TYPEFACE · the creator picks one of
-        // three pre-baked letter-form designs (block / slim /
-        // thick). All three use the same FULL BLOCK char + same
-        // cream colour + same drop-shadow (defined in CSS) — the
-        // only thing that changes is the letter proportions.
-        const logoText = LOGO_FONTS[cover.logoFont] || LOGO_FONTS.block;
-        return `
-          <div class="share-card" data-share-template="boardroom"${bgStyle}>
-            <div class="sc-header">
-              <span>◆ PRIVATEBOARD<span class="sc-heart">♥</span></span>
-              <span class="sc-header-right">${esc(DOMAIN)}</span>
-            </div>
-            <svg class="sc-sky-deco" viewBox="0 0 540 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              ${cover.skyDeco}
-              ${cover.groundDeco}
-            </svg>
-            <pre class="sc-logo" aria-label="Private Board">${logoText}</pre>
-            <div class="sc-bubble">
-              <!-- Decorative pixel blocks · scattered colored squares
-                   echo the retro-party poster's color accents on the
-                   black panel. Each block is 4-8 px in pixel-art
-                   register. Sits behind the text rows via z-index. -->
-              <span class="sc-block" style="top:14px; left:18px; width:8px; height:8px; background:#E26AA0;"></span>
-              <span class="sc-block" style="top:8px; right:30px; width:6px; height:6px; background:#F0D848;"></span>
-              <span class="sc-block" style="top:42%; left:10px; width:6px; height:6px; background:#5BC0EB;"></span>
-              <span class="sc-block" style="top:24px; right:14px; width:4px; height:4px; background:#6FB572;"></span>
-              <span class="sc-block" style="bottom:18px; left:30px; width:6px; height:6px; background:#F86868;"></span>
-              <span class="sc-block" style="bottom:12px; right:24px; width:8px; height:8px; background:#ED8E48;"></span>
-              <!-- Section 1 · director name as the panel header.
-                   The "Distilled · X" prefix follows the user's i18n
-                   setting (en / zh / ja / es). CJK runs inside the
-                   resolved string render in STHeiti bold via .cjk. -->
-              <div class="sc-bubble-name">${this.wrapCjk(esc(this._t("share_card_distilled", { name: author })))}</div>
-              <!-- 8-bit pixel divider between name and quote -->
-              <div class="sc-divider" aria-hidden="true"></div>
-              <!-- Section 2 · the quote body -->
-              <p class="sc-bubble-text" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
-              ${n.roomSubject ? `
-                <!-- 8-bit pixel divider between quote and annotation -->
-                <div class="sc-divider" aria-hidden="true"></div>
-                <!-- Section 3 · room subject (initial question) -->
-                <div class="sc-bubble-meta">// re: ${this.wrapCjk(esc(String(n.roomSubject).trim()))}</div>
-              ` : ""}
-            </div>
-            <div class="share-card-watermark">${esc(DOMAIN)}</div>
-            <div class="share-card-stamp">${esc(stampDate)}</div>
-          </div>
-        `;
-      }
-      // terminal · CLI-style card with a big ASCII "PRIVATE
-      // BOARD" logo at the top, dashed frame, code-style body.
-      // Inspired by terminal-agent CLI screenshots: status bar
-      // top-right, ASCII title centred, `// tagline`, then the
-      // note rendered as `$ cat note.txt` with the quote as
-      // the file contents and a blinking cursor below.
-      // Terminal template uses a fixed block typeface (no per-roll
-      // typeface variation — that's a boardroom-card feature). The
-      // shared LOGO_FONTS dict is defined at the top of this
-      // function so the boardroom branch can pull its rolled variant
-      // from the same source.
-      const distilledLabel = this._t("share_card_distilled", { name: author });
+      // Boardroom cover · randomized 8-bit landscape generated by the
+      // standalone `share-cover-svg-creator.js` skill. The module
+      // yields a fresh roll (sky palette, river curve, stones, flowers,
+      // dirt patches, ground material) once per `openShareCard()` and
+      // the result is cached on `this._shareCardCover`. If the module
+      // didn't load, fall back to an empty SVG layer + the CSS
+      // background-color set on `.share-card`.
+      const cover = this._shareCardCover || {
+        skyGradient: "",
+        skyDeco: "",
+        groundDeco: "",
+        groundFg: "",
+      };
+      // Inline style carries two things:
+      //   1. The randomized sky-gradient (overrides the flat fallback
+      //      color in CSS).
+      //   2. A `--sc-fg` CSS variable holding a watermark/stamp color
+      //      picked to stay legible against whatever ground material
+      //      rolled (dark cream on volcanic-dark grounds, dark purple
+      //      on light grounds).
+      const styleParts = [];
+      if (cover.skyGradient) styleParts.push(`background: ${cover.skyGradient}`);
+      if (cover.groundFg)    styleParts.push(`--sc-fg: ${cover.groundFg}`);
+      const bgStyle = styleParts.length
+        ? ` style="${styleParts.join("; ")}"`
+        : "";
+      // Per-roll ASCII-logo TYPEFACE · the creator picks one of three
+      // pre-baked letter-form designs (block / slim / thick). All three
+      // use the same FULL BLOCK char + same cream colour + same drop-
+      // shadow (defined in CSS); only the letter proportions change.
+      const logoText = LOGO_FONTS[cover.logoFont] || LOGO_FONTS.block;
       return `
-        <div class="share-card" data-share-template="terminal">
-          <div class="sc-tt-frame">
-            <div class="sc-tt-statusbar">
-              <span class="sc-tt-version">pb-cli v0.1 · ${esc(isoDate)}</span>
-            </div>
-            <pre class="sc-tt-logo">${LOGO_FONTS.block}</pre>
-            <div class="sc-tt-tagline">// ${this.wrapCjk(esc(distilledLabel))}</div>
-            <div class="sc-tt-body">
-              <div class="sc-tt-line"><span class="sc-tt-prompt">$</span> cat note.txt</div>
-              <div class="sc-tt-quote">${this.wrapCjk(esc(quote))}</div>
-              ${n.roomSubject ? `<div class="sc-tt-comment"># re: ${this.wrapCjk(esc(String(n.roomSubject).trim()))}</div>` : ""}
-              ${roomNum ? `<div class="sc-tt-comment"># source: room ${esc(roomNum)}</div>` : ""}
-              <div class="sc-tt-line"><span class="sc-tt-prompt">$</span> <span class="sc-tt-cursor">▌</span></div>
-            </div>
+        <div class="share-card" data-share-template="boardroom"${bgStyle}>
+          <div class="sc-header">
+            <span>◆ PRIVATEBOARD<span class="sc-heart">♥</span></span>
+            <span class="sc-header-right">${esc(DOMAIN)}</span>
+          </div>
+          <svg class="sc-sky-deco" viewBox="0 0 540 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            ${cover.skyDeco}
+            ${cover.groundDeco}
+          </svg>
+          <pre class="sc-logo" aria-label="Private Board">${logoText}</pre>
+          <div class="sc-bubble">
+            <!-- Decorative pixel blocks · scattered colored squares
+                 echo the retro-party poster's color accents on the
+                 black panel. Each block is 4-8 px in pixel-art
+                 register. Sits behind the text rows via z-index. -->
+            <span class="sc-block" style="top:14px; left:18px; width:8px; height:8px; background:#E26AA0;"></span>
+            <span class="sc-block" style="top:8px; right:30px; width:6px; height:6px; background:#F0D848;"></span>
+            <span class="sc-block" style="top:42%; left:10px; width:6px; height:6px; background:#5BC0EB;"></span>
+            <span class="sc-block" style="top:24px; right:14px; width:4px; height:4px; background:#6FB572;"></span>
+            <span class="sc-block" style="bottom:18px; left:30px; width:6px; height:6px; background:#F86868;"></span>
+            <span class="sc-block" style="bottom:12px; right:24px; width:8px; height:8px; background:#ED8E48;"></span>
+            <!-- Section 1 · director name as the panel header.
+                 The "Distilled · X" prefix follows the user's i18n
+                 setting (en / zh / ja / es). CJK runs inside the
+                 resolved string render in STHeiti bold via .cjk. -->
+            <div class="sc-bubble-name">${this.wrapCjk(esc(this._t("share_card_distilled", { name: author })))}</div>
+            <!-- 8-bit pixel divider between name and quote -->
+            <div class="sc-divider" aria-hidden="true"></div>
+            <!-- Section 2 · the quote body -->
+            <p class="sc-bubble-text" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
+            ${n.roomSubject ? `
+              <!-- 8-bit pixel divider between quote and annotation -->
+              <div class="sc-divider" aria-hidden="true"></div>
+              <!-- Section 3 · room subject (initial question) -->
+              <div class="sc-bubble-meta">// re: ${this.wrapCjk(esc(String(n.roomSubject).trim()))}</div>
+            ` : ""}
           </div>
           <div class="share-card-watermark">${esc(DOMAIN)}</div>
           <div class="share-card-stamp">${esc(stampDate)}</div>
@@ -9275,16 +9535,24 @@
           </header>
 
           <div class="cmp-input-frame">
-            <textarea class="cmp-input" data-composer-subject rows="1" placeholder="${this.escape(t.placeholder)}">${this.escape(state.subject || "")}</textarea>
-
-            <div class="cmp-toolbar">
+            <!-- TOPBAR · room configuration controls. Sits above the
+                 textarea so the room's identity (cast + tone + intensity)
+                 is set BEFORE the user starts typing the subject. The
+                 voice toggle lives in the bottombar below since it's
+                 paired with the Convene submit action (mode-of-delivery
+                 decision belongs with the send button). -->
+            <div class="cmp-topbar">
               <button type="button" class="cmp-cast-btn${isAutoPick ? " cmp-cast-btn-auto" : ""}" data-composer-dir-pick title="${this.escape(t.pickerLabel)}">
                 ${castInner}
               </button>
 
-              <div class="cmp-toolbar-sep"></div>
-
-              <div class="cmp-tune">
+              <!-- Tone + intensity dropdowns pushed to the right edge of
+                   the topbar via .cmp-topbar-right (margin-left: auto).
+                   The cast picker keeps its leading slot; room "shape"
+                   controls cluster on the trailing edge so the eye reads
+                   left-to-right as: WHO speaks (cast) → HOW they speak
+                   (tone / intensity). -->
+              <div class="cmp-topbar-right">
                 <button type="button" class="cmp-dd" data-cmp-dropdown="tone" title="${this.escape(toneLbl)}">
                   <span class="cmp-dd-label">${this.escape(toneLbl)}</span>
                   <span class="cmp-dd-value" data-cmp-dd-value="tone">${this.escape(state.mode)}</span>
@@ -9295,46 +9563,55 @@
                   <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(state.intensity)}</span>
                   <span class="cmp-dd-chevron">▾</span>
                 </button>
-                ${(() => {
-                  // Reuse the same toggle vocabulary as the new-agent
-                  // composer's web-search toggle: `.ap-skill-row-toggle`
-                  // (track + knob + text) plus `.cmp-ws-toggle` for
-                  // toolbar fitting. `needs-key` modifier renders the
-                  // dashed "configure first" treatment when no voice
-                  // provider is set, matching the WS toggle pattern
-                  // exactly. Class set: `on` / `off` / `needs-key`.
-                  const voiceConfigured = this.hasAnyVoiceKey();
-                  const voiceOn = voiceConfigured && state.deliveryMode === "voice";
-                  const voiceLabel = this._t("cmp_voice_label");
-                  const voiceTitle = !voiceConfigured
-                    ? "Configure a voice provider to enable voice mode"
-                    : (voiceOn
-                      ? "Voice mode on · directors speak aloud during the room"
-                      : "Voice mode off · click to enable");
-                  const voiceCls = [
-                    "ap-skill-row-toggle",
-                    "cmp-ws-toggle",
-                    voiceOn ? "on" : "off",
-                    voiceConfigured ? "" : "needs-key",
-                  ].filter(Boolean).join(" ");
-                  return `
-                    <button type="button" class="${voiceCls}"
-                      data-composer-voice-toggle
-                      data-configured="${voiceConfigured ? "1" : "0"}"
-                      data-on="${voiceOn ? "1" : "0"}"
-                      aria-pressed="${voiceOn ? "true" : "false"}"
-                      title="${this.escape(voiceTitle)}">
-                      <span class="ap-skill-row-toggle-track"><span class="ap-skill-row-toggle-knob"></span></span>
-                      <span class="ap-skill-row-toggle-text">${this.escape(voiceLabel)}</span>
-                    </button>
-                  `;
-                })()}
               </div>
+            </div>
+
+            <textarea class="cmp-input" data-composer-subject rows="1" placeholder="${this.escape(t.placeholder)}">${this.escape(state.subject || "")}</textarea>
+
+            <!-- BOTTOMBAR · voice toggle on the left, Convene send
+                 button on the right. Mirrors the in-room input-bar's
+                 split (toggles on the left of the bottom row, send on
+                 the right). -->
+            <div class="cmp-toolbar">
+              ${(() => {
+                // Reuse the same toggle vocabulary as the new-agent
+                // composer's web-search toggle: `.ap-skill-row-toggle`
+                // (track + knob + text) plus `.cmp-ws-toggle` for
+                // toolbar fitting. `needs-key` modifier renders the
+                // dashed "configure first" treatment when no voice
+                // provider is set, matching the WS toggle pattern
+                // exactly. Class set: `on` / `off` / `needs-key`.
+                const voiceConfigured = this.hasAnyVoiceKey();
+                const voiceOn = voiceConfigured && state.deliveryMode === "voice";
+                const voiceLabel = this._t("cmp_voice_label");
+                const voiceTitle = !voiceConfigured
+                  ? "Configure a voice provider to enable voice mode"
+                  : (voiceOn
+                    ? "Voice mode on · directors speak aloud during the room"
+                    : "Voice mode off · click to enable");
+                const voiceCls = [
+                  "ap-skill-row-toggle",
+                  "cmp-ws-toggle",
+                  voiceOn ? "on" : "off",
+                  voiceConfigured ? "" : "needs-key",
+                ].filter(Boolean).join(" ");
+                return `
+                  <button type="button" class="${voiceCls}"
+                    data-composer-voice-toggle
+                    data-configured="${voiceConfigured ? "1" : "0"}"
+                    data-on="${voiceOn ? "1" : "0"}"
+                    aria-pressed="${voiceOn ? "true" : "false"}"
+                    title="${this.escape(voiceTitle)}">
+                    <span class="ap-skill-row-toggle-track"><span class="ap-skill-row-toggle-knob"></span></span>
+                    <span class="ap-skill-row-toggle-text">${this.escape(voiceLabel)}</span>
+                  </button>
+                `;
+              })()}
 
               <button type="button" class="cmp-go" data-composer-go title="${this.escape(t.convene)} (⏎)">
-                <svg class="cmp-go-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M5 12h14"/>
-                  <path d="m13 5 7 7-7 7"/>
+                <svg class="cmp-go-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="12" y1="19" x2="12" y2="5"/>
+                  <polyline points="5 12 12 5 19 12"/>
                 </svg>
               </button>
             </div>
@@ -9908,22 +10185,13 @@
           </header>
 
           <div class="cmp-input-frame ${generating ? "is-generating" : ""}">
-            <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}>${this.escape(this.loadAgentComposerDraft())}</textarea>
-
-            <div class="cmp-toolbar">
-              <!-- Build-mode picker · Signal vs Full persona. Reuses
-                   the canonical .cmp-dd dropdown vocabulary so this
-                   toolbar stays visually consistent with the new-room
-                   composer's tone/intensity dropdowns. Sits first so
-                   the user picks the build flow before model / web
-                   search / submit. Options + dispatch live in
-                   openComposerDropdown / dd-pick handler under the
-                   "agent-builder-mode" kind. -->
-              <button type="button" class="cmp-dd cmp-dd-mode" data-cmp-dropdown="agent-builder-mode" title="Build mode · Signal (~10s) or Full persona (5–10min)">
-                <span class="cmp-dd-label">build</span>
-                <span class="cmp-dd-value" data-cmp-dd-value="agent-builder-mode">${this.escape(builderMode === "full" ? "FULL PERSONA" : "SIGNAL")}</span>
-                <span class="cmp-dd-chevron">▾</span>
-              </button>
+            <!-- TOPBAR · the manual escape-hatch lives here on its own.
+                 The build-mode picker was moved DOWN into the bottombar
+                 as a single icon+label toggle (full-persona on/off) —
+                 same vocabulary as the in-room round-table toggle. The
+                 websearch toggle still lives in the bottombar beside
+                 Send, with the build toggle now sitting to its left. -->
+            <div class="cmp-topbar">
               <!-- Model selection lives downstream now: the post-
                    generation spec preview card has a model <select>
                    (renderAgentSpecPreviewHtml), the manual new-agent
@@ -9934,6 +10202,33 @@
               <button type="button" class="ag-cmp-manual" data-agent-composer-manual>
                 <span class="ag-cmp-manual-mark">⚙</span>
                 <span class="ag-cmp-manual-label">${this.escape(t.manual)}</span>
+              </button>
+            </div>
+
+            <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}>${this.escape(this.loadAgentComposerDraft())}</textarea>
+
+            <!-- BOTTOMBAR · build-mode toggle + websearch toggle on the
+                 left, Generate send button on the right. Build toggle
+                 borrows the round-table toggle vocabulary (icon + label,
+                 borderless, aria-pressed flips to lime when selected) so
+                 it reads as a binary "full persona on/off" affordance
+                 rather than a dropdown. -->
+            <div class="cmp-toolbar">
+              <!-- Build-mode toggle · selected (aria-pressed=true) means
+                   "full persona" build; unselected means the default
+                   signal-mode quick path. Click flips state in place via
+                   the [data-agent-builder-toggle] delegate. -->
+              <button type="button"
+                      class="cmp-build-toggle has-label${builderMode === "full" ? " on" : ""}"
+                      data-agent-builder-toggle
+                      aria-pressed="${builderMode === "full" ? "true" : "false"}"
+                      title="Full persona · 5–10 min deep build · ReAct research + 7-phase persona spec (click to ${builderMode === "full" ? "switch back to fast Signal build" : "switch on"})">
+                <span class="cmp-build-glyph" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="none">
+                    <path d="M8 0 L9 7 L16 8 L9 9 L8 16 L7 9 L0 8 L7 7 Z"/>
+                  </svg>
+                </span>
+                <span class="cmp-build-label">Full persona</span>
               </button>
               ${(() => {
                 // Reuses the agent-profile websearch toggle vocabulary
@@ -9975,9 +10270,9 @@
               <button type="button" class="cmp-go ${generating ? "busy" : ""}" data-agent-composer-go title="${this.escape(ctaLabel)} · ${this.escape(ctaHint)} (⏎)" ${generating ? "disabled" : ""}>
                 ${generating
                   ? `<span class="cmp-go-arrow">…</span>`
-                  : `<svg class="cmp-go-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M5 12h14"/>
-                      <path d="m13 5 7 7-7 7"/>
+                  : `<svg class="cmp-go-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="12" y1="19" x2="12" y2="5"/>
+                      <polyline points="5 12 12 5 19 12"/>
                     </svg>`}
               </button>
             </div>
@@ -12431,13 +12726,21 @@
       const r = this.currentRoom;
 
       // Avatars cascade with a stacked count tile at the end so the cast
-      // size is legible without adding chrome to the meta line.
-      // data-agent makes each tile clickable via the shared agent-overlay.
-      // Setting it explicitly (instead of relying on agent-overlay's
-      // autoTagAvatars regex) is required for custom agents whose
-      // avatarPath is a data: URL — the regex only matches /avatars/*.svg.
+      // size is legible without adding chrome to the meta line. Each tile
+      // opens the lightweight agent overlay (bubble-phase handler in
+      // agent-overlay.js, triggered by `data-agent`) so the user gets a
+      // quick popup peek at the director without losing the room context
+      // — clicking from inside a room shouldn't navigate away to the
+      // full agent profile page (that's what the sidebar agent rows are
+      // for, via `data-agent-profile`). Setting `data-agent` explicitly
+      // (instead of relying on agent-overlay's autoTagAvatars regex) is
+      // required for custom agents whose avatarPath is a data: URL —
+      // the regex only matches `/avatars/*.svg`.
       const castImgs = this.currentMembers
-        .map((a) => `<img data-agent="${this.escape(a.id)}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`)
+        .map((a) => {
+          const id = this.escape(a.id);
+          return `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
+        })
         .join("");
       const castCount = this.currentMembers.length;
       const castTitle =
@@ -12496,7 +12799,7 @@
       // tokens are not routed through `_t()`.
       const statusWord = r.status !== "live" ? String(r.status).toUpperCase() : "";
       head.innerHTML = `
-        <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}"></button>
+        <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}" data-tip="${this.escape(this._t("sidebar_expand"))}"></button>
         <div class="room-info">
           <div class="room-kicker">
             <span class="kicker-num">// ROOM #${r.number}</span>
@@ -12510,9 +12813,9 @@
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
-          <a href="#" class="room-settings-trigger" data-room-settings-trigger title="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}">⚙</a>
           <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
           <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
+          <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
           ${this.currentBrief
             ? (() => {
                 // Multiple briefs · render the View Report button as a
@@ -12540,16 +12843,27 @@
                   && (this.currentBrief.isGenerating === true
                     || !this.briefHasBody(this.currentBrief)
                     || this.currentBrief.title === "Generating…");
+                // Strip the legacy `[ … ]` chrome from the brief-button
+                // label · those brackets read as a text-button frame, not
+                // a clean tooltip name. Same key, cleaner tooltip copy.
+                const stripBrackets = (s) => String(s || "").replace(/^\s*\[\s*|\s*\]\s*$/g, "").trim();
+                const reportLabel = stripBrackets(this._t("room_view_report"));
                 if (generating) {
-                  return `<span class="view-report-btn generate-report" data-view-report data-pending="1" role="button" aria-disabled="true" title="${this.escape(this._t("room_view_report_generating_title"))}"><span class="vr-mark">·</span> ${this.escape(this._t("room_view_report_generating"))}</span>`;
+                  return `<span class="head-icon-btn head-view-report is-generating" data-view-report data-pending="1" role="button" aria-disabled="true" data-tip="${this.escape(this._t("room_view_report_generating"))}" aria-label="${this.escape(this._t("room_view_report_generating"))}"></span>`;
                 }
                 if (!multi) {
-                  return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>${this.escape(this._t("room_view_report"))}</a>`;
+                  return `<a href="${directHref}" target="_blank" rel="noopener" class="head-icon-btn head-view-report" data-view-report data-tip="${this.escape(reportLabel)}" aria-label="${this.escape(reportLabel)}"></a>`;
                 }
-                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this._t("room_view_report_title_multi", { n: briefs.length }))}">${this.escape(this._t("room_view_report_multi", { n: briefs.length }))}</a>`;
+                const multiTip = this._t("room_view_report_title_multi", { n: briefs.length });
+                return `<a href="${directHref}" target="_blank" rel="noopener" class="head-icon-btn head-view-report has-count" data-view-report data-view-report-trigger data-tip="${this.escape(multiTip)}" aria-label="${this.escape(multiTip)}"><span class="head-icon-count">${briefs.length}</span></a>`;
               })()
             : (r.status === "adjourned"
-              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this._t("room_generate_report_title"))}"><span class="vr-mark">▸</span> ${this.escape(this._t("room_generate_report"))}</a>`              : "")}
+              ? `<a href="#" class="head-icon-btn head-view-report is-generate" data-generate-brief data-tip="${this.escape(this._t("room_generate_report"))}" aria-label="${this.escape(this._t("room_generate_report"))}"></a>`
+              : "")}
+          ${r.status === "adjourned"
+            ? `<a href="#" class="head-icon-btn head-followup" data-room-followup data-tip="${this.escape(this._t("adj_followup_label"))}" aria-label="${this.escape(this._t("adj_followup_label"))}"></a>`
+            : `<a href="#" class="head-icon-btn head-adjourn" data-adjourn data-tip="${this.escape(this._t("ib_adjourn_tip"))}" aria-label="${this.escape(this._t("ib_adjourn_label"))}"></a>`}
+          <a href="#" class="head-icon-btn head-settings room-settings-trigger" data-room-settings-trigger data-tip="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}"></a>
         </div>
       `;
       // Wire the tone-tag hover tip. Pure-CSS ::after tooltips were
@@ -12817,6 +13131,21 @@
 
     enqueueVoiceChunk(roomId, chunk) {
       if (!chunk || !chunk.messageId || !chunk.audioBase64 || !chunk.mimeType) return;
+      // Dedupe by seq · the bg-SSE handoff briefly overlaps the
+      // foreground subscription. Both deliver the same events
+      // during that window. Without this guard, every chunk in
+      // the window is appended twice — audio stutters or repeats.
+      // Server emits seq monotonic per messageId; we track a Set
+      // per messageId on a parallel cache so it survives across
+      // _createVoiceStream calls.
+      const seq = (chunk && typeof chunk.seq === "number") ? chunk.seq : null;
+      if (seq !== null) {
+        if (!this._voiceSeenSeqs) this._voiceSeenSeqs = {};
+        const seen = this._voiceSeenSeqs[chunk.messageId];
+        if (seen && seen.has(seq)) return; // dupe
+        if (!seen) this._voiceSeenSeqs[chunk.messageId] = new Set();
+        this._voiceSeenSeqs[chunk.messageId].add(seq);
+      }
       // Stop the thinking SFX loop proactively · the next render
       // cycle would do this anyway via `anyVoiceQueued`, but doing
       // it here guarantees the AudioContext is idle BEFORE
@@ -12842,6 +13171,7 @@
           if (!sq) continue;
           try { if (sq.audio) sq.audio.pause(); } catch (_) {}
           try { if (sq.audio && sq.audio.src) URL.revokeObjectURL(sq.audio.src); } catch (_) {}
+          try { if (sq.audio && sq.audio.parentNode) sq.audio.parentNode.removeChild(sq.audio); } catch (_) {}
           try {
             if (sq.mediaSource && sq.mediaSource.readyState === "open") {
               sq.mediaSource.endOfStream();
@@ -12849,8 +13179,34 @@
           } catch (_) {}
           delete this.voiceQueues[sid];
         }
+        // Stale queues torn down · the active queue is about to be
+        // recreated below. Mini-player refresh runs once after the
+        // new queue is inserted (next call site).
         q = this._createVoiceStream(roomId, chunk.messageId);
+        // Stash the speaker + current body on the queue so the
+        // mini-player can render speaker name / avatar / subtitle.
+        // Two sources to consult:
+        //   · currentMessages · the foreground SSE's view; populated
+        //     while user is in the room.
+        //   · _bgMessages · the background SSE's parallel cache;
+        //     populated when user has navigated away but is still
+        //     tracking this voice room. Without this fallback, the
+        //     bar would render nameless / bodyless for every
+        //     speaker that arrived after the user left the room.
+        const liveMsg = (this.currentMessages || []).find((m) => m.id === chunk.messageId);
+        const bgMsg = (this._bgMessages && this._bgMessages[chunk.messageId]) || null;
+        q.authorId = (liveMsg && liveMsg.authorId) || (bgMsg && bgMsg.authorId) || null;
+        q.cachedBody = (liveMsg && liveMsg.body) || (bgMsg && bgMsg.body) || "";
         this.voiceQueues[chunk.messageId] = q;
+        // Mini-player anchor · re-arm tracking for this room (the
+        // user may have dismissed the bar earlier; new voice
+        // activity is a strong signal they want it back). Also
+        // covers the case where the bar was never armed because
+        // the user was already on a different view at the time
+        // they joined this voice room indirectly.
+        this._activeVoiceRoomId = roomId;
+        // Mini-player · refresh now that a new queue exists.
+        this.refreshMiniPlayer();
       }
       // Convert base64 to Uint8Array and append to the MSE SourceBuffer
       const binary = atob(chunk.audioBase64);
@@ -13075,6 +13431,20 @@
     /** Create a MediaSource-backed audio stream for one speaker's turn. */
     _createVoiceStream(roomId, messageId) {
       const audio = new Audio();
+      // Attach to the DOM · without this Chrome treats the element
+      // as "detached media" and the browser is free to pause it
+      // when the window backgrounds (macOS space switch, Cmd+Tab,
+      // etc). Attached elements register as proper media players
+      // and continue across tab/window backgrounding. Hidden via
+      // a fixed off-screen container that's mounted once.
+      let host = document.getElementById("boardroom-voice-audio-host");
+      if (!host) {
+        host = document.createElement("div");
+        host.id = "boardroom-voice-audio-host";
+        host.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none;";
+        document.body.appendChild(host);
+      }
+      host.appendChild(audio);
       // Read the rate fresh every call so the LATEST cached value
       // wins · the user may have cycled rate between chunks and we
       // want each application point to pick that up. Browsers
@@ -13104,6 +13474,12 @@
       audio.addEventListener("loadedmetadata", () => applyRate("loadedmetadata"));
       audio.addEventListener("canplay",        () => applyRate("canplay"));
       audio.addEventListener("play",           () => applyRate("play"));
+      // Mini-player sync · the paused-state glyph + kicker styling
+      // are driven by audio.paused, so a transition either way needs
+      // a refreshMiniPlayer to flip the [data-paused] attribute on
+      // the floating bar.
+      audio.addEventListener("play",  () => this.refreshMiniPlayer());
+      audio.addEventListener("pause", () => this.refreshMiniPlayer());
       // Detect external resets · if the browser ever changes our
       // rate without us asking, log it so we can see exactly when
       // the silent reset happens.
@@ -13132,6 +13508,10 @@
       // mid-turn when they click. */
       audio.addEventListener("timeupdate", () => {
         this.renderRtSubtitle();
+        // Mini-player ticks too · the cross-room bar's "lyrics" line
+        // is sentence-of-the-cursor, driven by audio.currentTime.
+        // Also keeps the bottom progress bar in sync.
+        this.refreshMiniPlayer();
         // Re-assert without logging · fires ~4 Hz, would spam.
         applyRate();
       });
@@ -13234,6 +13614,16 @@
     _fireVoiceDone(q) {
       if (!this.voiceQueues[q.messageId]) return; // already fired
       delete this.voiceQueues[q.messageId];
+      if (this._voiceSeenSeqs) delete this._voiceSeenSeqs[q.messageId];
+      // Detach from the DOM host · we appended on creation in
+      // _createVoiceStream so the browser registers it as proper
+      // media. Drop it cleanly so the host doesn't accumulate
+      // dead <audio> nodes across long sessions.
+      try { if (q.audio && q.audio.parentNode) q.audio.parentNode.removeChild(q.audio); } catch (_) {}
+      // Floating mini-player · the bar tracks "is there an active
+      // cross-room queue?" so hide it the moment the active queue
+      // drains. Subsequent queues for the same room re-trigger it.
+      this.refreshMiniPlayer();
       // Clean up audio element
       try { q.audio.pause(); } catch (_) {}
       try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
@@ -13274,10 +13664,458 @@
         if (q && q.audio) {
           try { q.audio.pause(); } catch (_) {}
           try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
+          // Detach from the DOM host so the browser releases the
+          // media element. Mirrors _fireVoiceDone's cleanup.
+          try { if (q.audio.parentNode) q.audio.parentNode.removeChild(q.audio); } catch (_) {}
         }
       }
       this.voiceQueues = {};
       this._voiceCurrentMessageId = null;
+      try {
+        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "none";
+      } catch (_) {}
+      this.refreshMiniPlayer();
+    },
+
+    /** Lazy-mount the waveform bars · 40 vertical bars with a wave-
+     *  envelope height pattern, duplicated across the BG (faint
+     *  baseline) and FG (lime overlay clipped by --mp-progress)
+     *  layers. Idempotent — bails when the bars are already
+     *  mounted. Each bar carries a `--h` (height percent) and `--i`
+     *  (index, drives staggered animation-delay) inline custom
+     *  property the CSS reads. */
+    _ensureMiniPlayerWave() {
+      const bg = document.querySelector("[data-mini-player-wave-bg]");
+      const fg = document.querySelector("[data-mini-player-wave-fg]");
+      if (!bg || !fg) return;
+      if (bg.children.length > 0 && fg.children.length > 0) return;
+      // Pre-computed wave envelope · sin-stacked pattern, hand-
+      // tuned so the visual reads as audio rather than uniform
+      // sticks. Same array drives both layers so BG/FG bars line
+      // up exactly under the clip-path.
+      const heights = [
+        38, 60, 82, 95, 70, 50, 35, 60, 85, 95, 75, 50, 30, 45, 70, 90,
+        95, 80, 55, 35, 25, 45, 70, 88, 95, 80, 60, 40, 25, 35, 55, 78,
+        90, 80, 60, 42, 30, 50, 70, 85,
+      ];
+      const html = heights
+        .map((h, i) => `<span style="--h:${h};--i:${i}"></span>`)
+        .join("");
+      bg.innerHTML = html;
+      fg.innerHTML = html;
+    },
+
+    /** Pick the caption text matching the current playback cursor.
+     *  Two paths:
+     *    · captions[]  · live TTS chunks each carry their absolute
+     *                    audio endTime (set by the SourceBuffer's
+     *                    updateend hook). Pick the first chunk whose
+     *                    endTime > currentTime — that's the chunk
+     *                    currently playing. Returns its text.
+     *    · interpolate · single-clip audio (replay) has no per-
+     *                    sentence timing. Estimate the cursor as
+     *                    `currentTime / duration * body.length` and
+     *                    return the sentence containing that cursor.
+     *  Falls back to the last sentence of the cleaned body when no
+     *  audio cursor is available. Used by the mini-player so its
+     *  "lyrics" line tracks the actual audio timeline, not the
+     *  text-stream which can race ahead of TTS playback. */
+    _miniPlayerCaption(source, cleanBody) {
+      const audio = source && source.audio;
+      // (a) Per-chunk captions (live TTS) · use only when the
+      //     current queue carries them.
+      const captions = source && source._q && source._q.captions;
+      if (audio && captions && captions.length > 0) {
+        const t = audio.currentTime;
+        let pickIdx = -1;
+        for (let i = 0; i < captions.length; i++) {
+          const end = captions[i].endTime;
+          if (end !== null && end !== undefined && t < end) { pickIdx = i; break; }
+        }
+        if (pickIdx === -1) {
+          for (let i = captions.length - 1; i >= 0; i--) {
+            if (captions[i].text) { pickIdx = i; break; }
+          }
+        }
+        const txt = (pickIdx >= 0 && captions[pickIdx]) ? captions[pickIdx].text : "";
+        if (txt) return String(txt).trim();
+      }
+      // Sentence-split fallback used by both the replay interpolation
+      // path and the no-audio "show last sentence" path.
+      const parts = [];
+      const re = /[^。！？.!?；;\n]+[。！？.!?；;\n]?/g;
+      let mtch;
+      while ((mtch = re.exec(cleanBody)) !== null) {
+        const s = mtch[0].trim();
+        if (s) parts.push(s);
+      }
+      if (parts.length === 0) return cleanBody;
+      // (b) Replay-style interpolation · single-clip audio with
+      //     known duration. Map currentTime → cursor in body, find
+      //     the sentence containing that cursor.
+      if (audio && isFinite(audio.duration) && audio.duration > 0) {
+        const progress = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+        const cursor = Math.floor(cleanBody.length * progress);
+        let acc = 0;
+        let pickIdx = parts.length - 1;
+        for (let i = 0; i < parts.length; i++) {
+          acc += parts[i].length;
+          if (acc >= cursor) { pickIdx = i; break; }
+        }
+        return parts[pickIdx];
+      }
+      // (c) No audio cursor · last sentence (the freshest one).
+      return parts[parts.length - 1];
+    },
+
+    /** Integrated mini-player · surfaces as the bottom row of <main>
+     *  when a voice room (live TTS) OR the adjourned-room voice
+     *  replay is still playing audio but the user has navigated
+     *  away from that room. Spotify-style layout · avatar + speaker
+     *  + live "lyrics" subtitle + controls + bottom progress bar.
+     *  Idempotent · safe to call from every audio mutation site,
+     *  from openRoom/closeRoom, and from the audio's own timeupdate
+     *  event (~4 Hz) which keeps the lyric line + progress bar in
+     *  sync with the actual audio timeline.
+     *
+     *  Source detection (live priority, replay fallback):
+     *    · "live"   · `voiceQueues` carries an unfinished HTMLAudio-
+     *                 Element with per-chunk captions[] (audio-time
+     *                 aligned). Subtitle picks the chunk whose
+     *                 endTime > currentTime.
+     *    · "replay" · `boardroomVoiceReplay.getActive()` returns the
+     *                 full {authorId, body}; subtitle interpolates
+     *                 currentTime / duration into a body-position
+     *                 cursor and shows the sentence at that cursor.
+     *
+     *  Visibility rule: the source's roomId !== currentRoomId. */
+    refreshMiniPlayer() {
+      const el = document.querySelector("[data-mini-player]");
+      if (!el) return;
+      this._ensureMiniPlayerWave();
+      let source = null;
+      // (1) Live TTS · directors / chair streaming in a voice room.
+      for (const mid of Object.keys(this.voiceQueues || {})) {
+        const q = this.voiceQueues[mid];
+        if (!q || !q.audio) continue;
+        if (q.audio.ended) continue;
+        source = {
+          kind: "live",
+          roomId: q.roomId,
+          audio: q.audio,
+          authorId: q.authorId || null,
+          body: q.cachedBody || "",
+          _q: q,
+        };
+        break;
+      }
+      // (1b) Thinking · between speakers, no audio yet but a fresh
+      //      director's placeholder message has been appended.
+      //      Without this the bar sits on the previous speaker's
+      //      info (stale) or jumps straight to "Live · awaiting
+      //      next speaker", and the user can't tell anything is
+      //      happening. Pulls from BG cache (cross-room) OR
+      //      currentMessages (same-room when bar showing for
+      //      another reason). Most-recent streaming agent message
+      //      wins.
+      if (!source && this._activeVoiceRoomId) {
+        let candidate = null;
+        if (this._bgMessages) {
+          for (const mid of Object.keys(this._bgMessages)) {
+            const m = this._bgMessages[mid];
+            if (!m || !m.streaming) continue;
+            // Skip if a voice queue with audio already exists for this
+            // message (we'd be double-counting · live source already
+            // covered it above, except live is null right now meaning
+            // no live audio. So if a queue exists with audio.ended,
+            // skip it too — that turn's done).
+            const vq = this.voiceQueues[mid];
+            if (vq && vq.audio && !vq.audio.ended) continue;
+            if (!candidate || (m.appendedAt > (candidate._m.appendedAt || 0))) {
+              candidate = {
+                kind: "thinking",
+                roomId: this._activeVoiceRoomId,
+                audio: null,
+                authorId: m.authorId,
+                body: m.body || "",
+                _m: m,
+              };
+            }
+          }
+        }
+        if (candidate) source = candidate;
+      }
+      // (2) Voice replay · adjourned-room transcript playback.
+      if (!source) {
+        const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+        if (vr && typeof vr.isOpen === "function" && vr.isOpen()) {
+          const audio = (typeof vr.getActiveAudio === "function") ? vr.getActiveAudio() : null;
+          const rid = (typeof vr.getRoomId === "function") ? vr.getRoomId() : null;
+          const active = (typeof vr.getActive === "function") ? vr.getActive() : null;
+          if (audio && rid) {
+            source = {
+              kind: "replay",
+              roomId: rid,
+              audio,
+              authorId: (active && active.authorId) || null,
+              body: (active && active.body) || "",
+              _replay: vr,
+            };
+          }
+        }
+      }
+      // (3) Idle voice room · no audio in flight, but the user is
+      //     still tracking a live/paused voice room. Bar persists
+      //     through thinking / vote / clarify phases · those only
+      //     exist for voice rooms in the user's mental model and
+      //     they want the anchor visible the whole time. Falls
+      //     back to a status pill in place of the lyric line.
+      if (!source && this._activeVoiceRoomId) {
+        const tracked = (this.rooms || []).find((r) => r.id === this._activeVoiceRoomId);
+        const stillEligible = !!(
+          tracked &&
+          tracked.deliveryMode === "voice" &&
+          tracked.status !== "adjourned"
+        );
+        if (stillEligible) {
+          source = {
+            kind: "idle",
+            roomId: tracked.id,
+            audio: null,
+            authorId: null,
+            body: "",
+            _room: tracked,
+          };
+        } else {
+          // Tracked room is gone / adjourned · drop the anchor so
+          // we don't keep retrying the lookup every refresh.
+          this._activeVoiceRoomId = null;
+        }
+      }
+      // Paused rooms · the bar only surfaces for actively live
+      // voice rooms. If the user has paused the room, drop the
+      // source so the bar hides — they explicitly don't want a
+      // floating "this room is paused" anchor in the sidebar.
+      // Voice replay (adjourned-room transcript playback) is a
+      // separate flow and stays visible regardless.
+      if (source && source.kind !== "replay") {
+        const sourceRoom = (this.rooms || []).find((r) => r.id === source.roomId);
+        if (sourceRoom && sourceRoom.status === "paused") {
+          source = null;
+        }
+      }
+      const inOtherRoom = !!(source && source.roomId && source.roomId !== this.currentRoomId);
+      if (!inOtherRoom) {
+        el.hidden = true;
+        el.removeAttribute("data-mini-player-room-id");
+        el.removeAttribute("data-mini-player-kind");
+        el.style.removeProperty("--mp-progress");
+        return;
+      }
+      el.hidden = false;
+      el.setAttribute("data-paused", (source.audio && source.audio.paused) ? "true" : "false");
+      el.setAttribute("data-mini-player-room-id", source.roomId);
+      el.setAttribute("data-mini-player-kind", source.kind);
+      // Progress bar · 0-1 ratio of currentTime / duration. Only
+      // meaningful when audio is in flight; idle/thinking sources
+      // reset to 0 so the lime track collapses between speakers.
+      const audio = source.audio;
+      if (audio && isFinite(audio.duration) && audio.duration > 0) {
+        const ratio = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+        el.style.setProperty("--mp-progress", ratio.toFixed(4));
+      } else if (source.kind === "idle" || source.kind === "thinking") {
+        el.style.setProperty("--mp-progress", "0");
+      }
+      // Thinking SFX · the looping 8-bit blip already plays for
+      // the in-room round-table stage; mirror it for the bar so
+      // the user has an audible cue that the next speaker is
+      // warming up. Only fire when the bar's source is "thinking"
+      // — live/idle/replay don't need it. The SFX module is
+      // idempotent + visibility-gated so it's safe to call on
+      // every refresh.
+      try {
+        if (window.boardroomTypingSfx && typeof window.boardroomTypingSfx.setThinking === "function") {
+          window.boardroomTypingSfx.setThinking(source.kind === "thinking");
+        }
+      } catch (_) { /* SFX best-effort */ }
+      // Speaker + room name lookups · agentsById is the canonical
+      // global map; falls back to "" when the agent isn't cached
+      // (e.g. fresh page load before agents fetch completes).
+      const agent = (source.authorId && this.agentsById) ? this.agentsById[source.authorId] : null;
+      const room = (this.rooms || []).find((r) => r.id === source.roomId);
+      const roomName = (room && room.name) ? room.name : "";
+      // Speaker text · while audio plays, the actual speaker name.
+      // Idle mode has no speaker · use the room subject (the user's
+      // convene question, truncated) so the bar reads as "[topic]
+      // · live · awaiting next speaker" rather than a generic
+      // "Now playing".
+      let speakerName = "";
+      if (agent && agent.name) {
+        speakerName = agent.name;
+      } else if (source.kind === "idle") {
+        speakerName = (room && (room.subject || room.name)) || "";
+      }
+      // Subtitle · clean markdown out of the body, then ask the
+      // caption picker to pull the sentence at the audio cursor.
+      // The picker switches between per-chunk captions (live) and
+      // duration-interpolation (replay) automatically. Idle source
+      // gets a phase-specific status string in place of the lyric
+      // line ("Live · awaiting next speaker", "Vote phase",
+      // "Awaiting your reply", "Paused").
+      let subtitle = "";
+      if (source.kind === "idle") {
+        const r = source._room;
+        if (r.status === "paused") {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_paused") : "Paused";
+        } else if (r.awaitingClarify) {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_clarify") : "Awaiting your reply";
+        } else if (r.awaitingContinue) {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_vote") : "Vote phase";
+        } else {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_live") : "Live · awaiting next speaker";
+        }
+      } else if (source.kind === "thinking") {
+        // Thinking state · the next director has been picked but
+        // TTS hasn't started yet. Show the streaming text body
+        // tail if any (LLM may already be generating), otherwise
+        // a localized "Thinking…" pill. CSS appends animated dots.
+        const cleanBody = String(source.body || "")
+          .replace(/\*+/g, "")
+          .replace(/^#+\s*/gm, "")
+          .replace(/^[-*]\s+/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (cleanBody) {
+          subtitle = cleanBody;
+        } else {
+          // rt_thinking already lives in all 4 locales for the
+          // round-table stage's thinking bubble — reuse it so the
+          // mini-player narrates the same word.
+          subtitle = window.I18n ? window.I18n.t("rt_thinking") : "Thinking";
+        }
+      } else {
+        const cleanBody = String(source.body || "")
+          .replace(/\*+/g, "")
+          .replace(/^#+\s*/gm, "")
+          .replace(/^[-*]\s+/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        subtitle = cleanBody ? this._miniPlayerCaption(source, cleanBody) : "";
+      }
+      // Avatar · prefer the stored avatarPath; fall back to a single
+      // mono initial letter from the speaker (or room) name.
+      const avatarEl = el.querySelector("[data-mini-player-avatar]");
+      const fallbackEl = el.querySelector("[data-mini-player-avatar-fallback]");
+      const avatarPath = (agent && agent.avatarPath) ? agent.avatarPath : "";
+      if (avatarPath) {
+        if (avatarEl) {
+          if (avatarEl.getAttribute("src") !== avatarPath) avatarEl.setAttribute("src", avatarPath);
+          avatarEl.hidden = false;
+        }
+        if (fallbackEl) fallbackEl.textContent = "";
+      } else {
+        if (avatarEl) avatarEl.hidden = true;
+        const seed = speakerName || roomName || "·";
+        if (fallbackEl) fallbackEl.textContent = (seed[0] || "·").toUpperCase();
+      }
+      const speakerEl = el.querySelector("[data-mini-player-speaker]");
+      if (speakerEl) {
+        const next = speakerName || (window.I18n ? window.I18n.t("mini_player_now_playing") : "Now playing");
+        if (speakerEl.textContent !== next) speakerEl.textContent = next;
+      }
+      // Room-name slot · always the actual room title, in every
+      // state. The phase string ("Paused" / "Vote phase" / etc.)
+      // used to overload this slot in idle / thinking modes, but
+      // the sidebar bar now reads as a pure "audio is playing
+      // over there, here's which room" affordance — the phase
+      // belongs inside the room itself, not in the bar's label.
+      const roomEl = el.querySelector("[data-mini-player-room-name]");
+      if (roomEl) {
+        if (roomEl.textContent !== roomName) roomEl.textContent = roomName;
+      }
+      // Legacy subtitle slot · sidebar layout removed it, but if
+      // a downstream surface still mounts one, keep it in sync.
+      const subEl = el.querySelector("[data-mini-player-subtitle]");
+      if (subEl) {
+        const next = subtitle || "";
+        if (subEl.textContent !== next) {
+          subEl.textContent = next;
+          subEl.classList.remove("mp-sub-enter");
+          // eslint-disable-next-line no-unused-expressions
+          void subEl.offsetWidth;
+          subEl.classList.add("mp-sub-enter");
+        }
+      }
+      // Toggle button · the pause/resume control only makes sense
+      // when audio exists. Hide it cleanly during idle phases (the
+      // CSS targets data-mini-player-kind="idle"). Aria label
+      // reflects the current pause state when visible.
+      const toggleBtn = el.querySelector("[data-mini-player-toggle]");
+      if (toggleBtn && window.I18n && source.audio) {
+        const labelKey = source.audio.paused ? "mini_player_resume" : "mini_player_pause";
+        const label = window.I18n.t(labelKey);
+        toggleBtn.setAttribute("aria-label", label);
+        toggleBtn.setAttribute("title", label);
+      }
+      // Media Session API · declares this page as actively playing
+      // media. Without it, browsers (especially Chrome on macOS)
+      // de-prioritize the page when its window backgrounds (Cmd+Tab,
+      // mac space switch) and may pause the audio, throttle the SSE
+      // stream, or refuse to start audio.play() for the next speaker.
+      // Setting up metadata + action handlers tells the OS this is
+      // proper media playback and registers the page in the Now
+      // Playing widget. Only install when audio is in flight.
+      this._updateMediaSession(source);
+    },
+
+    /** Wire the page into the OS-level Media Session so the browser
+     *  treats audio as foreground media and doesn't pause / throttle
+     *  it when the window backgrounds. Idempotent · safe to call from
+     *  every refreshMiniPlayer pass; only re-writes metadata when the
+     *  speaker / pause-state changes. Action handlers feed back into
+     *  the queue's audio element so OS-level pause/play (lock screen,
+     *  control center, media keys) work too. */
+    _updateMediaSession(source) {
+      if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+      try {
+        if (!source || !source.audio) {
+          navigator.mediaSession.playbackState = "none";
+          return;
+        }
+        const agent = (source.authorId && this.agentsById) ? this.agentsById[source.authorId] : null;
+        const speakerName = (agent && agent.name) ? agent.name : "Boardroom";
+        const room = (this.rooms || []).find((r) => r.id === source.roomId);
+        const roomName = (room && room.name) ? room.name : "";
+        // Skip metadata re-writes when nothing changed · setting
+        // MediaMetadata flushes the OS widget, which on macOS can
+        // briefly steal audio focus.
+        const sig = speakerName + "::" + roomName + "::" + (source.kind || "");
+        if (this._mediaSessionSig !== sig) {
+          this._mediaSessionSig = sig;
+          const artwork = (agent && agent.avatarPath)
+            ? [{ src: agent.avatarPath, sizes: "512x512" }]
+            : [];
+          navigator.mediaSession.metadata = new window.MediaMetadata({
+            title: speakerName,
+            artist: roomName || "Boardroom",
+            album: "Voice Room",
+            artwork,
+          });
+          // Wire OS-level controls into the same toggle path the
+          // mini-player uses. Bound once per signature change so the
+          // handler always points at the current audio element.
+          navigator.mediaSession.setActionHandler("play", () => {
+            try {
+              const p = source.audio.play();
+              if (p && typeof p.catch === "function") p.catch(() => {});
+            } catch (_) {}
+          });
+          navigator.mediaSession.setActionHandler("pause", () => {
+            try { source.audio.pause(); } catch (_) {}
+          });
+        }
+        navigator.mediaSession.playbackState = source.audio.paused ? "paused" : "playing";
+      } catch (_) { /* MediaSession is best-effort */ }
     },
 
     /** Unlock HTMLAudioElement autoplay policy.
@@ -14613,8 +15451,19 @@
       // leftmost / rightmost director seats at the table's vertical
       // centre (y ≈ 41%) — beside the table edge, like real
       // boardroom side chairs.
+      //
+      // Per-count arc tuning:
+      //   · 1 director  → single seat at 270° (top-centre).
+      //   · 2 directors → narrow 60° arc centred on 270° so the
+      //     pair lands at y≈28% (above the table) instead of
+      //     y≈34% (chairs dipping into the table top with no
+      //     centre seat to anchor the arc visually).
+      //   · 3+ directors → full 180° arc; side seats overlap the
+      //     table edges but the centre seat anchors the
+      //     composition and the overlap reads as "tucked in".
       if (directorCount > 0) {
-        const arcDeg = 180;
+        const arcDeg   = directorCount === 2 ? 60  : 180;
+        const arcStart = directorCount === 2 ? 240 : 180;
         // Single director: stepDeg division-by-zero guard · place at
         // the arc midpoint (top-centre) when only one director is
         // seated.
@@ -14626,7 +15475,7 @@
           const m = members[1 + i];
           const t = directorCount === 1
             ? 270
-            : 180 + (i + 0.5) * stepDeg;
+            : arcStart + (i + 0.5) * stepDeg;
           const theta = (t * Math.PI) / 180;
           out.push({
             member: m,
@@ -15103,7 +15952,12 @@
             avatar = `<div class="rt-avatar rt-avatar-user rt-avatar-initial">${initial}</div>`;
           }
         } else {
-          avatar = `<img class="rt-avatar" src="${this.escape(m.avatarPath || "")}" alt="" aria-hidden="true">`;
+          // `data-agent` opens the lightweight director overlay (see
+          // public/agent-overlay.js bubble-phase click handler). Tagged
+          // on directors AND the chair so the user can peek at any
+          // seated voice from the stage; user seat is a div, not an
+          // img, and is intentionally not tagged.
+          avatar = `<img class="rt-avatar" data-agent="${this.escape(m.id)}" src="${this.escape(m.avatarPath || "")}" alt="${this.escape(m.name || "")}">`;
         }
         // Name plate · adds a small "Chairman / 董事长" title beneath
         // the user's name so the user seat reads as the room owner /
@@ -15776,28 +16630,22 @@
       btns.forEach((b) => { b.hidden = !eligible; });
       if (eligible) {
         const inStage = showStage;
-        // Label semantics depend on whether we're in voice mode yet:
-        //   · voice + stage visible → "Transcript" (clicking goes there)
-        //   · voice + chat visible  → "Round table" (clicking goes there)
-        //   · text mode             → "Voice mode" (clicking enables it)
+        // Label semantics · the toggle now reads "Round table" in
+        // BOTH voice-mode states (stage AND transcript). The pressed
+        // state (aria-pressed below) is the only signal that flips
+        // when the user is currently viewing the round-table — same
+        // affordance as a selected toggle button. Text mode keeps
+        // the "Voice mode" label (the entry-point label is different
+        // there because the click also flips deliveryMode).
         const destLabelKey = !isVoiceRoom
           ? "rt_toggle_enable_voice"
-          : (inStage ? "rt_toggle_transcript" : "rt_toggle_roundtable");
+          : "rt_toggle_roundtable";
         const destLabel = this._t(destLabelKey);
-        // Inline-SVG glyphs · NO emoji. currentColor inherits the
-        // lime accent from .ib-rt-glyph so a single rule themes both
-        // states. Transcript = a page with folded top-right corner
-        // and two text lines inside (reads as "written record /
-        // document"; the previous 3-stacked-lines glyph was too
-        // close to a hamburger-menu icon). Round-table = central
-        // circle ringed by 5 dots (reads as a seated cast).
-        const transcriptGlyphSvg =
-          `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
-          + `<path d="M3 2 H10 L13 5 V14 H3 Z" />`
-          + `<path d="M10 2 V5 H13" />`
-          + `<line x1="5.5" y1="8.5" x2="10.5" y2="8.5" />`
-          + `<line x1="5.5" y1="11"  x2="9"    y2="11" />`
-          + `</svg>`;
+        // Inline-SVG glyph · NO emoji. currentColor inherits the
+        // lime accent from .ib-rt-glyph. Round-table = central
+        // circle ringed by 5 dots (reads as a seated cast). Same
+        // glyph for both states in voice mode — the pressed state
+        // alone carries the "you are here" signal.
         const roundTableGlyphSvg =
           `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true">`
           + `<circle cx="8"    cy="8"    r="4.6" />`
@@ -15807,30 +16655,19 @@
           + `<circle cx="4.6"  cy="13.4" r="1.3" fill="currentColor" stroke="none" />`
           + `<circle cx="2.5"  cy="6.2"  r="1.3" fill="currentColor" stroke="none" />`
           + `</svg>`;
-        // In text mode the destination is "voice / round-table" —
-        // the icon should preview the round-table cast like the
-        // chat-view-of-a-voice-room case. inStage being false in
-        // that case (no stage to be in) gives the right glyph.
-        const currentGlyphSvg = (isVoiceRoom && inStage) ? transcriptGlyphSvg : roundTableGlyphSvg;
-        // Hover preview SVG · 5-dot circle for round-table,
-        // page-with-folded-corner for transcript. These are the
-        // DESTINATION sketches, not the current view's.
-        const previewSvg = (isVoiceRoom && inStage)
-          ? `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
-            + `<path class="rt-prev-stroke" d="M20 4 H36 L42 10 V26 H20 Z" />`
-            + `<path class="rt-prev-stroke" d="M36 4 V10 H42" />`
-            + `<line class="rt-prev-stroke" x1="24" y1="14" x2="38" y2="14" />`
-            + `<line class="rt-prev-stroke" x1="24" y1="18" x2="34" y2="18" />`
-            + `<line class="rt-prev-stroke" x1="24" y1="22" x2="36" y2="22" />`
-            + `</svg>`
-          : `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
-            + `<circle class="rt-prev-stroke" cx="30" cy="15" r="11" />`
-            + `<circle class="rt-prev-fill"   cx="30" cy="4"  r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="40.5" cy="10" r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="36.5" cy="22" r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="23.5" cy="22" r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="19.5" cy="10" r="2.4" />`
-            + `</svg>`;
+        const currentGlyphSvg = roundTableGlyphSvg;
+        // Hover preview SVG · 5-dot circle for round-table. Same
+        // sketch in both voice states; the label / pressed state
+        // carry the toggle meaning.
+        const previewSvg =
+          `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
+          + `<circle class="rt-prev-stroke" cx="30" cy="15" r="11" />`
+          + `<circle class="rt-prev-fill"   cx="30" cy="4"  r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="40.5" cy="10" r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="36.5" cy="22" r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="23.5" cy="22" r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="19.5" cy="10" r="2.4" />`
+          + `</svg>`;
         const innerHTML =
           `<span class="ib-rt-glyph" aria-hidden="true">${currentGlyphSvg}</span>` +
           `<span class="ib-rt-label">${this.escape(destLabel)}</span>` +
@@ -17200,6 +18037,17 @@
       app.scrollToOpener();
       return;
     }
+    // Floating mini-player · the whole bar is the click target.
+    // A click anywhere on the surface (including the inner jump
+    // button) navigates to the room. Match the outer aside so
+    // any descendant click bubbles up to the same handler.
+    if (e.target.closest("[data-mini-player]")) {
+      e.preventDefault();
+      const el = document.querySelector("[data-mini-player]");
+      const roomId = el && el.getAttribute("data-mini-player-room-id");
+      if (roomId) app.navigateToRoom(roomId);
+      return;
+    }
     if (e.target.closest("[data-divergence-close]")) {
       e.preventDefault();
       app.closeDivergenceOverlay();
@@ -17919,6 +18767,19 @@
         : "Generation runs offline · click to enable web search";
       return;
     }
+    // Agent build-mode toggle · binary signal ↔ full flip. The button
+    // lives in the new-agent composer's bottombar (left of the web
+    // search toggle). Click hands off to setAgentBuilderMode, which
+    // persists + re-renders the empty state so the CTA copy / aria-
+    // pressed / hint all repaint in lock-step.
+    const buildToggle = e.target.closest("[data-agent-builder-toggle]");
+    if (buildToggle) {
+      e.preventDefault();
+      const cur = app.loadAgentBuilderMode();
+      const next = cur === "full" ? "signal" : "full";
+      app.setAgentBuilderMode(next);
+      return;
+    }
     // ─── Agent spec preview · field actions
     if (e.target.closest("[data-agent-spec-reroll]")) {
       e.preventDefault();
@@ -18402,6 +19263,23 @@
         app.ensureBriefStallWatch();
         app.tickBriefStallWatch();
       }
+    }
+    // Voice playback safety net · if the browser paused any audio
+    // queue while the tab was backgrounded (some Chrome versions
+    // do this even with Media Session declared), resume them on
+    // tab return so the user doesn't have to manually re-start.
+    if (app && app.voiceQueues) {
+      for (const mid of Object.keys(app.voiceQueues)) {
+        const q = app.voiceQueues[mid];
+        if (!q || !q.audio) continue;
+        if (q.audio.paused && !q.audio.ended) {
+          try {
+            const p = q.audio.play();
+            if (p && typeof p.catch === "function") p.catch(() => { /* autoplay block */ });
+          } catch (_) {}
+        }
+      }
+      app.refreshMiniPlayer();
     }
   });
 

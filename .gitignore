@@ -1,6 +1,8 @@
 # deps + builds
 node_modules
 dist
+dist-electron
+release
 *.tsbuildinfo
 
 # logs / coverage
@@ -34,3 +36,12 @@ _site/
 # package-lock); `.agents/` is the populated cache the lockfile
 # resolves to and shouldn't be tracked.
 .agents/
+
+# Design / avatar exploration previews — generated artifacts, not source.
+/abstract-pets-gallery.svg
+/brick-variants-gallery.svg
+/director-avatar-demo.svg
+/director-gallery.svg
+/director-v2.svg
+/seed-avatar-preview.svg
+/stylish-gallery.svg

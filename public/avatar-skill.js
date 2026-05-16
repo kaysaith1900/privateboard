@@ -1,14 +1,26 @@
 /* ═══════════════════════════════════════════════════════════════
-   AVATAR SKILL · 48×56 chibi pixel-art SVG generator
+   AVATAR SKILL · BRICK pet generator
    ─────────────────────────────────────────────────────────────
-   Head-only chibi sprites in the same hand-crafted style as the
-   seeded directors (avatars/socrates.svg, first-principles.svg, etc.):
-     · rounded face (chamfered top + chin)
-     · multi-tone skin shading (highlight / mid / shadow / outline)
-     · varied hair styles + colours, glasses, eyebrows, mouth
-     · neck stub at the bottom (no body / clothes)
-   viewBox is `0 -4 48 56` so the head sits with breathing room
-   at the top and the neck stub fades into the canvas bottom.
+   Composable 8-bit pixel-art mascots based on the BRICK silhouette
+   (chunky terracotta block + stub legs + tool belt). Five dimensions
+   combined by seed:
+
+     · body color   (12)  — terracotta default; chair always terracotta
+     · glasses      (9)   — none, round, horn, monocle, sun, aviator,
+                            cyber-visor, pince-nez, 3d
+     · mustache     (10)  — clean, handlebar, walrus, pencil, chevron,
+                            horseshoe, imperial, soul-patch, goatee, full
+     · expression   (7)   — default, focused, wink, surprised, sleepy,
+                            side-look, happy
+     · prop         (9)   — none, coffee, notebook, magnifier, lightbulb,
+                            gavel, scroll, pen, lantern
+                            (held in front of body, doesn't break silhouette)
+
+   Hats were deliberately removed — hatted vs. un-hatted avatars made
+   the rendered head size inconsistent (per-avatar viewBox includes
+   the hat in its bbox, so the body shrank inside the fixed-size
+   container). Now every avatar has identical content bounds → body
+   size is stable across the whole sidebar.
 
    Public API · window.AvatarSkill:
      generate(seed?, opts?)            → SVG markup string
@@ -16,90 +28,40 @@
      randomSeed()                      → fresh seed string
      attach({ frame, button, onSeed }) → wire a UI in one line.
 
-   opts.placeholder = true → neutral grey silhouette w/ "?".
+   opts.placeholder = true → grey silhouette w/ "?".
+   opts.variant = "classic" → forces CLASSIC (default expression + clean
+                              + no glasses / mustache / prop, terracotta).
+                              Used by chair.svg.
+
+   Grid: 32×32 cells, 16px each, viewBox computed per-avatar.
    ═══════════════════════════════════════════════════════════════ */
 
 (function () {
   if (window.AvatarSkill) return;
 
-  // ── Constants ────────────────────────────────────────────
-  const W = 48;
-  const H = 56;
-  // The visible Y range is -4..52. Internally we operate on 0..H
-  // and serialize with viewBox="0 -4 48 56".
+  // ── Grid constants ───────────────────────────────────────
+  const GRID = 32;
+  const PX = 16;
+  const SIZE = GRID * PX; // 512
 
-  // ── Palettes (multi-tone) ────────────────────────────────
-  const SKIN = [
-    { hl: "#FFE5C5", mid: "#F2B585", shadow: "#D69570", deep: "#A8704A", outline: "#5A3520" }, // peach
-    { hl: "#FFCFA2", mid: "#E8B084", shadow: "#D69970", deep: "#B58050", outline: "#6E4830" }, // warm tan
-    { hl: "#EFD0AC", mid: "#D6A878", shadow: "#B58858", deep: "#6E4830", outline: "#3F2818" }, // olive (chair)
-    { hl: "#E5BFA0", mid: "#C68863", shadow: "#A86B47", deep: "#6F4528", outline: "#2A1A12" }, // medium
-    { hl: "#C68863", mid: "#A86B47", shadow: "#8B5A3C", deep: "#5A3520", outline: "#1A0A05" }, // bronze
-    { hl: "#A86B47", mid: "#8B5A3C", shadow: "#6F4528", deep: "#3A2014", outline: "#1A0A05" }, // deep
+  // ── Body color palettes (12) ─────────────────────────────
+  // Each: { name, base, hi, sh, deep, eye, belt, buckle }
+  const BODY_COLORS = [
+    { name: "terracotta",  base: "#a35a32", hi: "#ce8a5a", sh: "#6e3814", deep: "#3e1c08", eye: "#1a0805", belt: "#5a2a10", buckle: "#cfb56a" },
+    { name: "slate",       base: "#5a6f88", hi: "#8294aa", sh: "#3a4e64", deep: "#202d3e", eye: "#15101c", belt: "#2a3848", buckle: "#c0c8d8" },
+    { name: "moss",        base: "#5a7a3a", hi: "#8aaa5a", sh: "#3a5418", deep: "#1a2a08", eye: "#15140c", belt: "#2a3a18", buckle: "#d4c870" },
+    { name: "plum",        base: "#6a3a6a", hi: "#9a5a9a", sh: "#3a1a3a", deep: "#1a081a", eye: "#15081a", belt: "#2a142a", buckle: "#d4a8d8" },
+    { name: "dusty-rose",  base: "#c47a7a", hi: "#e8a8a8", sh: "#8a4848", deep: "#5a2828", eye: "#2a1414", belt: "#6a3a3a", buckle: "#e8c8a8" },
+    { name: "mustard",     base: "#c4a040", hi: "#e8c870", sh: "#886820", deep: "#4a3808", eye: "#2a1c05", belt: "#685428", buckle: "#e8d8a8" },
+    { name: "charcoal",    base: "#4a4a52", hi: "#6a6a78", sh: "#2a2a32", deep: "#15151a", eye: "#08080c", belt: "#1a1a22", buckle: "#a8a8b0" },
+    { name: "copper",      base: "#b86a3a", hi: "#e08a5a", sh: "#7a3a18", deep: "#3a1a08", eye: "#1a0805", belt: "#5a2810", buckle: "#f5d870" },
+    { name: "teal",        base: "#3a8a8a", hi: "#5aaaaa", sh: "#1a4848", deep: "#082828", eye: "#051818", belt: "#1a3838", buckle: "#c8e8d8" },
+    { name: "burgundy",    base: "#7a2828", hi: "#a85050", sh: "#4a1010", deep: "#1a0808", eye: "#15050a", belt: "#380a0a", buckle: "#d8a8a8" },
+    { name: "amber",       base: "#d4923a", hi: "#f5b85a", sh: "#8a5818", deep: "#4a2808", eye: "#1c0d05", belt: "#6a3a10", buckle: "#fff0a8" },
+    { name: "navy",        base: "#2a4a78", hi: "#4a6aa8", sh: "#15284a", deep: "#08152a", eye: "#050a18", belt: "#15203a", buckle: "#c0d0e8" },
   ];
 
-  // Each hair colour ships highlight / mid / shadow / outline.
-  const HAIR = [
-    { name: "black-blue",  hl: "#3A5A9C", mid: "#1F2A4A", shadow: "#0A0A1A", outline: "#0A0A1A", brow: "#0A0A1A" },
-    { name: "dark-brown",  hl: "#5C3A22", mid: "#3A2418", shadow: "#1F1006", outline: "#0E0501", brow: "#1F1006" },
-    { name: "chestnut",    hl: "#A05A2C", mid: "#7B4F2A", shadow: "#5C3A22", outline: "#2A1A0A", brow: "#5C3A22" },
-    { name: "auburn",      hl: "#F5904A", mid: "#E26336", shadow: "#A8482A", outline: "#5A1808", brow: "#A8482A" },
-    { name: "blonde",      hl: "#FFE072", mid: "#F2C037", shadow: "#C99826", outline: "#7A5A14", brow: "#A07820" },
-    { name: "silver",      hl: "#FFFFFF", mid: "#C8C5BE", shadow: "#9C9890", outline: "#3A3A3A", brow: "#6E665F" },
-    { name: "white",       hl: "#FFFFFF", mid: "#F0EDE5", shadow: "#DAD5C8", outline: "#6E665F", brow: "#DAD5C8" },
-    { name: "red",         hl: "#FF6A38", mid: "#D44820", shadow: "#A8281A", outline: "#5A1808", brow: "#A8281A" },
-    { name: "plum",        hl: "#A88BD1", mid: "#7B5AA8", shadow: "#5A3D8F", outline: "#2A1A4A", brow: "#5A3D8F" },
-    { name: "navy",        hl: "#3E78C8", mid: "#2D3E66", shadow: "#1A2540", outline: "#0A1228", brow: "#1A2540" },
-    { name: "ginger",      hl: "#F5A05A", mid: "#C46A2C", shadow: "#8E4818", outline: "#3F1F08", brow: "#8E4818" },
-    { name: "mint",        hl: "#A8E5C8", mid: "#5DBE9A", shadow: "#2F7A60", outline: "#0E3A28", brow: "#2F7A60" },
-  ];
-
-  // Eye iris colors (shown when chance hits)
-  const IRIS = [
-    "#3E78C8", // sky blue
-    "#7BA0E8", // pale blue
-    "#5A8A4D", // green
-    "#7A5A3A", // hazel
-    "#C99826", // amber
-    "#6A9B97", // cyan
-    "#5C3A22", // brown
-  ];
-
-  // Glasses · 4 distinct shapes + 5 frame colors
-  const GLASSES_FRAMES = [
-    { rim: "#1A1A1A", hi: "#3A3A3A", name: "black" },
-    { rim: "#2C4AAB", hi: "#7BA0E8", name: "royal-blue" },
-    { rim: "#A87818", hi: "#F2C037", name: "gold" },
-    { rim: "#7A4838", hi: "#A86B47", name: "tortoise" },
-    { rim: "#9C9890", hi: "#E0DDD3", name: "silver" },
-  ];
-
-  // Beanie palettes (multi-tone)
-  const BEANIES = [
-    { name: "red",     hl: "#F5604A", mid: "#E03020", shadow: "#A82820", outline: "#5A0E08" },
-    { name: "yellow",  hl: "#FFE560", mid: "#FFC830", shadow: "#C98818", outline: "#7A4F0A" },
-    { name: "navy",    hl: "#3E78C8", mid: "#2D3E66", shadow: "#1A2540", outline: "#0A1228" },
-    { name: "forest",  hl: "#5DBE3F", mid: "#2F7A24", shadow: "#1A4818", outline: "#0E2A0E" },
-    { name: "plum",    hl: "#A88BD1", mid: "#7B5AA8", shadow: "#5A3D8F", outline: "#2A1A4A" },
-    { name: "charcoal",hl: "#9C948C", mid: "#5A5A5A", shadow: "#3A3A3A", outline: "#1A1A1A" },
-  ];
-
-  // ── Pixel grid + RNG ─────────────────────────────────────
-  function makeGrid() {
-    const g = new Array(H);
-    for (let y = 0; y < H; y++) g[y] = new Array(W).fill(null);
-    return g;
-  }
-  function px(grid, x, y, color) {
-    if (x < 0 || x >= W || y < 0 || y >= H) return;
-    grid[y][x] = color;
-  }
-  function fillRect(grid, x, y, w, h, color) {
-    for (let dy = 0; dy < h; dy++) {
-      for (let dx = 0; dx < w; dx++) px(grid, x + dx, y + dy, color);
-    }
-  }
-
+  // ── RNG ──────────────────────────────────────────────────
   function makeRng(seed) {
     let s = 0;
     const str = String(seed || "default");
@@ -109,8 +71,7 @@
       return s / 0xFFFFFFFF;
     };
   }
-  function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
-  function chance(rng, p) { return rng() < p; }
+  const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
   function weighted(rng, items, weights) {
     let total = 0;
     for (const w of weights) total += w;
@@ -122,637 +83,517 @@
     return items[items.length - 1];
   }
 
-  // ── ROUNDED HEAD · skin fill + outline ───────────────────
-  // Shape:
-  //   y=10: 22w (top chamfer)   x=13..34
-  //   y=11: 26w                 x=11..36
-  //   y=12: 30w                 x=9..38
-  //   y=13..29: full 30w main   x=9..38
-  //   y=30: 30w
-  //   y=31: 26w (chin chamfer)
-  //   y=32: 22w (chin tip)
-  function drawHead(grid, skin) {
-    // outline silhouette
-    fillRect(grid, 13, 10, 22, 1, skin.outline);
-    fillRect(grid, 11, 11, 2,  1, skin.outline);
-    fillRect(grid, 35, 11, 2,  1, skin.outline);
-    fillRect(grid, 9,  12, 2,  1, skin.outline);
-    fillRect(grid, 37, 12, 2,  1, skin.outline);
-    fillRect(grid, 8,  13, 1, 17, skin.outline);
-    fillRect(grid, 39, 13, 1, 17, skin.outline);
-    fillRect(grid, 9,  30, 2,  1, skin.outline);
-    fillRect(grid, 37, 30, 2,  1, skin.outline);
-    fillRect(grid, 11, 31, 2,  1, skin.outline);
-    fillRect(grid, 35, 31, 2,  1, skin.outline);
-    fillRect(grid, 13, 32, 22, 1, skin.outline);
-    // skin fill (rounded interior)
-    fillRect(grid, 13, 10, 22,  1, skin.mid);
-    fillRect(grid, 11, 11, 26,  1, skin.mid);
-    fillRect(grid, 9,  12, 30,  1, skin.mid);
-    fillRect(grid, 9,  13, 30, 17, skin.mid);
-    fillRect(grid, 9,  30, 30,  1, skin.mid);
-    fillRect(grid, 11, 31, 26,  1, skin.mid);
-    fillRect(grid, 13, 32, 22,  1, skin.mid);
-    // forehead highlight
-    fillRect(grid, 13, 11, 22, 2, skin.hl);
-    fillRect(grid, 14, 12, 20, 1, skin.hl);
-    // temple shadow
-    fillRect(grid, 9,  18, 2, 9, skin.deep);
-    fillRect(grid, 37, 18, 2, 9, skin.deep);
-    // cheekbone highlight
-    fillRect(grid, 11, 22, 3, 3, skin.hl);
-    fillRect(grid, 34, 22, 3, 3, skin.hl);
-    // jaw shadow
-    fillRect(grid, 11, 27, 26, 2, skin.shadow);
-    fillRect(grid, 13, 29, 22, 2, skin.deep);
+  // ── Pixel grid ───────────────────────────────────────────
+  function makeGrid() {
+    const g = new Array(GRID);
+    for (let y = 0; y < GRID; y++) g[y] = new Array(GRID).fill(null);
+    return g;
+  }
+  function px(g, x, y, c) {
+    if (x < 0 || x >= GRID || y < 0 || y >= GRID) return;
+    g[y][x] = c;
+  }
+  function row(g, r, c1, c2, c) {
+    for (let x = c1; x <= c2; x++) px(g, x, r, c);
+  }
+  function colp(g, c, r1, r2, color) {
+    for (let y = r1; y <= r2; y++) px(g, c, y, color);
+  }
+  function rect(g, x, y, w, h, c) {
+    for (let dy = 0; dy < h; dy++)
+      for (let dx = 0; dx < w; dx++) px(g, x + dx, y + dy, c);
   }
 
-  // ── HAIR STYLES ──────────────────────────────────────────
-  function drawShortHair(grid, hair) {
-    fillRect(grid, 14, 3, 20, 1, hair.outline);
-    fillRect(grid, 11, 4, 26, 2, hair.shadow);
-    fillRect(grid, 9,  6, 30, 2, hair.shadow);
-    fillRect(grid, 9,  8, 30, 2, hair.mid);
-    // sideburns (rounded around head edge)
-    fillRect(grid, 9,  10, 2, 3, hair.shadow);
-    fillRect(grid, 37, 10, 2, 3, hair.shadow);
-    fillRect(grid, 11, 10, 2, 2, hair.shadow);
-    fillRect(grid, 35, 10, 2, 2, hair.shadow);
-    // sheen highlights
-    fillRect(grid, 14, 5, 6, 1, hair.hl);
-    fillRect(grid, 24, 5, 6, 1, hair.hl);
-    fillRect(grid, 11, 7, 5, 1, hair.hl);
-    fillRect(grid, 28, 7, 5, 1, hair.hl);
+  // ════════════════════════════════════════════════════════
+  // BRICK BODY  (rows 10-22, cols 10-21)
+  // ════════════════════════════════════════════════════════
+
+  const BODY_SHAPE = [
+    [10, 12, 19], [11, 11, 20], [12, 10, 21], [13, 10, 21],
+    [14, 10, 21], [15, 10, 21], [16, 10, 21], [17, 10, 21],
+    [18, 10, 21], [19, 10, 21], [20, 11, 20],
+  ];
+
+  function drawBody(g, p) {
+    for (const [r, c1, c2] of BODY_SHAPE) row(g, r, c1, c2, p.base);
+    // Stub legs
+    rect(g, 12, 21, 2, 2, p.base);
+    rect(g, 18, 21, 2, 2, p.base);
+    // Foot bottom
+    row(g, 22, 12, 13, p.deep);
+    row(g, 22, 18, 19, p.deep);
+    // Top-left highlight
+    [[12,10],[13,10],[11,11],[12,11],[10,12],[11,12]].forEach(([x,y])=>px(g,x,y,p.hi));
+    // Bottom-right shadow
+    [[20,17],[21,17],[20,18],[21,18],[19,19],[20,19],[20,20]].forEach(([x,y])=>px(g,x,y,p.sh));
+    px(g, 19, 21, p.sh);
+    // Tool belt
+    row(g, 17, 10, 21, p.belt);
+    px(g, 15, 17, p.buckle);
+    px(g, 16, 17, p.buckle);
   }
 
-  function drawSidePartHair(grid, hair) {
-    fillRect(grid, 12, 3, 24, 1, hair.outline);
-    fillRect(grid, 10, 4, 28, 1, hair.shadow);
-    fillRect(grid, 9,  5, 30, 1, hair.shadow);
-    fillRect(grid, 9,  6, 30, 2, hair.mid);
-    fillRect(grid, 9,  8, 30, 2, hair.mid);
-    fillRect(grid, 9,  10, 2, 3, hair.shadow);
-    fillRect(grid, 37, 10, 2, 3, hair.shadow);
-    fillRect(grid, 11, 10, 2, 2, hair.shadow);
-    fillRect(grid, 35, 10, 2, 2, hair.shadow);
-    // side parting line (clear strip)
-    fillRect(grid, 16, 5, 1, 5, hair.hl);
-    fillRect(grid, 17, 5, 6, 1, hair.hl);
-    fillRect(grid, 25, 5, 5, 1, hair.hl);
-  }
+  // ════════════════════════════════════════════════════════
+  // EXPRESSIONS  (eyes + brows; row 12-14)
+  // ════════════════════════════════════════════════════════
 
-  function drawLongHair(grid, hair) {
-    // top mass
-    fillRect(grid, 11, 2, 26, 1, hair.shadow);
-    fillRect(grid, 9,  3, 30, 1, hair.mid);
-    fillRect(grid, 8,  4, 32, 2, hair.mid);
-    fillRect(grid, 7,  6, 34, 3, hair.mid);
-    fillRect(grid, 7,  9, 34, 2, hair.shadow);
-    // side hair flowing past head
-    fillRect(grid, 6,  11, 3, 20, hair.mid);
-    fillRect(grid, 39, 11, 3, 20, hair.mid);
-    fillRect(grid, 5,  14, 2, 17, hair.shadow);
-    fillRect(grid, 41, 14, 2, 17, hair.shadow);
-    // outline
-    fillRect(grid, 4,  17, 1, 14, hair.outline);
-    fillRect(grid, 43, 17, 1, 14, hair.outline);
-    fillRect(grid, 11, 2, 1, 9, hair.outline);
-    fillRect(grid, 36, 2, 1, 9, hair.outline);
-    // highlights
-    fillRect(grid, 13, 4, 4, 1, hair.hl);
-    fillRect(grid, 22, 4, 5, 1, hair.hl);
-    fillRect(grid, 32, 4, 3, 1, hair.hl);
-  }
-
-  function drawCurlyHair(grid, hair) {
-    // top curl bumps (5 separate clusters)
-    fillRect(grid, 11, 2, 3, 1, hair.outline);
-    fillRect(grid, 16, 2, 3, 1, hair.outline);
-    fillRect(grid, 22, 2, 3, 1, hair.outline);
-    fillRect(grid, 28, 2, 3, 1, hair.outline);
-    fillRect(grid, 33, 2, 3, 1, hair.outline);
-    fillRect(grid, 9,  3, 30, 1, hair.shadow);
-    fillRect(grid, 8,  4, 32, 2, hair.shadow);
-    fillRect(grid, 7,  6, 34, 3, hair.mid);
-    fillRect(grid, 7,  9, 34, 2, hair.hl);
-    // side curls flowing past head
-    fillRect(grid, 6,  11, 3, 18, hair.mid);
-    fillRect(grid, 39, 11, 3, 18, hair.mid);
-    fillRect(grid, 5,  14, 2, 14, hair.hl);
-    fillRect(grid, 41, 14, 2, 14, hair.hl);
-    // curl outline
-    fillRect(grid, 4,  14, 1, 14, hair.outline);
-    fillRect(grid, 43, 14, 1, 14, hair.outline);
-    fillRect(grid, 5,  28, 2, 3, hair.outline);
-    fillRect(grid, 41, 28, 2, 3, hair.outline);
-    // Side texture bumps removed · for silver / white / blonde palettes
-    // these isolated single pixels (each at hair.hl) read as bright
-    // white speckles scattered around the head silhouette rather than
-    // the curl detail they were meant to suggest. The continuous
-    // .hl strip at (5, 14) / (41, 14) and the outline columns above
-    // already carry enough texture without the discrete dots.
-  }
-
-  function drawAfroHair(grid, hair) {
-    // big round puffy mass
-    fillRect(grid, 13, 1, 22, 1, hair.outline);
-    fillRect(grid, 11, 2, 26, 2, hair.shadow);
-    fillRect(grid, 8,  4, 32, 2, hair.shadow);
-    fillRect(grid, 6,  6, 36, 3, hair.mid);
-    fillRect(grid, 6,  9, 36, 2, hair.mid);
-    fillRect(grid, 5,  11, 4, 6, hair.mid);
-    fillRect(grid, 39, 11, 4, 6, hair.mid);
-    // bumps for texture
-    fillRect(grid, 4,  13, 1, 4, hair.outline);
-    fillRect(grid, 43, 13, 1, 4, hair.outline);
-    fillRect(grid, 5,  17, 4, 1, hair.outline);
-    fillRect(grid, 39, 17, 4, 1, hair.outline);
-    // highlights (catching light at the top)
-    fillRect(grid, 14, 3, 4, 1, hair.hl);
-    fillRect(grid, 22, 3, 4, 1, hair.hl);
-    fillRect(grid, 30, 3, 4, 1, hair.hl);
-  }
-
-  function drawBunHair(grid, hair) {
-    // base hair around head
-    fillRect(grid, 12, 4, 24, 1, hair.outline);
-    fillRect(grid, 10, 5, 28, 1, hair.shadow);
-    fillRect(grid, 9,  6, 30, 2, hair.mid);
-    fillRect(grid, 9,  8, 30, 2, hair.mid);
-    fillRect(grid, 9,  10, 2, 3, hair.shadow);
-    fillRect(grid, 37, 10, 2, 3, hair.shadow);
-    fillRect(grid, 11, 10, 2, 2, hair.shadow);
-    fillRect(grid, 35, 10, 2, 2, hair.shadow);
-    // bun on top
-    fillRect(grid, 19, 0, 10, 1, hair.outline);
-    fillRect(grid, 17, 1, 14, 2, hair.shadow);
-    fillRect(grid, 18, 1, 12, 1, hair.mid);
-    fillRect(grid, 18, 3, 12, 1, hair.shadow);
-    fillRect(grid, 20, 1, 4, 1, hair.hl);
-  }
-
-  // Bald = nothing drawn (head shows through)
-  function drawBaldHair(_grid, _hair) {}
-
-  const HAIR_STYLES = {
-    short:    drawShortHair,
-    sidepart: drawSidePartHair,
-    long:     drawLongHair,
-    curly:    drawCurlyHair,
-    afro:     drawAfroHair,
-    bun:      drawBunHair,
-    bald:     drawBaldHair,
+  const EXPRESSIONS = {
+    // Default: angled inward brows + dot eyes (the OG BRICK look)
+    default(g, p) {
+      px(g, 12, 12, p.eye); px(g, 13, 13, p.eye);
+      px(g, 19, 12, p.eye); px(g, 18, 13, p.eye);
+      px(g, 13, 14, p.eye); px(g, 18, 14, p.eye);
+    },
+    // Focused: flat brows + narrowed eyes
+    focused(g, p) {
+      row(g, 12, 12, 14, p.eye);
+      row(g, 12, 17, 19, p.eye);
+      px(g, 13, 14, p.eye); px(g, 14, 14, p.eye);
+      px(g, 17, 14, p.eye); px(g, 18, 14, p.eye);
+    },
+    // Wink: left eye dot, right eye closed line
+    wink(g, p) {
+      px(g, 12, 12, p.eye); px(g, 13, 13, p.eye);
+      px(g, 19, 12, p.eye); px(g, 18, 13, p.eye);
+      px(g, 13, 14, p.eye);
+      row(g, 14, 17, 19, p.eye);  // closed wink line
+    },
+    // Surprised: raised brows + bigger eyes (2x2)
+    surprised(g, p) {
+      row(g, 11, 12, 14, p.eye);
+      row(g, 11, 17, 19, p.eye);
+      rect(g, 13, 13, 1, 2, p.eye);
+      rect(g, 18, 13, 1, 2, p.eye);
+    },
+    // Sleepy: low brows + closed-line eyes
+    sleepy(g, p) {
+      px(g, 12, 13, p.eye); px(g, 13, 13, p.eye);
+      px(g, 18, 13, p.eye); px(g, 19, 13, p.eye);
+      row(g, 14, 12, 14, p.eye);
+      row(g, 14, 17, 19, p.eye);
+    },
+    // Side-look: eyes shifted right
+    sideLook(g, p) {
+      px(g, 12, 12, p.eye); px(g, 13, 13, p.eye);
+      px(g, 19, 12, p.eye); px(g, 18, 13, p.eye);
+      px(g, 14, 14, p.eye); px(g, 19, 14, p.eye);
+    },
+    // Happy: ^_^ curved-up eyes
+    happy(g, p) {
+      // brow tips up
+      px(g, 12, 12, p.eye); px(g, 13, 12, p.eye);
+      px(g, 18, 12, p.eye); px(g, 19, 12, p.eye);
+      // ^_^
+      px(g, 12, 14, p.eye); px(g, 14, 14, p.eye); px(g, 13, 13, p.eye);
+      px(g, 17, 14, p.eye); px(g, 19, 14, p.eye); px(g, 18, 13, p.eye);
+    },
   };
 
-  // ── ACCESSORIES ──────────────────────────────────────────
-  function drawBeanie(grid, beanie) {
-    fillRect(grid, 14, 5, 20, 1, beanie.outline);
-    fillRect(grid, 11, 6, 26, 1, beanie.shadow);
-    fillRect(grid, 9,  7, 30, 1, beanie.shadow);
-    fillRect(grid, 9,  8, 30, 3, beanie.mid);
-    fillRect(grid, 9,  11, 30, 2, beanie.hl);
-    fillRect(grid, 9,  13, 30, 3, beanie.shadow);
-    // ribbing bars
-    for (const x of [11, 14, 17, 20, 23, 26, 29, 32, 35]) {
-      fillRect(grid, x, 13, 1, 3, beanie.outline);
-    }
-    fillRect(grid, 9,  6, 1, 10, beanie.outline);
-    fillRect(grid, 38, 6, 1, 10, beanie.outline);
-    fillRect(grid, 13, 9, 4, 1, beanie.hl);
-    fillRect(grid, 22, 9, 4, 1, beanie.hl);
-    // pom-pom
-    fillRect(grid, 22, 1, 4, 1, "#8E8675");
-    fillRect(grid, 21, 2, 6, 2, "#FFFFFF");
-    fillRect(grid, 22, 4, 4, 1, "#E5E2D8");
-    px(grid, 20, 3, "#B8B0A0");
-    px(grid, 27, 3, "#B8B0A0");
+  // ════════════════════════════════════════════════════════
+  // GLASSES  (rows 12-15)
+  // ════════════════════════════════════════════════════════
+
+  const GLASSES = {
+    none(g, p) {},
+
+    round(g, p) {
+      const F = "#c9a040";
+      px(g, 13, 13, F); px(g, 13, 15, F); px(g, 12, 14, F); px(g, 14, 14, F);
+      px(g, 18, 13, F); px(g, 18, 15, F); px(g, 17, 14, F); px(g, 19, 14, F);
+      px(g, 15, 14, F); px(g, 16, 14, F);
+      px(g, 13, 13, "#ffd870"); px(g, 18, 13, "#ffd870");
+    },
+
+    horn(g, p) {
+      const F = "#0a0512";
+      row(g, 13, 12, 14, F); row(g, 15, 12, 14, F);
+      px(g, 12, 14, F); px(g, 14, 14, F);
+      row(g, 13, 17, 19, F); row(g, 15, 17, 19, F);
+      px(g, 17, 14, F); px(g, 19, 14, F);
+      row(g, 14, 15, 16, F);
+    },
+
+    monocle(g, p) {
+      const F = "#c9a040";
+      row(g, 12, 17, 18, F); row(g, 16, 17, 18, F);
+      colp(g, 16, 13, 15, F); colp(g, 19, 13, 15, F);
+      px(g, 17, 12, "#ffd870");
+      // Chain hanging down
+      px(g, 20, 14, "#7a5a18");
+      px(g, 20, 15, F);
+      px(g, 21, 15, "#7a5a18");
+      px(g, 21, 16, F);
+    },
+
+    sun(g, p) {
+      const F = "#0a0512";
+      rect(g, 12, 13, 3, 3, "#15101c");
+      rect(g, 17, 13, 3, 3, "#15101c");
+      row(g, 12, 12, 14, F); row(g, 12, 17, 19, F);
+      row(g, 14, 15, 16, F);
+      px(g, 12, 13, "#3ad4e0"); px(g, 17, 13, "#3ad4e0");
+    },
+
+    aviator(g, p) {
+      // Teardrop shape, gold
+      const F = "#c9a040";
+      // Left lens
+      row(g, 13, 12, 14, F);
+      px(g, 12, 14, F); px(g, 14, 14, F);
+      px(g, 13, 15, F); px(g, 14, 15, F);
+      // Right lens
+      row(g, 13, 17, 19, F);
+      px(g, 17, 14, F); px(g, 19, 14, F);
+      px(g, 17, 15, F); px(g, 18, 15, F);
+      // Bridge
+      px(g, 15, 13, F); px(g, 16, 13, F);
+      // Sheen
+      px(g, 13, 13, "#ffd870"); px(g, 18, 13, "#ffd870");
+    },
+
+    visor(g, p) {
+      // Cyber horizontal slit
+      rect(g, 11, 13, 10, 3, "#15101c");
+      row(g, 14, 12, 19, "#3ad4e0");
+      px(g, 13, 14, "#aaf0f8"); px(g, 18, 14, "#aaf0f8");
+      px(g, 11, 13, "#3a3445"); px(g, 20, 15, "#3a3445");
+    },
+
+    pince(g, p) {
+      // Pince-nez: small lenses on nose, no temples, with chain
+      px(g, 13, 14, "#5a5a5a"); px(g, 13, 13, "#5a5a5a");
+      px(g, 14, 14, "#5a5a5a");
+      px(g, 17, 14, "#5a5a5a"); px(g, 18, 13, "#5a5a5a");
+      px(g, 18, 14, "#5a5a5a");
+      px(g, 15, 14, "#5a5a5a"); px(g, 16, 14, "#5a5a5a");
+      // Small chain to side
+      px(g, 11, 15, "#5a5a5a");
+      px(g, 11, 16, "#5a5a5a");
+    },
+
+    "3d"(g, p) {
+      // Red + blue 3D glasses
+      rect(g, 12, 13, 3, 3, "#c8281a");
+      rect(g, 17, 13, 3, 3, "#3a78c8");
+      row(g, 12, 12, 14, "#0a0512"); row(g, 12, 17, 19, "#0a0512");
+      row(g, 14, 15, 16, "#0a0512");
+      px(g, 12, 13, "#f25a3a"); px(g, 17, 13, "#7ba8e8");
+    },
+  };
+
+  // ════════════════════════════════════════════════════════
+  // MUSTACHES / BEARDS  (rows 15-16, careful w/ belt at 17)
+  // ════════════════════════════════════════════════════════
+
+  const MUSTACHES = {
+    clean(g, p) {},
+
+    handlebar(g, p) {
+      const c = "#2a1408";
+      row(g, 16, 13, 18, c);
+      px(g, 14, 15, c); px(g, 17, 15, c);
+      px(g, 12, 15, c); px(g, 11, 15, c);
+      px(g, 19, 15, c); px(g, 20, 15, c);
+      px(g, 15, 16, "#5a3018"); px(g, 16, 16, "#5a3018");
+    },
+
+    walrus(g, p) {
+      const c = "#2a1408", cd = "#15080a";
+      row(g, 15, 12, 19, c);
+      row(g, 16, 11, 20, c);
+      px(g, 11, 17, c); px(g, 20, 17, c);
+      row(g, 16, 14, 17, cd);
+    },
+
+    pencil(g, p) {
+      row(g, 15, 14, 17, "#2a1408");
+    },
+
+    chevron(g, p) {
+      const c = "#2a1408", cd = "#15080a";
+      row(g, 15, 13, 18, c);
+      row(g, 16, 13, 18, c);
+      px(g, 13, 16, cd); px(g, 18, 16, cd);
+    },
+
+    horseshoe(g, p) {
+      const c = "#2a1408";
+      row(g, 15, 13, 18, c);
+      row(g, 16, 13, 18, c);
+      px(g, 13, 17, c); px(g, 18, 17, c);
+    },
+
+    imperial(g, p) {
+      // Big curls way up at the ends
+      const c = "#2a1408";
+      row(g, 16, 14, 17, c);
+      // Curls up to row 14 / 13
+      px(g, 13, 15, c); px(g, 12, 14, c); px(g, 11, 13, c); px(g, 11, 14, c);
+      px(g, 18, 15, c); px(g, 19, 14, c); px(g, 20, 13, c); px(g, 20, 14, c);
+    },
+
+    soulPatch(g, p) {
+      // Small tuft just under lip
+      const c = "#2a1408";
+      row(g, 16, 15, 16, c);
+      px(g, 15, 15, c);
+    },
+
+    goatee(g, p) {
+      // Chin + jaw line
+      const c = "#2a1408";
+      row(g, 16, 14, 17, c);
+      px(g, 13, 16, c); px(g, 18, 16, c);
+      // Sides going down to body bottom edge
+      colp(g, 13, 16, 19, c);
+      colp(g, 18, 16, 19, c);
+      row(g, 19, 14, 17, c);
+    },
+
+    fullBeard(g, p) {
+      // Covers lower face cols 11-20, rows 15-19
+      const c = "#2a1408", cd = "#15080a";
+      row(g, 15, 12, 19, c);
+      row(g, 16, 11, 20, c);
+      // Sideburns
+      colp(g, 11, 15, 18, c);
+      colp(g, 20, 15, 18, c);
+      // Chin extension
+      row(g, 18, 13, 18, c);
+      row(g, 19, 14, 17, c);
+      // Mustache shadow
+      row(g, 16, 14, 17, cd);
+    },
+  };
+
+  // ════════════════════════════════════════════════════════
+  // PROPS  (held in front of body, rows 17-21 area)
+  // Drawn LAST so they appear on top.
+  // ════════════════════════════════════════════════════════
+
+  const PROPS = {
+    none(g, p) {},
+
+    coffee(g, p) {
+      // Mug w/ handle, in front of belt
+      rect(g, 13, 18, 4, 4, "#2a1a14");      // mug body
+      rect(g, 13, 18, 4, 1, "#5a3a2a");      // top rim
+      // Coffee surface (steam-y dark brown)
+      px(g, 14, 18, "#1a0a05"); px(g, 15, 18, "#1a0a05");
+      // Handle
+      px(g, 17, 19, "#2a1a14"); px(g, 17, 20, "#2a1a14");
+      // Steam
+      px(g, 14, 17, "#dad5c8"); px(g, 15, 16, "#dad5c8");
+      // Highlight
+      px(g, 13, 19, "#5a3a2a");
+    },
+
+    notebook(g, p) {
+      // Open notebook / clipboard
+      rect(g, 12, 18, 8, 4, "#f1dfc4");      // paper
+      // Lines on paper
+      row(g, 19, 13, 18, "#7a5a3a");
+      row(g, 20, 13, 18, "#7a5a3a");
+      // Clip on top
+      rect(g, 14, 18, 4, 1, "#5a5a5a");
+      px(g, 15, 17, "#5a5a5a"); px(g, 16, 17, "#5a5a5a");
+      // Edge shadow
+      colp(g, 19, 18, 21, "#c9b58a");
+    },
+
+    magnifier(g, p) {
+      // Circle lens + handle
+      // Lens ring
+      row(g, 17, 13, 15, "#5a3a18");
+      row(g, 19, 13, 15, "#5a3a18");
+      px(g, 12, 18, "#5a3a18"); px(g, 16, 18, "#5a3a18");
+      // Lens glass
+      px(g, 13, 18, "#aaf0f8"); px(g, 14, 18, "#aaf0f8"); px(g, 15, 18, "#aaf0f8");
+      px(g, 13, 17, "#ffffff"); // sparkle
+      // Handle (going down-right)
+      px(g, 16, 19, "#5a3a18"); px(g, 17, 20, "#5a3a18"); px(g, 18, 21, "#5a3a18");
+    },
+
+    lightbulb(g, p) {
+      // Bulb above body w/ glow
+      // Glow
+      px(g, 16, 16, "#fff5b0");
+      px(g, 14, 17, "#fff5b0"); px(g, 18, 17, "#fff5b0");
+      // Bulb
+      rect(g, 15, 18, 3, 3, "#ffe070");
+      px(g, 14, 19, "#ffe070"); px(g, 18, 19, "#ffe070");
+      // Bulb highlight
+      px(g, 15, 18, "#ffffff");
+      // Base / screw cap
+      row(g, 21, 15, 17, "#5a5a5a");
+    },
+
+    gavel(g, p) {
+      // Wooden gavel
+      // Hammer head (horizontal block)
+      rect(g, 12, 18, 4, 2, "#7a5a3a");
+      px(g, 12, 18, "#a87a4a"); px(g, 13, 18, "#a87a4a");
+      px(g, 15, 19, "#3a2a18");
+      // Handle (diagonal)
+      px(g, 16, 20, "#5a3a18"); px(g, 17, 21, "#5a3a18");
+      // Strike plate small block underneath
+      px(g, 14, 21, "#3a2a18"); px(g, 15, 21, "#3a2a18");
+    },
+
+    scroll(g, p) {
+      // Rolled paper held diagonally
+      rect(g, 13, 18, 6, 3, "#f1dfc4");      // paper
+      row(g, 19, 14, 17, "#a87a4a");          // text line
+      // Roll ends (darker)
+      colp(g, 13, 18, 20, "#c9b58a");
+      colp(g, 18, 18, 20, "#c9b58a");
+      // Cap end caps (rounded curls)
+      px(g, 12, 18, "#a87a4a"); px(g, 12, 20, "#a87a4a");
+      px(g, 19, 18, "#a87a4a"); px(g, 19, 20, "#a87a4a");
+    },
+
+    pen(g, p) {
+      // Diagonal pen
+      px(g, 12, 21, "#15101c");
+      px(g, 13, 20, "#15101c");
+      px(g, 14, 19, "#15101c");
+      px(g, 15, 18, "#3a3a44");      // body
+      px(g, 16, 17, "#3a3a44");
+      px(g, 17, 16, "#cfa040");      // gold cap end
+      px(g, 18, 16, "#cfa040");
+      // Tip ink dot
+      px(g, 11, 21, "#15101c");
+    },
+
+    lantern(g, p) {
+      // Box w/ handle
+      rect(g, 13, 18, 4, 4, "#3a3a44");      // frame
+      rect(g, 14, 19, 2, 2, "#ffe070");      // glow
+      px(g, 14, 19, "#ffffff");
+      // Top handle
+      row(g, 17, 14, 15, "#5a5a5a");
+      px(g, 14, 18, "#5a5a5a"); px(g, 15, 18, "#5a5a5a");
+      // Bottom shadow
+      row(g, 22, 13, 16, "#15101c");
+    },
+  };
+
+  // ════════════════════════════════════════════════════════
+  // PLACEHOLDER  (grey BRICK + "?")
+  // ════════════════════════════════════════════════════════
+
+  function drawPlaceholder(g) {
+    const p = { name: "placeholder", base: "#5a5a5a", hi: "#7a7a7a", sh: "#3a3a3a", deep: "#1a1a1a", eye: "#15151a", belt: "#2a2a2a", buckle: "#a0a0a0" };
+    drawBody(g, p);
+    // "?" centered on face area (rows 12-15)
+    const q = ["XXXX", "X  X", "  XX", "  X ", "    ", "  X "];
+    const ox = 13, oy = 11;
+    for (let dy = 0; dy < q.length; dy++)
+      for (let dx = 0; dx < q[dy].length; dx++)
+        if (q[dy][dx] === "X") px(g, ox + dx, oy + dy, "#fafafa");
   }
 
-  function drawLaurel(grid) {
-    // top leaves
-    fillRect(grid, 22, 2, 4, 1, "#1A4818");
-    fillRect(grid, 22, 3, 4, 1, "#2F7A24");
-    fillRect(grid, 23, 4, 2, 1, "#5DBE3F");
-    fillRect(grid, 16, 3, 3, 1, "#1A4818");
-    fillRect(grid, 15, 4, 4, 1, "#2F7A24");
-    fillRect(grid, 16, 5, 3, 1, "#4DA53D");
-    fillRect(grid, 29, 3, 3, 1, "#1A4818");
-    fillRect(grid, 29, 4, 4, 1, "#2F7A24");
-    fillRect(grid, 29, 5, 3, 1, "#4DA53D");
-    fillRect(grid, 9,  5, 3, 1, "#1A4818");
-    fillRect(grid, 9,  6, 4, 1, "#2F7A24");
-    fillRect(grid, 10, 7, 3, 1, "#4DA53D");
-    fillRect(grid, 36, 5, 3, 1, "#1A4818");
-    fillRect(grid, 35, 6, 4, 1, "#2F7A24");
-    fillRect(grid, 35, 7, 3, 1, "#4DA53D");
-    // circlet band
-    fillRect(grid, 8,  8, 32, 1, "#0E2A0E");
-    fillRect(grid, 7,  9, 34, 1, "#1A4818");
-    fillRect(grid, 7,  10, 34, 2, "#2F7A24");
-    fillRect(grid, 7,  12, 34, 1, "#4DA53D");
-    fillRect(grid, 9,  11, 3, 1, "#5DBE3F");
-    fillRect(grid, 14, 11, 3, 1, "#7CD850");
-    fillRect(grid, 20, 11, 3, 1, "#5DBE3F");
-    fillRect(grid, 26, 11, 3, 1, "#7CD850");
-    fillRect(grid, 32, 11, 3, 1, "#5DBE3F");
-    // berries
-    for (const bx of [13, 22, 31]) {
-      fillRect(grid, bx, 9, 2, 2, "#7A5A14");
-      fillRect(grid, bx, 9, 2, 1, "#F2C037");
-      px(grid, bx, 9, "#FFE072");
-    }
-  }
+  // ════════════════════════════════════════════════════════
+  // GENERATE
+  // ════════════════════════════════════════════════════════
 
-  function drawHeadband(grid, color) {
-    fillRect(grid, 9,  10, 30, 2, color);
-    fillRect(grid, 9,  10, 30, 1, "#FFFFFF");
-  }
+  const GLASSES_NAMES = Object.keys(GLASSES);
+  const MUSTACHE_NAMES = Object.keys(MUSTACHES);
+  const EXPRESSION_NAMES = Object.keys(EXPRESSIONS);
+  const PROP_NAMES = Object.keys(PROPS);
 
-  function drawHat(grid, hair) {
-    // top brim
-    fillRect(grid, 11, 4, 26, 1, hair.outline);
-    fillRect(grid, 9,  5, 30, 1, hair.shadow);
-    // hat body
-    fillRect(grid, 12, 6, 24, 5, hair.mid);
-    fillRect(grid, 12, 6, 24, 1, hair.hl);
-    // hat band
-    fillRect(grid, 12, 9, 24, 1, hair.outline);
-    // brim wide
-    fillRect(grid, 6,  11, 36, 1, hair.outline);
-    fillRect(grid, 7,  12, 34, 1, hair.shadow);
-  }
-
-  function drawHood(grid, color) {
-    fillRect(grid, 9,  4, 30, 1, color);
-    fillRect(grid, 7,  5, 34, 2, color);
-    fillRect(grid, 6,  7, 36, 4, color);
-    fillRect(grid, 5,  11, 4, 18, color);
-    fillRect(grid, 39, 11, 4, 18, color);
-    // outline
-    fillRect(grid, 5,  4, 1, 25, "#1A1A1A");
-    fillRect(grid, 42, 4, 1, 25, "#1A1A1A");
-    // inner shadow
-    fillRect(grid, 9,  10, 2, 18, "#000000");
-    fillRect(grid, 37, 10, 2, 18, "#000000");
-  }
-
-  // ── EYEBROWS ─────────────────────────────────────────────
-  function drawEyebrows(grid, hair, kind) {
-    const c = hair.brow || hair.shadow;
-    if (kind === "bushy") {
-      fillRect(grid, 13, 19, 9, 1, c);
-      fillRect(grid, 26, 19, 9, 1, c);
-      fillRect(grid, 13, 20, 9, 1, hair.shadow);
-      fillRect(grid, 26, 20, 9, 1, hair.shadow);
-      // straggler hairs
-      px(grid, 14, 18, hair.shadow);
-      px(grid, 20, 18, hair.shadow);
-      px(grid, 28, 18, hair.shadow);
-      px(grid, 33, 18, hair.shadow);
-    } else if (kind === "sharp") {
-      fillRect(grid, 13, 19, 9, 1, c);
-      fillRect(grid, 26, 19, 9, 1, c);
-      fillRect(grid, 20, 20, 2, 1, c);
-      fillRect(grid, 26, 20, 2, 1, c);
-    } else if (kind === "raised") {
-      fillRect(grid, 13, 19, 7, 1, c);
-      fillRect(grid, 28, 19, 7, 1, c);
-      fillRect(grid, 28, 18, 3, 1, c); // right brow lifted
-    } else {
-      // "soft" default
-      fillRect(grid, 13, 19, 7, 1, c);
-      fillRect(grid, 28, 19, 7, 1, c);
-    }
-  }
-
-  // ── EYES ─────────────────────────────────────────────────
-  function drawEyes(grid, irisColor, hasLashes) {
-    // sclera
-    fillRect(grid, 14, 21, 6, 3, "#FFFFFF");
-    fillRect(grid, 28, 21, 6, 3, "#FFFFFF");
-    // pupils
-    fillRect(grid, 15, 21, 4, 3, "#1F1F1F");
-    fillRect(grid, 29, 21, 4, 3, "#1F1F1F");
-    // iris (smaller circle inside pupil)
-    if (irisColor) {
-      fillRect(grid, 15, 21, 2, 2, irisColor);
-      fillRect(grid, 29, 21, 2, 2, irisColor);
-    }
-    // catchlight
-    px(grid, 15, 21, "#FFFFFF");
-    px(grid, 29, 21, "#FFFFFF");
-    // upper lid line
-    fillRect(grid, 14, 20, 6, 1, "#5A3520");
-    fillRect(grid, 28, 20, 6, 1, "#5A3520");
-    // lashes
-    if (hasLashes) {
-      px(grid, 13, 20, "#1F1F1F");
-      px(grid, 19, 20, "#1F1F1F");
-      px(grid, 27, 20, "#1F1F1F");
-      px(grid, 33, 20, "#1F1F1F");
-    }
-  }
-
-  // ── GLASSES ──────────────────────────────────────────────
-  function drawSquareGlasses(grid, frame) {
-    // left lens outline
-    fillRect(grid, 11, 18, 11, 1, frame.rim);
-    fillRect(grid, 11, 24, 11, 1, frame.rim);
-    fillRect(grid, 11, 19, 1, 5, frame.rim);
-    fillRect(grid, 21, 19, 1, 5, frame.rim);
-    // right lens
-    fillRect(grid, 26, 18, 11, 1, frame.rim);
-    fillRect(grid, 26, 24, 11, 1, frame.rim);
-    fillRect(grid, 26, 19, 1, 5, frame.rim);
-    fillRect(grid, 36, 19, 1, 5, frame.rim);
-    // bridge
-    fillRect(grid, 22, 20, 4, 1, frame.rim);
-    // temple arms
-    fillRect(grid, 9,  20, 2, 1, frame.rim);
-    fillRect(grid, 37, 20, 2, 1, frame.rim);
-    // lens highlights
-    fillRect(grid, 13, 19, 3, 1, frame.hi);
-    fillRect(grid, 28, 19, 3, 1, frame.hi);
-  }
-
-  function drawRoundGlasses(grid, frame) {
-    // big round Lennon-style
-    // left lens (circular outline)
-    fillRect(grid, 13, 20, 6, 1, frame.rim);
-    fillRect(grid, 13, 24, 6, 1, frame.rim);
-    fillRect(grid, 12, 21, 1, 3, frame.rim);
-    fillRect(grid, 19, 21, 1, 3, frame.rim);
-    // right lens
-    fillRect(grid, 28, 20, 6, 1, frame.rim);
-    fillRect(grid, 28, 24, 6, 1, frame.rim);
-    fillRect(grid, 27, 21, 1, 3, frame.rim);
-    fillRect(grid, 34, 21, 1, 3, frame.rim);
-    // bridge
-    fillRect(grid, 20, 22, 7, 1, frame.rim);
-    // temple arms
-    fillRect(grid, 9,  22, 3, 1, frame.rim);
-    fillRect(grid, 35, 22, 3, 1, frame.rim);
-    // lens shine
-    px(grid, 14, 21, frame.hi);
-    px(grid, 29, 21, frame.hi);
-  }
-
-  function drawWireRimGlasses(grid, frame) {
-    // thin gold half-moon scholar style
-    fillRect(grid, 14, 18, 6, 1, frame.rim);
-    fillRect(grid, 14, 22, 6, 1, frame.rim);
-    fillRect(grid, 13, 19, 1, 3, frame.rim);
-    fillRect(grid, 20, 19, 1, 3, frame.rim);
-    fillRect(grid, 28, 18, 6, 1, frame.rim);
-    fillRect(grid, 28, 22, 6, 1, frame.rim);
-    fillRect(grid, 27, 19, 1, 3, frame.rim);
-    fillRect(grid, 34, 19, 1, 3, frame.rim);
-    fillRect(grid, 21, 20, 6, 1, frame.rim);
-    fillRect(grid, 11, 20, 2, 1, frame.rim);
-    fillRect(grid, 35, 20, 2, 1, frame.rim);
-    // shine
-    fillRect(grid, 15, 18, 2, 1, frame.hi);
-    fillRect(grid, 29, 18, 2, 1, frame.hi);
-    px(grid, 14, 19, frame.hi);
-    px(grid, 28, 19, frame.hi);
-  }
-
-  function drawTortoiseGlasses(grid, frame) {
-    // rectangular thick frames
-    fillRect(grid, 11, 18, 11, 1, "#2A1A12");
-    fillRect(grid, 11, 23, 11, 1, "#2A1A12");
-    fillRect(grid, 11, 19, 1, 4, "#2A1A12");
-    fillRect(grid, 21, 19, 1, 4, "#2A1A12");
-    fillRect(grid, 26, 18, 11, 1, "#2A1A12");
-    fillRect(grid, 26, 23, 11, 1, "#2A1A12");
-    fillRect(grid, 26, 19, 1, 4, "#2A1A12");
-    fillRect(grid, 36, 19, 1, 4, "#2A1A12");
-    fillRect(grid, 12, 18, 9, 1, frame.rim);
-    fillRect(grid, 27, 18, 9, 1, frame.rim);
-    fillRect(grid, 12, 19, 1, 4, frame.rim);
-    fillRect(grid, 20, 19, 1, 4, frame.rim);
-    fillRect(grid, 27, 19, 1, 4, frame.rim);
-    fillRect(grid, 35, 19, 1, 4, frame.rim);
-    fillRect(grid, 22, 20, 4, 1, frame.rim);
-    fillRect(grid, 9,  20, 2, 1, "#2A1A12");
-    fillRect(grid, 37, 20, 2, 1, "#2A1A12");
-    fillRect(grid, 14, 19, 2, 1, frame.hi);
-    fillRect(grid, 29, 19, 2, 1, frame.hi);
-  }
-
-  // ── NOSE ─────────────────────────────────────────────────
-  function drawNose(grid, skin) {
-    fillRect(grid, 22, 20, 4, 6, skin.mid);
-    fillRect(grid, 22, 20, 1, 6, skin.hl);
-    fillRect(grid, 22, 20, 1, 3, skin.hl);
-    fillRect(grid, 25, 22, 1, 4, skin.shadow);
-    fillRect(grid, 22, 26, 4, 1, skin.deep);
-    px(grid, 21, 26, skin.deep);
-    px(grid, 26, 26, skin.deep);
-    px(grid, 23, 26, skin.outline);
-  }
-
-  // ── MOUTH ────────────────────────────────────────────────
-  function drawMouth(grid, kind) {
-    if (kind === "smile") {
-      px(grid, 14, 27, "#A85040");
-      px(grid, 33, 27, "#A85040");
-      fillRect(grid, 15, 28, 18, 1, "#A85040");
-      fillRect(grid, 16, 29, 16, 1, "#D67F5C");
-      fillRect(grid, 22, 28, 4, 1, "#FFFFFF"); // tooth shine
-    } else if (kind === "frown") {
-      fillRect(grid, 18, 28, 12, 1, "#5A3520");
-      px(grid, 17, 29, "#5A3520");
-      px(grid, 30, 29, "#5A3520");
-    } else if (kind === "smirk") {
-      fillRect(grid, 17, 28, 14, 1, "#7A4838");
-      fillRect(grid, 29, 29, 3, 1, "#7A4838");
-      fillRect(grid, 18, 29, 13, 1, "#D67F5C");
-    } else {
-      // neutral
-      fillRect(grid, 18, 28, 12, 1, "#5A4838");
-    }
-  }
-
-  // ── BEARDS ───────────────────────────────────────────────
-  function drawBeard(grid, kind) {
-    if (kind === "white-full") {
-      // mustache layer
-      fillRect(grid, 13, 27, 9, 1, "#8E8675");
-      fillRect(grid, 26, 27, 9, 1, "#8E8675");
-      fillRect(grid, 12, 28, 11, 1, "#DAD5C8");
-      fillRect(grid, 25, 28, 11, 1, "#DAD5C8");
-      fillRect(grid, 11, 29, 13, 1, "#FFFFFF");
-      fillRect(grid, 24, 29, 13, 1, "#FFFFFF");
-      // beard cascading
-      fillRect(grid, 9,  30, 1, 14, "#4D4538");
-      fillRect(grid, 38, 30, 1, 14, "#4D4538");
-      fillRect(grid, 11, 44, 2, 1, "#4D4538");
-      fillRect(grid, 35, 44, 2, 1, "#4D4538");
-      fillRect(grid, 13, 45, 22, 1, "#4D4538");
-      fillRect(grid, 10, 30, 28, 14, "#F0EDE5");
-      fillRect(grid, 13, 45, 22, 1, "#F0EDE5");
-      fillRect(grid, 11, 30, 26, 2, "#FFFFFF");
-      fillRect(grid, 10, 38, 28, 2, "#DAD5C8");
-      fillRect(grid, 10, 40, 28, 2, "#B8B0A0");
-      fillRect(grid, 10, 42, 28, 2, "#8E8675");
-      // strands
-      for (const sx of [13, 17, 20, 24, 27, 31, 34]) {
-        fillRect(grid, sx, 32, 1, 12, sx % 7 === 0 ? "#DAD5C8" : "#B8B0A0");
-      }
-      fillRect(grid, 15, 31, 1, 3, "#FFFFFF");
-      fillRect(grid, 22, 31, 1, 3, "#FFFFFF");
-      fillRect(grid, 29, 31, 1, 3, "#FFFFFF");
-    } else if (kind === "stubble") {
-      // scattered shadow pixels along jaw
-      for (let x = 12; x < 36; x += 2) {
-        if ((x % 3) !== 0) px(grid, x, 27, "#5A3520");
-        if ((x % 5) === 0) px(grid, x, 29, "#5A3520");
-      }
-      fillRect(grid, 12, 30, 24, 1, "#5A3520");
-    } else if (kind === "goatee") {
-      fillRect(grid, 19, 29, 10, 1, "#3A2418");
-      fillRect(grid, 20, 30, 8, 2, "#3A2418");
-      fillRect(grid, 21, 32, 6, 1, "#3A2418");
-    }
-    // null = no beard
-  }
-
-  // ── NECK STUB ────────────────────────────────────────────
-  function drawNeck(grid, skin) {
-    fillRect(grid, 19, 33, 10, 6, skin.mid);
-    fillRect(grid, 19, 33, 10, 1, skin.deep);
-    fillRect(grid, 19, 33, 1, 6, skin.deep);
-    fillRect(grid, 28, 33, 1, 6, skin.deep);
-    fillRect(grid, 20, 34, 8, 1, skin.hl);
-    // collar shadow at bottom (suggesting clothing off-frame)
-    for (let x = 14; x < 34; x++) px(grid, x, 39, skin.deep);
-    fillRect(grid, 13, 41, 22, 3, skin.outline);
-  }
-
-  // ── PLACEHOLDER (?) ──────────────────────────────────────
-  function drawPlaceholder(grid) {
-    const placeholderSkin = { hl: "#6E6C63", mid: "#5E5C53", shadow: "#48463F", deep: "#38362F", outline: "#1F1E18" };
-    drawHead(grid, placeholderSkin);
-    drawNeck(grid, placeholderSkin);
-    // "?" centered on the face
-    const q = [
-      "  XXXX  ",
-      " X    X ",
-      "      X ",
-      "    XX  ",
-      "    X   ",
-      "        ",
-      "    X   ",
-    ];
-    const ox = 20, oy = 17;
-    for (let dy = 0; dy < q.length; dy++) {
-      for (let dx = 0; dx < q[dy].length; dx++) {
-        if (q[dy][dx] === "X") px(grid, ox + dx, oy + dy, "#1A1A18");
-      }
-    }
-  }
-
-  // ── MAIN GENERATE ────────────────────────────────────────
   function generate(seed, opts) {
-    const placeholder = !!(opts && opts.placeholder);
+    const o = opts || {};
     const grid = makeGrid();
 
-    if (placeholder) {
+    if (o.placeholder) {
       drawPlaceholder(grid);
+      return svgFromGrid(grid);
+    }
+
+    // CLASSIC: locked terracotta + no accessories (chair)
+    if (o.variant === "classic") {
+      const pal = BODY_COLORS[0]; // terracotta
+      drawBody(grid, pal);
+      EXPRESSIONS.default(grid, pal);
       return svgFromGrid(grid);
     }
 
     const rng = makeRng(seed);
 
-    // ── Pick features deterministically ────────────────
-    const skin = pick(rng, SKIN);
-    const hair = pick(rng, HAIR);
+    // Body color — bias slightly toward terracotta + warm earthy tones
+    const bodyWeights = [4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3];
+    const palette = weighted(rng, BODY_COLORS, bodyWeights);
 
-    // Hair style — bald rare, beanie/laurel/hat are accessories that
-    // OVERRIDE hair, so they're picked separately.
-    const hairStyles = ["short", "sidepart", "long", "curly", "afro", "bun"];
-    const hairWeights = [4, 4, 2, 3, 1, 1];
-    let hairStyle = weighted(rng, hairStyles, hairWeights);
-    if (chance(rng, 0.05)) hairStyle = "bald";
+    // Glasses — slight bias toward none / common shapes
+    const glassWeights = [4, 2, 2, 1, 2, 1, 1, 1, 1];
+    const glassName = weighted(rng, GLASSES_NAMES, glassWeights);
 
-    // Accessory roll · most agents have nothing on top.
-    const accessoryRoll = rng();
-    let accessory = null;
-    if (accessoryRoll < 0.10)      accessory = "beanie";
-    else if (accessoryRoll < 0.16) accessory = "laurel";
-    else if (accessoryRoll < 0.22) accessory = "headband";
-    else if (accessoryRoll < 0.27) accessory = "hat";
-    else if (accessoryRoll < 0.30) accessory = "hood";
+    // Mustache — most have none
+    const stachWeights = [5, 2, 2, 2, 2, 1, 1, 1, 2, 1];
+    const stachName = weighted(rng, MUSTACHE_NAMES, stachWeights);
 
-    // Eyewear — varied, slight bias toward having glasses.
-    const eyewearRoll = rng();
-    let eyewear = null;
-    if (eyewearRoll < 0.20)      eyewear = "square";
-    else if (eyewearRoll < 0.36) eyewear = "round";
-    else if (eyewearRoll < 0.48) eyewear = "wire";
-    else if (eyewearRoll < 0.58) eyewear = "tortoise";
-    const glassesFrame = pick(rng, GLASSES_FRAMES);
+    // Expression — default common, others rare
+    const exprWeights = [5, 2, 1, 1, 1, 1, 2];
+    const exprName = weighted(rng, EXPRESSION_NAMES, exprWeights);
 
-    // Eyebrow style
-    const browKinds = ["soft", "sharp", "bushy", "raised"];
-    const browWeights = [4, 3, 2, 2];
-    const brow = weighted(rng, browKinds, browWeights);
+    // Prop — most have none
+    const propWeights = [10, 1, 1, 1, 1, 1, 1, 1, 1];
+    const propName = weighted(rng, PROP_NAMES, propWeights);
 
-    // Mouth
-    const mouth = weighted(rng, ["smile", "smile", "neutral", "frown", "smirk"], [3, 2, 3, 2, 2]);
+    // ── Compose · order matters ───────────────────────────
+    drawBody(grid, palette);
 
-    // Beard (only for some agents — bias to none)
-    const beardKinds = [null, null, null, null, "stubble", "goatee", "white-full"];
-    const beard = pick(rng, beardKinds);
-    const mouthCovered = beard === "white-full";
+    // Expression (eyes + brows) — drawn before glasses so glasses overlay
+    EXPRESSIONS[exprName](grid, palette);
 
-    // Iris color
-    const irisColor = chance(rng, 0.55) ? pick(rng, IRIS) : null;
-    const hasLashes = chance(rng, 0.30);
+    // Glasses sit on top of eyes
+    GLASSES[glassName](grid, palette);
 
-    // ── Compose ───────────────────────────────────────
-    drawHead(grid, skin);
+    // Mustache below eyes
+    MUSTACHES[stachName](grid, palette);
 
-    // Hair drawn first (so the head shape covers the face area)
-    if (accessory === "beanie") {
-      drawBeanie(grid, pick(rng, BEANIES));
-    } else if (accessory === "hat") {
-      drawHat(grid, hair);
-    } else if (accessory === "hood") {
-      drawHood(grid, hair);
-    } else {
-      const drawHair = HAIR_STYLES[hairStyle] || HAIR_STYLES.short;
-      drawHair(grid, hair);
-      if (accessory === "laurel")    drawLaurel(grid);
-      if (accessory === "headband")  drawHeadband(grid, "#" + ((Math.floor(rng() * 0xFFFFFF)).toString(16)).padStart(6, "0"));
-    }
-
-    drawEyebrows(grid, hair, brow);
-
-    if (eyewear === "square")        drawSquareGlasses(grid, glassesFrame);
-    else if (eyewear === "round")    drawRoundGlasses(grid, glassesFrame);
-    else if (eyewear === "wire")     drawWireRimGlasses(grid, glassesFrame);
-    else if (eyewear === "tortoise") drawTortoiseGlasses(grid, glassesFrame);
-
-    drawEyes(grid, irisColor, hasLashes);
-    drawNose(grid, skin);
-    if (!mouthCovered) drawMouth(grid, mouth);
-    drawBeard(grid, beard);
-    drawNeck(grid, skin);
+    // Prop drawn very last — held in front of body
+    PROPS[propName](grid, palette);
 
     return svgFromGrid(grid);
   }
 
+  // ════════════════════════════════════════════════════════
+  // SVG SERIALIZATION
+  // ════════════════════════════════════════════════════════
+
+  // Per-avatar viewBox: scan the drawn pixels for their actual bounding
+  // box, then emit a square viewBox centered on that content with 1-cell
+  // padding. This auto-centers every avatar regardless of hat presence
+  // (CLASSIC chair fills its frame, wizard-hatted seats fit hat + body
+  // without the body being shoved against the bottom edge).
   function svgFromGrid(grid) {
+    let minX = GRID, maxX = -1, minY = GRID, maxY = -1;
     let rects = "";
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = 0; y < GRID; y++) {
+      for (let x = 0; x < GRID; x++) {
         const c = grid[y][x];
-        if (c) rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
+        if (!c) continue;
+        rects += `<rect x="${x * PX}" y="${y * PX}" width="${PX}" height="${PX}" fill="${c}"/>`;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
       }
     }
-    return `<svg viewBox="0 -4 48 56" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid meet">${rects}</svg>`;
+    if (maxX < 0) {
+      return `<svg viewBox="0 0 ${SIZE} ${SIZE}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges"/>`;
+    }
+    const w = maxX - minX + 1;
+    const h = maxY - minY + 1;
+    const sz = Math.max(w, h) + 4;            // +4 cells = 2 cells padding each side
+    const cx = (minX + maxX + 1) / 2;          // content center in cell coords
+    const cy = (minY + maxY + 1) / 2;
+    const vbX = (cx - sz / 2) * PX;
+    const vbY = (cy - sz / 2) * PX;
+    const vbSize = sz * PX;
+    return `<svg viewBox="${vbX} ${vbY} ${vbSize} ${vbSize}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid meet">${rects}</svg>`;
   }
 
   function generateDataUrl(seed, opts) {
@@ -763,8 +604,6 @@
     return Math.random().toString(36).slice(2, 12);
   }
 
-  /** Wire a UI in one line:
-   *  AvatarSkill.attach({ frame, button, onSeed }) */
   function attach({ frame, button, onSeed, initialSeed }) {
     if (!frame || !button) return;
     let seed = initialSeed || null;

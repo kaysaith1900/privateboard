@@ -2896,6 +2896,14 @@
       pop.style.bottom = "auto";
       pop.style.maxHeight = `${Math.round(spaceBelow - 4)}px`;
     }
+    // Z-index hoist · when the trigger lives inside the lightweight
+    // agent overlay (z-index: 9700), the default `.ap-model-picker`
+    // z-index (9100) renders BEHIND the overlay backdrop · clicking
+    // the dropdown produced no visible popover. Lift above the
+    // overlay whenever the trigger is nested in `.agent-overlay`.
+    if (triggerEl.closest(".agent-overlay")) {
+      pop.style.zIndex = "9800";
+    }
   }
 
   async function openVoicePicker(triggerEl) {
@@ -3005,13 +3013,19 @@
       .then((updated) => {
         const nv = updated.voice != null ? updated.voice : voice;
         live.voice = nv;
-        const row = document.querySelector(`[data-ap-voice-row][data-slug="${slug}"]`);
-        const name = row?.querySelector("[data-ap-voice-name]");
-        const prov = row?.querySelector("[data-ap-voice-provider]");
-        if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
-        if (prov && nv && nv.model != null) prov.textContent = nv.model;
-        const emLb = row?.querySelector("[data-ap-voice-emotion-label]");
-        if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
+        // The agent-overlay can mount its own copy of the voice row
+        // (with the same data-slug) on top of the profile page · update
+        // every matching row so the label stays consistent regardless
+        // of which surface the user picked from.
+        const rows = document.querySelectorAll(`[data-ap-voice-row][data-slug="${slug}"]`);
+        rows.forEach((row) => {
+          const name = row.querySelector("[data-ap-voice-name]");
+          const prov = row.querySelector("[data-ap-voice-provider]");
+          if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
+          if (prov && nv && nv.model != null) prov.textContent = nv.model;
+          const emLb = row.querySelector("[data-ap-voice-emotion-label]");
+          if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
+        });
       })
       .catch((e) => alert(uiT("ap_voice_save_err", { msg: e && e.message ? e.message : String(e) })));
   }
@@ -3046,6 +3060,19 @@
       });
       const data = await r.json();
       if (!r.ok || !data.audioBase64) {
+        // Structured failure · the server tags `code: "paid-plan-required"`
+        // when ElevenLabs returns 402 paid_plan_required or MiniMax
+        // reports insufficient balance. Route into the upgrade overlay
+        // (title + explanation + CTA to the provider's billing page)
+        // instead of an alert() so the user gets a clear next step.
+        if (data.code === "paid-plan-required") {
+          openVoicePaidOverlay({
+            provider: typeof data.provider === "string" ? data.provider : v.provider,
+            upgradeUrl: typeof data.upgradeUrl === "string" ? data.upgradeUrl : "",
+            message: data.error || "",
+          });
+          return;
+        }
         alert(uiT("ap_voice_preview_failed", { msg: data.error || "no audio" }));
         return;
       }
@@ -3056,6 +3083,90 @@
     } finally {
       if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
     }
+  }
+
+  /** Paid-plan-required overlay · shown when the voice preview backend
+   *  rejects with code `paid-plan-required` (ElevenLabs library voice
+   *  on a free plan, MiniMax insufficient balance, etc.). Reuses the
+   *  app-wide `.pc-overlay / .pc-modal` chrome so the visual register
+   *  matches pause-choice / send-choice / no-key modals. The CTA links
+   *  to the provider's billing/pricing page so the user is one click
+   *  from resolving it. */
+  function openVoicePaidOverlay(opts) {
+    closeVoicePaidOverlay();
+    const provider = (opts && opts.provider) || "";
+    const upgradeUrl = (opts && opts.upgradeUrl) || "";
+    const message = (opts && opts.message) || "";
+    const providerLabel = provider === "elevenlabs" ? "ElevenLabs"
+      : provider === "minimax" ? "MiniMax"
+      : provider === "openai" ? "OpenAI"
+      : provider || uiT("ap_voice_paid_provider_generic");
+    const title = uiT("ap_voice_paid_title", { provider: providerLabel });
+    const deck = message || uiT("ap_voice_paid_deck_generic", { provider: providerLabel });
+    const ctaLabel = uiT("ap_voice_paid_cta", { provider: providerLabel });
+    const ctaDeck = uiT("ap_voice_paid_cta_deck", { provider: providerLabel });
+    const closeLabel = uiT("ap_voice_paid_close");
+    const closeDeck = uiT("ap_voice_paid_close_deck");
+    const upgradeHref = upgradeUrl
+      ? `<a href="${escape(upgradeUrl)}" target="_blank" rel="noopener noreferrer" class="pc-choice primary" data-voice-paid-upgrade>
+           <div class="pc-choice-mark">${escape(ctaLabel)}</div>
+           <div class="pc-choice-deck">${escape(ctaDeck)}</div>
+         </a>`
+      : "";
+    const overlay = document.createElement("div");
+    overlay.id = "ap-voice-paid-overlay";
+    overlay.className = "pc-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
+      <div class="pc-modal" role="document">
+        <div class="pc-classification">
+          <span><span class="dot" style="color: var(--lime); margin-right: 4px;">●</span> ${escape(uiT("ap_voice_paid_classification"))}</span>
+          <span class="right">// ${escape(providerLabel.toLowerCase())}</span>
+        </div>
+        <div class="pc-head">
+          <div class="pc-tag">${escape(uiT("ap_voice_paid_tag"))}</div>
+          <h2 class="pc-title">${escape(title)}</h2>
+          <p class="pc-deck">${escape(deck)}</p>
+        </div>
+        <div class="pc-body">
+          ${upgradeHref}
+          <button type="button" class="pc-choice ghost" data-voice-paid-close>
+            <div class="pc-choice-mark">${escape(closeLabel)}</div>
+            <div class="pc-choice-deck">${escape(closeDeck)}</div>
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    // Backdrop click closes · same affordance as the other pc-* modals.
+    overlay.addEventListener("click", (ev) => {
+      if (ev.target === overlay) closeVoicePaidOverlay();
+    });
+    // Esc closes · scoped handler removed on close so it doesn't leak.
+    const esc = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeVoicePaidOverlay();
+      }
+    };
+    overlay._escHandler = esc;
+    document.addEventListener("keydown", esc, true);
+    // CTA click closes the overlay AFTER the new tab is opened (the
+    // anchor's default action handles the open; we just clean up).
+    overlay.querySelector("[data-voice-paid-upgrade]")?.addEventListener("click", () => {
+      // Defer close to next tick so the anchor's navigation triggers
+      // before the DOM teardown — Safari otherwise sometimes cancels
+      // the new-tab open when the link is removed in the same frame.
+      setTimeout(closeVoicePaidOverlay, 50);
+    });
+    overlay.querySelector("[data-voice-paid-close]")?.addEventListener("click", closeVoicePaidOverlay);
+  }
+  function closeVoicePaidOverlay() {
+    const el = document.getElementById("ap-voice-paid-overlay");
+    if (!el) return;
+    if (el._escHandler) document.removeEventListener("keydown", el._escHandler, true);
+    el.remove();
   }
 
   function pageHTML(p, slug) {
@@ -4404,9 +4515,20 @@
       // already fires (window-level wrapper); we also refresh the
       // visible voice block so a configured key flips the locked
       // card into the picker without a page reload.
+      // When the click originates inside the lightweight director
+      // overlay, dismiss it first — stacking the user-settings modal
+      // on top of the overlay is confusing (two overlapping cards)
+      // and the user is now in a "configure keys" flow, not a
+      // "read this director" one. AgentOverlay is exposed by
+      // agent-overlay.js once it's mounted.
       const unlockBtn = e.target.closest("[data-ap-voice-unlock]");
       if (unlockBtn) {
         e.preventDefault();
+        if (unlockBtn.closest(".agent-overlay")
+          && window.AgentOverlay
+          && typeof window.AgentOverlay.close === "function") {
+          window.AgentOverlay.close();
+        }
         if (typeof window.openUserSettings === "function") {
           window.openUserSettings({ section: "keys", focusProvider: "minimax" });
         }
@@ -4592,15 +4714,40 @@
   // picker the moment the user adds a MiniMax / ElevenLabs key without
   // forcing a page reload. No-op when no profile is currently open.
   window.refreshAgentProfileSkills = function () {
+    // Voices list is keyed off the user's configured providers · when
+    // keys change (added / deleted / swapped between minimax ↔
+    // elevenlabs), the cached `/api/voices` payload is stale and the
+    // picker would still show the prior provider's voices until a hard
+    // refresh. Invalidate here so the next ensureVoiceOptions()
+    // re-fetches; also closes any open picker that's painting from
+    // the stale cache so the user doesn't see the wrong list flash
+    // before it reopens. This function is the canonical "keys may
+    // have changed" hook called by user-settings on modal close.
+    voiceOptionsCache = null;
+    closeVoicePicker();
+    closeEmotionPicker();
     if (!currentlyOpenSlug) return;
     loadSkillsForV2(currentlyOpenSlug);
-    const voiceRow = document.querySelector(`[data-ap-voice-row][data-slug="${currentlyOpenSlug}"]`);
-    if (voiceRow) {
+    // Re-render every mounted voice row for this slug — the agent
+    // profile page AND the lightweight agent overlay can both render
+    // one simultaneously (overlay opens on top of the profile page).
+    const voiceRows = document.querySelectorAll(`[data-ap-voice-row][data-slug="${currentlyOpenSlug}"]`);
+    voiceRows.forEach((voiceRow) => {
       const wrap = document.createElement("div");
       wrap.innerHTML = renderVoiceBlock(currentlyOpenSlug).trim();
       const fresh = wrap.firstElementChild;
       if (fresh) voiceRow.replaceWith(fresh);
-    }
+    });
+  };
+
+  /** Public surface · agent-overlay.js mounts the same voice block
+   *  inside the lightweight director overlay so the user can swap
+   *  voices without navigating to the full profile page. The block
+   *  uses the same `data-ap-voice-*` data attrs, so the existing
+   *  document-level click / change / input handlers already pick up
+   *  events from whichever copy is live. */
+  window.AgentProfileVoice = {
+    renderVoiceBlock,
   };
 
   document.addEventListener("boardroom:locale", () => {

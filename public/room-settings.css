@@ -22,6 +22,21 @@
   display: flex;
   animation: rs-fade 0.14s ease-out;
 }
+/* Electron macOS · the share-card overlay (and other consumers of
+   this chrome) opens over views that carry `-webkit-app-region: drag`
+   on their top strips (e.g. `.notes-page-head`, the empty `.room-head`
+   drag overlay). Chromium computes drag regions from element bounding
+   boxes, NOT z-stack, so the modal's close button can sit inside one
+   of those drag rects and have its clicks eaten by the OS-level drag
+   handler. Claim the entire overlay subtree back as `no-drag` so
+   every interactive element inside (close button, template chips,
+   download button, backdrop dismiss) receives clicks normally.
+   Backdrop too · `e.target === overlay` dismiss-on-click only fires
+   when the backdrop itself can receive the event. */
+html.is-electron-mac .room-settings-overlay,
+html.is-electron-mac .room-settings-overlay * {
+  -webkit-app-region: no-drag;
+}
 @keyframes rs-fade { from { opacity: 0; } to { opacity: 1; } }
 
 .room-settings-modal {
@@ -969,31 +984,164 @@
 .rs-action.danger { color: var(--red, #B5706A); border-color: rgba(181, 112, 106, 0.4); }
 .rs-action.danger:hover { background: var(--red, #B5706A); color: var(--bg, #0A0A0A); border-color: var(--red, #B5706A); }
 
-/* Icon-only buttons in the room-head action bar · sized to match
-   the avatar / cast-count tile (22px tall) so the whole right-side
-   toolbar lands on a single line at the new compact header height. */
+/* Icon-only buttons in the room-head action bar · borderless mask-icon
+   register matching the sidebar nav buttons (.new-btn.nav-*). Sized at
+   26×26 with a 16×16 currentColor glyph so the toolbar reads as one
+   consistent icon vocabulary across the app — the user's intent for the
+   adjourned-room header. */
 .head-icon-btn,
 .room-settings-trigger {
-  width: 24px;
-  height: 22px;
+  position: relative;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   background: transparent;
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  border: none;
   color: var(--text-soft, #8E8B83);
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1;
   cursor: pointer;
   text-decoration: none;
-  transition: all 0.12s;
+  transition: color 0.12s, background 0.12s;
+}
+.head-icon-btn::before,
+.room-settings-trigger::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon, none);
+          mask-image: var(--icon, none);
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 16px 16px;
+          mask-size: 16px 16px;
 }
 .head-icon-btn:hover,
 .room-settings-trigger:hover {
-  border-color: var(--lime, #6FB572);
   color: var(--lime, #6FB572);
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+}
+/* Hover-name tooltip · mirrors `.ib-action::after`'s register (panel-2
+   surface, mono micro-type, ~300ms reveal). Anchored BELOW the icon
+   since the head sits at the top of the room — flipping above would
+   clip against the window edge. Anchored to the RIGHT edge of the icon
+   (extending leftward) because the head-actions cluster sits flush
+   against the window's right edge — a centred tooltip's right half
+   would be clipped (especially the rightmost icon, `.head-settings`).
+   The full tip can be 200+px wide; the room header has plenty of room
+   to the left, none to the right. */
+.head-icon-btn::after,
+.room-settings-trigger::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform: translateY(-3px);
+  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line-strong, #3A3A35);
+  padding: 5px 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text, #E5E1D6);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.18s;
+  z-index: 50;
+}
+.head-icon-btn:hover::after,
+.head-icon-btn:focus-visible::after,
+.room-settings-trigger:hover::after,
+.room-settings-trigger:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.14s ease 0.3s, transform 0.14s ease 0.3s, visibility 0s linear 0.3s;
+}
+/* Suppress the empty-data-tip case · without this an icon without a
+   `data-tip` attr still renders an empty 0-padding bubble on hover. */
+.head-icon-btn:not([data-tip])::after,
+.room-settings-trigger:not([data-tip])::after { content: none; }
+/* Settings · Lucide settings (cog with rounded teeth + centre disc). */
+.head-settings,
+.room-settings-trigger {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/><circle cx='12' cy='12' r='3'/></svg>");
+}
+/* View Report · Lucide FileText (document with three text lines) —
+   matches the sidebar's "All Reports" icon so the header icon shares
+   the same visual vocabulary as the cross-room report index.
+   Inherits the shared text-soft → lime-on-hover register from
+   `.head-icon-btn`; no per-state colour override here. */
+.head-view-report {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>");
+}
+/* Pending state · brief still streaming. Pulse the icon's opacity so
+   the user reads "working on it" without a separate spinner. */
+.head-view-report.is-generating {
+  color: var(--text-faint, #5C5A55);
+  cursor: progress;
+  pointer-events: none;
+}
+.head-view-report.is-generating::before {
+  animation: head-icon-pulse 1.6s ease-in-out infinite;
+}
+@keyframes head-icon-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+/* Generate-Report variant · adjourned room with no brief yet. The
+   primary CTA-ness moves to the icon's color tone (lime) — same
+   tactic as the sidebar's `.new-btn.active` lime state. */
+.head-view-report.is-generate {
+  color: var(--lime, #6FB572);
+}
+/* Count chip for multi-brief popover trigger · pinned to the icon's
+   top-right corner so the user sees "there's more than one report"
+   without taking horizontal space. Mono pill, same micro-tag register
+   as the sidebar .nav-count. */
+.head-view-report .head-icon-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 14px;
+  height: 13px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--bg, #0A0A0A);
+  background: var(--lime, #6FB572);
+  border-radius: 7px;
+  pointer-events: none;
+}
+/* Convene Follow-up · identical glyph to the input-bar's `.ib-followup`
+   so the head icon and the bottom-bar icon read as the same action. */
+.head-followup {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11 L3 6 Q3 4 5 4 L11 4'/><polyline points='8.5,2 11,4 8.5,6'/></svg>");
+}
+/* Adjourn · identical glyph to the input-bar's `.ib-adjourn` (Lucide
+   log-out: door + arrow exit). The head and input-bar icons share the
+   action vocabulary so the user reads them as the same control. */
+.head-adjourn {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/></svg>");
+}
+/* Divergence report · identical glyph to the input-bar's
+   `.ib-divergence` (four-corner nodes branching from a centre node).
+   Visible across all room states (live / paused / adjourned), same as
+   the input-bar version. */
+.head-divergence {
+  --icon: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.5" y1="7.5" x2="10.5" y2="10.5"/><line x1="16.5" y1="7.5" x2="13.5" y2="10.5"/><line x1="7.5" y1="16.5" x2="10.5" y2="13.5"/><line x1="16.5" y1="16.5" x2="13.5" y2="13.5"/></svg>');
 }
 
 @media (max-width: 600px) {

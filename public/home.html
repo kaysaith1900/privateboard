@@ -24,9 +24,9 @@
     --text-dim: #5C5A52;
     --text-faint: #5C5A4D;
 
-    --lime: #6FB572;
-    --lime-deep: #427A48;
-    --lime-dim: #2D5532;
+    --lime: #C9A46B;
+    --lime-deep: #9A7B40;
+    --lime-dim: #5C4422;
     --amber: #B59560;
     --red: #B5706A;
     --cyan: #6A9B97;
@@ -1706,10 +1706,43 @@
 <script src="agent-overlay.js" defer></script>
 <script>
   (function () {
+    var KEY = "boardroom.appearance";
+    var LEGACY_KEY = "boardroom.theme";
+    var LIGHT_LEGACY = { atrium: 1, pinterest: 1 };
+    function migrate() {
+      try {
+        var existing = localStorage.getItem(KEY);
+        if (existing === "dark" || existing === "light" || existing === "system") return existing;
+        var legacy = localStorage.getItem(LEGACY_KEY);
+        var next = "system";
+        if (legacy) next = LIGHT_LEGACY[legacy] ? "light" : "dark";
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+        return next;
+      } catch (e) { return "system"; }
+    }
+    function resolve(pref) {
+      if (pref === "dark" || pref === "light") return pref;
+      try {
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      } catch (e) { return "dark"; }
+    }
+    function apply(pref) {
+      document.documentElement.setAttribute("data-theme", resolve(pref));
+    }
+    var pref = migrate();
+    apply(pref);
     try {
-      var t = localStorage.getItem("boardroom.theme") || "regent";
-      document.documentElement.setAttribute("data-theme", t);
+      var mq = window.matchMedia("(prefers-color-scheme: dark)");
+      var handler = function () {
+        var cur = localStorage.getItem(KEY) || "system";
+        if (cur === "system") apply("system");
+      };
+      if (typeof mq.addEventListener === "function") mq.addEventListener("change", handler);
+      else if (typeof mq.addListener === "function") mq.addListener(handler);
     } catch (e) {}
+    window.addEventListener("storage", function (e) {
+      if (e.key === KEY && e.newValue) apply(e.newValue);
+    });
   })();
 </script>
 </head>
@@ -2067,7 +2100,7 @@
            floating at the stage corners at the preview's 220px scale.
            Speaking director · seat 2 (Principles). -->
       <article class="voice-room-preview" data-preview-theme="eastwood"
-               style="--bg:#0A0A0A; --panel:#131312; --panel-2:#1A1A18; --panel-3:#21211E; --lime:#6FB572; --cyan:#6A9B97; --text:#C8C5BE; --text-soft:#8E8B83; --line-bright:#3A3934;">
+               style="--bg:#0A0A0A; --panel:#131312; --panel-2:#1A1A18; --panel-3:#21211E; --lime:#C9A46B; --cyan:#6A9B97; --text:#C8C5BE; --text-soft:#8E8B83; --line-bright:#3A3934;">
         <div class="vrp-stage">
           <svg class="rt-table" viewBox="0 0 100 30" preserveAspectRatio="xMidYMid meet"><use href="#vrp-table"/></svg>
           <svg class="rt-plant rt-plant-1" viewBox="0 0 48 60"><use href="#vrp-plant-1"/></svg>
