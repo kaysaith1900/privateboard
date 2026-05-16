@@ -11428,6 +11428,14 @@
     display: grid !important;
     align-content: center !important;
     justify-items: stretch !important;
+    /* `.chat` reserves 140 px of bottom padding for the floating
+       `.ib-stack` (input-bar + speaking-queue strips). The
+       new-room / new-agent composers don't mount an `.ib-stack` —
+       the composer's own `.cmp-toolbar` IS the input row — so
+       inheriting 140 px just pushes the composer off-centre by
+       ~70 px. Reset to a balanced gutter that matches the top
+       padding for visual symmetry. */
+    padding-bottom: 14px !important;
   }
   .chat.chat--composer > [data-chat-messages] {
     width: 100% !important;

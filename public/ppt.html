@@ -395,6 +395,17 @@
     margin-top: 12px;
   }
 
+  /* Agenda slide body · top-align so a long list can't push the
+     "What we'll cover" headline above the slide's top edge. The
+     default `.ant-body` rule centres content vertically, which makes
+     the headline drift up out of `overflow: hidden` when there are
+     many agenda items. Clipping the BOTTOM of an overflowing list is
+     the lesser evil; clipping the TITLE of the slide is unforgivable. */
+  .ant-slide:has(.ant-agenda) .ant-body {
+    justify-content: flex-start;
+    padding-top: 96px;
+  }
+
   /* Agenda · decimal-leading-zero markers in italic serif */
   .ant-agenda {
     list-style: none;
@@ -404,6 +415,11 @@
     grid-template-columns: 1fr 1fr;
     gap: 6px 36px;
     counter-reset: aagenda;
+    /* `min-height: 0` lets the grid track shrink when the slide is
+       short; without it the implicit `min-height: auto` (== content
+       height) refuses to shrink and forces the body taller than the
+       slide — which makes the headline disappear behind the chrome. */
+    min-height: 0;
   }
   .ant-agenda li {
     display: grid;
@@ -1030,6 +1046,14 @@
     .key-deck { font-size: 19px; }
   }
 
+  /* Agenda slide body · same top-align fix as the anthropic variant.
+     A long agenda list can't push the "What we'll cover" headline
+     above the slide's top edge with `justify-content: center`. */
+  .key-slide:has(.key-agenda) .key-body {
+    justify-content: flex-start;
+    padding-top: 88px;
+  }
+
   /* Agenda · centered short list */
   .key-agenda {
     list-style: none;
@@ -1039,6 +1063,7 @@
     flex-direction: column;
     gap: 8px;
     counter-reset: kagenda;
+    min-height: 0;
   }
   .key-agenda li {
     display: grid;
