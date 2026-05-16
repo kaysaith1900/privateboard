@@ -10496,7 +10496,7 @@
     async submitAgentComposer() {
       const ta = document.querySelector("[data-agent-composer-desc]");
       const description = ta ? ta.value.trim() : "";
-      if (description.length < 4) {
+      if (description.length < 2) {
         if (ta) ta.focus();
         return;
       }

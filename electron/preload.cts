@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld("privateboard", {
   // `syncElectronTrafficLights`.
   setTrafficLightsVisible: (visible: boolean) =>
     ipcRenderer.invoke("window:set-traffic-lights", visible),
+  // App appearance follows the renderer's theme picker. Pushing the user
+  // pref (not the resolved value) lets macOS keep tracking the system
+  // accent when the user selects "system". Drives macOS window vibrancy
+  // tone so the frosted blur matches the app's light / dark surfaces.
+  setThemeSource: (theme: "light" | "dark" | "system") =>
+    ipcRenderer.invoke("window:set-theme-source", theme),
 });
 
 // Native menu → renderer one-way push. The menu handlers in

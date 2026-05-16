@@ -4072,7 +4072,13 @@
   width: 100%;
   padding: 16px 18px 14px;
   background: var(--panel-2);
-  border: 0.5px solid var(--line);
+  /* `--line-bright` instead of `--line` · the dossier card stacks
+     on `--panel-2`, and on the atrium / light appearance those two
+     tokens are nearly the same warm cream so a `--line` border
+     vanishes into the surface. `--line-bright` is the next-step
+     darker hairline in both palettes, keeping the card edge legible
+     in dark AND light. */
+  border: 0.5px solid var(--line-bright);
   text-align: left;
   cursor: pointer;
   font-family: inherit;
@@ -4084,7 +4090,10 @@
 .ap-persona-card::before {
   /* Faint diagonal hatch behind the card · evokes a stamped
      dossier surface without competing with content. Pure CSS,
-     pinned to the corner so it doesn't follow the cta. */
+     pinned to the corner so it doesn't follow the cta. Uses
+     `--line-bright` (not `--line`) so the stripes register on
+     the light appearance where `--line` and `--panel-2` are
+     near-identical cream tones. */
   content: "";
   position: absolute;
   top: 0; right: 0;
@@ -4093,8 +4102,8 @@
     45deg,
     transparent 0,
     transparent 6px,
-    var(--line) 6px,
-    var(--line) 7px
+    var(--line-bright) 6px,
+    var(--line-bright) 7px
   );
   opacity: 0.35;
   pointer-events: none;
@@ -4120,7 +4129,10 @@
   align-items: center;
   justify-content: center;
   color: var(--lime);
-  border: 0.5px solid var(--lime-dim, var(--line));
+  /* Fallback bumped from `--line` to `--line-bright` so the glyph
+     frame stays visible when the spine's `--lime-dim` resolves to a
+     low-contrast pale (atrium / light appearance). */
+  border: 0.5px solid var(--lime-dim, var(--line-bright));
   background: var(--panel);
 }
 .ap-persona-card-id { min-width: 0; }
@@ -4151,7 +4163,7 @@
 .ap-persona-card-score {
   text-align: right;
   padding-left: 12px;
-  border-left: 0.5px solid var(--line);
+  border-left: 0.5px solid var(--line-bright);
 }
 .ap-persona-card-score-v {
   font-family: var(--mono);
@@ -4173,13 +4185,13 @@
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0;
-  border-top: 0.5px solid var(--line);
-  border-bottom: 0.5px solid var(--line);
+  border-top: 0.5px solid var(--line-bright);
+  border-bottom: 0.5px solid var(--line-bright);
 }
 .ap-persona-stat {
   padding: 10px 8px;
   text-align: center;
-  border-right: 0.5px solid var(--line);
+  border-right: 0.5px solid var(--line-bright);
 }
 .ap-persona-stat:last-child { border-right: none; }
 .ap-persona-stat-v {
@@ -4220,7 +4232,7 @@
 @media (max-width: 720px) {
   .ap-persona-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ap-persona-stat:nth-child(3) { border-right: none; }
-  .ap-persona-stat:nth-child(n+4) { border-top: 0.5px solid var(--line); }
+  .ap-persona-stat:nth-child(n+4) { border-top: 0.5px solid var(--line-bright); }
 }
 
 /* ────────────────────────────────────────────────────────────

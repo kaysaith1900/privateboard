@@ -1714,11 +1714,14 @@
         var existing = localStorage.getItem(KEY);
         if (existing === "dark" || existing === "light" || existing === "system") return existing;
         var legacy = localStorage.getItem(LEGACY_KEY);
-        var next = "system";
+        // Default for fresh installs · "dark" (not "system"). Mirrors
+        // the index.html bootstrap so both surfaces resolve to the
+        // same first-paint appearance.
+        var next = "dark";
         if (legacy) next = LIGHT_LEGACY[legacy] ? "light" : "dark";
         try { localStorage.setItem(KEY, next); } catch (e) {}
         return next;
-      } catch (e) { return "system"; }
+      } catch (e) { return "dark"; }
     }
     function resolve(pref) {
       if (pref === "dark" || pref === "light") return pref;
@@ -1734,7 +1737,9 @@
     try {
       var mq = window.matchMedia("(prefers-color-scheme: dark)");
       var handler = function () {
-        var cur = localStorage.getItem(KEY) || "system";
+        // Default to "dark" if the key is missing. Only the explicit
+        // "system" pick should follow OS-level theme changes.
+        var cur = localStorage.getItem(KEY) || "dark";
         if (cur === "system") apply("system");
       };
       if (typeof mq.addEventListener === "function") mq.addEventListener("change", handler);

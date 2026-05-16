@@ -389,7 +389,7 @@ export function agentsRouter(): Hono {
     catch { return c.json({ error: "invalid JSON body" }, 400); }
     const b = (body ?? {}) as { description?: unknown; webSearch?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
-    if (description.length < 4) {
+    if (description.length < 2) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
     }
     if (description.length > 1200) {
@@ -507,7 +507,7 @@ export function agentsRouter(): Hono {
     catch { return c.json({ error: "invalid JSON body" }, 400); }
     const b = (body ?? {}) as { description?: unknown; locale?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
-    if (description.length < 4) {
+    if (description.length < 2) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
     }
     if (description.length > 1200) {
@@ -952,6 +952,15 @@ export function agentsRouter(): Hono {
           ...(typeof v.speed === "number" ? { speed: v.speed } : {}),
           ...(typeof v.pitch === "number" ? { pitch: v.pitch } : {}),
           ...(typeof v.volume === "number" ? { volume: v.volume } : {}),
+          // Emotion + voice_modify fine-tuning fields. Previously these
+          // were dropped at the route layer, so the agent-profile UI
+          // could call PATCH /api/agents/:id with `voice.emotion` set
+          // and the server would persist the voice WITHOUT the emotion,
+          // making it look like the setting failed to save.
+          ...(typeof v.emotion === "string" ? { emotion: v.emotion } : {}),
+          ...(typeof v.modifyPitch === "number" ? { modifyPitch: v.modifyPitch } : {}),
+          ...(typeof v.modifyIntensity === "number" ? { modifyIntensity: v.modifyIntensity } : {}),
+          ...(typeof v.modifyTimbre === "number" ? { modifyTimbre: v.modifyTimbre } : {}),
           ...(typeof v.instructions === "string" ? { instructions: v.instructions } : {}),
         };
       }

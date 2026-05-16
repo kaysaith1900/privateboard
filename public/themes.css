@@ -104,34 +104,77 @@
   --magenta: #8E7A8E;
 }
 
-/* ─── LIGHT · atrium · warm paper, forest-green primary ───
-       Inverts the brightness ordering of the green family: on light
-       bg, "dim" must be a paler tint (low contrast) while "lime" /
-       "lime-deep" become the dark accents. */
+/* ─── LIGHT · atrium · ChatGPT-style clean white, OpenAI green ───
+       Cool neutral grey palette modelled after chatgpt.com light mode:
+       pure white main area, very-light-grey sidebar, light-grey lines,
+       crisp near-black text. Replaces the prior warm-cream "atrium"
+       palette which read as muddy.
+
+       Accent — `--lime` is OpenAI brand green (#10A37F). On light
+       cream the prior gold had marginal contrast (~5.5:1); the OpenAI
+       green hits a brighter, cleaner accent that matches ChatGPT's
+       visual language for primary highlights / focus rings / chips.
+       Dark mode still uses regent gold (#C9A46B) — themes can carry
+       different brand hues; semantic ("primary accent") is preserved.
+
+       Hierarchy delta is intentionally crisp:
+         bg #FFF (pure white) → panel #F9F9F9 (chat-rail grey) →
+         panel-2 #F4F4F4 → panel-3 #ECECEC → hi #E5E5E5
+       Each step ~2–3% L which is small but visible because we use
+       borders (`--line`) to demarcate, not just background fills. */
 :root[data-theme="light"] {
-  --bg: #FBFBF7;
-  --panel: #F4F2EC;
-  --panel-2: #EAE7DD;
-  --panel-3: #DBD7CA;
-  --hi: #C5BFAE;
+  --bg: #FFFFFF;
+  --panel: #F9F9F9;
+  --panel-2: #F1F1F1;
+  --panel-3: #ECECEC;
+  --hi: #E5E5E5;
 
-  --line: #E8E5DA;
-  --line-bright: #D2CDB9;
-  --line-strong: #ADA690;
+  --line: #ECECEC;
+  --line-bright: #D4D4D8;
+  --line-strong: #CCCCCC;
 
-  --text: #1F1E1A;
-  --text-soft: #4A4842;
-  --text-dim: #7A776E;
-  --text-faint: #ADAA9F;
+  --text: #0D0D0D;
+  --text-soft: #5D5D5D;
+  --text-dim: #8E8EA0;
+  --text-faint: #B4B4B4;
 
-  --lime: #2E7D32;
-  --lime-deep: #1B5E20;
-  --lime-dim: #B7CFB8;
+  --lime: #10A37F;       /* OpenAI green — primary accent          */
+  --lime-deep: #0D8868;  /* deeper green — hover / active depth    */
+  --lime-dim: #D1FAE5;   /* pale mint — subtle bg tints            */
 
-  --amber: #A86C2A;
-  --amber-dim: #DCC2A0;
-  --red: #A8403D;
-  --red-dim: #DBA8A6;
-  --cyan: #2E7D7A;
-  --magenta: #6E4F73;
+  --amber: #C2410C;
+  --amber-dim: #FED7AA;
+  --red: #DC2626;
+  --red-dim: #FEE2E2;
+  --cyan: #0891B2;
+  --magenta: #BE185D;
+}
+
+/* ─── Light-mode topbar overrides ──────────────────────────────
+   The classification strips at the top of the new-room / new-agent
+   modals use `var(--panel-2)`. On the ChatGPT-grey palette, panel-2
+   is `#F4F4F4` which sits ~1.05:1 vs the modal's `#F9F9F9` panel —
+   the topbar disappears.
+
+   Override with a clearly deeper neutral grey so the strip reads as a
+   distinct title bar in ChatGPT's clean style (no warm chrome, no dark
+   olive — just clean grey + crisp hairline). */
+/* Composer topbar — the toolbar above the textarea in new-room /
+   new-agent composers. Defaults to `var(--panel-2)`, which on the
+   ChatGPT-grey light palette sits ~1:1 vs the surrounding panel.
+   Bump it one shade deeper in light mode so the toolbar reads as a
+   distinct strip without disturbing other `--panel-2` consumers. */
+:root[data-theme="light"] .cmp-topbar {
+  background: #E5E4E1;
+}
+
+/* Composer focus ring — `.cmp-input-frame` (new-room) and `.search-card`
+   default to `--lime-dim` on focus for a "softer" register. On the
+   light palette `--lime-dim` is the pale mint `#D1FAE5` which reads as
+   ghost-faded — there's no visible focus signal. Switch to the full
+   `--lime` (OpenAI green `#10A37F`) so the focused field has a real,
+   crisp ring matching the new-agent inputs. */
+:root[data-theme="light"] .cmp-input-frame:focus-within,
+:root[data-theme="light"] .search-card:focus-within {
+  border-color: var(--lime);
 }

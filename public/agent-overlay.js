@@ -265,7 +265,6 @@
         <footer class="agent-card-foot">
           <div class="meta private-only"><span data-i18n="ao_tenure_meta">tenure ·</span> <span class="lime agent-tenure"></span></div>
           <div class="meta public-only"><span data-i18n="ao_first_room_meta">first room ·</span> <span class="lime" data-i18n="ao_free">free</span></div>
-          <a href="/#convene" class="agent-card-cta private-only" data-i18n="ao_convene_cta">[ ◆ Convene with them ]</a>
           <a href="/#convene" class="agent-card-cta public-only" data-i18n="ao_signin_cta">[ → Sign in to convene ]</a>
         </footer>
       </div>

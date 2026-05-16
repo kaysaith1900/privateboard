@@ -3323,6 +3323,10 @@
       agent: document.querySelector('[data-main-view="agent"]'),
       reports: document.querySelector('[data-main-view="reports"]'),
       notes: document.querySelector('[data-main-view="notes"]'),
+      // Search is also a top-level main-view · without it here, opening
+      // an agent profile while the search page is mounted leaves the
+      // search view visible underneath, stacking the two panes.
+      search: document.querySelector('[data-main-view="search"]'),
     };
   }
 
@@ -3337,12 +3341,14 @@
     // doesn't bleed through under the room view. Each view is just
     // the same `.main-view` CSS box — without explicitly hiding the
     // siblings, two of them stack and the user sees a leaked
-    // "All Notes" / "All Reports" empty state.
+    // "All Notes" / "All Reports" / "Search" empty state.
     if (v.reports) v.reports.setAttribute("hidden", "");
     if (v.notes)   v.notes.setAttribute("hidden", "");
+    if (v.search)  v.search.setAttribute("hidden", "");
     document.querySelectorAll(".agent-row.active").forEach((r) => r.classList.remove("active"));
     document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
     document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-search-trigger].active").forEach((el) => el.classList.remove("active"));
     currentlyOpenSlug = null;
     // Clear the no-room flag IFF there's an actual room loaded · the
     // floating sidebar-expand button shouldn't show on top of a real
@@ -3431,12 +3437,13 @@
     if (!v.agent) return;
     v.agent.innerHTML = pageHTML(p, slug);
     if (v.room) v.room.setAttribute("hidden", "");
-    // Hide the other top-level panes (All Reports / All Notes) so
-    // their placeholder / list doesn't render under the agent profile.
-    // Without these, opening agent profile from "All Notes" leaks the
-    // notes empty-state through the agent view.
+    // Hide the other top-level panes (All Reports / All Notes / Search)
+    // so their placeholder / list doesn't render under the agent
+    // profile. Without these, opening agent profile from "All Notes"
+    // (or Search) leaks the previous view through the agent view.
     if (v.reports) v.reports.setAttribute("hidden", "");
     if (v.notes)   v.notes.setAttribute("hidden", "");
+    if (v.search)  v.search.setAttribute("hidden", "");
     // The floating sidebar-expand button is gated on `html.no-room`
     // — without setting it here, a user who collapses the sidebar
     // while on an agent profile loses the expand control and has to
@@ -3445,6 +3452,7 @@
     document.documentElement.classList.add("no-room");
     document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
     document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-search-trigger].active").forEach((el) => el.classList.remove("active"));
     v.agent.removeAttribute("hidden");
     // Centralized sidebar-focus handler · also clears New room /
      // New agent highlights and any stale session-row highlight, since
@@ -4550,9 +4558,13 @@
         let rawPick = emoOpt.getAttribute("data-ap-emotion-pick");
         if (rawPick === null) rawPick = "";
         const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        // Always send the raw string (including "" for auto). Sending
+        // `undefined` would make JSON.stringify drop the key entirely,
+        // and the server's PATCH handler reads emotion only when the
+        // key is present — so clearing back to auto would be a no-op.
         setVoiceFor(slug, {
           ...existing,
-          emotion: rawPick === "" ? undefined : rawPick,
+          emotion: rawPick,
         });
         closeEmotionPicker();
         return;

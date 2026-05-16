@@ -120,8 +120,8 @@
   cursor: pointer;
 }
 .qcta-toast.kind-error {
-  border-color: #d36a6a;
-  color: #f0bdbd;
+  border-color: var(--red, #d36a6a);
+  color: var(--red, #f0bdbd);
 }
 .qcta-toast.kind-ok::before {
   content: "✓ ";

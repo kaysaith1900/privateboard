@@ -268,6 +268,21 @@ function parseVoice(raw: string | null): AgentVoiceProfile | null {
     if (typeof obj.speed === "number" && Number.isFinite(obj.speed)) out.speed = obj.speed;
     if (typeof obj.pitch === "number" && Number.isFinite(obj.pitch)) out.pitch = obj.pitch;
     if (typeof obj.volume === "number" && Number.isFinite(obj.volume)) out.volume = obj.volume;
+    // Emotion + voice_modify fine-tuning fields. Previously dropped at
+    // this read-back layer; without them the UI label always reverts
+    // to "auto" after the page reloads even when emotion was set.
+    if (typeof obj.emotion === "string" && obj.emotion.trim()) {
+      out.emotion = obj.emotion.trim();
+    }
+    if (typeof obj.modifyPitch === "number" && Number.isFinite(obj.modifyPitch)) {
+      out.modifyPitch = obj.modifyPitch;
+    }
+    if (typeof obj.modifyIntensity === "number" && Number.isFinite(obj.modifyIntensity)) {
+      out.modifyIntensity = obj.modifyIntensity;
+    }
+    if (typeof obj.modifyTimbre === "number" && Number.isFinite(obj.modifyTimbre)) {
+      out.modifyTimbre = obj.modifyTimbre;
+    }
     if (typeof obj.instructions === "string" && obj.instructions.trim()) {
       out.instructions = obj.instructions.trim().slice(0, 500);
     }
@@ -483,6 +498,16 @@ function serializeVoice(v: AgentVoiceProfile | null): string | null {
     ...(typeof v.speed === "number" && Number.isFinite(v.speed) ? { speed: Math.max(0.5, Math.min(2, v.speed)) } : {}),
     ...(typeof v.pitch === "number" && Number.isFinite(v.pitch) ? { pitch: Math.max(-12, Math.min(12, v.pitch)) } : {}),
     ...(typeof v.volume === "number" && Number.isFinite(v.volume) ? { volume: Math.max(0, Math.min(2, v.volume)) } : {}),
+    // Emotion + voice_modify fine-tuning fields. Without these the
+    // route layer accepts the patch but the storage layer silently
+    // drops them, so settings disappear on the next page load.
+    ...(typeof v.emotion === "string" && v.emotion.trim() ? { emotion: v.emotion.trim() } : {}),
+    ...(typeof v.modifyPitch === "number" && Number.isFinite(v.modifyPitch)
+      ? { modifyPitch: Math.max(-100, Math.min(100, v.modifyPitch)) } : {}),
+    ...(typeof v.modifyIntensity === "number" && Number.isFinite(v.modifyIntensity)
+      ? { modifyIntensity: Math.max(-100, Math.min(100, v.modifyIntensity)) } : {}),
+    ...(typeof v.modifyTimbre === "number" && Number.isFinite(v.modifyTimbre)
+      ? { modifyTimbre: Math.max(-100, Math.min(100, v.modifyTimbre)) } : {}),
     ...(v.instructions && v.instructions.trim() ? { instructions: v.instructions.trim().slice(0, 500) } : {}),
   });
 }

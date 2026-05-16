@@ -55,11 +55,14 @@
   function getAppearance() {
     try {
       const v = localStorage.getItem(APPEARANCE_KEY);
-      return APPEARANCE_MODES.indexOf(v) >= 0 ? v : "system";
-    } catch (e) { return "system"; }
+      // Default · "dark" (not "system"). Matches the FOUC bootstrap in
+      // index.html / home.html so the segmented control reflects the
+      // same fresh-install default the page just applied.
+      return APPEARANCE_MODES.indexOf(v) >= 0 ? v : "dark";
+    } catch (e) { return "dark"; }
   }
   function setAppearance(mode) {
-    const next = APPEARANCE_MODES.indexOf(mode) >= 0 ? mode : "system";
+    const next = APPEARANCE_MODES.indexOf(mode) >= 0 ? mode : "dark";
     try { localStorage.setItem(APPEARANCE_KEY, next); } catch (e) {}
     // The FOUC bootstrap subscribes to `storage` events for cross-tab
     // sync, but same-tab writes don't fire that event. Resolve and
@@ -70,6 +73,10 @@
       catch (e) { resolved = "dark"; }
     }
     document.documentElement.setAttribute("data-theme", resolved);
+    // Electron-only · push the USER PREFERENCE (not the resolved value)
+    // so the macOS window vibrancy follows the same light/dark/system
+    // choice as the in-app surfaces.
+    try { window.privateboard && window.privateboard.setThemeSource && window.privateboard.setThemeSource(next); } catch (e) {}
   }
 
   async function fetchPrefs() {

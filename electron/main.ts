@@ -15,7 +15,7 @@
  *     the "data appears to vanish after restart" failure mode the CLI
  *     already hardened against in `src/cli.ts`.
  */
-import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +80,18 @@ if (!app.requestSingleInstanceLock()) {
     if (show && typeof win.setWindowButtonPosition === "function") {
       win.setWindowButtonPosition(TRAFFIC_LIGHT_POSITION);
     }
+  });
+
+  // Renderer pushes the app's appearance preference (light / dark / system)
+  // here whenever the user switches theme. `nativeTheme.themeSource` forces
+  // macOS's appearance system for THIS app, which in turn re-renders the
+  // vibrancy material in the matching tone — so the `under-window` blur
+  // behind the window goes dark when the app's CSS goes dark, instead of
+  // staying frosted-white against a dark UI. No-op on Windows / Linux
+  // (no vibrancy concept there).
+  ipcMain.handle("window:set-theme-source", (_e, v: unknown) => {
+    if (v !== "dark" && v !== "light" && v !== "system") return;
+    nativeTheme.themeSource = v;
   });
 
   async function createWindow(url: string): Promise<void> {

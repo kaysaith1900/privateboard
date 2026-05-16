@@ -733,7 +733,14 @@
     height: 34px;
     align-items: center;
     justify-content: center;
-    background: rgba(8, 8, 8, 0.55);
+    /* Theme-adaptive frosted backdrop · uses `--bg` (the page bg
+       token, which flips dark ↔ light with the active appearance)
+       at ~55 % opacity. The earlier hardcoded `rgba(8,8,8,.55)` was
+       fine in dark mode but left a dark blob on light surfaces in
+       the atrium / light appearance — making the hamburger icon
+       (currentColor stroke) read against its own background tint
+       instead of the page. */
+    background: color-mix(in srgb, var(--bg) 55%, transparent);
     -webkit-backdrop-filter: blur(12px) saturate(1.05);
     backdrop-filter: blur(12px) saturate(1.05);
     border: 0.5px solid var(--line-strong);
@@ -754,7 +761,7 @@
   .sidebar-expand-btn:hover {
     color: var(--lime);
     border-color: var(--lime-dim);
-    background: rgba(8, 8, 8, 0.72);
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
   }
   /* Hit-area expander · the visible button is 34×34, but ::after
      stretches 18px past every edge so the click target is 70×70 even
@@ -1167,8 +1174,8 @@
     position: absolute;
     inset: 0;
     background: radial-gradient(circle at center,
-      rgba(132, 187, 78, 0.45) 0%,
-      rgba(132, 187, 78, 0) 65%);
+      color-mix(in srgb, var(--lime) 45%, transparent) 0%,
+      color-mix(in srgb, var(--lime) 0%, transparent) 65%);
     animation: pb-row-pulse 1.4s ease-in-out infinite;
     pointer-events: none;
   }
@@ -1182,7 +1189,7 @@
   }
   .pb-row-ready .pb-row-pulse {
     animation: none;
-    background: rgba(132, 187, 78, 0.18);
+    background: color-mix(in srgb, var(--lime) 18%, transparent);
   }
   @keyframes pb-row-pulse {
     0%, 100% { opacity: 0.85; transform: scale(1); }
@@ -9413,11 +9420,15 @@
     /* Frosted-glass treatment · the HUD floats over the stage's
        wood floor + props, so a subtle backdrop blur lets the
        texture peek through while keeping the data inside legible.
-       Light blur (4px) so background reads as "behind glass", not
-       "obscured"; rgba background drops opacity from solid to ~78%
-       so the blur has something to do. -webkit prefix kept for
-       older Safari builds. */
-    background: rgba(20, 20, 18, 0.78);
+       Theme-adaptive surface · `--panel` at 78 % so the panel
+       flips dark / light with the active appearance. Earlier the
+       bg was hardcoded `rgba(20, 20, 18, .78)` (dark frosted) and
+       the children's text was hardcoded light (cinema-caption
+       rule). On the atrium / light appearance that black panel
+       sat as a dark blob on the warm-paper stage. Switching to a
+       `--panel` mix lets the HUD live in both worlds without
+       inverting the entire chrome. */
+    background: color-mix(in srgb, var(--panel) 78%, transparent);
     -webkit-backdrop-filter: blur(4px) saturate(115%);
             backdrop-filter: blur(4px) saturate(115%);
     border: 1px solid var(--line-strong);
@@ -9717,9 +9728,11 @@
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    /* Hardcoded light · rate-btn label over the fixed dark HUD
-       glass; var(--text-soft) is mid-grey in light themes. */
-    color: rgba(216, 216, 220, 0.85);
+    /* Theme-adaptive label · was hardcoded `rgba(216, 216, 220, .85)`
+       (warm-grey for the fixed dark HUD glass). After the HUD bg
+       became `--panel`-tinted, the label can follow `--text-soft`
+       so it stays readable in dark AND light appearances. */
+    color: var(--text-soft);
     cursor: pointer;
     pointer-events: auto;
     transition: background 0.08s, color 0.08s;
@@ -9766,10 +9779,11 @@
     padding: 5px 10px;
     font-size: 9px;
     letter-spacing: 0.04em;
-    /* Hardcoded light · the HUD body sits on a fixed dark frosted-
-       glass background, so log entries can't follow var(--text-soft)
-       which is dark grey in light themes (pinterest / atrium). */
-    color: rgba(216, 216, 220, 0.78);
+    /* Theme-adaptive log text · was hardcoded `rgba(216, 216, 220,
+       .78)` to stay legible against a fixed dark frosted glass. The
+       HUD bg now follows `--panel`, so log lines can follow
+       `--text-soft` and remain readable in both appearances. */
+    color: var(--text-soft);
     border-top: 1px solid var(--line);
     /* `steps(4)` so the entry materialises in 4 discrete frames —
        reads as a pixel-game tile flip, not a smooth fade. */
@@ -9794,9 +9808,12 @@
   }
   .rt-hud-log-text em {
     font-style: italic;
-    /* Hardcoded light · emphasis word (speaker name) over the
-       fixed dark HUD glass; var(--text) is dark in light themes. */
-    color: #F4F4F6;
+    /* Theme-adaptive emphasis · was hardcoded `#F4F4F6` (warm-white)
+       for the fixed dark HUD glass. With the HUD bg now on
+       `--panel`, emphasis text can ride `--text` (bright in dark
+       appearance, near-black in light) and still pop against the
+       softer rest of the log line that's on `--text-soft`. */
+    color: var(--text);
     font-weight: 700;
   }
   .rt-hud-log-entry.rt-hud-log-add      .rt-hud-log-glyph { color: var(--lime,  #6FB572); }
@@ -13124,7 +13141,7 @@
   }
   .pb-seg-fill {
     background: var(--lime);
-    box-shadow: 0 0 6px var(--lime-dim, rgba(132, 187, 78, 0.4));
+    box-shadow: 0 0 6px var(--lime-dim, color-mix(in srgb, var(--lime) 40%, transparent));
     animation: pb-seg-pulse 1.6s ease-in-out infinite;
   }
   /* Stagger the pulse across the filled segments so the bar
@@ -13180,8 +13197,8 @@
       to bottom,
       transparent 0,
       transparent 3px,
-      rgba(132, 187, 78, 0.04) 3px,
-      rgba(132, 187, 78, 0.04) 4px
+      color-mix(in srgb, var(--lime) 4%, transparent) 3px,
+      color-mix(in srgb, var(--lime) 4%, transparent) 4px
     );
     pointer-events: none;
     z-index: 0;
@@ -13387,8 +13404,8 @@
   .pb-phase-active {
     background: linear-gradient(
       90deg,
-      rgba(132, 187, 78, 0.08) 0%,
-      rgba(132, 187, 78, 0.02) 100%);
+      color-mix(in srgb, var(--lime) 8%, transparent) 0%,
+      color-mix(in srgb, var(--lime) 2%, transparent) 100%);
   }
   .pb-phase-active .pb-phase-icon {
     color: var(--lime);
@@ -13396,7 +13413,7 @@
   }
   .pb-phase-active .pb-phase-label {
     color: var(--lime);
-    text-shadow: 0 0 8px rgba(132, 187, 78, 0.35);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--lime) 35%, transparent);
   }
   .pb-phase-active .pb-phase-hint { color: var(--text-soft); }
   @keyframes pb-phase-blink {
@@ -13453,7 +13470,13 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    background: #0a0a0a;
+    /* Was hardcoded `#0a0a0a`; light mode left the right column as a
+       black slab while everything around it inverted to white (and the
+       `var(--text)` log lines inside went near-black → invisible on
+       black). Using `var(--bg)` keeps the console deep on dark and
+       crisp on light without losing the CRT-scanline texture (the
+       overlay uses `color-mix(var(--lime), 5%)`, both theme-aware). */
+    background: var(--bg);
     border: 0.5px solid var(--line-bright, var(--line));
     overflow: hidden;
   }
@@ -13466,8 +13489,8 @@
       to bottom,
       transparent 0,
       transparent 3px,
-      rgba(132, 187, 78, 0.05) 3px,
-      rgba(132, 187, 78, 0.05) 4px
+      color-mix(in srgb, var(--lime) 5%, transparent) 3px,
+      color-mix(in srgb, var(--lime) 5%, transparent) 4px
     );
     pointer-events: none;
     z-index: 0;
@@ -13479,7 +13502,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: rgba(132, 187, 78, 0.08);
+    background: color-mix(in srgb, var(--lime) 8%, transparent);
     border-bottom: 0.5px solid var(--line);
     font-family: var(--mono);
     font-size: 10px;
@@ -13543,7 +13566,7 @@
   }
   .pb-feed-phase-active .pb-feed-text {
     color: var(--lime);
-    text-shadow: 0 0 6px rgba(132, 187, 78, 0.3);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--lime) 30%, transparent);
   }
   .pb-feed-phase-done .pb-feed-text { color: var(--text-soft); opacity: 0.7; }
   .pb-feed-round .pb-feed-text { color: var(--text); }
@@ -13575,9 +13598,9 @@
     transition: color 0.12s, border-color 0.12s, background 0.12s;
   }
   .pb-cancel:hover {
-    color: #ff6262;
-    border-color: #ff6262;
-    background: rgba(255, 98, 98, 0.05);
+    color: var(--red);
+    border-color: var(--red);
+    background: color-mix(in srgb, var(--red) 5%, transparent);
   }
   .pb-cancel-mark {
     font-size: 13px;
@@ -14839,15 +14862,19 @@
     background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
-    box-shadow: 0 14px 32px -20px rgba(0, 0, 0, 0.55);
     display: flex;
     flex-direction: column;
     gap: 4px;
-    transition: border-color 0.12s, box-shadow 0.12s;
+    transition: border-color 0.12s;
   }
   .input-bar:focus-within {
-    border-color: var(--lime-dim, var(--line-strong));
-    box-shadow: 0 16px 36px -18px rgba(0, 0, 0, 0.6);
+    /* Saturated `--lime` (warm gold in dark · forest green in light)
+       instead of `--lime-dim`. `--lime-dim` on the light atrium
+       palette is `#B7CFB8` (pale green) which has almost no
+       contrast against the frosted cream surface — the border read
+       as "removed" on focus. The fully-saturated `--lime` keeps
+       the focused-card cue visible in both appearances. */
+    border-color: var(--lime);
   }
   /* Top row · textarea (live) or paused-status text. */
   .ib-text-row {
@@ -15579,9 +15606,9 @@
      before paint, then live-update if the user is in "system" mode.
 
      Stored value (`boardroom.appearance`) is one of:
-       "dark"   → always dark (regent)
+       "dark"   → always dark (regent) · default for new installs
        "light"  → always light (atrium)
-       "system" → follow prefers-color-scheme (default for new installs)
+       "system" → follow prefers-color-scheme
 
      Legacy values written by older builds (the ten-theme picker:
      "regent" / "eastwood" / "atrium" / "pinterest" / etc.) are
@@ -15600,11 +15627,15 @@
         var existing = localStorage.getItem(KEY);
         if (existing === "dark" || existing === "light" || existing === "system") return existing;
         var legacy = localStorage.getItem(LEGACY_KEY);
-        var next = "system";
+        // Default for fresh installs · "dark" (not "system"). Users
+        // who want OS-tracking can opt in via the Appearance segmented
+        // control under Other settings; out of the box we ship a known
+        // dark surface so the brand stays consistent on first paint.
+        var next = "dark";
         if (legacy) next = LIGHT_LEGACY[legacy] ? "light" : "dark";
         try { localStorage.setItem(KEY, next); } catch (e) {}
         return next;
-      } catch (e) { return "system"; }
+      } catch (e) { return "dark"; }
     }
     function systemPrefersDark() {
       try { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
@@ -15617,15 +15648,28 @@
     function apply(pref) {
       document.documentElement.setAttribute("data-theme", resolve(pref));
     }
+    // Electron-only: push the USER PREFERENCE (light/dark/system) to the
+    // main process so it can set nativeTheme.themeSource, which drives the
+    // macOS window vibrancy tone. Passing the pref (not the resolved
+    // value) lets "system" stay tracking when the OS toggles. No-op on
+    // browsers (`window.privateboard` only exists in the Electron shell).
+    function syncElectronAppearance(pref) {
+      try { window.privateboard && window.privateboard.setThemeSource && window.privateboard.setThemeSource(pref); } catch (e) {}
+    }
     var pref = migrate();
     apply(pref);
+    syncElectronAppearance(pref);
     // Live-track the OS theme while the user is in "system" mode.
     // Re-reads the stored value each tick so a later switch to
     // explicit dark/light short-circuits without needing to unhook.
     try {
       var mq = window.matchMedia("(prefers-color-scheme: dark)");
       var handler = function () {
-        var cur = localStorage.getItem(KEY) || "system";
+        // Default to "dark" if the key is missing (matches the
+        // migrate() fallback above). Only the explicit "system" pick
+        // should follow OS-level theme changes; "dark" / "light" /
+        // missing key all ignore them.
+        var cur = localStorage.getItem(KEY) || "dark";
         if (cur === "system") apply("system");
       };
       if (typeof mq.addEventListener === "function") mq.addEventListener("change", handler);
@@ -15633,7 +15677,7 @@
     } catch (e) {}
     // Cross-tab sync · settings overlay in another tab updates the key.
     window.addEventListener("storage", function (e) {
-      if (e.key === KEY && e.newValue) apply(e.newValue);
+      if (e.key === KEY && e.newValue) { apply(e.newValue); syncElectronAppearance(e.newValue); }
     });
   })();
   /* Default status to 'live' before app.js takes over; it'll set the real

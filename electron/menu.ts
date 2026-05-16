@@ -89,6 +89,24 @@ export function buildAppMenu(stateDir: string): void {
       role: "help",
       submenu: [
         {
+          label: "Open Developer Console",
+          accelerator: "CmdOrCtrl+Alt+I",
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            if (!win) return;
+            // Detach so the inspector pops as its own window and
+            // doesn't squeeze the main app layout. `toggleDevTools`
+            // would close an already-open detached panel; explicit
+            // open keeps the affordance idempotent for the menu.
+            if (win.webContents.isDevToolsOpened()) {
+              win.webContents.closeDevTools();
+            } else {
+              win.webContents.openDevTools({ mode: "detach" });
+            }
+          },
+        },
+        { type: "separator" },
+        {
           label: "Show State Directory in Finder",
           click: () => {
             shell.showItemInFolder(stateDir);
