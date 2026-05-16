@@ -652,6 +652,14 @@
   html.is-electron-mac .body-grid {
     border-radius: 10px;
   }
+  /* Fullscreen · the OS window is edge-to-edge, so the 10px outer
+     padding ring and 10px rounded corners on the body-grid become
+     wasted margins / a floating-card look. Both flatten to zero in
+     fullscreen so the content reaches the screen edges. The
+     `is-fullscreen` class is toggled by electron/main.ts on
+     `enter-full-screen` / `leave-full-screen` events. */
+  html.is-fullscreen .control { padding: 0; }
+  html.is-fullscreen .body-grid { border-radius: 0; }
   /* macOS Electron · let the BrowserWindow's `vibrancy: "under-window"`
      layer show through. The vibrancy lives behind the renderer, so
      anything painted with a fully opaque background covers it. We

@@ -148,6 +148,29 @@ if (!app.requestSingleInstanceLock()) {
       win = null;
     });
 
+    // Fullscreen ↔ windowed sync · the renderer paints a 10px padding
+    // ring around the body-grid and a 10px outer corner radius when
+    // running as a windowed app on macOS. In fullscreen the OS window
+    // is edge-to-edge against the screen, so that ring becomes a
+    // wasted black margin and the rounded corners look like a card
+    // stuck in the middle of the display. Flip a top-level
+    // `is-fullscreen` class on `<html>` so the CSS can zero out both
+    // when the user toggles fullscreen via the green button / shortcut.
+    const setFullscreenClass = (on: boolean) => {
+      if (!win || win.isDestroyed()) return;
+      const js = on
+        ? `document.documentElement.classList.add("is-fullscreen");`
+        : `document.documentElement.classList.remove("is-fullscreen");`;
+      void win.webContents.executeJavaScript(js).catch(() => {});
+    };
+    win.on("enter-full-screen", () => setFullscreenClass(true));
+    win.on("leave-full-screen", () => setFullscreenClass(false));
+    // Re-apply on every navigation / reload so the class survives the
+    // renderer re-mounting (e.g. after `Cmd+R`).
+    win.webContents.on("did-finish-load", () => {
+      if (win && !win.isDestroyed() && win.isFullScreen()) setFullscreenClass(true);
+    });
+
     win.webContents.setWindowOpenHandler(({ url: target }) => {
       shell.openExternal(target).catch(() => {});
       return { action: "deny" };
