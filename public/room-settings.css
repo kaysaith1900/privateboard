@@ -47,9 +47,9 @@ html.is-electron-mac .room-settings-overlay * {
      and section content reads tighter. */
   max-width: 700px;
   max-height: calc(100vh - 48px);
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  color: var(--text, #C8C5BE);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  color: var(--text);
   animation: rs-rise 0.18s ease-out;
   display: flex;
   flex-direction: column;
@@ -74,27 +74,27 @@ html.is-electron-mac .room-settings-overlay * {
   position: absolute;
   width: 10px;
   height: 10px;
-  border: 1.5px solid var(--lime, #6FB572);
+  border: 1.5px solid var(--lime);
   pointer-events: none;
 }
 .room-settings-modal::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
 .room-settings-modal::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
 
 .rs-classification {
-  background: var(--panel-2, #1A1A18);
-  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--strip-bg);
+  border-bottom: 0.5px solid var(--line-bright);
   padding: 5px 14px;
   font-size: 8px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .rs-classification .right {
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.12em;
 }
 
@@ -104,19 +104,20 @@ html.is-electron-mac .room-settings-overlay * {
   gap: 12px;
   align-items: start;
   padding: 14px 16px 12px;
-  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+  background: var(--strip-bg);
+  border-bottom: 0.5px dashed var(--line-bright);
 }
 .rs-head .meta {
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   margin-bottom: 4px;
   font-weight: 700;
 }
 .rs-head .meta .live {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 .rs-head .meta .live::before {
@@ -127,13 +128,13 @@ html.is-electron-mac .room-settings-overlay * {
 .rs-head .title {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.01em;
   line-height: 1.3;
 }
 .rs-head .title::before {
   content: "▸ ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* ─── Title clamp ──────────────────────────────────────────────
@@ -161,19 +162,19 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   padding: 0;
   transition: color 0.12s;
 }
-.rs-title-toggle:hover { color: var(--lime, #6FB572); }
-.rs-title-toggle::before { content: "[ "; color: var(--text-faint, #3A382F); }
-.rs-title-toggle::after  { content: " ]"; color: var(--text-faint, #3A382F); }
+.rs-title-toggle:hover { color: var(--lime); }
+.rs-title-toggle::before { content: "[ "; color: var(--text-faint); }
+.rs-title-toggle::after  { content: " ]"; color: var(--text-faint); }
 .rs-head .close-btn {
   width: 24px; height: 24px;
   background: transparent;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-dim, #5C5A52);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
   font-size: 12px;
   cursor: pointer;
   font-family: var(--mono);
@@ -181,14 +182,14 @@ html.is-electron-mac .room-settings-overlay * {
   transition: all 0.12s;
 }
 .rs-head .close-btn:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 .rs-body { padding: 14px 16px 4px; }
 
 /* Legacy section block (kept for any leftover .rs-block consumers). */
-.rs-block { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 0.5px solid var(--line, #1F1E1A); }
+.rs-block { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 0.5px solid var(--line); }
 .rs-block:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
 
 /* ─── Configuration · 3-row compact spec sheet ──────────────────────
@@ -206,7 +207,7 @@ html.is-electron-mac .room-settings-overlay * {
   gap: 14px;
   align-items: center;
   padding: 12px 0;
-  border-bottom: 0.5px solid var(--line, #1F1E1A);
+  border-bottom: 0.5px solid var(--line);
 }
 .rs-config-row:last-child { border-bottom: none; }
 .rs-config-row-label {
@@ -219,14 +220,14 @@ html.is-electron-mac .room-settings-overlay * {
   font-family: var(--font-human);
   font-size: 13px;
   font-weight: 600;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.005em;
 }
 .rs-config-row-hint {
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.06em;
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
 }
 @media (max-width: 600px) {
   .rs-config-row { grid-template-columns: 1fr; gap: 6px; }
@@ -259,12 +260,12 @@ html.is-electron-mac .room-settings-overlay * {
   align-items: center;
   gap: 5px;
   padding: 3px 6px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 700;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   text-align: left;
   text-transform: uppercase;
@@ -274,13 +275,13 @@ html.is-electron-mac .room-settings-overlay * {
   white-space: nowrap;
 }
 .rs-chip-mini:hover {
-  border-color: var(--lime-dim, #2D5532);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime-dim);
+  color: var(--lime);
 }
 .rs-chip-mini.active {
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
-  border-color: var(--lime, #6FB572);
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
 }
 .rs-chip-label { line-height: 1; }
 .rs-chip-info {
@@ -294,19 +295,19 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
-  color: var(--text-faint, #3A382F);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-faint);
+  border: 0.5px solid var(--line-bright);
   cursor: help;
   user-select: none;
   transition: color 0.12s, border-color 0.12s;
 }
 .rs-chip-mini:hover .rs-chip-info {
-  color: var(--lime, #6FB572);
-  border-color: var(--lime, #6FB572);
+  color: var(--lime);
+  border-color: var(--lime);
 }
 .rs-chip-mini.active .rs-chip-info {
-  color: var(--bg, #0A0A0A);
-  border-color: var(--bg, #0A0A0A);
+  color: var(--bg);
+  border-color: var(--bg);
   background: rgba(0, 0, 0, 0.18);
 }
 
@@ -317,13 +318,13 @@ html.is-electron-mac .room-settings-overlay * {
   position: fixed;
   z-index: 9100;
   max-width: 320px;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
   padding: 10px 12px;
   font-family: var(--font-human);
   font-size: 12px;
   line-height: 1.55;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.005em;
   border-radius: 4px;
 }
@@ -332,11 +333,11 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 9px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-weight: 700;
   margin-bottom: 4px;
 }
-.rs-info-popover-body { color: var(--text-soft, #8E8B83); }
+.rs-info-popover-body { color: var(--text-soft); }
 
 /* Directors trigger button · stacks the first 5 active director
    avatars with a +N overflow chip + count label, matching the
@@ -346,9 +347,9 @@ html.is-electron-mac .room-settings-overlay * {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-soft, #8E8B83);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
@@ -361,8 +362,8 @@ html.is-electron-mac .room-settings-overlay * {
 }
 .rs-cast-btn:hover,
 .rs-cast-btn.on {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 .rs-cast-stack {
   display: inline-flex;
@@ -371,8 +372,8 @@ html.is-electron-mac .room-settings-overlay * {
 .rs-cast-av {
   width: 18px;
   height: 18px;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
   margin-left: -4px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -389,19 +390,19 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0;
-  background: var(--panel-2, #1A1A18);
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-faint, #3A382F);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-faint);
   border-radius: 0;
 }
 .rs-cast-count { white-space: nowrap; }
 .rs-cast-chevron {
   font-size: 9px;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin-left: 2px;
 }
 .rs-cast-btn:hover .rs-cast-chevron,
-.rs-cast-btn.on .rs-cast-chevron { color: var(--lime, #6FB572); }
+.rs-cast-btn.on .rs-cast-chevron { color: var(--lime); }
 
 /* Picker popover · same composition as the room composer's
    .composer-pick-pop · 360px wide, scrollable list of director rows. */
@@ -412,8 +413,8 @@ html.is-electron-mac .room-settings-overlay * {
   max-width: calc(100vw - 32px);
   max-height: 56vh;
   overflow-y: auto;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
   border-radius: 4px;
 }
 .rs-cast-head {
@@ -421,10 +422,10 @@ html.is-electron-mac .room-settings-overlay * {
   justify-content: space-between;
   align-items: baseline;
   padding: 8px 12px;
-  border-bottom: 0.5px solid var(--line, #1F1E1A);
+  border-bottom: 0.5px solid var(--line);
   position: sticky;
   top: 0;
-  background: var(--panel, #131312);
+  background: var(--panel);
   z-index: 1;
 }
 .rs-cast-title {
@@ -459,13 +460,13 @@ html.is-electron-mac .room-settings-overlay * {
   align-items: center;
   gap: 9px;
   padding: 5px 10px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   cursor: pointer;
   border-radius: 0;
   transition: border-color 0.12s, background 0.12s;
 }
-.rs-toggle-row:hover { border-color: var(--text-faint, #3A382F); }
+.rs-toggle-row:hover { border-color: var(--text-faint); }
 /* `.rs-toggle-row .rs-incognito-check` only needs spacing here;
    the global `input[type="checkbox"]` rule in index.html now
    owns appearance / border / fill / hover / focus / disabled
@@ -479,15 +480,15 @@ html.is-electron-mac .room-settings-overlay * {
 .rs-toggle-label {
   font-family: var(--font-human);
   font-size: 12px;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.005em;
 }
 .rs-toggle-row:has(.rs-incognito-check:checked) {
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
+  border-color: var(--lime);
+  background: var(--panel-2);
 }
 .rs-toggle-row:has(.rs-incognito-check:checked) .rs-toggle-label {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* Vote-trigger radio group · two cells per row (Auto / Manual)
@@ -510,17 +511,17 @@ html.is-electron-mac .room-settings-overlay * {
   column-gap: 8px;
   row-gap: 2px;
   padding: 7px 9px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
 }
-.rs-radio-row:hover { border-color: var(--text-faint, #3A382F); }
+.rs-radio-row:hover { border-color: var(--text-faint); }
 .rs-radio-row input[type="radio"] {
   grid-row: 1;
   grid-column: 1;
   margin: 0;
-  accent-color: var(--lime, #6FB572);
+  accent-color: var(--lime);
   cursor: pointer;
   width: 13px;
   height: 13px;
@@ -538,23 +539,23 @@ html.is-electron-mac .room-settings-overlay * {
   font-family: var(--font-human);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.005em;
   line-height: 1.2;
 }
 .rs-radio-desc {
   font-family: var(--font-human);
   font-size: 11px;
-  color: var(--text-faint, #5C5A4D);
+  color: var(--text-faint);
   letter-spacing: -0.003em;
   line-height: 1.35;
 }
 .rs-radio-row.active {
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
+  border-color: var(--lime);
+  background: var(--panel-2);
 }
 .rs-radio-row.active .rs-radio-name {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* Section label · matches the new composer's mono micro-type kicker.
@@ -566,7 +567,7 @@ html.is-electron-mac .room-settings-overlay * {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin-bottom: 7px;
   display: flex;
   align-items: center;
@@ -575,10 +576,10 @@ html.is-electron-mac .room-settings-overlay * {
 .rs-label .count {
   margin-left: auto;
   font-size: 8px;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.1em;
   font-weight: 600;
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  border: 0.5px solid var(--line-bright);
   padding: 1px 6px;
   text-transform: lowercase;
   border-radius: 2px;
@@ -589,16 +590,16 @@ html.is-electron-mac .room-settings-overlay * {
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-soft, #8E8B83);
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   padding: 8px 11px;
   letter-spacing: -0.003em;
   border-radius: 3px;
 }
 .rs-topic::before {
   content: "> ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 
@@ -612,8 +613,8 @@ html.is-electron-mac .room-settings-overlay * {
   flex-direction: column;
   max-height: 380px;
   overflow-y: auto;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
   border-radius: 3px;
   padding: 2px 0;
 }
@@ -624,7 +625,7 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 8px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin: 6px 0 3px;
   font-weight: 700;
 }
@@ -644,9 +645,9 @@ html.is-electron-mac .room-settings-overlay * {
   text-align: left;
   transition: background 0.1s;
 }
-.rs-member:hover { background: var(--panel-2, #1A1A18); }
-.rs-member.on { background: var(--panel-3, #21211E); }
-.rs-member.on .rs-member-name { color: var(--lime, #6FB572); }
+.rs-member:hover { background: var(--panel-2); }
+.rs-member.on { background: var(--panel-3); }
+.rs-member.on .rs-member-name { color: var(--lime); }
 
 /* Director picker checkbox · 12 × 12 to fit the dense member-row
    grid. Visual treatment comes from the global checkbox rule
@@ -661,12 +662,12 @@ html.is-electron-mac .room-settings-overlay * {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   cursor: pointer;
   transition: border-color 0.12s;
 }
-.rs-member-img:hover { border-color: var(--lime, #6FB572); }
+.rs-member-img:hover { border-color: var(--lime); }
 .rs-member-av {
   width: 100%;
   height: 100%;
@@ -683,7 +684,7 @@ html.is-electron-mac .room-settings-overlay * {
 .rs-member-name {
   font-family: var(--font-human);
   font-size: 12px;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.005em;
   white-space: nowrap;
   overflow: hidden;
@@ -697,7 +698,7 @@ html.is-electron-mac .room-settings-overlay * {
   /* Was text-faint · same readability problem as
      `.composer-pick-tag` — bumped to text-dim so the role label
      (skeptic / physicist / …) is actually legible. */
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -707,19 +708,19 @@ html.is-electron-mac .room-settings-overlay * {
   font-family: var(--mono);
   font-size: 8px;
   letter-spacing: 0.04em;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   padding: 1px 5px;
-  border: 0.5px solid var(--line, #1F1E1A);
-  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line);
+  background: var(--panel-2);
   white-space: nowrap;
   border-radius: 2px;
 }
 
 .rs-member-info {
   width: 16px; height: 16px;
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  border: 0.5px solid var(--line-bright);
   background: transparent;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-family: var(--font-human);
   font-style: italic;
   font-size: 9px;
@@ -733,15 +734,15 @@ html.is-electron-mac .room-settings-overlay * {
   border-radius: 2px;
 }
 .rs-member-info:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 .rs-empty {
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-size: 11px;
   padding: 8px 10px;
-  border: 0.5px dashed var(--line-bright, #2A2A26);
+  border: 0.5px dashed var(--line-bright);
   font-family: var(--mono);
   letter-spacing: 0.06em;
 }
@@ -751,8 +752,8 @@ html.is-electron-mac .room-settings-overlay * {
   list-style: none;
   margin: 0;
   padding: 0;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
   max-height: 160px;
   overflow-y: auto;
   border-radius: 3px;
@@ -765,7 +766,7 @@ html.is-electron-mac .room-settings-overlay * {
   padding: 4px 9px;
   font-family: var(--mono);
   font-size: 10px;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.003em;
 }
 .rs-history-row + .rs-history-row {
@@ -773,7 +774,7 @@ html.is-electron-mac .room-settings-overlay * {
 }
 .rs-history-row .h-time {
   font-size: 9px;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
@@ -783,21 +784,21 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 10px;
 }
 .rs-history-row .h-label {
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   font-family: var(--sans);
   font-size: 12px;
 }
 .rs-history-row .h-who {
   font-size: 8px;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-weight: 600;
 }
-.rs-history-row.h-add    .h-icon { color: var(--lime, #6FB572); }
-.rs-history-row.h-remove .h-icon { color: var(--red, #B5706A); }
-.rs-history-row.h-config .h-icon { color: var(--amber, #B59560); }
-.rs-history-row.h-system .h-icon { color: var(--text-dim, #5C5A52); }
+.rs-history-row.h-add    .h-icon { color: var(--lime); }
+.rs-history-row.h-remove .h-icon { color: var(--red); }
+.rs-history-row.h-config .h-icon { color: var(--amber); }
+.rs-history-row.h-system .h-icon { color: var(--text-dim); }
 
 /* Configuration block */
 .rs-config-grid {
@@ -808,8 +809,8 @@ html.is-electron-mac .room-settings-overlay * {
 @media (max-width: 600px) { .rs-config-grid { grid-template-columns: 1fr; } }
 
 .rs-config-item {
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   padding: 7px 9px;
   border-radius: 3px;
 }
@@ -866,7 +867,7 @@ html.is-electron-mac .room-settings-overlay * {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   margin-bottom: 5px;
   display: flex;
   justify-content: space-between;
@@ -892,20 +893,20 @@ html.is-electron-mac .room-settings-overlay * {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  background: var(--line-bright, #2A2A26);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--line-bright);
+  border: 0.5px solid var(--line-bright);
   border-radius: 3px;
   overflow: hidden;
 }
 .rs-stat {
-  background: var(--panel, #131312);
+  background: var(--panel);
   padding: 7px 8px;
   text-align: center;
 }
 .rs-stat .v {
   font-family: var(--mono);
   font-size: 14px;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1;
@@ -914,7 +915,7 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 8px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin-top: 3px;
   font-weight: 700;
 }
@@ -922,9 +923,9 @@ html.is-electron-mac .room-settings-overlay * {
 
 /* Footer actions */
 .rs-foot {
-  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  border-top: 0.5px solid var(--line-bright);
   padding: 9px 16px;
-  background: var(--panel-2, #1A1A18);
+  background: var(--panel-2);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -933,7 +934,7 @@ html.is-electron-mac .room-settings-overlay * {
 .rs-foot .saved {
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--text-faint, #5C5A52);
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-weight: 700;
@@ -942,11 +943,11 @@ html.is-electron-mac .room-settings-overlay * {
   content: "○ ";
 }
 .rs-foot .saved.pending {
-  color: var(--amber, #B59560);
+  color: var(--amber);
   animation: rs-pending-pulse 1.4s ease-in-out infinite;
 }
 .rs-foot .saved.pending::before { content: "● "; }
-.rs-foot .saved.error { color: var(--red, #B5706A); animation: none; }
+.rs-foot .saved.error { color: var(--red); animation: none; }
 .rs-foot .saved.error::before { content: "✕ "; }
 @keyframes rs-pending-pulse {
   0%, 100% { opacity: 0.7; }
@@ -961,28 +962,28 @@ html.is-electron-mac .room-settings-overlay * {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   padding: 6px 11px;
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  border: 0.5px solid var(--line-strong);
   background: transparent;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.12s;
 }
-.rs-action:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+.rs-action:hover { border-color: var(--lime); color: var(--lime); }
 /* Confirm button picks up a primary-action treatment when there are
    staged changes, so the user knows the action is live. */
 .rs-action.dirty {
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
-  border-color: var(--lime, #6FB572);
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
 }
 .rs-action.dirty:hover {
   background: transparent;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 .rs-action[disabled] { opacity: 0.55; cursor: progress; pointer-events: none; }
-.rs-action.danger { color: var(--red, #B5706A); border-color: rgba(181, 112, 106, 0.4); }
-.rs-action.danger:hover { background: var(--red, #B5706A); color: var(--bg, #0A0A0A); border-color: var(--red, #B5706A); }
+.rs-action.danger { color: var(--red); border-color: rgba(181, 112, 106, 0.4); }
+.rs-action.danger:hover { background: var(--red); color: var(--bg); border-color: var(--red); }
 
 /* Icon-only buttons in the room-head action bar · borderless mask-icon
    register matching the sidebar nav buttons (.new-btn.nav-*). Sized at
@@ -1000,7 +1001,7 @@ html.is-electron-mac .room-settings-overlay * {
   padding: 0;
   background: transparent;
   border: none;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   text-decoration: none;
   transition: color 0.12s, background 0.12s;
@@ -1022,7 +1023,7 @@ html.is-electron-mac .room-settings-overlay * {
 }
 .head-icon-btn:hover,
 .room-settings-trigger:hover {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   background: var(--panel-2, rgba(255, 255, 255, 0.04));
 }
 /* Hover-name tooltip · mirrors `.ib-action::after`'s register (panel-2
@@ -1041,13 +1042,13 @@ html.is-electron-mac .room-settings-overlay * {
   top: calc(100% + 8px);
   right: 0;
   transform: translateY(-3px);
-  background: var(--panel-2, #1A1A18);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong);
   padding: 5px 9px;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.04em;
-  color: var(--text, #E5E1D6);
+  color: var(--text);
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
@@ -1085,7 +1086,7 @@ html.is-electron-mac .room-settings-overlay * {
 /* Pending state · brief still streaming. Pulse the icon's opacity so
    the user reads "working on it" without a separate spinner. */
 .head-view-report.is-generating {
-  color: var(--text-faint, #5C5A55);
+  color: var(--text-faint);
   cursor: progress;
   pointer-events: none;
 }
@@ -1100,7 +1101,7 @@ html.is-electron-mac .room-settings-overlay * {
    primary CTA-ness moves to the icon's color tone (lime) — same
    tactic as the sidebar's `.new-btn.active` lime state. */
 .head-view-report.is-generate {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 /* Count chip for multi-brief popover trigger · pinned to the icon's
    top-right corner so the user sees "there's more than one report"
@@ -1120,8 +1121,8 @@ html.is-electron-mac .room-settings-overlay * {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0;
-  color: var(--bg, #0A0A0A);
-  background: var(--lime, #6FB572);
+  color: var(--bg);
+  background: var(--lime);
   border-radius: 7px;
   pointer-events: none;
 }

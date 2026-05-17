@@ -17,6 +17,12 @@ import { getKey } from "../storage/keys.js";
 
 import { getModel, type ModelMeta, type ModelV, type Provider } from "./registry.js";
 
+/** Carrier identity used by ResolvedModel and the fallback-retry logic.
+ *  The narrow `Provider` from registry covers only model-creators
+ *  (anthropic / openai / google / xai / deepseek); we widen it here so
+ *  universal carriers (openrouter / bai) can also appear. */
+type CarrierId = Provider | "openrouter" | "bai";
+
 export type LLMRole = "system" | "user" | "assistant";
 
 export interface LLMMessage {
@@ -29,7 +35,7 @@ export interface LLMMessage {
  *  rather than re-importing to avoid the storage→ai dep). When set,
  *  resolveModel routes via that carrier instead of the default
  *  precedence rules. NULL/undefined preserves the historical behavior. */
-export type RequestCarrier = "openrouter" | "anthropic" | "openai" | "google" | "xai";
+export type RequestCarrier = "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
 
 export interface LLMRequest {
   modelV: ModelV;
@@ -61,6 +67,7 @@ export class NoKeyError extends Error {
 }
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+const BAI_BASE = "https://api.b.ai/v1";
 
 /** Header names whose values must NOT print verbatim — they carry the
  *  user's API key. Different providers use different header names; the
@@ -272,6 +279,10 @@ function formatStreamError(e: unknown): string {
 interface ResolvedModel {
   model: LanguageModel;
   providerOptions?: ProviderMetadata;
+  /** Which carrier this resolution chose · used by `callLLMStream` to
+   *  exclude the failing carrier on fallback retry when the upstream
+   *  rejects with an access-denied / payment-required error. */
+  carrier: CarrierId;
 }
 
 /** Resolve which model + which credentials to use right now.
@@ -283,31 +294,45 @@ interface ResolvedModel {
  *       picked this carrier on purpose. Unreachable preference
  *       (carrier missing key, or model not on that carrier) falls
  *       through to default routing rather than hard-failing.
- *    1. `openrouterOnly` AND OpenRouter key → OpenRouter (preview models
- *       that aren't on the direct SDK live here).
- *    2. Direct provider key → direct SDK (the normal path).
- *    3. OpenRouter key (any other model) → OpenRouter as carrier.
- *    4. `openrouterOnly` model with NO OR key BUT direct provider key
- *       → attempt direct anyway. The flag is best-treated as "prefer
- *       OpenRouter" rather than "exclusively OpenRouter" — most direct
- *       SDKs eventually catch up to model IDs and the user shouldn't
- *       silently fail because we didn't update a flag. If the direct
- *       call rejects (model unknown), the LLM error surfaces and the
- *       user can swap models — better than the previous silent
- *       NoKeyError that hid the real issue.
- *    5. No keys at all → NoKeyError. */
-function resolveModel(modelV: ModelV, carrier?: RequestCarrier | null): ResolvedModel {
+*    1. `viaUniversalOnly` AND OpenRouter key → OpenRouter (preview /
+ *       no-direct-SDK models land here first because the universal
+ *       carrier is their primary route).
+ *    2. Direct provider key → direct SDK (the normal path · skipped
+ *       when `viaUniversalOnly`).
+ *    3. B.AI carrier when present (B.AI ships newer model IDs faster
+ *       than OR's preview catalog, hence preferred over OR).
+ *    4. OpenRouter key (any other model) → OpenRouter as carrier.
+ *    5. `viaUniversalOnly` model with NO OR / B.AI key BUT direct
+ *       provider key → attempt direct anyway. The flag is conservative;
+ *       direct SDKs eventually catch up to model IDs and the user
+ *       shouldn't silently fail because we didn't update a flag. If
+ *       the direct call rejects (model unknown), the LLM error
+ *       surfaces and the user can swap models — better than the
+ *       previous silent NoKeyError that hid the real issue.
+ *    6. No keys at all → NoKeyError. */
+function resolveModel(
+  modelV: ModelV,
+  carrier?: RequestCarrier | null,
+  excludeCarriers?: Set<CarrierId>,
+): ResolvedModel {
   const meta = getModel(modelV);
-  const orKey = getKey("openrouter");
-  const directKey = getKey(meta.provider);
+  const skip = (c: CarrierId) => excludeCarriers?.has(c) === true;
+  const orKey = !skip("openrouter") ? getKey("openrouter") : undefined;
+  const baiKey = !skip("bai") ? getKey("bai") : undefined;
+  const directKey = !skip(meta.provider) ? getKey(meta.provider) : undefined;
 
-  // Preference 0 · explicit carrier override.
+  // Preference 0 · explicit carrier override (only honored if the
+  // carrier isn't on the exclude list · fallback-retry logic).
   if (carrier === "openrouter" && orKey) {
     process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId} (pinned)\n`);
     return openRouterResolved(meta, orKey);
   }
-  if (carrier && carrier !== "openrouter" && carrier === meta.provider) {
-    const pinnedKey = getKey(carrier);
+  if (carrier === "bai" && baiKey && meta.baiId) {
+    process.stderr.write(`[adapter] modelV=${modelV} → bai:${meta.baiId} (pinned)\n`);
+    return baiResolved(meta, baiKey);
+  }
+  if (carrier && carrier !== "openrouter" && carrier !== "bai" && carrier === meta.provider) {
+    const pinnedKey = !skip(carrier) ? getKey(carrier) : undefined;
     if (pinnedKey) {
       process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId} (pinned)\n`);
       return directResolved(meta, pinnedKey);
@@ -315,41 +340,99 @@ function resolveModel(modelV: ModelV, carrier?: RequestCarrier | null): Resolved
   }
   // Override requested but unreachable · log + fall through. Keeps the
   // call live rather than failing on a stale agent preference.
-  if (carrier) {
+  if (carrier && !excludeCarriers?.size) {
     process.stderr.write(
       `[adapter] modelV=${modelV} pinned carrier=${carrier} unreachable; falling back to default routing\n`,
     );
   }
 
-  // Preference 1: openrouterOnly + OR key → OpenRouter.
-  if (meta.openrouterOnly && orKey) {
+  // Preference 1: viaUniversalOnly + OR key → OpenRouter.
+  if (meta.viaUniversalOnly && orKey) {
     process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId} (preferred)\n`);
     return openRouterResolved(meta, orKey);
   }
 
-  // Preference 2: direct key (most models).
-  if (directKey && !meta.openrouterOnly) {
+  // Preference 2: direct key (most models · skipped when the model is
+  // marked viaUniversalOnly · those land on B.AI / OR / direct-fallback
+  // below).
+  if (directKey && !meta.viaUniversalOnly) {
     process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId}\n`);
     return directResolved(meta, directKey);
   }
 
-  // Preference 3: any other model · OR carrier when OR key exists.
+  // Preference 3: any other model · B.AI carrier (checked before OR
+  // since most direct provider keys win above and B.AI tends to ship
+  // newer model IDs faster than OR's preview catalog). Requires a
+  // baiId in the registry — older / niche models without one skip.
+  if (baiKey && meta.baiId) {
+    process.stderr.write(`[adapter] modelV=${modelV} → bai:${meta.baiId}\n`);
+    return baiResolved(meta, baiKey);
+  }
+
+  // Preference 4: OR carrier when OR key exists.
   if (orKey) {
     process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId}\n`);
     return openRouterResolved(meta, orKey);
   }
 
-  // Preference 4: openrouterOnly model + direct key only · attempt
+  // Preference 5: viaUniversalOnly model + direct key only · attempt
   // direct anyway. The flag is conservative; many direct SDKs ship
   // the model ID later. We log so the user can see in stderr which
   // path the call took.
-  if (meta.openrouterOnly && directKey) {
-    process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId} (openrouterOnly fallback · no OR key)\n`);
+  if (meta.viaUniversalOnly && directKey) {
+    process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId} (viaUniversalOnly fallback · no OR / B.AI key)\n`);
     return directResolved(meta, directKey);
   }
 
-  // Preference 5: no usable keys.
+  // Preference 6: no usable keys.
   throw new NoKeyError(meta.provider);
+}
+
+/** True when an error message from a carrier indicates the request was
+ *  rejected because the user's account on THAT carrier can't access
+ *  the requested model — typically 402/403 with `access_denied`,
+ *  `deposit required`, `paid_plan_required`, `insufficient_quota`, or
+ *  similar wording. These errors won't go away on retry against the
+ *  same carrier, but a DIFFERENT carrier (e.g. direct provider key,
+ *  OpenRouter when we tried B.AI first) may succeed. Triggers the
+ *  carrier-rotation fallback in callLLMStream. */
+function isCarrierAccessDenied(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  // HTTP 402 / 403 status codes paired with payment / access language.
+  if (/\b40[23]\b/.test(m) && /(access|deposit|payment|paid|premium|subscri|quota|balance|fund)/.test(m)) return true;
+  // Common phrase variants across providers (OpenRouter, B.AI, OpenAI,
+  // Anthropic, MiniMax). Case-insensitive substring match.
+  if (/access[_\s-]?denied/.test(m)) return true;
+  if (/deposit\s+required/.test(m)) return true;
+  if (/paid[_\s-]?plan[_\s-]?required/.test(m)) return true;
+  if (/premium[_\s-]?model/.test(m)) return true;
+  if (/insufficient[_\s-]?(?:quota|balance|fund)/.test(m)) return true;
+  if (/quota[_\s-]?exceeded/.test(m)) return true;
+  if (/payment[_\s-]?required/.test(m)) return true;
+  if (/billing/.test(m) && /(disabled|inactive|required|invalid|missing)/.test(m)) return true;
+  // Carrier doesn't have this model in its catalog · same "try another
+  // carrier" semantics as access denials. Triggered by B.AI's
+  // `model_not_found / no available channel for model` 503 when our
+  // baiId mapping points at a slug the aggregator doesn't route, and
+  // by OpenRouter's `model not found / invalid model` 404 when a
+  // preview id has been retired upstream.
+  if (/model[_\s-]?not[_\s-]?found/.test(m)) return true;
+  if (/no\s+available\s+channel/.test(m)) return true;
+  if (/no\s+endpoints?\s+found/.test(m)) return true;
+  if (/invalid\s+model/.test(m)) return true;
+  if (/model.*(unavailable|not\s+(?:supported|available))/.test(m)) return true;
+  // Sub-provider ToS / content-policy rejection · OpenRouter's
+  // standard phrasing when one of its upstream providers blocks the
+  // request, e.g. "The request is prohibited due to a violation of
+  // provider Terms Of Service." Another carrier (direct provider key,
+  // B.AI, or a different OR sub-provider) may carry the same request
+  // through, so we treat it as carrier-rotation triggerable. If every
+  // carrier ends up refusing, the final error still surfaces.
+  if (/prohibited.*(?:terms?\s+of\s+service|provider)/.test(m)) return true;
+  if (/provider.*terms?\s+of\s+service/.test(m)) return true;
+  if (/violates?\s+(?:our|the)?\s*(?:terms|policy|content)/.test(m)) return true;
+  return false;
 }
 
 function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
@@ -361,6 +444,7 @@ function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
       // SENSITIVE_HEADER_NAMES in the logger.
       return {
         model: createAnthropic({ apiKey, fetch: makeLoggedFetch("anthropic") })(meta.directApiId),
+        carrier: "anthropic",
       };
     case "openai":
       // Route OpenAI direct calls through the Responses API
@@ -399,6 +483,7 @@ function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
         providerOptions: {
           openai: { reasoningEffort: "none" },
         },
+        carrier: "openai",
       };
     case "google":
       // Gemini 2.5+ ships as a reasoning model (built-in "thinking"
@@ -424,6 +509,7 @@ function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
         providerOptions: {
           google: { thinkingConfig: { thinkingBudget: 0 } },
         },
+        carrier: "google",
       };
     case "xai": {
       // xAI's current frontier (Grok 4.x) is served on the Responses
@@ -449,12 +535,41 @@ function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
           baseURL: "https://api.x.ai/v1",
           fetch: makeLoggedFetch("xai"),
         }).responses(meta.directApiId),
+        carrier: "xai",
       };
     }
     default:
       throw new NoKeyError(meta.provider);
   }
 }
+
+/** B.AI carrier · OpenAI-compatible aggregator at https://api.b.ai/v1.
+ *  Behaves like OpenRouter (universal carrier reaching many providers
+ *  through one key), but distinct base URL + auth scheme is the bare
+ *  Bearer convention without OpenRouter's `provider.allow_fallbacks`
+ *  knob — so we don't pin allow_fallbacks here. The compat adapter
+ *  handles SSE / chat completions / usage tally without provider-
+ *  specific tweaks. */
+function baiResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
+  const baiId = meta.baiId;
+  if (!baiId) {
+    // No B.AI mapping for this model · fall through so the caller can
+    // pick another carrier. This is a defensive guard: resolveModel
+    // already filters by baiId before routing here.
+    throw new NoKeyError(meta.provider);
+  }
+  const compat = createOpenAICompatible({
+    name: "bai",
+    apiKey,
+    baseURL: BAI_BASE,
+    fetch: baiLoggedFetch,
+  });
+  return {
+    model: compat.chatModel(baiId),
+    carrier: "bai",
+  };
+}
+const baiLoggedFetch = makeLoggedFetch("bai");
 
 function openRouterResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
   const compat = createOpenAICompatible({
@@ -481,6 +596,7 @@ function openRouterResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
         provider: { allow_fallbacks: false },
       },
     },
+    carrier: "openrouter",
   };
 }
 
@@ -572,6 +688,13 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
   let attempt = 0;
   let lastTransientMessage = "";
   let yieldedText = false;
+  // Carrier-rotation state · when a carrier rejects with an access-
+  // denied / payment-required error AND no text has streamed, we
+  // exclude it and ask resolveModel for the next-best carrier. Stops
+  // the user from seeing "Deposit required" on a per-director basis
+  // when they have another carrier (direct key / OR) available.
+  const triedCarriers = new Set<CarrierId>();
+  triedCarriers.add(resolved.carrier);
 
   while (attempt < RETRY_MAX_ATTEMPTS) {
     attempt++;
@@ -627,6 +750,27 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
           if (!yieldedText && attempt < RETRY_MAX_ATTEMPTS && isTransientStreamError(msg)) {
             retriableErrorMessage = msg;
             break; // exit the for-await; outer while will retry
+          }
+          // Access-denied / payment-required from this carrier · try a
+          // different carrier (BAI → OR → direct, etc.) before
+          // surfacing the error. The next carrier's account is unlikely
+          // to share the same payment block.
+          if (!yieldedText && isCarrierAccessDenied(msg)) {
+            try {
+              const next = resolveModel(req.modelV, null, triedCarriers);
+              triedCarriers.add(next.carrier);
+              process.stderr.write(
+                `[adapter] modelV=${req.modelV} carrier=${resolved.carrier} rejected (access denied); ` +
+                  `retrying via ${next.carrier}\n`,
+              );
+              resolved = next;
+              attempt = 0; // restart attempt counter for the new carrier
+              retriableErrorMessage = msg;
+              break;
+            } catch {
+              // No other carrier reachable · fall through to yield the
+              // original error so the user sees the actual reason.
+            }
           }
           sawError = true;
           yield { type: "error", message: msg };
@@ -705,6 +849,22 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
       if (!yieldedText && attempt < RETRY_MAX_ATTEMPTS && isTransientStreamError(msg)) {
         lastTransientMessage = msg;
         continue;
+      }
+      // Carrier access-denied · try another carrier before giving up.
+      if (!yieldedText && isCarrierAccessDenied(msg)) {
+        try {
+          const next = resolveModel(req.modelV, null, triedCarriers);
+          triedCarriers.add(next.carrier);
+          process.stderr.write(
+            `[adapter] modelV=${req.modelV} carrier=${resolved.carrier} rejected (access denied / threw); ` +
+              `retrying via ${next.carrier}\n`,
+          );
+          resolved = next;
+          attempt = 0;
+          continue;
+        } catch {
+          // No other carrier · surface the original error.
+        }
       }
       yield { type: "error", message: msg };
       return;

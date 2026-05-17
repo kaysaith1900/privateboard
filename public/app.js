@@ -308,6 +308,31 @@
           : (btn.getAttribute("data-more") || this._t("convene_show_more"));
         btn.textContent = label;
       });
+      // Live-subtitle minimize / restore · attached in CAPTURE phase
+      // so it wins ahead of any outside-click handlers (picker dismiss
+      // / overlay close) that might `stopPropagation` and swallow the
+      // first click. Without capture, a click on the minimize button
+      // takes two presses to register — the first one gets eaten by an
+      // unrelated bubble-phase listener.
+      const onSubBtn = (e) => {
+        if (e.target.closest("[data-rt-sub-min]")) {
+          e.preventDefault();
+          e.stopPropagation();
+          document.body.classList.add("is-subtitle-min");
+          return;
+        }
+        if (e.target.closest("[data-rt-sub-restore]")) {
+          e.preventDefault();
+          e.stopPropagation();
+          document.body.classList.remove("is-subtitle-min");
+          // Re-render so the subtitle re-populates with the latest
+          // streaming / replay state (it was hidden via CSS, not via
+          // `slot.hidden`, so its innerHTML is preserved — but a
+          // fresh paint guarantees the cursor / kicker is current).
+          this.renderRtSubtitle();
+        }
+      };
+      document.addEventListener("click", onSubBtn, true);
       document.addEventListener("boardroom:locale", () => {
         this.renderSidebarRooms();
         this.renderSidebarAgents();
@@ -1471,6 +1496,16 @@
         this.currentMessages = this.currentMessages.filter((m) => m.id !== data.messageId);
         const article = document.querySelector(`[data-message-id="${data.messageId}"]`);
         if (article) article.remove();
+        // Round-table stage · the just-removed message was the in-flight
+        // streaming placeholder. Without repainting, `renderRoundTable`'s
+        // speaker-detection path (which scans `currentMessages` for the
+        // most recent `meta.streaming === true` entry) keeps reporting
+        // the removed director as still speaking — the "thinking / speaking"
+        // bubble stays glued to their seat after a hard-pause "stop
+        // immediately" tore the message out. Mirrors `message-final`'s
+        // repaint at line ~1440.
+        this.renderRoundTable();
+        this.renderRtSubtitle();
       });
 
       this.sse.addEventListener("voice-chunk", (e) => {
@@ -1527,7 +1562,17 @@
 
       this.sse.addEventListener("voice-final", (e) => {
         const data = JSON.parse(e.data);
-        const q = this.voiceQueues[data.messageId] || (this.voiceQueues[data.messageId] = { chunks: [], final: false, scheduled: false, roomId, messageId: data.messageId });
+        // Do NOT auto-create a queue entry on voice-final · this event
+        // can arrive AFTER a hard-pause `room-paused` already cleared
+        // `voiceQueues` (the speakerTurn finalizer runs on its own
+        // async tick, separate from the route handler that emitted
+        // room-paused — so the SSE ordering is voice-final-after-pause
+        // even though emission was earlier in source code). Re-creating
+        // the queue here re-arms renderRoundTable's voiceQueues path
+        // and the speaking bubble glues itself to the seat forever.
+        // If the queue is already gone, there's nothing to finalize.
+        const q = this.voiceQueues[data.messageId];
+        if (!q) return;
         q.final = true;
         q.messageId = data.messageId;
         q.roomId = roomId;
@@ -2634,8 +2679,8 @@
     },
 
     /** Pre-flight gate · returns true when at least one MODEL provider
-     *  (anthropic / openai / google / xai / deepseek / openrouter) is
-     *  configured. When none are, opens a modal asking the user to
+     *  (anthropic / openai / google / xai / deepseek / openrouter / bai)
+     *  is configured. When none are, opens a modal asking the user to
      *  configure a key + returns false. Brave is search, not a model
      *  provider, so it's intentionally excluded.
      *
@@ -2853,9 +2898,15 @@
     /** Pure cache read · returns true when the local app.keys map
      *  reports any model provider as configured. Used by the gate
      *  and (via wrappers) anywhere downstream UI needs the answer
-     *  cheaply. */
+     *  cheaply.
+     *
+     *  Mirror the server-side LLM_PROVIDERS set (`routes/keys.ts:47`).
+     *  Without B.AI in this list, a user who configured ONLY a B.AI
+     *  key gets bounced to "configure an API key first" on every
+     *  pre-flight gate (topic-recs trigger, convene a room, etc.)
+     *  even though every model with a baiId is fully reachable. */
     hasAnyModelKey() {
-      const MODEL_PROVIDERS = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter"];
+      const MODEL_PROVIDERS = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter", "bai"];
       const keys = this.keys || {};
       return MODEL_PROVIDERS.some((p) => keys[p] && keys[p].configured);
     },
@@ -9261,10 +9312,14 @@
         // quote dots never collide with the title text · the deco
         // stays visible only at the periphery + along the top band.
         // Same hygiene pass as the agent composer's motif.
+        // All motif fills below pull from theme tokens (`--accent-line`
+        // is the brand-tinted hairline = very subtle in both themes)
+        // so the backdrop adopts the page's palette instead of staying
+        // a fixed wood-brown patch that looks "dirty" on a light bg.
         const chairs = [
-          { x: 108, y: 138, fill: "#7A5230" },
-          { x: 372, y: 46,  fill: "#7A5230" },
-          { x: 678, y: 148, fill: "#7A5230" },
+          { x: 108, y: 138 },
+          { x: 372, y: 46 },
+          { x: 678, y: 148 },
         ];
         const sparks = [
           [98, 78], [640, 62], [588, 156],
@@ -9274,20 +9329,16 @@
         ];
         motif = `
           <g shape-rendering="crispEdges">
-            <!-- Mini chair silhouettes (3 wood + 1 cyan moderator) -->
+            <!-- Mini chair silhouettes — fill pulled from theme token -->
             ${chairs.map((c, i) => `
-              <g class="deco-bob" ${_delay(i + 3, 3.2)} fill="${c.fill}">
+              <g class="deco-bob" ${_delay(i + 3, 3.2)} fill="var(--accent-line)">
                 <rect x="${c.x}" y="${c.y + 10}" width="6" height="2"/>
                 <rect x="${c.x}" y="${c.y}"      width="2" height="10"/>
                 <rect x="${c.x + 6}" y="${c.y}"  width="2" height="10"/>
               </g>
             `).join("")}
-            <!-- Tiny microphones · static (small, would feel busy).
-                 Removed the (296, 206) centre-lower mic and the
-                 (244, 216) cyan moderator chair — both sat in the
-                 title's footprint and read as typos behind the
-                 prompt. -->
-            <g fill="#8E8B83">
+            <!-- Tiny microphones · static (small, would feel busy). -->
+            <g fill="var(--accent-line)">
               <rect x="226" y="46"  width="3" height="2"/>
               <rect x="227" y="42"  width="1" height="4"/>
               <rect x="514" y="100" width="3" height="2"/>
@@ -9328,11 +9379,13 @@
         ];
         motif = `
           <g shape-rendering="crispEdges">
-            <!-- Mini character heads · 4×4 face + 1px hat band -->
+            <!-- Mini character heads · fills pulled from theme tokens
+                 so the heads stop reading as out-of-place skin-tan +
+                 dark-brown patches against a white bg. -->
             ${heads.map(([x, y], i) => `
               <g class="deco-bob" ${_delay(i + 21, 3.0)}>
-                <rect x="${x}" y="${y}" width="4" height="4" fill="#D8A878"/>
-                <rect x="${x}" y="${y}" width="4" height="1" fill="#5C3A1F"/>
+                <rect x="${x}" y="${y}" width="4" height="4" fill="var(--accent-line)"/>
+                <rect x="${x}" y="${y}" width="4" height="1" fill="var(--lime-dim)"/>
               </g>
             `).join("")}
             <!-- Tiny speech bubbles · 10×6 pill with 1-pixel tail · blink -->
@@ -16184,6 +16237,11 @@
     renderRtSubtitle() {
       const slot = document.querySelector("[data-rt-subtitle]");
       if (!slot) return;
+      // Minimize-affordance template · prepended to every populated
+      // innerHTML branch below so the corner button is present on the
+      // thinking / streaming / replay variants without being a sibling
+      // of the slot (which would survive the slot.hidden = true reset).
+      const minBtn = `<button type="button" class="rt-sub-min" data-rt-sub-min title="Minimize" aria-label="Minimize subtitle"></button>`;
       const msgs = this.currentMessages || [];
       let speakerId = null;
       let body = "";
@@ -16264,7 +16322,7 @@
         })[stage];
         if (titleKey && deckKey) {
           slot.hidden = false;
-          slot.innerHTML =
+          slot.innerHTML = minBtn +
             `<span class="rt-sub-kicker">${this.escape(this.currentChair.name || "")} · ${this.escape(this._t(titleKey))}</span>` +
             `<p class="rt-sub-text rt-sub-thinking">` +
               `<span class="rt-sub-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
@@ -16304,7 +16362,7 @@
         // to the normal caption render below.
         if (isStreaming) {
           slot.hidden = false;
-          slot.innerHTML =
+          slot.innerHTML = minBtn +
             `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
             `<p class="rt-sub-text rt-sub-thinking">` +
               `<span class="rt-sub-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
@@ -16395,7 +16453,7 @@
         visible = parts.length ? parts[parts.length - 1] : text;
       }
       slot.hidden = false;
-      slot.innerHTML =
+      slot.innerHTML = minBtn +
         `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
         `<p class="rt-sub-text">${this.escape(visible.trim())}</p>`;
     },

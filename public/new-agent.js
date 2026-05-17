@@ -405,7 +405,10 @@
   function getProviderStatus(provider) {
     const keys = (typeof window.boardroomKeys === "function" ? window.boardroomKeys() : {}) || {};
     if (keys[provider])    return { label: t("na_key_direct"),         cls: "direct" };
-    if (keys.openrouter)   return { label: t("na_key_via"),            cls: "via" };
+    // Any universal aggregator (OR or B.AI) routes this provider's
+    // models · without `|| keys.bai` here, a B.AI-only user would see
+    // every model labeled "no key" even though most are reachable.
+    if (keys.openrouter || keys.bai) return { label: t("na_key_via"), cls: "via" };
     return                       { label: t("na_key_none"),           cls: "none" };
   }
 

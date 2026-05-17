@@ -28,6 +28,7 @@
 
   const PROVIDERS = [
     { id: "openrouter", label: "OpenRouter",  hint: "default · routes any model · sk-or-…",         placeholder: "sk-or-v1-…",  group: "llm" },
+    { id: "bai",        label: "B.AI",        hint: "aggregator · GPT-5, Claude 4.7, Gemini 3 · sk-…", placeholder: "sk-…",         group: "llm" },
     { id: "anthropic",  label: "Anthropic",   hint: "Claude · Sonnet 4.6, Opus 4.7, Haiku 4.5",      placeholder: "sk-ant-…",     group: "llm" },
     { id: "openai",     label: "OpenAI",      hint: "GPT · gpt-5, gpt-5 mini, gpt-4o",                placeholder: "sk-…",         group: "llm" },
     { id: "google",     label: "Google",      hint: "Gemini · 2.5 Pro, 2.5 Flash",                    placeholder: "AIza…",        group: "llm" },
@@ -770,6 +771,15 @@
             // never lands in "no usable carrier" state. Unconfigured rows
             // (or non-LLM providers) bypass the lock — removing them
             // doesn't reduce working-key count.
+            //
+            // ALWAYS emit `data-remove-provider` (even when locked) so the
+            // click delegate's selector matches in both states. The lock
+            // is expressed via `disabled` + `.is-locked` only · this lets
+            // `refreshLockButtons()` flip the state in place without
+            // re-rendering or re-binding any listeners. Without this, a
+            // locked-then-unlocked button would have no click handler
+            // attached (the original `[data-remove-provider]` selector
+            // wouldn't have matched it at wire-time).
             const isLLM = p.group === "llm";
             const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
             const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
@@ -777,7 +787,7 @@
             ).length;
             const lock = isLLM && isConfigured && llmConfiguredCount <= 1;
             return lock
-              ? `<button type="button" class="us-key-remove is-locked" disabled title="Add another LLM key first — at least one must remain configured.">✕</button>`
+              ? `<button type="button" class="us-key-remove is-locked" data-remove-provider="${p.id}" disabled title="Add another LLM key first — at least one must remain configured.">✕</button>`
               : `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>`;
           })()}
         </div>
@@ -851,7 +861,7 @@
     ensureActiveProviders();
     // Anthropic is temporarily excluded from the "+ add provider"
     // chips · only sonnet-4-6 is direct-routable on the Anthropic SDK
-    // right now (opus / haiku are openrouterOnly), so adding an
+    // right now (opus / haiku are viaUniversalOnly), so adding an
     // Anthropic key alone unlocks just one model — confusing UX. Once
     // the registry has ≥ 2 direct-routable Claude models, drop the
     // exclusion. Existing users who already configured Anthropic still
@@ -920,24 +930,34 @@
      Lives at the bottom of the API Key section. Hidden when the
      user has no keys configured. Re-fetched after every key
      write so the route badges and reachable count stay accurate. */
-  const PROVIDER_ORDER = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter"];
+  const PROVIDER_ORDER = ["anthropic", "openai", "google", "xai", "deepseek", "zhipu", "moonshot", "openrouter", "bai"];
   const PROVIDER_LABEL = {
     anthropic: "Anthropic",
     openai:    "OpenAI",
     google:    "Google",
     xai:       "xAI",
     deepseek:  "DeepSeek",
+    zhipu:     "Zhipu",
+    moonshot:  "Moonshot",
     openrouter:"OpenRouter",
+    bai:       "B.AI",
   };
   function providerLabel(p) { return PROVIDER_LABEL[p] || p; }
 
   function routeBadgeHTML(m) {
     const d = !!(m.routes && m.routes.direct);
     const o = !!(m.routes && m.routes.openrouter);
-    if (d && o) return `<span class="us-models-route">direct · OR</span>`;
-    if (d) return `<span class="us-models-route">direct</span>`;
-    if (o) return `<span class="us-models-route">OR</span>`;
-    return "";
+    const b = !!(m.routes && m.routes.bai);
+    // Compose a short label · "direct" wins display when present;
+    // when both universal carriers are reachable show "OR · B.AI"
+    // so the user knows fallback coverage. The adapter prefers
+    // direct → B.AI → OR; the badge mirrors that ordering.
+    const parts = [];
+    if (d) parts.push("direct");
+    if (b) parts.push("B.AI");
+    if (o) parts.push("OR");
+    if (parts.length === 0) return "";
+    return `<span class="us-models-route">${parts.join(" · ")}</span>`;
   }
 
   function modelsSummaryHTML() {
@@ -948,7 +968,11 @@
         <div class="us-models-loading">measuring reach…</div>
       </div>`;
     }
-    if (!cache.hasAnyKey) return "";
+    // Defensive · trust `reachable.length` over `hasAnyKey`. See the
+    // same pattern in `defaultModelSectionHTML` · keeps the block
+    // visible when the server reports a stale `hasAnyKey: false` but
+    // ships a populated reachable list (B.AI-only users on an
+    // un-restarted backend hit exactly this case).
     const reachable = (cache.reachable || []);
     if (reachable.length === 0) return "";
 
@@ -1002,26 +1026,37 @@
      provider + a deck per model row + the active route badge. */
   function defaultModelSectionHTML() {
     const cache = modelsSnapshot();
-    if (!cache || !cache.hasAnyKey) {
+    // Defensive gating · the picker should render whenever at least
+    // one model is reachable. We deliberately do NOT short-circuit on
+    // `!cache.hasAnyKey` alone: an older server (pre-B.AI-fix to
+    // `hasAnyModelKey()`) can report `hasAnyKey: false` for a user
+    // whose only key is B.AI, even though every `reachable[i]` arrives
+    // populated with a working bai route. Trust `reachable.length` as
+    // the real signal · cache absent or empty → loading / no-key copy;
+    // cache present + reachable empty → key-but-no-route copy.
+    if (!cache) {
       return `
         <div class="us-pane-head">
           <div class="us-pane-tag">▸ Default Model</div>
-          <div class="us-pane-deck">no LLM key configured yet — add one in <a href="#" data-jump-keys class="us-link">API Key</a> first, then come back to pick a default.</div>
+          <div class="us-pane-deck">measuring reach…</div>
         </div>
       `;
     }
     const reachable = cache.reachable || [];
     if (reachable.length === 0) {
+      const noKey = !cache.hasAnyKey;
       return `
         <div class="us-pane-head">
           <div class="us-pane-tag">▸ Default Model</div>
-          <div class="us-pane-deck">your configured keys don't reach any model right now. Check the key values, or add another carrier in <a href="#" data-jump-keys class="us-link">API Key</a>.</div>
+          <div class="us-pane-deck">${noKey
+            ? `no LLM key configured yet — add one in <a href="#" data-jump-keys class="us-link">API Key</a> first, then come back to pick a default.`
+            : `your configured keys don't reach any model right now. Check the key values, or add another carrier in <a href="#" data-jump-keys class="us-link">API Key</a>.`}</div>
         </div>
       `;
     }
 
     // Group reachable models by provider, ordered by PROVIDER_ORDER
-    // (anthropic / openai / google / xai / deepseek / openrouter).
+    // (anthropic / openai / google / xai / deepseek / zhipu / moonshot / openrouter / bai).
     const byProvider = new Map();
     for (const m of reachable) {
       if (!byProvider.has(m.provider)) byProvider.set(m.provider, []);
@@ -1283,16 +1318,56 @@
     });
 
     // Remove a provider row (server-side delete clears its key too).
-    paneEl.querySelectorAll("[data-remove-provider]").forEach((btn) => {
+    // The handler binds to EVERY `.us-key-remove` regardless of locked
+    // state · in-handler `disabled` check is the gate. Pairs with
+    // `refreshLockButtons()` below: flipping a button's lock state in
+    // place doesn't strand it without a listener.
+    paneEl.querySelectorAll(".us-key-remove").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
+        if (btn.disabled || btn.classList.contains("is-locked")) return;
         const id = btn.dataset.removeProvider;
+        if (!id) return;
         activeProviders = activeProviders.filter((p) => p !== id);
         await setProviderKey(id, ""); // clears server-side
         await refreshModels();
         rerenderKeysSection();
       });
     });
+
+    // Recompute every `.us-key-remove` button's lock state against the
+    // current `_keysMeta`. Called after a successful key PUT so adding
+    // a second LLM key immediately un-locks the first row's ✕ — the
+    // old flow only repainted the typed-into row's status pill, so the
+    // sibling rows kept their stale "locked" disabled state until the
+    // user closed and reopened the panel.
+    function refreshLockButtons() {
+      if (!paneEl) return;
+      const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
+        (id) => _keysMeta[id] && _keysMeta[id].configured,
+      ).length;
+      paneEl.querySelectorAll(".us-key-row").forEach((row) => {
+        const provider = row.dataset.provider;
+        const p = PROVIDERS.find((x) => x.id === provider);
+        if (!p) return;
+        const btn = row.querySelector(".us-key-remove");
+        if (!btn) return;
+        const isLLM = p.group === "llm";
+        const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
+        const wantsLocked = isLLM && isConfigured && llmConfiguredCount <= 1;
+        const hasLocked = btn.classList.contains("is-locked");
+        if (wantsLocked === hasLocked) return;
+        if (wantsLocked) {
+          btn.classList.add("is-locked");
+          btn.disabled = true;
+          btn.title = "Add another LLM key first — at least one must remain configured.";
+        } else {
+          btn.classList.remove("is-locked");
+          btn.disabled = false;
+          btn.title = "Remove";
+        }
+      });
+    }
 
     // Default-model controls live in the sidebar's "Default Model"
     // pane only · the previous in-row "set as default" button and
@@ -1331,6 +1406,12 @@
         await refreshModels();
         refreshModelsSummary();
         syncWsBackendPicker();
+        // After a successful key write, `_keysMeta[provider]` is fresh
+        // (setProviderKey mirrors the server response into the cache).
+        // Repaint every row's ✕ in-place so adding a second LLM key
+        // immediately unlocks the first row's delete button · the old
+        // flow waited for a close+reopen.
+        refreshLockButtons();
       }, 220);
       debounceMap.set(row, timer);
     }

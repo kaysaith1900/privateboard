@@ -44,11 +44,25 @@ function decrypt(blob: Buffer): string {
 
 export type Provider =
   | "openrouter"
+  // B.AI · OpenAI-compatible aggregator at https://api.b.ai/v1.
+  // Same "universal carrier" role as OpenRouter — single key reaches
+  // many models (GPT-5 family, Claude 4.5-4.7, Gemini 3, DeepSeek V4,
+  // GLM, Kimi, MiniMax). Bearer auth (sk-…). When both BAI and
+  // OpenRouter keys are present, direct provider keys still win first;
+  // BAI is checked before OpenRouter in the carrier fallback order.
+  | "bai"
   | "anthropic"
   | "openai"
   | "google"
   | "xai"
   | "deepseek"
+  // Zhipu (GLM family) · Moonshot (Kimi family). No @ai-sdk client
+  // for either, so we never expose them as direct-key rows in the
+  // settings UI · their entries here exist purely so the registry's
+  // ModelMeta.provider type assigns cleanly to Set<Provider> in the
+  // availability layer. Users reach GLM / Kimi via OpenRouter or B.AI.
+  | "zhipu"
+  | "moonshot"
   | "minimax"
   | "elevenlabs"
   // Skill-service keys (not LLM providers). Currently:

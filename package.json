@@ -1,6 +1,6 @@
 {
   "name": "privateboard",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
   "main": "electron-entry.cjs",
@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "sync-version": "node scripts/sync-version.mjs",
     "regen-avatars": "node scripts/regen-avatars.mjs",
+    "probe:bai": "node scripts/probe-bai-catalog.mjs",
     "abi:node": "node scripts/ensure-sqlite-abi.mjs node",
     "abi:electron": "node scripts/ensure-sqlite-abi.mjs electron",
     "prepublishOnly": "npm run sync-version && npm run build",
@@ -29,8 +30,9 @@
     "electron:build-ts": "tsup && tsc -p electron/tsconfig.json",
     "electron:build-icon": "node scripts/build-app-icon.mjs",
     "electron:dev": "npm run electron:rebuild && npm run electron:build-ts && electron .",
-    "electron:dist": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac",
-    "electron:dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --config.mac.hardenedRuntime=false --config.mac.notarize=false"
+    "electron:dist": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish always",
+    "electron:dist:local": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish never",
+    "electron:dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never --config.mac.hardenedRuntime=false --config.mac.notarize=false"
   },
   "repository": {
     "type": "git",
@@ -53,6 +55,7 @@
     "ai": "^4.3.16",
     "better-sqlite3": "^12.10.0",
     "commander": "^12.1.0",
+    "electron-updater": "^6.8.3",
     "hono": "^4.6.14",
     "open": "^10.1.0",
     "tiny-pinyin": "^1.3.2",
@@ -87,6 +90,14 @@
       "output": "release/",
       "buildResources": "build/"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kaysaith1900",
+        "repo": "privateboard",
+        "releaseType": "release"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [

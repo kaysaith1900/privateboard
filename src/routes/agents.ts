@@ -865,7 +865,7 @@ export function agentsRouter(): Hono {
     const patch: {
       avatarPath?: string;
       modelV?: string;
-      carrierPref?: "openrouter" | "anthropic" | "openai" | "google" | "xai" | null;
+      carrierPref?: "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | null;
       bio?: string;
       webSearchEnabled?: boolean;
       voice?: {
@@ -914,11 +914,11 @@ export function agentsRouter(): Hono {
         patch.carrierPref = null;
       } else if (typeof b.carrierPref === "string") {
         const v = b.carrierPref.trim();
-        const allowed = new Set(["openrouter", "anthropic", "openai", "google", "xai"]);
+        const allowed = new Set(["openrouter", "bai", "anthropic", "openai", "google", "xai"]);
         if (!allowed.has(v)) {
           return c.json({ error: `unknown carrier: ${v}` }, 400);
         }
-        patch.carrierPref = v as "openrouter" | "anthropic" | "openai" | "google" | "xai";
+        patch.carrierPref = v as "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
       }
     }
 

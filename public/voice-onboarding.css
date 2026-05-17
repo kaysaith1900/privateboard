@@ -41,9 +41,9 @@
   width: 100%;
   max-width: 620px;
   max-height: calc(100vh - 48px);
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  color: var(--text, #C8C5BE);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  color: var(--text);
   animation: vonb-rise 0.18s ease-out;
   display: flex;
   flex-direction: column;
@@ -69,7 +69,7 @@
   position: absolute;
   width: 10px;
   height: 10px;
-  border: 1.5px solid var(--lime, #6FB572);
+  border: 1.5px solid var(--lime);
   pointer-events: none;
 }
 .vonb-modal::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
@@ -77,13 +77,13 @@
 
 /* ─── Classification strip ─── */
 .vonb-classification {
-  background: var(--panel-2, #1A1A18);
-  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--panel-2);
+  border-bottom: 0.5px solid var(--line-bright);
   padding: 5px 14px;
   font-size: 8px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   display: flex;
   justify-content: space-between;
@@ -91,7 +91,7 @@
 }
 .vonb-classification .dot { display: inline-block; margin-right: 4px; }
 .vonb-classification .right {
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.12em;
 }
 
@@ -102,13 +102,13 @@
   gap: 12px;
   align-items: start;
   padding: 14px 16px 12px;
-  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+  border-bottom: 0.5px dashed var(--line-bright);
 }
 .vonb-head-text { min-width: 0; }
 .vonb-head .meta {
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   margin-bottom: 4px;
@@ -118,7 +118,7 @@
   align-items: center;
 }
 .vonb-head .meta .live {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 .vonb-head .meta .live::before {
@@ -135,21 +135,21 @@
 .vonb-head .title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.01em;
   line-height: 1.3;
   font-family: var(--font-human, system-ui, sans-serif);
 }
 .vonb-head .title::before {
   content: "▸ ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-family: var(--mono);
 }
 .vonb-head .close-btn {
   width: 24px; height: 24px;
   background: transparent;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-dim, #5C5A52);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
   font-size: 12px;
   cursor: pointer;
   font-family: var(--mono);
@@ -157,8 +157,8 @@
   transition: all 0.12s;
 }
 .vonb-head .close-btn:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 /* ─── Body · banner + deck ─── */
@@ -172,7 +172,7 @@
   position: relative;
   height: 240px;
   background: var(--bg);
-  border: 0.5px solid var(--line, #1F1E1A);
+  border: 0.5px solid var(--line);
   overflow: hidden;
   display: flex;
 }
@@ -196,26 +196,26 @@
   font-family: var(--font-human, system-ui, sans-serif);
   font-size: 14px;
   line-height: 1.55;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   margin: 0;
 }
 .vonb-theme-label {
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.14em;
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
   text-transform: uppercase;
   display: flex;
   gap: 10px;
   align-items: baseline;
 }
 .vonb-theme-label .v-name {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   letter-spacing: 0.18em;
 }
 .vonb-theme-label .v-deck {
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
 }
 
 /* ─── Foot · single CTA ─── */
@@ -225,13 +225,13 @@
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
-  border-top: 0.5px dashed var(--line-bright, #2A2A26);
+  border-top: 0.5px dashed var(--line-bright);
 }
 .vonb-btn {
   padding: 8px 18px;
   background: transparent;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-soft, #8E8B83);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.14em;
@@ -240,18 +240,18 @@
   transition: all 0.12s;
 }
 .vonb-btn:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 .vonb-btn.primary {
-  background: var(--lime, #6FB572);
-  border-color: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
+  background: var(--lime);
+  border-color: var(--lime);
+  color: var(--bg);
   font-weight: 700;
 }
 .vonb-btn.primary:hover {
   filter: brightness(1.06);
-  color: var(--bg, #0A0A0A);
+  color: var(--bg);
 }
 
 /* ─── Body scroll lock while overlay open ─── */
@@ -277,7 +277,7 @@ body.vonb-locked {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: var(--floor-bg, #2A2C32);
+  background-color: var(--floor-bg);
   background-image:
     radial-gradient(ellipse at 50% 50%,
       transparent 28%,
@@ -338,7 +338,7 @@ body.vonb-locked {
   shape-rendering: crispEdges;
   z-index: 1;
 }
-.vonb-banner .vrp-stage .rt-chair--mod { color: var(--cyan, #6A9B97); }
+.vonb-banner .vrp-stage .rt-chair--mod { color: var(--cyan); }
 .vonb-banner .vrp-stage .rt-bubble {
   position: absolute;
   top: 0;

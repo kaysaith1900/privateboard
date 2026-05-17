@@ -111,8 +111,10 @@
     onb_v2_key_title: "Pick one brain — or pick many.",
     onb_v2_key_body: "Your key stays on this machine. We never upload it.",
     onb_v2_key_recommend_badge: "// recommended",
-    onb_v2_key_recommend_name: "OpenRouter · one key, every model",
-    onb_v2_key_recommend_body: "Each director can run on a different model — Claude as the skeptic, GPT as the pattern hunter, Gemini as the long-horizon strategist. The chair routes each turn to the right brain.",
+    onb_v2_key_recommend_openrouter_name: "OpenRouter · one key, every model",
+    onb_v2_key_recommend_openrouter_body: "Each director can run on a different model — Claude as the skeptic, GPT as the pattern hunter, Gemini as the long-horizon strategist. The chair routes each turn to the right brain.",
+    onb_v2_key_recommend_bai_name: "B.AI · one key, every model",
+    onb_v2_key_recommend_bai_body: "A second universal aggregator with its own pricing and access channels. Pick whichever has the credits or regional pricing that suits you, or use it as a fallback when an OpenRouter route is throttled.",
     onb_v2_key_or: "or — a direct provider",
     onb_v2_key_or_body: "Same model for every director. Personas stay distinct, but they all share one brain underneath.",
     onb_v2_voice_kicker: "03 — Give them a voice  ·  optional",
@@ -151,9 +153,12 @@
   }
 
   // ── Provider catalogue ─────────────────────────────────
-  // Model providers shown on step 2. OpenRouter leads — it's the
-  // universal router that unlocks every model from a single key, so
-  // it's the lowest-friction first stop for new users.
+  // Model providers shown on step 2. Universal aggregators (OpenRouter
+  // and B.AI) lead — each unlocks every model from a single key, so
+  // they're the lowest-friction first stop. Both carry `recommend: true`
+  // and render as the prominent value-prop cards at the top of the
+  // step; the rest fall through to the smaller "or — a direct provider"
+  // chip row beneath.
   // `slug` matches /api/keys/{slug} on the backend.
   const KEY_PROVIDERS = [
     {
@@ -163,6 +168,16 @@
       placeholder: "sk-or-v1-…",
       help: "openrouter.ai/keys",
       helpUrl: "https://openrouter.ai/keys",
+      recommend: true,
+    },
+    {
+      slug: "bai",
+      label: "B.AI",
+      sub: "all-in-one aggregator",
+      placeholder: "sk-…",
+      help: "b.ai",
+      helpUrl: "https://b.ai/",
+      recommend: true,
     },
     {
       slug: "anthropic",
@@ -228,6 +243,7 @@
   let prefsCache = { name: "", intro: "" };
   let providerConfigured = {
     openrouter: false,
+    bai: false,
     anthropic: false,
     openai: false,
     google: false,
@@ -440,25 +456,38 @@
 
     else if (currentStep === 2) {
       const active = KEY_PROVIDERS.find((p) => p.slug === activeProvider) || KEY_PROVIDERS[0];
-      const isOr = active.slug === "openrouter";
 
-      // Recommended path · OpenRouter as a value-prop card.
-      const orConfigured = providerConfigured.openrouter;
-      const recommendCard = `
-        <button type="button"
-                class="onb-key-recommend${isOr ? " active" : ""}${orConfigured ? " configured" : ""}"
-                data-onb-provider="openrouter">
-          <div class="onb-key-recommend-head">
-            <span class="onb-key-recommend-badge">${escape(t("onb_v2_key_recommend_badge"))}</span>
-            <span class="onb-key-recommend-name">${escape(t("onb_v2_key_recommend_name"))}</span>
-            ${orConfigured ? `<span class="onb-key-recommend-dot" title="configured">●</span>` : ""}
-          </div>
-          <div class="onb-key-recommend-body">${escape(t("onb_v2_key_recommend_body"))}</div>
-        </button>
-      `;
+      // Recommended path · render a value-prop card for every provider
+      // tagged `recommend: true` (currently OpenRouter + B.AI, the two
+      // universal aggregators). Cards stack vertically via the parent
+      // `.onb-key-frame`'s flex column; selecting any card flips it to
+      // active and swaps the field below to that provider's key form.
+      const recommendProviders = KEY_PROVIDERS.filter((p) => p.recommend);
+      const recommendCards = recommendProviders.map((p) => {
+        const isActive = p.slug === active.slug;
+        const isConfigured = providerConfigured[p.slug];
+        // Per-provider i18n: `onb_v2_key_recommend_<slug>_name` and
+        // `_body`. The shared `_badge` ("// recommended") is the same
+        // for every recommend card.
+        const nameText = t(`onb_v2_key_recommend_${p.slug}_name`);
+        const bodyText = t(`onb_v2_key_recommend_${p.slug}_body`);
+        return `
+          <button type="button"
+                  class="onb-key-recommend${isActive ? " active" : ""}${isConfigured ? " configured" : ""}"
+                  data-onb-provider="${escape(p.slug)}">
+            <div class="onb-key-recommend-head">
+              <span class="onb-key-recommend-badge">${escape(t("onb_v2_key_recommend_badge"))}</span>
+              <span class="onb-key-recommend-name">${escape(nameText)}</span>
+              ${isConfigured ? `<span class="onb-key-recommend-dot" title="configured">●</span>` : ""}
+            </div>
+            <div class="onb-key-recommend-body">${escape(bodyText)}</div>
+          </button>
+        `;
+      }).join("");
 
-      // Direct providers · same-model alternative.
-      const directProviders = KEY_PROVIDERS.filter((p) => p.slug !== "openrouter");
+      // Direct providers · same-model alternative · everything NOT
+      // tagged `recommend: true` falls into the smaller chip row.
+      const directProviders = KEY_PROVIDERS.filter((p) => !p.recommend);
       const directChips = directProviders.map((p) => {
         const isActive = p.slug === active.slug;
         const isConfigured = providerConfigured[p.slug];
@@ -483,7 +512,7 @@
       `;
       body.innerHTML = `
         <div class="onb-key-frame">
-          ${recommendCard}
+          ${recommendCards}
           <div class="onb-key-or">
             <span class="onb-key-or-line"></span>
             <span class="onb-key-or-text">${escape(t("onb_v2_key_or"))}</span>

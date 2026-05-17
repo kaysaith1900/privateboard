@@ -27,7 +27,7 @@ import { activeCarrier } from "../storage/reconcile-models.js";
 
 import { MODELS, type ModelMeta, type ModelV } from "./registry.js";
 
-export type ModelRoute = "direct" | "openrouter";
+export type ModelRoute = "direct" | "openrouter" | "bai";
 
 export interface ModelAvailability {
   modelV: ModelV;
@@ -39,20 +39,24 @@ export interface ModelAvailability {
   deck: string;
   /** Which routes are currently reachable. At least one is true if
    *  `reachable` is true. */
-  routes: { direct: boolean; openrouter: boolean };
-  /** True when at least one route works (direct OR openrouter). */
+  routes: { direct: boolean; openrouter: boolean; bai: boolean };
+  /** True when at least one route works (direct OR openrouter OR bai). */
   reachable: boolean;
   /** The route the adapter will use given the current key set.
-   *  Direct wins over OpenRouter when both work — the user paid for
-   *  the direct subscription, so we use it (lower fees, fewer
-   *  hops, often higher rate limits). */
+   *  Direct wins over universal carriers (B.AI / OpenRouter) when
+   *  available — the user paid for the direct subscription, so we use
+   *  it (lower fees, fewer hops, often higher rate limits). When only
+   *  a universal carrier works, B.AI is preferred over OpenRouter to
+   *  match the adapter's precedence. */
   preferredRoute: ModelRoute | null;
 }
 
 /** Snapshot of which providers the user has configured. */
 export interface ProviderKeyState {
-  /** OpenRouter (the universal-fallback route). */
+  /** OpenRouter (universal-fallback route). */
   hasOpenRouter: boolean;
+  /** B.AI (universal-fallback route · second universal carrier). */
+  hasBai: boolean;
   /** Direct LLM provider keys, by provider. Skips brave (not an LLM). */
   directProviders: Set<Provider>;
 }
@@ -60,13 +64,15 @@ export interface ProviderKeyState {
 export function getProviderKeyState(): ProviderKeyState {
   const directProviders = new Set<Provider>();
   let hasOpenRouter = false;
+  let hasBai = false;
   for (const meta of listKeyMeta()) {
     if (!meta.configured) continue;
     if (meta.provider === "openrouter") hasOpenRouter = true;
+    else if (meta.provider === "bai") hasBai = true;
     else if (meta.provider === "brave" || meta.provider === "tavily" || meta.provider === "minimax" || meta.provider === "elevenlabs") continue; // skill / voice keys, not LLM
     else directProviders.add(meta.provider);
   }
-  return { hasOpenRouter, directProviders };
+  return { hasOpenRouter, hasBai, directProviders };
 }
 
 /** Compute reachability for a single model under the given key state. */
@@ -74,17 +80,18 @@ export function availabilityFor(
   meta: ModelMeta,
   keys: ProviderKeyState,
 ): ModelAvailability {
-  const directReachable = !meta.openrouterOnly && keys.directProviders.has(meta.provider);
+  const directReachable = !meta.viaUniversalOnly && keys.directProviders.has(meta.provider);
   const orReachable = keys.hasOpenRouter && !!meta.openrouterId;
-  const reachable = directReachable || orReachable;
+  const baiReachable = keys.hasBai && !!meta.baiId;
+  const reachable = directReachable || orReachable || baiReachable;
   return {
     modelV: meta.v,
     displayName: meta.displayName,
     provider: meta.provider,
     deck: meta.deck,
-    routes: { direct: directReachable, openrouter: orReachable },
+    routes: { direct: directReachable, openrouter: orReachable, bai: baiReachable },
     reachable,
-    preferredRoute: directReachable ? "direct" : orReachable ? "openrouter" : null,
+    preferredRoute: directReachable ? "direct" : baiReachable ? "bai" : orReachable ? "openrouter" : null,
   };
 }
 
@@ -107,7 +114,12 @@ export function reachableModels(): ModelAvailability[] {
  *  render and convene flows should redirect to settings. */
 export function hasAnyModelKey(): boolean {
   const keys = getProviderKeyState();
-  return keys.hasOpenRouter || keys.directProviders.size > 0;
+  // Universal carriers (OpenRouter, B.AI) each count as "has a key" on
+  // their own · without including hasBai here, a user who configured
+  // only a B.AI key gets bounced to "no LLM key configured" in the
+  // settings default-model panel even though every model with a baiId
+  // is fully reachable.
+  return keys.hasOpenRouter || keys.hasBai || keys.directProviders.size > 0;
 }
 
 /** Pick a sensible default model for the user given their current
@@ -133,7 +145,10 @@ const PROVIDER_FLAGSHIP: Record<Provider, ModelV | null> = {
   google: "gemini-3-flash",
   xai: "grok-4-3",
   deepseek: "deepseek-v4-pro",
+  zhipu: "glm-5-1",
+  moonshot: "kimi-2-6",
   openrouter: "opus-4-7",
+  bai: "opus-4-7",
   brave: null,
   tavily: null,
   minimax: null,
@@ -154,7 +169,13 @@ const PROVIDER_FAST: Record<Provider, ModelV | null> = {
   google: "gemini-3-1-flash",
   xai: "grok-4-1-fast",
   deepseek: "deepseek-v4-flash",
+  // GLM / Kimi · no separate fast/flash tier in our registry yet, so
+  // both providers' "fast pick" falls back to the same flagship that
+  // PROVIDER_FLAGSHIP names. Reachability-via-OR/B.AI carries it.
+  zhipu: "glm-5-1",
+  moonshot: "kimi-2-6",
   openrouter: "opus-4-6-fast",
+  bai: "haiku-4-5",
   brave: null,
   tavily: null,
   minimax: null,
@@ -171,6 +192,21 @@ const PROVIDER_FAST: Record<Provider, ModelV | null> = {
  *  the onboarding `forcePrimary` sweep. */
 export const FAST_POOL_BY_CARRIER: Record<string, readonly ModelV[]> = {
   openrouter: [
+    "opus-4-6-fast",
+    "haiku-4-5",
+    "gpt-5-4-mini",
+    "gemini-3-flash",
+    "gemini-3-1-flash",
+    "grok-4-1-fast",
+    "deepseek-v4-flash",
+  ],
+  // B.AI carries the same brand-spanning fast catalog as OpenRouter ·
+  // identical pool gives a B.AI-only user the same visibly-mixed
+  // director cast (different brand badges per seat) that the OpenRouter
+  // path produces. Members are filtered against reachability inside
+  // `pickRandomFastModel`, so models without a baiId fall out naturally
+  // if B.AI ends up not carrying one of them in practice.
+  bai: [
     "opus-4-6-fast",
     "haiku-4-5",
     "gpt-5-4-mini",
@@ -221,6 +257,9 @@ export const FLAGSHIP_TIER: ReadonlySet<ModelV> = new Set<ModelV>([
   "grok-4-3",
   // DeepSeek
   "deepseek-v4-pro",
+  // Zhipu · Moonshot · single flagship each (both OR + B.AI routed).
+  "glm-5-1",
+  "kimi-2-6",
 ]);
 
 /** Resolve the default model the user should see RIGHT NOW, with
@@ -272,6 +311,18 @@ export function defaultModelFor(keys: ProviderKeyState = getProviderKeyState()):
     const opus = reachable.find((m) => m.modelV === "opus-4-7");
     if (opus) return opus.modelV;
   }
+  // B.AI present · prefer Haiku 4.5 (matches PRIMARY_BY_CARRIER.bai +
+  // the fast-default policy). Falls back to Opus 4.7 if Haiku isn't
+  // routable (e.g. if a future B.AI key set yanked it). Without this
+  // branch, a B.AI-only user falls through to "any reachable" and
+  // gets whatever happens to be first in MODELS iteration order ·
+  // not necessarily the cheapest / fastest tier the user expects.
+  if (keys.hasBai) {
+    const fast = reachable.find((m) => m.modelV === "haiku-4-5");
+    if (fast) return fast.modelV;
+    const opus = reachable.find((m) => m.modelV === "opus-4-7");
+    if (opus) return opus.modelV;
+  }
   // Multiple direct, no OR · pick the first reachable provider's fast tier.
   for (const provider of keys.directProviders) {
     const fast = PROVIDER_FAST[provider];
@@ -315,6 +366,7 @@ export function defaultModelFor(keys: ProviderKeyState = getProviderKeyState()):
  *  silently drift on any update. */
 export const CHEAP_BY_CARRIER: Partial<Record<Provider | "openrouter", ModelV>> = {
   openrouter: "haiku-4-5",
+  bai:        "haiku-4-5",       // B.AI carries Haiku 4.5 (claude-haiku-4-5)
   anthropic:  "sonnet-4-6",     // only direct-routable Claude
   openai:     "gpt-5-4-mini",
   google:     "gemini-3-1-flash", // 3.1 Flash Lite · cheapest direct-routable Gemini

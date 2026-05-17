@@ -64,7 +64,7 @@ const MAX_CLARIFY_TURNS = 3;
  *  it in stderr. The most common failure modes:
  *   · NoKeyError → user has the wrong / no key for the chair's model
  *   · "model not found" / "does not exist" → chair model picked but the
- *     direct API doesn't ship that id (e.g. openrouterOnly model
+ *     direct API doesn't ship that id (e.g. viaUniversalOnly model
  *     against the direct OpenAI SDK)
  *   · network / timeout → transient, suggest retry */
 /** Thrown by `streamChairMessage` when the chair's LLM call errors and
@@ -808,7 +808,7 @@ async function streamChairMessage(args: DispatchArgs & {
       // bubble so the user understands why the chair didn't speak.
       // Common failure modes: model unreachable with current keys,
       // direct provider API rejected the model id (e.g. an
-      // openrouterOnly model called against the direct SDK that
+      // viaUniversalOnly model called against the direct SDK that
       // hasn't shipped it). The chair model name is included so the
       // user can see exactly which slot needs attention.
       const friendly = friendlyChairError(chair, errorMessage);

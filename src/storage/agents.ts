@@ -9,9 +9,9 @@ export type AgentRoleKind = "director" | "moderator";
  *  GPT-5.5 via OpenRouter or via OpenAI direct). The adapter's default
  *  precedence rules pick one; this lets each agent pin a specific carrier.
  *  NULL = "use default precedence". */
-export type AgentCarrierPref = "openrouter" | "anthropic" | "openai" | "google" | "xai";
+export type AgentCarrierPref = "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
 const VALID_CARRIER_PREFS: ReadonlySet<AgentCarrierPref> = new Set([
-  "openrouter", "anthropic", "openai", "google", "xai",
+  "openrouter", "bai", "anthropic", "openai", "google", "xai",
 ]);
 function parseCarrierPref(raw: string | null): AgentCarrierPref | null {
   if (!raw) return null;

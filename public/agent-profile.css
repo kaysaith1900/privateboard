@@ -922,8 +922,8 @@
 /* Run consolidation pill · accent-leaning border on hover so it
    reads as the slightly-heavier action vs the neutral "add note". */
 .ap-dream-trigger:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 .ap-dream-trigger:disabled {
   opacity: 0.5;
@@ -968,8 +968,8 @@
   z-index: 1;
   width: 100%;
   max-width: 540px;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--lime-dim, #2D5532);
+  background: var(--panel);
+  border: 0.5px solid var(--lime-dim);
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -986,10 +986,10 @@
   animation: dream-modal-rise 0.24s ease-out;
 }
 .dream-overlay.is-done .dream-modal {
-  border-color: var(--lime, #6FB572);
+  border-color: var(--lime);
 }
 .dream-overlay.is-error .dream-modal {
-  border-color: var(--red, #B5706A);
+  border-color: var(--red);
 }
 @keyframes dream-modal-rise {
   from { opacity: 0; transform: translateY(8px); }
@@ -1020,7 +1020,7 @@
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 .dream-modal-glyph {
   font-family: var(--font-human);
@@ -1042,8 +1042,8 @@
   transition: border-color 0.12s, color 0.12s;
 }
 .dream-modal-close:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 /* Body · pinned min-height so the modal doesn't visibly resize
    between running ↔ done states. Both states use `.dream-stage-pad`
@@ -1104,10 +1104,10 @@
   background: var(--panel-2);
 }
 .dream-step.is-quiet  { color: var(--text-dim); border-color: var(--line); }
-.dream-step.is-shrink { color: var(--lime, #6FB572); border-color: var(--lime, #6FB572); }
-.dream-step.is-grow   { color: var(--cyan, #6A9B97); border-color: var(--cyan, #6A9B97); }
+.dream-step.is-shrink { color: var(--lime); border-color: var(--lime); }
+.dream-step.is-grow   { color: var(--cyan); border-color: var(--cyan); }
 .dream-step.is-flat   { color: var(--text-soft); border-color: var(--line-bright); }
-.dream-step.is-error  { color: var(--red, #B5706A); border-color: var(--red, #B5706A); }
+.dream-step.is-error  { color: var(--red); border-color: var(--red); }
 
 /* Hairline divider between hero and footer. Mirrors the dotted
    separator style the chair Memory section uses in the agent
@@ -1159,7 +1159,7 @@
   bottom: 0;
   font-family: var(--font-human);
   font-weight: 700;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   opacity: 0;
   animation: dream-z-float 3.4s ease-out infinite;
   text-shadow: 0 0 6px rgba(111, 181, 114, 0.3);
@@ -1221,7 +1221,7 @@
   background: linear-gradient(
     to right,
     transparent,
-    var(--lime, #6FB572) 50%,
+    var(--lime) 50%,
     transparent
   );
   animation: dream-sweep 1.8s ease-in-out infinite;
@@ -1262,7 +1262,7 @@
 .dream-phase {
   font-size: 11px;
   letter-spacing: 0.02em;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   line-height: 1.4;
   /* Subtle flicker so the static word doesn't feel dead between
      the 1.6s text rotations. Low amplitude · doesn't compete with
@@ -1314,14 +1314,14 @@
   width: 44px; height: 44px;
   font-size: 22px;
   line-height: 1;
-  border: 0.5px solid var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border: 0.5px solid var(--lime);
+  color: var(--lime);
   background: var(--panel-2);
   flex-shrink: 0;
 }
 .dream-overlay.is-error .dream-hero-glyph {
-  border-color: var(--red, #B5706A);
-  color: var(--red, #B5706A);
+  border-color: var(--red);
+  color: var(--red);
 }
 .dream-hero-text {
   display: flex;
@@ -1376,13 +1376,13 @@
   align-items: center;
   justify-content: center;
   padding: 8px 18px;
-  border: 1px solid var(--lime, #6FB572);
+  border: 1px solid var(--lime);
   background: var(--panel-2);
   box-shadow: 0 0 24px rgba(111, 181, 114, 0.12);
 }
 .dream-num.now {
   font-size: 38px;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 .dream-hero-unit {
   font-family: var(--mono);
@@ -1429,14 +1429,14 @@
   text-transform: uppercase;
   color: var(--text-faint);
 }
-.dream-tile.is-decay     { border-color: var(--text-faint, #3A382F); }
+.dream-tile.is-decay     { border-color: var(--text-faint); }
 .dream-tile.is-decay     .dream-tile-n { color: var(--text-soft); }
-.dream-tile.is-merge     { border-color: var(--cyan, #6A9B97); }
-.dream-tile.is-merge     .dream-tile-n { color: var(--cyan, #6A9B97); }
-.dream-tile.is-supersede { border-color: var(--amber, #B59560); }
-.dream-tile.is-supersede .dream-tile-n { color: var(--amber, #B59560); }
-.dream-tile.is-promote   { border-color: var(--lime, #6FB572); }
-.dream-tile.is-promote   .dream-tile-n { color: var(--lime, #6FB572); }
+.dream-tile.is-merge     { border-color: var(--cyan); }
+.dream-tile.is-merge     .dream-tile-n { color: var(--cyan); }
+.dream-tile.is-supersede { border-color: var(--amber); }
+.dream-tile.is-supersede .dream-tile-n { color: var(--amber); }
+.dream-tile.is-promote   { border-color: var(--lime); }
+.dream-tile.is-promote   .dream-tile-n { color: var(--lime); }
 .ap-sec-hint {
   font-family: var(--mono);
   font-size: 9px;
@@ -1616,13 +1616,13 @@
    on idle, full red fill on hover so the destructive action is
    unmistakeably distinct from the regular ones. */
 .ap-id-menu-item-danger {
-  color: var(--red, #B5706A);
+  color: var(--red);
 }
 .ap-id-menu-item-danger .ap-id-menu-mark {
-  color: var(--red, #B5706A);
+  color: var(--red);
 }
 .ap-id-menu-item-danger:hover {
-  background: var(--red, #B5706A);
+  background: var(--red);
   color: var(--bg);
 }
 .ap-id-menu-item-danger:hover .ap-id-menu-mark { color: var(--bg); }
@@ -2162,8 +2162,8 @@
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .ap-skill-info-uninstall:hover {
-  border-color: var(--red, #C85A5A);
-  color: var(--red, #C85A5A);
+  border-color: var(--red);
+  color: var(--red);
 }
 
 /* System skill variant · row tinted lime, "system" badge, locked notice
@@ -2563,7 +2563,7 @@
   border-radius: 3px;
 }
 .ap-model-stale-mark {
-  color: var(--amber, #C9A46B);
+  color: var(--amber);
   font-size: 11px;
   line-height: 1;
 }
@@ -2932,7 +2932,7 @@
   text-transform: uppercase;
   color: var(--text-faint);
 }
-.ap-intel-edit-hint.error { color: var(--red, #C85A5A); text-transform: none; letter-spacing: 0; }
+.ap-intel-edit-hint.error { color: var(--red); text-transform: none; letter-spacing: 0; }
 .ap-intel-edit-actions { display: flex; gap: 8px; }
 
 /* RULES block · editable numbered list + add button. */
@@ -3267,7 +3267,7 @@
 .ap-memory-delete { font-size: 14px; font-weight: 300; }
 .ap-memory-delete:hover {
   opacity: 1;
-  color: var(--red, #C85A5A);
+  color: var(--red);
   background: var(--line-bright);
 }
 
@@ -3421,18 +3421,18 @@
       rgba(200, 152, 90, 0.04) 4px
     ),
     linear-gradient(135deg, rgba(200, 152, 90, 0.18) 0%, var(--panel-3) 60%);
-  border-color: var(--amber, #C8985A);
+  border-color: var(--amber);
   border-width: 1px;
 }
 .ap-memory-tile-self::before,
 .ap-memory-tile-self::after {
-  border-color: var(--amber, #C8985A);
+  border-color: var(--amber);
   border-width: 2px;
   width: 11px;
   height: 11px;
 }
 .ap-memory-tile-self:hover {
-  border-color: var(--amber, #C8985A);
+  border-color: var(--amber);
   background:
     repeating-linear-gradient(
       0deg,
@@ -3444,13 +3444,13 @@
     linear-gradient(135deg, rgba(200, 152, 90, 0.26) 0%, var(--panel-3) 60%);
 }
 .ap-memory-tile-self .ap-memory-tile-num {
-  color: var(--amber, #C8985A);
+  color: var(--amber);
 }
 .ap-memory-tile-self .ap-memory-tile-num::before {
   color: rgba(200, 152, 90, 0.7);
 }
 .ap-memory-tile-self .ap-memory-tile-num-id {
-  color: var(--amber, #C8985A);
+  color: var(--amber);
   font-size: 22px;
   letter-spacing: 0.08em;
 }
@@ -3458,7 +3458,7 @@
   border-top-color: rgba(200, 152, 90, 0.28);
   color: rgba(200, 152, 90, 0.7);
 }
-.ap-memory-tile-self .ap-memory-tile-hint::after { color: var(--amber, #C8985A); }
+.ap-memory-tile-self .ap-memory-tile-hint::after { color: var(--amber); }
 /* Watermark star top-right */
 .ap-memory-self-mark {
   position: absolute;
@@ -3466,7 +3466,7 @@
   right: 8px;
   font-size: 14px;
   line-height: 1;
-  color: var(--amber, #C8985A);
+  color: var(--amber);
   pointer-events: none;
   opacity: 0.7;
 }
@@ -3609,7 +3609,7 @@
   font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-weight: 600;
 }
 .ap-skill-row-toggle-track {
@@ -3617,8 +3617,8 @@
   width: 30px;
   height: 16px;
   border-radius: 8px;
-  background: var(--panel-3, #21211E);
-  border: 1px solid var(--line-strong, #4D4B45);
+  background: var(--panel-3);
+  border: 1px solid var(--line-strong);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .ap-skill-row-toggle-knob {
@@ -3632,20 +3632,20 @@
      against the dark track without depending on theme nuance. The
      `on` state below overrides this with the bg color so the gold
      knob pops on the gold track. */
-  background: var(--text-soft, #8E8B83);
+  background: var(--text-soft);
   transition: left 0.15s ease, background 0.15s ease;
 }
 .ap-skill-row-toggle.on .ap-skill-row-toggle-track {
-  background: var(--lime, #6FB572);
-  border-color: var(--lime-deep, #427A48);
+  background: var(--lime);
+  border-color: var(--lime-deep);
 }
 .ap-skill-row-toggle.on .ap-skill-row-toggle-knob {
   left: 17px;
-  background: var(--bg, #0A0A0A);
+  background: var(--bg);
 }
-.ap-skill-row-toggle.on .ap-skill-row-toggle-text { color: var(--text, #C8C5BE); }
+.ap-skill-row-toggle.on .ap-skill-row-toggle-text { color: var(--text); }
 .ap-skill-row-toggle:hover .ap-skill-row-toggle-track {
-  border-color: var(--text-soft, #8E8B83);
+  border-color: var(--text-soft);
 }
 
 /* ─── Web Search · "needs key" state · same toggle shape, dotted
@@ -3653,21 +3653,21 @@
    Configure-key action live in the JS handler + ⋯ popover. ─── */
 .ap-skill-row-toggle.needs-key .ap-skill-row-toggle-track {
   background: transparent;
-  border: 1px dashed var(--line-strong, #4D4B45);
+  border: 1px dashed var(--line-strong);
 }
 .ap-skill-row-toggle.needs-key .ap-skill-row-toggle-knob {
-  background: var(--text-faint, #5C5A4D);
+  background: var(--text-faint);
   opacity: 0.65;
 }
 .ap-skill-row-toggle.needs-key .ap-skill-row-toggle-text {
-  color: var(--text-faint, #5C5A4D);
+  color: var(--text-faint);
 }
 .ap-skill-row-toggle.needs-key:hover .ap-skill-row-toggle-track {
-  border-color: var(--lime, #6FB572);
+  border-color: var(--lime);
   border-style: solid;
 }
 .ap-skill-row-toggle.needs-key:hover .ap-skill-row-toggle-text {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* ─── Configure-key action inside the ⋯ skill-info popover ─── */
@@ -3677,21 +3677,21 @@
   gap: 8px;
   width: 100%;
   background: transparent;
-  border: 0.5px solid var(--lime, #6FB572);
+  border: 0.5px solid var(--lime);
   padding: 8px 12px;
   cursor: pointer;
   font-family: var(--mono, "Inter", system-ui, sans-serif);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   transition: background 0.12s ease, color 0.12s ease;
   margin-bottom: 8px;
 }
 .ap-skill-info-configure:hover {
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
+  background: var(--lime);
+  color: var(--bg);
 }
 .ap-skill-info-configure-mark { font-size: 12px; }
 
@@ -4009,7 +4009,7 @@
 }
 .ap-voice-advanced {
   margin-top: 10px;
-  border-top: 1px solid var(--line, #222);
+  border-top: 1px solid var(--line);
   padding-top: 8px;
 }
 /* Header row · label on the left, custom expand/collapse indicator
@@ -4027,7 +4027,7 @@
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--text-soft, #999);
+  color: var(--text-soft);
   cursor: pointer;
   user-select: none;
   list-style: none;
@@ -4044,7 +4044,7 @@
   transition: color 0.12s;
 }
 .ap-voice-advanced[open] summary::after { content: "−"; }
-.ap-voice-advanced summary:hover { color: var(--text, #eee); }
+.ap-voice-advanced summary:hover { color: var(--text); }
 .ap-voice-advanced summary:hover::after { color: var(--text); }
 
 /* ────────────────────────────────────────────────────────────
@@ -4312,7 +4312,7 @@
 }
 .ap-persona-overlay-dl:hover {
   background: var(--lime);
-  color: var(--bg, #0c0c0c);
+  color: var(--bg);
 }
 .ap-persona-overlay-close {
   position: relative;
@@ -4377,7 +4377,7 @@ html.is-electron-mac .ap-persona-overlay-backdrop {
   text-align: center;
   padding: 60px 0;
 }
-.ap-persona-overlay-error { color: var(--ink, #c97373); }
+.ap-persona-overlay-error { color: var(--ink); }
 .ap-persona-overlay-md {
   font-family: var(--font-human);
   font-size: 14px;

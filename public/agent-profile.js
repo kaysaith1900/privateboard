@@ -2420,31 +2420,28 @@
       for (const m of cache.reachable) {
         const directOk = !!(m.routes && m.routes.direct);
         const orOk = !!(m.routes && m.routes.openrouter);
+        const baiOk = !!(m.routes && m.routes.bai);
         const provider = providerLabel(m.provider);
-        // Both routes available · expand into two rows. Direct first
-        // (matches the adapter's default preference for non-openrouterOnly
-        // models), then OR. Each row is independently clickable so the
-        // user can pin EITHER carrier explicitly.
-        if (directOk && orOk) {
-          out.push({
-            id: m.modelV + "@" + m.provider,
-            v: m.modelV,
-            carrier: m.provider,
-            name: m.displayName,
-            provider,
-            deck: m.deck || "",
-            route: "via " + provider + " direct",
-          });
-          out.push({
-            id: m.modelV + "@openrouter",
-            v: m.modelV,
-            carrier: "openrouter",
-            name: m.displayName,
-            provider,
-            deck: m.deck || "",
-            route: "via OpenRouter",
-          });
-        } else if (directOk) {
+        // For each carrier that can serve this model, emit a separate
+        // pickable row · users can pin EITHER carrier explicitly. Order
+        // mirrors the adapter's default precedence so the natural top
+        // pick when the user just clicks "the model" is the same one
+        // the orchestrator would resolve unpinned. When only ONE
+        // carrier serves the model, we collapse to a single row with
+        // `carrier: null` so the agent uses default routing (and
+        // automatically follows the carrier if the user later
+        // reconfigures keys).
+        const reachableCarriers = [];
+        if (directOk) reachableCarriers.push({ carrier: m.provider, route: "via " + provider + " direct" });
+        if (baiOk) reachableCarriers.push({ carrier: "bai", route: "via B.AI" });
+        if (orOk) reachableCarriers.push({ carrier: "openrouter", route: "via OpenRouter" });
+        if (reachableCarriers.length === 0) continue;
+        if (reachableCarriers.length === 1) {
+          // Only one carrier serves this model · use the bare modelV
+          // id and `carrier: null` so the saved agent record uses
+          // default routing rather than a sticky pin to a carrier the
+          // user might later swap.
+          const only = reachableCarriers[0];
           out.push({
             id: m.modelV,
             v: m.modelV,
@@ -2452,17 +2449,21 @@
             name: m.displayName,
             provider,
             deck: m.deck || "",
-            route: "direct",
+            route: only.carrier === m.provider ? "direct" : only.route,
           });
-        } else if (orOk) {
+          continue;
+        }
+        // Multi-carrier · one row per carrier · composite id
+        // `${modelV}@${carrier}` distinguishes them in the picker.
+        for (const { carrier, route } of reachableCarriers) {
           out.push({
-            id: m.modelV,
+            id: m.modelV + "@" + carrier,
             v: m.modelV,
-            carrier: null,
+            carrier,
             name: m.displayName,
             provider,
             deck: m.deck || "",
-            route: "via OpenRouter",
+            route,
           });
         }
       }
@@ -2607,8 +2608,8 @@
     const current = modelForAgent(slug, fallback);
     const reachable = isReachable(current.v);
     // Stale-model warning · the agent's stored modelV isn't reachable
-    // with the current key set (e.g. user revoked OpenRouter, but
-    // the agent was set to opus-4-7 which is openrouterOnly). Surface
+    // with the current key set (e.g. user revoked both OR + B.AI but
+    // the agent was set to a viaUniversalOnly model). Surface
     // it as a small note under the trigger so the user knows clicks
     // here will fall back at runtime; the runtime resolver in
     // `effectiveDefaultModel()` does the actual fallback.

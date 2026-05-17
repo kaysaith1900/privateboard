@@ -22,7 +22,11 @@
  * Window / Zoom / Undo / Redo dropped: ⌘M / ⌘W still fire via Chromium
  * defaults; nothing in the app is undoable in the OS sense.
  */
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, shell } from "electron";
+// CJS module · see electron/main.ts for the rationale on the
+// default-import + destructure dance.
+import electronUpdaterPkg from "electron-updater";
+const { autoUpdater } = electronUpdaterPkg;
 
 import { VERSION } from "../dist/version.js";
 
@@ -45,6 +49,42 @@ export function buildAppMenu(stateDir: string): void {
       label: app.name,
       submenu: [
         { role: "about" },
+        { type: "separator" },
+        // Manual update check · sits in the standard macOS "App ›
+        // Check for Updates …" slot. autoUpdater also runs a passive
+        // check on launch + every 4 h (see electron/main.ts
+        // startAutoUpdater), so this item is the explicit "I'd like
+        // to know now" path. Disabled in dev (unpackaged Electron has
+        // no `app-update.yml` to read).
+        {
+          label: "Check for Updates…",
+          enabled: app.isPackaged,
+          click: async () => {
+            const parent = BrowserWindow.getFocusedWindow() ?? undefined;
+            try {
+              const result = await autoUpdater.checkForUpdates();
+              if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
+                dialog.showMessageBox(parent ?? undefined as unknown as BrowserWindow, {
+                  type: "info",
+                  title: "PrivateBoard",
+                  message: "已是最新版本",
+                  detail: `当前 v${app.getVersion()}`,
+                });
+              }
+              // If a newer version exists, electron-updater fires
+              // `update-available` → `update-downloaded` and the
+              // restart-now dialog from startAutoUpdater handles the
+              // rest. No need to re-show progress here.
+            } catch (err) {
+              dialog.showMessageBox(parent ?? undefined as unknown as BrowserWindow, {
+                type: "error",
+                title: "无法检查更新",
+                message: "请稍后再试",
+                detail: String(err instanceof Error ? err.message : err),
+              });
+            }
+          },
+        },
         { type: "separator" },
         { role: "hide" },
         { role: "hideOthers" },

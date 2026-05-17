@@ -362,6 +362,10 @@
 
   .sidebar-head {
     padding: 8px 12px;
+    /* Anchor the topbar height explicitly. Was previously driven by
+       the 22px collapse-button's box; after the button was shrunk to a
+       16px icon, the row would collapse 6px shorter without this lock. */
+    min-height: 38px;
     border-bottom: 0.5px solid var(--line-bright);
     display: flex;
     justify-content: space-between;
@@ -396,51 +400,58 @@
      Sits at the right edge of sidebar-head. Pure CSS glyph (no svg)
      so we can flip the direction via class without re-rendering DOM.
      Hover lime per the new-btn vocabulary. */
+  /* Icon-only: no border, no fill — matches `.new-btn` (Search, All
+     Reports, All Notes) vocabulary. The chevron is a Lucide line icon
+     painted via mask-image + currentColor, so hover -> lime cascades
+     naturally without per-state chrome to repaint. */
   .sidebar-collapse-btn {
     appearance: none;
-    background: var(--panel-3);
-    border: 0.5px solid var(--line-strong);
+    background: transparent;
+    border: 0;
     color: var(--text-soft);
     cursor: pointer;
-    width: 24px;
-    height: 22px;
+    width: 16px;
+    height: 16px;
     padding: 0;
-    line-height: 1;
-    font-family: var(--mono);
-    font-size: 16px;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.12s, background 0.12s, border-color 0.12s;
     flex-shrink: 0;
-    /* position:relative anchors the ::after hit-area expander below.
-       The visual chrome stays 24×22, but the click region is enlarged
-       to 40×38 so the cursor doesn't have to land precisely on the
-       small button — a frequent miss with a 16px chevron in a 24×22
-       hit box. */
+    transition: color 0.12s;
+    /* position:relative anchors the ::after hit-area expander below
+       so the cursor doesn't have to land precisely on the 16px icon. */
     position: relative;
   }
-  .sidebar-collapse-btn::before { content: "‹"; }
-  body.sidebar-collapsed .sidebar-collapse-btn::before { content: "›"; }
-  /* Invisible hit-area expander · ::before is taken by the chevron
-     glyph, so ::after provides the larger click rectangle. `inset:-16px`
-     extends 16px beyond every edge (24+32=56 wide, 22+32=54 tall) so
-     the cursor doesn't have to land precisely on a 16px chevron — a
-     frequent miss the user has flagged twice. The pseudo-element is
-     part of the button's render box, so hover and click in this
-     enlarged area still fire on the button itself and trigger
-     `:hover` styles normally — no extra JS needed. */
+  /* Lucide PanelLeft with 3 row-marks · matches public/icons/fold.png
+     (rounded panel · vertical divider · 3 short lines suggesting the
+     sidebar's contents on the left). One single glyph for both states;
+     collapsed mirrors horizontally so the "fold lines" flip to the
+     right edge, telegraphing "the panel will come out from that side". */
+  .sidebar-collapse-btn::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
+    transition: transform 0.18s;
+  }
+  body.sidebar-collapsed .sidebar-collapse-btn::before {
+    transform: scaleX(-1);
+  }
+  /* Invisible hit-area expander · the icon is only 16px, so this
+     pseudo-element grows the click rectangle by 16px on every edge
+     (= 48×48 hit zone) without changing the visible chrome. */
   .sidebar-collapse-btn::after {
     content: "";
     position: absolute;
     inset: -16px;
   }
-  .sidebar-collapse-btn:hover {
-    color: var(--lime);
-    border-color: var(--lime-dim);
-    background: var(--panel-2);
-  }
+  .sidebar-collapse-btn:hover { color: var(--lime); }
 
   /* ─── Electron (macOS) · cede the sidebar-head logo slot to the native
      traffic lights and turn the strip into a window-drag handle.
@@ -732,30 +743,27 @@
      pinned to the top-left of the body-grid area. Frosted black
      glass with hairline border, lime on hover. z-index sits above
      chat content but below modal overlays (which use 1500+). */
+  /* Round chip · fold glyph centred in a 28px circle. `--bg` fill
+     (white on light, near-black on dark) masks the cmp-bg-deco
+     constellation behind it; `--lime-dim` ring anchors it to the
+     product's accent. Hover intensifies both ring + icon to full
+     `--lime` for an obvious interactive state. */
   .sidebar-expand-btn {
     display: none;
     position: absolute;
     top: 12px;
     left: 12px;
-    width: 34px;
-    height: 34px;
+    width: 28px;
+    height: 28px;
     align-items: center;
     justify-content: center;
-    /* Theme-adaptive frosted backdrop · uses `--bg` (the page bg
-       token, which flips dark ↔ light with the active appearance)
-       at ~55 % opacity. The earlier hardcoded `rgba(8,8,8,.55)` was
-       fine in dark mode but left a dark blob on light surfaces in
-       the atrium / light appearance — making the hamburger icon
-       (currentColor stroke) read against its own background tint
-       instead of the page. */
-    background: color-mix(in srgb, var(--bg) 55%, transparent);
-    -webkit-backdrop-filter: blur(12px) saturate(1.05);
-    backdrop-filter: blur(12px) saturate(1.05);
-    border: 0.5px solid var(--line-strong);
+    background: var(--bg);
+    border: 1px solid var(--lime-dim);
+    border-radius: 50%;
     color: var(--text-soft);
     cursor: pointer;
     z-index: 200;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    transition: color 0.12s, border-color 0.12s;
     appearance: none;
     padding: 0;
   }
@@ -768,8 +776,7 @@
   }
   .sidebar-expand-btn:hover {
     color: var(--lime);
-    border-color: var(--lime-dim);
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    border-color: var(--lime);
   }
   /* Hit-area expander · the visible button is 34×34, but ::after
      stretches 18px past every edge so the click target is 70×70 even
@@ -1801,26 +1808,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Icon-only chrome — same vocabulary as the sidebar's `.new-btn`
+     nav icons (Search / All Reports / All Notes). No box, no border:
+     just the icon glyph painted via currentColor + mask-image, with
+     a hover-to-lime color transition. */
   .icon-btn {
-    width: 32px; height: 32px;
+    width: 16px; height: 16px;
     background: transparent;
-    border: 0.5px solid var(--line-bright);
+    border: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     color: var(--text-soft);
     text-decoration: none;
-    font-size: 16px;
     line-height: 1;
     flex-shrink: 0;
-    transition: all 0.12s;
+    transition: color 0.12s;
   }
-  .icon-btn:hover {
-    background: var(--panel-3);
-    color: var(--lime);
-    border-color: var(--lime);
-  }
+  .icon-btn:hover { color: var(--lime); }
   /* Settings trigger · Lucide Settings (gear) glyph in the same
      mask-image vocabulary as the .new-btn.nav-* sidebar icons.
      Keeps the bottom row visually paired with the search /
@@ -2603,7 +2609,7 @@
     background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 0.5px solid var(--line-strong);
+    border: 0.5px solid var(--accent-line);
     border-radius: 14px;
     /* No drop shadow · mirrors cmp-input-frame after the lifted
        card shadow was removed there. The frosted surface + hairline
@@ -2616,11 +2622,9 @@
       padding 0.22s ease;
   }
   .search-card:focus-within {
-    /* Match cmp-input-frame's focus register · softer lime ring (the
-       `--lime-dim` rim) instead of a hard lime border, so the
-       focused state reads as "warmed" rather than "selected
-       outline". */
-    border-color: var(--lime-dim, var(--lime));
+    /* Default border is `--lime-dim` (subtle brand tint); focus lifts
+       to full `--lime` for a clear "active" register. */
+    border-color: var(--lime);
   }
   .search-page.has-results .search-card {
     display: flex;
@@ -9473,6 +9477,46 @@
     animation: rt-sub-in 0.18s ease-out;
   }
   .rt-subtitle[hidden] { display: none; }
+  /* Minimize affordance · top-right corner of the subtitle panel.
+     Pure icon · no frame, no background. Lucide-style "minimize-2"
+     pictogram (two corner arrows pulling inward) rendered as SVG
+     via mask-image so it follows currentColor. Clicking sets
+     `body.is-subtitle-min` which hides the panel and reveals the
+     restore CC button on the speaking-queue head. */
+  .rt-sub-min {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: rgba(244, 239, 223, 0.78);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    transition: color 0.12s;
+  }
+  .rt-sub-min::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='4 14 10 14 10 20'/><polyline points='20 10 14 10 14 4'/><line x1='14' y1='10' x2='21' y2='3'/><line x1='3' y1='21' x2='10' y2='14'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='4 14 10 14 10 20'/><polyline points='20 10 14 10 14 4'/><line x1='14' y1='10' x2='21' y2='3'/><line x1='3' y1='21' x2='10' y2='14'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
+  }
+  .rt-sub-min:hover { color: var(--lime); }
+  body.is-subtitle-min .rt-subtitle { display: none !important; }
   @keyframes rt-sub-in {
     from { opacity: 0; transform: translate(-50%, 6px); }
     to   { opacity: 1; transform: translate(-50%, 0);   }
@@ -11375,8 +11419,12 @@
     z-index: -1;
     -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
             mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
-    opacity: 0.85;
+    /* Opacity tuned down from 0.85 — the field of small pixel motifs
+       read as "fragmented dirt" especially in light, where white bg
+       amplifies every dot's contrast. Light gets an extra step down. */
+    opacity: 0.6;
   }
+  :root[data-theme="light"] .cmp-bg-deco { opacity: 0.4; }
   .cmp-bg-deco svg { display: block; width: 100%; height: 100%; }
   /* 8-bit deco animations · keep subtle so the field reads as
      "alive" rather than "demanding attention". All animations are
@@ -11504,32 +11552,24 @@
     max-width: 620px;
   }
 
-  /* Input frame · the focal point. Mirrors the in-room `.input-bar`
-     register (frosted glass · hairline border · 14px radius · soft
-     elevation) so the new-room / new-agent composer reads as the same
-     control surface family as the in-room textarea. Background recipe
-     (layered color-mix → backdrop-filter) is borrowed verbatim from
-     `.input-bar` (~line 14612). `overflow: hidden` keeps the toolbar
-     flush with the rounded corners; focus lifts to a brighter lime
-     border + slightly deeper shadow, matching input-bar's focus
-     vocabulary. */
+  /* Input frame · the focal point. Previously rendered as frosted
+     glass (color-mix(panel-3, bg) + backdrop-filter blur), which
+     made the textarea zone end up at ~#EAEAEA / ~#1C1C19 — visually
+     identical to `--strip-bg`, so the topbar disappeared into the
+     input area. Switched to `var(--bg)` (clean white / clean black)
+     so the textarea reads as a crisp input field and the strip-bg
+     topbar above stays clearly delineated. The hairline border +
+     14px radius still carry the "discrete card" feel. */
   .cmp-input-frame {
     position: relative;
-    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
-    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 0.5px solid var(--line-strong);
+    background: var(--bg);
+    border: 0.5px solid var(--accent-line);
     border-radius: 14px;
-    /* No drop shadow · the frosted-glass surface + hairline border
-       already feel like a discrete card. The earlier lifted shadow
-       (`0 14px 32px -20px rgba(0,0,0,.55)`) made the composer look
-       like a floating modal, which fought with the deco backdrop. */
     transition: border-color 0.18s;
     overflow: hidden;
   }
   .cmp-input-frame:focus-within {
-    border-color: var(--lime-dim, var(--lime));
+    border-color: var(--lime);
   }
   .cmp-input {
     display: block;
@@ -11586,8 +11626,11 @@
     flex-wrap: wrap;
     gap: 4px;
     padding: 6px 8px;
-    background: var(--panel-2);
-    border-bottom: 0.5px solid var(--line);
+    background: var(--strip-bg);
+    /* Hairline tinted with the brand colour (`--accent-line`) so the
+       seam matches the strip-bg and frame border family — the whole
+       composer card reads as one brand-tinted control surface. */
+    border-bottom: 0.5px solid var(--accent-line);
     min-height: 44px;
   }
   /* Topbar buttons adopt the in-room input-bar's
@@ -11730,11 +11773,11 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    /* No hairline divider between textarea and bottombar · the
-       `--panel-2` toolbar tray plus the textarea's own focused-border
-       already telegraph the boundary; the extra rule read as visual
-       noise pinning the bottom of the card. */
-    background: var(--panel-2);
+    /* Bottombar matches the topbar's brand-tinted treatment: `--strip-bg`
+       fill + `--accent-line` hairline on top. The two strips bookend the
+       textarea zone so the composer reads as one cohesive brand surface. */
+    background: var(--strip-bg);
+    border-top: 0.5px solid var(--accent-line);
     min-height: 48px;
     /* Establish a size container · child elements (notably the
        voice-mode toggle's text) can respond to the toolbar's width
@@ -14971,6 +15014,49 @@
      stable when the slot empties. */
   .ib-controls-right [hidden] { display: none !important; }
 
+  /* Subtitle-restore CC button · sits inside the speaking-queue head,
+     immediately to the LEFT of the queue expand/collapse toggle.
+     Style register matches the sidebar's `.new-btn` icons (Lucide
+     stroke pictogram + currentColor mask-image) so it reads as a
+     peer affordance instead of a tinted action chip. Default hidden;
+     visible only when body.is-subtitle-min. */
+  .rt-sub-restore {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: var(--text-soft);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.12s;
+  }
+  .rt-sub-restore::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='6' width='18' height='12' rx='2' ry='2'/><path d='M7 13h2'/><path d='M11 13h2'/><path d='M15 13h2'/><path d='M7 16h4'/><path d='M13 16h4'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='6' width='18' height='12' rx='2' ry='2'/><path d='M7 13h2'/><path d='M11 13h2'/><path d='M15 13h2'/><path d='M7 16h4'/><path d='M13 16h4'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
+  }
+  body.is-subtitle-min .rt-sub-restore { display: inline-flex; }
+  .rt-sub-restore:hover { color: var(--lime); }
+  /* When the CC button is visible, the queue-head needs a third grid
+     track to host it next to the toggle. Grid auto-collapses unused
+     `auto` tracks when CC is display:none, so the default 2-col layout
+     is preserved for the common case. */
+  .queue-head { grid-template-columns: 1fr auto auto; }
+
   /* ─── Inline-tool register inside the input / paused bar ───
      The reference design (icons/bar.png) places ALL controls
      below the textarea as borderless, fill-less inline tools ·
@@ -16113,6 +16199,11 @@
                 <!-- populated by app.renderQueue() · summary follows
                      the real queue: speaking, pending, or idle. -->
               </div>
+              <!-- Subtitle restore · sits inside the queue head, to
+                   the LEFT of the expand/collapse toggle. Hidden
+                   unless body.is-subtitle-min. Click brings the
+                   minimized live-caption panel back. -->
+              <button type="button" class="rt-sub-restore" data-rt-sub-restore title="Show subtitle" aria-label="Show subtitle"></button>
               <button type="button" class="queue-toggle" data-i18n-title="queue_toggle" aria-expanded="true">
                 <!-- Expanded state · chevron-up = "fold the queue".
                      Collapsed state · list-rows = "open the queue".
@@ -16274,10 +16365,15 @@
          sat before collapse. Frosted black glass with a 3-line
          hamburger glyph. -->
     <button type="button" class="sidebar-expand-btn" data-sidebar-expand data-i18n-title="sidebar_expand" data-i18n-tip="sidebar_expand">
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-        <line x1="2.5" y1="4.25"  x2="13.5" y2="4.25"/>
-        <line x1="2.5" y1="8"     x2="13.5" y2="8"/>
-        <line x1="2.5" y1="11.75" x2="13.5" y2="11.75"/>
+      <!-- Lucide PanelLeft + 3 row marks · same fold-style glyph as the
+           in-sidebar collapse button. Unified icon vocabulary across
+           both sidebar toggles. -->
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <path d="M9 3v18"/>
+        <path d="M5 8h2"/>
+        <path d="M5 12h2"/>
+        <path d="M5 16h2"/>
       </svg>
     </button>
 

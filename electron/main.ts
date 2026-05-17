@@ -15,7 +15,13 @@
  *     the "data appears to vanish after restart" failure mode the CLI
  *     already hardened against in `src/cli.ts`.
  */
-import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+// `electron-updater` ships as CommonJS · Node's strict ESM loader can't
+// extract named exports from its `module.exports = { ... }` shape, so
+// import the default and destructure at runtime. The TS types still
+// flow through the destructure, no `any` needed.
+import electronUpdaterPkg from "electron-updater";
+const { autoUpdater } = electronUpdaterPkg;
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -231,12 +237,84 @@ if (!app.requestSingleInstanceLock()) {
     try { closeDb(); } catch { /* */ }
   });
 
+  /* ─── Auto-update · electron-updater + GitHub Releases ───────────
+     The packaged .app pulls `latest-mac.yml` from this repo's GitHub
+     Releases (configured in package.json `build.publish`) and applies
+     differential updates in the background. On first launch we wait
+     3 seconds (let bootApp settle, avoid contending with the renderer's
+     initial fetch storm) before checking, then re-check every 4 hours
+     while the app stays open. Downloads are installed on quit; a
+     "ready to restart" dialog gives the user the option to apply
+     immediately. macOS Squirrel.Mac requires a signed + notarized
+     bundle, which we already produce via `electron:dist`.
+
+     Dev path · `npx electron .` (unpackaged) sets `app.isPackaged =
+     false` and we early-out so the updater doesn't try to read a
+     non-existent `app-update.yml` and log noisy errors. */
+  function startAutoUpdater(): void {
+    if (!app.isPackaged) return;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.allowPrerelease = false;
+    // electron-updater accepts any console-like logger; bypass the
+    // strict `Logger | null` type with a cast so `console` lands as
+    // the active sink.
+    (autoUpdater as unknown as { logger: unknown }).logger = console;
+
+    autoUpdater.on("error", (err: Error) => {
+      console.error("[autoUpdater]", err);
+    });
+    autoUpdater.on("checking-for-update", () => {
+      console.log("[autoUpdater] checking …");
+    });
+    autoUpdater.on("update-available", (info: { version?: string }) => {
+      console.log(`[autoUpdater] update available · v${info.version}`);
+    });
+    autoUpdater.on("update-not-available", () => {
+      console.log("[autoUpdater] up to date");
+    });
+    autoUpdater.on("update-downloaded", (info: { version?: string }) => {
+      // Use the active window as the dialog parent so the modal
+      // attaches to the app surface instead of standalone-floating
+      // off-screen. Fallback to a parent-less dialog when the
+      // window has been destroyed (rare · user quit mid-download).
+      const parent = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+      const choice = dialog.showMessageBoxSync(parent ?? undefined as unknown as BrowserWindow, {
+        type: "info",
+        buttons: ["现在重启更新", "稍后"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "PrivateBoard 有新版本",
+        message: `v${info.version} 已下载完成`,
+        detail: "重启后立即生效。",
+      });
+      if (choice === 0) {
+        // `quitAndInstall(isSilent, isForceRunAfter)` · second arg true
+        // re-launches the app after the install completes so the user
+        // doesn't have to find / click the dock icon again.
+        autoUpdater.quitAndInstall(false, true);
+      }
+    });
+
+    const kick = () => {
+      autoUpdater.checkForUpdatesAndNotify().catch((err: Error) => {
+        console.error("[autoUpdater] check failed:", err);
+      });
+    };
+    // First check 3s after window boots; then every 4 hours while
+    // the app stays open. The interval handler runs even if the
+    // first check failed (transient network blip recovers automatically).
+    setTimeout(kick, 3_000);
+    setInterval(kick, 4 * 60 * 60 * 1000);
+  }
+
   void app.whenReady().then(async () => {
     try {
       const result = await bootApp({ host: "127.0.0.1" });
       server = result.server;
       buildAppMenu(result.dirs.base);
       await createWindow(result.server.url);
+      startAutoUpdater();
     } catch (err) {
       // bootApp may have started the server before a later step (createWindow,
       // menu build) threw. `app.exit` skips `before-quit`, so without an
