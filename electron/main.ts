@@ -15,7 +15,7 @@
  *     the "data appears to vanish after restart" failure mode the CLI
  *     already hardened against in `src/cli.ts`.
  */
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 // `electron-updater` ships as CommonJS · Node's strict ESM loader can't
 // extract named exports from its `module.exports = { ... }` shape, so
 // import the default and destructure at runtime. The TS types still
@@ -239,22 +239,79 @@ if (!app.requestSingleInstanceLock()) {
 
   /* ─── Auto-update · electron-updater + GitHub Releases ───────────
      The packaged .app pulls `latest-mac.yml` from this repo's GitHub
-     Releases (configured in package.json `build.publish`) and applies
-     differential updates in the background. On first launch we wait
-     3 seconds (let bootApp settle, avoid contending with the renderer's
-     initial fetch storm) before checking, then re-check every 4 hours
-     while the app stays open. Downloads are installed on quit; a
-     "ready to restart" dialog gives the user the option to apply
-     immediately. macOS Squirrel.Mac requires a signed + notarized
-     bundle, which we already produce via `electron:dist`.
+     Releases (configured in package.json `build.publish`). The flow is
+     consent-driven: on launch we check for a new version and, if one
+     exists, push an `updater:state` event to the renderer; the
+     renderer shows the PrivateBoard-styled modal (`public/app-
+     updater.js`) and only after the user clicks "现在更新" do we call
+     `autoUpdater.downloadUpdate()`. Progress + ready states are
+     forwarded as further `updater:state` events so the renderer can
+     paint the progress bar and restart prompt.
+
+     `updaterState` mirrors whatever the renderer should be showing.
+     We also expose it via `updater:get-state` so a late-mounted
+     renderer (refresh, devtools reload) can re-hydrate the modal
+     without missing the original `update-available` event. Re-checks
+     run every 4 hours; if the user dismissed the prompt last time the
+     next check re-broadcasts and the modal re-opens.
 
      Dev path · `npx electron .` (unpackaged) sets `app.isPackaged =
      false` and we early-out so the updater doesn't try to read a
      non-existent `app-update.yml` and log noisy errors. */
+  type UpdaterState =
+    | { kind: "idle" }
+    | { kind: "available"; version: string }
+    | {
+        kind: "downloading";
+        version: string;
+        percent: number;
+        transferred: number;
+        total: number;
+        bytesPerSecond: number;
+      }
+    | { kind: "ready"; version: string }
+    | { kind: "error"; message: string };
+
+  let updaterState: UpdaterState = { kind: "idle" };
+
+  function broadcastUpdaterState(): void {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send("updater:state", updaterState);
+    }
+  }
+
+  ipcMain.handle("app:get-version", () => app.getVersion());
+  ipcMain.handle("updater:get-state", () => updaterState);
+  ipcMain.handle("updater:start-download", () => {
+    if (updaterState.kind !== "available") return false;
+    autoUpdater.downloadUpdate().catch((err: Error) => {
+      console.error("[autoUpdater] downloadUpdate failed:", err);
+      updaterState = { kind: "error", message: err.message };
+      broadcastUpdaterState();
+    });
+    return true;
+  });
+  ipcMain.handle("updater:install-now", () => {
+    if (updaterState.kind !== "ready") return false;
+    // `quitAndInstall(isSilent, isForceRunAfter)` · second arg true
+    // re-launches the app after the install completes so the user
+    // doesn't have to find / click the dock icon again.
+    autoUpdater.quitAndInstall(false, true);
+    return true;
+  });
+  ipcMain.handle("updater:dismiss", () => {
+    // Renderer just hides the UI; we keep `updaterState` so the
+    // user can reopen if they change their mind. The 4-hour
+    // re-check will also re-broadcast.
+    return true;
+  });
+
   function startAutoUpdater(): void {
     if (!app.isPackaged) return;
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Consent-driven: never auto-download, never auto-install. The
+    // renderer's modal gates both steps.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = false;
     // electron-updater accepts any console-like logger; bypass the
     // strict `Logger | null` type with a cast so `console` lands as
@@ -263,41 +320,53 @@ if (!app.requestSingleInstanceLock()) {
 
     autoUpdater.on("error", (err: Error) => {
       console.error("[autoUpdater]", err);
+      updaterState = { kind: "error", message: err.message };
+      broadcastUpdaterState();
     });
     autoUpdater.on("checking-for-update", () => {
       console.log("[autoUpdater] checking …");
     });
     autoUpdater.on("update-available", (info: { version?: string }) => {
       console.log(`[autoUpdater] update available · v${info.version}`);
+      updaterState = { kind: "available", version: info.version ?? "" };
+      broadcastUpdaterState();
     });
     autoUpdater.on("update-not-available", () => {
       console.log("[autoUpdater] up to date");
-    });
-    autoUpdater.on("update-downloaded", (info: { version?: string }) => {
-      // Use the active window as the dialog parent so the modal
-      // attaches to the app surface instead of standalone-floating
-      // off-screen. Fallback to a parent-less dialog when the
-      // window has been destroyed (rare · user quit mid-download).
-      const parent = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-      const choice = dialog.showMessageBoxSync(parent ?? undefined as unknown as BrowserWindow, {
-        type: "info",
-        buttons: ["现在重启更新", "稍后"],
-        defaultId: 0,
-        cancelId: 1,
-        title: "PrivateBoard 有新版本",
-        message: `v${info.version} 已下载完成`,
-        detail: "重启后立即生效。",
-      });
-      if (choice === 0) {
-        // `quitAndInstall(isSilent, isForceRunAfter)` · second arg true
-        // re-launches the app after the install completes so the user
-        // doesn't have to find / click the dock icon again.
-        autoUpdater.quitAndInstall(false, true);
+      // Only clear state if we weren't mid-download/ready — a late
+      // re-check during a download shouldn't wipe the progress UI.
+      if (updaterState.kind === "idle" || updaterState.kind === "available") {
+        updaterState = { kind: "idle" };
+        broadcastUpdaterState();
       }
+    });
+    autoUpdater.on(
+      "download-progress",
+      (p: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => {
+        const version =
+          updaterState.kind === "downloading" || updaterState.kind === "available"
+            ? updaterState.version
+            : "";
+        updaterState = {
+          kind: "downloading",
+          version,
+          percent: p.percent,
+          transferred: p.transferred,
+          total: p.total,
+          bytesPerSecond: p.bytesPerSecond,
+        };
+        broadcastUpdaterState();
+      },
+    );
+    autoUpdater.on("update-downloaded", (info: { version?: string }) => {
+      updaterState = { kind: "ready", version: info.version ?? "" };
+      broadcastUpdaterState();
     });
 
     const kick = () => {
-      autoUpdater.checkForUpdatesAndNotify().catch((err: Error) => {
+      // `checkForUpdates` (not `…AndNotify`) — the renderer owns the
+      // user-facing prompt now, the native notification path is gone.
+      autoUpdater.checkForUpdates().catch((err: Error) => {
         console.error("[autoUpdater] check failed:", err);
       });
     };

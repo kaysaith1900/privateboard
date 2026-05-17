@@ -523,6 +523,14 @@
   html.is-electron-mac .room-head .head-cast img {
     -webkit-app-region: no-drag;
   }
+  /* The expand-btn's ::after halo paints OUTSIDE the button rect
+     (inset: -16px), so it doesn't inherit the button's no-drag and
+     gets eaten by `.room-head { drag }` above. Stamp no-drag on the
+     pseudo directly so the 48×48 hit zone keeps registering clicks.
+     (Same shape as the sidebar-collapse-btn::after override.) */
+  html.is-electron-mac .room-head .room-head-expand::after {
+    -webkit-app-region: no-drag;
+  }
   /* ─── macOS Electron · top-strip drag coverage for non-room views.
      When the room view is hidden (All Reports / All Notes / Search /
      Agent Profile) or the room view is shown with no current room (the
@@ -817,42 +825,65 @@
 
   /* ─── In-header expand button ───
      Lives at the leading edge of `.room-head` (rendered by
-     renderHeader() in app.js). Twin of `.sidebar-collapse-btn` —
-     naked CSS-glyph, no border, faint text, lime on hover. The
-     ▸ glyph mirrors the ◂ on the collapse counterpart so the
-     two controls read as a paired set. Hidden by default; shown
-     only when the sidebar is collapsed AND a room is loaded. */
+     renderHeader() in app.js). Visual twin of `.sidebar-collapse-btn`
+     so the collapse/expand pair reads as the SAME control across
+     the two places it can appear (in-sidebar when open · in-header
+     when sidebar collapsed AND a room is loaded). Icon-only · no
+     chrome · same Lucide PanelLeft mask · same hover-lime cascade.
+     Always rendered in the mirrored variant (panel folded to the
+     right edge) since this button only ever appears in the collapsed
+     state · clicking it expands the sidebar back. */
   .room-head-expand {
     appearance: none;
-    background: var(--panel-3);
-    border: 0.5px solid var(--line-strong);
+    background: transparent;
+    border: 0;
     color: var(--text-soft);
     cursor: pointer;
-    width: 24px;
-    height: 22px;
+    width: 16px;
+    height: 16px;
     padding: 0;
-    line-height: 1;
-    font-family: var(--mono);
-    font-size: 16px;
-    font-weight: 700;
-    /* position: relative so the ::after tooltip anchors to the
-       button rather than escaping into the room-head's layout. */
+    flex-shrink: 0;
+    transition: color 0.12s;
+    /* position: relative anchors the ::after hit-area expander so
+       the cursor doesn't have to land precisely on the 16px icon. */
     position: relative;
     display: none;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.12s, background 0.12s, border-color 0.12s;
-    flex-shrink: 0;
   }
-  .room-head-expand::before { content: "›"; }
+  .room-head-expand::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
+    /* Same scaleX(-1) the sidebar-collapse-btn uses when
+       body.sidebar-collapsed · since this button is ONLY visible
+       in the collapsed state, the flip is unconditional here. */
+    transform: scaleX(-1);
+  }
+  /* Invisible hit-area expander · matches `.sidebar-collapse-btn::after`
+     so the click rectangle grows to 48×48 around the 16px icon. */
+  .room-head-expand::after {
+    content: "";
+    position: absolute;
+    inset: -16px;
+  }
   body.sidebar-collapsed .room-head-expand {
-    display: inline-flex;
+    display: block;
+    /* Extra 5px breathing room between the icon and the title cluster
+       on top of the room-head's own 12px column gap · the icon sat
+       too close to the kicker / subject otherwise. Scoped to the
+       collapsed state since the button itself only exists then. */
+    margin-right: 5px;
   }
-  .room-head-expand:hover {
-    color: var(--lime);
-    border-color: var(--lime-dim);
-    background: var(--panel-2);
-  }
+  .room-head-expand:hover { color: var(--lime); }
 
   /* ─── Sidebar tabs (Rooms / Agents) — segmented control with icon ─── */
   .sidebar-tabs {
@@ -2752,7 +2783,12 @@
     transition: background-color 5000s ease-in-out 0s;
   }
   .search-page.has-results .search-input {
-    padding: 9px 6px;
+    /* Horizontal padding matches the new-room composer's `.cmp-input`
+       (14 px each side) so the text-to-input-box gutter reads the same
+       across the two surfaces. The earlier 6 px was visibly tighter
+       than the new-room textarea and made the head-row input feel
+       cramped against its panel-2 pill. */
+    padding: 9px 14px;
     font-size: 13px;
   }
   .search-input::placeholder {
@@ -15692,11 +15728,14 @@
 <script src="user-settings.js" defer></script>
 <link rel="stylesheet" href="voice-replay.css">
 <script src="voice-replay.js" defer></script>
+<script src="mention-picker.js" defer></script>
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
 <script src="onboarding.js" defer></script>
 <link rel="stylesheet" href="voice-onboarding.css">
 <script src="voice-onboarding.js" defer></script>
+<link rel="stylesheet" href="app-updater.css">
+<script src="app-updater.js" defer></script>
 <link rel="stylesheet" href="quote-cta.css">
 <script src="quote-cta.js" defer></script>
 <script src="typing-sfx.js" defer></script>
@@ -16946,6 +16985,16 @@
       else if (which === "agents") applyAgentsSubState(lsGet(AGENTS_KEY) || "new");
 
       if (persist) lsSet(TAB_KEY, which);
+
+      // Voice mini-player visibility depends on the active sidebar
+      // tab (refreshMiniPlayer in app.js gates on it). A bare tab
+      // switch doesn't fire any of the boardroom:replay-* events, so
+      // we trigger the refresh explicitly here — otherwise the player
+      // sticks in whichever state it was last evaluated under (most
+      // visibly: hidden when entering Agents from the playing room).
+      if (window.app && typeof window.app.refreshMiniPlayer === "function") {
+        window.app.refreshMiniPlayer();
+      }
     }
 
     /* ─── Capture-phase tracker for sidebar agent rows ─────────────
@@ -17423,6 +17472,93 @@
     </div>
   </article>
 </template>
+
+<div class="upd-overlay" id="upd-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="upd-backdrop" data-upd-close></div>
+  <div class="upd-modal" role="document">
+
+    <div class="upd-classification">
+      <span><span class="dot">●</span> <span data-i18n="upd_classification_left">app update</span></span>
+      <span class="right" data-i18n="upd_classification_right">// privateboard</span>
+    </div>
+
+    <header class="upd-head">
+      <div class="upd-head-text">
+        <div class="meta">
+          <span data-i18n="upd_meta_label">// release</span>
+          <span>·</span>
+          <span class="live" data-i18n="upd_meta_live">available</span>
+        </div>
+        <div class="title" data-upd-title data-i18n="upd_title">A new version of PrivateBoard is available.</div>
+      </div>
+      <button type="button" class="close-btn" data-upd-close aria-label="Close">✕</button>
+    </header>
+
+    <div class="upd-body">
+
+      <!-- AVAILABLE · prompt the user to start the download -->
+      <div class="upd-state upd-state-available">
+        <div class="upd-version">
+          <span class="from" data-upd-from-version>v0.0.0</span>
+          <span class="arrow">→</span>
+          <span class="to" data-upd-to-version>v0.0.0</span>
+        </div>
+        <p class="upd-deck" data-i18n="upd_available_deck">Download now and apply on restart. You can keep working while it downloads.</p>
+      </div>
+
+      <!-- DOWNLOADING · live progress -->
+      <div class="upd-state upd-state-downloading">
+        <div class="upd-version">
+          <span class="from" data-upd-from-version-d>v0.0.0</span>
+          <span class="arrow">→</span>
+          <span class="to" data-upd-to-version-d>v0.0.0</span>
+        </div>
+        <div class="upd-progress-card">
+          <div class="upd-progress-head">
+            <span class="upd-progress-pct" data-upd-pct>0%</span>
+            <span class="upd-progress-rate" data-upd-rate>—</span>
+          </div>
+          <div class="upd-progress-bar indeterminate" data-upd-bar><span></span></div>
+          <div class="upd-progress-bytes" data-upd-bytes data-i18n="upd_progress_preparing">preparing…</div>
+        </div>
+      </div>
+
+      <!-- READY · download complete, prompt restart -->
+      <div class="upd-state upd-state-ready">
+        <div class="upd-version">
+          <span class="from" data-upd-from-version-r>v0.0.0</span>
+          <span class="arrow">→</span>
+          <span class="to" data-upd-to-version-r>v0.0.0</span>
+        </div>
+        <p class="upd-deck" data-i18n="upd_ready_deck">Download complete. Restart PrivateBoard to apply the update.</p>
+      </div>
+
+      <!-- ERROR -->
+      <div class="upd-state upd-state-error">
+        <div class="upd-error" data-upd-error-message>—</div>
+        <p class="upd-deck" data-i18n="upd_error_deck">Could not reach the update server. Check your connection and try again later, or download manually from GitHub Releases.</p>
+      </div>
+
+    </div>
+
+    <footer class="upd-foot">
+      <span class="upd-foot-state upd-foot-state-available">
+        <button type="button" class="upd-btn" data-upd-dismiss data-i18n="upd_btn_later">Later</button>
+        <button type="button" class="upd-btn primary" data-upd-download data-i18n="upd_btn_update_now">Update now</button>
+      </span>
+      <span class="upd-foot-state upd-foot-state-downloading">
+        <button type="button" class="upd-btn" data-upd-dismiss data-i18n="upd_btn_hide">Hide</button>
+      </span>
+      <span class="upd-foot-state upd-foot-state-ready">
+        <button type="button" class="upd-btn" data-upd-dismiss data-i18n="upd_btn_later">Later</button>
+        <button type="button" class="upd-btn primary" data-upd-install data-i18n="upd_btn_restart_now">Restart to update</button>
+      </span>
+      <span class="upd-foot-state upd-foot-state-error">
+        <button type="button" class="upd-btn" data-upd-dismiss data-i18n="upd_btn_close">Close</button>
+      </span>
+    </footer>
+  </div>
+</div>
 
 <div class="vonb-overlay" id="vonb-overlay" role="dialog" aria-modal="true" aria-hidden="true">
   <div class="vonb-backdrop" data-vonb-close></div>

@@ -788,6 +788,12 @@
 
     // ── Room lifecycle ────────────────────────────────────────
     async openRoom(roomId) {
+      // Close the @-mention picker if open · its director list is
+      // scoped to the previous room and would point at a stale cast
+      // mid-navigation. Idempotent · no-op when already closed.
+      if (window.MentionPicker && typeof window.MentionPicker.close === "function") {
+        window.MentionPicker.close();
+      }
       // Hand off SSE to a background tracker BEFORE closing the
       // foreground · openRoom is the room-to-room nav path
       // (closeRoom only fires when going back to "no room") so
@@ -2661,9 +2667,24 @@
       // If a director is mid-turn AND we don't already have a queued
       // message, ask the user how to proceed.
       if (this.isAgentSpeaking() && !this.pendingUserMessage) {
-        this.openSendChoiceModal(text);
+        // Drain @-mentions NOW so the choice modal can carry them
+        // along to interrupt / queue · waiting until handleSendChoice
+        // would be too late (the textarea is cleared by then, and
+        // the mention-picker filters by handle-still-present-in-text).
+        const midTurnMentions = (window.MentionPicker && typeof window.MentionPicker.consumePendingMentions === "function")
+          ? window.MentionPicker.consumePendingMentions(text)
+          : [];
+        this.openSendChoiceModal(text, midTurnMentions);
         return true;
       }
+      // Drain any pending @-mentions the user picked via the
+      // mention-picker overlay. The picker filters out handles the
+      // user later backspaced out, so the resulting id list is
+      // already consistent with the text body. Falls back to an
+      // empty array when mention-picker.js hasn't loaded yet.
+      const mentions = (window.MentionPicker && typeof window.MentionPicker.consumePendingMentions === "function")
+        ? window.MentionPicker.consumePendingMentions(text)
+        : [];
       input.value = "";
       // Shrink the textarea back to its single-line baseline ·
       // typed content may have grown the field, and the cleared
@@ -2673,7 +2694,7 @@
       if (input.matches?.(".ib-textarea[data-send-input]")) {
         this.autosizeRoomInputTextarea();
       }
-      this.sendMessage(text).catch((err) => alert("Send failed: " + err.message));
+      this.sendMessage(text, mentions).catch((err) => alert("Send failed: " + err.message));
       return true;
     },
 
@@ -2988,8 +3009,12 @@
     /** Modal · "an agent is speaking · interrupt or wait?". Mirrors the
      *  pause-choice overlay's chrome (.pc-overlay / .pc-modal) so the
      *  visual treatment is consistent across modal prompts. */
-    openSendChoiceModal(text) {
+    openSendChoiceModal(text, mentions) {
       this.closeSendChoiceModal();
+      // Stash mentions alongside text so handleSendChoice forwards
+      // them on interrupt / queue. Falls back to [] when called from
+      // legacy / non-mention paths.
+      this._sendChoiceMentions = Array.isArray(mentions) ? mentions.slice() : [];
       const speaker = this.currentQueue[0]
         ? this.agentsById[this.currentQueue[0].agentId]
         : null;
@@ -3036,10 +3061,12 @@
       if (el) el.remove();
       this._sendChoiceText = null;
       this._sendChoiceSpeakerId = null;
+      this._sendChoiceMentions = null;
     },
     handleSendChoice(choice) {
       const text = this._sendChoiceText || "";
       const speakerId = this._sendChoiceSpeakerId;
+      const mentions = Array.isArray(this._sendChoiceMentions) ? this._sendChoiceMentions.slice() : [];
       const input = document.querySelector('.input-bar input, [data-send-input]');
       this.closeSendChoiceModal();
       if (choice === "cancel" || !text.trim()) return;
@@ -3047,7 +3074,7 @@
         input.value = "";
       }
       if (choice === "interrupt") {
-        this.sendMessage(text).catch((err) => alert("Send failed: " + err.message));
+        this.sendMessage(text, mentions).catch((err) => alert("Send failed: " + err.message));
         return;
       }
       if (choice === "queue") {
@@ -3063,7 +3090,7 @@
         // turns, AFTER current speaker finishes and BEFORE the next
         // speaker starts. The placeholder clears when the
         // message-appended SSE comes back.
-        this.sendMessage(text, [], "after-speaker").catch((err) => {
+        this.sendMessage(text, mentions, "after-speaker").catch((err) => {
           alert("Queue failed: " + err.message);
           this.pendingUserMessage = null;
           this.pendingForSpeakerId = null;
@@ -13959,8 +13986,24 @@
           source = null;
         }
       }
-      const inOtherRoom = !!(source && source.roomId && source.roomId !== this.currentRoomId);
-      if (!inOtherRoom) {
+      // Visibility · hide only when the user is actively viewing the
+      // same room as the playing source. "Actively viewing" means BOTH
+      // currentRoomId matches AND the sidebar's active tab is rooms.
+      // When the user switches to the Agents tab (or any non-rooms
+      // tab), currentRoomId stays sticky to the last-opened room, but
+      // the user is no longer looking at the room's stream — the
+      // player is now their only anchor back to the live audio, so it
+      // has to surface even though the ids match.
+      const activeTabEl = document.querySelector(".sidebar-tab.active[data-sidebar-tab]");
+      const activeTab = activeTabEl ? activeTabEl.dataset.sidebarTab : null;
+      const viewingRoomsTab = !activeTab || activeTab === "rooms";
+      const viewingSameRoom = !!(
+        source &&
+        source.roomId &&
+        source.roomId === this.currentRoomId &&
+        viewingRoomsTab
+      );
+      if (!source || viewingSameRoom) {
         el.hidden = true;
         el.removeAttribute("data-mini-player-room-id");
         el.removeAttribute("data-mini-player-kind");
