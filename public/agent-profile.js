@@ -604,9 +604,7 @@
   // /api/agents record (via window.app.agentsById) and resolves it here.
   const MODEL_LABELS = {
     "sonnet-4-6":     { name: "Sonnet 4.6",      deck: "balanced · default" },
-    "opus-4-6":       { name: "Opus 4.6",        deck: "deep reasoning · 1M ctx" },
     "opus-4-7":       { name: "Opus 4.7",        deck: "deep reasoning" },
-    "opus-4-6":       { name: "Opus 4.6",        deck: "prior-gen flagship" },
     "opus-4-6-fast":  { name: "Opus 4.6 Fast",   deck: "faster 4.6 · same intelligence" },
     "haiku-4-5":      { name: "Haiku 4.5",       deck: "fast · low-cost" },
     "gpt-5-5":        { name: "GPT-5.5",         deck: "flagship · 1M ctx" },
@@ -615,13 +613,13 @@
     "gemini-3-1":       { name: "Gemini 3.1 Pro",         deck: "flagship · 1M ctx" },
     "gemini-3-flash":   { name: "Gemini 3 Flash",         deck: "frontier flash · 1M ctx" },
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  deck: "fast · 1M ctx" },
-    "grok-4-3":       { name: "Grok 4.3",        deck: "flagship · 1M ctx" },
-    "grok-4-1-fast":  { name: "Grok 4.1 Fast",   deck: "fast · 256k ctx" },
-    "grok-4-20":      { name: "Grok 4.20",       deck: "2M ctx · big context" },
-    "gpt-5-5-pro":    { name: "GPT-5.5 Pro",     deck: "deep reasoning · 1M ctx" },
     "codex-5-4":      { name: "ChatGPT Codex 5.4", deck: "code · agents" },
     "deepseek-v4-pro": { name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
     "deepseek-v4-flash": { name: "DeepSeek Lite", deck: "V4 Flash · fast · 1M ctx" },
+    "glm-5-1":        { name: "GLM 5.1",         deck: "Zhipu flagship · 200k ctx" },
+    "kimi-k2-6":      { name: "Kimi K2.6",       deck: "Moonshot · long-context" },
+    "minimax-m2-7":   { name: "MiniMax M2.7",    deck: "MiniMax flagship · long-context" },
+    "minimax-m2-5":   { name: "MiniMax M2.5",    deck: "MiniMax prior · long-context" },
   };
 
   function liveModelFor(slug) {
@@ -2340,11 +2338,9 @@
     // Anthropic
     { v: "opus-4-7",        name: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning · default" },
     { v: "sonnet-4-6",      name: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · 1M ctx" },
-    { v: "opus-4-6",        name: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
     { v: "opus-4-6-fast",   name: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
     { v: "haiku-4-5",       name: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },
     // OpenAI
-    { v: "gpt-5-5-pro",     name: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
     { v: "gpt-5-5",         name: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },
     { v: "gpt-5-4",         name: "GPT-5.4",           provider: "OpenAI",    deck: "general · 1M ctx" },
     { v: "gpt-5-4-mini",    name: "GPT-5.4 Mini",      provider: "OpenAI",    deck: "fast · 400k ctx" },
@@ -2352,12 +2348,14 @@
     // Google
     { v: "gemini-3-1",      name: "Gemini 3.1 Pro",    provider: "Google",    deck: "multimodal · 1M ctx" },
     { v: "gemini-3-1-flash",name: "Gemini 3.1 Flash",  provider: "Google",    deck: "fast · 1M ctx" },
-    // xAI
-    { v: "grok-4-3",        name: "Grok 4.3",          provider: "xAI",       deck: "1M ctx" },
-    { v: "grok-4-20",       name: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     // DeepSeek
     { v: "deepseek-v4-pro", name: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
-    { v: "deepseek-v4-flash", name: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" }
+    { v: "deepseek-v4-flash", name: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" },
+    // Zhipu · Moonshot · MiniMax (all B.AI routed)
+    { v: "glm-5-1",         name: "GLM 5.1",           provider: "Zhipu",     deck: "Zhipu flagship · 200k ctx" },
+    { v: "kimi-k2-6",       name: "Kimi K2.6",         provider: "Moonshot",  deck: "long-context" },
+    { v: "minimax-m2-7",    name: "MiniMax M2.7",      provider: "MiniMax",   deck: "flagship · long-context" },
+    { v: "minimax-m2-5",    name: "MiniMax M2.5",      provider: "MiniMax",   deck: "prior · long-context" }
   ];
   function modelKey(slug) { return "boardroom.agent.model." + slug; }
 

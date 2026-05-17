@@ -42,7 +42,8 @@ export const PRIMARY_BY_CARRIER: Record<string, ModelV> = {
   anthropic:  "haiku-4-5",
   openai:     "gpt-5-4-mini",
   google:     "gemini-3-1-flash",
-  xai:        "grok-4-1-fast",
+  // xai · no primary (no LLM modelV in registry as of 2026-05-17). The
+  // adapter / availability layer skip xai when this key is absent.
 };
 
 /** Carrier preference order when prefs.defaultModelV isn't set / its

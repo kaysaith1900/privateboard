@@ -11773,11 +11773,11 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    /* Bottombar matches the topbar's brand-tinted treatment: `--strip-bg`
-       fill + `--accent-line` hairline on top. The two strips bookend the
-       textarea zone so the composer reads as one cohesive brand surface. */
-    background: var(--strip-bg);
-    border-top: 0.5px solid var(--accent-line);
+    /* Bottombar floats transparently over the input frame — no fill,
+       no top hairline. Only the topbar carries the brand-tinted strip
+       treatment; the bottom controls read as buttons-on-the-input,
+       not a second chrome band. */
+    background: transparent;
     min-height: 48px;
     /* Establish a size container · child elements (notably the
        voice-mode toggle's text) can respond to the toolbar's width

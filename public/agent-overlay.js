@@ -16,24 +16,22 @@
    *  a key isn't in the table (registry updates lag this map). */
   const MODEL_LABELS = {
     "opus-4-7":         { name: "Claude Opus 4.7",       provider: "Anthropic" },
-    "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "sonnet-4-6":       { name: "Claude Sonnet 4.6",     provider: "Anthropic" },
-    "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "opus-4-6-fast":    { name: "Claude Opus 4.6 Fast",  provider: "Anthropic" },
     "haiku-4-5":        { name: "Claude Haiku 4.5",      provider: "Anthropic" },
     "gpt-5-5":          { name: "GPT-5.5",                provider: "OpenAI"    },
     "gpt-5-4":          { name: "GPT-5.4",                provider: "OpenAI"    },
     "gpt-5-4-mini":     { name: "GPT-5.4 Mini",           provider: "OpenAI"    },
-    "gpt-5-5-pro":      { name: "GPT-5.5 Pro",            provider: "OpenAI"    },
     "codex-5-4":        { name: "ChatGPT Codex 5.4",      provider: "OpenAI"    },
     "gemini-3-1":       { name: "Gemini 3.1 Pro",         provider: "Google"    },
     "gemini-3-flash":   { name: "Gemini 3 Flash",         provider: "Google"    },
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  provider: "Google"    },
-    "grok-4-3":         { name: "Grok 4.3",                provider: "xAI"       },
-    "grok-4-1-fast":    { name: "Grok 4.1 Fast",           provider: "xAI"       },
-    "grok-4-20":        { name: "Grok 4.20",               provider: "xAI"       },
     "deepseek-v4-pro":  { name: "DeepSeek V4 Pro",         provider: "DeepSeek"  },
     "deepseek-v4-flash": { name: "DeepSeek Lite",          provider: "DeepSeek"  },
+    "glm-5-1":          { name: "GLM 5.1",                 provider: "Zhipu"     },
+    "kimi-k2-6":        { name: "Kimi K2.6",               provider: "Moonshot"  },
+    "minimax-m2-7":     { name: "MiniMax M2.7",            provider: "MiniMax"   },
+    "minimax-m2-5":     { name: "MiniMax M2.5",            provider: "MiniMax"   },
   };
 
   const AGENT_CATALOG = {

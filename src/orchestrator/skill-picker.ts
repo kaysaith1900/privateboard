@@ -15,7 +15,7 @@
  *   still works (just costs a bit more).
  */
 import { callLLM, NoKeyError, type LLMMessage } from "../ai/adapter.js";
-import type { Agent } from "../storage/agents.js";
+import { getAgent, type Agent } from "../storage/agents.js";
 import type { Message } from "../storage/messages.js";
 import type { AgentSkill } from "../storage/skills.js";
 import type { ModelV } from "../ai/registry.js";
@@ -39,6 +39,24 @@ import { detectRoomLang, languageLockBlock } from "./prompt.js";
  *  to the speaker's flagship instead of any-reachable cheap model). */
 function pickRouterModel(): ModelV | null {
   return utilityModelFor();
+}
+
+/** Render a human-readable speaker label for a transcript line fed to a
+ *  picker LLM. Falls back through cast → DB → role-kind tag so we never
+ *  hand the model a raw author id — those leak straight into the picker's
+ *  `intervention` / `rationale` text, which is posted to the room. */
+function authorLabel(m: Message, cast?: Agent[]): string {
+  if (m.authorKind === "user") return "USER";
+  if (m.authorKind === "system") return "system";
+  if (!m.authorId) return m.authorKind === "agent" ? "director" : m.authorKind;
+  const fromCast = cast?.find((a) => a.id === m.authorId);
+  if (fromCast) return `${fromCast.name} (${fromCast.handle})`;
+  const a = getAgent(m.authorId);
+  if (a) {
+    const kindTag = a.roleKind === "moderator" ? "chair" : "director";
+    return `${a.name} (${a.handle}, ${kindTag})`;
+  }
+  return m.authorKind === "agent" ? "director" : m.authorKind;
 }
 
 const MAX_PICKS = 2;
@@ -198,10 +216,7 @@ export async function pickRoundWrap(opts: {
       if (meta?.kind === "round-open" || meta?.kind === "round-prompt") return false;
       return true;
     })
-    .map((m) => {
-      const who = m.authorKind === "user" ? "USER" : (m.authorId || "agent");
-      return `[${who}] ${m.body.trim().slice(0, 600)}`;
-    })
+    .map((m) => `[${authorLabel(m)}] ${m.body.trim().slice(0, 600)}`)
     .join("\n\n");
 
   const sys: LLMMessage = {
@@ -386,10 +401,7 @@ export async function pickNextSpeaker(opts: {
       if (meta?.kind === "round-open" || meta?.kind === "round-prompt") return false;
       return true;
     })
-    .map((m) => {
-      const who = m.authorKind === "user" ? "USER" : (m.authorId || "agent");
-      return `[${who}] ${m.body.trim().slice(0, 600)}`;
-    })
+    .map((m) => `[${authorLabel(m, candidates)}] ${m.body.trim().slice(0, 600)}`)
     .join("\n\n");
 
   const decision1Block = mode === "dissent-gap"
@@ -455,6 +467,13 @@ export async function pickNextSpeaker(opts: {
       "If you DO intervene: 1 sentence, neutral moderator voice, name",
       "the SPECIFIC pattern + the load-bearing piece worth pinning down.",
       "No greeting, no signature.",
+      "",
+      "NAMING · When `intervention` or `rationale` references a director,",
+      "use their DISPLAY NAME (the part before the parenthesis in the",
+      "roster — e.g. \"Maya\", not \"fk7wvt1bep62\"). The opaque id is for",
+      "the `agent_id` JSON field ONLY; it must NEVER appear inside any",
+      "user-facing prose text. The transcript above labels speakers by",
+      "name already; mirror that format.",
       "",
       "LANGUAGE · the chair note must follow the room's DOMINANT",
       "language detected from the recent transcript (most recent",
@@ -535,18 +554,41 @@ export async function pickNextSpeaker(opts: {
   const id = typeof obj.agent_id === "string" && validIds.has(obj.agent_id)
     ? obj.agent_id
     : null;
-  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim().slice(0, 200) : "";
+  const rationale = typeof obj.rationale === "string"
+    ? replaceLeakedIds(obj.rationale.trim(), candidates).slice(0, 200)
+    : "";
   // Intervention · accept only meaningful strings; trim, cap length,
   // discard empty / "null" / "none" so the prompt's "default null" path
   // works even when the model emits a string literal instead of JSON null.
   let intervention: string | null = null;
   if (typeof obj.intervention === "string") {
-    const t = obj.intervention.trim();
+    const t = replaceLeakedIds(obj.intervention.trim(), candidates);
     if (t.length > 0 && t.toLowerCase() !== "null" && t.toLowerCase() !== "none") {
       intervention = t.slice(0, 280);
     }
   }
   return { agentId: id, rationale, intervention };
+}
+
+/** Last-line defense · replace any raw agent id the picker still emits
+ *  inside `intervention` / `rationale` with the agent's display name.
+ *  The prompt + name-rendered transcript stop ~all leaks, but the haiku
+ *  router occasionally still types an id from the candidate roster — and
+ *  that text gets posted verbatim to the room. We look up the id against
+ *  the live agent store (covers chair + dropped directors too, not just
+ *  current candidates) and substitute. Unknown id-shaped tokens fall
+ *  through unchanged. */
+function replaceLeakedIds(text: string, candidates: Agent[]): string {
+  if (!text) return text;
+  // newId() alphabet: 0-9 a-h j k m n p q r s t v w x y z · length 12.
+  // The negative lookbehind/ahead keep us from chewing into longer slugs.
+  return text.replace(/(?<![A-Za-z0-9])[0-9a-hjkmnpqrstvwxyz]{12}(?![A-Za-z0-9])/g, (id) => {
+    const fromCast = candidates.find((c) => c.id === id);
+    if (fromCast) return fromCast.name;
+    const a = getAgent(id);
+    if (a) return a.name;
+    return id;
+  });
 }
 
 /** Pre-stream chair-side router · cheap haiku call that decides

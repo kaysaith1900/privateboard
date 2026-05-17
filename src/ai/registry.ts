@@ -23,29 +23,33 @@ export type Provider =
   // Moonshot AI · Kimi family. Reached via OpenRouter (`moonshotai/…`)
   // or B.AI · no @ai-sdk client so all Kimi models carry
   // viaUniversalOnly: true.
-  | "moonshot";
+  | "moonshot"
+  // MiniMax · Hailuo / M-series LLMs. Reached via OpenRouter
+  // (`minimax/minimax-mX.Y`) or B.AI aggregator (siliconflow /
+  // paratera distributors). No direct @ai-sdk client · all MiniMax
+  // models carry viaUniversalOnly: true. The `minimax` provider
+  // already exists in keys.ts for their voice tier; this reuses the
+  // same provider key for LLMs.
+  | "minimax";
 
 export type ModelV =
   | "sonnet-4-6"
-  | "opus-4-6"
   | "opus-4-7"
   | "opus-4-6-fast"
   | "haiku-4-5"
   | "gpt-5-4"
   | "gpt-5-4-mini"
   | "gpt-5-5"
-  | "gpt-5-5-pro"
   | "codex-5-4"
   | "gemini-3-1"
   | "gemini-3-flash"
   | "gemini-3-1-flash"
-  | "grok-4-3"
-  | "grok-4-1-fast"
-  | "grok-4-20"
   | "deepseek-v4-pro"
   | "deepseek-v4-flash"
   | "glm-5-1"
-  | "kimi-2-6";
+  | "kimi-k2-6"
+  | "minimax-m2-5"
+  | "minimax-m2-7";
 
 export interface ModelMeta {
   v: ModelV;
@@ -95,16 +99,6 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Sonnet 4.6",
     contextBudget: 200_000,
     deck: "balanced · default",
-  },
-  "opus-4-6": {
-    v: "opus-4-6",
-    provider: "anthropic",
-    directApiId: "claude-opus-4-6",
-    openrouterId: "anthropic/claude-opus-4.6",
-    baiId: "claude-opus-4.6",
-    displayName: "Opus 4.6",
-    contextBudget: 1_000_000,
-    deck: "deep reasoning · 1M ctx",
   },
   "opus-4-7": {
     v: "opus-4-7",
@@ -170,26 +164,12 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     provider: "openai",
     directApiId: "gpt-5.4-mini",
     openrouterId: "openai/gpt-5.4-mini",
-    // No baiId · B.AI's catalog reports "No available channel for
-    // model gpt-5-4-mini" on the OneAPI distributor — the mini
-    // variant isn't routed there. The full `gpt-5-4` IS available on
-    // B.AI; pick that or use direct / OR for the mini tier.
+    baiId: "gpt-5.4-mini",
     displayName: "GPT-5.4 Mini",
     contextBudget: 400_000,
     deck: "fast · 400k ctx",
   },
-  // ── OpenAI · OR-only previews (Pro / Codex) ──
-  "gpt-5-5-pro": {
-    v: "gpt-5-5-pro",
-    provider: "openai",
-    directApiId: "gpt-5.5-pro",
-    openrouterId: "openai/gpt-5.5-pro",
-    baiId: "gpt-5.5-pro",
-    displayName: "GPT-5.5 Pro",
-    contextBudget: 1_000_000,
-    deck: "deep reasoning · 1M ctx",
-    viaUniversalOnly: true,
-  },
+  // ── OpenAI · OR-only previews (Codex) ──
   "codex-5-4": {
     v: "codex-5-4",
     provider: "openai",
@@ -241,42 +221,13 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     contextBudget: 1_000_000,
     deck: "fast · 1M ctx",
   },
-  // ── xAI · current frontier (4.3 / 4.1 Fast direct + 4.20 big-ctx OR) ──
-  // Replaced the legacy grok-4 / grok-4-mini entries — 4.3 is xAI's
-  // current "most intelligent and fastest" model per their docs; 4.1
-  // Fast is the new cheap tier. 4.20 stays OR-only since it's a 2M-ctx
-  // preview that the direct SDK hasn't acknowledged yet.
-  "grok-4-3": {
-    v: "grok-4-3",
-    provider: "xai",
-    directApiId: "grok-4.3",
-    openrouterId: "x-ai/grok-4.3",
-    baiId: "grok-4.3",
-    displayName: "Grok 4.3",
-    contextBudget: 1_000_000,
-    deck: "flagship · 1M ctx",
-  },
-  "grok-4-1-fast": {
-    v: "grok-4-1-fast",
-    provider: "xai",
-    directApiId: "grok-4.1-fast",
-    openrouterId: "x-ai/grok-4.1-fast",
-    baiId: "grok-4.1-fast",
-    displayName: "Grok 4.1 Fast",
-    contextBudget: 256_000,
-    deck: "fast · 256k ctx",
-  },
-  "grok-4-20": {
-    v: "grok-4-20",
-    provider: "xai",
-    directApiId: "grok-4.20",
-    openrouterId: "x-ai/grok-4.20",
-    baiId: "grok-4.20",
-    displayName: "Grok 4.20",
-    contextBudget: 2_000_000,
-    deck: "2M ctx · big context",
-    viaUniversalOnly: true,
-  },
+  // ── xAI · all Grok entries removed (2026-05-17) ──
+  // B.AI's catalog lists no Grok models, the user base on B.AI saw
+  // every grok-* call 503 with "no available channel". Direct xAI key
+  // route and OpenRouter route still exist in the adapter (the `xai`
+  // Provider type is retained), but no modelV currently maps to them.
+  // Re-add a `grok-*` entry here if/when B.AI begins routing xAI again
+  // or if the product re-introduces direct xAI as a first-class path.
   // ── DeepSeek (OR-only · no @ai-sdk/deepseek shipped) ──
   "deepseek-v4-pro": {
     v: "deepseek-v4-pro",
@@ -316,19 +267,48 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     deck: "Zhipu flagship · 200k ctx",
     viaUniversalOnly: true,
   },
-  // ── Moonshot · Kimi family · OR + B.AI only ──
-  // OpenRouter catalog convention: `moonshotai/kimi-…`. B.AI uses
-  // hyphenated lowercase: `kimi-2-6`. No direct @ai-sdk client ·
+  // ── Moonshot · Kimi family · OR + B.AI ──
+  // OpenRouter catalog convention: `moonshotai/kimi-k2.6` (the leading
+  // `k` is part of the slug — `moonshotai/kimi-2.6` 404s). B.AI's
+  // siliconflow distributor still ships the older `kimi-k2.5` channel
+  // (per 2026-05-17 catalog snapshot), so the B.AI route serves K2.5
+  // until B.AI picks up the newer build. No direct @ai-sdk client ·
   // viaUniversalOnly skips the direct path.
-  "kimi-2-6": {
-    v: "kimi-2-6",
+  "kimi-k2-6": {
+    v: "kimi-k2-6",
     provider: "moonshot",
-    directApiId: "kimi-2.6",
-    openrouterId: "moonshotai/kimi-2.6",
-    baiId: "kimi-2.6",
-    displayName: "Kimi 2.6",
+    directApiId: "kimi-k2.6",
+    openrouterId: "moonshotai/kimi-k2.6",
+    baiId: "kimi-k2.5",
+    displayName: "Kimi K2.6",
     contextBudget: 256_000,
     deck: "Moonshot · long-context",
+    viaUniversalOnly: true,
+  },
+  // ── MiniMax · M-series · OR + B.AI ──
+  // No direct @ai-sdk client · viaUniversalOnly skips the direct path.
+  // OpenRouter catalog slug: `minimax/minimax-mX.Y`. B.AI uses bare
+  // model id: `minimax-mX.Y` (siliconflow / paratera distributors).
+  "minimax-m2-7": {
+    v: "minimax-m2-7",
+    provider: "minimax",
+    directApiId: "minimax-m2.7",
+    openrouterId: "minimax/minimax-m2.7",
+    baiId: "minimax-m2.7",
+    displayName: "MiniMax M2.7",
+    contextBudget: 245_000,
+    deck: "MiniMax flagship · long-context",
+    viaUniversalOnly: true,
+  },
+  "minimax-m2-5": {
+    v: "minimax-m2-5",
+    provider: "minimax",
+    directApiId: "minimax-m2.5",
+    openrouterId: "minimax/minimax-m2.5",
+    baiId: "minimax-m2.5",
+    displayName: "MiniMax M2.5",
+    contextBudget: 245_000,
+    deck: "MiniMax prior · long-context",
     viaUniversalOnly: true,
   },
 };

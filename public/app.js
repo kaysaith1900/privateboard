@@ -19,22 +19,21 @@
   const MODEL_LABELS = {
     "sonnet-4-6":       "Sonnet 4.6",
     "opus-4-7":         "Opus 4.7",
-    "opus-4-6":         "Opus 4.6",
     "opus-4-6-fast":    "Opus 4.6 Fast",
     "haiku-4-5":        "Haiku 4.5",
     "gpt-5-5":          "GPT-5.5",
     "gpt-5-4":          "GPT-5.4",
     "gpt-5-4-mini":     "GPT-5.4 Mini",
-    "gpt-5-5-pro":      "GPT-5.5 Pro",
     "codex-5-4":        "ChatGPT Codex 5.4",
     "gemini-3-1":       "Gemini 3.1 Pro",
     "gemini-3-flash":   "Gemini 3 Flash",
     "gemini-3-1-flash": "Gemini 3.1 Flash Lite",
-    "grok-4-3":         "Grok 4.3",
-    "grok-4-1-fast":    "Grok 4.1 Fast",
-    "grok-4-20":        "Grok 4.20",
     "deepseek-v4-pro":  "DeepSeek V4 Pro",
     "deepseek-v4-flash": "DeepSeek Lite",
+    "glm-5-1":          "GLM 5.1",
+    "kimi-k2-6":        "Kimi K2.6",
+    "minimax-m2-7":     "MiniMax M2.7",
+    "minimax-m2-5":     "MiniMax M2.5",
   };
 
   /** Full model catalog for the new-agent composer dropdown. Mirrors
@@ -46,9 +45,8 @@
   const AGENT_COMPOSER_MODELS = [
     { v: "opus-4-7",         label: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning" },
     { v: "sonnet-4-6",       label: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · default" },
-    { v: "opus-4-6",         label: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
     { v: "opus-4-6-fast",    label: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
-    { v: "haiku-4-5",        label: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },    { v: "gpt-5-5-pro",      label: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
+    { v: "haiku-4-5",        label: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },
     { v: "gpt-5-5",          label: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },
     { v: "gpt-5-4",          label: "GPT-5.4",           provider: "OpenAI",    deck: "general · 1M ctx" },
     { v: "gpt-5-4-mini",     label: "GPT-5.4 Mini",      provider: "OpenAI",    deck: "fast · 400k ctx" },
@@ -56,11 +54,12 @@
     { v: "gemini-3-1",       label: "Gemini 3.1 Pro",        provider: "Google",    deck: "flagship · 1M ctx" },
     { v: "gemini-3-flash",   label: "Gemini 3 Flash",        provider: "Google",    deck: "frontier flash · 1M ctx" },
     { v: "gemini-3-1-flash", label: "Gemini 3.1 Flash Lite", provider: "Google",    deck: "fast · 1M ctx" },
-    { v: "grok-4-3",         label: "Grok 4.3",          provider: "xAI",       deck: "flagship · 1M ctx" },
-    { v: "grok-4-1-fast",    label: "Grok 4.1 Fast",     provider: "xAI",       deck: "fast · 256k ctx" },
-    { v: "grok-4-20",        label: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     { v: "deepseek-v4-pro",  label: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
     { v: "deepseek-v4-flash", label: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" },
+    { v: "glm-5-1",          label: "GLM 5.1",          provider: "Zhipu",     deck: "Zhipu flagship · 200k ctx" },
+    { v: "kimi-k2-6",        label: "Kimi K2.6",        provider: "Moonshot",  deck: "long-context" },
+    { v: "minimax-m2-7",     label: "MiniMax M2.7",     provider: "MiniMax",   deck: "flagship · long-context" },
+    { v: "minimax-m2-5",     label: "MiniMax M2.5",     provider: "MiniMax",   deck: "prior · long-context" },
   ];
 
   /** Tone tooltips · short, user-readable summary of how each tone
@@ -6251,11 +6250,14 @@
       // base provider colour. Append-only — adding a new variant just
       // requires its modelV at the appropriate position.
       const MODEL_SHADE_ORDER = {
-        anthropic: ["opus-4-7", "opus-4-6", "sonnet-4-6", "haiku-4-5"],
-        openai:    ["gpt-5-5", "gpt-5-4-mini", "codex-5-4"],
+        anthropic: ["opus-4-7", "sonnet-4-6", "opus-4-6-fast", "haiku-4-5"],
+        openai:    ["gpt-5-5", "gpt-5-4", "gpt-5-4-mini", "codex-5-4"],
         google:    ["gemini-3-1", "gemini-3-flash", "gemini-3-1-flash"],
-        xai:       ["grok-4", "grok-4-3", "grok-4-mini"],
-        deepseek:  ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4"],
+        // xai · no Grok models in registry currently.
+        deepseek:  ["deepseek-v4-pro", "deepseek-v4-flash"],
+        zhipu:     ["glm-5-1"],
+        moonshot:  ["kimi-k2-6"],
+        minimax:   ["minimax-m2-7", "minimax-m2-5"],
       };
       const providerOf = (modelV) => {
         const hit = reachable.find((m) => m.modelV === modelV);

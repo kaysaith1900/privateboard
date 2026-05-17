@@ -48,6 +48,8 @@ import topicRecTag035 from "./migrations/035_topic_rec_tag.sql";
 import negativeSpace036 from "./migrations/036_negative_space.sql";
 import topicBranches037 from "./migrations/037_topic_branches.sql";
 import qdArchive038 from "./migrations/038_qd_archive.sql";
+import remapRemovedModels039 from "./migrations/039_remap_removed_models.sql";
+import remapKimiK25ToK26_040 from "./migrations/040_remap_kimi_k2_5_to_k2_6.sql";
 
 interface Migration {
   name: string;
@@ -93,6 +95,8 @@ const MIGRATIONS: Migration[] = [
   { name: "036_negative_space.sql", sql: negativeSpace036 },
   { name: "037_topic_branches.sql", sql: topicBranches037 },
   { name: "038_qd_archive.sql", sql: qdArchive038 },
+  { name: "039_remap_removed_models.sql", sql: remapRemovedModels039 },
+  { name: "040_remap_kimi_k2_5_to_k2_6.sql", sql: remapKimiK25ToK26_040 },
 ];
 
 let _db: Database.Database | null = null;
