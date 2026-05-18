@@ -16621,6 +16621,100 @@
     /** Paint the round-table stage. Idempotent · safe to call from
      *  every renderQueue() call site. Reads from app.currentChair /
      *  currentMembers / currentQueue · doesn't mutate state. */
+    /** Resolve whether the chair's vote-pop card should be visible
+     *  RIGHT NOW · used by the 3D delegate so its DOM overlay can
+     *  mirror what the 2D `.rt-seat-voting` card surfaces. Same
+     *  gates as the 2D path at line ~17124:
+     *    · room exists + not adjourned
+     *    · either awaitingContinue (round-end vote phase) OR an
+     *      active round-prompt is alive (manual-vote phase)
+     *    · chair is NOT currently busy presenting (so the card
+     *      doesn't pop over the chair's own audio)
+     *  Returns the rendered HTML string, or "" when hidden. */
+    _resolveStageVotePop() {
+      const room = this.currentRoom;
+      if (!room || room.status === "adjourned") return "";
+      const hasActivePrompt = (typeof this.activeRoundPromptId === "function")
+        ? !!this.activeRoundPromptId()
+        : false;
+      const awaitingContinue = room.awaitingContinue === true;
+      if (!awaitingContinue && !hasActivePrompt) return "";
+      // Chair busy gate · streaming / voice-queued / chair-pending
+      // all count. Same logic as the 2D path's `isChairBusy` IIFE.
+      const isChairBusy = (() => {
+        if (this.chairPending === true) return true;
+        if (this._chairVoiceAwaiting && this._chairVoiceAwaiting.size > 0) return true;
+        const allMsgs = this.currentMessages || [];
+        for (let k = allMsgs.length - 1; k >= 0; k--) {
+          const mm = allMsgs[k];
+          if (!mm || mm.authorKind !== "agent") continue;
+          if (mm.meta && mm.meta.streaming === true) return true;
+          if (this.voiceQueues && this.voiceQueues[mm.id]) return true;
+          return false;
+        }
+        return false;
+      })();
+      if (isChairBusy) return "";
+      return (typeof this.renderRoundTableVotePop === "function")
+        ? this.renderRoundTableVotePop()
+        : "";
+    },
+
+    /** Compact replication of the 2D round-table's speaker-priority
+     *  chain · used by the 3D delegate so its overlay bubble lights
+     *  up the correct seat (audible playback wins over warmup, etc).
+     *  The 2D path below STILL re-derives speakingId / speakerState
+     *  with its full version (slightly more nuanced branches) since
+     *  it consumes more downstream signals — duplicate but contained.
+     *  Returns `{ id: string|null, state: "thinking"|"speaking"|null }`. */
+    _resolveStageSpeaker() {
+      // Voice-replay override · adjourned-room playback drives the seat.
+      const replayActive = (typeof window !== "undefined"
+        && window.boardroomVoiceReplay
+        && typeof window.boardroomVoiceReplay.getActive === "function")
+        ? window.boardroomVoiceReplay.getActive()
+        : null;
+      if (replayActive && replayActive.authorId) {
+        return {
+          id: replayActive.authorId,
+          state: replayActive.state === "speaking" ? "speaking" : "thinking",
+        };
+      }
+      const msgs = this.currentMessages || [];
+      // Audible voice queue (actually playing) takes precedence.
+      if (this.voiceQueues) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const mm = msgs[i];
+          if (!mm || mm.authorKind !== "agent") continue;
+          const vq = this.voiceQueues[mm.id];
+          if (vq && vq.playState === "playing") {
+            return { id: mm.authorId, state: "speaking" };
+          }
+        }
+      }
+      // Streaming agent message that isn't a pre-warmed queued speaker.
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const mm = msgs[i];
+        if (!(mm && mm.meta && mm.meta.streaming === true && mm.authorKind === "agent")) continue;
+        const vq = this.voiceQueues && this.voiceQueues[mm.id];
+        if (vq && vq.playState === "queued") continue;
+        const body = String(mm.body || "").trim();
+        return { id: mm.authorId, state: body.length > 0 ? "speaking" : "thinking" };
+      }
+      // Chair preparing (silent prep between user input + chair msg).
+      if (this.chairPending === true && this.currentChair) {
+        return { id: this.currentChair.id, state: "thinking" };
+      }
+      if (this.conveneState && this.currentChair) {
+        return { id: this.currentChair.id, state: "thinking" };
+      }
+      // Queue head just promoted but no message-appended yet.
+      if (Array.isArray(this.currentQueue) && this.currentQueue[0] && this.currentQueue[0].status === "speaking") {
+        return { id: this.currentQueue[0].agentId, state: "thinking" };
+      }
+      return { id: null, state: null };
+    },
+
     renderRoundTable() {
       const stage = document.querySelector("[data-roundtable-stage]");
       if (!stage) return;
@@ -16634,11 +16728,75 @@
       // immediately alongside the rest of the stage.
       const VALID_FLOORS = ["brainstorm", "constructive", "research", "debate", "critique"];
       const tone = String(this.currentRoom?.mode || "constructive").toLowerCase();
-      stage.setAttribute("data-floor", VALID_FLOORS.includes(tone) ? tone : "constructive");
+      const floorMode = VALID_FLOORS.includes(tone) ? tone : "constructive";
+      stage.setAttribute("data-floor", floorMode);
+
+      // ── 3D stage delegate ─────────────────────────────────────
+      // When the user's "voxel 3D stage" toggle is on (default) AND
+      // the voice-3d module loaded AND WebGL is available, hand off
+      // to VoiceStage3D and skip the legacy 2D seat DOM render.
+      // Falls through to the 2D path on toggle off / no WebGL / no
+      // module · the legacy SVG table + seats DOM stay in place
+      // for that case (we never delete them, only `.is-3d` hides).
+      const stage3dPref = (() => {
+        try { return localStorage.getItem("boardroom.stage3d") !== "off"; }
+        catch (_) { return true; }
+      })();
+      const VS3D = window.VoiceStage3D;
+      const use3d = stage3dPref && VS3D && typeof VS3D.mount === "function" && VS3D.isSupported();
+      const members3d = this.roundTableMembers();
+      const positions3d = this.computeSeatPositions(members3d);
+      if (use3d) {
+        try {
+          VS3D.mount(stage);
+          // Compact speaker resolution · mirrors the longer 2D path
+          // below (priority: voice-replay → audible voice queue →
+          // streaming agent message → chair pending / convene →
+          // queue head). Enough to drive the 3D overlay's bubble +
+          // nameplate-hide while-speaking behaviour.
+          const sp = this._resolveStageSpeaker();
+          const votePopHtml = this._resolveStageVotePop();
+          VS3D.update({
+            members: members3d,
+            positions: positions3d,
+            mode: floorMode,
+            speakerId: sp.id,
+            speakerState: sp.state,
+            labels: {
+              thinking: this._t("rt_thinking"),
+              speaking: this._t("rt_speaking"),
+            },
+            votePop: votePopHtml,
+            userWait: !!this.pendingUserMessage,
+          });
+          // The 2D path below ends with calls to renderRoundTableHud
+          // + renderRtSubtitle so the status panel + live subtitle
+          // stay in sync with each renderRoundTable. The 3D delegate
+          // `return`s above the 2D code, so without these two calls
+          // here the HUD div stays empty until some unrelated SSE
+          // (config-event / queue-update) happens to fire them ·
+          // user reported "HUD shows as a thin line, fixed by
+          // toggling the tone" which was exactly that race.
+          this.renderRoundTableHud();
+          this.renderRtSubtitle();
+          return;
+        } catch (e) {
+          // 3D path blew up · fall through to the legacy 2D render
+          // so the user still gets a working stage. Logged so we can
+          // diagnose later · the toggle stays on (user-flipped only).
+          console.warn("[voice-3d] mount/update failed, falling back to 2D:", e);
+          try { VS3D.unmount(); } catch (_) {}
+        }
+      } else if (VS3D && typeof VS3D.unmount === "function" && stage.classList.contains("is-3d")) {
+        // Toggle just flipped off · tear down the 3D canvas so the
+        // 2D path below paints into a clean stage.
+        try { VS3D.unmount(); } catch (_) {}
+      }
+
       const seatsHost = stage.querySelector("[data-rt-seats]");
       if (!seatsHost) return;
-      const members = this.roundTableMembers();
-      const positions = this.computeSeatPositions(members);
+      const members = members3d;
+      const positions = positions3d;
 
       // Build seat HTML. Z-order via inline style based on the y
       // coordinate so seats with larger y (front) paint last and

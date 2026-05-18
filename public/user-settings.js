@@ -288,6 +288,31 @@
     }).join("");
   }
 
+  /* ── Room style toggle (3D voxel boardroom vs 2D flat round-table)
+        Persists to `localStorage["boardroom.stage3d"]` ("on" | "off")
+        — same key voice-3d.js and renderRoundTable already gate on.
+        Default "on" matches the existing implicit default. */
+  const STAGE3D_KEY = "boardroom.stage3d";
+  function getStage3d() {
+    try { return localStorage.getItem(STAGE3D_KEY) !== "off"; }
+    catch (_) { return true; }
+  }
+  function setStage3d(on) {
+    try { localStorage.setItem(STAGE3D_KEY, on ? "on" : "off"); } catch (_) {}
+  }
+  function stageStyleSegmentsHTML() {
+    const cur = getStage3d() ? "3d" : "2d";
+    const items = [
+      { key: "3d", labelKey: "us_stage_3d" },
+      { key: "2d", labelKey: "us_stage_2d" },
+    ];
+    return items.map(({ key, labelKey }) => {
+      const label = tr(labelKey);
+      const cls = "us-seg-btn" + (key === cur ? " active" : "");
+      return `<button type="button" class="${cls}" data-stage="${key}" role="radio" aria-checked="${key === cur ? "true" : "false"}">${escape(label)}</button>`;
+    }).join("");
+  }
+
   function otherSettingsSectionHTML() {
     return `
       <div class="us-pane-head">
@@ -303,6 +328,16 @@
               ${appearanceSegmentsHTML()}
             </div>
             <p class="us-locale-deck">${escape(tr("us_appearance_deck"))}</p>
+          </div>
+        </div>
+
+        <div class="us-row">
+          <div class="us-row-label">${tr("us_stage_label")}</div>
+          <div class="us-row-field">
+            <div class="us-seg" role="radiogroup" aria-label="${escape(tr("us_stage_label"))}" data-us-stage>
+              ${stageStyleSegmentsHTML()}
+            </div>
+            <p class="us-locale-deck">${escape(tr("us_stage_deck"))}</p>
           </div>
         </div>
 
@@ -371,6 +406,31 @@
           el.classList.toggle("active", on);
           el.setAttribute("aria-checked", on ? "true" : "false");
         });
+      });
+    }
+
+    // Room style segmented control · 3D / 2D. Writes the
+    // localStorage key the voice-3d gate already reads, then asks
+    // the app to re-render the current round-table so the swap is
+    // visible immediately for anyone currently sitting in a voice
+    // room (instead of "have to leave + re-enter to see it").
+    const stGroup = paneEl.querySelector("[data-us-stage]");
+    if (stGroup) {
+      stGroup.addEventListener("click", (e) => {
+        const btn = e.target.closest(".us-seg-btn[data-stage]");
+        if (!btn) return;
+        const next = btn.dataset.stage; // "3d" | "2d"
+        setStage3d(next === "3d");
+        stGroup.querySelectorAll(".us-seg-btn").forEach((el) => {
+          const on = el.dataset.stage === next;
+          el.classList.toggle("active", on);
+          el.setAttribute("aria-checked", on ? "true" : "false");
+        });
+        try {
+          if (window.app && typeof window.app.renderRoundTable === "function") {
+            window.app.renderRoundTable();
+          }
+        } catch (_) { /* room may not be a voice room · ignore */ }
       });
     }
     // Typing-sound toggle · the persistence + audio context lives in

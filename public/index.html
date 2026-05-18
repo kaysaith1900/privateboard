@@ -8550,6 +8550,43 @@
     container-name: rtstage;
   }
   .roundtable-stage[hidden] { display: none !important; }
+  /* 3D-mode visibility · when voice-3d.js mounts a WebGL canvas
+     into the stage it sets `.is-3d` so we can hide the 2D-only
+     children without removing them from the DOM (keeping them in
+     place means a 2D fallback path can take over instantly if the
+     3D toggle is flipped off). The wood-floor background on
+     `.roundtable-stage` itself stays painting underneath the
+     transparent canvas. Subtitle / HUD log / vote pop / toasts
+     remain visible · they're useful overlays even in 3D mode and
+     Phase 2+ will eventually replace them with CSS2DRenderer
+     versions positioned in 3D space. */
+  .roundtable-stage.is-3d .rt-table,
+  .roundtable-stage.is-3d [data-rt-seats],
+  .roundtable-stage.is-3d .rt-plant,
+  .roundtable-stage.is-3d .rt-empty {
+    display: none !important;
+  }
+  /* 3D-mode click-through · `.rt-stage-inner` sits ABOVE the WebGL
+     canvas in DOM order (canvas is the stage's first child, the
+     inner wrapper is a later child). With its default
+     `pointer-events: auto`, every click on the canvas area lands on
+     `.rt-stage-inner` instead — which is why the in-scene picker
+     (clicking a director sprite) never fired. Set `none` here so
+     clicks pass through to the canvas underneath; child elements
+     that NEED click (the HUD toggle button, subtitle-restore icon,
+     etc) already have `pointer-events: auto` set explicitly, so they
+     keep working. */
+  .roundtable-stage.is-3d .rt-stage-inner {
+    pointer-events: none;
+  }
+  /* Pin the wood-floor BG paint OFF when 3D is mounted · the WebGL
+     scene draws its own floor with a tone-keyed color. Keeping the
+     CSS tile would show through transparent areas of the canvas
+     (renderer alpha + clearColor 0) and double-up visually. */
+  .roundtable-stage.is-3d {
+    background-image: none;
+    background-color: transparent;
+  }
   /* Inner wrapper for all stage content (table / plants / HUD /
      seats / subtitle). Becomes the containing block for the stage's
      percentage-positioned children, so shrinking its bottom by
@@ -15959,6 +15996,13 @@
 <script src="typing-sfx.js" defer></script>
 <script src="agent-build-bgm.js" defer></script>
 <script src="share-cover-svg-creator.js" defer></script>
+<!-- voice-3d · voxel pixel-art 3D round-table renderer. ES module
+     (imports three.js from /vendor/three.module.min.js). Loads in
+     parallel with app.js · no ordering dependency, app.js feature-
+     detects window.VoiceStage3D at render time. Toggle in user-
+     settings (or localStorage["boardroom.stage3d"]) decides whether
+     to use it · default on, falls back to the legacy 2D SVG path. -->
+<script type="module" src="voice-3d.js"></script>
 <script src="app.js" defer></script>
 <script>
   /* FOUC-prevention: apply saved appearance preference synchronously
