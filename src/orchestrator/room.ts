@@ -51,12 +51,24 @@ import {
   runChairRoundEnd,
 } from "./chair.js";
 import { buildDirectorContext } from "./context.js";
+import { extractDominantTerms } from "./frame-break.js";
 import { buildDirectorMessages, buildFollowUpPriorContext } from "./prompt.js";
+import {
+  getRecentUnexploredAngles,
+  markAnglesConsumed,
+} from "../storage/negative-space.js";
+import { scoreAndArchive } from "./qd-scorer.js";
+import { tagMessageBranch } from "./topic-tagger.js";
+import {
+  dominantBranches,
+  speakersOnBranches,
+} from "../storage/topic-branches.js";
 import { pickNextSpeaker, pickRoundWrap, pickSkills } from "./skill-picker.js";
 import { roomBus, type RoomEvent } from "./stream.js";
 import { listSkillsForAgent } from "../storage/skills.js";
 import { SentenceChunker } from "../voice/sentence-splitter.js";
 import { synthesizeSpeechStream, voiceProfileForAgent } from "../voice/tts.js";
+import type { AgentVoiceProfile } from "../storage/agents.js";
 
 type QueueStatus = "queued" | "speaking";
 
@@ -111,6 +123,21 @@ interface RoomState {
    *  matching speaker spins up its placeholder. Cleared after
    *  attachment so a stale rationale can't leak onto a later turn. */
   pendingChairPick: { agentId: string; rationale: string } | null;
+  /** Frame-break terms computed by pumpQueue (Layer 1.4 / 2.1) for
+   *  the upcoming director turn. When non-empty, the next
+   *  streamSpeakerTurn skips its own `extractDominantTerms` call and
+   *  reuses this list — avoiding a duplicate haiku call. Cleared
+   *  inside streamSpeakerTurn after consumption. */
+  pendingFrameBreakTerms: string[] | null;
+  /** Frame-breaker role assignment (Layer 2.2) · designates a single
+   *  director per reactive round to do a structural frame-break move.
+   *  Populated by pumpQueue and consumed by streamSpeakerTurn when
+   *  the matching speaker spins up. Cleared after consumption. */
+  pendingFrameBreakerRole: { agentId: string; convergentFrame: string } | null;
+  /** Per-round rotation tracker for the frame-breaker role · stores
+   *  the agentId chosen this reactive round so we can rotate to a
+   *  different director next time. Reset at user-tick boundary. */
+  lastFrameBreakerAgentId: string | null;
   /** Set when a director turn fails with a billing / quota error. The
    *  pump checks this between turns and drains the queue without firing
    *  more directors — once the carrier is dry, every subsequent call
@@ -186,6 +213,9 @@ function ensureState(roomId: string): RoomState {
       pendingRoundEnd: false,
       savedOnPause: null,
       pendingChairPick: null,
+      pendingFrameBreakTerms: null,
+      pendingFrameBreakerRole: null,
+      lastFrameBreakerAgentId: null,
       billingHaltedThisTurn: false,
       voiceWaiters: new Map(),
     };
@@ -603,6 +633,22 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
   // queue when it resumes.
   if (state.inflight) state.inflight.abort();
 
+  // Voice rooms · the aborted speaker streamed some text before the abort
+  // → streamSpeakerTurn returns its messageId (not null) → the pump is
+  // now sitting in `await waitForVoicePlayback(messageId)`, which only
+  // resolves when the frontend POSTs /voice-done OR the 120s timeout
+  // fires. After an interrupt (e.g. user picked "interrupt and send" on
+  // a Second / Probe), the frontend stops the audio and the new round
+  // takes over — /voice-done never lands, so the pump hangs for up to
+  // two minutes before picking up the replanned queue. Drain all
+  // outstanding waiters here so the pump unblocks immediately and
+  // continues with the fresh plan. Mirrors abortRoom's voice-waiter
+  // drain. Safe in text rooms · voiceWaiters is empty there.
+  for (const [, waiter] of state.voiceWaiters) {
+    waiter();
+  }
+  state.voiceWaiters.clear();
+
   state.queue = plan.map((a) => ({ agentId: a.id, status: "queued" }));
   state.roundNum = opts.roundNum;
   state.speakersThisTurn = 0;
@@ -612,6 +658,10 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
   // queue, not this fresh plan. Otherwise it could leak onto a future
   // speaker who happens to share the prior pick's agentId.
   state.pendingChairPick = null;
+  // Divergence-stack scratch state also belongs to the prior plan; reset.
+  state.pendingFrameBreakTerms = null;
+  state.pendingFrameBreakerRole = null;
+  state.lastFrameBreakerAgentId = null;
   // Clear the billing halt · a fresh user tick is the natural moment
   // to retry. If the carrier still has no credit the next director will
   // re-trip the flag and a fresh chair notice posts.
@@ -721,11 +771,112 @@ async function pumpQueue(roomId: string): Promise<void> {
               // bug where one stray English director turn re-biased
               // the detector toward English in a Chinese room).
               const pickRoom = getRoom(roomId);
+              // Divergence stack · Layer 2.1 + 2.3 + 1.4 cooperate here:
+              // (1) extractDominantTerms (Layer 1.4) finds the room's
+              //     recurring fixation. Single haiku call per turn.
+              // (2) If terms found → room is at least loosely converging.
+              //     Flip picker into dissent-gap mode (Layer 2.1) so the
+              //     next speaker is the director most likely to puncture
+              //     the cluster, not just the unused-lens pick.
+              // (3) Stash terms on state so streamSpeakerTurn (Layer 1.4)
+              //     reuses them as frameBreakTerms without re-extracting.
+              // (4) When terms found AND not yet assigned this round,
+              //     designate ONE director (preferring NOT the most-
+              //     recent frame-breaker) as the round's frame-breaker
+              //     (Layer 2.2).
+              let convergentTerms: string[] = [];
+              try {
+                convergentTerms = await extractDominantTerms({ messages: recent });
+              } catch { /* swallowed inside; defensive */ }
+              // Layer 3.1 · also feed the dominant TOPIC BRANCH labels
+              // (from the topic-tree tagger) into the convergence signal.
+              // The text-LLM extractor misses cluster signals that the
+              // branch tagger has already classified; merging both gives
+              // the picker a more reliable "what is the room over-
+              // investing in" hint. Dedupe in case the two signals
+              // overlap. Safe when no branches exist yet · returns [].
+              try {
+                const branches = dominantBranches(roomId, 3);
+                if (branches.length > 0) {
+                  const seen = new Set(convergentTerms.map((t) => t.toLowerCase()));
+                  for (const b of branches) {
+                    if (b.turnCount >= 2 && !seen.has(b.label.toLowerCase())) {
+                      convergentTerms.push(b.label);
+                      seen.add(b.label.toLowerCase());
+                    }
+                  }
+                }
+              } catch { /* defensive */ }
+              const useDissentMode = convergentTerms.length > 0;
+              if (useDissentMode) {
+                state.pendingFrameBreakTerms = convergentTerms.slice();
+                rlog(roomId, "divergence-detect", {
+                  terms: convergentTerms,
+                  pickerMode: "dissent-gap",
+                });
+              }
+              // Layer 3.1 → 2.1 feedback · reorder candidates so the
+              // picker LLM sees "underexposed" speakers first (those
+              // who have NOT been tagged on the dominant branches).
+              // The picker still has the final say, but front-loading
+              // the underexposed set means the LLM's recency bias
+              // works FOR divergence here.
+              let pickerCandidates = candidates;
+              if (useDissentMode) {
+                try {
+                  const branches = dominantBranches(roomId, 3);
+                  const dominantBranchIds = branches.map((b) => b.id);
+                  if (dominantBranchIds.length > 0) {
+                    const exposed = speakersOnBranches(roomId, dominantBranchIds);
+                    const underexposed = candidates.filter((c) => !exposed.has(c.id));
+                    const overexposed = candidates.filter((c) => exposed.has(c.id));
+                    if (underexposed.length > 0 && overexposed.length > 0) {
+                      pickerCandidates = [...underexposed, ...overexposed];
+                    }
+                  }
+                } catch { /* defensive */ }
+              }
               const pick = await pickNextSpeaker({
-                candidates,
+                candidates: pickerCandidates,
                 history: recent,
                 room: pickRoom ?? undefined,
+                mode: useDissentMode ? "dissent-gap" : "lens-gap",
+                convergentTerms: useDissentMode ? convergentTerms : undefined,
               });
+              // Frame-breaker rotation · Layer 2.2 · designate ONE
+              // director per converging reactive round to do a
+              // structural frame-break. Preference order:
+              //  (1) the speaker the picker just chose, if they're not
+              //      the most-recent frame-breaker (rotation rule)
+              //  (2) any candidate other than the most-recent
+              //      frame-breaker
+              //  (3) skip · all candidates have been frame-breaker
+              //      recently, let dissent-picker carry the load alone
+              // Stash on state so streamSpeakerTurn consumes when the
+              // matching speaker spins up.
+              if (useDissentMode && convergentTerms.length > 0) {
+                const lastBreaker = state.lastFrameBreakerAgentId;
+                const chosenId = pick.agentId ?? state.queue[0]?.agentId;
+                let breakerId: string | null = null;
+                if (chosenId && chosenId !== lastBreaker) {
+                  breakerId = chosenId;
+                } else {
+                  const alt = candidates.find((c) => c.id !== lastBreaker && c.id !== chosenId);
+                  if (alt) breakerId = alt.id;
+                }
+                if (breakerId) {
+                  // Convergent frame label · first/strongest term, capped.
+                  const frameLabel = (convergentTerms[0] || "").slice(0, 60);
+                  state.pendingFrameBreakerRole = {
+                    agentId: breakerId,
+                    convergentFrame: frameLabel,
+                  };
+                  rlog(roomId, "frame-breaker-assign", {
+                    agent: getAgent(breakerId)?.name ?? breakerId,
+                    frame: frameLabel,
+                  });
+                }
+              }
               // Guard · fresh tickRoom may have replaced state.queue
               // while haiku was thinking. Only reorder if the snapshot
               // is still the live queue.
@@ -1240,6 +1391,63 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     }
   }
 
+  // Frame-break extraction · Layer 1.4 of the divergence stack.
+  // Reuse the terms pumpQueue's pickNextSpeaker call already
+  // computed when it ran in dissent-gap mode — saves a duplicate
+  // haiku call per turn. Falls back to a fresh extraction when
+  // pumpQueue skipped it (e.g. opening round, or pumpQueue couldn't
+  // run for any reason and we're being driven by a tickRoom that
+  // bypassed the picker). Either way, the result feeds
+  // buildDirectorMessages as `frameBreakTerms`.
+  const tStateForTurn = ensureState(roomId);
+  let frameBreakTerms: string[] | undefined;
+  if (tStateForTurn.pendingFrameBreakTerms && tStateForTurn.pendingFrameBreakTerms.length > 0) {
+    frameBreakTerms = tStateForTurn.pendingFrameBreakTerms.slice();
+    // Don't clear yet · multiple directors in the same round share
+    // the snapshot. Cleared by the next pumpQueue when it computes
+    // fresh terms, or by tickRoom on the next user message.
+  } else if (roundNum > 1 && history.length >= 4) {
+    try {
+      frameBreakTerms = await extractDominantTerms({ messages: history });
+      if (frameBreakTerms.length > 0) {
+        rlog(roomId, "frame-break-extract", {
+          round: roundNum,
+          speaker: speaker.name,
+          terms: frameBreakTerms,
+          via: "stream-fallback",
+        });
+        tStateForTurn.pendingFrameBreakTerms = frameBreakTerms.slice();
+      }
+    } catch { /* defensive · already swallowed in extractDominantTerms */ }
+  }
+  // Frame-breaker role · Layer 2.2 · consume the pumpQueue
+  // assignment if it matches this speaker, else null. Clear after
+  // consumption so the role doesn't leak onto the next speaker.
+  let frameBreakerRole: { convergentFrame: string } | undefined;
+  if (tStateForTurn.pendingFrameBreakerRole &&
+      tStateForTurn.pendingFrameBreakerRole.agentId === speaker.id) {
+    frameBreakerRole = { convergentFrame: tStateForTurn.pendingFrameBreakerRole.convergentFrame };
+    tStateForTurn.lastFrameBreakerAgentId = speaker.id;
+    tStateForTurn.pendingFrameBreakerRole = null;
+  }
+  // Layer 3.2 · pull negative-space angles persisted at the previous
+  // round-end. Top 3 unconsumed, newest first. Once injected we mark
+  // them consumed so future turns don't re-suggest the same angle.
+  let unexploredAngles: string[] | undefined;
+  if (roundNum > 1) {
+    try {
+      const rows = getRecentUnexploredAngles(roomId, 3);
+      if (rows.length > 0) {
+        unexploredAngles = rows.map((r) => r.angle);
+        markAnglesConsumed(rows.map((r) => r.id));
+      }
+    } catch (e) {
+      process.stderr.write(
+        `[room] unexplored-angles read failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  }
+
   const llmMessages: LLMMessage[] = buildDirectorMessages({
     speaker,
     cast,
@@ -1252,6 +1460,9 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     chairBrief: chairBriefForTurn ?? undefined,
     summaryPreamble,
     priorContext,
+    frameBreakTerms,
+    frameBreakerRole,
+    unexploredAngles,
     deliveryMode: room.deliveryMode,
   });
 
@@ -1299,8 +1510,37 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
   const voiceMode = room.deliveryMode === "voice";
   process.stderr.write(`[voice-debug] room=${roomId} deliveryMode="${room.deliveryMode}" voiceMode=${voiceMode}\n`);
   const voiceChunker = voiceMode ? new SentenceChunker({ maxChars: 120 }) : null;
-  const voiceProfile = voiceMode ? voiceProfileForAgent(speaker) : null;
+  // Initial voice profile (captured at turn start). emitVoiceText
+  // re-reads the agent's voice config FRESH per sentence so the
+  // user can swap the agent's voice mid-turn (via Agent Profile
+  // → Voice) and have the next sentence pick it up. Without this
+  // fresh re-read, the closure-captured profile from turn-start
+  // stayed locked, and a mid-turn voice change either kept using
+  // the old voice OR — if the closure had been mutated in place
+  // — failed silently in the catch below, leaving the audience
+  // wondering why the agent went quiet. The "next sentence" cost
+  // of a fresh getAgent() per call is a single SQLite read on a
+  // primary-key lookup · trivial.
+  const initialVoiceProfile = voiceMode ? voiceProfileForAgent(speaker) : null;
   let voiceSeq = 0;
+
+  /** Resolve the latest voice profile for this turn's agent.
+   *  Reads fresh from DB so PATCH /api/agents/:id changes during
+   *  the turn propagate to the NEXT emitVoiceText call · the
+   *  in-flight HTTP request to the TTS provider can't be cancelled
+   *  mid-stream, but the sentence after it picks up the new
+   *  config seamlessly. Falls back to the initial profile when
+   *  the DB read fails (rare; defensive against transient errors). */
+  function currentVoiceProfile(): AgentVoiceProfile | null {
+    if (!voiceMode) return null;
+    try {
+      const fresh = getAgent(speaker.id);
+      if (fresh) return voiceProfileForAgent(fresh);
+    } catch (e) {
+      process.stderr.write(`[tts] currentVoiceProfile read failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+    return initialVoiceProfile;
+  }
 
   /**
    * Emit a single sentence as streaming TTS audio chunks.
@@ -1308,7 +1548,9 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
    * small audio fragments that arrive and play with minimal latency.
    */
   async function emitVoiceText(text: string): Promise<void> {
-    if (!voiceMode || !voiceProfile || !text.trim()) return;
+    if (!voiceMode || !text.trim()) return;
+    const voiceProfile = currentVoiceProfile();
+    if (!voiceProfile) return;
     process.stderr.write(`[tts] emitVoiceText called: provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} textLen=${text.length} text="${text.slice(0, 50)}"\n`);
     let chunkCount = 0;
     try {
@@ -1329,7 +1571,14 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       }
       process.stderr.write(`[tts] emitVoiceText done: ${chunkCount} chunks emitted\n`);
     } catch (e) {
-      process.stderr.write(`[tts] ERROR room=${roomId} agent=${speaker.name} · ${e instanceof Error ? e.stack || e.message : String(e)}\n`);
+      // TTS failed (no key for new provider, voiceId rejected,
+      // upstream rate-limit, network blip). The turn keeps
+      // streaming text via the LLM path; this sentence just
+      // won't have audio. Stderr message is the source of truth
+      // for diagnosing why an agent "went quiet" mid-room.
+      process.stderr.write(
+        `[tts] ERROR room=${roomId} agent=${speaker.name} provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} · ${e instanceof Error ? e.stack || e.message : String(e)}\n`,
+      );
     }
   }
 
@@ -1534,6 +1783,41 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       messageId: placeholder.id,
       finishReason,
     });
+    // Layer 3.1 · topic tree · fire-and-forget post-turn branch tag.
+    // Layer 4   · QD archive · fire-and-forget post-turn cell score.
+    // Both run in parallel · independent failures. Skip trivially
+    // short turns (chair pings, abort placeholders) since they
+    // contribute no signal to either system.
+    if (buf.trim().length >= 40) {
+      void (async () => {
+        try {
+          await tagMessageBranch({
+            roomId,
+            messageId: placeholder.id,
+            speakerId: speaker.id,
+            body: buf,
+            roomSubject: room.subject || "",
+          });
+        } catch (e) {
+          process.stderr.write(
+            `[room] topic-tag failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+      })();
+      void (async () => {
+        try {
+          await scoreAndArchive({
+            roomId,
+            messageId: placeholder.id,
+            body: buf,
+          });
+        } catch (e) {
+          process.stderr.write(
+            `[room] qd-score failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+      })();
+    }
   } else {
     // Error turns already persisted final body+meta inside the stream loop.
     // Still emit the same terminal SSE pair as success so clients clear

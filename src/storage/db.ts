@@ -48,6 +48,11 @@ import agentHandleAt035 from "./migrations/035_agent_handle_at_prefix.sql";
 import userTopicRecs036 from "./migrations/036_user_topic_recs.sql";
 import topicRecTag037 from "./migrations/037_topic_rec_tag.sql";
 import messageVoice038 from "./migrations/038_message_voice.sql";
+import negativeSpace039 from "./migrations/039_negative_space.sql";
+import topicBranches040 from "./migrations/040_topic_branches.sql";
+import qdArchive041 from "./migrations/041_qd_archive.sql";
+import remapRemovedModels042 from "./migrations/042_remap_removed_models.sql";
+import remapKimiK25ToK26_043 from "./migrations/043_remap_kimi_k2_5_to_k2_6.sql";
 
 interface Migration {
   name: string;
@@ -93,6 +98,11 @@ const MIGRATIONS: Migration[] = [
   { name: "036_user_topic_recs.sql", sql: userTopicRecs036 },
   { name: "037_topic_rec_tag.sql", sql: topicRecTag037 },
   { name: "038_message_voice.sql", sql: messageVoice038 },
+  { name: "039_negative_space.sql", sql: negativeSpace039 },
+  { name: "040_topic_branches.sql", sql: topicBranches040 },
+  { name: "041_qd_archive.sql", sql: qdArchive041 },
+  { name: "042_remap_removed_models.sql", sql: remapRemovedModels042 },
+  { name: "043_remap_kimi_k2_5_to_k2_6.sql", sql: remapKimiK25ToK26_043 },
 ];
 
 let _db: Database.Database | null = null;

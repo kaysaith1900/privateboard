@@ -23,32 +23,34 @@ import { MODELS, type ModelMeta, type ModelV, type Provider } from "../ai/regist
 import { pickRandomFastModel } from "../ai/availability.js";
 
 /** A "carrier" is the network path a model travels on · OpenRouter
- *  routes everything; the rest match the model's own provider. The
- *  Provider type tracks model creators (anthropic / openai / …) and
- *  doesn't include openrouter, so we widen it here. */
-type Carrier = Provider | "openrouter";
+ *  and B.AI route everything; the rest match the model's own provider.
+ *  The Provider type tracks model creators (anthropic / openai / …);
+ *  we widen it here to also cover universal carriers. */
+type Carrier = Provider | "openrouter" | "bai";
 
 /** Per-carrier primary model (the chair's default when that carrier
  *  is the active one). User-requested fast-tier policy: every primary
  *  here is a fast / mini / flash model so a brand-new user lands on a
- *  cheap-and-quick chair by default. OpenRouter intentionally maps to
- *  `opus-4-6-fast` so the Anthropic brand identity stays recognisable
- *  while the throughput / cost is the fast tier. Directors are picked
+ *  cheap-and-quick chair by default. OpenRouter / B.AI intentionally
+ *  map to recognisable mid-tier so the brand identity is clear while
+ *  the throughput / cost stays in the fast band. Directors are picked
  *  randomly from `FAST_POOL_BY_CARRIER` in availability.ts — see the
  *  reconcile loop below. */
 export const PRIMARY_BY_CARRIER: Record<string, ModelV> = {
   openrouter: "opus-4-6-fast",
+  bai:        "haiku-4-5",
   anthropic:  "haiku-4-5",
   openai:     "gpt-5-4-mini",
   google:     "gemini-3-1-flash",
-  xai:        "grok-4-1-fast",
+  // xai · no primary (no LLM modelV in registry as of 2026-05-17). The
+  // adapter / availability layer skip xai when this key is absent.
 };
 
 /** Carrier preference order when prefs.defaultModelV isn't set / its
- *  model is unreachable. OpenRouter first because it routes everything;
- *  beyond that, the order doesn't matter much — the user's first-
- *  configured key tends to be picked by onboarding anyway. */
-const CARRIER_PRIORITY: Carrier[] = ["openrouter", "anthropic", "openai", "google", "xai"];
+ *  model is unreachable. OpenRouter first because it routes everything
+ *  (historically the universal carrier); B.AI next as the second
+ *  universal option; direct providers after. */
+const CARRIER_PRIORITY: Carrier[] = ["openrouter", "bai", "anthropic", "openai", "google", "xai"];
 
 /** Compute which model IDs are reachable right now. A modelV is
  *  reachable when at least one of its carriers has a configured key.
@@ -56,22 +58,29 @@ const CARRIER_PRIORITY: Carrier[] = ["openrouter", "anthropic", "openai", "googl
 export function reachableModelVs(): Set<ModelV> {
   const out = new Set<ModelV>();
   const orKey = !!getKey("openrouter");
+  const baiKey = !!getKey("bai");
   for (const [v, meta] of Object.entries(MODELS) as Array<[ModelV, ModelMeta]>) {
     // Path 1 · OpenRouter carries everything when the OR key exists.
     if (orKey) {
       out.add(v);
       continue;
     }
-    // Path 2 · direct provider key, model not OR-only.
-    if (!meta.openrouterOnly && hasDirectKey(meta.provider)) {
+    // Path 2 · B.AI carries this model when a baiId is registered.
+    if (baiKey && meta.baiId) {
       out.add(v);
       continue;
     }
-    // Path 3 · OR-only model, OR key missing, but direct provider key
-    // exists → adapter falls back to direct (may fail at the API
-    // level if the model id isn't on the SDK). Treat as reachable
-    // so the picker exposes it; the LLM call is the source of truth.
-    if (meta.openrouterOnly && hasDirectKey(meta.provider)) {
+    // Path 3 · direct provider key, model not universal-only.
+    if (!meta.viaUniversalOnly && hasDirectKey(meta.provider)) {
+      out.add(v);
+      continue;
+    }
+    // Path 4 · universal-only model with NO OR / B.AI key but a direct
+    // provider key exists → adapter falls back to direct (may fail at
+    // the API level if the model id isn't on the SDK). Treat as
+    // reachable so the picker exposes it; the LLM call is the source
+    // of truth.
+    if (meta.viaUniversalOnly && hasDirectKey(meta.provider)) {
       out.add(v);
     }
   }
@@ -102,17 +111,23 @@ export function activeCarrier(): Carrier | null {
     const meta = MODELS[prefs.defaultModelV as ModelV];
     if (meta) {
       // The default model exists; resolve which carrier is currently
-      // serving it. OpenRouter wins when both are configured (matches
-      // the adapter's "openrouterOnly + OR key" precedence).
-      if (meta.openrouterOnly && getKey("openrouter")) return "openrouter";
+      // serving it. OpenRouter wins for `viaUniversalOnly` models when
+      // both OR + direct are configured (matches the adapter's
+      // "viaUniversalOnly + OR key" precedence). Direct provider key
+      // wins over B.AI / OR for non-universal-only models. B.AI is
+      // preferred over OR among universal carriers (matches adapter
+      // precedence).
+      if (meta.viaUniversalOnly && getKey("openrouter")) return "openrouter";
       if (hasDirectKey(meta.provider)) return meta.provider;
+      if (getKey("bai") && meta.baiId) return "bai";
       if (getKey("openrouter")) return "openrouter";
     }
   }
   // Fall through · pick the first reachable carrier in priority order.
   for (const c of CARRIER_PRIORITY) {
     if (c === "openrouter" && getKey("openrouter")) return "openrouter";
-    if (c !== "openrouter" && hasDirectKey(c)) return c;
+    if (c === "bai" && getKey("bai")) return "bai";
+    if (c !== "openrouter" && c !== "bai" && hasDirectKey(c)) return c;
   }
   return null;
 }
@@ -166,8 +181,30 @@ export function reconcileAgentModels(opts: ReconcileOptions = {}): ReconcileResu
   const switched: string[] = [];
   const cleared: string[] = [];
 
+  // Carrier-key reachability sweep · also used below to clear
+  // unreachable `carrierPref` pins so an agent that was pinned to
+  // (say) OpenRouter doesn't keep its now-meaningless pin once the
+  // user revokes that key. The pin still falls through gracefully in
+  // the adapter, but leaving it set is misleading state · the picker
+  // would render "via OpenRouter" on an agent that's actually being
+  // routed through B.AI under the hood.
+  const orReachable = !!getKey("openrouter");
+  const baiReachable = !!getKey("bai");
+  function carrierKeyReachable(c: string): boolean {
+    if (c === "openrouter") return orReachable;
+    if (c === "bai") return baiReachable;
+    return hasDirectKey(c as Provider);
+  }
+
   for (const agent of listAllAgents()) {
     const v = (agent.modelV || "").trim();
+    // Stale carrierPref sweep · clear pins to carriers whose key has
+    // been deleted since the pin was set. Runs independently of the
+    // modelV swap below so the pin gets unstuck even when the model
+    // itself is still reachable via another carrier.
+    if (agent.carrierPref && !carrierKeyReachable(agent.carrierPref)) {
+      updateAgent(agent.id, { carrierPref: null });
+    }
     // Default behavior: leave reachable models alone. forcePrimary
     // skips this guard so every agent funnels into the switch branch.
     if (!forcePrimary && v && reachable.has(v as ModelV)) continue;

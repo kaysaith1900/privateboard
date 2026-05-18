@@ -52,6 +52,9 @@ import {
 } from "../storage/key_points.js";
 import { getCurrentRound, insertMessage, listMessages, nextUserRoundNum } from "../storage/messages.js";
 import { markTopicRecOpened } from "../storage/topic-recs.js";
+import { listBranchesForRoom } from "../storage/topic-branches.js";
+import { coverageForRoom, listQDForRoom } from "../storage/qd-archive.js";
+import { getRecentUnexploredAngles } from "../storage/negative-space.js";
 import {
   addRoomMember,
   createRoom,
@@ -1366,6 +1369,63 @@ export function roomsRouter(): Hono {
     const brief = getBriefByRoom(id);
     if (!brief) return c.json({ error: "brief not yet generated" }, 404);
     return c.json({ ...brief, isGenerating: isBriefGenerating(brief.id) });
+  });
+
+  // ── Diversity report · combines the topic tree (Layer 3.1) and
+  // the Quality-Diversity behavioral archive (Layer 4) into one
+  // read-only snapshot. Powers the "Diversity Report" panel in the
+  // room info modal: branch list with turn counts + QD cell coverage
+  // KPI. Empty values when the room is new (no scored turns yet).
+  r.get("/:id/diversity", (c) => {
+    const id = c.req.param("id");
+    if (!getRoom(id)) return c.json({ error: "not found" }, 404);
+    // Branches sorted by activity (most-discussed first). The UI
+    // renders this as the room's "topic map".
+    const branches = listBranchesForRoom(id)
+      .slice()
+      .sort((a, b) => b.turnCount - a.turnCount || a.openedAt - b.openedAt)
+      .map((b) => ({
+        id: b.id,
+        label: b.label,
+        parentId: b.parentId,
+        openedAt: b.openedAt,
+        turnCount: b.turnCount,
+        lastSpeakerId: b.lastSpeakerId,
+      }));
+    // Coverage KPI · how many of the 64 behavioral cells are filled.
+    const coverage = coverageForRoom(id);
+    // Per-dimension bucket distribution · UI uses these for the
+    // three 4-bar histograms that visualise the room's coverage on
+    // each axis. Each value = how many distinct cells touched the
+    // corresponding bucket on that axis.
+    const qdRows = listQDForRoom(id);
+    const buckets = {
+      abstraction: [0, 0, 0, 0],
+      time: [0, 0, 0, 0],
+      stakeholder: [0, 0, 0, 0],
+    };
+    for (const r of qdRows) {
+      buckets.abstraction[r.abstractionBucket] += 1;
+      buckets.time[r.timeBucket] += 1;
+      buckets.stakeholder[r.stakeholderBucket] += 1;
+    }
+    // Unexplored angles · Layer 3.2 captured "what was NOT touched
+    // this round but should have been". Surface the recent
+    // unconsumed list so the overlay can show "what to explore
+    // next" — the actionable companion to the "what's already
+    // covered" branch list.
+    const unexplored = getRecentUnexploredAngles(id, 5).map((a) => ({
+      id: a.id,
+      angle: a.angle,
+      roundNum: a.roundNum,
+    }));
+    return c.json({
+      branches,
+      coverage,
+      buckets,
+      messagesScored: qdRows.length,
+      unexplored,
+    });
   });
 
   // ── List ALL briefs for a room · newest first.

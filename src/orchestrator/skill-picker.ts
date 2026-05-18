@@ -15,7 +15,7 @@
  *   still works (just costs a bit more).
  */
 import { callLLM, NoKeyError, type LLMMessage } from "../ai/adapter.js";
-import type { Agent } from "../storage/agents.js";
+import { getAgent, type Agent } from "../storage/agents.js";
 import type { Message } from "../storage/messages.js";
 import type { AgentSkill } from "../storage/skills.js";
 import type { ModelV } from "../ai/registry.js";
@@ -39,6 +39,24 @@ import { detectRoomLang, languageLockBlock } from "./prompt.js";
  *  to the speaker's flagship instead of any-reachable cheap model). */
 function pickRouterModel(): ModelV | null {
   return utilityModelFor();
+}
+
+/** Render a human-readable speaker label for a transcript line fed to a
+ *  picker LLM. Falls back through cast → DB → role-kind tag so we never
+ *  hand the model a raw author id — those leak straight into the picker's
+ *  `intervention` / `rationale` text, which is posted to the room. */
+function authorLabel(m: Message, cast?: Agent[]): string {
+  if (m.authorKind === "user") return "USER";
+  if (m.authorKind === "system") return "system";
+  if (!m.authorId) return m.authorKind === "agent" ? "director" : m.authorKind;
+  const fromCast = cast?.find((a) => a.id === m.authorId);
+  if (fromCast) return `${fromCast.name} (${fromCast.handle})`;
+  const a = getAgent(m.authorId);
+  if (a) {
+    const kindTag = a.roleKind === "moderator" ? "chair" : "director";
+    return `${a.name} (${a.handle}, ${kindTag})`;
+  }
+  return m.authorKind === "agent" ? "director" : m.authorKind;
 }
 
 const MAX_PICKS = 2;
@@ -198,10 +216,7 @@ export async function pickRoundWrap(opts: {
       if (meta?.kind === "round-open" || meta?.kind === "round-prompt") return false;
       return true;
     })
-    .map((m) => {
-      const who = m.authorKind === "user" ? "USER" : (m.authorId || "agent");
-      return `[${who}] ${m.body.trim().slice(0, 600)}`;
-    })
+    .map((m) => `[${authorLabel(m)}] ${m.body.trim().slice(0, 600)}`)
     .join("\n\n");
 
   const sys: LLMMessage = {
@@ -333,15 +348,43 @@ export async function pickNextSpeaker(opts: {
    *  the chair-note intervention to drift to English in a Chinese
    *  room. Optional so callers can opt in gradually. */
   room?: { subject?: string | null };
+  /** Layer 2.1 · picker mode. Default "lens-gap" matches the
+   *  historical behaviour (find the director whose lens addresses
+   *  the unresolved tension). "dissent-gap" is the divergence-stack
+   *  variant · find the director MOST LIKELY to break the room's
+   *  current frame, scored on the persona's contrarianTakes /
+   *  failureModes against the room's recent fixation. Caller (room.ts)
+   *  flips to dissent-gap when convergence detection (Layer 2.3)
+   *  fires OR every Nth reactive round as a divergence guarantee. */
+  mode?: "lens-gap" | "dissent-gap";
+  /** When `mode === "dissent-gap"`, the convergent terms detected
+   *  by the frame-break / convergence layer are surfaced to the
+   *  picker so it can score each candidate against them. Empty
+   *  array → picker falls back to lens-gap behaviour for this turn. */
+  convergentTerms?: string[];
   signal?: AbortSignal;
 }): Promise<NextSpeakerPick> {
   const { candidates, history, room, signal } = opts;
+  const mode = opts.mode === "dissent-gap" ? "dissent-gap" : "lens-gap";
+  const convergentTerms = (opts.convergentTerms || []).filter(Boolean);
   if (candidates.length < 2) return { agentId: null, rationale: "", intervention: null };
 
   // Build the candidate roster. We include role tag + bio so the picker
   // can match lens to the previous turn's gap, not just remember names.
+  // In dissent-gap mode we ALSO surface up to 3 contrarianTakes per
+  // candidate (when persona-spec is available) so the picker can score
+  // who's most likely to disrupt the convergent frame.
   const roster = candidates
-    .map((a) => `- ${a.id} · ${a.name} (${a.handle}) · ${a.roleTag}\n  ${a.bio}`)
+    .map((a) => {
+      const baseRow = `- ${a.id} · ${a.name} (${a.handle}) · ${a.roleTag}\n  ${a.bio}`;
+      if (mode !== "dissent-gap") return baseRow;
+      const takes = a.personaSpec?.spec?.contrarianTakes?.slice(0, 3) || [];
+      const failures = a.personaSpec?.spec?.failureModes?.slice(0, 1) || [];
+      const extras: string[] = [];
+      if (takes.length > 0) extras.push(`  · contrarian takes: ${takes.join(" · ")}`);
+      if (failures.length > 0) extras.push(`  · failure mode: ${failures[0]}`);
+      return extras.length > 0 ? `${baseRow}\n${extras.join("\n")}` : baseRow;
+    })
     .join("\n");
 
   // Recent transcript · last ~10 messages with handle + body. Enough
@@ -358,11 +401,43 @@ export async function pickNextSpeaker(opts: {
       if (meta?.kind === "round-open" || meta?.kind === "round-prompt") return false;
       return true;
     })
-    .map((m) => {
-      const who = m.authorKind === "user" ? "USER" : (m.authorId || "agent");
-      return `[${who}] ${m.body.trim().slice(0, 600)}`;
-    })
+    .map((m) => `[${authorLabel(m, candidates)}] ${m.body.trim().slice(0, 600)}`)
     .join("\n\n");
+
+  const decision1Block = mode === "dissent-gap"
+    ? [
+        "DECISION 1 · Next speaker (DISSENT-GAP MODE).",
+        "The room is converging on a single frame — for THIS pick, the chair",
+        "needs the director MOST LIKELY to break that frame. Score each",
+        "candidate on:",
+        "  · Their `contrarian takes` (listed in the roster) versus the room's",
+        "    detected convergent terms (surfaced in the user message below).",
+        "    Pick whose stated contrarian moves DIRECTLY puncture the cluster.",
+        "  · Their `failure mode` is a NEGATIVE signal — a director whose",
+        "    failure mode is 'gets sucked into specifics' is exactly who you",
+        "    do NOT pick when the room is already lost in specifics.",
+        "  · Lens distance from the convergent frame · pick a lens furthest",
+        "    from the cluster's gravitational center.",
+        "  · Recency · prefer directors who haven't spoken in the last 2 turns",
+        "    when scores are comparable.",
+        "  · If NO candidate is clearly the frame-breaker (e.g. all candidates",
+        "    have already been used recently OR none have relevant contrarian",
+        "    takes), set agent_id=null and let round-robin run.",
+      ].join("\n")
+    : [
+        "DECISION 1 · Next speaker. From the candidates below, pick which",
+        "director should speak NEXT — the one whose lens most sharply",
+        "addresses the unresolved tension, hidden assumption, or missing",
+        "counter-argument in the previous turn.",
+        "  · Match LENS to the gap, not just topic relevance. If the prior",
+        "    turn made a structural claim, pick a director whose role",
+        "    pushes back from a different lens (data → narrative,",
+        "    empirical → first-principles, etc.).",
+        "  · Prefer directors who haven't been quoted yet THIS round when",
+        "    fits are comparable — diversity of voice.",
+        "  · If no candidate clearly fits better than the current head of",
+        "    queue, set agent_id=null and let round-robin run.",
+      ].join("\n");
 
   const sys: LLMMessage = {
     role: "system",
@@ -371,18 +446,7 @@ export async function pickNextSpeaker(opts: {
       "a reactive round; one director just finished. You make TWO",
       "decisions in one pass.",
       "",
-      "DECISION 1 · Next speaker. From the candidates below, pick which",
-      "director should speak NEXT — the one whose lens most sharply",
-      "addresses the unresolved tension, hidden assumption, or missing",
-      "counter-argument in the previous turn.",
-      "  · Match LENS to the gap, not just topic relevance. If the prior",
-      "    turn made a structural claim, pick a director whose role",
-      "    pushes back from a different lens (data → narrative,",
-      "    empirical → first-principles, etc.).",
-      "  · Prefer directors who haven't been quoted yet THIS round when",
-      "    fits are comparable — diversity of voice.",
-      "  · If no candidate clearly fits better than the current head of",
-      "    queue, set agent_id=null and let round-robin run.",
+      decision1Block,
       "",
       "DECISION 2 · Intervention (optional · default: null). Read the",
       "prior 2–3 turns. Drop a 1-sentence chair note ONLY if a substantive",
@@ -403,6 +467,13 @@ export async function pickNextSpeaker(opts: {
       "If you DO intervene: 1 sentence, neutral moderator voice, name",
       "the SPECIFIC pattern + the load-bearing piece worth pinning down.",
       "No greeting, no signature.",
+      "",
+      "NAMING · When `intervention` or `rationale` references a director,",
+      "use their DISPLAY NAME (the part before the parenthesis in the",
+      "roster — e.g. \"Maya\", not \"fk7wvt1bep62\"). The opaque id is for",
+      "the `agent_id` JSON field ONLY; it must NEVER appear inside any",
+      "user-facing prose text. The transcript above labels speakers by",
+      "name already; mirror that format.",
       "",
       "LANGUAGE · the chair note must follow the room's DOMINANT",
       "language detected from the recent transcript (most recent",
@@ -435,6 +506,13 @@ export async function pickNextSpeaker(opts: {
       // only language signal was "recent transcript" — which a
       // single English chair drift could pollute.
       ...(room?.subject ? [`Room subject: ${room.subject}`, ``] : []),
+      ...(mode === "dissent-gap" && convergentTerms.length > 0
+        ? [
+            `Detected convergent terms (room is over-investing here · the dissent pick should puncture these):`,
+            ...convergentTerms.map((t) => `  · "${t}"`),
+            ``,
+          ]
+        : []),
       `Candidates (queued, in current order):`,
       roster,
       ``,
@@ -476,18 +554,41 @@ export async function pickNextSpeaker(opts: {
   const id = typeof obj.agent_id === "string" && validIds.has(obj.agent_id)
     ? obj.agent_id
     : null;
-  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim().slice(0, 200) : "";
+  const rationale = typeof obj.rationale === "string"
+    ? replaceLeakedIds(obj.rationale.trim(), candidates).slice(0, 200)
+    : "";
   // Intervention · accept only meaningful strings; trim, cap length,
   // discard empty / "null" / "none" so the prompt's "default null" path
   // works even when the model emits a string literal instead of JSON null.
   let intervention: string | null = null;
   if (typeof obj.intervention === "string") {
-    const t = obj.intervention.trim();
+    const t = replaceLeakedIds(obj.intervention.trim(), candidates);
     if (t.length > 0 && t.toLowerCase() !== "null" && t.toLowerCase() !== "none") {
       intervention = t.slice(0, 280);
     }
   }
   return { agentId: id, rationale, intervention };
+}
+
+/** Last-line defense · replace any raw agent id the picker still emits
+ *  inside `intervention` / `rationale` with the agent's display name.
+ *  The prompt + name-rendered transcript stop ~all leaks, but the haiku
+ *  router occasionally still types an id from the candidate roster — and
+ *  that text gets posted verbatim to the room. We look up the id against
+ *  the live agent store (covers chair + dropped directors too, not just
+ *  current candidates) and substitute. Unknown id-shaped tokens fall
+ *  through unchanged. */
+function replaceLeakedIds(text: string, candidates: Agent[]): string {
+  if (!text) return text;
+  // newId() alphabet: 0-9 a-h j k m n p q r s t v w x y z · length 12.
+  // The negative lookbehind/ahead keep us from chewing into longer slugs.
+  return text.replace(/(?<![A-Za-z0-9])[0-9a-hjkmnpqrstvwxyz]{12}(?![A-Za-z0-9])/g, (id) => {
+    const fromCast = candidates.find((c) => c.id === id);
+    if (fromCast) return fromCast.name;
+    const a = getAgent(id);
+    if (a) return a.name;
+    return id;
+  });
 }
 
 /** Pre-stream chair-side router · cheap haiku call that decides

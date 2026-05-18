@@ -4,6 +4,16 @@ Rules captured from feedback on this project. Re-read before any
 non-trivial CSS / UI change so the same class of bug doesn't keep
 getting shipped.
 
+## Communication
+
+### Reply in Chinese
+
+All user-facing replies in this repo should be written in Chinese
+(简体中文). The user is Chinese-speaking; English replies create
+friction. Code, identifiers, file paths, log strings, commit
+messages, and code comments stay in English — only the prose the
+user reads (chat messages, summaries, explanations) is in Chinese.
+
 ## CSS
 
 ### No coloured `border-left` callouts

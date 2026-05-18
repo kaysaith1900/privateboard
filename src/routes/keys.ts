@@ -29,6 +29,7 @@ import { listConfiguredVoices } from "../voice/registry.js";
 
 const PROVIDERS = new Set<Provider>([
   "openrouter",
+  "bai",
   "anthropic",
   "openai",
   "google",
@@ -45,6 +46,7 @@ const PROVIDERS = new Set<Provider>([
  *  keys are independently optional and don't lock removal. */
 const LLM_PROVIDERS = new Set<Provider>([
   "openrouter",
+  "bai",
   "anthropic",
   "openai",
   "google",

@@ -76,9 +76,9 @@ function fixturePrefs(): Prefs {
     name: "Kay",
     intro: "engineer",
     avatarSeed: null,
-    theme: "dark",
     defaultModelV: null,
     webSearchProvider: "brave",
+    minimaxRegion: "cn",
     createdAt: 0,
     updatedAt: 0,
   };

@@ -1,8 +1,9 @@
 {
   "name": "privateboard",
-  "version": "0.1.15",
+  "version": "0.1.24",
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
+  "main": "electron-entry.cjs",
   "bin": {
     "privateboard": "dist/cli.js"
   },
@@ -13,14 +14,25 @@
     "LICENSE"
   ],
   "scripts": {
-    "dev": "tsup --watch --onSuccess \"node dist/cli.js --no-open\"",
+    "dev": "node scripts/ensure-sqlite-abi.mjs node && tsup --watch --onSuccess \"node dist/cli.js --no-open\"",
     "build": "tsup",
-    "start": "node dist/cli.js",
+    "start": "node scripts/ensure-sqlite-abi.mjs node && node dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "sync-version": "node scripts/sync-version.mjs",
     "regen-avatars": "node scripts/regen-avatars.mjs",
-    "prepublishOnly": "npm run sync-version && npm run build"
+    "probe:bai": "node scripts/probe-bai-catalog.mjs",
+    "abi:node": "node scripts/ensure-sqlite-abi.mjs node",
+    "abi:electron": "node scripts/ensure-sqlite-abi.mjs electron",
+    "prepublishOnly": "npm run sync-version && npm run build",
+    "node:rebuild": "npm rebuild better-sqlite3",
+    "electron:rebuild": "node scripts/ensure-sqlite-abi.mjs electron",
+    "electron:build-ts": "tsup && tsc -p electron/tsconfig.json",
+    "electron:build-icon": "node scripts/build-app-icon.mjs",
+    "electron:dev": "npm run electron:rebuild && npm run electron:build-ts && electron .",
+    "electron:dist": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish always",
+    "electron:dist:local": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish never",
+    "electron:dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never --config.mac.hardenedRuntime=false --config.mac.notarize=false"
   },
   "repository": {
     "type": "git",
@@ -41,19 +53,67 @@
     "@ai-sdk/xai": "^1.2.10",
     "@hono/node-server": "^1.13.7",
     "ai": "^4.3.16",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.10.0",
     "commander": "^12.1.0",
+    "electron-updater": "^6.8.3",
     "hono": "^4.6.14",
     "open": "^10.1.0",
     "tiny-pinyin": "^1.3.2",
-    "yaml": "^2.8.4"
+    "yaml": "^2.8.4",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
+    "electron": "^41.6.1",
+    "electron-builder": "^26.8.1",
+    "sharp": "^0.34.5",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "build": {
+    "appId": "com.privateboard.app",
+    "productName": "PrivateBoard",
+    "asar": true,
+    "asarUnpack": [
+      "public/**"
+    ],
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "public/**",
+      "electron-entry.cjs",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release/",
+      "buildResources": "build/"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kaysaith1900",
+        "repo": "privateboard",
+        "releaseType": "release"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
+    }
   },
   "license": "MIT",
   "keywords": [

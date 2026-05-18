@@ -7,19 +7,16 @@ describe("prefs", () => {
     const p = getPrefs();
     expect(p.name).toBe("You");
     expect(p.intro).toBe("");
-    expect(p.theme).toBe("regent");
     expect(p.createdAt).toBeGreaterThan(0);
   });
 
   it("partial updates only touch the given fields", () => {
     updatePrefs({ name: "Kay" });
     expect(getPrefs().name).toBe("Kay");
-    expect(getPrefs().theme).toBe("regent");
 
-    updatePrefs({ theme: "atrium", intro: "thinking about flywheels" });
+    updatePrefs({ intro: "thinking about flywheels" });
     const p = getPrefs();
     expect(p.name).toBe("Kay");
-    expect(p.theme).toBe("atrium");
     expect(p.intro).toBe("thinking about flywheels");
   });
 

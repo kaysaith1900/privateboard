@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Hardened runtime entitlements for the PrivateBoard Electron app.
+
+      Reference: https://www.electronjs.org/docs/latest/tutorial/code-signing
+      and https://developer.apple.com/documentation/security/hardened_runtime
+
+      Electron itself needs JIT + unsigned executable memory for V8.
+      `disable-library-validation` lets the bundled `better-sqlite3.node`
+      native binary load (it's compiled by `@electron/rebuild` and signed
+      together with the app, but library validation still rejects it on
+      some setups because the binary doesn't carry a separate Developer
+      ID signature). `allow-dyld-environment-variables` is required when
+      Electron's child processes (utility, renderer) inherit DYLD_*
+      from the main process during launch.
+
+      The two `files.user-selected.*` keys cover the `<input type="file">`
+      paths the renderer uses (PDF uploads in agent-profile knowledge
+      block, avatar import). `network.client` allows outgoing fetch to
+      OpenRouter / Anthropic / OpenAI / Google etc.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+</dict>
+</plist>

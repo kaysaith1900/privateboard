@@ -22,6 +22,21 @@
   display: flex;
   animation: rs-fade 0.14s ease-out;
 }
+/* Electron macOS · the share-card overlay (and other consumers of
+   this chrome) opens over views that carry `-webkit-app-region: drag`
+   on their top strips (e.g. `.notes-page-head`, the empty `.room-head`
+   drag overlay). Chromium computes drag regions from element bounding
+   boxes, NOT z-stack, so the modal's close button can sit inside one
+   of those drag rects and have its clicks eaten by the OS-level drag
+   handler. Claim the entire overlay subtree back as `no-drag` so
+   every interactive element inside (close button, template chips,
+   download button, backdrop dismiss) receives clicks normally.
+   Backdrop too · `e.target === overlay` dismiss-on-click only fires
+   when the backdrop itself can receive the event. */
+html.is-electron-mac .room-settings-overlay,
+html.is-electron-mac .room-settings-overlay * {
+  -webkit-app-region: no-drag;
+}
 @keyframes rs-fade { from { opacity: 0; } to { opacity: 1; } }
 
 .room-settings-modal {
@@ -32,9 +47,9 @@
      and section content reads tighter. */
   max-width: 700px;
   max-height: calc(100vh - 48px);
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  color: var(--text, #C8C5BE);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  color: var(--text);
   animation: rs-rise 0.18s ease-out;
   display: flex;
   flex-direction: column;
@@ -59,27 +74,27 @@
   position: absolute;
   width: 10px;
   height: 10px;
-  border: 1.5px solid var(--lime, #6FB572);
+  border: 1.5px solid var(--lime);
   pointer-events: none;
 }
 .room-settings-modal::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
 .room-settings-modal::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
 
 .rs-classification {
-  background: var(--panel-2, #1A1A18);
-  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--strip-bg);
+  border-bottom: 0.5px solid var(--line-bright);
   padding: 5px 14px;
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .rs-classification .right {
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.12em;
 }
 
@@ -89,19 +104,20 @@
   gap: 12px;
   align-items: start;
   padding: 14px 16px 12px;
-  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+  background: var(--strip-bg);
+  border-bottom: 0.5px dashed var(--line-bright);
 }
 .rs-head .meta {
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   margin-bottom: 4px;
   font-weight: 700;
 }
 .rs-head .meta .live {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 .rs-head .meta .live::before {
@@ -112,13 +128,13 @@
 .rs-head .title {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.01em;
   line-height: 1.3;
 }
 .rs-head .title::before {
   content: "▸ ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* ─── Title clamp ──────────────────────────────────────────────
@@ -143,22 +159,22 @@
   background: transparent;
   border: none;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   padding: 0;
   transition: color 0.12s;
 }
-.rs-title-toggle:hover { color: var(--lime, #6FB572); }
-.rs-title-toggle::before { content: "[ "; color: var(--text-faint, #3A382F); }
-.rs-title-toggle::after  { content: " ]"; color: var(--text-faint, #3A382F); }
+.rs-title-toggle:hover { color: var(--lime); }
+.rs-title-toggle::before { content: "[ "; color: var(--text-faint); }
+.rs-title-toggle::after  { content: " ]"; color: var(--text-faint); }
 .rs-head .close-btn {
   width: 24px; height: 24px;
   background: transparent;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-dim, #5C5A52);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
   font-size: 12px;
   cursor: pointer;
   font-family: var(--mono);
@@ -166,14 +182,14 @@
   transition: all 0.12s;
 }
 .rs-head .close-btn:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 .rs-body { padding: 14px 16px 4px; }
 
 /* Legacy section block (kept for any leftover .rs-block consumers). */
-.rs-block { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 0.5px solid var(--line, #1F1E1A); }
+.rs-block { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 0.5px solid var(--line); }
 .rs-block:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
 
 /* ─── Configuration · 3-row compact spec sheet ──────────────────────
@@ -191,7 +207,7 @@
   gap: 14px;
   align-items: center;
   padding: 12px 0;
-  border-bottom: 0.5px solid var(--line, #1F1E1A);
+  border-bottom: 0.5px solid var(--line);
 }
 .rs-config-row:last-child { border-bottom: none; }
 .rs-config-row-label {
@@ -204,14 +220,14 @@
   font-family: var(--font-human);
   font-size: 13px;
   font-weight: 600;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.005em;
 }
 .rs-config-row-hint {
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.06em;
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
 }
 @media (max-width: 600px) {
   .rs-config-row { grid-template-columns: 1fr; gap: 6px; }
@@ -244,12 +260,12 @@
   align-items: center;
   gap: 5px;
   padding: 3px 6px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 700;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   text-align: left;
   text-transform: uppercase;
@@ -259,13 +275,13 @@
   white-space: nowrap;
 }
 .rs-chip-mini:hover {
-  border-color: var(--lime-dim, #2D5532);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime-dim);
+  color: var(--lime);
 }
 .rs-chip-mini.active {
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
-  border-color: var(--lime, #6FB572);
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
 }
 .rs-chip-label { line-height: 1; }
 .rs-chip-info {
@@ -279,19 +295,19 @@
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
-  color: var(--text-faint, #3A382F);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-faint);
+  border: 0.5px solid var(--line-bright);
   cursor: help;
   user-select: none;
   transition: color 0.12s, border-color 0.12s;
 }
 .rs-chip-mini:hover .rs-chip-info {
-  color: var(--lime, #6FB572);
-  border-color: var(--lime, #6FB572);
+  color: var(--lime);
+  border-color: var(--lime);
 }
 .rs-chip-mini.active .rs-chip-info {
-  color: var(--bg, #0A0A0A);
-  border-color: var(--bg, #0A0A0A);
+  color: var(--bg);
+  border-color: var(--bg);
   background: rgba(0, 0, 0, 0.18);
 }
 
@@ -302,13 +318,13 @@
   position: fixed;
   z-index: 9100;
   max-width: 320px;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
   padding: 10px 12px;
   font-family: var(--font-human);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.005em;
   border-radius: 4px;
 }
@@ -317,11 +333,11 @@
   font-size: 9px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-weight: 700;
   margin-bottom: 4px;
 }
-.rs-info-popover-body { color: var(--text-soft, #8E8B83); }
+.rs-info-popover-body { color: var(--text-soft); }
 
 /* Directors trigger button · stacks the first 5 active director
    avatars with a +N overflow chip + count label, matching the
@@ -331,9 +347,9 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-soft, #8E8B83);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
@@ -346,8 +362,8 @@
 }
 .rs-cast-btn:hover,
 .rs-cast-btn.on {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 .rs-cast-stack {
   display: inline-flex;
@@ -356,8 +372,8 @@
 .rs-cast-av {
   width: 18px;
   height: 18px;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
   margin-left: -4px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -371,22 +387,22 @@
   align-items: center;
   justify-content: center;
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0;
-  background: var(--panel-2, #1A1A18);
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-faint, #3A382F);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-faint);
   border-radius: 0;
 }
 .rs-cast-count { white-space: nowrap; }
 .rs-cast-chevron {
   font-size: 9px;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin-left: 2px;
 }
 .rs-cast-btn:hover .rs-cast-chevron,
-.rs-cast-btn.on .rs-cast-chevron { color: var(--lime, #6FB572); }
+.rs-cast-btn.on .rs-cast-chevron { color: var(--lime); }
 
 /* Picker popover · same composition as the room composer's
    .composer-pick-pop · 360px wide, scrollable list of director rows. */
@@ -397,8 +413,8 @@
   max-width: calc(100vw - 32px);
   max-height: 56vh;
   overflow-y: auto;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
   border-radius: 4px;
 }
 .rs-cast-head {
@@ -406,15 +422,15 @@
   justify-content: space-between;
   align-items: baseline;
   padding: 8px 12px;
-  border-bottom: 0.5px solid var(--line, #1F1E1A);
+  border-bottom: 0.5px solid var(--line);
   position: sticky;
   top: 0;
-  background: var(--panel, #131312);
+  background: var(--panel);
   z-index: 1;
 }
 .rs-cast-title {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -422,7 +438,7 @@
 }
 .rs-cast-hint {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -444,32 +460,35 @@
   align-items: center;
   gap: 9px;
   padding: 5px 10px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   cursor: pointer;
   border-radius: 0;
   transition: border-color 0.12s, background 0.12s;
 }
-.rs-toggle-row:hover { border-color: var(--text-faint, #3A382F); }
+.rs-toggle-row:hover { border-color: var(--text-faint); }
+/* `.rs-toggle-row .rs-incognito-check` only needs spacing here;
+   the global `input[type="checkbox"]` rule in index.html now
+   owns appearance / border / fill / hover / focus / disabled
+   for every checkbox in the app. Size matches the row's 13 px
+   metric (the global default is 14 px, slightly cramped here). */
 .rs-toggle-row .rs-incognito-check {
   margin: 0;
-  accent-color: var(--lime, #6FB572);
-  cursor: pointer;
   width: 13px;
   height: 13px;
 }
 .rs-toggle-label {
   font-family: var(--font-human);
   font-size: 12px;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.005em;
 }
 .rs-toggle-row:has(.rs-incognito-check:checked) {
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
+  border-color: var(--lime);
+  background: var(--panel-2);
 }
 .rs-toggle-row:has(.rs-incognito-check:checked) .rs-toggle-label {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* Vote-trigger radio group · two cells per row (Auto / Manual)
@@ -492,17 +511,17 @@
   column-gap: 8px;
   row-gap: 2px;
   padding: 7px 9px;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
 }
-.rs-radio-row:hover { border-color: var(--text-faint, #3A382F); }
+.rs-radio-row:hover { border-color: var(--text-faint); }
 .rs-radio-row input[type="radio"] {
   grid-row: 1;
   grid-column: 1;
   margin: 0;
-  accent-color: var(--lime, #6FB572);
+  accent-color: var(--lime);
   cursor: pointer;
   width: 13px;
   height: 13px;
@@ -520,23 +539,23 @@
   font-family: var(--font-human);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.005em;
   line-height: 1.2;
 }
 .rs-radio-desc {
   font-family: var(--font-human);
   font-size: 11px;
-  color: var(--text-faint, #5C5A4D);
+  color: var(--text-faint);
   letter-spacing: -0.003em;
   line-height: 1.35;
 }
 .rs-radio-row.active {
-  border-color: var(--lime, #6FB572);
-  background: var(--panel-2, #1A1A18);
+  border-color: var(--lime);
+  background: var(--panel-2);
 }
 .rs-radio-row.active .rs-radio-name {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 
 /* Section label · matches the new composer's mono micro-type kicker.
@@ -548,7 +567,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin-bottom: 7px;
   display: flex;
   align-items: center;
@@ -556,11 +575,11 @@
 }
 .rs-label .count {
   margin-left: auto;
-  font-size: 8.5px;
-  color: var(--text-faint, #3A382F);
+  font-size: 8px;
+  color: var(--text-faint);
   letter-spacing: 0.1em;
   font-weight: 600;
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  border: 0.5px solid var(--line-bright);
   padding: 1px 6px;
   text-transform: lowercase;
   border-radius: 2px;
@@ -571,16 +590,16 @@
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-soft, #8E8B83);
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  color: var(--text-soft);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   padding: 8px 11px;
   letter-spacing: -0.003em;
   border-radius: 3px;
 }
 .rs-topic::before {
   content: "> ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 
@@ -594,8 +613,8 @@
   flex-direction: column;
   max-height: 380px;
   overflow-y: auto;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
   border-radius: 3px;
   padding: 2px 0;
 }
@@ -603,10 +622,10 @@
 .rs-members::-webkit-scrollbar-thumb { background: var(--line-strong); }
 
 .rs-member-section-label {
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin: 6px 0 3px;
   font-weight: 700;
 }
@@ -626,15 +645,16 @@
   text-align: left;
   transition: background 0.1s;
 }
-.rs-member:hover { background: var(--panel-2, #1A1A18); }
-.rs-member.on { background: var(--panel-3, #21211E); }
-.rs-member.on .rs-member-name { color: var(--lime, #6FB572); }
+.rs-member:hover { background: var(--panel-2); }
+.rs-member.on { background: var(--panel-3); }
+.rs-member.on .rs-member-name { color: var(--lime); }
 
+/* Director picker checkbox · 12 × 12 to fit the dense member-row
+   grid. Visual treatment comes from the global checkbox rule
+   in index.html; only the size override lives here. */
 .rs-member-check {
   margin: 0;
   width: 12px; height: 12px;
-  accent-color: var(--lime, #6FB572);
-  cursor: pointer;
 }
 
 .rs-member-img {
@@ -642,12 +662,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   cursor: pointer;
   transition: border-color 0.12s;
 }
-.rs-member-img:hover { border-color: var(--lime, #6FB572); }
+.rs-member-img:hover { border-color: var(--lime); }
 .rs-member-av {
   width: 100%;
   height: 100%;
@@ -663,8 +683,8 @@
 }
 .rs-member-name {
   font-family: var(--font-human);
-  font-size: 12.5px;
-  color: var(--text, #C8C5BE);
+  font-size: 12px;
+  color: var(--text);
   letter-spacing: -0.005em;
   white-space: nowrap;
   overflow: hidden;
@@ -672,13 +692,13 @@
 }
 .rs-member-tag {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   /* Was text-faint · same readability problem as
      `.composer-pick-tag` — bumped to text-dim so the role label
      (skeptic / physicist / …) is actually legible. */
-  color: var(--text-dim, #5C5A52);
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -686,21 +706,21 @@
 
 .rs-member-model {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: 8px;
   letter-spacing: 0.04em;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   padding: 1px 5px;
-  border: 0.5px solid var(--line, #1F1E1A);
-  background: var(--panel-2, #1A1A18);
+  border: 0.5px solid var(--line);
+  background: var(--panel-2);
   white-space: nowrap;
   border-radius: 2px;
 }
 
 .rs-member-info {
   width: 16px; height: 16px;
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  border: 0.5px solid var(--line-bright);
   background: transparent;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-family: var(--font-human);
   font-style: italic;
   font-size: 9px;
@@ -714,15 +734,15 @@
   border-radius: 2px;
 }
 .rs-member-info:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 .rs-empty {
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-size: 11px;
   padding: 8px 10px;
-  border: 0.5px dashed var(--line-bright, #2A2A26);
+  border: 0.5px dashed var(--line-bright);
   font-family: var(--mono);
   letter-spacing: 0.06em;
 }
@@ -732,8 +752,8 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-bright);
+  background: var(--bg);
   max-height: 160px;
   overflow-y: auto;
   border-radius: 3px;
@@ -746,7 +766,7 @@
   padding: 4px 9px;
   font-family: var(--mono);
   font-size: 10px;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   letter-spacing: -0.003em;
 }
 .rs-history-row + .rs-history-row {
@@ -754,31 +774,31 @@
 }
 .rs-history-row .h-time {
   font-size: 9px;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .rs-history-row .h-icon {
   font-weight: 700;
   text-align: center;
-  font-size: 10.5px;
+  font-size: 10px;
 }
 .rs-history-row .h-label {
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .rs-history-row .h-who {
-  font-size: 8.5px;
-  color: var(--text-faint, #3A382F);
+  font-size: 8px;
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-weight: 600;
 }
-.rs-history-row.h-add    .h-icon { color: var(--lime, #6FB572); }
-.rs-history-row.h-remove .h-icon { color: var(--red, #B5706A); }
-.rs-history-row.h-config .h-icon { color: var(--amber, #B59560); }
-.rs-history-row.h-system .h-icon { color: var(--text-dim, #5C5A52); }
+.rs-history-row.h-add    .h-icon { color: var(--lime); }
+.rs-history-row.h-remove .h-icon { color: var(--red); }
+.rs-history-row.h-config .h-icon { color: var(--amber); }
+.rs-history-row.h-system .h-icon { color: var(--text-dim); }
 
 /* Configuration block */
 .rs-config-grid {
@@ -789,8 +809,8 @@
 @media (max-width: 600px) { .rs-config-grid { grid-template-columns: 1fr; } }
 
 .rs-config-item {
-  background: var(--bg, #0A0A0A);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
   padding: 7px 9px;
   border-radius: 3px;
 }
@@ -811,10 +831,11 @@
   transition: border-color 0.12s, background 0.12s;
 }
 .rs-incognito-row:hover { border-color: var(--text-faint); }
+/* Standalone incognito row · 2 px top margin to optically align
+   the checkbox with the title text's first line. Visual treatment
+   handled by the global checkbox rule. */
 .rs-incognito-check {
   margin: 2px 0 0;
-  accent-color: var(--lime);
-  cursor: pointer;
 }
 .rs-incognito-text {
   display: flex;
@@ -829,7 +850,7 @@
   letter-spacing: -0.005em;
 }
 .rs-incognito-desc {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-faint);
   line-height: 1.4;
 }
@@ -842,11 +863,11 @@
   color: var(--lime);
 }
 .rs-config-item-label {
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   margin-bottom: 5px;
   display: flex;
   justify-content: space-between;
@@ -872,20 +893,20 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  background: var(--line-bright, #2A2A26);
-  border: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--line-bright);
+  border: 0.5px solid var(--line-bright);
   border-radius: 3px;
   overflow: hidden;
 }
 .rs-stat {
-  background: var(--panel, #131312);
+  background: var(--panel);
   padding: 7px 8px;
   text-align: center;
 }
 .rs-stat .v {
   font-family: var(--mono);
-  font-size: 14.5px;
-  color: var(--lime, #6FB572);
+  font-size: 14px;
+  color: var(--lime);
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1;
@@ -894,7 +915,7 @@
   font-size: 8px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   margin-top: 3px;
   font-weight: 700;
 }
@@ -902,9 +923,9 @@
 
 /* Footer actions */
 .rs-foot {
-  border-top: 0.5px solid var(--line-bright, #2A2A26);
+  border-top: 0.5px solid var(--line-bright);
   padding: 9px 16px;
-  background: var(--panel-2, #1A1A18);
+  background: var(--panel-2);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -913,7 +934,7 @@
 .rs-foot .saved {
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--text-faint, #5C5A52);
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-weight: 700;
@@ -922,11 +943,11 @@
   content: "○ ";
 }
 .rs-foot .saved.pending {
-  color: var(--amber, #B59560);
+  color: var(--amber);
   animation: rs-pending-pulse 1.4s ease-in-out infinite;
 }
 .rs-foot .saved.pending::before { content: "● "; }
-.rs-foot .saved.error { color: var(--red, #B5706A); animation: none; }
+.rs-foot .saved.error { color: var(--red); animation: none; }
 .rs-foot .saved.error::before { content: "✕ "; }
 @keyframes rs-pending-pulse {
   0%, 100% { opacity: 0.7; }
@@ -936,59 +957,192 @@
 .rs-action {
   text-decoration: none;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   padding: 6px 11px;
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  border: 0.5px solid var(--line-strong);
   background: transparent;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.12s;
 }
-.rs-action:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+.rs-action:hover { border-color: var(--lime); color: var(--lime); }
 /* Confirm button picks up a primary-action treatment when there are
    staged changes, so the user knows the action is live. */
 .rs-action.dirty {
-  background: var(--lime, #6FB572);
-  color: var(--bg, #0A0A0A);
-  border-color: var(--lime, #6FB572);
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
 }
 .rs-action.dirty:hover {
   background: transparent;
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 .rs-action[disabled] { opacity: 0.55; cursor: progress; pointer-events: none; }
-.rs-action.danger { color: var(--red, #B5706A); border-color: rgba(181, 112, 106, 0.4); }
-.rs-action.danger:hover { background: var(--red, #B5706A); color: var(--bg, #0A0A0A); border-color: var(--red, #B5706A); }
+.rs-action.danger { color: var(--red); border-color: rgba(181, 112, 106, 0.4); }
+.rs-action.danger:hover { background: var(--red); color: var(--bg); border-color: var(--red); }
 
-/* Icon-only buttons in the room-head action bar · sized to match
-   the avatar / cast-count tile (22px tall) so the whole right-side
-   toolbar lands on a single line at the new compact header height. */
+/* Icon-only buttons in the room-head action bar · borderless mask-icon
+   register matching the sidebar nav buttons (.new-btn.nav-*). Sized at
+   26×26 with a 16×16 currentColor glyph so the toolbar reads as one
+   consistent icon vocabulary across the app — the user's intent for the
+   adjourned-room header. */
 .head-icon-btn,
 .room-settings-trigger {
-  width: 24px;
-  height: 22px;
+  position: relative;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   background: transparent;
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  color: var(--text-soft, #8E8B83);
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1;
+  border: none;
+  color: var(--text-soft);
   cursor: pointer;
   text-decoration: none;
-  transition: all 0.12s;
+  transition: color 0.12s, background 0.12s;
+}
+.head-icon-btn::before,
+.room-settings-trigger::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon, none);
+          mask-image: var(--icon, none);
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 16px 16px;
+          mask-size: 16px 16px;
 }
 .head-icon-btn:hover,
 .room-settings-trigger:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  color: var(--lime);
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+}
+/* Hover-name tooltip · mirrors `.ib-action::after`'s register (panel-2
+   surface, mono micro-type, ~300ms reveal). Anchored BELOW the icon
+   since the head sits at the top of the room — flipping above would
+   clip against the window edge. Anchored to the RIGHT edge of the icon
+   (extending leftward) because the head-actions cluster sits flush
+   against the window's right edge — a centred tooltip's right half
+   would be clipped (especially the rightmost icon, `.head-settings`).
+   The full tip can be 200+px wide; the room header has plenty of room
+   to the left, none to the right. */
+.head-icon-btn::after,
+.room-settings-trigger::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform: translateY(-3px);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong);
+  padding: 5px 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.18s;
+  z-index: 50;
+}
+.head-icon-btn:hover::after,
+.head-icon-btn:focus-visible::after,
+.room-settings-trigger:hover::after,
+.room-settings-trigger:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.14s ease 0.3s, transform 0.14s ease 0.3s, visibility 0s linear 0.3s;
+}
+/* Suppress the empty-data-tip case · without this an icon without a
+   `data-tip` attr still renders an empty 0-padding bubble on hover. */
+.head-icon-btn:not([data-tip])::after,
+.room-settings-trigger:not([data-tip])::after { content: none; }
+/* Settings · Lucide settings (cog with rounded teeth + centre disc). */
+.head-settings,
+.room-settings-trigger {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/><circle cx='12' cy='12' r='3'/></svg>");
+}
+/* View Report · Lucide FileText (document with three text lines) —
+   matches the sidebar's "All Reports" icon so the header icon shares
+   the same visual vocabulary as the cross-room report index.
+   Inherits the shared text-soft → lime-on-hover register from
+   `.head-icon-btn`; no per-state colour override here. */
+.head-view-report {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>");
+}
+/* Pending state · brief still streaming. Pulse the icon's opacity so
+   the user reads "working on it" without a separate spinner. */
+.head-view-report.is-generating {
+  color: var(--text-faint);
+  cursor: progress;
+  pointer-events: none;
+}
+.head-view-report.is-generating::before {
+  animation: head-icon-pulse 1.6s ease-in-out infinite;
+}
+@keyframes head-icon-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+/* Generate-Report variant · adjourned room with no brief yet. The
+   primary CTA-ness moves to the icon's color tone (lime) — same
+   tactic as the sidebar's `.new-btn.active` lime state. */
+.head-view-report.is-generate {
+  color: var(--lime);
+}
+/* Count chip for multi-brief popover trigger · pinned to the icon's
+   top-right corner so the user sees "there's more than one report"
+   without taking horizontal space. Mono pill, same micro-tag register
+   as the sidebar .nav-count. */
+.head-view-report .head-icon-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 14px;
+  height: 13px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--bg);
+  background: var(--lime);
+  border-radius: 7px;
+  pointer-events: none;
+}
+/* Convene Follow-up · identical glyph to the input-bar's `.ib-followup`
+   so the head icon and the bottom-bar icon read as the same action. */
+.head-followup {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11 L3 6 Q3 4 5 4 L11 4'/><polyline points='8.5,2 11,4 8.5,6'/></svg>");
+}
+/* Adjourn · identical glyph to the input-bar's `.ib-adjourn` (Lucide
+   log-out: door + arrow exit). The head and input-bar icons share the
+   action vocabulary so the user reads them as the same control. */
+.head-adjourn {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><polyline points='16 17 21 12 16 7'/><line x1='21' x2='9' y1='12' y2='12'/></svg>");
+}
+/* Divergence report · identical glyph to the input-bar's
+   `.ib-divergence` (four-corner nodes branching from a centre node).
+   Visible across all room states (live / paused / adjourned), same as
+   the input-bar version. */
+.head-divergence {
+  --icon: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.5" y1="7.5" x2="10.5" y2="10.5"/><line x1="16.5" y1="7.5" x2="13.5" y2="10.5"/><line x1="7.5" y1="16.5" x2="10.5" y2="13.5"/><line x1="16.5" y1="16.5" x2="13.5" y2="13.5"/></svg>');
 }
 
 @media (max-width: 600px) {
@@ -998,3 +1152,166 @@
   .rs-foot { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
   .rs-foot > * { text-align: center; }
 }
+
+/* ─── Divergence report panel (Layer 3.1 + Layer 4) ──────────────
+   Read-only block · topic branches above, behavioural-cell coverage
+   below. Sits at the bottom of the config column so it doesn't push
+   the editable controls below the fold. Spans both grid columns so
+   the topic-map list + histograms get full width to breathe. */
+.rs-diversity-row {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  padding-top: 14px;
+}
+.rs-diversity-row .rs-config-row-label {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rs-diversity-body { width: 100%; }
+.rs-diversity-loading {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 6px 0;
+}
+.rs-diversity-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rs-diversity-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Topic map · branch list */
+.rs-branch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rs-branch-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr max-content;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 8px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+}
+.rs-branch-bar {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: color-mix(in srgb, var(--lime) 12%, transparent);
+  pointer-events: none;
+}
+.rs-branch-label {
+  position: relative;
+  z-index: 1;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rs-branch-count {
+  position: relative;
+  z-index: 1;
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.rs-branch-hot .rs-branch-bar { background: color-mix(in srgb, var(--lime) 22%, transparent); }
+.rs-branch-warm .rs-branch-bar { background: color-mix(in srgb, var(--lime) 14%, transparent); }
+.rs-branch-cool .rs-branch-bar { background: color-mix(in srgb, var(--lime) 6%, transparent); }
+.rs-branch-empty {
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  padding: 6px 0;
+}
+
+/* Coverage KPI */
+.rs-coverage-kpi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0 6px;
+  font-family: var(--mono);
+}
+.rs-coverage-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--lime);
+  letter-spacing: -0.02em;
+}
+.rs-coverage-sep { font-size: 16px; color: var(--text-dim); }
+.rs-coverage-total {
+  font-size: 14px;
+  color: var(--text-soft);
+  letter-spacing: -0.01em;
+}
+.rs-coverage-pct {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.rs-coverage-scored {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+/* Per-axis bucket histograms */
+.rs-hist-row {
+  display: grid;
+  grid-template-columns: 78px max-content 1fr max-content;
+  align-items: end;
+  gap: 8px;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.rs-hist-label {
+  color: var(--text-soft);
+  text-transform: uppercase;
+}
+.rs-hist-axis { white-space: nowrap; }
+.rs-hist-axis-right { text-align: right; }
+.rs-hist-cells {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 30px;
+  padding: 0 6px;
+}
+.rs-hist-cell {
+  flex: 1 1 0;
+  min-width: 6px;
+  background: var(--line);
+  display: block;
+}
+.rs-hist-cell-filled { background: var(--lime); }
+.rs-hist-cell-empty { background: color-mix(in srgb, var(--text-faint) 35%, transparent); }
+

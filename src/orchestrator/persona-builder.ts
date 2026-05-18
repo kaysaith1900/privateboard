@@ -55,6 +55,7 @@ import {
   updatePersonaJob,
 } from "../storage/persona-jobs.js";
 import type {
+  PersonaBuildLog,
   PersonaEvalEntry,
   PersonaFewShot,
   PersonaKnowledge,
@@ -64,7 +65,8 @@ import type {
   PersonaSpecCore,
 } from "../storage/agents.js";
 
-import { personaBus } from "./persona-stream.js";
+import { personaBus, type BuildEvent } from "./persona-stream.js";
+import { runPersonaNarrator } from "./persona-narrator.js";
 
 /* ─────────── Caps · derived from the plan §8 ─────────── */
 
@@ -117,10 +119,32 @@ const RAW_SOURCES_SYNTH_CAP = 80_000;
 interface PersonaJobState {
   id: string;
   description: string;
+  /** Locale to write the narrator's pitch summary in. Passed from the
+   *  composer-side `locale` body field on `/generate-persona`. Falls
+   *  back to "en" if not supplied. The narrative is generated once at
+   *  build-end; the agent profile renders it as-is and never
+   *  re-translates. */
+  locale: "en" | "zh" | "ja" | "es";
   startedAt: number;
   controller: AbortController;
   promptTokens: number;
   outputTokens: number;
+  /** Cumulative tokens billed across the WHOLE build. The existing
+   *  `promptTokens` / `outputTokens` get reset to zero at every phase
+   *  boundary (so the DB ADD-semantics counter doesn't double-count);
+   *  this carries the true grand total for the build-log footer. */
+  totalPromptTokens: number;
+  totalOutputTokens: number;
+  /** Append-only timeline · every meaningful event the build produced.
+   *  Mirrored from the `personaBus.emit` sites via `recordEvent` so
+   *  the narrative pass + saved build log can render what happened
+   *  long after the SSE stream is gone. Cleaned of progress noise
+   *  (we don't push every `persona-phase-progress` event — only phase
+   *  boundaries, dimension plans, searches, divergence scores). */
+  buildEvents: BuildEvent[];
+  /** Per-phase start timestamp · used to compute the `durationMs` on
+   *  the matching `phase-end` event. Keyed by phase number. */
+  phaseStartedAt: Map<number, number>;
   /** Phase-2 audit log of search rounds the planner has already run.
    *  Used both for dedup (reject repeated normalised queries) and for
    *  the top-up planner's prompt (it sees what the dimension batch
@@ -186,8 +210,12 @@ function signalWithTimeout(
  *  totals to the job row so the eventual save can flush them via
  *  `incrementAgentTokens(newAgentId, total)`. */
 function bumpTokens(state: PersonaJobState, prompt: number, output: number): boolean {
-  state.promptTokens += Math.max(0, prompt | 0);
-  state.outputTokens += Math.max(0, output | 0);
+  const p = Math.max(0, prompt | 0);
+  const o = Math.max(0, output | 0);
+  state.promptTokens += p;
+  state.outputTokens += o;
+  state.totalPromptTokens += p;
+  state.totalOutputTokens += o;
   // Defer the DB write until phase boundary · we update_at-bump on
   // every increment otherwise (write amplification). The phase-end
   // helper flushes both counters at once via `addPromptTokens` /
@@ -275,21 +303,26 @@ function extractJson<T>(raw: string): T | null {
  *  state, returns the jobId immediately, runs the pipeline async.
  *  Caller (the route) opens an SSE stream with the jobId to receive
  *  progress events. */
-export function startPersonaBuild(opts: { description: string }): string {
+export function startPersonaBuild(opts: { description: string; locale?: "en" | "zh" | "ja" | "es" }): string {
   const description = opts.description.trim();
   const jobId = randomUUID();
   createPersonaJob({ id: jobId, description });
   const state: PersonaJobState = {
     id: jobId,
     description,
+    locale: opts.locale ?? "en",
     startedAt: Date.now(),
     controller: new AbortController(),
     promptTokens: 0,
     outputTokens: 0,
+    totalPromptTokens: 0,
+    totalOutputTokens: 0,
     searchRounds: [],
     dimensionPlan: [],
     rawSourcesByDim: new Map<string, string>(),
     rawSourcesTopup: [],
+    buildEvents: [],
+    phaseStartedAt: new Map<number, number>(),
   };
   inFlightJobs.set(jobId, state);
   // Wall-clock kill · separate from per-call timeouts because the
@@ -346,6 +379,12 @@ interface PartialBuild {
    *  Optional · the route layer falls back to a seed-words heuristic
    *  when missing (e.g. resumed jobs from before this pass existed). */
   guessName?: string;
+  /** Snapshot of the build's structured event log + (eventually) the
+   *  narrator's pitch summary. Mirrored into `partial_json` on every
+   *  phase boundary so the SSE replay path can hydrate the build-log
+   *  preview before save; populated with `narrative` after phase 7's
+   *  narrator pass completes. */
+  buildLog?: PersonaBuildLog;
 }
 
 async function runPipeline(state: PersonaJobState): Promise<void> {
@@ -364,19 +403,50 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
 
   let progressBaselinePct = 0;
 
+  const recordEvent = (ev: BuildEvent): void => {
+    state.buildEvents.push(ev);
+  };
+
+  /** Snapshot the structured event log onto `partial.buildLog` so the
+   *  next `partialToPersona(partial)` / `updatePersonaJob` write
+   *  preserves it across a server restart. Narrator's `narrative`
+   *  stays empty until phase 7's post-pipeline narrator pass fills
+   *  it in — until then the modal would render the timeline only. */
+  const syncBuildLogSnapshot = (): void => {
+    partial.buildLog = {
+      narrative: partial.buildLog?.narrative ?? "",
+      locale: state.locale,
+      generatedAt: partial.buildLog?.generatedAt ?? 0,
+      events: state.buildEvents.slice(),
+      totalTokens: state.totalPromptTokens + state.totalOutputTokens,
+    };
+  };
+
   const startPhase = (phase: number): void => {
     const i = phase - 1;
+    const now = Date.now();
+    state.phaseStartedAt.set(phase, now);
     personaBus.emit(state.id, {
       type: "persona-phase-start",
       phase,
       label: phaseLabels[i],
       etaSec: phaseEtas[i],
     });
+    recordEvent({ kind: "phase-start", ts: now, phase, label: phaseLabels[i] });
   };
 
   const finishPhase = (phase: number): number => {
     const i = phase - 1;
     progressBaselinePct = Math.round(((phaseEtas.slice(0, i + 1).reduce((a, b) => a + b, 0)) / totalEta) * 100);
+    const startedAt = state.phaseStartedAt.get(phase) ?? Date.now();
+    const finishedAt = Date.now();
+    recordEvent({
+      kind: "phase-end",
+      ts: finishedAt,
+      phase,
+      durationMs: Math.max(0, finishedAt - startedAt),
+    });
+    syncBuildLogSnapshot();
     personaBus.emit(state.id, {
       type: "persona-phase-end",
       phase,
@@ -536,6 +606,11 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
       partial.differentiationScore = valid.length > 0
         ? valid.reduce((a, b) => a + b, 0) / valid.length
         : null;
+      state.buildEvents.push({
+        kind: "divergence",
+        ts: Date.now(),
+        score: partial.differentiationScore,
+      });
     }
     // Tool access · derive from spec · webSearch ON if the persona
     // has an empirical / referent-set leaning OR if the user already
@@ -548,6 +623,39 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
     // we don't pay an extra phase-row in the UI for a 5-second call.
     reportProgress(7, "naming the director", 0.85);
     partial.guessName = await runNamePhase(state, partial.profileV2!) || undefined;
+    // Narrator · the last thing phase 7 does. Writes a 200-400 word
+    // pitch-style summary of the build in the user's locale, which
+    // anchors the Build-log modal on the agent profile. Non-fatal:
+    // on failure the narrative stays empty and the timeline still
+    // renders. Sits inside phase 7's progress slice so the UI gets
+    // one more sub-step indicator before the terminal event.
+    reportProgress(7, "summarising the build", 0.92);
+    try {
+      const narrative = await runPersonaNarrator(state, {
+        description: state.description,
+        locale: state.locale,
+        events: state.buildEvents,
+        profileV2: partial.profileV2 ?? null,
+        differentiationScore: partial.differentiationScore ?? null,
+        guessName: partial.guessName ?? null,
+      });
+      partial.buildLog = {
+        narrative: narrative || "",
+        locale: state.locale,
+        generatedAt: Date.now(),
+        events: state.buildEvents.slice(),
+        totalTokens: state.totalPromptTokens + state.totalOutputTokens,
+      };
+    } catch (e) {
+      process.stderr.write(`[persona-builder/narrator] failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      partial.buildLog = {
+        narrative: "",
+        locale: state.locale,
+        generatedAt: Date.now(),
+        events: state.buildEvents.slice(),
+        totalTokens: state.totalPromptTokens + state.totalOutputTokens,
+      };
+    }
     finishPhase(7);
     {
       const status = checkAbortOrCap();
@@ -661,6 +769,11 @@ async function runReActLoop(
   personaBus.emit(state.id, {
     type: "persona-dimension-plan",
     dimensions: plan.slice(),
+  });
+  state.buildEvents.push({
+    kind: "dimension-plan",
+    ts: Date.now(),
+    dimensions: plan.map((d) => ({ dimension: d.dimension, query: d.query, why: d.why })),
   });
   reportProgress(2, `${plan.length} angles picked · searching in parallel`, 0.05);
 
@@ -792,6 +905,15 @@ async function runReActLoop(
       resultsCount: resultsArr.length,
       pagesRead: pageExtracts.filter((e) => e.ok).length,
       phase: "topup",
+    });
+    state.buildEvents.push({
+      kind: "search",
+      ts: Date.now(),
+      query,
+      resultsCount: resultsArr.length,
+      pagesRead: pageExtracts.filter((e) => e.ok).length,
+      round: roundNum,
+      topup: true,
     });
   }
 
@@ -944,6 +1066,15 @@ async function runDimensionSearch(
     pagesRead: pageCount,
     dimension: entry.dimension,
     phase: "dimension",
+  });
+  state.buildEvents.push({
+    kind: "search",
+    ts: Date.now(),
+    query: entry.query,
+    resultsCount: resultsArr.length,
+    pagesRead: pageCount,
+    dimension: entry.dimension,
+    round: roundNum,
   });
 }
 
@@ -1235,6 +1366,7 @@ function partialToPersona(partial: PartialBuild): PersonaSpec {
     differentiationScore: partial.differentiationScore ?? null,
     toolAccess: partial.toolAccess || { webSearch: false },
     ...(partial.guessName ? { guessName: partial.guessName } : {}),
+    ...(partial.buildLog ? { buildLog: partial.buildLog } : {}),
   };
 }
 
@@ -1262,5 +1394,6 @@ export function getPartialPersona(jobId: string): PersonaSpec | null {
     differentiationScore: typeof v.differentiationScore === "number" ? v.differentiationScore : null,
     toolAccess: v.toolAccess || { webSearch: false },
     ...(typeof v.guessName === "string" && v.guessName ? { guessName: v.guessName } : {}),
+    ...(v.buildLog ? { buildLog: v.buildLog } : {}),
   };
 }

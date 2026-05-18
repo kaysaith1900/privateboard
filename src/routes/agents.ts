@@ -390,7 +390,7 @@ export function agentsRouter(): Hono {
     catch { return c.json({ error: "invalid JSON body" }, 400); }
     const b = (body ?? {}) as { description?: unknown; webSearch?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
-    if (description.length < 4) {
+    if (description.length < 2) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
     }
     if (description.length > 1200) {
@@ -506,15 +506,18 @@ export function agentsRouter(): Hono {
     let body: unknown;
     try { body = await c.req.json(); }
     catch { return c.json({ error: "invalid JSON body" }, 400); }
-    const b = (body ?? {}) as { description?: unknown };
+    const b = (body ?? {}) as { description?: unknown; locale?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
-    if (description.length < 4) {
+    if (description.length < 2) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
     }
     if (description.length > 1200) {
       return c.json({ error: "description too long (max 1200 chars)" }, 400);
     }
-    const jobId = startPersonaBuild({ description });
+    const localeRaw = typeof b.locale === "string" ? b.locale : "";
+    const locale: "en" | "zh" | "ja" | "es" =
+      localeRaw === "zh" || localeRaw === "ja" || localeRaw === "es" ? localeRaw : "en";
+    const jobId = startPersonaBuild({ description, locale });
     return c.json({ jobId });
   });
 
@@ -866,7 +869,7 @@ export function agentsRouter(): Hono {
     const patch: {
       avatarPath?: string;
       modelV?: string;
-      carrierPref?: "openrouter" | "anthropic" | "openai" | "google" | "xai" | null;
+      carrierPref?: "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | null;
       bio?: string;
       webSearchEnabled?: boolean;
       voice?: {
@@ -915,11 +918,11 @@ export function agentsRouter(): Hono {
         patch.carrierPref = null;
       } else if (typeof b.carrierPref === "string") {
         const v = b.carrierPref.trim();
-        const allowed = new Set(["openrouter", "anthropic", "openai", "google", "xai"]);
+        const allowed = new Set(["openrouter", "bai", "anthropic", "openai", "google", "xai"]);
         if (!allowed.has(v)) {
           return c.json({ error: `unknown carrier: ${v}` }, 400);
         }
-        patch.carrierPref = v as "openrouter" | "anthropic" | "openai" | "google" | "xai";
+        patch.carrierPref = v as "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
       }
     }
 
@@ -953,6 +956,15 @@ export function agentsRouter(): Hono {
           ...(typeof v.speed === "number" ? { speed: v.speed } : {}),
           ...(typeof v.pitch === "number" ? { pitch: v.pitch } : {}),
           ...(typeof v.volume === "number" ? { volume: v.volume } : {}),
+          // Emotion + voice_modify fine-tuning fields. Previously these
+          // were dropped at the route layer, so the agent-profile UI
+          // could call PATCH /api/agents/:id with `voice.emotion` set
+          // and the server would persist the voice WITHOUT the emotion,
+          // making it look like the setting failed to save.
+          ...(typeof v.emotion === "string" ? { emotion: v.emotion } : {}),
+          ...(typeof v.modifyPitch === "number" ? { modifyPitch: v.modifyPitch } : {}),
+          ...(typeof v.modifyIntensity === "number" ? { modifyIntensity: v.modifyIntensity } : {}),
+          ...(typeof v.modifyTimbre === "number" ? { modifyTimbre: v.modifyTimbre } : {}),
           ...(typeof v.instructions === "string" ? { instructions: v.instructions } : {}),
         };
       }

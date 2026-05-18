@@ -16,24 +16,22 @@
    *  a key isn't in the table (registry updates lag this map). */
   const MODEL_LABELS = {
     "opus-4-7":         { name: "Claude Opus 4.7",       provider: "Anthropic" },
-    "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "sonnet-4-6":       { name: "Claude Sonnet 4.6",     provider: "Anthropic" },
-    "opus-4-6":         { name: "Claude Opus 4.6",       provider: "Anthropic" },
     "opus-4-6-fast":    { name: "Claude Opus 4.6 Fast",  provider: "Anthropic" },
     "haiku-4-5":        { name: "Claude Haiku 4.5",      provider: "Anthropic" },
     "gpt-5-5":          { name: "GPT-5.5",                provider: "OpenAI"    },
     "gpt-5-4":          { name: "GPT-5.4",                provider: "OpenAI"    },
     "gpt-5-4-mini":     { name: "GPT-5.4 Mini",           provider: "OpenAI"    },
-    "gpt-5-5-pro":      { name: "GPT-5.5 Pro",            provider: "OpenAI"    },
     "codex-5-4":        { name: "ChatGPT Codex 5.4",      provider: "OpenAI"    },
     "gemini-3-1":       { name: "Gemini 3.1 Pro",         provider: "Google"    },
     "gemini-3-flash":   { name: "Gemini 3 Flash",         provider: "Google"    },
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  provider: "Google"    },
-    "grok-4-3":         { name: "Grok 4.3",                provider: "xAI"       },
-    "grok-4-1-fast":    { name: "Grok 4.1 Fast",           provider: "xAI"       },
-    "grok-4-20":        { name: "Grok 4.20",               provider: "xAI"       },
     "deepseek-v4-pro":  { name: "DeepSeek V4 Pro",         provider: "DeepSeek"  },
     "deepseek-v4-flash": { name: "DeepSeek Lite",          provider: "DeepSeek"  },
+    "glm-5-1":          { name: "GLM 5.1",                 provider: "Zhipu"     },
+    "kimi-k2-6":        { name: "Kimi K2.6",               provider: "Moonshot"  },
+    "minimax-m2-7":     { name: "MiniMax M2.7",            provider: "MiniMax"   },
+    "minimax-m2-5":     { name: "MiniMax M2.5",            provider: "MiniMax"   },
   };
 
   const AGENT_CATALOG = {
@@ -236,6 +234,11 @@
             <div class="agent-traits"></div>
           </div>
 
+          <div class="agent-block agent-voice-block private-only">
+            <div class="agent-block-label" data-i18n="ap_voice_section">Voice Setup</div>
+            <div data-agent-voice-slot></div>
+          </div>
+
           <div class="agent-block private-only">
             <div class="agent-block-label">
               <span data-i18n="ao_memory_room">In-Room Memory</span>
@@ -267,7 +270,6 @@
         <footer class="agent-card-foot">
           <div class="meta private-only"><span data-i18n="ao_tenure_meta">tenure ·</span> <span class="lime agent-tenure"></span></div>
           <div class="meta public-only"><span data-i18n="ao_first_room_meta">first room ·</span> <span class="lime" data-i18n="ao_free">free</span></div>
-          <a href="/#convene" class="agent-card-cta private-only" data-i18n="ao_convene_cta">[ ◆ Convene with them ]</a>
           <a href="/#convene" class="agent-card-cta public-only" data-i18n="ao_signin_cta">[ → Sign in to convene ]</a>
         </footer>
       </div>
@@ -408,6 +410,16 @@
 
       card.querySelector(".agent-traits").innerHTML = (a.traits || [])
         .map((t) => `<span class="agent-trait">${t}</span>`).join("");
+
+      // Voice config block · reuses agent-profile.js's `renderVoiceBlock`
+      // so the locked-state CTA, picker, emotion + sliders all read
+      // identically to the full profile page. The block is private-only
+      // (hidden by CSS in `.public` overlay mode) and only mounts when
+      // both the AgentProfileVoice surface AND window.app are present
+      // (the landing-page overlay has neither, so the slot stays empty).
+      // All change handlers are document-level in agent-profile.js so
+      // events from the overlay's mount fire the same code paths.
+      renderVoiceSlot(slug);
 
       // In-room notes — what THIS agent has said in the current room,
       // styled like the live-notes panel: timestamp + tag + claim/obs.
@@ -576,6 +588,37 @@
       document.body.style.overflow = "";
     }
 
+    // Public surface · other modules (e.g. agent-profile.js's voice
+    // unlock CTA) need to dismiss the overlay before opening their
+    // own modal, so we expose `close` and an `isOpen` predicate.
+    window.AgentOverlay = {
+      close,
+      isOpen: () => overlay.classList.contains("open"),
+    };
+
+    /** Populate the voice slot inside the overlay card. Three states:
+     *   - no app surface (landing page) → hide the block entirely
+     *   - has app but no MiniMax/ElevenLabs key → locked CTA (the
+     *     `renderVoiceBlock` helper returns the locked card markup,
+     *     same `data-ap-voice-unlock` button used on the profile page,
+     *     which deep-links to user-settings → keys → minimax)
+     *   - has key → full picker + emotion + sliders, identical to the
+     *     profile page version */
+    function renderVoiceSlot(slug) {
+      const block = card.querySelector(".agent-voice-block");
+      const slot = block?.querySelector("[data-agent-voice-slot]");
+      if (!block || !slot) return;
+      const api = window.AgentProfileVoice;
+      const hasApp = !!window.app;
+      if (!api || typeof api.renderVoiceBlock !== "function" || !hasApp) {
+        block.style.display = "none";
+        slot.innerHTML = "";
+        return;
+      }
+      block.style.display = "";
+      slot.innerHTML = api.renderVoiceBlock(slug);
+    }
+
     document.addEventListener("boardroom:locale", () => {
       if (!overlay.classList.contains("open") || !overlayOpenSlug) return;
       if (window.I18n && typeof window.I18n.applyDom === "function") {
@@ -583,6 +626,9 @@
       }
       renderTrackRecord(overlayOpenSlug);
       renderRoomNotes(overlayOpenSlug);
+      // Voice block carries its own localised copy (locked CTA, emotion
+      // labels, advanced-tuning labels) so it must re-render too.
+      renderVoiceSlot(overlayOpenSlug);
     });
 
     document.addEventListener("click", (e) => {

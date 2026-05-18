@@ -612,9 +612,7 @@
   // /api/agents record (via window.app.agentsById) and resolves it here.
   const MODEL_LABELS = {
     "sonnet-4-6":     { name: "Sonnet 4.6",      deck: "balanced · default" },
-    "opus-4-6":       { name: "Opus 4.6",        deck: "deep reasoning · 1M ctx" },
     "opus-4-7":       { name: "Opus 4.7",        deck: "deep reasoning" },
-    "opus-4-6":       { name: "Opus 4.6",        deck: "prior-gen flagship" },
     "opus-4-6-fast":  { name: "Opus 4.6 Fast",   deck: "faster 4.6 · same intelligence" },
     "haiku-4-5":      { name: "Haiku 4.5",       deck: "fast · low-cost" },
     "gpt-5-5":        { name: "GPT-5.5",         deck: "flagship · 1M ctx" },
@@ -623,13 +621,13 @@
     "gemini-3-1":       { name: "Gemini 3.1 Pro",         deck: "flagship · 1M ctx" },
     "gemini-3-flash":   { name: "Gemini 3 Flash",         deck: "frontier flash · 1M ctx" },
     "gemini-3-1-flash": { name: "Gemini 3.1 Flash Lite",  deck: "fast · 1M ctx" },
-    "grok-4-3":       { name: "Grok 4.3",        deck: "flagship · 1M ctx" },
-    "grok-4-1-fast":  { name: "Grok 4.1 Fast",   deck: "fast · 256k ctx" },
-    "grok-4-20":      { name: "Grok 4.20",       deck: "2M ctx · big context" },
-    "gpt-5-5-pro":    { name: "GPT-5.5 Pro",     deck: "deep reasoning · 1M ctx" },
     "codex-5-4":      { name: "ChatGPT Codex 5.4", deck: "code · agents" },
     "deepseek-v4-pro": { name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
     "deepseek-v4-flash": { name: "DeepSeek Lite", deck: "V4 Flash · fast · 1M ctx" },
+    "glm-5-1":        { name: "GLM 5.1",         deck: "Zhipu flagship · 200k ctx" },
+    "kimi-k2-6":      { name: "Kimi K2.6",       deck: "Moonshot · long-context" },
+    "minimax-m2-7":   { name: "MiniMax M2.7",    deck: "MiniMax flagship · long-context" },
+    "minimax-m2-5":   { name: "MiniMax M2.5",    deck: "MiniMax prior · long-context" },
   };
 
   function liveModelFor(slug) {
@@ -1181,6 +1179,44 @@
         </button>
       </section>`;
   }
+
+  /** Build log card · sibling to the persona dossier. Surfaces a 1-line
+   *  teaser drawn from the narrator's pitch summary plus a CTA that
+   *  opens the build-log modal. Hidden when the agent has no
+   *  `personaSpec.buildLog` (older Full-mode builds without the
+   *  buildLog field; all Signal-mode agents; all seed directors). */
+  function renderBuildLogSection(slug, p) {
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    const spec = live && live.personaSpec ? live.personaSpec : null;
+    const buildLog = spec && spec.buildLog ? spec.buildLog : null;
+    if (!buildLog) return "";
+    const narrative = typeof buildLog.narrative === "string" ? buildLog.narrative : "";
+    // Teaser · first ~160 chars of the narrative or a localised
+    // fallback if the narrator pass came back empty. The narrative is
+    // plain prose so we just trim on the nearest whitespace.
+    let teaser = narrative.trim();
+    if (teaser.length === 0) {
+      teaser = uiT("ap_build_log_teaser_fallback");
+    } else if (teaser.length > 160) {
+      const cut = teaser.slice(0, 160);
+      const lastSpace = cut.lastIndexOf(" ");
+      teaser = (lastSpace > 80 ? cut.slice(0, lastSpace) : cut).trim() + "…";
+    }
+    return `
+      <section class="ap-block ap-buildlog-block">
+        <header class="ap-block-h">
+          <span class="ap-block-h-title">${escape(uiT("ap_build_log"))}</span>
+          <span class="ap-block-h-tag">${escape(uiT("ap_build_log_kicker"))}</span>
+        </header>
+        <button type="button" class="ap-buildlog-card" data-ap-buildlog-open data-slug="${escape(slug)}" aria-label="${escape(uiT("ap_build_log_open"))}">
+          <p class="ap-buildlog-teaser">${escape(teaser)}</p>
+          <div class="ap-buildlog-card-cta">
+            <span class="ap-buildlog-card-cta-label">${escape(uiT("ap_build_log_open_cta"))}</span>
+          </div>
+        </button>
+      </section>`;
+  }
+
   function renderRulesInner(slug) {
     const rules = rulesForAgent(slug);
     const list = rules.length === 0
@@ -1947,6 +1983,199 @@
     }
   }
 
+  /* ─── Build-log overlay ────────────────────────────────
+     Sibling to the persona dossier overlay. Reads the buildLog from
+     window.app.agentsById[slug].personaSpec.buildLog (already on the
+     client — the spec rides the agent payload). Renders:
+       · the narrator's pitch summary (hero block)
+       · a 7-phase timeline rail with per-phase blurbs
+       · dimension-card grid stitched under phase 2 from the
+         `dimension-plan` event + matching `search` events
+       · footer stats: voice-uniqueness · tokens · duration
+     Closed on backdrop click or Escape. */
+  let _buildLogOverlayEsc = null;
+  function openBuildLogOverlay(slug, agentName) {
+    closeBuildLogOverlay();
+    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+    const spec = live && live.personaSpec ? live.personaSpec : null;
+    const buildLog = spec && spec.buildLog ? spec.buildLog : null;
+    if (!buildLog) return; // safety · the entry point is hidden in this case anyway
+
+    const overlay = document.createElement("div");
+    overlay.id = "ap-buildlog-overlay";
+    overlay.className = "ap-buildlog-overlay";
+    overlay.innerHTML = `
+      <div class="ap-buildlog-overlay-backdrop" data-ap-buildlog-close></div>
+      <div class="ap-buildlog-overlay-modal" role="dialog" aria-modal="true" aria-label="${escape(uiT("ap_build_log"))}">
+        <div class="ap-buildlog-overlay-classification">
+          <span><span class="dot">●</span> ${escape(uiT("ap_build_log_kicker"))}</span>
+          <span class="right">${escape(agentName || "")}</span>
+        </div>
+        <div class="ap-buildlog-overlay-head">
+          <div class="ap-buildlog-overlay-title">${escape(uiT("ap_build_log"))}</div>
+          <div class="ap-buildlog-overlay-actions">
+            <button type="button" class="ap-buildlog-overlay-close" data-ap-buildlog-close aria-label="${escape(uiT("ap_build_close"))}">✕</button>
+          </div>
+        </div>
+        <div class="ap-buildlog-overlay-body">
+          ${renderBuildLogBody(buildLog)}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    document.body.classList.add("ap-buildlog-overlay-open");
+    _buildLogOverlayEsc = (ev) => {
+      if (ev.key === "Escape") {
+        ev.stopImmediatePropagation();
+        closeBuildLogOverlay();
+      }
+    };
+    document.addEventListener("keydown", _buildLogOverlayEsc, true);
+  }
+
+  function closeBuildLogOverlay() {
+    const el = document.getElementById("ap-buildlog-overlay");
+    if (el) el.remove();
+    document.body.classList.remove("ap-buildlog-overlay-open");
+    if (_buildLogOverlayEsc) {
+      document.removeEventListener("keydown", _buildLogOverlayEsc, true);
+      _buildLogOverlayEsc = null;
+    }
+  }
+
+  /** Render the modal body · narrative hero + 7-phase timeline +
+   *  dimension cards under phase 2 + footer stats. Pure HTML string. */
+  function renderBuildLogBody(buildLog) {
+    const events = Array.isArray(buildLog.events) ? buildLog.events : [];
+    const narrative = typeof buildLog.narrative === "string" ? buildLog.narrative.trim() : "";
+
+    // Collect dimensions + searches by walking the event log once.
+    let dimensionPlan = [];
+    const searchesByDim = new Map();
+    const topupSearches = [];
+    const phaseEnd = new Map(); // phase → durationMs
+    let divergenceScore = null;
+    for (const e of events) {
+      if (e.kind === "dimension-plan" && Array.isArray(e.dimensions)) {
+        dimensionPlan = e.dimensions;
+      } else if (e.kind === "search") {
+        if (e.topup) {
+          topupSearches.push(e);
+        } else if (e.dimension) {
+          const cur = searchesByDim.get(e.dimension) || { count: 0, sources: 0, queries: [] };
+          cur.count += 1;
+          cur.sources += (typeof e.pagesRead === "number" ? e.pagesRead : 0);
+          cur.queries.push(e.query);
+          searchesByDim.set(e.dimension, cur);
+        }
+      } else if (e.kind === "phase-end" && typeof e.phase === "number") {
+        phaseEnd.set(e.phase, typeof e.durationMs === "number" ? e.durationMs : 0);
+      } else if (e.kind === "divergence") {
+        divergenceScore = (typeof e.score === "number") ? e.score : null;
+      }
+    }
+
+    // Narrative hero. Empty narrative → show a localised fallback line
+    // so the modal doesn't open with an empty top half.
+    const narrativeHTML = narrative.length > 0
+      ? `<div class="ap-buildlog-narrative">${narrative.split(/\n\n+/).map((p) => `<p>${escape(p.trim())}</p>`).join("")}</div>`
+      : `<div class="ap-buildlog-narrative ap-buildlog-narrative-empty"><p>${escape(uiT("ap_build_log_no_narrative"))}</p></div>`;
+
+    // Timeline · 7 cards. Phase 2 expands to a dimension grid
+    // beneath the card. We render all 7 even if some events are
+    // missing (e.g. aborted-then-resumed builds) — missing phases
+    // just don't show a duration.
+    const phaseCards = [1, 2, 3, 4, 5, 6, 7].map((n) => {
+      const num = String(n).padStart(2, "0");
+      const label = escape(uiT("ap_build_phase_" + n));
+      const blurb = escape(uiT("ap_build_phase_" + n + "_blurb"));
+      const dur = phaseEnd.get(n);
+      const durText = (typeof dur === "number" && dur > 0)
+        ? `<span class="ap-buildlog-phase-dur">${Math.max(1, Math.round(dur / 1000))}s</span>`
+        : "";
+      let extras = "";
+      if (n === 2) {
+        // Dimension grid under the research-phase card.
+        const dimCards = dimensionPlan.map((d) => {
+          const stats = searchesByDim.get(d.dimension) || { sources: 0, count: 0 };
+          const why = d.why ? escape(d.why) : escape(d.query || "");
+          const sources = uiT("ap_build_sources_short", { n: stats.sources });
+          return `
+            <div class="ap-buildlog-dim">
+              <div class="ap-buildlog-dim-name">${escape(d.dimension)}</div>
+              <div class="ap-buildlog-dim-why">${why}</div>
+              <div class="ap-buildlog-dim-stat">${escape(sources)}</div>
+            </div>
+          `;
+        }).join("");
+        const topupBlock = topupSearches.length > 0
+          ? `
+            <div class="ap-buildlog-topup">
+              <div class="ap-buildlog-topup-label">${escape(uiT("ap_build_topup_label"))}</div>
+              <ul class="ap-buildlog-topup-list">
+                ${topupSearches.map((t) => `<li>“${escape(t.query)}” · ${escape(uiT("ap_build_sources_short", { n: typeof t.pagesRead === "number" ? t.pagesRead : 0 }))}</li>`).join("")}
+              </ul>
+            </div>`
+          : "";
+        if (dimensionPlan.length > 0 || topupSearches.length > 0) {
+          extras = `
+            <div class="ap-buildlog-phase-extras">
+              ${dimensionPlan.length > 0 ? `
+                <div class="ap-buildlog-dims-label">${escape(uiT("ap_build_dimensions_label"))}</div>
+                <div class="ap-buildlog-dims-grid">${dimCards}</div>
+              ` : ""}
+              ${topupBlock}
+            </div>
+          `;
+        }
+      }
+      return `
+        <li class="ap-buildlog-phase">
+          <div class="ap-buildlog-phase-head">
+            <span class="ap-buildlog-phase-num">${num}</span>
+            <span class="ap-buildlog-phase-label">${label}</span>
+            ${durText}
+          </div>
+          <p class="ap-buildlog-phase-blurb">${blurb}</p>
+          ${extras}
+        </li>
+      `;
+    }).join("");
+
+    // Footer stats.
+    const totalTokens = typeof buildLog.totalTokens === "number" ? buildLog.totalTokens : 0;
+    const totalDurationMs = Array.from(phaseEnd.values()).reduce((a, b) => a + (typeof b === "number" ? b : 0), 0);
+    const totalDurationSec = Math.round(totalDurationMs / 1000);
+    const divergencePct = (divergenceScore === null || typeof divergenceScore !== "number")
+      ? "—"
+      : (Math.round(divergenceScore * 100) + "%");
+    const tokensFmt = totalTokens > 0 ? totalTokens.toLocaleString() : "—";
+    const durFmt = totalDurationSec > 0
+      ? (totalDurationSec >= 60
+        ? `${Math.floor(totalDurationSec / 60)}m ${totalDurationSec % 60}s`
+        : `${totalDurationSec}s`)
+      : "—";
+
+    return `
+      ${narrativeHTML}
+      <ol class="ap-buildlog-timeline">${phaseCards}</ol>
+      <footer class="ap-buildlog-footer">
+        <div class="ap-buildlog-stat">
+          <div class="ap-buildlog-stat-l">${escape(uiT("ap_build_divergence_label"))}</div>
+          <div class="ap-buildlog-stat-v">${escape(divergencePct)}</div>
+        </div>
+        <div class="ap-buildlog-stat">
+          <div class="ap-buildlog-stat-l">${escape(uiT("ap_build_tokens_label"))}</div>
+          <div class="ap-buildlog-stat-v">${escape(tokensFmt)}</div>
+        </div>
+        <div class="ap-buildlog-stat">
+          <div class="ap-buildlog-stat-l">${escape(uiT("ap_build_duration_label"))}</div>
+          <div class="ap-buildlog-stat-v">${escape(durFmt)}</div>
+        </div>
+      </footer>
+    `;
+  }
+
   /* ─── Profile · ⋯ menu (top-right of the cover) ─────
      Small popover anchored to the menu button with one or more
      actions. v1 ships a single "regenerate 8-bit avatar" item. */
@@ -2117,11 +2346,9 @@
     // Anthropic
     { v: "opus-4-7",        name: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning · default" },
     { v: "sonnet-4-6",      name: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · 1M ctx" },
-    { v: "opus-4-6",        name: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
     { v: "opus-4-6-fast",   name: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
     { v: "haiku-4-5",       name: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },
     // OpenAI
-    { v: "gpt-5-5-pro",     name: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
     { v: "gpt-5-5",         name: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },
     { v: "gpt-5-4",         name: "GPT-5.4",           provider: "OpenAI",    deck: "general · 1M ctx" },
     { v: "gpt-5-4-mini",    name: "GPT-5.4 Mini",      provider: "OpenAI",    deck: "fast · 400k ctx" },
@@ -2129,12 +2356,14 @@
     // Google
     { v: "gemini-3-1",      name: "Gemini 3.1 Pro",    provider: "Google",    deck: "multimodal · 1M ctx" },
     { v: "gemini-3-1-flash",name: "Gemini 3.1 Flash",  provider: "Google",    deck: "fast · 1M ctx" },
-    // xAI
-    { v: "grok-4-3",        name: "Grok 4.3",          provider: "xAI",       deck: "1M ctx" },
-    { v: "grok-4-20",       name: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     // DeepSeek
     { v: "deepseek-v4-pro", name: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
-    { v: "deepseek-v4-flash", name: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" }
+    { v: "deepseek-v4-flash", name: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" },
+    // Zhipu · Moonshot · MiniMax (all B.AI routed)
+    { v: "glm-5-1",         name: "GLM 5.1",           provider: "Zhipu",     deck: "Zhipu flagship · 200k ctx" },
+    { v: "kimi-k2-6",       name: "Kimi K2.6",         provider: "Moonshot",  deck: "long-context" },
+    { v: "minimax-m2-7",    name: "MiniMax M2.7",      provider: "MiniMax",   deck: "flagship · long-context" },
+    { v: "minimax-m2-5",    name: "MiniMax M2.5",      provider: "MiniMax",   deck: "prior · long-context" }
   ];
   function modelKey(slug) { return "boardroom.agent.model." + slug; }
 
@@ -2197,31 +2426,28 @@
       for (const m of cache.reachable) {
         const directOk = !!(m.routes && m.routes.direct);
         const orOk = !!(m.routes && m.routes.openrouter);
+        const baiOk = !!(m.routes && m.routes.bai);
         const provider = providerLabel(m.provider);
-        // Both routes available · expand into two rows. Direct first
-        // (matches the adapter's default preference for non-openrouterOnly
-        // models), then OR. Each row is independently clickable so the
-        // user can pin EITHER carrier explicitly.
-        if (directOk && orOk) {
-          out.push({
-            id: m.modelV + "@" + m.provider,
-            v: m.modelV,
-            carrier: m.provider,
-            name: m.displayName,
-            provider,
-            deck: m.deck || "",
-            route: "via " + provider + " direct",
-          });
-          out.push({
-            id: m.modelV + "@openrouter",
-            v: m.modelV,
-            carrier: "openrouter",
-            name: m.displayName,
-            provider,
-            deck: m.deck || "",
-            route: "via OpenRouter",
-          });
-        } else if (directOk) {
+        // For each carrier that can serve this model, emit a separate
+        // pickable row · users can pin EITHER carrier explicitly. Order
+        // mirrors the adapter's default precedence so the natural top
+        // pick when the user just clicks "the model" is the same one
+        // the orchestrator would resolve unpinned. When only ONE
+        // carrier serves the model, we collapse to a single row with
+        // `carrier: null` so the agent uses default routing (and
+        // automatically follows the carrier if the user later
+        // reconfigures keys).
+        const reachableCarriers = [];
+        if (directOk) reachableCarriers.push({ carrier: m.provider, route: "via " + provider + " direct" });
+        if (baiOk) reachableCarriers.push({ carrier: "bai", route: "via B.AI" });
+        if (orOk) reachableCarriers.push({ carrier: "openrouter", route: "via OpenRouter" });
+        if (reachableCarriers.length === 0) continue;
+        if (reachableCarriers.length === 1) {
+          // Only one carrier serves this model · use the bare modelV
+          // id and `carrier: null` so the saved agent record uses
+          // default routing rather than a sticky pin to a carrier the
+          // user might later swap.
+          const only = reachableCarriers[0];
           out.push({
             id: m.modelV,
             v: m.modelV,
@@ -2229,17 +2455,21 @@
             name: m.displayName,
             provider,
             deck: m.deck || "",
-            route: "direct",
+            route: only.carrier === m.provider ? "direct" : only.route,
           });
-        } else if (orOk) {
+          continue;
+        }
+        // Multi-carrier · one row per carrier · composite id
+        // `${modelV}@${carrier}` distinguishes them in the picker.
+        for (const { carrier, route } of reachableCarriers) {
           out.push({
-            id: m.modelV,
+            id: m.modelV + "@" + carrier,
             v: m.modelV,
-            carrier: null,
+            carrier,
             name: m.displayName,
             provider,
             deck: m.deck || "",
-            route: "via OpenRouter",
+            route,
           });
         }
       }
@@ -2384,8 +2614,8 @@
     const current = modelForAgent(slug, fallback);
     const reachable = isReachable(current.v);
     // Stale-model warning · the agent's stored modelV isn't reachable
-    // with the current key set (e.g. user revoked OpenRouter, but
-    // the agent was set to opus-4-7 which is openrouterOnly). Surface
+    // with the current key set (e.g. user revoked both OR + B.AI but
+    // the agent was set to a viaUniversalOnly model). Surface
     // it as a small note under the trigger so the user knows clicks
     // here will fall back at runtime; the runtime resolver in
     // `effectiveDefaultModel()` does the actual fallback.
@@ -2673,6 +2903,14 @@
       pop.style.bottom = "auto";
       pop.style.maxHeight = `${Math.round(spaceBelow - 4)}px`;
     }
+    // Z-index hoist · when the trigger lives inside the lightweight
+    // agent overlay (z-index: 9700), the default `.ap-model-picker`
+    // z-index (9100) renders BEHIND the overlay backdrop · clicking
+    // the dropdown produced no visible popover. Lift above the
+    // overlay whenever the trigger is nested in `.agent-overlay`.
+    if (triggerEl.closest(".agent-overlay")) {
+      pop.style.zIndex = "9800";
+    }
   }
 
   async function openVoicePicker(triggerEl) {
@@ -2782,13 +3020,19 @@
       .then((updated) => {
         const nv = updated.voice != null ? updated.voice : voice;
         live.voice = nv;
-        const row = document.querySelector(`[data-ap-voice-row][data-slug="${slug}"]`);
-        const name = row?.querySelector("[data-ap-voice-name]");
-        const prov = row?.querySelector("[data-ap-voice-provider]");
-        if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
-        if (prov && nv && nv.model != null) prov.textContent = nv.model;
-        const emLb = row?.querySelector("[data-ap-voice-emotion-label]");
-        if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
+        // The agent-overlay can mount its own copy of the voice row
+        // (with the same data-slug) on top of the profile page · update
+        // every matching row so the label stays consistent regardless
+        // of which surface the user picked from.
+        const rows = document.querySelectorAll(`[data-ap-voice-row][data-slug="${slug}"]`);
+        rows.forEach((row) => {
+          const name = row.querySelector("[data-ap-voice-name]");
+          const prov = row.querySelector("[data-ap-voice-provider]");
+          if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
+          if (prov && nv && nv.model != null) prov.textContent = nv.model;
+          const emLb = row.querySelector("[data-ap-voice-emotion-label]");
+          if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
+        });
       })
       .catch((e) => alert(uiT("ap_voice_save_err", { msg: e && e.message ? e.message : String(e) })));
   }
@@ -2823,6 +3067,19 @@
       });
       const data = await r.json();
       if (!r.ok || !data.audioBase64) {
+        // Structured failure · the server tags `code: "paid-plan-required"`
+        // when ElevenLabs returns 402 paid_plan_required or MiniMax
+        // reports insufficient balance. Route into the upgrade overlay
+        // (title + explanation + CTA to the provider's billing page)
+        // instead of an alert() so the user gets a clear next step.
+        if (data.code === "paid-plan-required") {
+          openVoicePaidOverlay({
+            provider: typeof data.provider === "string" ? data.provider : v.provider,
+            upgradeUrl: typeof data.upgradeUrl === "string" ? data.upgradeUrl : "",
+            message: data.error || "",
+          });
+          return;
+        }
         alert(uiT("ap_voice_preview_failed", { msg: data.error || "no audio" }));
         return;
       }
@@ -2833,6 +3090,90 @@
     } finally {
       if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
     }
+  }
+
+  /** Paid-plan-required overlay · shown when the voice preview backend
+   *  rejects with code `paid-plan-required` (ElevenLabs library voice
+   *  on a free plan, MiniMax insufficient balance, etc.). Reuses the
+   *  app-wide `.pc-overlay / .pc-modal` chrome so the visual register
+   *  matches pause-choice / send-choice / no-key modals. The CTA links
+   *  to the provider's billing/pricing page so the user is one click
+   *  from resolving it. */
+  function openVoicePaidOverlay(opts) {
+    closeVoicePaidOverlay();
+    const provider = (opts && opts.provider) || "";
+    const upgradeUrl = (opts && opts.upgradeUrl) || "";
+    const message = (opts && opts.message) || "";
+    const providerLabel = provider === "elevenlabs" ? "ElevenLabs"
+      : provider === "minimax" ? "MiniMax"
+      : provider === "openai" ? "OpenAI"
+      : provider || uiT("ap_voice_paid_provider_generic");
+    const title = uiT("ap_voice_paid_title", { provider: providerLabel });
+    const deck = message || uiT("ap_voice_paid_deck_generic", { provider: providerLabel });
+    const ctaLabel = uiT("ap_voice_paid_cta", { provider: providerLabel });
+    const ctaDeck = uiT("ap_voice_paid_cta_deck", { provider: providerLabel });
+    const closeLabel = uiT("ap_voice_paid_close");
+    const closeDeck = uiT("ap_voice_paid_close_deck");
+    const upgradeHref = upgradeUrl
+      ? `<a href="${escape(upgradeUrl)}" target="_blank" rel="noopener noreferrer" class="pc-choice primary" data-voice-paid-upgrade>
+           <div class="pc-choice-mark">${escape(ctaLabel)}</div>
+           <div class="pc-choice-deck">${escape(ctaDeck)}</div>
+         </a>`
+      : "";
+    const overlay = document.createElement("div");
+    overlay.id = "ap-voice-paid-overlay";
+    overlay.className = "pc-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
+      <div class="pc-modal" role="document">
+        <div class="pc-classification">
+          <span><span class="dot" style="color: var(--lime); margin-right: 4px;">●</span> ${escape(uiT("ap_voice_paid_classification"))}</span>
+          <span class="right">// ${escape(providerLabel.toLowerCase())}</span>
+        </div>
+        <div class="pc-head">
+          <div class="pc-tag">${escape(uiT("ap_voice_paid_tag"))}</div>
+          <h2 class="pc-title">${escape(title)}</h2>
+          <p class="pc-deck">${escape(deck)}</p>
+        </div>
+        <div class="pc-body">
+          ${upgradeHref}
+          <button type="button" class="pc-choice ghost" data-voice-paid-close>
+            <div class="pc-choice-mark">${escape(closeLabel)}</div>
+            <div class="pc-choice-deck">${escape(closeDeck)}</div>
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    // Backdrop click closes · same affordance as the other pc-* modals.
+    overlay.addEventListener("click", (ev) => {
+      if (ev.target === overlay) closeVoicePaidOverlay();
+    });
+    // Esc closes · scoped handler removed on close so it doesn't leak.
+    const esc = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeVoicePaidOverlay();
+      }
+    };
+    overlay._escHandler = esc;
+    document.addEventListener("keydown", esc, true);
+    // CTA click closes the overlay AFTER the new tab is opened (the
+    // anchor's default action handles the open; we just clean up).
+    overlay.querySelector("[data-voice-paid-upgrade]")?.addEventListener("click", () => {
+      // Defer close to next tick so the anchor's navigation triggers
+      // before the DOM teardown — Safari otherwise sometimes cancels
+      // the new-tab open when the link is removed in the same frame.
+      setTimeout(closeVoicePaidOverlay, 50);
+    });
+    overlay.querySelector("[data-voice-paid-close]")?.addEventListener("click", closeVoicePaidOverlay);
+  }
+  function closeVoicePaidOverlay() {
+    const el = document.getElementById("ap-voice-paid-overlay");
+    if (!el) return;
+    if (el._escHandler) document.removeEventListener("keydown", el._escHandler, true);
+    el.remove();
   }
 
   function pageHTML(p, slug) {
@@ -2897,6 +3238,7 @@
             </section>
 
             ${renderPersonaDossierSection(slug, p)}
+            ${renderBuildLogSection(slug, p)}
 
             <section class="ap-block">
               <header class="ap-block-h">
@@ -2988,6 +3330,10 @@
       agent: document.querySelector('[data-main-view="agent"]'),
       reports: document.querySelector('[data-main-view="reports"]'),
       notes: document.querySelector('[data-main-view="notes"]'),
+      // Search is also a top-level main-view · without it here, opening
+      // an agent profile while the search page is mounted leaves the
+      // search view visible underneath, stacking the two panes.
+      search: document.querySelector('[data-main-view="search"]'),
     };
   }
 
@@ -3002,12 +3348,14 @@
     // doesn't bleed through under the room view. Each view is just
     // the same `.main-view` CSS box — without explicitly hiding the
     // siblings, two of them stack and the user sees a leaked
-    // "All Notes" / "All Reports" empty state.
+    // "All Notes" / "All Reports" / "Search" empty state.
     if (v.reports) v.reports.setAttribute("hidden", "");
     if (v.notes)   v.notes.setAttribute("hidden", "");
+    if (v.search)  v.search.setAttribute("hidden", "");
     document.querySelectorAll(".agent-row.active").forEach((r) => r.classList.remove("active"));
     document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
     document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-search-trigger].active").forEach((el) => el.classList.remove("active"));
     currentlyOpenSlug = null;
     // Clear the no-room flag IFF there's an actual room loaded · the
     // floating sidebar-expand button shouldn't show on top of a real
@@ -3096,12 +3444,13 @@
     if (!v.agent) return;
     v.agent.innerHTML = pageHTML(p, slug);
     if (v.room) v.room.setAttribute("hidden", "");
-    // Hide the other top-level panes (All Reports / All Notes) so
-    // their placeholder / list doesn't render under the agent profile.
-    // Without these, opening agent profile from "All Notes" leaks the
-    // notes empty-state through the agent view.
+    // Hide the other top-level panes (All Reports / All Notes / Search)
+    // so their placeholder / list doesn't render under the agent
+    // profile. Without these, opening agent profile from "All Notes"
+    // (or Search) leaks the previous view through the agent view.
     if (v.reports) v.reports.setAttribute("hidden", "");
     if (v.notes)   v.notes.setAttribute("hidden", "");
+    if (v.search)  v.search.setAttribute("hidden", "");
     // The floating sidebar-expand button is gated on `html.no-room`
     // — without setting it here, a user who collapses the sidebar
     // while on an agent profile loses the expand control and has to
@@ -3110,6 +3459,7 @@
     document.documentElement.classList.add("no-room");
     document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
     document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-search-trigger].active").forEach((el) => el.classList.remove("active"));
     v.agent.removeAttribute("hidden");
     // Centralized sidebar-focus handler · also clears New room /
      // New agent highlights and any stale session-row highlight, since
@@ -3372,6 +3722,28 @@
         e.preventDefault();
         e.stopPropagation();
         closePersonaOverlay();
+        return;
+      }
+
+      // Build-log card · open the build-log modal. Mirrors the
+      // persona-dossier open/close pattern. The teaser card is a
+      // <button> so the click can land on any child element.
+      const buildLogOpen = e.target.closest("[data-ap-buildlog-open]");
+      if (buildLogOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        const slug = buildLogOpen.getAttribute("data-slug");
+        if (!slug) return;
+        const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+        const agentName = live && live.name ? live.name : "";
+        openBuildLogOverlay(slug, agentName);
+        return;
+      }
+      const buildLogClose = e.target.closest("[data-ap-buildlog-close]");
+      if (buildLogClose) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeBuildLogOverlay();
         return;
       }
 
@@ -4158,9 +4530,20 @@
       // already fires (window-level wrapper); we also refresh the
       // visible voice block so a configured key flips the locked
       // card into the picker without a page reload.
+      // When the click originates inside the lightweight director
+      // overlay, dismiss it first — stacking the user-settings modal
+      // on top of the overlay is confusing (two overlapping cards)
+      // and the user is now in a "configure keys" flow, not a
+      // "read this director" one. AgentOverlay is exposed by
+      // agent-overlay.js once it's mounted.
       const unlockBtn = e.target.closest("[data-ap-voice-unlock]");
       if (unlockBtn) {
         e.preventDefault();
+        if (unlockBtn.closest(".agent-overlay")
+          && window.AgentOverlay
+          && typeof window.AgentOverlay.close === "function") {
+          window.AgentOverlay.close();
+        }
         if (typeof window.openUserSettings === "function") {
           window.openUserSettings({ section: "keys", focusProvider: "minimax" });
         }
@@ -4182,9 +4565,13 @@
         let rawPick = emoOpt.getAttribute("data-ap-emotion-pick");
         if (rawPick === null) rawPick = "";
         const existing = voiceForAgent(slug) || { provider: "minimax", model: "speech-2.8-hd", voiceId: "male-qn-qingse" };
+        // Always send the raw string (including "" for auto). Sending
+        // `undefined` would make JSON.stringify drop the key entirely,
+        // and the server's PATCH handler reads emotion only when the
+        // key is present — so clearing back to auto would be a no-op.
         setVoiceFor(slug, {
           ...existing,
-          emotion: rawPick === "" ? undefined : rawPick,
+          emotion: rawPick,
         });
         closeEmotionPicker();
         return;
@@ -4346,15 +4733,40 @@
   // picker the moment the user adds a MiniMax / ElevenLabs key without
   // forcing a page reload. No-op when no profile is currently open.
   window.refreshAgentProfileSkills = function () {
+    // Voices list is keyed off the user's configured providers · when
+    // keys change (added / deleted / swapped between minimax ↔
+    // elevenlabs), the cached `/api/voices` payload is stale and the
+    // picker would still show the prior provider's voices until a hard
+    // refresh. Invalidate here so the next ensureVoiceOptions()
+    // re-fetches; also closes any open picker that's painting from
+    // the stale cache so the user doesn't see the wrong list flash
+    // before it reopens. This function is the canonical "keys may
+    // have changed" hook called by user-settings on modal close.
+    voiceOptionsCache = null;
+    closeVoicePicker();
+    closeEmotionPicker();
     if (!currentlyOpenSlug) return;
     loadSkillsForV2(currentlyOpenSlug);
-    const voiceRow = document.querySelector(`[data-ap-voice-row][data-slug="${currentlyOpenSlug}"]`);
-    if (voiceRow) {
+    // Re-render every mounted voice row for this slug — the agent
+    // profile page AND the lightweight agent overlay can both render
+    // one simultaneously (overlay opens on top of the profile page).
+    const voiceRows = document.querySelectorAll(`[data-ap-voice-row][data-slug="${currentlyOpenSlug}"]`);
+    voiceRows.forEach((voiceRow) => {
       const wrap = document.createElement("div");
       wrap.innerHTML = renderVoiceBlock(currentlyOpenSlug).trim();
       const fresh = wrap.firstElementChild;
       if (fresh) voiceRow.replaceWith(fresh);
-    }
+    });
+  };
+
+  /** Public surface · agent-overlay.js mounts the same voice block
+   *  inside the lightweight director overlay so the user can swap
+   *  voices without navigating to the full profile page. The block
+   *  uses the same `data-ap-voice-*` data attrs, so the existing
+   *  document-level click / change / input handlers already pick up
+   *  events from whichever copy is live. */
+  window.AgentProfileVoice = {
+    renderVoiceBlock,
   };
 
   document.addEventListener("boardroom:locale", () => {

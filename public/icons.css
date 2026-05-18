@@ -57,14 +57,20 @@
   --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='5' y='1' width='6' height='1'/><rect x='4' y='2' width='8' height='2'/><rect x='5' y='4' width='6' height='1'/><rect x='6' y='5' width='4' height='1'/><rect x='7' y='6' width='2' height='6'/><rect x='7' y='12' width='1' height='3'/></svg>");
 }
 
-/* Rooms — chat bubble with tail */
+/* Rooms — Lucide MessageSquare. 24×24 viewBox + 2px stroke
+   matches the .new-btn nav icons (Search / All Notes / All
+   Reports / New room) right below in the same sidebar, so the
+   two tabs above and the four nav buttons below read as one
+   coherent icon set. The mask still picks up only the stroke
+   alpha, so currentColor lands correctly. */
 .ic-rooms {
-  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><path fill-rule='evenodd' d='M1,1 h14 v9 h-14 z M3,3 h10 v5 h-10 z'/><polygon points='3,10 6,13 6,10'/></svg>");
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/></svg>");
 }
 
-/* Agents — pixel person silhouette */
+/* Agents — Lucide Users. Two-people silhouette, same Lucide
+   line-icon register as the rest of the sidebar. */
 .ic-agents {
-  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='6' y='1' width='4' height='4'/><rect x='3' y='6' width='10' height='3'/><rect x='5' y='9' width='6' height='4'/><rect x='4' y='13' width='3' height='2'/><rect x='9' y='13' width='3' height='2'/></svg>");
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/></svg>");
 }
 
 /* Chevron-right — single chunky > */
@@ -100,4 +106,19 @@
 /* Arrow-right — simple arrow with tail */
 .ic-arrow-right {
   --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='1' y='7' width='11' height='2'/><rect x='9' y='4' width='2' height='2'/><rect x='10' y='5' width='2' height='2'/><rect x='11' y='6' width='2' height='4'/><rect x='10' y='9' width='2' height='2'/><rect x='9' y='10' width='2' height='2'/></svg>");
+}
+
+/* Play — solid right-pointing pixel triangle */
+.ic-play {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='4' y='2'  width='2' height='2'/><rect x='4' y='4'  width='3' height='2'/><rect x='4' y='6'  width='5' height='2'/><rect x='4' y='8'  width='7' height='2'/><rect x='4' y='10' width='5' height='2'/><rect x='4' y='12' width='3' height='2'/><rect x='4' y='14' width='2' height='1'/></svg>");
+}
+
+/* Pause — two chunky vertical bars */
+.ic-pause {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='3' y='2' width='3' height='12'/><rect x='10' y='2' width='3' height='12'/></svg>");
+}
+
+/* Jump — arrow up-right (open / launch / external) */
+.ic-jump {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='6' y='2' width='8' height='2'/><rect x='12' y='4' width='2' height='8'/><rect x='3' y='11' width='2' height='2'/><rect x='4' y='10' width='2' height='2'/><rect x='5' y='9'  width='2' height='2'/><rect x='6' y='8'  width='2' height='2'/><rect x='7' y='7'  width='2' height='2'/><rect x='8' y='6'  width='2' height='2'/><rect x='9' y='5'  width='2' height='2'/><rect x='10' y='4' width='2' height='2'/></svg>");
 }

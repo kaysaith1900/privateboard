@@ -1,52 +1,34 @@
 /* ═══════════════════════════════════════════
    USER SETTINGS OVERLAY · 2-column layout
    ═══════════════════════════════════════════
-   Left rail: User · Theme · API Key
+   Left rail: User · API Key · Default Model · Usage · Other settings
    Right panel: section content for the selected rail item
    Triggered by any element with [data-user-settings-trigger].
 
    Persistence:
-     theme       → localStorage  (UI-only preference, no need to round-trip)
+     appearance  → localStorage  (dark / light / system · resolved by
+                    the FOUC bootstrap in index.html + home.html; this
+                    overlay just writes the chosen value, the bootstrap
+                    listens to the `storage` event and re-applies)
      user (name/intro/avatarSeed) → /api/prefs (SQLite-backed)
-     api keys    → localStorage   (will move to /api/keys in M2/M3)
+     api keys    → server-encrypted via keys-store.js
 
    The keys object is exposed on window.boardroomKeys() so other modules
    (new-agent.js) can show provider configuration status next to model rows.
 */
 (function () {
-  const THEME_KEY = "boardroom.theme";
+  // Appearance preference owned by the FOUC bootstrap. We only read /
+  // write it here; the data-theme attribute is the bootstrap's job.
+  const APPEARANCE_KEY = "boardroom.appearance";
+  const APPEARANCE_MODES = ["dark", "light", "system"];
 
   // /api/prefs is async; cache the latest value at module bootstrap so the
   // synchronous render code below stays simple. saveUser writes through.
   let _prefsCache = { name: "You", intro: "", avatarSeed: null, webSearchProvider: "brave", minimaxRegion: "cn" };
 
-  const THEMES = [
-    { slug: "regent",      name: "Regent",      desc: "warm gold on dark · default · the boardroom premium",
-      swatches: ["#0A0A0A","#131312","#C9A46B","#9A7B40","#A57843","#B5706A","#6A9B97","#C8C5BE"] },
-    { slug: "eastwood",    name: "Eastwood",    desc: "calm forest green",
-      swatches: ["#0A0A0A","#131312","#6FB572","#427A48","#B59560","#B5706A","#6A9B97","#C8C5BE"] },
-    { slug: "atrium",      name: "Atrium",      desc: "warm paper · light · the only daylight theme",
-      swatches: ["#FBFBF7","#F4F2EC","#2E7D32","#1B5E20","#A86C2A","#A8403D","#2E7D7A","#1F1E1A"] },
-    { slug: "pinterest",   name: "Pinterest",   desc: "clean white · Pinterest red · light",
-      swatches: ["#FFFFFF","#FAFAFA","#E60023","#AD081B","#F4A100","#E60023","#2E7D7A","#111111"] },
-    { slug: "apple",       name: "Apple",       desc: "pure white · system blue · Apple.com aesthetic · light",
-      swatches: ["#FFFFFF","#F5F5F7","#0071E3","#0051A8","#FF9500","#FF3B30","#5AC8FA","#1D1D1F"] },
-    { slug: "alanpeabody", name: "Alan Peabody", desc: "cool blue · git-green accents",
-      swatches: ["#0E1419","#131A21","#6BAFE0","#3F7AAA","#C8A463","#D67373","#6FB5A8","#C8D0DA"] },
-    { slug: "amuse",       name: "Amuse",       desc: "magenta + cyan · playful",
-      swatches: ["#1A0E14","#21121A","#D67BC0","#9C4884","#DCBE5D","#E07F84","#6FBFC2","#DECBD2"] },
-    { slug: "jtriley",     name: "JTriley",     desc: "bright lime + yellow · punchy",
-      swatches: ["#0A0F0A","#131914","#B5DA40","#6E8E27","#F0CC4E","#D67762","#6FBE9A","#C8D6BE"] },
-    { slug: "nebirhos",    name: "Nebirhos",    desc: "teal · warm orange highlights",
-      swatches: ["#0A1414","#11201F","#5EB1A6","#357770","#DD9258","#D87060","#6FBEC2","#B8D4D0"] },
-    { slug: "wedisagree",  name: "We Disagree", desc: "argumentative orange · subtle green",
-      swatches: ["#14110E","#1F1A14","#DD7B40","#A8521E","#E6B872","#E26060","#6FB28A","#D8CBBC"] },
-    { slug: "nintendo",    name: "8-bit",       desc: "NES palette · Mario red · coin gold · sky cyan",
-      swatches: ["#181820","#22222C","#E60012","#A40009","#FBC000","#FC4438","#5BC0EB","#FCFCFC"] }
-  ];
-
   const PROVIDERS = [
     { id: "openrouter", label: "OpenRouter",  hint: "default · routes any model · sk-or-…",         placeholder: "sk-or-v1-…",  group: "llm" },
+    { id: "bai",        label: "B.AI",        hint: "aggregator · GPT-5, Claude 4.7, Gemini 3 · sk-…", placeholder: "sk-…",         group: "llm" },
     { id: "anthropic",  label: "Anthropic",   hint: "Claude · Sonnet 4.6, Opus 4.7, Haiku 4.5",      placeholder: "sk-ant-…",     group: "llm" },
     { id: "openai",     label: "OpenAI",      hint: "GPT · gpt-5, gpt-5 mini, gpt-4o",                placeholder: "sk-…",         group: "llm" },
     { id: "google",     label: "Google",      hint: "Gemini · 2.5 Pro, 2.5 Flash",                    placeholder: "AIza…",        group: "llm" },
@@ -71,11 +53,31 @@
   }
 
   /* ── Storage helpers ───────────────────────────────────────── */
-  function getTheme() { try { return localStorage.getItem(THEME_KEY) || "regent"; } catch (e) { return "regent"; } }
-  function setTheme(slug) {
-    const theme = slug || "regent";
-    document.documentElement.setAttribute("data-theme", theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+  function getAppearance() {
+    try {
+      const v = localStorage.getItem(APPEARANCE_KEY);
+      // Default · "dark" (not "system"). Matches the FOUC bootstrap in
+      // index.html / home.html so the segmented control reflects the
+      // same fresh-install default the page just applied.
+      return APPEARANCE_MODES.indexOf(v) >= 0 ? v : "dark";
+    } catch (e) { return "dark"; }
+  }
+  function setAppearance(mode) {
+    const next = APPEARANCE_MODES.indexOf(mode) >= 0 ? mode : "dark";
+    try { localStorage.setItem(APPEARANCE_KEY, next); } catch (e) {}
+    // The FOUC bootstrap subscribes to `storage` events for cross-tab
+    // sync, but same-tab writes don't fire that event. Resolve and
+    // apply data-theme directly so the swap is instant on this tab too.
+    let resolved = next;
+    if (next === "system") {
+      try { resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+      catch (e) { resolved = "dark"; }
+    }
+    document.documentElement.setAttribute("data-theme", resolved);
+    // Electron-only · push the USER PREFERENCE (not the resolved value)
+    // so the macOS window vibrancy follows the same light/dark/system
+    // choice as the in-app surfaces.
+    try { window.privateboard && window.privateboard.setThemeSource && window.privateboard.setThemeSource(next); } catch (e) {}
   }
 
   async function fetchPrefs() {
@@ -179,9 +181,8 @@
 
   // Public — other modules read provider configuration via this
   window.boardroomKeys = getKeys;
-
-  // Apply theme on script init (FOUC fallback)
-  setTheme(getTheme());
+  // Appearance is applied by the inline FOUC bootstrap in index.html /
+  // home.html before this script loads; no init pass needed here.
 
   /* ── Section content renderers ────────────────────────────── */
   function userSectionHTML() {
@@ -227,49 +228,42 @@
     `;
   }
 
-  function themeSectionHTML() {
-    const current = getTheme();
-    const swatchSpans = (cs) => cs.map((c) => `<span style="background:${c}"></span>`).join("");
-    return `
-      <div class="us-pane-head">
-        <div class="us-pane-tag">${tr("us_theme_tag")}</div>
-        <div class="us-pane-deck">${tr("us_theme_deck")}</div>
-      </div>
-
-      <div class="us-pane-body">
-        <div class="us-theme-grid">
-          ${THEMES.map((t) => `
-            <a href="#" class="us-theme${t.slug === current ? " active" : ""}" data-theme-slug="${t.slug}">
-              <span class="us-theme-swatch">${swatchSpans(t.swatches)}</span>
-              <span class="us-theme-info">
-                <span class="us-theme-name">${escape(t.name)}</span>
-                <span class="us-theme-desc">${escape(t.desc)}</span>
-              </span>
-              <span class="us-theme-check"></span>
-            </a>
-          `).join("")}
-        </div>
-      </div>
-    `;
+  /* ── Other settings · misc per-user toggles that don't fit a
+        dedicated section. Appearance · interface language · typing-
+        sound effect; natural home for future small ambient / UX prefs. */
+  function appearanceSegmentsHTML() {
+    const cur = getAppearance();
+    return APPEARANCE_MODES.map((mode) => {
+      const label = tr(`us_appearance_${mode}`);
+      const cls = "us-seg-btn" + (mode === cur ? " active" : "");
+      return `<button type="button" class="${cls}" data-appearance="${mode}" role="radio" aria-checked="${mode === cur ? "true" : "false"}">${escape(label)}</button>`;
+    }).join("");
   }
 
-  /* ── Other settings · misc per-user toggles that don't fit a
-        dedicated section. Interface language · typing-sound effect;
-        natural home for future small ambient / UX preferences. */
   function otherSettingsSectionHTML() {
     return `
       <div class="us-pane-head">
-        <div class="us-pane-tag">▸ Other settings</div>
-        <div class="us-pane-deck">small UX preferences that don't fit elsewhere. All persisted locally.</div>
+        <div class="us-pane-tag">${tr("us_other_tag")}</div>
+        <div class="us-pane-deck">${tr("us_other_deck")}</div>
       </div>
 
       <div class="us-pane-body">
+        <div class="us-row">
+          <div class="us-row-label">${tr("us_appearance_label")}</div>
+          <div class="us-row-field">
+            <div class="us-seg" role="radiogroup" aria-label="${escape(tr("us_appearance_label"))}" data-us-appearance>
+              ${appearanceSegmentsHTML()}
+            </div>
+            <p class="us-locale-deck">${escape(tr("us_appearance_deck"))}</p>
+          </div>
+        </div>
+
         <div class="us-row">
           <div class="us-row-label">${tr("us_locale_label")}</div>
           <div class="us-row-field">
             <button type="button" class="cmp-dd" data-cmp-dropdown="locale" title="${escape(tr("us_locale_label"))}" data-i18n-aria="aria_language" aria-label="">
               <span class="cmp-dd-label" data-i18n="us_locale_label">${escape(tr("us_locale_label"))}</span>
-              <span class="cmp-dd-value" data-cmp-dd-value="locale">${escape(tr(window.I18n && window.I18n.getLocale && window.I18n.getLocale() === "zh" ? "locale_zh" : "locale_en"))}</span>
+              <span class="cmp-dd-value" data-cmp-dd-value="locale">${escape(tr(`locale_${(window.I18n && window.I18n.getLocale && window.I18n.getLocale()) || "en"}`))}</span>
               <span class="cmp-dd-chevron">▾</span>
             </button>
             <p class="us-locale-deck">${escape(tr("us_locale_deck"))}</p>
@@ -290,6 +284,16 @@
             </div>
           </div>
         </div>
+
+        <div class="us-row">
+          <div class="us-row-label">${escape(tr("us_replay_onb_label"))}</div>
+          <div class="us-row-field">
+            <div class="us-toggle-row">
+              <button type="button" class="us-btn-ghost" data-us-replay-onb>${escape(tr("us_replay_onb_btn"))}</button>
+              <span class="us-toggle-deck">${escape(tr("us_replay_onb_deck"))}</span>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -301,6 +305,25 @@
     }
     if (window.I18n && typeof window.I18n.syncLocaleControls === "function") {
       window.I18n.syncLocaleControls();
+    }
+
+    // Appearance segmented control · dark / light / system. setAppearance
+    // writes the localStorage key AND applies data-theme immediately so
+    // the swap is instant; the FOUC bootstrap continues to handle live
+    // OS-level changes when "system" is selected.
+    const apGroup = paneEl.querySelector("[data-us-appearance]");
+    if (apGroup) {
+      apGroup.addEventListener("click", (e) => {
+        const btn = e.target.closest(".us-seg-btn[data-appearance]");
+        if (!btn) return;
+        const next = btn.dataset.appearance;
+        setAppearance(next);
+        apGroup.querySelectorAll(".us-seg-btn").forEach((el) => {
+          const on = el.dataset.appearance === next;
+          el.classList.toggle("active", on);
+          el.setAttribute("aria-checked", on ? "true" : "false");
+        });
+      });
     }
     // Typing-sound toggle · the persistence + audio context lives in
     // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
@@ -326,6 +349,32 @@
         // toggled also serves as the gesture the AudioContext needs,
         // so this tick is actually heard.
         if (next) window.boardroomTypingSfx.tick();
+        // Re-evaluate the agent-build ambient · this toggle is the
+        // master gate. Flipping OFF silences any active build BGM;
+        // flipping ON resumes it if a build is currently running on
+        // the user's foreground composer.
+        try { window.app?._syncAgentBuildBgm?.(); } catch { /* ignore */ }
+      });
+    }
+
+    // Replay onboarding · close the settings overlay first so the user
+    // lands on a clean dashboard, then trigger the storyline overlay.
+    // The replay helper in onboarding.js handles step reset + the
+    // once-only composer-hint flag.
+    const replayBtn = paneEl.querySelector("[data-us-replay-onb]");
+    if (replayBtn) {
+      replayBtn.addEventListener("click", () => {
+        try { if (typeof window.closeUserSettings === "function") window.closeUserSettings(); } catch { /* ignore */ }
+        // Settings overlay teardown sets up a 220ms close animation
+        // (see modal close handler); kick off onboarding after that so
+        // the two overlays don't briefly stack.
+        setTimeout(() => {
+          if (typeof window.boardroomReplayOnboarding === "function") {
+            window.boardroomReplayOnboarding();
+          } else if (typeof window.boardroomShowOnboarding === "function") {
+            window.boardroomShowOnboarding();
+          }
+        }, 240);
       });
     }
   }
@@ -722,6 +771,15 @@
             // never lands in "no usable carrier" state. Unconfigured rows
             // (or non-LLM providers) bypass the lock — removing them
             // doesn't reduce working-key count.
+            //
+            // ALWAYS emit `data-remove-provider` (even when locked) so the
+            // click delegate's selector matches in both states. The lock
+            // is expressed via `disabled` + `.is-locked` only · this lets
+            // `refreshLockButtons()` flip the state in place without
+            // re-rendering or re-binding any listeners. Without this, a
+            // locked-then-unlocked button would have no click handler
+            // attached (the original `[data-remove-provider]` selector
+            // wouldn't have matched it at wire-time).
             const isLLM = p.group === "llm";
             const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
             const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
@@ -729,7 +787,7 @@
             ).length;
             const lock = isLLM && isConfigured && llmConfiguredCount <= 1;
             return lock
-              ? `<button type="button" class="us-key-remove is-locked" disabled title="Add another LLM key first — at least one must remain configured.">✕</button>`
+              ? `<button type="button" class="us-key-remove is-locked" data-remove-provider="${p.id}" disabled title="Add another LLM key first — at least one must remain configured.">✕</button>`
               : `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>`;
           })()}
         </div>
@@ -803,7 +861,7 @@
     ensureActiveProviders();
     // Anthropic is temporarily excluded from the "+ add provider"
     // chips · only sonnet-4-6 is direct-routable on the Anthropic SDK
-    // right now (opus / haiku are openrouterOnly), so adding an
+    // right now (opus / haiku are viaUniversalOnly), so adding an
     // Anthropic key alone unlocks just one model — confusing UX. Once
     // the registry has ≥ 2 direct-routable Claude models, drop the
     // exclusion. Existing users who already configured Anthropic still
@@ -872,24 +930,34 @@
      Lives at the bottom of the API Key section. Hidden when the
      user has no keys configured. Re-fetched after every key
      write so the route badges and reachable count stay accurate. */
-  const PROVIDER_ORDER = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter"];
+  const PROVIDER_ORDER = ["anthropic", "openai", "google", "xai", "deepseek", "zhipu", "moonshot", "openrouter", "bai"];
   const PROVIDER_LABEL = {
     anthropic: "Anthropic",
     openai:    "OpenAI",
     google:    "Google",
     xai:       "xAI",
     deepseek:  "DeepSeek",
+    zhipu:     "Zhipu",
+    moonshot:  "Moonshot",
     openrouter:"OpenRouter",
+    bai:       "B.AI",
   };
   function providerLabel(p) { return PROVIDER_LABEL[p] || p; }
 
   function routeBadgeHTML(m) {
     const d = !!(m.routes && m.routes.direct);
     const o = !!(m.routes && m.routes.openrouter);
-    if (d && o) return `<span class="us-models-route">direct · OR</span>`;
-    if (d) return `<span class="us-models-route">direct</span>`;
-    if (o) return `<span class="us-models-route">OR</span>`;
-    return "";
+    const b = !!(m.routes && m.routes.bai);
+    // Compose a short label · "direct" wins display when present;
+    // when both universal carriers are reachable show "OR · B.AI"
+    // so the user knows fallback coverage. The adapter prefers
+    // direct → B.AI → OR; the badge mirrors that ordering.
+    const parts = [];
+    if (d) parts.push("direct");
+    if (b) parts.push("B.AI");
+    if (o) parts.push("OR");
+    if (parts.length === 0) return "";
+    return `<span class="us-models-route">${parts.join(" · ")}</span>`;
   }
 
   function modelsSummaryHTML() {
@@ -900,7 +968,11 @@
         <div class="us-models-loading">measuring reach…</div>
       </div>`;
     }
-    if (!cache.hasAnyKey) return "";
+    // Defensive · trust `reachable.length` over `hasAnyKey`. See the
+    // same pattern in `defaultModelSectionHTML` · keeps the block
+    // visible when the server reports a stale `hasAnyKey: false` but
+    // ships a populated reachable list (B.AI-only users on an
+    // un-restarted backend hit exactly this case).
     const reachable = (cache.reachable || []);
     if (reachable.length === 0) return "";
 
@@ -954,26 +1026,37 @@
      provider + a deck per model row + the active route badge. */
   function defaultModelSectionHTML() {
     const cache = modelsSnapshot();
-    if (!cache || !cache.hasAnyKey) {
+    // Defensive gating · the picker should render whenever at least
+    // one model is reachable. We deliberately do NOT short-circuit on
+    // `!cache.hasAnyKey` alone: an older server (pre-B.AI-fix to
+    // `hasAnyModelKey()`) can report `hasAnyKey: false` for a user
+    // whose only key is B.AI, even though every `reachable[i]` arrives
+    // populated with a working bai route. Trust `reachable.length` as
+    // the real signal · cache absent or empty → loading / no-key copy;
+    // cache present + reachable empty → key-but-no-route copy.
+    if (!cache) {
       return `
         <div class="us-pane-head">
           <div class="us-pane-tag">▸ Default Model</div>
-          <div class="us-pane-deck">no LLM key configured yet — add one in <a href="#" data-jump-keys class="us-link">API Key</a> first, then come back to pick a default.</div>
+          <div class="us-pane-deck">measuring reach…</div>
         </div>
       `;
     }
     const reachable = cache.reachable || [];
     if (reachable.length === 0) {
+      const noKey = !cache.hasAnyKey;
       return `
         <div class="us-pane-head">
           <div class="us-pane-tag">▸ Default Model</div>
-          <div class="us-pane-deck">your configured keys don't reach any model right now. Check the key values, or add another carrier in <a href="#" data-jump-keys class="us-link">API Key</a>.</div>
+          <div class="us-pane-deck">${noKey
+            ? `no LLM key configured yet — add one in <a href="#" data-jump-keys class="us-link">API Key</a> first, then come back to pick a default.`
+            : `your configured keys don't reach any model right now. Check the key values, or add another carrier in <a href="#" data-jump-keys class="us-link">API Key</a>.`}</div>
         </div>
       `;
     }
 
     // Group reachable models by provider, ordered by PROVIDER_ORDER
-    // (anthropic / openai / google / xai / deepseek / openrouter).
+    // (anthropic / openai / google / xai / deepseek / zhipu / moonshot / openrouter / bai).
     const byProvider = new Map();
     for (const m of reachable) {
       if (!byProvider.has(m.provider)) byProvider.set(m.provider, []);
@@ -1083,7 +1166,6 @@
           <div class="us-frame">
             <nav class="us-nav" role="tablist">
               <a href="#" class="us-nav-item active" data-section="user"    role="tab" aria-selected="true" data-i18n="us_nav_user"></a>
-              <a href="#" class="us-nav-item"        data-section="theme"   role="tab" aria-selected="false" data-i18n="us_nav_theme"></a>
               <a href="#" class="us-nav-item"        data-section="usage"   role="tab" aria-selected="false" data-i18n="us_nav_usage"></a>
               <a href="#" class="us-nav-item"        data-section="keys"    role="tab" aria-selected="false" data-i18n="us_nav_api_key"></a>
               <a href="#" class="us-nav-item"        data-section="default" role="tab" aria-selected="false" data-i18n="us_default_model_title"></a>
@@ -1116,7 +1198,6 @@
   function renderSection(id) {
     currentSection = id;
     if (id === "user")        paneEl.innerHTML = userSectionHTML();
-    else if (id === "theme")  paneEl.innerHTML = themeSectionHTML();
     else if (id === "usage")  paneEl.innerHTML = usageSectionHTML();
     else if (id === "keys")   paneEl.innerHTML = keysSectionHTML();
     else if (id === "default") paneEl.innerHTML = defaultModelSectionHTML();
@@ -1237,16 +1318,56 @@
     });
 
     // Remove a provider row (server-side delete clears its key too).
-    paneEl.querySelectorAll("[data-remove-provider]").forEach((btn) => {
+    // The handler binds to EVERY `.us-key-remove` regardless of locked
+    // state · in-handler `disabled` check is the gate. Pairs with
+    // `refreshLockButtons()` below: flipping a button's lock state in
+    // place doesn't strand it without a listener.
+    paneEl.querySelectorAll(".us-key-remove").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
+        if (btn.disabled || btn.classList.contains("is-locked")) return;
         const id = btn.dataset.removeProvider;
+        if (!id) return;
         activeProviders = activeProviders.filter((p) => p !== id);
         await setProviderKey(id, ""); // clears server-side
         await refreshModels();
         rerenderKeysSection();
       });
     });
+
+    // Recompute every `.us-key-remove` button's lock state against the
+    // current `_keysMeta`. Called after a successful key PUT so adding
+    // a second LLM key immediately un-locks the first row's ✕ — the
+    // old flow only repainted the typed-into row's status pill, so the
+    // sibling rows kept their stale "locked" disabled state until the
+    // user closed and reopened the panel.
+    function refreshLockButtons() {
+      if (!paneEl) return;
+      const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
+        (id) => _keysMeta[id] && _keysMeta[id].configured,
+      ).length;
+      paneEl.querySelectorAll(".us-key-row").forEach((row) => {
+        const provider = row.dataset.provider;
+        const p = PROVIDERS.find((x) => x.id === provider);
+        if (!p) return;
+        const btn = row.querySelector(".us-key-remove");
+        if (!btn) return;
+        const isLLM = p.group === "llm";
+        const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
+        const wantsLocked = isLLM && isConfigured && llmConfiguredCount <= 1;
+        const hasLocked = btn.classList.contains("is-locked");
+        if (wantsLocked === hasLocked) return;
+        if (wantsLocked) {
+          btn.classList.add("is-locked");
+          btn.disabled = true;
+          btn.title = "Add another LLM key first — at least one must remain configured.";
+        } else {
+          btn.classList.remove("is-locked");
+          btn.disabled = false;
+          btn.title = "Remove";
+        }
+      });
+    }
 
     // Default-model controls live in the sidebar's "Default Model"
     // pane only · the previous in-row "set as default" button and
@@ -1285,6 +1406,12 @@
         await refreshModels();
         refreshModelsSummary();
         syncWsBackendPicker();
+        // After a successful key write, `_keysMeta[provider]` is fresh
+        // (setProviderKey mirrors the server response into the cache).
+        // Repaint every row's ✕ in-place so adding a second LLM key
+        // immediately unlocks the first row's delete button · the old
+        // flow waited for a close+reopen.
+        refreshLockButtons();
       }, 220);
       debounceMap.set(row, timer);
     }
@@ -1437,24 +1564,19 @@
     fetchAppVersion();
   }
 
-  let _versionCache = null;
   async function fetchAppVersion() {
     const slot = overlay && overlay.querySelector("[data-us-version-value]");
     if (!slot) return;
-    // Use cache if we already have it · the version doesn't change
-    // mid-process. First open does the network round-trip; subsequent
-    // opens repaint from cache instantly.
-    if (_versionCache) {
-      slot.textContent = _versionCache;
-      return;
-    }
+    // No cache · every overlay open hits /api/version so a dev-server
+    // restart (npm version bump + new build) reflects immediately
+    // in the foot without requiring a hard reload. The call is one
+    // tiny round-trip with no DB hit, so it's cheap to repeat.
     try {
-      const r = await fetch("/api/version");
+      const r = await fetch("/api/version", { cache: "no-store" });
       if (!r.ok) return;
       const j = await r.json();
       if (j && typeof j.version === "string") {
-        _versionCache = `v${j.version}`;
-        slot.textContent = _versionCache;
+        slot.textContent = `v${j.version}`;
       }
     } catch { /* swallow · the foot just stays at "·" if offline */ }
   }
@@ -1534,28 +1656,21 @@
       renderSection(item.dataset.section);
     });
 
-    // Theme rows (delegated since pane re-renders)
-    modal.addEventListener("click", (e) => {
-      const row = e.target.closest(".us-theme");
-      if (!row) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const slug = row.dataset.themeSlug;
-      paneEl.querySelectorAll(".us-theme").forEach((el) => el.classList.remove("active"));
-      row.classList.add("active");
-      setTheme(slug);
-    });
-
-    // Cross-tab theme sync
+    // Cross-tab sync for the appearance segmented control · the
+    // FOUC bootstrap in index.html / home.html re-applies data-theme on
+    // a `storage` event already; this listener only refreshes the
+    // segmented-control's active state when the "Other settings" pane
+    // happens to be open.
     window.addEventListener("storage", (e) => {
-      if (e.key === THEME_KEY && e.newValue) {
-        setTheme(e.newValue);
-        if (paneEl && currentSection === "theme") {
-          paneEl.querySelectorAll(".us-theme").forEach((el) => {
-            el.classList.toggle("active", el.dataset.themeSlug === e.newValue);
-          });
-        }
-      }
+      if (e.key !== APPEARANCE_KEY || !e.newValue) return;
+      if (!paneEl || currentSection !== "other") return;
+      const group = paneEl.querySelector("[data-us-appearance]");
+      if (!group) return;
+      group.querySelectorAll(".us-seg-btn").forEach((el) => {
+        const on = el.dataset.appearance === e.newValue;
+        el.classList.toggle("active", on);
+        el.setAttribute("aria-checked", on ? "true" : "false");
+      });
     });
 
     // Initial pane
@@ -1587,7 +1702,6 @@
     }
   };
   window.closeUserSettings = close;
-  window.applyTheme        = setTheme;
 
   // Bootstrap: prefetch prefs and key meta so the first render has real
   // values, then init.

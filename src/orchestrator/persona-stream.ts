@@ -21,6 +21,34 @@ import { EventEmitter } from "node:events";
 
 import type { PersonaSpec } from "../storage/agents.js";
 
+/** Structured record of one thing that happened during a build. Saved
+ *  alongside the final `PersonaSpec.buildLog.events` so the agent
+ *  profile can render a timeline + per-dimension card grid after the
+ *  build is gone from memory. Distinct from the live SSE `PersonaEvent`
+ *  union: events are forward-only / lossy on disconnect; `BuildEvent`
+ *  is durable and trimmed to what the user-facing build-log modal
+ *  actually renders (no progress noise, no SSE-only signalling). */
+export type BuildEvent =
+  | { kind: "phase-start"; ts: number; phase: number; label: string }
+  | { kind: "phase-end"; ts: number; phase: number; durationMs: number }
+  | {
+      kind: "dimension-plan";
+      ts: number;
+      dimensions: Array<{ dimension: string; query: string; why: string }>;
+    }
+  | {
+      kind: "search";
+      ts: number;
+      query: string;
+      resultsCount: number;
+      pagesRead: number;
+      dimension?: string;
+      round?: number;
+      topup?: boolean;
+    }
+  | { kind: "divergence"; ts: number; score: number | null }
+  | { kind: "error"; ts: number; message: string };
+
 /** Discriminated union of every event the persona pipeline can emit.
  *  The SSE route maps each variant to a named SSE `event:` field so
  *  the client can register typed listeners. */

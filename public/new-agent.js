@@ -10,7 +10,6 @@
     { provider: "anthropic", models: [
       { v: "sonnet-4-6",    name: "Sonnet 4.6",    deck: "balanced · default" },
       { v: "opus-4-7",      name: "Opus 4.7",      deck: "deep reasoning" },
-      { v: "opus-4-6",      name: "Opus 4.6",      deck: "prior-gen flagship" },
       { v: "opus-4-6-fast", name: "Opus 4.6 Fast", deck: "faster 4.6 · same intelligence" },
       { v: "haiku-4-5",     name: "Haiku 4.5",     deck: "fast · low-cost" }
     ]},
@@ -24,13 +23,19 @@
       { v: "gemini-3-flash",   name: "Gemini 3 Flash",        deck: "frontier flash · 1M ctx" },
       { v: "gemini-3-1-flash", name: "Gemini 3.1 Flash Lite", deck: "fast · 1M ctx" }
     ]},
-    { provider: "xai", models: [
-      { v: "grok-4-3",      name: "Grok 4.3",      deck: "flagship · 1M ctx" },
-      { v: "grok-4-1-fast", name: "Grok 4.1 Fast", deck: "fast · 256k ctx" }
-    ]},
     { provider: "deepseek", models: [
       { v: "deepseek-v4-pro",   name: "DeepSeek V4 Pro", deck: "reasoning · open weights" },
       { v: "deepseek-v4-flash", name: "DeepSeek Lite",   deck: "V4 Flash · fast · 1M ctx" }
+    ]},
+    { provider: "zhipu", models: [
+      { v: "glm-5-1",      name: "GLM 5.1",      deck: "Zhipu flagship · 200k ctx" }
+    ]},
+    { provider: "moonshot", models: [
+      { v: "kimi-k2-6",    name: "Kimi K2.6",    deck: "long-context" }
+    ]},
+    { provider: "minimax", models: [
+      { v: "minimax-m2-7", name: "MiniMax M2.7", deck: "flagship · long-context" },
+      { v: "minimax-m2-5", name: "MiniMax M2.5", deck: "prior · long-context" }
     ]}
   ];
   const ALL_MODELS = MODEL_GROUPS.flatMap((g) => g.models);
@@ -405,7 +410,10 @@
   function getProviderStatus(provider) {
     const keys = (typeof window.boardroomKeys === "function" ? window.boardroomKeys() : {}) || {};
     if (keys[provider])    return { label: t("na_key_direct"),         cls: "direct" };
-    if (keys.openrouter)   return { label: t("na_key_via"),            cls: "via" };
+    // Any universal aggregator (OR or B.AI) routes this provider's
+    // models · without `|| keys.bai` here, a B.AI-only user would see
+    // every model labeled "no key" even though most are reachable.
+    if (keys.openrouter || keys.bai) return { label: t("na_key_via"), cls: "via" };
     return                       { label: t("na_key_none"),           cls: "none" };
   }
 

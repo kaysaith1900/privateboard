@@ -95,11 +95,12 @@ describe("ai/availability · model reachability per user state", () => {
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 
-  it("Anthropic-only · all current-gen + prior-gen Claude models reachable direct", () => {
+  it("Anthropic-only · all current-gen Claude models reachable direct", () => {
     setKey("anthropic", "sk-ant");
     const reachable = reachableModels();
     const slugs = reachable.map((m) => m.modelV).sort();
-    expect(slugs).toEqual(["haiku-4-5", "opus-4-6", "opus-4-6-fast", "opus-4-7", "sonnet-4-6"]);
+    // `opus-4-6` retired from registry (remapped to opus-4-7 in migration).
+    expect(slugs).toEqual(["haiku-4-5", "opus-4-6-fast", "opus-4-7", "sonnet-4-6"]);
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 
@@ -203,8 +204,8 @@ describe("ai/availability · utility model selection", () => {
     expect(utilityModelFor()).toBe("gemini-3-1-flash");
   });
 
-  it("xAI only · falls through to grok-4-1-fast (4.1 Fast)", () => {
+  it("xAI only · no LLM modelV in registry · utility is null", () => {
     setKey("xai", "xai-test");
-    expect(utilityModelFor()).toBe("grok-4-1-fast");
+    expect(utilityModelFor()).toBeNull();
   });
 });

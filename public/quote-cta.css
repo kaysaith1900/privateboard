@@ -22,8 +22,8 @@
   position: absolute;
   z-index: 1400;
   display: none;
-  background: var(--panel-2, #1A1A18);
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong);
   font-family: var(--mono, "Inter", system-ui, sans-serif);
   box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
   white-space: nowrap;
@@ -35,7 +35,7 @@
   appearance: none;
   background: transparent;
   border: 0;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -52,15 +52,15 @@
    bar border. */
 .qcta-btn:not(:last-child)  { padding-right: 6px; }
 .qcta-btn:not(:first-child) { padding-left: 6px; }
-.qcta-btn:hover { color: var(--lime, #6FB572); }
-.qcta-btn:hover .ico { color: var(--lime, #6FB572); }
+.qcta-btn:hover { color: var(--lime); }
+.qcta-btn:hover .ico { color: var(--lime); }
 .qcta-btn .ico {
   display: inline-flex;
   align-items: center;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   transition: color 0.12s;
 }
 .qcta-btn .ico svg { display: block; }
@@ -75,7 +75,7 @@
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   padding: 8px 13px;
   white-space: nowrap;
 }
@@ -97,11 +97,11 @@
   left: 50%;
   transform: translate(-50%, -8px); /* starts above resting, slides DOWN */
   z-index: 1600;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--lime, #6FB572);
-  color: var(--text, #C8C5BE);
+  background: var(--panel);
+  border: 0.5px solid var(--lime);
+  color: var(--text);
   font-family: var(--mono, "Inter", system-ui, sans-serif);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.04em;
   padding: 9px 16px;
@@ -120,12 +120,12 @@
   cursor: pointer;
 }
 .qcta-toast.kind-error {
-  border-color: #d36a6a;
-  color: #f0bdbd;
+  border-color: var(--red);
+  color: var(--red);
 }
 .qcta-toast.kind-ok::before {
   content: "✓ ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 
@@ -149,9 +149,9 @@
 .qask-modal {
   width: 100%;
   max-width: 560px;
-  background: var(--panel, #131312);
-  border: 0.5px solid var(--lime, #6FB572);
-  color: var(--text, #C8C5BE);
+  background: var(--panel);
+  border: 0.5px solid var(--lime);
+  color: var(--text);
   display: flex;
   flex-direction: column;
   box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.65);
@@ -164,26 +164,26 @@
 
 .qask-classification {
   padding: 8px 14px;
-  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  border-bottom: 0.5px solid var(--line-bright);
   font-family: var(--mono, "Inter", system-ui, sans-serif);
   font-size: 9px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--panel-2, #1A1A18);
+  background: var(--panel-2);
 }
-.qask-classification .dot { color: var(--lime, #6FB572); }
-.qask-classification .right { color: var(--text-faint, #3A382F); }
+.qask-classification .dot { color: var(--lime); }
+.qask-classification .right { color: var(--text-faint); }
 
 .qask-body { padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 12px; }
 
 /* Quote callout · top tag + indented italic body. NO left-border
    treatment per the project-wide rule. */
 .qask-quote {
-  background: var(--panel-2, #1A1A18);
+  background: var(--panel-2);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -196,29 +196,29 @@
   font-size: 9px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   font-weight: 700;
 }
 .qask-quote-body {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.55;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   font-style: italic;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .qask-input-wrap {
-  border: 0.5px solid var(--line-strong, #3A3A35);
-  background: var(--bg, #0A0A0A);
+  border: 0.5px solid var(--line-strong);
+  background: var(--bg);
   display: flex;
   align-items: stretch;
   transition: border-color 0.12s;
 }
-.qask-input-wrap:focus-within { border-color: var(--lime, #6FB572); }
+.qask-input-wrap:focus-within { border-color: var(--lime); }
 .qask-input-wrap::before {
   content: ">";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
   font-size: 13px;
   font-family: var(--mono, "Inter", system-ui, sans-serif);
@@ -230,8 +230,8 @@
   border: none;
   background: transparent;
   font-family: var(--font-human, var(--mono));
-  font-size: 13.5px;
-  color: var(--text, #C8C5BE);
+  font-size: 14px;
+  color: var(--text);
   outline: none;
   padding: 9px 12px;
   letter-spacing: -0.003em;
@@ -240,12 +240,12 @@
   min-height: 72px;
   line-height: 1.5;
 }
-.qask-input::placeholder { color: var(--text-faint, #3A382F); }
+.qask-input::placeholder { color: var(--text-faint); }
 
 .qask-foot {
   padding: 10px 14px;
-  border-top: 0.5px solid var(--line-bright, #2A2A26);
-  background: var(--panel-2, #1A1A18);
+  border-top: 0.5px solid var(--line-bright);
+  background: var(--panel-2);
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -258,16 +258,16 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 7px 14px;
-  border: 0.5px solid var(--line-strong, #3A3A35);
+  border: 0.5px solid var(--line-strong);
   background: transparent;
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   cursor: pointer;
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.qask-btn:hover { border-color: var(--lime, #6FB572); color: var(--lime, #6FB572); }
+.qask-btn:hover { border-color: var(--lime); color: var(--lime); }
 .qask-btn.primary {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
-.qask-btn.primary:hover { background: var(--lime, #6FB572); color: var(--bg, #0A0A0A); }
+.qask-btn.primary:hover { background: var(--lime); color: var(--bg); }
 .qask-btn[disabled] { opacity: 0.4; cursor: not-allowed; }

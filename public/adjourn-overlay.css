@@ -48,23 +48,23 @@
    is a terminal / destructive action — visual contrast against
    room-settings's calmer lime classification. */
 .adjourn-classification {
-  background: var(--panel-2, #1A1A18);
-  border-bottom: 0.5px solid var(--line-bright, #2A2A26);
+  background: var(--panel-2);
+  border-bottom: 0.5px solid var(--line-bright);
   padding: 6px 14px;
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--amber, #C99826);
+  color: var(--amber);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .adjourn-classification .dot {
-  color: var(--amber, #C99826);
+  color: var(--amber);
 }
 .adjourn-classification .right {
-  color: var(--text-faint, #3A382F);
+  color: var(--text-faint);
   letter-spacing: 0.12em;
 }
 
@@ -74,18 +74,18 @@
   gap: 14px;
   align-items: start;
   padding: 16px 22px 14px;
-  border-bottom: 0.5px dashed var(--line-bright, #2A2A26);
+  border-bottom: 0.5px dashed var(--line-bright);
 }
 .adjourn-head .meta {
   font-family: var(--mono);
-  font-size: 9.5px;
-  color: var(--text-dim, #5C5A52);
+  font-size: 10px;
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   margin-bottom: 6px;
 }
 .adjourn-head .meta .live {
-  color: var(--lime, #6FB572);
+  color: var(--lime);
   font-weight: 700;
 }
 .adjourn-head .meta .live::before {
@@ -93,7 +93,7 @@
   animation: adjourn-pulse 1.6s ease-in-out infinite;
 }
 .adjourn-head .meta .status {
-  color: var(--text-soft, #8E8B83);
+  color: var(--text-soft);
   font-weight: 700;
 }
 @keyframes adjourn-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
@@ -101,21 +101,21 @@
   font-family: var(--font-human);
   font-size: 17px;
   font-weight: 700;
-  color: var(--text, #C8C5BE);
+  color: var(--text);
   letter-spacing: -0.012em;
   line-height: 1.3;
 }
 .adjourn-head .title::before {
   content: "▸ ";
-  color: var(--lime, #6FB572);
+  color: var(--lime);
 }
 .adjourn-close {
   width: 28px;
   height: 28px;
   flex-shrink: 0;
   background: transparent;
-  border: 0.5px solid var(--line-bright, #2A2A26);
-  color: var(--text-dim, #5C5A52);
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -126,8 +126,8 @@
   justify-content: center;
 }
 .adjourn-close:hover {
-  border-color: var(--lime, #6FB572);
-  color: var(--lime, #6FB572);
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 /* ─── Body ─── */
@@ -159,7 +159,7 @@
 }
 .adjourn-summary-key {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -199,7 +199,7 @@
   background: transparent;
   border: none;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -231,7 +231,7 @@
 }
 .adjourn-mode-label {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--text-faint);
   margin-bottom: 8px;
@@ -395,23 +395,23 @@
   align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: 8px 14px;
   cursor: pointer;
   background: transparent;
-  border: 0.5px solid var(--amber, #C99826);
-  color: var(--amber, #C99826);
+  border: 0.5px solid var(--amber);
+  color: var(--amber);
   transition: background 0.12s, color 0.12s;
 }
 .adjourn-skip-btn:hover {
-  background: var(--amber, #C99826);
+  background: var(--amber);
   color: var(--bg);
 }
 .adjourn-skip-btn.picked {
-  background: var(--amber, #C99826);
+  background: var(--amber);
   color: var(--bg);
 }
 .adjourn-skip-btn .adjourn-skip-mark {
@@ -421,7 +421,7 @@
 .adjourn-cancel,
 .adjourn-confirm {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;

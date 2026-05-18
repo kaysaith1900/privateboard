@@ -404,6 +404,17 @@
     margin-top: 12px;
   }
 
+  /* Agenda slide body · top-align so a long list can't push the
+     "What we'll cover" headline above the slide's top edge. The
+     default `.ant-body` rule centres content vertically, which makes
+     the headline drift up out of `overflow: hidden` when there are
+     many agenda items. Clipping the BOTTOM of an overflowing list is
+     the lesser evil; clipping the TITLE of the slide is unforgivable. */
+  .ant-slide:has(.ant-agenda) .ant-body {
+    justify-content: flex-start;
+    padding-top: 96px;
+  }
+
   /* Agenda · decimal-leading-zero markers in italic serif */
   .ant-agenda {
     list-style: none;
@@ -413,6 +424,11 @@
     grid-template-columns: 1fr 1fr;
     gap: 6px 36px;
     counter-reset: aagenda;
+    /* `min-height: 0` lets the grid track shrink when the slide is
+       short; without it the implicit `min-height: auto` (== content
+       height) refuses to shrink and forces the body taller than the
+       slide — which makes the headline disappear behind the chrome. */
+    min-height: 0;
   }
   .ant-agenda li {
     display: grid;
@@ -799,6 +815,56 @@
     margin-right: 8px;
   }
 
+  /* ─── Consensus / splits slides · density fit for 16:9 ──────────
+     3 align rows + chairSyn quote on a consensus slide, OR 2 hinges
+     × 2-3 sides + optional resolve on a splits slide, overflow the
+     deck. Tighten padding · headline scale · gap · clamp long text.
+     Markers: `.ant-slide.is-consensus` / `.ant-slide.is-splits`
+     (set by antConsensusSlide / antSplitsSlide). */
+  .ant-slide.is-consensus .ant-body,
+  .ant-slide.is-splits    .ant-body {
+    padding: 56px 80px 68px;
+    justify-content: flex-start;
+  }
+  .ant-slide.is-consensus .ant-headline,
+  .ant-slide.is-splits    .ant-headline {
+    font-size: 34px;
+    line-height: 1.10;
+  }
+  .ant-slide.is-consensus .ant-aligns { gap: 16px; margin-top: 16px; }
+  .ant-slide.is-consensus .ant-align { padding-top: 12px; }
+  .ant-slide.is-consensus .ant-align::before { font-size: 26px; }
+  .ant-slide.is-consensus .ant-align-point { font-size: 19px; line-height: 1.22; }
+  .ant-slide.is-consensus .ant-align-note {
+    font-size: 13px; line-height: 1.45; margin-top: 6px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ant-slide.is-consensus .ant-chips { margin-top: 8px; }
+  /* When all 3 align rows are filled the slide is already at capacity
+     — drop the chairSyn quote so it doesn't push content off-screen. */
+  .ant-slide.is-consensus .ant-aligns:has(.ant-align:nth-child(3)) ~ .ant-voice-quote {
+    display: none;
+  }
+  .ant-slide.is-splits .ant-splits { gap: 18px; margin-top: 12px; }
+  .ant-slide.is-splits .ant-split { padding-top: 12px; }
+  .ant-slide.is-splits .ant-split-hinge {
+    font-size: 19px; line-height: 1.22; margin-bottom: 10px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ant-slide.is-splits .ant-split-side-stance {
+    font-size: 13px; line-height: 1.42;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ant-slide.is-splits .ant-split-side-names { margin-top: 6px; }
+  .ant-slide.is-splits .ant-split-resolve {
+    font-size: 12px; line-height: 1.4; margin-top: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   /* Bullets · italic lower-roman (recommendations) /
      decimal-leading-zero (verification) */
   .ant-bullets {
@@ -989,6 +1055,14 @@
     .key-deck { font-size: 19px; }
   }
 
+  /* Agenda slide body · same top-align fix as the anthropic variant.
+     A long agenda list can't push the "What we'll cover" headline
+     above the slide's top edge with `justify-content: center`. */
+  .key-slide:has(.key-agenda) .key-body {
+    justify-content: flex-start;
+    padding-top: 88px;
+  }
+
   /* Agenda · centered short list */
   .key-agenda {
     list-style: none;
@@ -998,6 +1072,7 @@
     flex-direction: column;
     gap: 8px;
     counter-reset: kagenda;
+    min-height: 0;
   }
   .key-agenda li {
     display: grid;
@@ -1423,6 +1498,51 @@
     text-transform: uppercase;
     color: var(--accent);
     margin-right: 8px;
+  }
+
+  /* ─── Consensus / splits slides · keynote density fit. Same logic
+     as the anthropic twin above · key-headline defaults to 64px which
+     is way too big once the slide already carries 3 align rows or
+     2 hinges; clamp to 38px and tighten gaps + line-clamp longs. */
+  .key-slide.is-consensus .key-body,
+  .key-slide.is-splits    .key-body {
+    padding: 56px 64px 68px;
+    justify-content: flex-start;
+  }
+  .key-slide.is-consensus .key-headline,
+  .key-slide.is-splits    .key-headline {
+    font-size: 38px;
+    line-height: 1.08;
+  }
+  .key-slide.is-consensus .key-aligns { gap: 14px; margin-top: 14px; }
+  .key-slide.is-consensus .key-align { padding-top: 12px; }
+  .key-slide.is-consensus .key-align-point { font-size: 20px; line-height: 1.20; }
+  .key-slide.is-consensus .key-align-note {
+    font-size: 13px; line-height: 1.45; margin-top: 6px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .key-slide.is-consensus .key-chips { margin-top: 8px; }
+  .key-slide.is-consensus .key-aligns:has(.key-align:nth-child(3)) ~ .key-voice-quote {
+    display: none;
+  }
+  .key-slide.is-splits .key-splits { gap: 16px; margin-top: 12px; }
+  .key-slide.is-splits .key-split { padding-top: 12px; }
+  .key-slide.is-splits .key-split-hinge {
+    font-size: 20px; line-height: 1.20; margin-bottom: 10px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .key-slide.is-splits .key-split-side-stance {
+    font-size: 13px; line-height: 1.42;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .key-slide.is-splits .key-split-side-names { margin-top: 6px; }
+  .key-slide.is-splits .key-split-resolve {
+    font-size: 12px; line-height: 1.4; margin-top: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   /* Takeaway slide · big italic quote */
@@ -1942,7 +2062,7 @@
           ${chairSyn ? `<div class="ant-voice-quote" style="margin-top: 22px;">— ${escape(chairSyn)}</div>` : ""}
         </div>
         ${antChrome(idx, total)}`;
-      return wrapSlide(idx, "ant-slide", content, { title: "Where we agreed" });
+      return wrapSlide(idx, "ant-slide is-consensus", content, { title: "Where we agreed" });
     }
 
     function antSplitsSlide(idx, total, divs) {
@@ -1969,7 +2089,7 @@
           <div class="ant-splits">${items}</div>
         </div>
         ${antChrome(idx, total)}`;
-      return wrapSlide(idx, "ant-slide", content, { title: "Where we split" });
+      return wrapSlide(idx, "ant-slide is-splits", content, { title: "Where we split" });
     }
 
     function antTakeaway(idx, total, m) {
@@ -2145,7 +2265,7 @@
           ${chairSyn ? `<div class="key-voice-quote" style="margin-top: 22px;">— ${escape(chairSyn)}</div>` : ""}
         </div>
         ${keyChrome(idx, total)}`;
-      return wrapSlide(idx, "key-slide", content, { title: "Where we agreed" });
+      return wrapSlide(idx, "key-slide is-consensus", content, { title: "Where we agreed" });
     }
 
     function keySplitsSlide(idx, total, divs) {
@@ -2172,7 +2292,7 @@
           <div class="key-splits">${items}</div>
         </div>
         ${keyChrome(idx, total)}`;
-      return wrapSlide(idx, "key-slide", content, { title: "Where we split" });
+      return wrapSlide(idx, "key-slide is-splits", content, { title: "Where we split" });
     }
 
     function keyTakeaway(idx, total, m) {

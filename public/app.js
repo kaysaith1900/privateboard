@@ -42,22 +42,21 @@
   const MODEL_LABELS = {
     "sonnet-4-6":       "Sonnet 4.6",
     "opus-4-7":         "Opus 4.7",
-    "opus-4-6":         "Opus 4.6",
     "opus-4-6-fast":    "Opus 4.6 Fast",
     "haiku-4-5":        "Haiku 4.5",
     "gpt-5-5":          "GPT-5.5",
     "gpt-5-4":          "GPT-5.4",
     "gpt-5-4-mini":     "GPT-5.4 Mini",
-    "gpt-5-5-pro":      "GPT-5.5 Pro",
     "codex-5-4":        "ChatGPT Codex 5.4",
     "gemini-3-1":       "Gemini 3.1 Pro",
     "gemini-3-flash":   "Gemini 3 Flash",
     "gemini-3-1-flash": "Gemini 3.1 Flash Lite",
-    "grok-4-3":         "Grok 4.3",
-    "grok-4-1-fast":    "Grok 4.1 Fast",
-    "grok-4-20":        "Grok 4.20",
     "deepseek-v4-pro":  "DeepSeek V4 Pro",
     "deepseek-v4-flash": "DeepSeek Lite",
+    "glm-5-1":          "GLM 5.1",
+    "kimi-k2-6":        "Kimi K2.6",
+    "minimax-m2-7":     "MiniMax M2.7",
+    "minimax-m2-5":     "MiniMax M2.5",
   };
 
   /** Full model catalog for the new-agent composer dropdown. Mirrors
@@ -69,9 +68,8 @@
   const AGENT_COMPOSER_MODELS = [
     { v: "opus-4-7",         label: "Claude Opus 4.7",      provider: "Anthropic", deck: "deep reasoning" },
     { v: "sonnet-4-6",       label: "Claude Sonnet 4.6",    provider: "Anthropic", deck: "balanced · default" },
-    { v: "opus-4-6",         label: "Claude Opus 4.6",      provider: "Anthropic", deck: "prior-gen flagship" },
     { v: "opus-4-6-fast",    label: "Claude Opus 4.6 Fast", provider: "Anthropic", deck: "faster 4.6 · same intelligence" },
-    { v: "haiku-4-5",        label: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },    { v: "gpt-5-5-pro",      label: "GPT-5.5 Pro",       provider: "OpenAI",    deck: "flagship · 1M ctx" },
+    { v: "haiku-4-5",        label: "Claude Haiku 4.5",     provider: "Anthropic", deck: "fast · low-cost" },
     { v: "gpt-5-5",          label: "GPT-5.5",           provider: "OpenAI",    deck: "1M ctx" },
     { v: "gpt-5-4",          label: "GPT-5.4",           provider: "OpenAI",    deck: "general · 1M ctx" },
     { v: "gpt-5-4-mini",     label: "GPT-5.4 Mini",      provider: "OpenAI",    deck: "fast · 400k ctx" },
@@ -79,11 +77,12 @@
     { v: "gemini-3-1",       label: "Gemini 3.1 Pro",        provider: "Google",    deck: "flagship · 1M ctx" },
     { v: "gemini-3-flash",   label: "Gemini 3 Flash",        provider: "Google",    deck: "frontier flash · 1M ctx" },
     { v: "gemini-3-1-flash", label: "Gemini 3.1 Flash Lite", provider: "Google",    deck: "fast · 1M ctx" },
-    { v: "grok-4-3",         label: "Grok 4.3",          provider: "xAI",       deck: "flagship · 1M ctx" },
-    { v: "grok-4-1-fast",    label: "Grok 4.1 Fast",     provider: "xAI",       deck: "fast · 256k ctx" },
-    { v: "grok-4-20",        label: "Grok 4.20",         provider: "xAI",       deck: "2M ctx · big context" },
     { v: "deepseek-v4-pro",  label: "DeepSeek V4 Pro",   provider: "DeepSeek",  deck: "reasoning · open weights" },
     { v: "deepseek-v4-flash", label: "DeepSeek Lite",   provider: "DeepSeek",  deck: "V4 Flash · fast · 1M ctx" },
+    { v: "glm-5-1",          label: "GLM 5.1",          provider: "Zhipu",     deck: "Zhipu flagship · 200k ctx" },
+    { v: "kimi-k2-6",        label: "Kimi K2.6",        provider: "Moonshot",  deck: "long-context" },
+    { v: "minimax-m2-7",     label: "MiniMax M2.7",     provider: "MiniMax",   deck: "flagship · long-context" },
+    { v: "minimax-m2-5",     label: "MiniMax M2.5",     provider: "MiniMax",   deck: "prior · long-context" },
   ];
 
   /** Tone tooltips · short, user-readable summary of how each tone
@@ -153,6 +152,23 @@
     currentChair: null,            // chair agent for the current room
     currentQueue: [],
     voiceQueues: {},
+    /** Mini-player anchor · when set, the cross-room bar persists
+     *  for this voice room throughout its whole live/paused life
+     *  (between speakers, during votes / clarify, idle phases) —
+     *  not just while audio happens to be playing. Set on
+     *  openRoom(voice) and on each enqueueVoiceChunk; cleared on
+     *  SSE room-adjourned and on the bar's close button. */
+    _activeVoiceRoomId: null,
+    /** Speaking-queue strip · auto expand/collapse state machine.
+     *  `_queueAutoCollapsed` is what the auto-logic computed last
+     *  paint (true = collapsed). `_queueUserOverride` is set true
+     *  when the user clicks the chevron; their inverse-of-auto
+     *  pick sticks until the room state changes "significantly"
+     *  (a flip in awaitingClarify / awaitingContinue / pending
+     *  user message / queue empty-vs-nonempty), at which point
+     *  the override resets. See `_applyQueueAutoState`. */
+    _queueAutoCollapsed: true,
+    _queueUserOverride: false,
     /** Round progress from the orchestrator: how many directors have
      *  spoken in the current round vs. the cap (= cast size). */
     currentRound: { spoken: 0, total: 0 },
@@ -322,6 +338,31 @@
           : (btn.getAttribute("data-more") || this._t("convene_show_more"));
         btn.textContent = label;
       });
+      // Live-subtitle minimize / restore · attached in CAPTURE phase
+      // so it wins ahead of any outside-click handlers (picker dismiss
+      // / overlay close) that might `stopPropagation` and swallow the
+      // first click. Without capture, a click on the minimize button
+      // takes two presses to register — the first one gets eaten by an
+      // unrelated bubble-phase listener.
+      const onSubBtn = (e) => {
+        if (e.target.closest("[data-rt-sub-min]")) {
+          e.preventDefault();
+          e.stopPropagation();
+          document.body.classList.add("is-subtitle-min");
+          return;
+        }
+        if (e.target.closest("[data-rt-sub-restore]")) {
+          e.preventDefault();
+          e.stopPropagation();
+          document.body.classList.remove("is-subtitle-min");
+          // Re-render so the subtitle re-populates with the latest
+          // streaming / replay state (it was hidden via CSS, not via
+          // `slot.hidden`, so its innerHTML is preserved — but a
+          // fresh paint guarantees the cursor / kicker is current).
+          this.renderRtSubtitle();
+        }
+      };
+      document.addEventListener("click", onSubBtn, true);
       document.addEventListener("boardroom:locale", () => {
         this.renderSidebarRooms();
         this.renderSidebarAgents();
@@ -332,6 +373,65 @@
         if (Array.isArray(this._reportsCache)) this.renderReportsPage(this._reportsCache);
         if (Array.isArray(this._notesCache)) this.renderNotesPage(this._notesCache);
       });
+
+      // Track the floating .ib-stack's height so the round-table
+      // stage can reserve exactly that much bottom space. Covers
+      // every height-changing event: speaking-queue expand /
+      // collapse, textarea auto-grow, paused-strip show / hide.
+      // The CSS fallback of 130px stays for the initial paint
+      // before the observer fires.
+      this._setupIbStackReserve();
+
+      // Ctrl+R / Cmd+R intercept · when the user tries to reload
+      // while a director is mid-stream, pop the reload-confirm
+      // modal so they can decide between (a) abort the speaker
+      // now and reload, (b) wait for the current speaker to
+      // finish and then reload, or (c) cancel. Without this,
+      // refreshing during voice playback used to drop the SSE
+      // mid-stream, kill the in-flight TTS, and leave the room
+      // partially paused on the server side · users had to dig
+      // around to recover.
+      //
+      // Browsers honour preventDefault on Ctrl+R / Cmd+R for the
+      // page-reload shortcut (it's not a reserved keystroke).
+      // Menu reload / URL-bar reload still get caught by the
+      // `beforeunload` handler below.
+      document.addEventListener("keydown", (e) => {
+        const isReload = (e.ctrlKey || e.metaKey)
+          && !e.altKey
+          && (e.key === "r" || e.key === "R" || e.code === "KeyR");
+        if (!isReload) return;
+        if (this._suppressReloadConfirm) return;
+        if (!this.currentRoomId) return;
+        if (!this.isAgentSpeaking()) return;
+        // Skip when the modal is already open · let the user
+        // pick a choice from the visible modal instead of
+        // spawning a duplicate.
+        if (document.getElementById("reload-choice-overlay")) {
+          e.preventDefault();
+          return;
+        }
+        e.preventDefault();
+        this.openReloadChoiceModal();
+      });
+
+      // Defense-in-depth · the `beforeunload` event fires for
+      // menu reload, URL-bar reload, browser back/forward, tab
+      // close. Modern browsers don't let us replace the dialog
+      // with custom HTML — they show a generic "Reload site?"
+      // prompt — but returning a truthy value triggers that
+      // prompt, which is still better than silently dropping a
+      // live turn. Only arms while a speaker is mid-stream and
+      // the user hasn't already confirmed via the keydown
+      // modal (the `_suppressReloadConfirm` flag).
+      window.addEventListener("beforeunload", (e) => {
+        if (this._suppressReloadConfirm) return;
+        if (!this.currentRoomId) return;
+        if (!this.isAgentSpeaking()) return;
+        e.preventDefault();
+        e.returnValue = "";
+        return "";
+      });
       // Voice replay drives the round-table stage in adjourned rooms ·
       // every replay state transition (item start, thinking → speaking,
       // playlist end, close) emits `boardroom:replay-active` so the
@@ -339,8 +439,21 @@
       // HUD's REPLAY pill stays in sync. Cheap to call · renderRound-
       // Table bails fast when the stage isn't currently visible.
       document.addEventListener("boardroom:replay-active", () => {
+        // Always refresh the cross-room mini-player · the bar needs
+        // to surface even when the user has navigated away (no
+        // currentRoomId). Stage repaint still bails out when no
+        // room is open, since the stage DOM isn't mounted there.
+        this.refreshMiniPlayer();
         if (!this.currentRoomId) return;
         this.renderRoundTable();
+      });
+      // Replay state · play / pause transitions on the replay audio
+      // element OR replay close. Fired by voice-replay.js. We only
+      // care about keeping the mini-player's glyph + visibility in
+      // sync; the round-table stage already listens to replay-active
+      // for seat changes, which is a different signal.
+      document.addEventListener("boardroom:replay-state", () => {
+        this.refreshMiniPlayer();
       });
       // Replay drives playback of pre-rendered audio clips (not the
       // chunk-streamed pipeline), so it has its own timeupdate event
@@ -348,11 +461,29 @@
       // subtitle's sentence-of-the-cursor sync · cheap DOM update,
       // safe to fire ~4 Hz.
       document.addEventListener("boardroom:replay-tick", () => {
+        // Mini-player ticks even when no room is open · the lyric
+        // line + progress bar both feed off audio.currentTime, and
+        // the user is most likely on the new-room/agents view when
+        // they want this signal.
+        this.refreshMiniPlayer();
         if (!this.currentRoomId) return;
         this.renderRtSubtitle();
       });
       window.addEventListener("hashchange", () => this.handleRoute());
       this.handleRoute();
+
+      // Native menu (Electron) · `electron/preload.cts` rebroadcasts the
+      // main-process IPC pushes as `boardroom:menu-*` DOM events. In the
+      // web build these listeners are harmless no-ops because no
+      // ipcRenderer is wired to dispatch them.
+      window.addEventListener("boardroom:menu-new-room", () => {
+        // Empty hash → handleRoute lands on the new-room composer
+        // (the same destination as sidebar "New room").
+        location.hash = "";
+      });
+      window.addEventListener("boardroom:menu-toggle-sidebar", () => {
+        document.querySelector("[data-sidebar-collapse]")?.click();
+      });
 
       // Sidebar count badges · refresh on boot.
       // Notes: also refreshed on every note:created / note:deleted
@@ -450,9 +581,18 @@
       if (lastSeen === latest) return;
 
       // Find migrations newer than lastSeen — by index in the list,
-      // since order is applied_at ASC.
+      // since order is applied_at ASC. If lastSeen isn't present in
+      // the current list (the migration was reverted before reaching
+      // production), treat it as orphaned and silently realign to the
+      // current latest. Without this guard, a stray localStorage value
+      // would surface every existing migration as "new" and trigger
+      // a permanent banner that the user can never dismiss away.
       const lastIdx = migrations.findIndex((m) => m.name === lastSeen);
-      const fresh = lastIdx >= 0 ? migrations.slice(lastIdx + 1) : migrations;
+      if (lastIdx === -1) {
+        try { localStorage.setItem(KEY, latest); } catch { /* */ }
+        return;
+      }
+      const fresh = migrations.slice(lastIdx + 1);
       if (fresh.length === 0) {
         try { localStorage.setItem(KEY, latest); } catch { /* */ }
         return;
@@ -679,6 +819,22 @@
 
     // ── Room lifecycle ────────────────────────────────────────
     async openRoom(roomId) {
+      // Close the @-mention picker if open · its director list is
+      // scoped to the previous room and would point at a stale cast
+      // mid-navigation. Idempotent · no-op when already closed.
+      if (window.MentionPicker && typeof window.MentionPicker.close === "function") {
+        window.MentionPicker.close();
+      }
+      // Hand off SSE to a background tracker BEFORE closing the
+      // foreground · openRoom is the room-to-room nav path
+      // (closeRoom only fires when going back to "no room") so
+      // without this hook the foreground SSE for the tracked
+      // voice room dies the moment the user clicks another room.
+      // The bg SSE picks up voice-chunk + voice-final events for
+      // subsequent speakers so the audio chain doesn't break.
+      // This awaits the bg's "hello" event so the server has its
+      // subscription registered before we drop foreground's.
+      await this._handoffSseToBg(roomId);
       this.disconnectSSE();
 
       // Capture whether this open came from a note jump · this LOCAL
@@ -777,6 +933,11 @@
       this.agentSpec = null;
       this.agentSpecGenerating = false;
       this.agentSpecError = null;
+      // Entering a room silences the agent-build ambient (the user
+      // has shifted focus away from the agent composer). If a
+      // build is still running, the sidebar Building row remains
+      // and the ambient resumes the moment they click back.
+      try { window.boardroomAgentBuildBgm?.stop?.(); } catch { /* */ }
 
       // Drop conveneState if it belongs to a different room — protects
       // against stale "preparing…" leaking into a sibling room when
@@ -962,6 +1123,10 @@
           }
         }
       });
+      // If the user is re-entering the room the mini-player was
+      // tracking, drop the background SSE · the foreground SSE we
+      // open below will deliver voice-chunk events directly.
+      if (this._bgSseRoomId === roomId) this._stopBgSse();
       this.connectSSE(roomId);
       // Fresh room · force-scroll to the latest message and start
       // the scroll watcher so subsequent auto-scrolls respect the
@@ -980,11 +1145,35 @@
         this.scrollChatToBottom(true);
       }
       this.bindChatScrollWatch();
+      // Mini-player anchor · opening a non-adjourned voice room
+      // re-arms the bar to track it. The bar will surface the
+      // moment the user navigates away. Adjourned voice rooms
+      // don't qualify — there's no live state to monitor.
+      const r = this.currentRoom;
+      if (r && r.deliveryMode === "voice" && r.status !== "adjourned") {
+        this._activeVoiceRoomId = roomId;
+      }
+      // Mini-player · entering a room may match the room
+      // whose audio is playing (in which case the bar hides) or
+      // leave a different room playing (the bar stays/appears).
+      this.refreshMiniPlayer();
     },
 
-    closeRoom() {
+    async closeRoom() {
+      // Hand off SSE to the background tracker first (awaits "hello"
+      // so the server-side subscription is registered before we
+      // drop the foreground one — no events can fall into the gap).
+      // openRoom does its own _handoffSseToBg too; this branch
+      // covers the no-room navigation path.
+      await this._handoffSseToBg(null);
       this.disconnectSSE();
       this.cancelContinueCountdown();
+      // Thinking SFX loop is bound to a director thinking in THIS
+      // room · stop it explicitly so it doesn't keep pulsing after
+      // the user navigates away (renderRoundTable is the normal
+      // off-switch; without this guard, leaving the room before
+      // the next render leaves the interval orphaned).
+      try { window.boardroomTypingSfx?.setThinking?.(false); } catch { /* ignore */ }
       this.currentRoomId = null;
       this.currentRoom = null;
       this.currentMessages = [];
@@ -1057,6 +1246,12 @@
       if (rtStage) rtStage.hidden = true;
       this.renderEmptyState();
       this.markActiveRoom(null);
+      // Floating mini-player · the user just left a room. If audio
+      // is still mid-playback (voice room → settings / agents / +
+      // New Room), surface the cross-room bar so they can pause /
+      // close / jump back. Idempotent — hides itself when no
+      // cross-room playback is active.
+      this.refreshMiniPlayer();
     },
 
     // ── SSE ───────────────────────────────────────────────────
@@ -1249,6 +1444,15 @@
         if (!msg) return;
         const wasEmpty = !String(msg.body || "").trim();
         msg.body += data.delta;
+        // Mirror the body onto any voiceQueue for this message so
+        // the cross-room mini-player can still show the "lyrics"
+        // line after the user navigates away (SSE disconnects, but
+        // the cached body keeps reading from the last frozen state).
+        const vq = this.voiceQueues && this.voiceQueues[data.messageId];
+        if (vq) {
+          vq.cachedBody = msg.body;
+          if (!vq.authorId && msg.authorId) vq.authorId = msg.authorId;
+        }
         this.updateMessageBodyDom(data.messageId, msg.body, true);
         this.scrollChatToBottom();
         // Round-table stage · the very first token transitions the
@@ -1353,11 +1557,22 @@
         if (vq) {
           if (vq.audio) { try { vq.audio.pause(); } catch(_) {} }
           delete this.voiceQueues[data.messageId];
+          this.refreshMiniPlayer();
         }
         // Drop the empty placeholder bubble.
         this.currentMessages = this.currentMessages.filter((m) => m.id !== data.messageId);
         const article = document.querySelector(`[data-message-id="${data.messageId}"]`);
         if (article) article.remove();
+        // Round-table stage · the just-removed message was the in-flight
+        // streaming placeholder. Without repainting, `renderRoundTable`'s
+        // speaker-detection path (which scans `currentMessages` for the
+        // most recent `meta.streaming === true` entry) keeps reporting
+        // the removed director as still speaking — the "thinking / speaking"
+        // bubble stays glued to their seat after a hard-pause "stop
+        // immediately" tore the message out. Mirrors `message-final`'s
+        // repaint at line ~1440.
+        this.renderRoundTable();
+        this.renderRtSubtitle();
       });
 
       this.sse.addEventListener("voice-chunk", (e) => {
@@ -1414,7 +1629,17 @@
 
       this.sse.addEventListener("voice-final", (e) => {
         const data = JSON.parse(e.data);
-        const q = this.voiceQueues[data.messageId] || (this.voiceQueues[data.messageId] = { chunks: [], final: false, scheduled: false, roomId, messageId: data.messageId });
+        // Do NOT auto-create a queue entry on voice-final · this event
+        // can arrive AFTER a hard-pause `room-paused` already cleared
+        // `voiceQueues` (the speakerTurn finalizer runs on its own
+        // async tick, separate from the route handler that emitted
+        // room-paused — so the SSE ordering is voice-final-after-pause
+        // even though emission was earlier in source code). Re-creating
+        // the queue here re-arms renderRoundTable's voiceQueues path
+        // and the speaking bubble glues itself to the seat forever.
+        // If the queue is already gone, there's nothing to finalize.
+        const q = this.voiceQueues[data.messageId];
+        if (!q) return;
         q.final = true;
         q.messageId = data.messageId;
         q.roomId = roomId;
@@ -1482,6 +1707,17 @@
           // pipeline failed (typically chair-llm-failed) so no bubble
           // is coming to replace it.
           this.hideChairPending();
+          // Deferred reload · the user picked "refresh after current
+          // speaker finishes" from the reload-confirm modal earlier.
+          // Now that the room is officially paused, the speaker's
+          // turn has concluded · safe to reload. We unset the flag
+          // first so a stray re-emit of room-paused doesn't trigger
+          // a second reload after the page comes back.
+          if (this._pendingReloadOnPause) {
+            this._pendingReloadOnPause = false;
+            this._suppressReloadConfirm = true;
+            location.reload();
+          }
         } else if (kind === "room-resumed") {
           if (this.currentRoom) {
             this.currentRoom.status = "live";
@@ -1489,24 +1725,32 @@
           }
           document.documentElement.setAttribute("data-status", "live");
           this.renderHeader();
-          // Resume · the input-bar's toggle is now visible again
-          // (paused-bar went display:none). Re-sync both twins so
-          // glyph/aria/hidden land correctly on the live one.
+          // Resume · the input-bar's left cluster swaps from
+          // Resume back to Pause/Adjourn/Vote; the round-table
+          // toggle re-syncs across all visible twins.
+          this.renderInputBarControls();
           this.applyRoundTableVisibility(this.currentRoomId);
           syncSidebar({ status: "live", pausedAt: null });
-          // Drop any paused-supplement overlay · the supplement endpoint
-          // 409s once the room is live, so leaving the modal up is just
-          // a confusing no-op for the user.
-          this.closePausedSupplementOverlay?.();
         } else if (kind === "room-adjourned") {
           const ts = payload.adjournedAt || Date.now();
           if (this.currentRoom) {
             this.currentRoom.status = "adjourned";
             this.currentRoom.adjournedAt = ts;
           }
+          // Mini-player · the room we were tracking just adjourned.
+          // Drop the anchor so the bar hides next refresh (audio
+          // may keep playing for a few seconds via buffered chunks
+          // — the live source check still surfaces during that
+          // window; idle persistence ends here). Background SSE
+          // (if any) is also torn down for symmetry.
+          if (this._activeVoiceRoomId === this.currentRoomId) {
+            this._activeVoiceRoomId = null;
+            this._stopBgSse();
+          }
           document.documentElement.setAttribute("data-status", "adjourned");
           this.renderHeader();
           syncSidebar({ status: "adjourned", adjournedAt: ts });
+          this.refreshMiniPlayer();
           // Adjourning from the round-end vote overlay's "Adjourn &
           // file" path skips round-resumed — drop the overlay here
           // so it doesn't linger over the brief-loading screen.
@@ -1865,6 +2109,11 @@
           if (this.currentBrief && target && this.currentBrief.id === target.id) {
             this.renderBrief();
           }
+          // Header was stuck in "Generating Report…" pending state · now
+          // that the brief errored, the generating check returns false
+          // and the regular [ View Report ] link mounts (its report page
+          // surfaces the error / retry UI).
+          this.renderHeader();
         } else if (kind === "settings-changed") {
           const ch = payload.changes || {};
           if (this.currentRoom) {
@@ -1883,7 +2132,9 @@
           // Server-driven deliveryMode flip · sync the round-table
           // stage's visibility so the user's view matches reality
           // even when the change came from another tab / device.
-          if (ch.deliveryMode) this.applyRoundTableVisibility(this.currentRoomId);
+          if (ch.deliveryMode) {
+            this.applyRoundTableVisibility(this.currentRoomId);
+          }
           // Server-driven voteTrigger flip · show/hide the bottom-
           // bar manual button immediately.
           if (ch.voteTrigger) this.refreshManualVoteButton();
@@ -2076,10 +2327,14 @@
           // Show "analyzing topic" stage on the convening card. The
           // card was seeded by createRoom so it's already on screen;
           // we just confirm the stage in case SSE arrived before the
-          // card was rendered.
+          // card was rendered. In voice mode the chat is hidden, so
+          // also repaint the stage — renderRoundTable cascades to
+          // the subtitle + HUD so the convene-stage label propagates
+          // to every visible surface.
           if (this.conveneState) {
             this.conveneState.stage = "analyzing";
             this.renderChat();
+            this.renderRoundTable();
           }
         } else if (kind === "member-added" && payload?.autoPicked) {
           // Director seated by the auto-picker · patch currentMembers
@@ -2096,7 +2351,10 @@
             this.renderQueue();
             // Convening card · advance to "seating" and append the
             // newly-seated director's avatar so the user watches the
-            // cast assemble in real time.
+            // cast assemble in real time. renderQueue above already
+            // re-paints the stage (and cascades to subtitle + HUD)
+            // so the convene-stage label propagates to every visible
+            // surface.
             if (this.conveneState) {
               this.conveneState.stage = "seating";
               if (!this.conveneState.seated.find((a) => a.id === agent.id)) {
@@ -2108,9 +2366,13 @@
         } else if (kind === "auto-pick-complete") {
           // Cast is fully seated. Advance the convening card to
           // "preparing" — chair's about to start streaming.
+          // renderRoundTable cascades to subtitle + HUD so the new
+          // stage label lands everywhere (voice mode hides the chat
+          // card so the stage surfaces are the only feedback).
           if (this.conveneState) {
             this.conveneState.stage = "preparing";
             this.renderChat();
+            this.renderRoundTable();
           }
         }
       });
@@ -2128,6 +2390,202 @@
       // Drop the brief watcher · the brief belongs to a room and the
       // watcher would otherwise keep ticking against a stale id.
       this.stopBriefStallWatch();
+    },
+
+    /** Background SSE for the cross-room mini-player.
+     *  When the user navigates away from a voice room that's still
+     *  in progress, the foreground SSE closes — which means the
+     *  next director's voice-chunk events never reach the client
+     *  and audio dies between speakers. This keeps a lightweight
+     *  SSE open just for that room so audio + the bar's metadata
+     *  stay live. Subset of the foreground handler · only the
+     *  events the mini-player actually consumes.
+     *
+     *  Called from closeRoom when _activeVoiceRoomId is the room
+     *  being left. Stopped when the user re-enters that room
+     *  (foreground takes over) or when the bar is dismissed. */
+    _startBgSse(roomId, onReady) {
+      if (!roomId) {
+        if (typeof onReady === "function") onReady();
+        return;
+      }
+      // Idempotent · re-arming for the same room is a no-op so
+      // rapid navigate-away/back doesn't spawn duplicates.
+      if (this._bgSse && this._bgSseRoomId === roomId) {
+        if (typeof onReady === "function") onReady();
+        return;
+      }
+      this._stopBgSse();
+      let es;
+      try {
+        es = new EventSource("/api/rooms/" + encodeURIComponent(roomId) + "/stream");
+      } catch (e) {
+        if (typeof onReady === "function") onReady();
+        return;
+      }
+      this._bgSse = es;
+      this._bgSseRoomId = roomId;
+      // hello · server has subscribed to roomBus(roomId) and is
+      // about to start streaming events. Critical signal · the
+      // handoff awaits this before closing the foreground SSE so
+      // no events are missed in the window between sub/unsub.
+      es.addEventListener("hello", () => {
+        if (typeof onReady === "function") onReady();
+      });
+      // voice-chunk · the event the user is actually here for · feeds
+      // the existing voice queue so the next speaker's TTS plays.
+      es.addEventListener("voice-chunk", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          this.enqueueVoiceChunk(roomId, data);
+        } catch { /* swallow malformed payloads */ }
+      });
+      // voice-final · CRITICAL · without this the MediaSource never
+      // gets `endOfStream`, the audio's "ended" event never fires,
+      // _fireVoiceDone never POSTs /voice-done, and the orchestrator
+      // parks at waitForVoicePlayback — meaning the next director
+      // never starts. This is the missing event that broke the
+      // user-reported "Director 1 finishes then nothing" scenario.
+      es.addEventListener("voice-final", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const q = this.voiceQueues[data.messageId]
+            || (this.voiceQueues[data.messageId] = { chunks: [], final: false, scheduled: false, roomId, messageId: data.messageId });
+          q.final = true;
+          q.messageId = data.messageId;
+          q.roomId = roomId;
+          this.drainVoiceQueue(roomId, data.messageId);
+        } catch { /* swallow */ }
+      });
+      // message-appended · stash author info so refreshMiniPlayer
+      // can resolve the speaker name + avatar when the queue lands
+      // (the queue's authorId/cachedBody fields are populated by
+      // enqueueVoiceChunk via this room's currentMessages, which
+      // we DON'T own here — so seed a parallel cache on the queue
+      // when its first chunk arrives, by mirroring the appended
+      // message body into a per-room map).
+      es.addEventListener("message-appended", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.authorKind !== "agent") return;
+          if (!this._bgMessages) this._bgMessages = {};
+          // streaming flag · drives the mini-player's "thinking"
+          // source detection (this director appeared but TTS hasn't
+          // started yet). Cleared by message-final.
+          const streaming = !!(data.meta && data.meta.streaming === true);
+          this._bgMessages[data.messageId] = {
+            authorId: data.authorId || null,
+            body: data.body || "",
+            streaming,
+            appendedAt: data.createdAt || Date.now(),
+          };
+          // The "thinking" state needs an immediate refresh so the
+          // bar doesn't sit on its previous (now-stale) speaker info
+          // for the few seconds between speakers.
+          this.refreshMiniPlayer();
+        } catch { /* swallow */ }
+      });
+      // message-token · grow the cached body so the lyric line
+      // tracks the streaming text. Mirrored onto the voice queue
+      // (if one exists) AND the parallel _bgMessages map.
+      es.addEventListener("message-token", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (this._bgMessages && this._bgMessages[data.messageId]) {
+            this._bgMessages[data.messageId].body += data.delta;
+          }
+          const vq = this.voiceQueues && this.voiceQueues[data.messageId];
+          if (vq) {
+            vq.cachedBody = (vq.cachedBody || "") + data.delta;
+            if (!vq.authorId && this._bgMessages && this._bgMessages[data.messageId]) {
+              vq.authorId = this._bgMessages[data.messageId].authorId;
+            }
+          }
+        } catch { /* swallow */ }
+      });
+      // message-final · streaming has finished, audio may still be
+      // playing through the buffered chunks. Clear the streaming
+      // flag so the thinking-source detection stops matching this
+      // message (audio takes over via the live source).
+      es.addEventListener("message-final", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (this._bgMessages && this._bgMessages[data.messageId]) {
+            this._bgMessages[data.messageId].streaming = false;
+          }
+        } catch { /* swallow */ }
+      });
+      // room-adjourned · the tracked room ended · drop the anchor
+      // so the bar hides at the next refresh, and tear down this
+      // background connection so we stop receiving its events.
+      es.addEventListener("config-event", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const kind = data.kind;
+          if (kind === "room-adjourned") {
+            // Reflect onto the rooms list so the bar's idle source
+            // check hides cleanly.
+            const r = (this.rooms || []).find((x) => x.id === roomId);
+            if (r) {
+              r.status = "adjourned";
+              r.adjournedAt = (data.payload && data.payload.adjournedAt) || Date.now();
+            }
+            if (this._activeVoiceRoomId === roomId) {
+              this._activeVoiceRoomId = null;
+            }
+            this._stopBgSse();
+            this.refreshMiniPlayer();
+          } else if (kind === "room-paused") {
+            const r = (this.rooms || []).find((x) => x.id === roomId);
+            if (r) r.status = "paused";
+            this.refreshMiniPlayer();
+          } else if (kind === "room-resumed") {
+            const r = (this.rooms || []).find((x) => x.id === roomId);
+            if (r) r.status = "live";
+            this.refreshMiniPlayer();
+          }
+        } catch { /* swallow */ }
+      });
+      es.onerror = () => { /* EventSource auto-reconnects */ };
+    },
+
+    _stopBgSse() {
+      if (this._bgSse) {
+        try { this._bgSse.close(); } catch { /* */ }
+        this._bgSse = null;
+      }
+      this._bgSseRoomId = null;
+      this._bgMessages = null;
+    },
+
+    /** SSE handoff for room-to-room navigation. Called from openRoom
+     *  BEFORE disconnectSSE. Three cases:
+     *    · No tracked voice room · nothing to do.
+     *    · Re-entering the tracked room · drop the bg SSE if one
+     *      was running (foreground will take over).
+     *    · Navigating to a DIFFERENT room while currently on the
+     *      tracked one · open a bg SSE for the tracked room and
+     *      AWAIT its "hello" event before resolving. The await
+     *      guarantees the server has registered the bg subscription
+     *      before the caller closes the foreground · no events
+     *      (especially voice-final, which is the critical one for
+     *      advancing to the next director) can fall into the gap. */
+    async _handoffSseToBg(nextRoomId) {
+      if (!this._activeVoiceRoomId) return;
+      if (this._activeVoiceRoomId === nextRoomId) {
+        this._stopBgSse();
+        return;
+      }
+      if (this._activeVoiceRoomId !== this.currentRoomId) return;
+      const trackedRoom = this._activeVoiceRoomId;
+      await new Promise((resolve) => {
+        let resolved = false;
+        const done = () => { if (resolved) return; resolved = true; resolve(); };
+        this._startBgSse(trackedRoom, done);
+        // Safety timeout · don't block navigation if hello never
+        // fires (network blip, offline, etc.).
+        setTimeout(done, 1200);
+      });
     },
 
     // ── Actions ───────────────────────────────────────────────
@@ -2242,20 +2700,73 @@
       // burst doesn't double-fire.
       if (this.sendInFlight) return false;
       if (Date.now() - this.lastSendAt < this.SEND_THROTTLE_MS) return false;
+      // Paused-room path · the textarea stays usable while the
+      // room is paused (no more dedicated "Add input" modal).
+      // Send routes through the supplement endpoint so the
+      // message lands in the transcript without auto-resuming
+      // the discussion. User clicks Resume separately to restart.
+      if (this.currentRoom && this.currentRoom.status === "paused") {
+        input.value = "";
+        if (input.matches?.(".ib-textarea[data-send-input]")) {
+          this.autosizeRoomInputTextarea();
+        }
+        this.lastSendAt = Date.now();
+        this.submitPausedInput(text.trim()).catch((err) => {
+          alert("Add input failed: " + (err && err.message ? err.message : err));
+        });
+        return true;
+      }
+      // Adjourned-room path · the textarea opens a follow-up room
+      // composer pre-filled with the typed text. The room itself is
+      // archived; Send is the "continue this thread elsewhere"
+      // gesture. User can refine the subject in the overlay before
+      // confirming.
+      if (this.currentRoom && this.currentRoom.status === "adjourned") {
+        input.value = "";
+        if (input.matches?.(".ib-textarea[data-send-input]")) {
+          this.autosizeRoomInputTextarea();
+        }
+        this.lastSendAt = Date.now();
+        this.openFollowUpOverlay({ subject: text.trim() });
+        return true;
+      }
       // If a director is mid-turn AND we don't already have a queued
       // message, ask the user how to proceed.
       if (this.isAgentSpeaking() && !this.pendingUserMessage) {
-        this.openSendChoiceModal(text);
+        // Drain @-mentions NOW so the choice modal can carry them
+        // along to interrupt / queue · waiting until handleSendChoice
+        // would be too late (the textarea is cleared by then, and
+        // the mention-picker filters by handle-still-present-in-text).
+        const midTurnMentions = (window.MentionPicker && typeof window.MentionPicker.consumePendingMentions === "function")
+          ? window.MentionPicker.consumePendingMentions(text)
+          : [];
+        this.openSendChoiceModal(text, midTurnMentions);
         return true;
       }
+      // Drain any pending @-mentions the user picked via the
+      // mention-picker overlay. The picker filters out handles the
+      // user later backspaced out, so the resulting id list is
+      // already consistent with the text body. Falls back to an
+      // empty array when mention-picker.js hasn't loaded yet.
+      const mentions = (window.MentionPicker && typeof window.MentionPicker.consumePendingMentions === "function")
+        ? window.MentionPicker.consumePendingMentions(text)
+        : [];
       input.value = "";
-      this.sendMessage(text).catch((err) => alert("Send failed: " + err.message));
+      // Shrink the textarea back to its single-line baseline ·
+      // typed content may have grown the field, and the cleared
+      // value should snap it back. Only fires when the cleared
+      // input is the room input-bar textarea (not the legacy
+      // single-line input — that doesn't auto-grow).
+      if (input.matches?.(".ib-textarea[data-send-input]")) {
+        this.autosizeRoomInputTextarea();
+      }
+      this.sendMessage(text, mentions).catch((err) => alert("Send failed: " + err.message));
       return true;
     },
 
     /** Pre-flight gate · returns true when at least one MODEL provider
-     *  (anthropic / openai / google / xai / deepseek / openrouter) is
-     *  configured. When none are, opens a modal asking the user to
+     *  (anthropic / openai / google / xai / deepseek / openrouter / bai)
+     *  is configured. When none are, opens a modal asking the user to
      *  configure a key + returns false. Brave is search, not a model
      *  provider, so it's intentionally excluded.
      *
@@ -2631,9 +3142,15 @@
     /** Pure cache read · returns true when the local app.keys map
      *  reports any model provider as configured. Used by the gate
      *  and (via wrappers) anywhere downstream UI needs the answer
-     *  cheaply. */
+     *  cheaply.
+     *
+     *  Mirror the server-side LLM_PROVIDERS set (`routes/keys.ts:47`).
+     *  Without B.AI in this list, a user who configured ONLY a B.AI
+     *  key gets bounced to "configure an API key first" on every
+     *  pre-flight gate (topic-recs trigger, convene a room, etc.)
+     *  even though every model with a baiId is fully reachable. */
     hasAnyModelKey() {
-      const MODEL_PROVIDERS = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter"];
+      const MODEL_PROVIDERS = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter", "bai"];
       const keys = this.keys || {};
       return MODEL_PROVIDERS.some((p) => keys[p] && keys[p].configured);
     },
@@ -2716,8 +3233,12 @@
     /** Modal · "an agent is speaking · interrupt or wait?". Mirrors the
      *  pause-choice overlay's chrome (.pc-overlay / .pc-modal) so the
      *  visual treatment is consistent across modal prompts. */
-    openSendChoiceModal(text) {
+    openSendChoiceModal(text, mentions) {
       this.closeSendChoiceModal();
+      // Stash mentions alongside text so handleSendChoice forwards
+      // them on interrupt / queue. Falls back to [] when called from
+      // legacy / non-mention paths.
+      this._sendChoiceMentions = Array.isArray(mentions) ? mentions.slice() : [];
       const speaker = this.currentQueue[0]
         ? this.agentsById[this.currentQueue[0].agentId]
         : null;
@@ -2764,10 +3285,12 @@
       if (el) el.remove();
       this._sendChoiceText = null;
       this._sendChoiceSpeakerId = null;
+      this._sendChoiceMentions = null;
     },
     handleSendChoice(choice) {
       const text = this._sendChoiceText || "";
       const speakerId = this._sendChoiceSpeakerId;
+      const mentions = Array.isArray(this._sendChoiceMentions) ? this._sendChoiceMentions.slice() : [];
       const input = document.querySelector('.input-bar input, [data-send-input]');
       this.closeSendChoiceModal();
       if (choice === "cancel" || !text.trim()) return;
@@ -2775,7 +3298,7 @@
         input.value = "";
       }
       if (choice === "interrupt") {
-        this.sendMessage(text).catch((err) => alert("Send failed: " + err.message));
+        this.sendMessage(text, mentions).catch((err) => alert("Send failed: " + err.message));
         return;
       }
       if (choice === "queue") {
@@ -2791,7 +3314,7 @@
         // turns, AFTER current speaker finishes and BEFORE the next
         // speaker starts. The placeholder clears when the
         // message-appended SSE comes back.
-        this.sendMessage(text, [], "after-speaker").catch((err) => {
+        this.sendMessage(text, mentions, "after-speaker").catch((err) => {
           alert("Queue failed: " + err.message);
           this.pendingUserMessage = null;
           this.pendingForSpeakerId = null;
@@ -3081,54 +3604,50 @@
       }
     },
 
-    /** Paused-supplement overlay · lets the user drop in an extra
-     *  thought while the room is paused. The text is posted as a
-     *  user message immediately (lands in the chat as the freshest
-     *  user input) but the saved director queue is left untouched —
-     *  so when they click Resume, the previously-paused director
-     *  takes over with the supplement already in their context.
-     *  Effectively the supplement plays "first" in the resumed
-     *  flow, and the rest of the queue continues in order. Reuses
-     *  the existing .supplement-* CSS classes for visual parity. */
-    openPausedSupplementOverlay() {
-      if (!this.currentRoomId || !this.currentRoom) return;
-      if (this.currentRoom.status !== "paused") return;
-      this.closePausedSupplementOverlay();
-      // System UI · always English. Paused-supplement overlay chrome.
+    /** Open the divergence-report overlay for the current room.
+     *  Used to live as a panel inside the room-info modal; lifted
+     *  into its own overlay so it can be opened directly from the
+     *  input bar `[data-divergence-open]` button without forcing
+     *  the user to wade through room-settings chrome.
+     *
+     *  Empty / new rooms · the panel body shows a "not enough turns
+     *  yet" hint instead of hiding · the user explicitly asked for
+     *  this overlay, so we owe them an empty state rather than a
+     *  silent no-op. */
+    openDivergenceOverlay() {
+      if (!this.currentRoomId) return;
+      this.closeDivergenceOverlay();
       const t = {
-        classify: "room · paused supplement",
-        classifyRight: "// queued first",
-        title: "Add a supplemental input",
-        metaPrefix: "// Current room",
-        placeholder: "Drop in an extra thought, a follow-up question, or an angle you'd like the board to take into account.\n\nIt lands in the chat as your message right now; when you hit [ Resume ], the next director picks up with this in front of them.",
-        hint: "Posted while paused, the supplement lands as your message immediately; the saved speaker queue is untouched. After resume, the next director responds with the supplement first.",
-        cancel: "[ Cancel ]",
-        confirm: "[ Add to chat ]",
-        confirmBusy: "[ Posting… ]",
+        classify: "ROOM · DIVERGENCE REPORT",
+        classifyRight: "// local",
+        title: "Divergence report",
+        metaPrefix: "Room #" + (this.currentRoom?.number ?? "—"),
+        loading: "loading…",
+        empty: "Not enough turns yet · the room hasn't accumulated tagged messages for branches or behavioural scoring.",
+        kickerMap: "// topic map",
+        kickerCoverage: "// behavioural coverage",
+        close: "Close",
       };
-      const subject = (this.currentRoom.subject || "").trim() || "(no subject)";
       const html = `
-        <div class="supplement-overlay" id="paused-supplement-overlay" role="dialog" aria-modal="true">
-          <div class="supplement-backdrop" data-paused-supplement-close></div>
-          <div class="supplement-modal" role="document">
+        <div class="supplement-overlay" id="divergence-overlay" role="dialog" aria-modal="true">
+          <div class="supplement-backdrop" data-divergence-close></div>
+          <div class="supplement-modal divergence-modal" role="document">
             <div class="supplement-classification">
               <span><span class="dot">●</span> ${this.escape(t.classify)}</span>
               <span class="right">${this.escape(t.classifyRight)}</span>
             </div>
             <header class="supplement-head">
               <div>
-                <div class="meta">${this.escape(t.metaPrefix)} · <span>${this.escape(subject)}</span></div>
+                <div class="meta">${this.escape(t.metaPrefix)}</div>
                 <div class="title">${this.escape(t.title)}</div>
               </div>
-              <button type="button" class="supplement-close" data-paused-supplement-close aria-label="Close">✕</button>
+              <button type="button" class="supplement-close" data-divergence-close aria-label="Close">✕</button>
             </header>
-            <div class="supplement-body">
-              <textarea class="supplement-input" data-paused-supplement-input rows="6" placeholder="${this.escape(t.placeholder)}"></textarea>
-              <p class="supplement-hint">${this.escape(t.hint)}</p>
+            <div class="supplement-body" data-divergence-body>
+              <div class="dv-loading">${this.escape(t.loading)}</div>
             </div>
             <footer class="supplement-foot">
-              <button type="button" class="supplement-cancel" data-paused-supplement-close>${this.escape(t.cancel)}</button>
-              <button type="button" class="supplement-confirm" data-paused-supplement-confirm data-busy-label="${this.escape(t.confirmBusy)}">${this.escape(t.confirm)}</button>
+              <button type="button" class="supplement-cancel" data-divergence-close>${this.escape(t.close)}</button>
             </footer>
           </div>
         </div>
@@ -3137,76 +3656,231 @@
       wrap.innerHTML = html.trim();
       document.body.appendChild(wrap.firstChild);
       document.body.style.overflow = "hidden";
-      this._pausedSupplementEsc = (ev) => {
+      this._divergenceEsc = (ev) => {
         if (ev.key === "Escape") {
           ev.stopImmediatePropagation();
-          this.closePausedSupplementOverlay();
+          this.closeDivergenceOverlay();
         }
       };
-      document.addEventListener("keydown", this._pausedSupplementEsc, true);
-      // Cmd/Ctrl-Enter submits — long-form textarea convention.
-      this._pausedSupplementSubmit = (ev) => {
-        if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
-          const overlay = document.getElementById("paused-supplement-overlay");
-          if (!overlay) return;
-          ev.preventDefault();
-          this.submitPausedSupplement();
-        }
-      };
-      document.addEventListener("keydown", this._pausedSupplementSubmit, true);
-      setTimeout(() => {
-        const input = document.querySelector("[data-paused-supplement-input]");
-        if (input) input.focus();
-      }, 30);
+      document.addEventListener("keydown", this._divergenceEsc, true);
+      // Fire-and-forget fetch · idle "loading…" until the route
+      // returns. Failure paints the empty state.
+      void this._paintDivergenceOverlay();
     },
 
-    closePausedSupplementOverlay() {
-      const el = document.getElementById("paused-supplement-overlay");
-      if (el) el.remove();
-      document.body.style.overflow = "";
-      if (this._pausedSupplementEsc) {
-        document.removeEventListener("keydown", this._pausedSupplementEsc, true);
-        this._pausedSupplementEsc = null;
-      }
-      if (this._pausedSupplementSubmit) {
-        document.removeEventListener("keydown", this._pausedSupplementSubmit, true);
-        this._pausedSupplementSubmit = null;
-      }
-    },
-
-    async submitPausedSupplement() {
-      const overlay = document.getElementById("paused-supplement-overlay");
-      if (!overlay) return;
-      const input = overlay.querySelector("[data-paused-supplement-input]");
-      const btn = overlay.querySelector("[data-paused-supplement-confirm]");
-      const text = input ? (input.value || "").trim() : "";
-      if (!text) {
-        if (input) input.focus();
+    async _paintDivergenceOverlay() {
+      const body = document.querySelector("[data-divergence-body]");
+      if (!body) return;
+      const roomId = this.currentRoomId;
+      if (!roomId) {
+        body.innerHTML = `<div class="dv-loading">no active room</div>`;
         return;
       }
-      if (!this.currentRoomId) return;
-      const origLabel = btn ? btn.textContent : "";
-      const busyLabel = btn ? btn.getAttribute("data-busy-label") || origLabel : "";
-      if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+      let data;
       try {
-        const r = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/paused-input",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ body: text }),
-          },
-        );
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || ("HTTP " + r.status));
-        }
-        // SSE will push the message-appended event; chat updates itself.
-        this.closePausedSupplementOverlay();
-      } catch (e) {
-        if (btn) { btn.disabled = false; btn.textContent = origLabel; }
-        alert("Add input failed: " + (e && e.message ? e.message : e));
+        const r = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/diversity`);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        data = await r.json();
+      } catch {
+        body.innerHTML = this._renderDivergenceEmpty();
+        return;
       }
+      const branches = Array.isArray(data?.branches) ? data.branches : [];
+      const coverage = data?.coverage || { filled: 0, total: 64, pct: 0 };
+      const buckets = data?.buckets || { abstraction: [0,0,0,0], time: [0,0,0,0], stakeholder: [0,0,0,0] };
+      const scored = typeof data?.messagesScored === "number" ? data.messagesScored : 0;
+      const unexplored = Array.isArray(data?.unexplored) ? data.unexplored : [];
+      if (branches.length === 0 && scored === 0) {
+        body.innerHTML = this._renderDivergenceEmpty();
+        return;
+      }
+      body.innerHTML = this._renderDivergenceHtml({ branches, coverage, buckets, scored, unexplored });
+    },
+
+    _renderDivergenceEmpty() {
+      return `
+        <div class="dv-purpose">
+          <p>Once your directors have run a couple of rounds, this panel will tell you whether the conversation is exploring widely or collapsing into one frame — and which angles haven't been touched yet.</p>
+          <p class="dv-purpose-hint">Come back after a couple more turns.</p>
+        </div>
+      `;
+    },
+
+    /** Compute a plain-language health verdict from the branch +
+     *  coverage data. Returns { tone, headline, body }. Tones map
+     *  to CSS classes for the verdict pill (healthy / narrowing /
+     *  converging / early). */
+    _computeDivergenceVerdict(d) {
+      const branches = d.branches || [];
+      const totalTurns = branches.reduce((sum, b) => sum + (b.turnCount || 0), 0);
+      if (totalTurns < 4 || branches.length === 0) {
+        return {
+          tone: "early",
+          headline: "Too early to tell",
+          body: "Let the room run a couple more rounds and this view will show you how widely the conversation has spread.",
+        };
+      }
+      const top = branches[0]?.turnCount || 0;
+      const topShare = totalTurns > 0 ? top / totalTurns : 0;
+      if (branches.length >= 4 && topShare < 0.5) {
+        return {
+          tone: "healthy",
+          headline: "Healthy divergence",
+          body: `${branches.length} distinct angles across ${totalTurns} turns. No single thread dominates — the room is exploring widely.`,
+        };
+      }
+      if (branches.length >= 3 && topShare < 0.65) {
+        return {
+          tone: "moderate",
+          headline: "Reasonably broad",
+          body: `${branches.length} angles touched. "${branches[0].label}" is the dominant thread but other directions are still getting airtime.`,
+        };
+      }
+      if (topShare >= 0.65 || (branches.length <= 2 && totalTurns >= 6)) {
+        return {
+          tone: "narrowing",
+          headline: "Narrowing on one frame",
+          body: `${Math.round(topShare * 100)}% of recent turns are circling "${branches[0]?.label || "one angle"}". If you want fresh ground, try seeding a different lens in your next message.`,
+        };
+      }
+      return {
+        tone: "moderate",
+        headline: "Building up",
+        body: `${branches.length} angles touched over ${totalTurns} turns. Still developing — check back after the next round-end.`,
+      };
+    },
+
+    /** Pure render for the divergence overlay body.
+     *
+     *  Structure (top-down, in order of usefulness to the user):
+     *    1. Purpose line · one sentence telling them what this is for
+     *    2. Verdict pill + body · "Healthy / Narrowing / etc." with
+     *       a plain-language paragraph explaining what's happening
+     *    3. Angles explored · the topic-tree branches as a friendly
+     *       list (most-discussed first), each annotated with how
+     *       many turns went into it
+     *    4. Angles to explore next · negative-space data, only shown
+     *       when non-empty · actionable hooks the user can plug into
+     *       their next message
+     *    5. (Collapsed by default) Behavioural breadth · the 64-cell
+     *       QD coverage + the three histograms. This is the dev-data
+     *       view; most users won't expand it.
+     */
+    _renderDivergenceHtml(d) {
+      const esc = this.escape.bind(this);
+      const verdict = this._computeDivergenceVerdict(d);
+      const branchItems = d.branches.length > 0
+        ? d.branches.map((b) => {
+            const turns = b.turnCount || 0;
+            const widthPct = Math.min(100, Math.max(8, turns * 18));
+            const tone = turns >= 3 ? "dv-branch-hot" : turns === 2 ? "dv-branch-warm" : "dv-branch-cool";
+            return `
+              <li class="dv-branch-row ${tone}">
+                <span class="dv-branch-bar" style="width: ${widthPct}%"></span>
+                <span class="dv-branch-label">${esc(b.label)}</span>
+                <span class="dv-branch-count">${turns} ${turns === 1 ? "turn" : "turns"}</span>
+              </li>
+            `;
+          }).join("")
+        : `<li class="dv-branch-empty">no angles tagged yet</li>`;
+      const unexploredItems = (d.unexplored && d.unexplored.length > 0)
+        ? d.unexplored.map((u) => `<li class="dv-unexplored-row">${esc(u.angle)}</li>`).join("")
+        : "";
+      const unexploredSection = unexploredItems ? `
+        <section class="dv-section">
+          <h3 class="dv-section-title">Angles worth exploring next</h3>
+          <p class="dv-section-deck">The chair noticed these directions came up briefly but the room didn't follow them. Useful prompts for your next message.</p>
+          <ul class="dv-unexplored-list">${unexploredItems}</ul>
+        </section>
+      ` : "";
+      // Advanced section · collapsed by default. Uses native
+      // <details> so no JS toggle is needed.
+      const pctRound = Math.round((d.coverage.pct || 0) * 100);
+      const histogram = (label, arr, leftEnd, rightEnd) => {
+        const max = Math.max(1, ...arr);
+        const cells = arr.map((v) => {
+          const h = Math.max(4, Math.round((v / max) * 28));
+          const dim = v === 0 ? "dv-hist-cell-empty" : "dv-hist-cell-filled";
+          return `<span class="dv-hist-cell ${dim}" style="height: ${h}px" title="${v} ${v === 1 ? "turn" : "turns"}"></span>`;
+        }).join("");
+        return `
+          <div class="dv-hist-row">
+            <span class="dv-hist-label">${esc(label)}</span>
+            <span class="dv-hist-axis">${esc(leftEnd)}</span>
+            <span class="dv-hist-cells">${cells}</span>
+            <span class="dv-hist-axis dv-hist-axis-right">${esc(rightEnd)}</span>
+          </div>
+        `;
+      };
+      return `
+        <div class="dv-panel">
+          <p class="dv-purpose">A quick health check on how widely this brainstorm has explored your question — what's been covered, what's been missed, and whether the room is staying broad or narrowing.</p>
+
+          <section class="dv-section dv-verdict dv-verdict-${esc(verdict.tone)}">
+            <div class="dv-verdict-pill">${esc(verdict.headline)}</div>
+            <p class="dv-verdict-body">${esc(verdict.body)}</p>
+          </section>
+
+          <section class="dv-section">
+            <h3 class="dv-section-title">Angles the room has explored</h3>
+            <p class="dv-section-deck">Each line is one direction the conversation has taken. The bar shows how much airtime it got.</p>
+            <ul class="dv-branch-list">${branchItems}</ul>
+          </section>
+
+          ${unexploredSection}
+
+          <details class="dv-advanced">
+            <summary class="dv-advanced-summary">Behavioural breadth (advanced)</summary>
+            <div class="dv-advanced-body">
+              <p class="dv-section-deck">Each director's turn gets scored on three axes (how abstract · what time scale · whose perspective). The grid below shows how many distinct combinations the room has touched — wider coverage = the room is sampling more of the possibility space.</p>
+              <div class="dv-coverage-kpi">
+                <span class="dv-coverage-num">${d.coverage.filled}</span>
+                <span class="dv-coverage-sep">/</span>
+                <span class="dv-coverage-total">${d.coverage.total}</span>
+                <span class="dv-coverage-pct">combinations · ${pctRound}%</span>
+                <span class="dv-coverage-scored">${d.scored} ${d.scored === 1 ? "turn" : "turns"} scored</span>
+              </div>
+              ${histogram("abstraction", d.buckets.abstraction, "concrete", "principle")}
+              ${histogram("time scale", d.buckets.time, "this quarter", "civilisation")}
+              ${histogram("perspective", d.buckets.stakeholder, "individual", "society")}
+            </div>
+          </details>
+        </div>
+      `;
+    },
+
+    closeDivergenceOverlay() {
+      const el = document.getElementById("divergence-overlay");
+      if (el) el.remove();
+      document.body.style.overflow = "";
+      if (this._divergenceEsc) {
+        document.removeEventListener("keydown", this._divergenceEsc, true);
+        this._divergenceEsc = null;
+      }
+    },
+
+    /** POST a supplement message to a paused room · the textarea
+     *  Send button routes here when room.status === "paused".
+     *  The endpoint inserts the body into the transcript as a
+     *  user message but doesn't resume the room — the user has
+     *  to click Resume to restart the discussion. */
+    async submitPausedInput(body) {
+      if (!this.currentRoomId) return;
+      const text = String(body || "").trim();
+      if (!text) return;
+      const r = await fetch(
+        "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/paused-input",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ body: text }),
+        },
+      );
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error || ("HTTP " + r.status));
+      }
+      // SSE pushes message-appended; chat updates itself.
     },
 
     /* ─── Convene Follow-up · overlay + submit ─────────────────────
@@ -3221,55 +3895,37 @@
      *  room's chair clarify + first tick fire server-side; the
      *  follow-up's directors get the parent brief + Stage-1 signals
      *  prepended to their system prompts (see room.ts orchestrator). */
-    openFollowUpOverlay() {
+    openFollowUpOverlay({ subject } = {}) {
       if (!this.currentRoomId || !this.currentRoom) return;
       if (this.currentRoom.status !== "adjourned") return;
       this.closeFollowUpOverlay();
 
-      const lang = this.composerLanguage();
-      const t = lang === "zh"
-        ? {
-            classify: "follow-up · 跟进会议",
-            classifyRight: "// continuing",
-            title: "开一场跟进会议",
-            metaPrefix: "// following up",
-            placeholder: "在上一场判断之上，下一个要追问的问题是什么？",
-            contextNote: "上一场的议题、最终判断（brief）和每位 director 的关键观察会作为这场 follow-up 房间的上下文交给新一组 director —— 他们可以直接在已成型的判断上推进，不会从零开始。",
-            castLabel: "Directors",
-            castHint: "建议 2-4 位",
-            castSame: "沿用上一场的 cast",
-            pickerLabel: "选择董事",
-            autoLabel: "directors",
-            autoVal: "自动挑选",
-            countersDirectors: (n) => `${n} 位董事`,
-            cancel: "[ Cancel ]",
-            confirm: "[ Convene → ]",
-            confirmBusy: "[ Convening… ]",
-            adjournedAtPrefix: "adjourned",
-            briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
-            noBrief: "no brief filed",
-          }
-        : {
-            classify: "follow-up · continuation room",
-            classifyRight: "// continuing",
-            title: "Convene a follow-up",
-            metaPrefix: "// following up",
-            placeholder: "What's the next question to chase, given what the prior session settled?",
-            contextNote: "The prior subject, the filed brief (room's settled judgement), and each director's load-bearing observations are bundled as context for this follow-up — the new cast picks up where the prior session left off rather than starting from scratch.",
-            castLabel: "Directors",
-            castHint: "2–4 recommended",
-            castSame: "Same cast as last session",
-            pickerLabel: "Pick directors",
-            autoLabel: "directors",
-            autoVal: "auto-pick",
-            countersDirectors: (n) => `${n} director${n === 1 ? "" : "s"}`,
-            cancel: "[ Cancel ]",
-            confirm: "[ Convene → ]",
-            confirmBusy: "[ Convening… ]",
-            adjournedAtPrefix: "adjourned",
-            briefsCount: (n) => `${n} ${n === 1 ? "brief" : "briefs"} filed`,
-            noBrief: "no brief filed",
-          };
+      // Pull copy from I18n · supports all 4 locales (en / zh /
+      // ja / es) with EN fallback for missing keys. Previously
+      // a `lang === "zh" ? <zh> : <en>` ternary that violated
+      // the "no per-locale ternaries in app code" rule.
+      const _t = this._t.bind(this);
+      const t = {
+        classify: _t("followup_classify"),
+        classifyRight: _t("followup_classify_right"),
+        title: _t("followup_title"),
+        metaPrefix: _t("followup_meta_prefix"),
+        placeholder: _t("followup_placeholder"),
+        contextNote: _t("followup_context_note"),
+        castLabel: _t("followup_cast_label"),
+        castHint: _t("followup_cast_hint"),
+        castSame: _t("followup_cast_same"),
+        pickerLabel: _t("followup_picker_label"),
+        autoLabel: _t("followup_auto_label"),
+        autoVal: _t("followup_auto_val"),
+        countersDirectors: (n) => _t(n === 1 ? "followup_directors_one" : "followup_directors_many", { n }),
+        cancel: _t("followup_cancel"),
+        confirm: _t("followup_confirm"),
+        confirmBusy: _t("followup_confirm_busy"),
+        adjournedAtPrefix: _t("followup_adjourned_at_prefix"),
+        briefsCount: (n) => _t(n === 1 ? "followup_briefs_one" : "followup_briefs_many", { n }),
+        noBrief: _t("followup_no_brief"),
+      };
       const room = this.currentRoom;
       const briefCount = Array.isArray(this.currentBriefs) ? this.currentBriefs.length : 0;
       const briefLine = briefCount > 0 ? t.briefsCount(briefCount) : t.noBrief;
@@ -3467,7 +4123,15 @@
       document.addEventListener("keydown", this._followupSubmit, true);
       setTimeout(() => {
         const input = document.querySelector("[data-followup-subject]");
-        if (input) input.focus();
+        if (!input) return;
+        if (subject) {
+          input.value = subject;
+          // Cursor at end so the user can keep refining the question
+          // without first having to navigate past their own prefill.
+          const end = input.value.length;
+          try { input.setSelectionRange(end, end); } catch { /* ignore */ }
+        }
+        input.focus();
       }, 30);
     },
 
@@ -4198,6 +4862,15 @@
           // visibility immediately. Without this, flipping voice OFF
           // on a live room would leave the stage visible.
           this.applyRoundTableVisibility(this.currentRoomId);
+          // Mini-player anchor · flipping ON arms the bar for this
+          // room; flipping OFF clears it (text rooms don't qualify
+          // and the background SSE — if any — should drop too).
+          if (next === "voice" && this.currentRoom.status !== "adjourned") {
+            this._activeVoiceRoomId = this.currentRoomId;
+          } else if (next !== "voice" && this._activeVoiceRoomId === this.currentRoomId) {
+            this._activeVoiceRoomId = null;
+            this._stopBgSse();
+          }
         }
       } catch (_) { /* offline */ }
     },
@@ -4303,6 +4976,176 @@
     closePauseChoiceModal() {
       const el = document.getElementById("pause-choice-overlay");
       if (el) el.remove();
+    },
+
+    /** Reload-confirm modal · shown when the user hits Ctrl+R /
+     *  Cmd+R while a director is actively speaking. Reuses the
+     *  `.pc-overlay / .pc-modal / .pc-choice` chrome so the
+     *  modal sits in the same visual register as the regular
+     *  pause-choice modal. Three options:
+     *    · hard  · interrupt now and reload (server abort + reload)
+     *    · soft  · wait for current speaker to finish, then reload
+     *             (sets `_pendingReloadOnPause`; the SSE handler
+     *             triggers `location.reload()` when room-paused
+     *             fires)
+     *    · cancel · close the modal; don't reload */
+    openReloadChoiceModal() {
+      this.closeReloadChoiceModal();
+      this.closePauseChoiceModal(); // never stack the two
+      const speaker = this.currentQueue[0]
+        ? this.agentsById[this.currentQueue[0].agentId]
+        : null;
+      const speakerName = speaker ? speaker.name : this._t("sc_speaker_fallback");
+      const html = `
+        <div id="reload-choice-overlay" class="pc-overlay">
+          <div class="pc-modal">
+            <div class="pc-classification">
+              <span><span class="dot">●</span> ${this.escape(this._t("reload_class"))}</span>
+              <span class="right">${this.escape(this._t("reload_right"))}</span>
+            </div>
+            <div class="pc-head">
+              <div class="pc-tag">${this.escape(this._t("reload_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("reload_title", { name: speakerName }))}</h2>
+              <p class="pc-deck">${this.escape(this._t("reload_deck"))}</p>
+            </div>
+            <div class="pc-body">
+              <button type="button" class="pc-choice danger" data-reload-choice="hard">
+                <div class="pc-choice-mark">${this.escape(this._t("reload_hard_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("reload_hard_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice primary" data-reload-choice="soft">
+                <div class="pc-choice-mark">${this.escape(this._t("reload_soft_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("reload_soft_deck", { name: speakerName }))}</div>
+              </button>
+              <button type="button" class="pc-choice ghost" data-reload-choice="cancel">
+                <div class="pc-choice-mark">${this.escape(this._t("reload_cancel_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("reload_cancel_deck"))}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+    },
+
+    closeReloadChoiceModal() {
+      const el = document.getElementById("reload-choice-overlay");
+      if (el) el.remove();
+    },
+
+    /** Apply the user's pick from the reload-confirm modal. */
+    async handleReloadChoice(mode) {
+      this.closeReloadChoiceModal();
+      if (mode === "cancel") return;
+      if (mode === "hard") {
+        // Suppress the beforeunload re-prompt · this reload is
+        // user-confirmed via our modal. Then abort the in-flight
+        // turn server-side and reload. The server abort is
+        // async; we kick it off but don't wait — closing the
+        // SSE connection on reload also signals abort.
+        this._suppressReloadConfirm = true;
+        try { await this.pauseRoom("hard"); } catch (_) { /* server-side abort failure shouldn't block reload */ }
+        location.reload();
+        return;
+      }
+      if (mode === "soft") {
+        // Set the pending-reload flag · the SSE `room-paused`
+        // handler triggers `location.reload()` once the current
+        // speaker's turn finishes and the room enters paused
+        // state. Until then the modal closes and the user sees
+        // the room continuing normally to its current speaker
+        // end.
+        this._pendingReloadOnPause = true;
+        try {
+          await this.pauseRoom("soft");
+        } catch (e) {
+          this._pendingReloadOnPause = false;
+          alert("Pause failed: " + (e && e.message ? e.message : e));
+        }
+      }
+    },
+
+    /** Resume-choice modal · shown when the user clicks Resume on
+     *  a voice room with NO voice key configured. Replaces the
+     *  prior hard-block (which dead-ended the user with only one
+     *  way out: configure the same provider's key). Three
+     *  options:
+     *    · configure · open Settings → API Keys; room stays paused
+     *    · text · PATCH deliveryMode=text, then resumeRoom()
+     *    · cancel · close modal; room stays paused
+     *
+     *  Reuses the `.pc-overlay / .pc-modal / .pc-choice` chrome —
+     *  same visual register as pause-choice + reload-choice. */
+    openResumeChoiceModal() {
+      this.closeResumeChoiceModal();
+      // Never stack with the other choice modals.
+      this.closePauseChoiceModal();
+      this.closeReloadChoiceModal();
+      const html = `
+        <div id="resume-choice-overlay" class="pc-overlay">
+          <div class="pc-modal">
+            <div class="pc-classification">
+              <span><span class="dot">●</span> ${this.escape(this._t("resume_class"))}</span>
+              <span class="right">${this.escape(this._t("resume_right"))}</span>
+            </div>
+            <div class="pc-head">
+              <div class="pc-tag">${this.escape(this._t("resume_tag"))}</div>
+              <p class="pc-deck">${this.escape(this._t("resume_deck"))}</p>
+            </div>
+            <div class="pc-body">
+              <button type="button" class="pc-choice primary" data-resume-choice="configure">
+                <div class="pc-choice-mark">${this.escape(this._t("resume_configure_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("resume_configure_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice danger" data-resume-choice="text">
+                <div class="pc-choice-mark">${this.escape(this._t("resume_text_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("resume_text_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice ghost" data-resume-choice="cancel">
+                <div class="pc-choice-mark">${this.escape(this._t("resume_cancel_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("resume_cancel_deck"))}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+    },
+
+    closeResumeChoiceModal() {
+      const el = document.getElementById("resume-choice-overlay");
+      if (el) el.remove();
+    },
+
+    /** Apply the user's pick from the resume-choice modal. */
+    async handleResumeChoice(mode) {
+      this.closeResumeChoiceModal();
+      if (mode === "cancel") return;
+      if (mode === "configure") {
+        // Same redirect the legacy hard-block did · keep the
+        // room paused, open Settings scoped to the voice
+        // provider so the user lands on the right field.
+        if (typeof window.openUserSettings === "function") {
+          window.openUserSettings({ section: "keys", focusProvider: "minimax" });
+        }
+        return;
+      }
+      if (mode === "text") {
+        // Flip the room to text mode, then resume. The PATCH
+        // helper broadcasts `settings-changed` over SSE so
+        // other tabs of the same room pick up the new mode.
+        try {
+          await this.updateRoomSettings({ deliveryMode: "text" });
+        } catch (e) {
+          alert(this._t("room_delivery_switch_err", { msg: e && e.message ? e.message : String(e) }));
+          return;
+        }
+        try {
+          await this.resumeRoom();
+        } catch (e) {
+          alert("Resume failed: " + (e && e.message ? e.message : e));
+        }
+      }
     },
 
     /**
@@ -4461,6 +5304,12 @@
       this.continueCountdown.autoFiring = false;
       this.continueCountdown.interval = setInterval(() => this.tickContinueCountdown(), 1000);
       this.refreshContinueButton();
+      // First audible beep fires immediately so the 10-tick cadence
+      // (10, 9, 8 … 1) starts at the same instant the visible "10"
+      // appears on the button — without this the first beep would
+      // land 1s later at 9 and the user's mental "10!" cue would be
+      // silent. Subsequent beeps come from tickContinueCountdown.
+      try { window.boardroomTypingSfx?.countdownTick?.(total); } catch { /* ignore */ }
     },
 
     cancelContinueCountdown() {
@@ -4477,6 +5326,11 @@
       const left = Math.max(0, Math.ceil((this.continueCountdown.deadline - Date.now()) / 1000));
       this.continueCountdown.secondsLeft = left;
       this.refreshContinueButton();
+      // Audible countdown · square-wave beep on each visible tick so
+      // the user feels the timer urgency build up (last 3s flip to a
+      // higher / louder "alarm" register inside countdownTick). User-
+      // settings sound toggle controls all SFX uniformly.
+      try { window.boardroomTypingSfx?.countdownTick?.(left); } catch { /* ignore */ }
       if (left <= 0 && !this.continueCountdown.autoFiring) {
         this.continueCountdown.autoFiring = true;
         clearInterval(this.continueCountdown.interval);
@@ -5641,8 +6495,14 @@
      *  reading order is analytics → brief → follow-ups. Idempotent:
      *  re-renders by removing the prior card first. */
     renderSessionAnalytics() {
-      const existing = document.querySelector(".session-analytics");
-      if (existing) existing.remove();
+      // Tear down the prior card + its sibling section-break marker
+      // so this function stays idempotent across re-renders. The
+      // marker is a `.round-open-card.is-adjourned` chip-on-lines
+      // that visually separates the chat above from the analytics
+      // tile below.
+      document
+        .querySelectorAll(".session-analytics, .session-end-marker")
+        .forEach((el) => el.remove());
       const stats = this.computeSessionStats();
       if (!stats) return;
       const briefCard = document.querySelector("[data-brief-card]");
@@ -5699,11 +6559,14 @@
       // base provider colour. Append-only — adding a new variant just
       // requires its modelV at the appropriate position.
       const MODEL_SHADE_ORDER = {
-        anthropic: ["opus-4-7", "opus-4-6", "sonnet-4-6", "haiku-4-5"],
-        openai:    ["gpt-5-5", "gpt-5-4-mini", "codex-5-4"],
+        anthropic: ["opus-4-7", "sonnet-4-6", "opus-4-6-fast", "haiku-4-5"],
+        openai:    ["gpt-5-5", "gpt-5-4", "gpt-5-4-mini", "codex-5-4"],
         google:    ["gemini-3-1", "gemini-3-flash", "gemini-3-1-flash"],
-        xai:       ["grok-4", "grok-4-3", "grok-4-mini"],
-        deepseek:  ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4"],
+        // xai · no Grok models in registry currently.
+        deepseek:  ["deepseek-v4-pro", "deepseek-v4-flash"],
+        zhipu:     ["glm-5-1"],
+        moonshot:  ["kimi-k2-6"],
+        minimax:   ["minimax-m2-7", "minimax-m2-5"],
       };
       const providerOf = (modelV) => {
         const hit = reachable.find((m) => m.modelV === modelV);
@@ -5796,6 +6659,20 @@
           </div>
         `;
 
+      // Section break · reuses the `.round-open-card` chip-on-lines
+      // pattern (same as "Round 01 · parallel") but tinted amber via
+      // the `is-adjourned` variant. The marker is inserted right
+      // above the analytics block so the post-adjourn reading order
+      // is: chat … ──[SESSION ADJOURNED]── analytics → brief → follow-ups.
+      const marker = document.createElement("div");
+      marker.className = "round-open-card is-adjourned session-end-marker";
+      marker.innerHTML = `
+        <span class="ro-chip">
+          <span class="ro-mark">⊘</span>
+          <span class="ro-round">${this.escape(this._t("session_end_marker"))}</span>
+        </span>
+      `;
+
       const block = document.createElement("div");
       block.className = "session-analytics";
       block.innerHTML = `
@@ -5833,23 +6710,18 @@
         </div>
       `;
 
-      // Insert ABOVE the brief card BUT BELOW the `▼ session output ▼`
-      // divider, so the ceremonial header still frames everything in
-      // the post-adjourn section. Layout inside [data-brief-card]:
-      //
-      //   <header.ending-block-head> (the divider)
-      //   ← analytics tile inserted here
-      //   <div.brief-card>           (the report)
-      //   <footer.ending-block-foot>
-      //
-      // Falls back to inserting above the entire [data-brief-card]
-      // container when the divider isn't present (e.g. error state
-      // before renderBrief has populated the container).
-      const dividerHead = briefCard.querySelector(":scope > .ending-block-head");
+      // Insert marker + analytics tile as siblings ABOVE the
+      // [data-brief-card] container. The prior version peeked
+      // inside the brief card for a `.ending-block-head` divider
+      // to slot in between the divider and the brief, but that
+      // ceremonial header was retired — the amber adjourned marker
+      // alone is enough closing chrome.
       const briefInner = briefCard.querySelector(":scope > .brief-card");
-      if (dividerHead && briefInner) {
+      if (briefInner) {
+        briefCard.insertBefore(marker, briefInner);
         briefCard.insertBefore(block, briefInner);
       } else {
+        briefCard.parentNode.insertBefore(marker, briefCard);
         briefCard.parentNode.insertBefore(block, briefCard);
       }
 
@@ -5869,43 +6741,169 @@
       }
     },
 
+    /** Compatibility alias · existing call sites (room-paused
+     *  SSE handler, openRoom path, etc.) still call
+     *  `renderPausedBar`. After the paused-bar removal the
+     *  function just delegates to `renderInputBarControls` so
+     *  the room's left-cluster (Pause vs Resume + Adjourn)
+     *  reflects the new status. */
     renderPausedBar() {
-      const bar = document.querySelector(".paused-bar");
-      if (!bar || !this.currentRoom) return;
-      // Next director that would speak when discussion resumes · the
-      // only other piece of info still useful here. The "last input"
-      // line was dropped as redundant — the user's last message is
-      // visible right above the bar.
-      const nextSpeaker = this.currentQueue[0]
-        ? this.agentsById[this.currentQueue[0].agentId]
-        : this.currentMembers[0];
-      const nextHandle = nextSpeaker
-        ? this.escape(nextSpeaker.handle.replace(/^[@/]+/, ""))
-        : "";
+      this.renderInputBarControls();
+    },
 
-      const addInputLabel = this._t("pause_bar_add_input");
-      const adjournLabel  = this._t("pause_bar_adjourn");
-      const resumeLabel   = this._t("pause_bar_resume");
-      const pausedLabel   = this._t("pause_bar_paused");
-      const nextLabel     = this._t("pause_bar_next");
-      const nextChunk = nextHandle
-        ? ` · ${nextLabel} → <span class="lime">${nextHandle}</span>`
-        : "";
-      bar.innerHTML = `
-        <button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>
-        <div class="paused-bar-text">
-          <strong>// ${pausedLabel}</strong>${nextChunk}
-        </div>
-        <div class="paused-bar-actions">
-          <a href="#" class="ghost-btn" data-paused-supplement>${this.escape(addInputLabel)}</a>
-          <a href="#" class="ghost-btn" data-adjourn>${this.escape(adjournLabel)}</a>
-          <a href="#" class="resume-btn-lg" data-resume>${this.escape(resumeLabel)}</a>
-        </div>
-      `;
-      // The innerHTML write just blew away our static toggle button ·
-      // re-paint it so the user keeps the voice/transcript switch
-      // available while paused. Idempotent · no-ops in non-voice rooms.
-      this.applyRoundTableVisibility(this.currentRoomId);
+    /** Swap the input-bar's left-cluster buttons based on the
+     *  current room status. Live → [Pause][VoiceMode][Adjourn]
+     *  [Vote-if-manual]; Paused → [VoiceMode][Adjourn]; Adjourned
+     *  → [VoiceMode][Export][Replay][Followup]. The Resume
+     *  affordance lives in the `.paused-strip` above the textarea
+     *  (a quieter info-bar treatment). The head-rt-toggle
+     *  (voice-mode + stage/transcript) is included in every
+     *  branch and re-populated by `applyRoundTableVisibility`
+     *  immediately afterwards.
+     *
+     *  Called from openRoom (initial mount) and from the SSE
+     *  `room-paused` / `room-resumed` handlers so the cluster
+     *  swap follows the server-side state. */
+    renderInputBarControls() {
+      if (!this.currentRoom) return;
+      const leftCluster = document.querySelector(".input-bar .ib-controls-left");
+      if (!leftCluster) return;
+      const status = this.currentRoom.status;
+      const rtToggleHtml = `<button type="button" class="head-rt-toggle" data-room-rt-toggle aria-pressed="false" hidden></button>`;
+      // Divergence-report button · same shape across all room
+      // states. Sits in the left cluster so it's reachable
+      // alongside pause / adjourn / replay. Click opens the
+      // overlay; the overlay shows an empty-state hint when the
+      // room has no scored turns yet. `data-tip` drives the fast
+      // hover tooltip via the existing `.ib-action::after` CSS.
+      const dvBtnHtml = `<button type="button" class="ib-action ib-divergence" data-divergence-open title="Coverage check" aria-label="Coverage check" data-tip="See how widely the room has explored your question"></button>`;
+      // Jump-to-opener · same shape across all room states, hidden in
+      // voice-mode stage view via CSS. Click handler is doc-level
+      // delegation on [data-jump-to-opener]. i18n attrs get rewritten
+      // by I18n.applyDom further down.
+      const jtBtnHtml = `<button type="button" class="ib-action ib-jump-top" data-jump-to-opener data-i18n-title="ib_jump_top_tip" data-i18n-aria="ib_jump_top_label" data-i18n-tip="ib_jump_top_tip"></button>`;
+      if (status === "paused") {
+        leftCluster.innerHTML = `
+          ${rtToggleHtml}
+          <button type="button" class="ib-action ib-adjourn has-label" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label"><span class="ib-action-label" data-i18n="ib_adjourn_text">Adjourn</span></button>
+          ${dvBtnHtml}
+          ${jtBtnHtml}
+        `;
+      } else if (status === "adjourned") {
+        // Adjourned state · the bottom bar becomes a follow-up
+        // entry point. Send routes the typed text through
+        // openFollowUpOverlay({ subject }) (see submitFromComposer).
+        // Export / Replay / Followup icons reuse the same data
+        // attributes the old `.adjourned-bar` exposed, so the
+        // existing doc-level click handlers fire unchanged.
+        leftCluster.innerHTML = `
+          ${rtToggleHtml}
+          <button type="button" class="ib-action ib-export" data-room-export data-i18n-title="adj_export_tip" data-i18n-aria="adj_export_label" data-i18n-tip="adj_export_tip"></button>
+          <button type="button" class="ib-action ib-replay" data-room-replay data-i18n-title="adj_replay_tip" data-i18n-aria="adj_replay_label" data-i18n-tip="adj_replay_tip"></button>
+          <button type="button" class="ib-action ib-followup" data-room-followup data-i18n-title="adj_followup_tip" data-i18n-aria="adj_followup_label" data-i18n-tip="adj_followup_tip"></button>
+          ${dvBtnHtml}
+          ${jtBtnHtml}
+        `;
+      } else {
+        // Live state · the standard action trio. Markup
+        // mirrors the static template in index.html so a
+        // round-trip through the SSE event keeps the controls
+        // identical to first-paint.
+        leftCluster.innerHTML = `
+          <button type="button" class="ib-action ib-pause" data-pause data-i18n-title="ib_pause_tip" data-i18n-aria="ib_pause_label" data-i18n-tip="ib_pause_tip"></button>
+          ${rtToggleHtml}
+          <button type="button" class="ib-action ib-adjourn has-label" data-adjourn data-i18n-title="ib_adjourn_tip" data-i18n-aria="ib_adjourn_label"><span class="ib-action-label" data-i18n="ib_adjourn_text">Adjourn</span></button>
+          <button type="button" class="ib-action ib-vote" data-room-end-manual hidden data-i18n-title="ib_vote_tip" data-i18n-aria="ib_vote_label" data-i18n-tip="ib_vote_tip"></button>
+          ${dvBtnHtml}
+          ${jtBtnHtml}
+        `;
+      }
+      // applyDom rewrites the i18n attrs we just inserted, otherwise
+      // the title / aria-label stay as literal "ib_pause_tip" string.
+      if (window.I18n && typeof window.I18n.applyDom === "function") {
+        try { window.I18n.applyDom(leftCluster); } catch { /* ignore */ }
+      }
+      // refreshManualVoteButton owns the ib-vote button's hidden
+      // state · re-run after the live-state markup mounts so the
+      // [hidden] attribute reflects current room.voteTrigger /
+      // queue state.
+      if (typeof this.refreshManualVoteButton === "function") {
+        try { this.refreshManualVoteButton(); } catch { /* ignore */ }
+      }
+      // Re-populate the round-table toggle · innerHTML rewrite above
+      // wiped its inner glyph + label + hover preview. Re-running
+      // applyRoundTableVisibility re-fills the freshly-mounted button
+      // and re-binds its hover handlers. Idempotent · safe even if
+      // the toggle ends up [hidden] (text room with no eligibility).
+      if (this.currentRoomId && typeof this.applyRoundTableVisibility === "function") {
+        try { this.applyRoundTableVisibility(this.currentRoomId); } catch { /* ignore */ }
+      }
+      // Swap the textarea's placeholder to match the active
+      // state. Paused → "this becomes a supplement"; adjourned →
+      // "this opens a follow-up room"; live → the regular
+      // interject prompt.
+      const ta = document.querySelector(".ib-textarea[data-send-input]");
+      if (ta) {
+        const placeholderKey =
+          status === "paused"    ? "ib_paused_placeholder" :
+          status === "adjourned" ? "ib_followup_placeholder" :
+                                   "send_placeholder";
+        ta.setAttribute("placeholder", this._t(placeholderKey));
+      }
+      // Populate the adjourned-strip's meta slot with the relative
+      // time since adjourn (e.g., "filed 2h"). Empty when the room
+      // isn't adjourned or the timestamp is missing — the CSS
+      // `:empty` selector hides the span so the strip head doesn't
+      // render a bare separator.
+      const adjMeta = document.querySelector("[data-adjourned-strip-meta]");
+      if (adjMeta) {
+        if (status === "adjourned" && this.currentRoom.adjournedAt) {
+          adjMeta.textContent = this._t("adjourned_strip_meta", {
+            time: this.relTime(this.currentRoom.adjournedAt),
+          });
+        } else {
+          adjMeta.textContent = "";
+        }
+      }
+    },
+
+    /** Observe the floating .ib-stack and write its measured height
+     *  to every visible .roundtable-stage as the CSS variable
+     *  `--rt-bottom-reserve`. The stage's inner wrapper shrinks by
+     *  that amount, so seats / table / subtitle / HUD all lift
+     *  exactly above the input group — covering speaking-queue
+     *  expand / collapse, textarea growth, paused-strip toggles.
+     *  When the stack is in `display: contents` mode (chat view),
+     *  offsetHeight is 0 and we clear the variable; the stage's
+     *  CSS fallback of 0 takes over.
+     *
+     *  MutationObserver on each stage's [hidden] attr fires the
+     *  re-apply when the stage first becomes visible (the size
+     *  observer doesn't always fire for display:contents → block
+     *  transitions). */
+    _setupIbStackReserve() {
+      const ibStack = document.querySelector(".ib-stack");
+      if (!ibStack || typeof ResizeObserver !== "function") return;
+      const apply = () => {
+        const h = ibStack.offsetHeight;
+        const stages = document.querySelectorAll(".roundtable-stage");
+        stages.forEach((stage) => {
+          if (h > 0 && !stage.hasAttribute("hidden")) {
+            stage.style.setProperty("--rt-bottom-reserve", `${h}px`);
+          } else {
+            stage.style.removeProperty("--rt-bottom-reserve");
+          }
+        });
+      };
+      const ro = new ResizeObserver(apply);
+      ro.observe(ibStack);
+      const mo = new MutationObserver(apply);
+      document.querySelectorAll(".roundtable-stage").forEach((s) => {
+        mo.observe(s, { attributes: true, attributeFilter: ["hidden"] });
+      });
+      apply();
+      this._ibStackRO = ro;
+      this._ibStackMO = mo;
     },
 
     /** Composer state · persisted to localStorage so each new-room
@@ -6018,7 +7016,7 @@
       // this sweep, the previous room's analytics tile (totals /
       // models / upvoted points) bleeds through into the new-room
       // composer.
-      document.querySelectorAll(".followup-parent-banner, .followup-children, .session-analytics").forEach((el) => el.remove());
+      document.querySelectorAll(".followup-parent-banner, .followup-children, .session-analytics, .session-end-marker").forEach((el) => el.remove());
 
       const chat = document.querySelector("[data-chat-messages]");
       if (chat) {
@@ -6112,7 +7110,21 @@
       if (!cmp) return;
       requestAnimationFrame(() => {
         chat.classList.remove("chat--composer-overflow");
-        const overflows = cmp.scrollHeight > chat.clientHeight * 0.7;
+        // Threshold · the default 0.7 * chat.clientHeight is tuned
+        // for the new-room / new-agent hero (input + ~6 starter cards).
+        // The persona-builder dashboard is a different beast: by
+        // design it's tall (header + dossier + intel feed + abort
+        // foot). For pb-stage, switch to a viewport-based threshold
+        // (0.9 * window.innerHeight) per user spec — only flip to
+        // overflow mode when the dashboard exceeds 90% of the
+        // visible window, so the natural `align-content: center`
+        // path handles the common case and we only pay the
+        // overflow-padding cost when there genuinely isn't room.
+        const hasPbStage = !!cmp.querySelector(".pb-stage");
+        const threshold = hasPbStage
+          ? (window.innerHeight || chat.clientHeight) * 0.9
+          : chat.clientHeight * 0.7;
+        const overflows = cmp.scrollHeight > threshold;
         chat.classList.toggle("chat--composer-overflow", overflows);
       });
       if (!this._composerResizeAttached) {
@@ -7014,9 +8026,6 @@
             <button type="button" data-search-sort-by="oldest">Oldest</button>
           </div>
           <span class="search-results-meta" data-search-results-meta></span>
-          <div class="search-input-toolbar">
-            <span class="search-toolbar-hint">keyword · message body · room name</span>
-          </div>
         </div>
         <!-- Static starter chips · one click pre-fills the input
              and triggers the search. Hidden once the user types
@@ -7431,8 +8440,10 @@
      *
      *  Each template is fixed at 540×675 (4:5 portrait) — a sweet
      *  spot for IG / Weibo / WeChat moments / Twitter portrait. PNG
-     *  export uses pixelRatio: 2 so the saved file is 1080×1350. */
-    SHARE_CARD_TEMPLATES: ["boardroom", "editorial", "terminal", "magazine"],
+     *  export captures at pixelRatio = 800/540 so the saved file
+     *  comes out at exactly 800 × 1185 (moderate-size PNG, easy to
+     *  share without being unwieldy). */
+    SHARE_CARD_TEMPLATES: ["boardroom"],
     DEFAULT_SHARE_CARD_TEMPLATE: "boardroom",
 
     /** Open the share-card overlay for a given note id. Resolves the
@@ -7450,6 +8461,18 @@
       this.closeShareCard();
       this._shareCardNote = note;
       this._shareCardTemplate = this.DEFAULT_SHARE_CARD_TEMPLATE;
+      // Roll a fresh randomized boardroom cover (sky palette, river
+      // curve, stones, flowers, dirt, ground material). Cached for
+      // the lifetime of this modal so chip-switching between
+      // templates and back to "boardroom" keeps the SAME variation
+      // visible — only the next openShareCard() rerolls. Fallback
+      // to null if the module failed to load (CSS gradient + empty
+      // SVG keep the card paintable).
+      this._shareCardCover = (typeof window !== "undefined"
+          && window.shareCoverSvgCreator
+          && typeof window.shareCoverSvgCreator.generate === "function")
+        ? window.shareCoverSvgCreator.generate()
+        : null;
 
       // Share-card overlay reuses the room-settings overlay chrome
       // (`.room-settings-overlay` + `.room-settings-modal` + lime
@@ -7483,16 +8506,18 @@
             <button type="button" class="close-btn" data-share-card-close aria-label="Close">✕</button>
           </header>
           <div class="rs-body">
-            <div class="share-card-templates" role="tablist" aria-label="Card template">
-              ${this.SHARE_CARD_TEMPLATES.map((t) => `
-                <button type="button"
-                        class="share-card-template-chip${t === this._shareCardTemplate ? " active" : ""}"
-                        data-share-card-template="${t}"
-                        role="tab"
-                        aria-selected="${t === this._shareCardTemplate ? "true" : "false"}"
-                >${this.escape(t)}</button>
-              `).join("")}
-            </div>
+            ${this.SHARE_CARD_TEMPLATES.length > 1 ? `
+              <div class="share-card-templates" role="tablist" aria-label="Card template">
+                ${this.SHARE_CARD_TEMPLATES.map((t) => `
+                  <button type="button"
+                          class="share-card-template-chip${t === this._shareCardTemplate ? " active" : ""}"
+                          data-share-card-template="${t}"
+                          role="tab"
+                          aria-selected="${t === this._shareCardTemplate ? "true" : "false"}"
+                  >${this.escape(t)}</button>
+                `).join("")}
+              </div>
+            ` : ""}
             <div class="share-card-preview" data-share-card-preview>
               <div class="share-card-preview-inner" data-share-card-preview-inner>
                 ${this.renderShareCardHtml(note, this._shareCardTemplate)}
@@ -7500,7 +8525,7 @@
             </div>
           </div>
           <footer class="rs-foot">
-            <span class="share-card-hint">// 1080 × 1350 png</span>
+            <span class="share-card-hint">// 800 × 1185 png</span>
             <button type="button" class="rs-action dirty" data-share-card-download>
               ↓ Download PNG
             </button>
@@ -7584,9 +8609,8 @@
      *  Quotes never get truncated — instead the font shrinks so the
      *  full passage fits. Returns the font-size in px for a given
      *  template at the supplied character count. Tiers were tuned
-     *  empirically against each template's content area: the
-     *  boardroom bubble is the smallest box (≈424 × 200), magazine
-     *  and editorial have the most real estate.
+     *  empirically against the boardroom bubble's content area
+     *  (≈424 × 200). Unknown templates fall through to the same tiers.
      *
      *  Length tiers are deliberately coarse — 5-6 buckets keep the
      *  output predictable and avoid the "text snaps a pixel smaller
@@ -7594,47 +8618,25 @@
     shareCardQuoteSize(template, len) {
       const TIERS = {
         boardroom: [
-          { max: 40,  size: 24 },
-          { max: 70,  size: 21 },
-          { max: 100, size: 19 },
-          { max: 140, size: 16 },
-          { max: 170, size: 14 },
-          { max: 200, size: 13 },
-        ],
-        editorial: [
-          { max: 40,  size: 32 },
-          { max: 70,  size: 28 },
-          { max: 100, size: 25 },
+          { max: 40,  size: 27 },
+          { max: 70,  size: 25 },
+          { max: 100, size: 23 },
           { max: 140, size: 21 },
-          { max: 170, size: 18 },
-          { max: 200, size: 16 },
-        ],
-        terminal: [
-          { max: 40,  size: 22 },
-          { max: 70,  size: 19 },
-          { max: 100, size: 17 },
-          { max: 140, size: 15 },
-          { max: 170, size: 13 },
-          { max: 200, size: 12 },
-        ],
-        magazine: [
-          { max: 40,  size: 34 },
-          { max: 70,  size: 30 },
-          { max: 100, size: 26 },
-          { max: 140, size: 22 },
-          { max: 170, size: 19 },
-          { max: 200, size: 17 },
+          { max: 170, size: 20 },
+          { max: 200, size: 19 },
         ],
       };
-      const fallback = { max: 200, size: 14 };
+      // Floor: never render the boardroom quote below 19 px. Below
+      // that the 8-bit bubble starts to look cramped against the
+      // surrounding pixel-art; long quotes get line-clamped by the
+      // bubble's max-height instead.
+      const MIN_SIZE = 19;
       const tiers = TIERS[template] || TIERS.boardroom;
       for (const t of tiers) {
-        if (len <= t.max) return t.size;
+        if (len <= t.max) return Math.max(MIN_SIZE, t.size);
       }
-      // > 200 chars · take the smallest tier and shave 2px so the
-      // text still has a chance to fit. Caller can also pre-trim
-      // to 200 if they want a hard cap.
-      return Math.max(10, tiers[tiers.length - 1].size - 2);
+      // > 200 chars · keep the floor rather than shrinking further.
+      return MIN_SIZE;
     },
 
     /** Wrap CJK runs in `<span class="cjk">…</span>` so per-script
@@ -7658,19 +8660,64 @@
       const tpl = templateKey || this.DEFAULT_SHARE_CARD_TEMPLATE;
       const quote = String(n.quoteText || "").trim();
       const author = (n.authorName || "Director").trim();
-      const roomNum = n.roomNumber != null ? `#${String(n.roomNumber).padStart(3, "0")}` : "";
       const stampDate = n.createdAt
         ? new Date(n.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
         : "";
       const esc = (s) => this.escape(String(s || ""));
 
-      // Template-specific markup · each template needs a slightly
-      // different DOM (8-bit scene for "boardroom", quotation
-      // glyph for "editorial", ASCII frame for "terminal", top
-      // stripe for "magazine"). Watermark on every template is
-      // the domain `Privateboard.ai` (lowercased / capitalised
-      // by the template's text-transform).
+      // Watermark on the share card · domain string rendered in
+      // each template's footer (text-transform handled in CSS).
       const DOMAIN = "Privateboard.ai";
+
+      // Block-letter "PRIVATE BOARD" ASCII title — three typeface
+      // variants. All use the FULL BLOCK char (█) so the texture
+      // stays consistent; only the letter PROPORTIONS change per
+      // roll. PRIVATE sits on the top half, BOARD centred on the
+      // bottom half, separated by a blank line.
+      //   · block — 4-col-wide letters, total 34 cols (default)
+      //   · slim  — 3-col-wide letters, total 27 cols (sleek)
+      //   · thick — 5-col-wide letters, total 41 cols (chunky)
+      const LOGO_FONTS = {
+        block: [
+          "████ ████ ████ █  █  ██  ████ ████",
+          "█  █ █  █  ██  █  █ █  █  ██  █   ",
+          "████ ████  ██  █  █ ████  ██  ███ ",
+          "█    █ █   ██  █  █ █  █  ██  █   ",
+          "█    █  █ ████  ██  █  █  ██  ████",
+          "                                  ",
+          "     ███   ██   ██  ████ ███      ",
+          "     █  █ █  █ █  █ █  █ █  █     ",
+          "     ███  █  █ ████ ████ █  █     ",
+          "     █  █ █  █ █  █ █ █  █  █     ",
+          "     ███   ██  █  █ █  █ ███      ",
+        ].join("\n"),
+        slim: [
+          "███ ███ ███ █ █  █  ███ ███",
+          "█ █ █ █  █  █ █ █ █  █  █  ",
+          "███ ██   █  █ █ ███  █  ██ ",
+          "█   █ █  █  █ █ █ █  █  █  ",
+          "█   █ █ ███  █  █ █  █  ███",
+          "                           ",
+          "    ██  ███  █  ███ ██     ",
+          "    █ █ █ █ █ █ █ █ █ █    ",
+          "    ██  █ █ ███ ██  █ █    ",
+          "    █ █ █ █ █ █ █ █ █ █    ",
+          "    ██  ███ █ █ █ █ ██     ",
+        ].join("\n"),
+        thick: [
+          "█████ █████ █████ █   █   █   █████ █████",
+          "█   █ █   █   █   █   █  █ █    █  █     ",
+          "█████ █████   █   █   █ █████   █  ████  ",
+          "█     █  █    █    █ █  █   █   █  █     ",
+          "█     █   █ █████   █  █   █   █  █████  ",
+          "                                         ",
+          "      ████  █████   █   █████ ████       ",
+          "      █   █ █   █  █ █  █   █ █   █      ",
+          "      ████  █   █ █████ █████ █   █      ",
+          "      █   █ █   █ █   █ █  █  █   █      ",
+          "      ████  █████ █   █ █   █ ████       ",
+        ].join("\n"),
+      };
 
       // Quote font-size · scaled by char count so long quotes (up
       // to 200 chars) shrink to fit rather than getting truncated.
@@ -7678,343 +8725,77 @@
       const qFont = this.shareCardQuoteSize(tpl, qLen);
       const qStyle = `font-size: ${qFont}px;`;
 
-      if (tpl === "boardroom") {
-        // 8-bit Dribbble-style card · striped sunset sky (painted by
-        // CSS) wrapped on every side by an inline-SVG decoration
-        // layer (pixel moon, scattered stars, drifting clouds,
-        // floating balloons). The meeting table + chairs are
-        // intentionally absent — the composition reads as a sunset
-        // poster + system message in a chunky pixel-art dialog box.
-        // Every rect carries an explicit fill so the html-to-image
-        // export keeps colours stable across browsers.
-        const star = (x, y, c = "#FFF6D9") => `<rect x="${x}" y="${y}" width="2" height="2" fill="${c}"/>`;
-        const tinyStar = (x, y, c = "#FFE8A8") => `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
-        // Pixel cloud · 1px-thinner cap row on top + main row +
-        // 1-row peach underbelly shadow. Sky-bands only.
-        const cloud = (x, y) => `
-          <rect x="${x + 4}" y="${y - 2}" width="10" height="2" fill="#FFF6D9"/>
-          <rect x="${x}"     y="${y}"     width="18" height="4" fill="#FFF6D9"/>
-          <rect x="${x + 2}" y="${y + 4}" width="14" height="2" fill="#F4C078"/>
-        `;
-        const bigCloud = (x, y) => `
-          <rect x="${x + 6}"  y="${y - 4}" width="14" height="2" fill="#FFF6D9"/>
-          <rect x="${x + 2}"  y="${y - 2}" width="22" height="2" fill="#FFF6D9"/>
-          <rect x="${x}"      y="${y}"     width="26" height="4" fill="#FFF6D9"/>
-          <rect x="${x + 2}"  y="${y + 4}" width="22" height="2" fill="#F4C078"/>
-        `;
-        // Pixel grass tuft · 7-blade upgraded tuft in two greens
-        // with deeper roots, taller blades, and a wider ground-line.
-        // Roughly 13×8 — about 2× the previous tuft.
-        const grass = (x, y) => `
-          <rect x="${x + 2}"  y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
-          <rect x="${x}"      y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 3}"  y="${y - 5}" width="1" height="5" fill="#2A4F1D"/>
-          <rect x="${x + 5}"  y="${y - 3}" width="1" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 4}"  y="${y}"     width="2" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 7}"  y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
-          <rect x="${x + 8}"  y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 10}" y="${y - 3}" width="1" height="3" fill="#2A4F1D"/>
-          <rect x="${x + 12}" y="${y - 2}" width="1" height="2" fill="#3D6E2F"/>
-          <rect x="${x + 1}"  y="${y + 3}" width="11" height="1" fill="#6BAA48"/>
-        `;
-        // Wider grass patch · 14-blade tuft for "tall grass clumps"
-        // along the river bank. Reads as a thicker, denser growth.
-        const grassWide = (x, y) => `
-          <rect x="${x + 2}"  y="${y - 5}" width="1" height="5" fill="#2A4F1D"/>
-          <rect x="${x}"      y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 3}"  y="${y - 6}" width="1" height="6" fill="#2A4F1D"/>
-          <rect x="${x + 5}"  y="${y - 4}" width="1" height="4" fill="#3D6E2F"/>
-          <rect x="${x + 4}"  y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 7}"  y="${y - 5}" width="1" height="5" fill="#2A4F1D"/>
-          <rect x="${x + 8}"  y="${y - 2}" width="2" height="4" fill="#3D6E2F"/>
-          <rect x="${x + 10}" y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
-          <rect x="${x + 12}" y="${y - 1}" width="2" height="3" fill="#3D6E2F"/>
-          <rect x="${x + 14}" y="${y - 3}" width="1" height="3" fill="#2A4F1D"/>
-          <rect x="${x + 16}" y="${y - 2}" width="1" height="2" fill="#3D6E2F"/>
-          <rect x="${x + 17}" y="${y - 4}" width="1" height="4" fill="#2A4F1D"/>
-          <rect x="${x + 1}"  y="${y + 3}" width="17" height="1" fill="#6BAA48"/>
-        `;
-        // Pixel dirt patch · bare earth showing through the grass.
-        // Four-tone (light top / mid body / shadow bottom / specks)
-        // gives the patch readable 8-bit texture at small sizes.
-        const dirtPatch = (x, y) => `
-          <rect x="${x}"      y="${y}"     width="14" height="1" fill="#8A6A48"/>
-          <rect x="${x}"      y="${y + 1}" width="16" height="2" fill="#6A4A2C"/>
-          <rect x="${x}"      y="${y + 3}" width="14" height="2" fill="#5A3A22"/>
-          <rect x="${x + 2}"  y="${y + 5}" width="10" height="1" fill="#4A2E18"/>
-          <rect x="${x + 4}"  y="${y + 1}" width="2"  height="1" fill="#A0814F"/>
-          <rect x="${x + 9}"  y="${y + 2}" width="2"  height="1" fill="#A0814F"/>
-        `;
-        const dirtPatchBig = (x, y) => `
-          <rect x="${x + 1}"  y="${y}"     width="22" height="1" fill="#8A6A48"/>
-          <rect x="${x}"      y="${y + 1}" width="26" height="2" fill="#6A4A2C"/>
-          <rect x="${x}"      y="${y + 3}" width="26" height="2" fill="#5A3A22"/>
-          <rect x="${x + 2}"  y="${y + 5}" width="22" height="2" fill="#4A2E18"/>
-          <rect x="${x + 4}"  y="${y + 7}" width="18" height="1" fill="#3A2410"/>
-          <rect x="${x + 5}"  y="${y + 1}" width="3"  height="1" fill="#A0814F"/>
-          <rect x="${x + 14}" y="${y + 2}" width="2"  height="1" fill="#A0814F"/>
-          <rect x="${x + 20}" y="${y + 4}" width="2"  height="1" fill="#A0814F"/>
-          <rect x="${x + 8}"  y="${y + 4}" width="1"  height="1" fill="#8A6A48"/>
-        `;
-        // Top-down pixel stones · much bigger than before, with
-        // a round-blob silhouette (stepped rows that wrap around
-        // a domed body), brighter centre (sun catching the top
-        // of the rounded stone), darker rim along the bottom
-        // edge, and a soft ground drop-shadow that reads as
-        // "looking straight down at a chunky rock". Three sizes.
-        const stoneSmall = (x, y) => `
-          <!-- Shadow beneath -->
-          <rect x="${x + 2}" y="${y + 14}" width="16" height="2" fill="#1B0A35" opacity="0.28"/>
-          <!-- Mid-tone body (round-blob silhouette) -->
-          <rect x="${x + 4}" y="${y}"      width="12" height="2" fill="#7A6F62"/>
-          <rect x="${x + 2}" y="${y + 2}"  width="16" height="2" fill="#7A6F62"/>
-          <rect x="${x}"     y="${y + 4}"  width="20" height="6" fill="#7A6F62"/>
-          <rect x="${x + 2}" y="${y + 10}" width="16" height="2" fill="#7A6F62"/>
-          <rect x="${x + 4}" y="${y + 12}" width="12" height="2" fill="#7A6F62"/>
-          <!-- Lighter top-center (sun catches dome) -->
-          <rect x="${x + 6}"  y="${y + 2}" width="8"  height="2" fill="#9F9388"/>
-          <rect x="${x + 4}"  y="${y + 4}" width="12" height="4" fill="#9F9388"/>
-          <rect x="${x + 6}"  y="${y + 8}" width="8"  height="2" fill="#9F9388"/>
-          <!-- Brightest specular spot -->
-          <rect x="${x + 7}"  y="${y + 4}" width="4" height="2" fill="#B5A998"/>
-          <!-- Bottom rim shadow -->
-          <rect x="${x + 4}"  y="${y + 12}" width="12" height="1" fill="#4A4038"/>
-        `;
-        const stoneMed = (x, y) => `
-          <!-- Shadow beneath -->
-          <rect x="${x + 4}" y="${y + 20}" width="24" height="2" fill="#1B0A35" opacity="0.30"/>
-          <rect x="${x + 6}" y="${y + 22}" width="20" height="1" fill="#1B0A35" opacity="0.18"/>
-          <!-- Mid-tone body -->
-          <rect x="${x + 6}"  y="${y}"      width="20" height="2" fill="#7A6F62"/>
-          <rect x="${x + 3}"  y="${y + 2}"  width="26" height="2" fill="#7A6F62"/>
-          <rect x="${x + 1}"  y="${y + 4}"  width="30" height="2" fill="#7A6F62"/>
-          <rect x="${x}"      y="${y + 6}"  width="32" height="8" fill="#7A6F62"/>
-          <rect x="${x + 1}"  y="${y + 14}" width="30" height="2" fill="#7A6F62"/>
-          <rect x="${x + 3}"  y="${y + 16}" width="26" height="2" fill="#7A6F62"/>
-          <rect x="${x + 6}"  y="${y + 18}" width="20" height="2" fill="#7A6F62"/>
-          <!-- Lighter top-centre dome -->
-          <rect x="${x + 9}"  y="${y + 2}"  width="14" height="2" fill="#9F9388"/>
-          <rect x="${x + 6}"  y="${y + 4}"  width="20" height="2" fill="#9F9388"/>
-          <rect x="${x + 4}"  y="${y + 6}"  width="24" height="4" fill="#9F9388"/>
-          <rect x="${x + 6}"  y="${y + 10}" width="20" height="2" fill="#9F9388"/>
-          <!-- Brightest specular spot (sun) -->
-          <rect x="${x + 11}" y="${y + 5}"  width="10" height="3" fill="#B5A998"/>
-          <!-- Bottom rim shadow -->
-          <rect x="${x + 4}"  y="${y + 16}" width="24" height="1" fill="#5A5048"/>
-          <rect x="${x + 7}"  y="${y + 18}" width="18" height="1" fill="#4A4038"/>
-        `;
-        const stoneLarge = (x, y) => `
-          <!-- Shadow beneath (wider for the bigger stone) -->
-          <rect x="${x + 6}" y="${y + 28}" width="36" height="2" fill="#1B0A35" opacity="0.32"/>
-          <rect x="${x + 8}" y="${y + 30}" width="32" height="1" fill="#1B0A35" opacity="0.20"/>
-          <!-- Mid-tone body (round-blob silhouette, ~46×30) -->
-          <rect x="${x + 10}" y="${y}"      width="26" height="2" fill="#7A6F62"/>
-          <rect x="${x + 6}"  y="${y + 2}"  width="34" height="2" fill="#7A6F62"/>
-          <rect x="${x + 3}"  y="${y + 4}"  width="40" height="2" fill="#7A6F62"/>
-          <rect x="${x + 1}"  y="${y + 6}"  width="44" height="2" fill="#7A6F62"/>
-          <rect x="${x}"      y="${y + 8}"  width="46" height="10" fill="#7A6F62"/>
-          <rect x="${x + 1}"  y="${y + 18}" width="44" height="2" fill="#7A6F62"/>
-          <rect x="${x + 3}"  y="${y + 20}" width="40" height="2" fill="#7A6F62"/>
-          <rect x="${x + 6}"  y="${y + 22}" width="34" height="2" fill="#7A6F62"/>
-          <rect x="${x + 10}" y="${y + 24}" width="26" height="2" fill="#7A6F62"/>
-          <!-- Lighter top-centre dome (sun catches the round top) -->
-          <rect x="${x + 14}" y="${y + 2}"  width="18" height="2" fill="#9F9388"/>
-          <rect x="${x + 10}" y="${y + 4}"  width="26" height="2" fill="#9F9388"/>
-          <rect x="${x + 6}"  y="${y + 6}"  width="34" height="2" fill="#9F9388"/>
-          <rect x="${x + 4}"  y="${y + 8}"  width="38" height="6" fill="#9F9388"/>
-          <rect x="${x + 6}"  y="${y + 14}" width="34" height="2" fill="#9F9388"/>
-          <!-- Brightest specular spot -->
-          <rect x="${x + 16}" y="${y + 6}"  width="14" height="4" fill="#B5A998"/>
-          <rect x="${x + 18}" y="${y + 10}" width="10" height="2" fill="#C7BDB0"/>
-          <!-- Bottom rim shadow (gives the stone weight) -->
-          <rect x="${x + 6}"  y="${y + 20}" width="34" height="1" fill="#5A5048"/>
-          <rect x="${x + 10}" y="${y + 22}" width="26" height="1" fill="#4A4038"/>
-          <rect x="${x + 14}" y="${y + 24}" width="18" height="1" fill="#3A302A"/>
-        `;
-        // Top-down meandering river · a wide cyan ribbon that
-        // S-curves across the bottom band. Coordinates tuned for
-        // the 540×750 card (cream ground starts ≈ y=428): river
-        // body spans roughly y=660-715. Width varies 30-44px at
-        // different points to mimic a real meandering stream.
-        const meanderingRiver = `
-          <!-- Body · solid cyan. The whole scene group (river +
-               stones + grass + dirt) was bumped 100px up from
-               the previous layout so the watermark / stamp at
-               the bottom have a generous cream footer above them. -->
-          <path d="M -10 583
-                   C 80 571, 180 603, 260 583
-                   C 340 563, 420 595, 550 575
-                   L 550 619
-                   C 420 631, 340 607, 260 627
-                   C 180 647, 80 621, -10 629 Z"
-                fill="#5BC0EB" shape-rendering="geometricPrecision"/>
-          <!-- Top edge highlight (lighter ripple) -->
-          <path d="M -10 585
-                   C 80 573, 180 605, 260 585
-                   C 340 565, 420 597, 550 577"
-                stroke="#9ADEFA" stroke-width="2" fill="none"
-                shape-rendering="geometricPrecision"/>
-          <!-- Bottom edge shadow (darker rim) -->
-          <path d="M -10 627
-                   C 80 619, 180 645, 260 625
-                   C 340 605, 420 629, 550 617"
-                stroke="#2A6FA5" stroke-width="2" fill="none"
-                shape-rendering="geometricPrecision"/>
-          <!-- Sparkle pixels on the water surface -->
-          <rect x="44"  y="595" width="3" height="1" fill="#FFFFFF"/>
-          <rect x="116" y="605" width="2" height="1" fill="#FFFFFF"/>
-          <rect x="184" y="599" width="3" height="1" fill="#FFFFFF"/>
-          <rect x="244" y="607" width="2" height="1" fill="#FFFFFF"/>
-          <rect x="312" y="591" width="3" height="1" fill="#FFFFFF"/>
-          <rect x="368" y="593" width="2" height="1" fill="#FFFFFF"/>
-          <rect x="436" y="587" width="3" height="1" fill="#FFFFFF"/>
-          <rect x="496" y="595" width="2" height="1" fill="#FFFFFF"/>
-          <rect x="72"  y="615" width="2" height="1" fill="#FFFFFF"/>
-          <rect x="160" y="619" width="3" height="1" fill="#FFFFFF"/>
-          <rect x="284" y="615" width="2" height="1" fill="#FFFFFF"/>
-          <rect x="396" y="611" width="3" height="1" fill="#FFFFFF"/>
-        `;
-        // Sky decoration layer · fills the full 540×800 card so
-        // pixel atmosphere wraps the bubble on every side. Sky
-        // half holds the moon + stars + clouds; ground (cream)
-        // half holds pixel stones + grass + dirt + a meandering
-        // river.
-        const skyDeco = `
-          <!-- Pixel moon · 8-bit circle in upper-right, ~y=78 so
-               it clears the top-right "Privateboard.ai" header
-               text (which lives at y=22-34). 5 stepped rows of
-               pixel pairs form the round silhouette; three
-               crater highlights in a warmer cream add character. -->
-          <g transform="translate(440 78)">
-            <rect x="8"  y="0"  width="20" height="4" fill="#FFF6D9"/>
-            <rect x="4"  y="4"  width="28" height="4" fill="#FFF6D9"/>
-            <rect x="0"  y="8"  width="36" height="14" fill="#FFF6D9"/>
-            <rect x="4"  y="22" width="28" height="4" fill="#FFF6D9"/>
-            <rect x="8"  y="26" width="20" height="4" fill="#FFF6D9"/>
-            <rect x="14" y="10" width="3" height="3" fill="#F4D898"/>
-            <rect x="22" y="14" width="2" height="2" fill="#F4D898"/>
-            <rect x="10" y="18" width="2" height="2" fill="#F4D898"/>
-          </g>
-          <!-- Star field · denser in deep purple bands, thinning
-               as the sky warms. Mix of 2×2 cream pixels and 1×1
-               amber pixels for depth. Stars near the top-right
-               text bounds (y≈22-34, x≈400-512) were moved down
-               so they don't print on the "Privateboard.ai" label. -->
-          ${star(40, 50)}${star(112, 58)}${star(180, 38)}${star(252, 30)}${star(304, 10)}${star(212, 64)}
-          ${star(72, 90)}${star(160, 84)}${star(220, 110)}${star(316, 64)}${star(376, 116)}${star(36, 98)}
-          ${star(140, 116)}${star(264, 102)}${star(420, 132)}${star(196, 138)}${star(348, 142)}
-          ${tinyStar(60, 40)}${tinyStar(168, 22)}${tinyStar(232, 50)}${tinyStar(340, 50)}${tinyStar(414, 116)}
-          ${tinyStar(96, 76)}${tinyStar(204, 104)}${tinyStar(280, 130)}${tinyStar(388, 124)}
-          ${tinyStar(56, 156)}${tinyStar(132, 168)}${tinyStar(420, 178)}
-          <!-- Clouds · sky bands only (rose / coral around y≈170).
-               The two clouds that previously sat at y=232 / y=244
-               were dropped — after the scene group was shifted up,
-               the bubble's top edge (y=200) covered them entirely. -->
-          ${bigCloud(48, 168)}
-          ${cloud(372, 158)}
-          ${cloud(212, 178)}
-          <!-- Ground · meandering top-down river curving across
-               the warm cream band, plus chunky stones on both
-               banks, denser grass tufts (mix of regular + wide),
-               and scattered dirt patches breaking up the grass.
-               The whole scene group was shifted 100px UP from
-               the previous layout so the watermark + stamp at
-               the bottom of the card have a clean cream "footer"
-               above them. -->
-          ${meanderingRiver}
-          <!-- Stones · spread across both banks. -->
-          ${stoneLarge(20,  535)}
-          ${stoneMed(232, 568)}
-          ${stoneSmall(376, 572)}
-          ${stoneMed(444, 633)}
-          ${stoneSmall(96,  639)}
-          ${stoneSmall(312, 639)}
-          <!-- Grass on the upper bank, woven between the stones. -->
-          ${grass(76,  562)}
-          ${grass(140, 566)}
-          ${grass(296, 570)}
-          ${grass(420, 572)}
-          ${grass(496, 566)}
-          ${grass(180, 578)}
-          <!-- Grass on the lower bank just below the river. -->
-          ${grass(40,  649)}
-          ${grass(180, 651)}
-          ${grass(220, 651)}
-          ${grass(360, 653)}
-          ${grass(500, 651)}
-          <!-- Bigger grass clumps + dirt patches in the strip
-               just below the lower-bank stones. -->
-          ${dirtPatchBig(58,  658)}
-          ${dirtPatch(190, 662)}
-          ${dirtPatch(330, 660)}
-          ${dirtPatchBig(402, 658)}
-          ${grassWide(140, 666)}
-          ${grassWide(290, 666)}
-          ${grassWide(430, 666)}
-          <!-- Extra dirt patches scattered on the upper bank. -->
-          ${dirtPatch(180, 584)}
-          ${dirtPatch(326, 578)}
-        `;
-        return `
-          <div class="share-card" data-share-template="boardroom">
-            <div class="sc-header">
-              <span>◆ PRIVATEBOARD<span class="sc-heart">♥</span></span>
-              <span class="sc-header-right">${esc(DOMAIN)}</span>
-            </div>
-            <svg class="sc-sky-deco" viewBox="0 0 540 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              ${skyDeco}
-            </svg>
-            <div class="sc-bubble">
-              <span class="sc-nail tl" aria-hidden="true"></span>
-              <span class="sc-nail tr" aria-hidden="true"></span>
-              <span class="sc-nail bl" aria-hidden="true"></span>
-              <span class="sc-nail br" aria-hidden="true"></span>
-              ${n.roomSubject ? `<div class="sc-bubble-meta">// re: ${this.wrapCjk(esc(String(n.roomSubject).trim()))}</div>` : ""}
-              <p class="sc-bubble-text" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
-            </div>
-            <div class="sc-byline">${this.wrapCjk(esc(`被蒸馏的 ${author}`))}</div>
-            <div class="share-card-watermark">${esc(DOMAIN)}</div>
-            <div class="share-card-stamp">${esc(stampDate)}</div>
-          </div>
-        `;
-      }
-      if (tpl === "editorial") {
-        return `
-          <div class="share-card" data-share-template="editorial">
-            <div>
-              <div class="sc-quotemark">&ldquo;</div>
-              <p class="sc-quote" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
-            </div>
-            <div class="sc-byline">— <strong>${this.wrapCjk(esc(author))}</strong>${roomNum ? ` · room ${esc(roomNum)}` : ""}</div>
-            <div class="share-card-watermark">${esc(DOMAIN)}</div>
-            <div class="share-card-stamp">${esc(stampDate)}</div>
-          </div>
-        `;
-      }
-      if (tpl === "terminal") {
-        return `
-          <div class="share-card" data-share-template="terminal">
-            <div class="sc-frame">
-              <div class="sc-prompt">$ cat note.txt</div>
-              <p class="sc-quote" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
-              <div class="sc-byline">> attributed to: <strong>${this.wrapCjk(esc(author))}</strong>${roomNum ? ` <span class="sc-byline-dim">[room ${esc(roomNum)}]</span>` : ""}</div>
-            </div>
-            <div class="share-card-watermark">${esc(DOMAIN)}</div>
-            <div class="share-card-stamp">${esc(stampDate)}</div>
-          </div>
-        `;
-      }
-      // magazine (default fallthrough)
+      // Boardroom cover · randomized 8-bit landscape generated by the
+      // standalone `share-cover-svg-creator.js` skill. The module
+      // yields a fresh roll (sky palette, river curve, stones, flowers,
+      // dirt patches, ground material) once per `openShareCard()` and
+      // the result is cached on `this._shareCardCover`. If the module
+      // didn't load, fall back to an empty SVG layer + the CSS
+      // background-color set on `.share-card`.
+      const cover = this._shareCardCover || {
+        skyGradient: "",
+        skyDeco: "",
+        groundDeco: "",
+        groundFg: "",
+      };
+      // Inline style carries two things:
+      //   1. The randomized sky-gradient (overrides the flat fallback
+      //      color in CSS).
+      //   2. A `--sc-fg` CSS variable holding a watermark/stamp color
+      //      picked to stay legible against whatever ground material
+      //      rolled (dark cream on volcanic-dark grounds, dark purple
+      //      on light grounds).
+      const styleParts = [];
+      if (cover.skyGradient) styleParts.push(`background: ${cover.skyGradient}`);
+      if (cover.groundFg)    styleParts.push(`--sc-fg: ${cover.groundFg}`);
+      const bgStyle = styleParts.length
+        ? ` style="${styleParts.join("; ")}"`
+        : "";
+      // Per-roll ASCII-logo TYPEFACE · the creator picks one of three
+      // pre-baked letter-form designs (block / slim / thick). All three
+      // use the same FULL BLOCK char + same cream colour + same drop-
+      // shadow (defined in CSS); only the letter proportions change.
+      const logoText = LOGO_FONTS[cover.logoFont] || LOGO_FONTS.block;
       return `
-        <div class="share-card" data-share-template="magazine">
-          <div class="sc-stripe"></div>
-          <div class="sc-kicker">From the boardroom</div>
-          <p class="sc-quote" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
-          <div class="sc-byline">
-            <span><strong>${this.wrapCjk(esc(author))}</strong></span>
-            <span>${roomNum ? `room ${esc(roomNum)}` : ""}${stampDate ? (roomNum ? " · " : "") + esc(stampDate) : ""}</span>
+        <div class="share-card" data-share-template="boardroom"${bgStyle}>
+          <div class="sc-header">
+            <span>◆ PRIVATEBOARD<span class="sc-heart">♥</span></span>
+            <span class="sc-header-right">${esc(DOMAIN)}</span>
+          </div>
+          <svg class="sc-sky-deco" viewBox="0 0 540 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            ${cover.skyDeco}
+            ${cover.groundDeco}
+          </svg>
+          <pre class="sc-logo" aria-label="Private Board">${logoText}</pre>
+          <div class="sc-bubble">
+            <!-- Decorative pixel blocks · scattered colored squares
+                 echo the retro-party poster's color accents on the
+                 black panel. Each block is 4-8 px in pixel-art
+                 register. Sits behind the text rows via z-index. -->
+            <span class="sc-block" style="top:14px; left:18px; width:8px; height:8px; background:#E26AA0;"></span>
+            <span class="sc-block" style="top:8px; right:30px; width:6px; height:6px; background:#F0D848;"></span>
+            <span class="sc-block" style="top:42%; left:10px; width:6px; height:6px; background:#5BC0EB;"></span>
+            <span class="sc-block" style="top:24px; right:14px; width:4px; height:4px; background:#6FB572;"></span>
+            <span class="sc-block" style="bottom:18px; left:30px; width:6px; height:6px; background:#F86868;"></span>
+            <span class="sc-block" style="bottom:12px; right:24px; width:8px; height:8px; background:#ED8E48;"></span>
+            <!-- Section 1 · director name as the panel header.
+                 The "Distilled · X" prefix follows the user's i18n
+                 setting (en / zh / ja / es). CJK runs inside the
+                 resolved string render in STHeiti bold via .cjk. -->
+            <div class="sc-bubble-name">${this.wrapCjk(esc(this._t("share_card_distilled", { name: author })))}</div>
+            <!-- 8-bit pixel divider between name and quote -->
+            <div class="sc-divider" aria-hidden="true"></div>
+            <!-- Section 2 · the quote body -->
+            <p class="sc-bubble-text" style="${qStyle}">${this.wrapCjk(esc(quote))}</p>
+            ${n.roomSubject ? `
+              <!-- 8-bit pixel divider between quote and annotation -->
+              <div class="sc-divider" aria-hidden="true"></div>
+              <!-- Section 3 · room subject (initial question) -->
+              <div class="sc-bubble-meta">// re: ${this.wrapCjk(esc(String(n.roomSubject).trim()))}</div>
+            ` : ""}
           </div>
           <div class="share-card-watermark">${esc(DOMAIN)}</div>
+          <div class="share-card-stamp">${esc(stampDate)}</div>
         </div>
       `;
     },
@@ -8038,7 +8819,7 @@
     },
 
     /** Capture the current preview at native 540×675 and save it as
-     *  a 1080×1350 PNG. The visible preview is scaled down for fit;
+     *  an 800×1185 PNG. The visible preview is scaled down for fit;
      *  we capture the un-scaled inner card so the export resolution
      *  is independent of viewport width. Errors surface as a soft
      *  alert + console.warn — same pattern as magazine/ppt exports. */
@@ -8054,13 +8835,19 @@
           try { await document.fonts.ready; } catch { /* best-effort */ }
         }
         // Find the live card element (the inner-most .share-card div
-        // inside the preview, NOT the scaling wrapper). Capturing the
-        // 540×750 card directly at pixelRatio: 2 gives a 1080×1500
-        // PNG that ignores the cosmetic scale applied to the preview.
+        // inside the preview, NOT the scaling wrapper). The native
+        // card is 540 × 800; we capture at `pixelRatio = 800/540`
+        // so the exported PNG comes out at exactly 800 × 1185 — a
+        // moderate file size that scales proportionally from the
+        // source layout. (Was previously pixelRatio: 2 → 1080 × 1600,
+        // which the user found a touch too large.)
         const card = overlay.querySelector(".share-card");
         if (!card) throw new Error("share card not mounted");
+        const TARGET_W = 800;
+        const NATIVE_W = 540;
+        const exportRatio = TARGET_W / NATIVE_W;
         const dataUrl = await window.htmlToImage.toPng(card, {
-          pixelRatio: 2,
+          pixelRatio: exportRatio,
           cacheBust: true,
           width: 540,
           height: 800,
@@ -8287,6 +9074,27 @@
      *  Returns true when the article was found + scrolled · the
      *  caller uses this to know whether to keep the pending flag
      *  armed. */
+    /** Scroll the chat to the room's first user message · the
+     *  convene-opener at the very top of the transcript. Bound to
+     *  the `[data-jump-to-opener]` button in the input-bar's left
+     *  cluster. Smooth-scrolls so the user sees the trip; bails
+     *  silently if the room has no opener yet (fresh room mid-
+     *  convene) or the article isn't mounted. Suppresses the
+     *  bottom-snap window in scrollChatToBottom so an SSE-driven
+     *  re-render doesn't immediately yank the view back to the
+     *  newest message. */
+    scrollToOpener() {
+      const openerId = this.firstUserMessageId();
+      if (!openerId) return;
+      const article = document.querySelector(`article[data-message-id="${openerId}"]`);
+      if (!article) return;
+      try {
+        article.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch { /* */ }
+      this.chatStuckToBottom = false;
+      this._suppressBottomScrollUntil = Date.now() + 2000;
+    },
+
     scrollToMessage(messageId) {
       if (!messageId) return false;
       const article = document.querySelector(`article[data-message-id="${messageId}"]`);
@@ -8761,6 +9569,12 @@
         this.renderEmptyState();
         this.markActiveRoom(null);
       }
+      // Composer mode just changed · re-evaluate whether the
+      // agent-build ambient should be playing. Entering "agent"
+      // with a live build resumes it; leaving "agent" silences it
+      // even if the build is still chugging away (it'll resume
+      // once the user navigates back via the sidebar building row).
+      this._syncAgentBuildBgm();
     },
 
     /** Pitch copy for the new-room composer's textarea placeholder.
@@ -8852,10 +9666,14 @@
         // quote dots never collide with the title text · the deco
         // stays visible only at the periphery + along the top band.
         // Same hygiene pass as the agent composer's motif.
+        // All motif fills below pull from theme tokens (`--accent-line`
+        // is the brand-tinted hairline = very subtle in both themes)
+        // so the backdrop adopts the page's palette instead of staying
+        // a fixed wood-brown patch that looks "dirty" on a light bg.
         const chairs = [
-          { x: 108, y: 138, fill: "#7A5230" },
-          { x: 372, y: 46,  fill: "#7A5230" },
-          { x: 678, y: 148, fill: "#7A5230" },
+          { x: 108, y: 138 },
+          { x: 372, y: 46 },
+          { x: 678, y: 148 },
         ];
         const sparks = [
           [98, 78], [640, 62], [588, 156],
@@ -8865,20 +9683,16 @@
         ];
         motif = `
           <g shape-rendering="crispEdges">
-            <!-- Mini chair silhouettes (3 wood + 1 cyan moderator) -->
+            <!-- Mini chair silhouettes — fill pulled from theme token -->
             ${chairs.map((c, i) => `
-              <g class="deco-bob" ${_delay(i + 3, 3.2)} fill="${c.fill}">
+              <g class="deco-bob" ${_delay(i + 3, 3.2)} fill="var(--accent-line)">
                 <rect x="${c.x}" y="${c.y + 10}" width="6" height="2"/>
                 <rect x="${c.x}" y="${c.y}"      width="2" height="10"/>
                 <rect x="${c.x + 6}" y="${c.y}"  width="2" height="10"/>
               </g>
             `).join("")}
-            <!-- Tiny microphones · static (small, would feel busy).
-                 Removed the (296, 206) centre-lower mic and the
-                 (244, 216) cyan moderator chair — both sat in the
-                 title's footprint and read as typos behind the
-                 prompt. -->
-            <g fill="#8E8B83">
+            <!-- Tiny microphones · static (small, would feel busy). -->
+            <g fill="var(--accent-line)">
               <rect x="226" y="46"  width="3" height="2"/>
               <rect x="227" y="42"  width="1" height="4"/>
               <rect x="514" y="100" width="3" height="2"/>
@@ -8919,11 +9733,13 @@
         ];
         motif = `
           <g shape-rendering="crispEdges">
-            <!-- Mini character heads · 4×4 face + 1px hat band -->
+            <!-- Mini character heads · fills pulled from theme tokens
+                 so the heads stop reading as out-of-place skin-tan +
+                 dark-brown patches against a white bg. -->
             ${heads.map(([x, y], i) => `
               <g class="deco-bob" ${_delay(i + 21, 3.0)}>
-                <rect x="${x}" y="${y}" width="4" height="4" fill="#D8A878"/>
-                <rect x="${x}" y="${y}" width="4" height="1" fill="#5C3A1F"/>
+                <rect x="${x}" y="${y}" width="4" height="4" fill="var(--accent-line)"/>
+                <rect x="${x}" y="${y}" width="4" height="1" fill="var(--lime-dim)"/>
               </g>
             `).join("")}
             <!-- Tiny speech bubbles · 10×6 pill with 1-pixel tail · blink -->
@@ -9033,19 +9849,17 @@
       // Starter grid · 2-col responsive cards. Two parallel
       // pools render in the same `.cmp-starters-grid`:
       //   1. Topic recommendations (newest-first, paged, visible
-      //      list, capped at the 6 the server keeps). Each card
-      //      carries a synthesiser-generated tag (e.g.
-      //      "strategy") in the left column. Clicking populates
-      //      the composer with the rec's subject + attaches its
-      //      seedContext snippets so the room opens grounded in
-      //      the source material.
+      //      list, capped at 5 in the tray). Each card carries a
+      //      synthesiser-generated tag (e.g. "strategy") in the
+      //      left column. Clicking populates the composer with
+      //      the rec's subject + attaches its seedContext
+      //      snippets so the room opens grounded in the source
+      //      material.
       //   2. Legacy hardcoded starters from window.BOARDROOM_STARTERS.
       //      Show only when there are no recommendations yet (or
       //      when recs are still loading on first paint) so a
       //      brand-new user sees something useful in the tray.
-      // Server keeps at most 6 rows — defensive slice covers
-      // any stale cache that pre-dates the "always 6" rule.
-      const recs = (this.topicRecs.items || []).slice(0, 6);
+      const recs = (this.topicRecs.items || []).slice(0, 5);
       // Card markup lives in `topicRecCardHtml` so the
       // initial render path and any later append paths can't
       // drift in shape / attributes.
@@ -9073,26 +9887,38 @@
       // / [data-trec-bar]) so the SSE handler can patch them
       // in place without re-rendering the whole composer:
       //   · IDLE (no job) · tag = "✦ discover", text = the
-      //     bilingual label, arrow = "+". Looks like a starter
-      //     but with a lime accent + dashed bottom rule.
-      //   · BUSY (job live) · tag = phase label, text =
-      //     animated dots + phase detail, arrow = "N%". A
-      //     thin lime progress bar lives along the bottom edge
-      //     and fills as the pipeline ticks.
+      //     localised label (EN/ZH via i18n), arrow = "+".
+      //     Looks like a starter but with a lime accent +
+      //     dashed bottom rule.
+      //   · BUSY (job live) · tag = phase label (LLM-emitted,
+      //     stays English — those come from the orchestrator's
+      //     phaseLabels constant), text = animated dots +
+      //     phase detail, arrow = "N%". A thin lime progress
+      //     bar lives along the bottom edge and fills as the
+      //     pipeline ticks.
+      //
+      // The trigger LABEL is i18n'd (cmp_recs_trigger_label)
+      // because it's user-facing prompt copy, parallel to
+      // `cmp_prompt` and the time-of-day greeting above. The
+      // tag column ("discover") and starting placeholder are
+      // also keyed so locale switches flip them together.
       const job = this.topicRecs.job;
       const triggerBusy = !!job;
+      const triggerLabel = this._t("cmp_recs_trigger_label");
+      const triggerTag = this._t("cmp_recs_trigger_tag");
+      const triggerStarting = this._t("cmp_recs_trigger_starting");
       const triggerCard = `
         <button type="button"
           class="cmp-starter cmp-recs-trigger-card${triggerBusy ? " is-busy" : ""}"
           data-cmp-recs-trigger
           data-topic-rec-progress
           ${triggerBusy ? "disabled" : ""}
-          title="${this.escape("找你可能感兴趣的话题")}">
-          <div class="cmp-starter-tag" data-trec-label>${this.escape(triggerBusy ? (job.label || "starting…") : "✦ discover")}</div>
+          title="${this.escape(triggerLabel)}">
+          <div class="cmp-starter-tag" data-trec-label>${this.escape(triggerBusy ? (job.label || triggerStarting) : `✦ ${triggerTag}`)}</div>
           <div class="cmp-starter-text">
             ${triggerBusy
               ? `<span class="cmp-recs-trigger-dots" aria-hidden="true"><i></i><i></i><i></i></span><span data-trec-detail>${this.escape(job.detail || "")}</span>`
-              : `<span>找你可能感兴趣的话题</span>`}
+              : `<span>${this.escape(triggerLabel)}</span>`}
           </div>
           <div class="cmp-starter-arrow" data-trec-pct>${this.escape(triggerBusy ? (job.pct ? `${job.pct}%` : "·") : "+")}</div>
           <div class="cmp-recs-trigger-bar" aria-hidden="true"><div class="cmp-recs-trigger-fill" data-trec-bar style="width: ${triggerBusy ? (job.pct || 0) : 0}%"></div></div>
@@ -9116,16 +9942,24 @@
           </header>
 
           <div class="cmp-input-frame">
-            <textarea class="cmp-input" data-composer-subject rows="1" placeholder="${this.escape(t.placeholder)}">${this.escape(state.subject || "")}</textarea>
-
-            <div class="cmp-toolbar">
+            <!-- TOPBAR · room configuration controls. Sits above the
+                 textarea so the room's identity (cast + tone + intensity)
+                 is set BEFORE the user starts typing the subject. The
+                 voice toggle lives in the bottombar below since it's
+                 paired with the Convene submit action (mode-of-delivery
+                 decision belongs with the send button). -->
+            <div class="cmp-topbar">
               <button type="button" class="cmp-cast-btn${isAutoPick ? " cmp-cast-btn-auto" : ""}" data-composer-dir-pick title="${this.escape(t.pickerLabel)}">
                 ${castInner}
               </button>
 
-              <div class="cmp-toolbar-sep"></div>
-
-              <div class="cmp-tune">
+              <!-- Tone + intensity dropdowns pushed to the right edge of
+                   the topbar via .cmp-topbar-right (margin-left: auto).
+                   The cast picker keeps its leading slot; room "shape"
+                   controls cluster on the trailing edge so the eye reads
+                   left-to-right as: WHO speaks (cast) → HOW they speak
+                   (tone / intensity). -->
+              <div class="cmp-topbar-right">
                 <button type="button" class="cmp-dd" data-cmp-dropdown="tone" title="${this.escape(toneLbl)}">
                   <span class="cmp-dd-label">${this.escape(toneLbl)}</span>
                   <span class="cmp-dd-value" data-cmp-dd-value="tone">${this.escape(state.mode)}</span>
@@ -9136,46 +9970,55 @@
                   <span class="cmp-dd-value" data-cmp-dd-value="intensity">${this.escape(state.intensity)}</span>
                   <span class="cmp-dd-chevron">▾</span>
                 </button>
-                ${(() => {
-                  // Reuse the same toggle vocabulary as the new-agent
-                  // composer's web-search toggle: `.ap-skill-row-toggle`
-                  // (track + knob + text) plus `.cmp-ws-toggle` for
-                  // toolbar fitting. `needs-key` modifier renders the
-                  // dashed "configure first" treatment when no voice
-                  // provider is set, matching the WS toggle pattern
-                  // exactly. Class set: `on` / `off` / `needs-key`.
-                  const voiceConfigured = this.hasAnyVoiceKey();
-                  const voiceOn = voiceConfigured && state.deliveryMode === "voice";
-                  const voiceLabel = this._t("cmp_voice_label");
-                  const voiceTitle = !voiceConfigured
-                    ? "Configure a voice provider to enable voice mode"
-                    : (voiceOn
-                      ? "Voice mode on · directors speak aloud during the room"
-                      : "Voice mode off · click to enable");
-                  const voiceCls = [
-                    "ap-skill-row-toggle",
-                    "cmp-ws-toggle",
-                    voiceOn ? "on" : "off",
-                    voiceConfigured ? "" : "needs-key",
-                  ].filter(Boolean).join(" ");
-                  return `
-                    <button type="button" class="${voiceCls}"
-                      data-composer-voice-toggle
-                      data-configured="${voiceConfigured ? "1" : "0"}"
-                      data-on="${voiceOn ? "1" : "0"}"
-                      aria-pressed="${voiceOn ? "true" : "false"}"
-                      title="${this.escape(voiceTitle)}">
-                      <span class="ap-skill-row-toggle-track"><span class="ap-skill-row-toggle-knob"></span></span>
-                      <span class="ap-skill-row-toggle-text">${this.escape(voiceLabel)}</span>
-                    </button>
-                  `;
-                })()}
               </div>
+            </div>
+
+            <textarea class="cmp-input" data-composer-subject rows="1" placeholder="${this.escape(t.placeholder)}">${this.escape(state.subject || "")}</textarea>
+
+            <!-- BOTTOMBAR · voice toggle on the left, Convene send
+                 button on the right. Mirrors the in-room input-bar's
+                 split (toggles on the left of the bottom row, send on
+                 the right). -->
+            <div class="cmp-toolbar">
+              ${(() => {
+                // Reuse the same toggle vocabulary as the new-agent
+                // composer's web-search toggle: `.ap-skill-row-toggle`
+                // (track + knob + text) plus `.cmp-ws-toggle` for
+                // toolbar fitting. `needs-key` modifier renders the
+                // dashed "configure first" treatment when no voice
+                // provider is set, matching the WS toggle pattern
+                // exactly. Class set: `on` / `off` / `needs-key`.
+                const voiceConfigured = this.hasAnyVoiceKey();
+                const voiceOn = voiceConfigured && state.deliveryMode === "voice";
+                const voiceLabel = this._t("cmp_voice_label");
+                const voiceTitle = !voiceConfigured
+                  ? "Configure a voice provider to enable voice mode"
+                  : (voiceOn
+                    ? "Voice mode on · directors speak aloud during the room"
+                    : "Voice mode off · click to enable");
+                const voiceCls = [
+                  "ap-skill-row-toggle",
+                  "cmp-ws-toggle",
+                  voiceOn ? "on" : "off",
+                  voiceConfigured ? "" : "needs-key",
+                ].filter(Boolean).join(" ");
+                return `
+                  <button type="button" class="${voiceCls}"
+                    data-composer-voice-toggle
+                    data-configured="${voiceConfigured ? "1" : "0"}"
+                    data-on="${voiceOn ? "1" : "0"}"
+                    aria-pressed="${voiceOn ? "true" : "false"}"
+                    title="${this.escape(voiceTitle)}">
+                    <span class="ap-skill-row-toggle-track"><span class="ap-skill-row-toggle-knob"></span></span>
+                    <span class="ap-skill-row-toggle-text">${this.escape(voiceLabel)}</span>
+                  </button>
+                `;
+              })()}
 
               <button type="button" class="cmp-go" data-composer-go title="${this.escape(t.convene)} (⏎)">
-                <svg class="cmp-go-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M5 12h14"/>
-                  <path d="m13 5 7 7-7 7"/>
+                <svg class="cmp-go-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="12" y1="19" x2="12" y2="5"/>
+                  <polyline points="5 12 12 5 19 12"/>
                 </svg>
               </button>
             </div>
@@ -9193,36 +10036,40 @@
       `;
     },
 
-    /** Time-of-day greeting like "// good evening, Kay" / "// 晚上好，Kay". */
-    composerGreeting(lang, name) {
-      // Follows composer chrome locale (`lang` · en or zh via I18n).
+    /** Time-of-day greeting like "// good evening, Kay" / "// 晚上好，Kay".
+     *  Four locale-agnostic buckets · the underlying greet_0..3 keys
+     *  are translated per-locale in i18n.js. Previously branched on
+     *  `lang === "zh"` to pick a 6-bucket zh variant; collapsed to 4
+     *  so adding new locales is mechanical (each locale just fills
+     *  the four keys). The `lang` arg is preserved for callers but
+     *  no longer drives bucket selection. */
+    composerGreeting(_lang, name) {
       const h = new Date().getHours();
-      const isZh = lang === "zh";
       let key;
-      if (isZh) {
-        if (h < 5) key = "greet_zh_0";
-        else if (h < 12) key = "greet_zh_1";
-        else if (h < 14) key = "greet_zh_2";
-        else if (h < 18) key = "greet_zh_3";
-        else if (h < 23) key = "greet_zh_4";
-        else key = "greet_zh_5";
-      } else if (h < 5) key = "greet_en_0";
-      else if (h < 12) key = "greet_en_1";
-      else if (h < 18) key = "greet_en_2";
-      else key = "greet_en_3";
-      return this._t(key, { name });    },
+      if (h < 5)       key = "greet_0";  // late night / early morning
+      else if (h < 12) key = "greet_1";  // morning
+      else if (h < 18) key = "greet_2";  // afternoon
+      else             key = "greet_3";  // evening
+      return this._t(key, { name });
+    },
 
+    /** Returns the active UI locale code · one of the 4 supported
+     *  locales (en / zh / ja / es). Used by composer chrome that
+     *  used to branch en/zh only — now passes through all four
+     *  so each locale can localise hero / greeting / placeholder. */
     composerLanguage() {
       try {
         if (window.I18n && typeof window.I18n.getLocale === "function") {
-          return window.I18n.getLocale() === "zh" ? "zh" : "en";
+          const supported = window.I18n.SUPPORTED_LOCALES || ["en", "zh"];
+          const loc = window.I18n.getLocale();
+          return supported.indexOf(loc) >= 0 ? loc : "en";
         }
       } catch { /* ignore */ }
       try {
         const lang = (navigator.language || "").toLowerCase();
-        if (lang.startsWith("zh") || lang.includes("cn") || lang.includes("hans") || lang.includes("hant")) {
-          return "zh";
-        }
+        if (lang.startsWith("zh")) return "zh";
+        if (lang.startsWith("ja")) return "ja";
+        if (lang.startsWith("es")) return "es";
       } catch { /* ignore */ }
       return "en";
     },
@@ -9241,6 +10088,24 @@
       // See autosizeAgentComposerTextarea for the why.
       const explicitH = parseInt(ta.style.height, 10) || MIN;
       if (ta.scrollHeight <= explicitH) return;
+      ta.style.height = "auto";
+      const h = Math.min(MAX, Math.max(MIN, ta.scrollHeight));
+      ta.style.height = h + "px";
+    },
+
+    /** Auto-grow the room input-bar's textarea. Smaller bounds
+     *  than the composer's autosize since the input-bar sits in
+     *  a tighter floating-card frame · 24px single-line baseline,
+     *  200px cap (then internal scroll). Always cycles through
+     *  `height: auto` so the field SHRINKS back to baseline after
+     *  the user sends + the value is cleared (the composer's
+     *  quick-path skip behaviour would leave a stale tall field
+     *  here). */
+    autosizeRoomInputTextarea() {
+      const ta = document.querySelector(".ib-textarea[data-send-input]");
+      if (!ta) return;
+      const MIN = 24;
+      const MAX = 200;
       ta.style.height = "auto";
       const h = Math.min(MAX, Math.max(MIN, ta.scrollHeight));
       ta.style.height = h + "px";
@@ -9732,22 +10597,13 @@
           </header>
 
           <div class="cmp-input-frame ${generating ? "is-generating" : ""}">
-            <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}>${this.escape(this.loadAgentComposerDraft())}</textarea>
-
-            <div class="cmp-toolbar">
-              <!-- Build-mode picker · Signal vs Full persona. Reuses
-                   the canonical .cmp-dd dropdown vocabulary so this
-                   toolbar stays visually consistent with the new-room
-                   composer's tone/intensity dropdowns. Sits first so
-                   the user picks the build flow before model / web
-                   search / submit. Options + dispatch live in
-                   openComposerDropdown / dd-pick handler under the
-                   "agent-builder-mode" kind. -->
-              <button type="button" class="cmp-dd cmp-dd-mode" data-cmp-dropdown="agent-builder-mode" title="Build mode · Signal (~10s) or Full persona (5–10min)">
-                <span class="cmp-dd-label">build</span>
-                <span class="cmp-dd-value" data-cmp-dd-value="agent-builder-mode">${this.escape(builderMode === "full" ? "FULL PERSONA" : "SIGNAL")}</span>
-                <span class="cmp-dd-chevron">▾</span>
-              </button>
+            <!-- TOPBAR · the manual escape-hatch lives here on its own.
+                 The build-mode picker was moved DOWN into the bottombar
+                 as a single icon+label toggle (full-persona on/off) —
+                 same vocabulary as the in-room round-table toggle. The
+                 websearch toggle still lives in the bottombar beside
+                 Send, with the build toggle now sitting to its left. -->
+            <div class="cmp-topbar">
               <!-- Model selection lives downstream now: the post-
                    generation spec preview card has a model <select>
                    (renderAgentSpecPreviewHtml), the manual new-agent
@@ -9758,6 +10614,33 @@
               <button type="button" class="ag-cmp-manual" data-agent-composer-manual>
                 <span class="ag-cmp-manual-mark">⚙</span>
                 <span class="ag-cmp-manual-label">${this.escape(t.manual)}</span>
+              </button>
+            </div>
+
+            <textarea class="cmp-input" data-agent-composer-desc rows="1" placeholder="${this.escape(t.placeholder)}" ${generating ? "disabled" : ""}>${this.escape(this.loadAgentComposerDraft())}</textarea>
+
+            <!-- BOTTOMBAR · build-mode toggle + websearch toggle on the
+                 left, Generate send button on the right. Build toggle
+                 borrows the round-table toggle vocabulary (icon + label,
+                 borderless, aria-pressed flips to lime when selected) so
+                 it reads as a binary "full persona on/off" affordance
+                 rather than a dropdown. -->
+            <div class="cmp-toolbar">
+              <!-- Build-mode toggle · selected (aria-pressed=true) means
+                   "full persona" build; unselected means the default
+                   signal-mode quick path. Click flips state in place via
+                   the [data-agent-builder-toggle] delegate. -->
+              <button type="button"
+                      class="cmp-build-toggle has-label${builderMode === "full" ? " on" : ""}"
+                      data-agent-builder-toggle
+                      aria-pressed="${builderMode === "full" ? "true" : "false"}"
+                      title="Full persona · 5–10 min deep build · ReAct research + 7-phase persona spec (click to ${builderMode === "full" ? "switch back to fast Signal build" : "switch on"})">
+                <span class="cmp-build-glyph" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="none">
+                    <path d="M8 0 L9 7 L16 8 L9 9 L8 16 L7 9 L0 8 L7 7 Z"/>
+                  </svg>
+                </span>
+                <span class="cmp-build-label">Full persona</span>
               </button>
               ${(() => {
                 // Reuses the agent-profile websearch toggle vocabulary
@@ -9799,9 +10682,9 @@
               <button type="button" class="cmp-go ${generating ? "busy" : ""}" data-agent-composer-go title="${this.escape(ctaLabel)} · ${this.escape(ctaHint)} (⏎)" ${generating ? "disabled" : ""}>
                 ${generating
                   ? `<span class="cmp-go-arrow">…</span>`
-                  : `<svg class="cmp-go-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M5 12h14"/>
-                      <path d="m13 5 7 7-7 7"/>
+                  : `<svg class="cmp-go-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="12" y1="19" x2="12" y2="5"/>
+                      <polyline points="5 12 12 5 19 12"/>
                     </svg>`}
               </button>
             </div>
@@ -10025,7 +10908,7 @@
     async submitAgentComposer() {
       const ta = document.querySelector("[data-agent-composer-desc]");
       const description = ta ? ta.value.trim() : "";
-      if (description.length < 4) {
+      if (description.length < 2) {
         if (ta) ta.focus();
         return;
       }
@@ -10101,11 +10984,20 @@
       };
       this._personaStartedAt = Date.now();
       this.renderEmptyState();
+      // Start the sci-fi ambient · runs while personaJob.status is
+      // "starting" or "running". SSE terminal handlers (final /
+      // error / aborted) and cancelPersonaBuild flip the status and
+      // call _syncAgentBuildBgm again to stop the loop.
+      this._syncAgentBuildBgm();
       try {
+        // Pass the active UI locale so the narrator pass at the end of
+        // phase 7 writes the build-log summary in the user's language.
+        // Falls back to "en" server-side if the field is missing.
+        const locale = (window.I18n && typeof window.I18n.getLocale === "function") ? window.I18n.getLocale() : "en";
         const r = await fetch("/api/agents/generate-persona", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ description }),
+          body: JSON.stringify({ description, locale }),
         });
         if (!r.ok) {
           const e = await r.json().catch(() => ({}));
@@ -10129,6 +11021,7 @@
         this.personaJob.errorMessage = (e && e.message) ? e.message : String(e);
         this._personaRender();
         this.renderSidebarAgents();
+        this._syncAgentBuildBgm();
       }
     },
 
@@ -10261,6 +11154,10 @@
         // Sidebar row flips from "BUILD · phase X · Y%" to "READY"
         // so the user can spot it from anywhere.
         this.renderSidebarAgents();
+        // Build phase is over · stop the sci-fi ambient. The save
+        // overlay (if it opens immediately below) gets a clean
+        // audio backdrop.
+        this._syncAgentBuildBgm();
         // Auto-open the manual-config overlay one-shot · only when
         // the user is actually on the agent composer (no room
         // loaded). If they navigated into a room mid-build, opening
@@ -10284,6 +11181,7 @@
         // user recovers via the inline error card on the agent
         // composer view.
         this.renderSidebarAgents();
+        this._syncAgentBuildBgm();
       }));
       sse.addEventListener("persona-aborted", onMsg(() => {
         this.personaJob.status = "aborted";
@@ -10291,6 +11189,7 @@
         this._stopPersonaTick();
         this._personaRender();
         this.renderSidebarAgents();
+        this._syncAgentBuildBgm();
       }));
 
       sse.onerror = () => {
@@ -10363,6 +11262,7 @@
       if (silent) {
         this.personaJob = null;
       }
+      this._syncAgentBuildBgm();
     },
 
     /** User clicked Discard from the failed / aborted card. Drops
@@ -10372,6 +11272,7 @@
       this._stopPersonaTick();
       this.personaJob = null;
       this._personaOverlayShown = false;
+      this._syncAgentBuildBgm();
       // Close the manual overlay if it's still open · the user
       // explicitly discarded, no need to leave a stale form.
       if (typeof window.closeNewAgent === "function") {
@@ -10674,6 +11575,39 @@
       if (this._personaUiActive()) this.renderEmptyState();
     },
 
+    /** Agent-build ambient BGM controller · drives
+     *  `window.boardroomAgentBuildBgm` based on the user's current
+     *  view + the live build state. Plays during Signal-mode
+     *  generation OR Full-persona builds when the user is on the
+     *  agent composer (not buried inside a room). Stops the
+     *  moment any of those preconditions stops being true.
+     *  Idempotent · safe to call from anywhere; the module's own
+     *  start/stop are no-ops when already in the target state. */
+    _syncAgentBuildBgm() {
+      const bgm = window.boardroomAgentBuildBgm;
+      if (!bgm) return;
+      // Global SFX gate · the BGM module re-checks this internally,
+      // but checking here saves an audio-graph construction on the
+      // start path when the user already has SFX off.
+      let sfxOn = true;
+      try {
+        if (typeof window.boardroomTypingSfx?.isEnabled === "function") {
+          sfxOn = window.boardroomTypingSfx.isEnabled() !== false;
+        }
+      } catch { /* default permissive */ }
+      const onComposer = this.composerMode === "agent" && !this.currentRoomId;
+      const signalGenerating = this.agentSpecGenerating === true;
+      const personaActive = !!(this.personaJob && (
+        this.personaJob.status === "starting" ||
+        this.personaJob.status === "running"
+      ));
+      const shouldPlay = sfxOn && onComposer && (signalGenerating || personaActive);
+      try {
+        if (shouldPlay) bgm.start();
+        else bgm.stop();
+      } catch { /* audio failures must not break the build flow */ }
+    },
+
     /** Format seconds as MM:SS. Used by the build-stage header for
      *  elapsed + ETA. */
     _fmtMmSs(secs) {
@@ -10864,6 +11798,11 @@
       this._agentGenUsingWebSearch = this.loadAgentComposerWebSearch();
       this.renderEmptyState();
       this.startAgentGenTick();
+      // Start the sci-fi ambient · runs while agentSpecGenerating is
+      // true. The `finally` block below flips the flag and calls
+      // _syncAgentBuildBgm again, stopping the BGM. Same helper
+      // governs Full-mode (see startFullPersonaBuild).
+      this._syncAgentBuildBgm();
 
       // AbortController · used to enforce the 5-min hard timeout AND
       // to clean up cleanly if the user discards mid-flight.
@@ -10919,6 +11858,10 @@
         this.stopAgentGenTick();
         this.agentSpecGenerating = false;
         this.renderEmptyState();
+        // Stop the ambient · success and failure both end the build
+        // phase, and the overlay (if it opens) is its own UI moment
+        // that doesn't want lingering audio behind it.
+        this._syncAgentBuildBgm();
         // Successful fetch path · open the floating save overlay (same
         // component Full-mode uses) once the underlying empty composer
         // has painted. Skipped on the error path · the inline error
@@ -11047,6 +11990,7 @@
       this.agentSpecGenerating = false;
       this.agentSpecError = null;
       this.renderEmptyState();
+      this._syncAgentBuildBgm();
     },
 
     redoAgentSpec() {
@@ -11271,7 +12215,7 @@
         .filter((a) => a.roleKind !== "moderator")
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       // System UI · always English (composer director picker chrome).
-      const t = { title: "Pick directors", hint: "2-4 recommended", done: "Done", info: "View profile" };
+      const t = { title: "Pick directors", hint: "2-4 recommended", info: "View profile" };
       const rows = dirs.map((a) => {
         const checked = state.directorIds.includes(a.id);
         const modelLabel = MODEL_LABELS[a.modelV] || a.modelV || "";
@@ -11299,9 +12243,6 @@
           <span class="composer-pick-hint">${this.escape(t.hint)}</span>
         </div>
         <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">${this.escape(this._t("picker_no_directors"))}</div>`}</div>
-        <div class="composer-pick-foot">
-          <button type="button" class="composer-pick-done" data-composer-pick-done>${this.escape(t.done)}</button>
-        </div>
       `;
       document.body.appendChild(pop);
       // Position with viewport collision detection. Generous buffer
@@ -11384,7 +12325,7 @@
       // it so the user can fall back to chair-pick by clearing.
       state.autoPickDirectors = state.directorIds.length === 0;
       this.saveComposerState();
-      // Don't close the picker — let the user toggle multiple before Done.
+      // Don't close the picker on each toggle — let the user pick multiple in one open.
       // But re-render the chip strip in the composer so the count updates.
       this.refreshComposerCast();
       // Update the picker row's visual state in place.
@@ -11476,6 +12417,19 @@
       }
     },
 
+    /** Flip the CURRENT room's delivery mode (text ↔ voice) ·
+     *  parallel to setComposerDeliveryMode but for an active
+     *  room. Optimistically repaints the toggle for instant
+     *  feedback, then PATCHes the server. The SSE
+     *  `settings-changed` event broadcasts to other tabs and
+     *  re-evaluates the round-table / transcript visibility.
+     *
+     *  When flipping TO voice without a voice key configured,
+     *  follows the composer's pattern: leaves the toggle in its
+     *  current state and opens Settings → API Keys (focused on
+     *  minimax). The server gracefully degrades to text-only
+     *  chunks regardless, so the worst case is "no audio" not
+     *  "broken room". */
     /** Generic option-list dropdown anchored under a tune trigger
      *  button. Used for both tone and intensity. Each option is a
      *  full-text row with a short hint (current/calmer/etc). Click an
@@ -11528,15 +12482,13 @@
           current = state.intensity;
         }
       } else if (kind === "delivery") {
-        opts = lang === "zh"
-          ? [
-              { v: "text", label: "Text", hint: "最快的文字会议" },
-              { v: "voice", label: "Voice", hint: "口语化 · 逐位播放" },
-            ]
-          : [
-              { v: "text", label: "Text", hint: "fast written meeting" },
-              { v: "voice", label: "Voice", hint: "spoken · paced turns" },
-            ];
+        // Delivery-mode picker · text vs voice. Labels stay
+        // "Text" / "Voice" (universally recognisable in this
+        // domain), hints flip with locale via i18n.
+        opts = [
+          { v: "text",  label: "Text",  hint: this._t("delivery_text_hint") },
+          { v: "voice", label: "Voice", hint: this._t("delivery_voice_hint") },
+        ];
         current = state.deliveryMode === "voice" ? "voice" : "text";
       } else if (kind === "locale") {
         // Interface language picker · routes through the shared
@@ -11544,10 +12496,17 @@
         // doesn't ship a separate two-button toggle. Hints describe
         // what the locale switch affects so the user knows it's the
         // chrome language, not the brief language.
-        opts = [
-          { v: "en", label: "EN",   hint: "interface in english" },
-          { v: "zh", label: "中文", hint: "界面语言切到中文" },
-        ];
+        // Locale picker · uses the I18n.SUPPORTED_LOCALES list as
+        // the source of truth so adding a new language only needs
+        // changes in i18n.js. Labels come from the `locale_<code>`
+        // keys translated in EACH locale's STR block.
+        const supported = (window.I18n && window.I18n.SUPPORTED_LOCALES) || ["en", "zh"];
+        const tr = (k) => (window.I18n && window.I18n.t ? window.I18n.t(k) : k);
+        opts = supported.map((code) => ({
+          v: code,
+          label: tr(`locale_${code}`),
+          hint: tr(`locale_${code}`),
+        }));
         current = (window.I18n && window.I18n.getLocale && window.I18n.getLocale()) || "en";
       } else if (kind === "agent-builder-mode") {
         // Build-mode picker · Signal vs Full persona. Same `.cmp-dd`
@@ -11873,7 +12832,7 @@
         <button type="button" class="cmp-starter cmp-rec" data-cmp-rec="${this.escape(rec.id)}" data-source="${this.escape(rec.source)}">
           <div class="cmp-starter-tag">${this.escape(tag)}</div>
           <div class="cmp-starter-text">${this.escape(rec.subject || "")}</div>
-          ${hint ? `<div class="cmp-rec-hint">${this.escape(hint)}</div>` : ""}
+          ${hint ? `<div class="cmp-rec-hint" title="${this.escape(hint)}">${this.escape(hint)}</div>` : ""}
           <div class="cmp-starter-arrow">→</div>
         </button>
       `;
@@ -11907,7 +12866,7 @@
         this.topicRecs.job = {
           id: jobId,
           phase: 0,
-          label: "starting…",
+          label: this._t("cmp_recs_trigger_starting"),
           pct: 0,
           detail: "",
           es: null,
@@ -12179,13 +13138,21 @@
       const r = this.currentRoom;
 
       // Avatars cascade with a stacked count tile at the end so the cast
-      // size is legible without adding chrome to the meta line.
-      // data-agent makes each tile clickable via the shared agent-overlay.
-      // Setting it explicitly (instead of relying on agent-overlay's
-      // autoTagAvatars regex) is required for custom agents whose
-      // avatarPath is a data: URL — the regex only matches /avatars/*.svg.
+      // size is legible without adding chrome to the meta line. Each tile
+      // opens the lightweight agent overlay (bubble-phase handler in
+      // agent-overlay.js, triggered by `data-agent`) so the user gets a
+      // quick popup peek at the director without losing the room context
+      // — clicking from inside a room shouldn't navigate away to the
+      // full agent profile page (that's what the sidebar agent rows are
+      // for, via `data-agent-profile`). Setting `data-agent` explicitly
+      // (instead of relying on agent-overlay's autoTagAvatars regex) is
+      // required for custom agents whose avatarPath is a data: URL —
+      // the regex only matches `/avatars/*.svg`.
       const castImgs = this.currentMembers
-        .map((a) => `<img data-agent="${this.escape(a.id)}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`)
+        .map((a) => {
+          const id = this.escape(a.id);
+          return `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
+        })
         .join("");
       const castCount = this.currentMembers.length;
       const castTitle =
@@ -12244,7 +13211,7 @@
       // tokens are not routed through `_t()`.
       const statusWord = r.status !== "live" ? String(r.status).toUpperCase() : "";
       head.innerHTML = `
-        <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}"></button>
+        <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}" data-tip="${this.escape(this._t("sidebar_expand"))}"></button>
         <div class="room-info">
           <div class="room-kicker">
             <span class="kicker-num">// ROOM #${r.number}</span>
@@ -12258,9 +13225,9 @@
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
-          <a href="#" class="room-settings-trigger" data-room-settings-trigger title="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}">⚙</a>
           <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
           <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
+          <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
           ${this.currentBrief
             ? (() => {
                 // Multiple briefs · render the View Report button as a
@@ -12272,13 +13239,43 @@
                 const briefs = Array.isArray(this.currentBriefs) ? this.currentBriefs : [];
                 const multi = briefs.length > 1;
                 const directHref = this.briefViewerHref(this.currentBrief, r.id) || `/report.html?r=${this.escape(r.id)}`;
-                if (!multi) {
-                  return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report>${this.escape(this._t("room_view_report"))}</a>`;
+                // Brief mid-pipeline · render the View Report slot in
+                // its pending shape: a non-anchor `<span>` so the
+                // browser can't navigate to a half-empty report, plus
+                // `data-pending="1"` so the shared CSS rule applies
+                // (cursor: progress, opacity 0.7, pointer-events: none).
+                // Exclude errored / interrupted / timed-out briefs ·
+                // those carry no body but are NOT generating, so the
+                // recovery UI inside the report page is the right
+                // destination (still clickable).
+                const errored = !!(this.currentBrief.error
+                  || this.currentBrief.interrupted
+                  || this.currentBrief.timedOut);
+                const generating = !errored
+                  && (this.currentBrief.isGenerating === true
+                    || !this.briefHasBody(this.currentBrief)
+                    || this.currentBrief.title === "Generating…");
+                // Strip the legacy `[ … ]` chrome from the brief-button
+                // label · those brackets read as a text-button frame, not
+                // a clean tooltip name. Same key, cleaner tooltip copy.
+                const stripBrackets = (s) => String(s || "").replace(/^\s*\[\s*|\s*\]\s*$/g, "").trim();
+                const reportLabel = stripBrackets(this._t("room_view_report"));
+                if (generating) {
+                  return `<span class="head-icon-btn head-view-report is-generating" data-view-report data-pending="1" role="button" aria-disabled="true" data-tip="${this.escape(this._t("room_view_report_generating"))}" aria-label="${this.escape(this._t("room_view_report_generating"))}"></span>`;
                 }
-                return `<a href="${directHref}" target="_blank" rel="noopener" class="view-report-btn" data-view-report data-view-report-trigger title="${this.escape(this._t("room_view_report_title_multi", { n: briefs.length }))}">${this.escape(this._t("room_view_report_multi", { n: briefs.length }))}</a>`;
+                if (!multi) {
+                  return `<a href="${directHref}" target="_blank" rel="noopener" class="head-icon-btn head-view-report" data-view-report data-tip="${this.escape(reportLabel)}" aria-label="${this.escape(reportLabel)}"></a>`;
+                }
+                const multiTip = this._t("room_view_report_title_multi", { n: briefs.length });
+                return `<a href="${directHref}" target="_blank" rel="noopener" class="head-icon-btn head-view-report has-count" data-view-report data-view-report-trigger data-tip="${this.escape(multiTip)}" aria-label="${this.escape(multiTip)}"><span class="head-icon-count">${briefs.length}</span></a>`;
               })()
             : (r.status === "adjourned"
-              ? `<a href="#" class="view-report-btn generate-report" data-generate-brief title="${this.escape(this._t("room_generate_report_title"))}"><span class="vr-mark">▸</span> ${this.escape(this._t("room_generate_report"))}</a>`              : "")}
+              ? `<a href="#" class="head-icon-btn head-view-report is-generate" data-generate-brief data-tip="${this.escape(this._t("room_generate_report"))}" aria-label="${this.escape(this._t("room_generate_report"))}"></a>`
+              : "")}
+          ${r.status === "adjourned"
+            ? `<a href="#" class="head-icon-btn head-followup" data-room-followup data-tip="${this.escape(this._t("adj_followup_label"))}" aria-label="${this.escape(this._t("adj_followup_label"))}"></a>`
+            : `<a href="#" class="head-icon-btn head-adjourn" data-adjourn data-tip="${this.escape(this._t("ib_adjourn_tip"))}" aria-label="${this.escape(this._t("ib_adjourn_label"))}"></a>`}
+          <a href="#" class="head-icon-btn head-settings room-settings-trigger" data-room-settings-trigger data-tip="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}"></a>
         </div>
       `;
       // Wire the tone-tag hover tip. Pure-CSS ::after tooltips were
@@ -12546,6 +13543,28 @@
 
     enqueueVoiceChunk(roomId, chunk) {
       if (!chunk || !chunk.messageId || !chunk.audioBase64 || !chunk.mimeType) return;
+      // Dedupe by seq · the bg-SSE handoff briefly overlaps the
+      // foreground subscription. Both deliver the same events
+      // during that window. Without this guard, every chunk in
+      // the window is appended twice — audio stutters or repeats.
+      // Server emits seq monotonic per messageId; we track a Set
+      // per messageId on a parallel cache so it survives across
+      // _createVoiceStream calls.
+      const seq = (chunk && typeof chunk.seq === "number") ? chunk.seq : null;
+      if (seq !== null) {
+        if (!this._voiceSeenSeqs) this._voiceSeenSeqs = {};
+        const seen = this._voiceSeenSeqs[chunk.messageId];
+        if (seen && seen.has(seq)) return; // dupe
+        if (!seen) this._voiceSeenSeqs[chunk.messageId] = new Set();
+        this._voiceSeenSeqs[chunk.messageId].add(seq);
+      }
+      // Stop the thinking SFX loop proactively · the next render
+      // cycle would do this anyway via `anyVoiceQueued`, but doing
+      // it here guarantees the AudioContext is idle BEFORE
+      // `_createVoiceStream` calls `audio.play()`. On Safari / iOS
+      // a continuously-active AudioContext can claim the audio
+      // session and prevent the HTMLAudioElement from starting.
+      try { window.boardroomTypingSfx?.setThinking?.(false); } catch { /* ignore */ }
       let q = this.voiceQueues[chunk.messageId];
       if (!q) {
         // Serialize voice playback · only one TTS clip plays at a
@@ -12564,6 +13583,7 @@
           if (!sq) continue;
           try { if (sq.audio) sq.audio.pause(); } catch (_) {}
           try { if (sq.audio && sq.audio.src) URL.revokeObjectURL(sq.audio.src); } catch (_) {}
+          try { if (sq.audio && sq.audio.parentNode) sq.audio.parentNode.removeChild(sq.audio); } catch (_) {}
           try {
             if (sq.mediaSource && sq.mediaSource.readyState === "open") {
               sq.mediaSource.endOfStream();
@@ -12571,8 +13591,34 @@
           } catch (_) {}
           delete this.voiceQueues[sid];
         }
+        // Stale queues torn down · the active queue is about to be
+        // recreated below. Mini-player refresh runs once after the
+        // new queue is inserted (next call site).
         q = this._createVoiceStream(roomId, chunk.messageId);
+        // Stash the speaker + current body on the queue so the
+        // mini-player can render speaker name / avatar / subtitle.
+        // Two sources to consult:
+        //   · currentMessages · the foreground SSE's view; populated
+        //     while user is in the room.
+        //   · _bgMessages · the background SSE's parallel cache;
+        //     populated when user has navigated away but is still
+        //     tracking this voice room. Without this fallback, the
+        //     bar would render nameless / bodyless for every
+        //     speaker that arrived after the user left the room.
+        const liveMsg = (this.currentMessages || []).find((m) => m.id === chunk.messageId);
+        const bgMsg = (this._bgMessages && this._bgMessages[chunk.messageId]) || null;
+        q.authorId = (liveMsg && liveMsg.authorId) || (bgMsg && bgMsg.authorId) || null;
+        q.cachedBody = (liveMsg && liveMsg.body) || (bgMsg && bgMsg.body) || "";
         this.voiceQueues[chunk.messageId] = q;
+        // Mini-player anchor · re-arm tracking for this room (the
+        // user may have dismissed the bar earlier; new voice
+        // activity is a strong signal they want it back). Also
+        // covers the case where the bar was never armed because
+        // the user was already on a different view at the time
+        // they joined this voice room indirectly.
+        this._activeVoiceRoomId = roomId;
+        // Mini-player · refresh now that a new queue exists.
+        this.refreshMiniPlayer();
       }
       // Convert base64 to Uint8Array and append to the MSE SourceBuffer
       const binary = atob(chunk.audioBase64);
@@ -12797,6 +13843,20 @@
     /** Create a MediaSource-backed audio stream for one speaker's turn. */
     _createVoiceStream(roomId, messageId) {
       const audio = new Audio();
+      // Attach to the DOM · without this Chrome treats the element
+      // as "detached media" and the browser is free to pause it
+      // when the window backgrounds (macOS space switch, Cmd+Tab,
+      // etc). Attached elements register as proper media players
+      // and continue across tab/window backgrounding. Hidden via
+      // a fixed off-screen container that's mounted once.
+      let host = document.getElementById("boardroom-voice-audio-host");
+      if (!host) {
+        host = document.createElement("div");
+        host.id = "boardroom-voice-audio-host";
+        host.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none;";
+        document.body.appendChild(host);
+      }
+      host.appendChild(audio);
       // Read the rate fresh every call so the LATEST cached value
       // wins · the user may have cycled rate between chunks and we
       // want each application point to pick that up. Browsers
@@ -12826,6 +13886,12 @@
       audio.addEventListener("loadedmetadata", () => applyRate("loadedmetadata"));
       audio.addEventListener("canplay",        () => applyRate("canplay"));
       audio.addEventListener("play",           () => applyRate("play"));
+      // Mini-player sync · the paused-state glyph + kicker styling
+      // are driven by audio.paused, so a transition either way needs
+      // a refreshMiniPlayer to flip the [data-paused] attribute on
+      // the floating bar.
+      audio.addEventListener("play",  () => this.refreshMiniPlayer());
+      audio.addEventListener("pause", () => this.refreshMiniPlayer());
       // Detect external resets · if the browser ever changes our
       // rate without us asking, log it so we can see exactly when
       // the silent reset happens.
@@ -12854,6 +13920,10 @@
       // mid-turn when they click. */
       audio.addEventListener("timeupdate", () => {
         this.renderRtSubtitle();
+        // Mini-player ticks too · the cross-room bar's "lyrics" line
+        // is sentence-of-the-cursor, driven by audio.currentTime.
+        // Also keeps the bottom progress bar in sync.
+        this.refreshMiniPlayer();
         // Re-assert without logging · fires ~4 Hz, would spam.
         applyRate();
       });
@@ -12956,6 +14026,16 @@
     _fireVoiceDone(q) {
       if (!this.voiceQueues[q.messageId]) return; // already fired
       delete this.voiceQueues[q.messageId];
+      if (this._voiceSeenSeqs) delete this._voiceSeenSeqs[q.messageId];
+      // Detach from the DOM host · we appended on creation in
+      // _createVoiceStream so the browser registers it as proper
+      // media. Drop it cleanly so the host doesn't accumulate
+      // dead <audio> nodes across long sessions.
+      try { if (q.audio && q.audio.parentNode) q.audio.parentNode.removeChild(q.audio); } catch (_) {}
+      // Floating mini-player · the bar tracks "is there an active
+      // cross-room queue?" so hide it the moment the active queue
+      // drains. Subsequent queues for the same room re-trigger it.
+      this.refreshMiniPlayer();
       // Clean up audio element
       try { q.audio.pause(); } catch (_) {}
       try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
@@ -12996,10 +14076,474 @@
         if (q && q.audio) {
           try { q.audio.pause(); } catch (_) {}
           try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
+          // Detach from the DOM host so the browser releases the
+          // media element. Mirrors _fireVoiceDone's cleanup.
+          try { if (q.audio.parentNode) q.audio.parentNode.removeChild(q.audio); } catch (_) {}
         }
       }
       this.voiceQueues = {};
       this._voiceCurrentMessageId = null;
+      try {
+        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "none";
+      } catch (_) {}
+      this.refreshMiniPlayer();
+    },
+
+    /** Lazy-mount the waveform bars · 40 vertical bars with a wave-
+     *  envelope height pattern, duplicated across the BG (faint
+     *  baseline) and FG (lime overlay clipped by --mp-progress)
+     *  layers. Idempotent — bails when the bars are already
+     *  mounted. Each bar carries a `--h` (height percent) and `--i`
+     *  (index, drives staggered animation-delay) inline custom
+     *  property the CSS reads. */
+    _ensureMiniPlayerWave() {
+      const bg = document.querySelector("[data-mini-player-wave-bg]");
+      const fg = document.querySelector("[data-mini-player-wave-fg]");
+      if (!bg || !fg) return;
+      if (bg.children.length > 0 && fg.children.length > 0) return;
+      // Pre-computed wave envelope · sin-stacked pattern, hand-
+      // tuned so the visual reads as audio rather than uniform
+      // sticks. Same array drives both layers so BG/FG bars line
+      // up exactly under the clip-path.
+      const heights = [
+        38, 60, 82, 95, 70, 50, 35, 60, 85, 95, 75, 50, 30, 45, 70, 90,
+        95, 80, 55, 35, 25, 45, 70, 88, 95, 80, 60, 40, 25, 35, 55, 78,
+        90, 80, 60, 42, 30, 50, 70, 85,
+      ];
+      const html = heights
+        .map((h, i) => `<span style="--h:${h};--i:${i}"></span>`)
+        .join("");
+      bg.innerHTML = html;
+      fg.innerHTML = html;
+    },
+
+    /** Pick the caption text matching the current playback cursor.
+     *  Two paths:
+     *    · captions[]  · live TTS chunks each carry their absolute
+     *                    audio endTime (set by the SourceBuffer's
+     *                    updateend hook). Pick the first chunk whose
+     *                    endTime > currentTime — that's the chunk
+     *                    currently playing. Returns its text.
+     *    · interpolate · single-clip audio (replay) has no per-
+     *                    sentence timing. Estimate the cursor as
+     *                    `currentTime / duration * body.length` and
+     *                    return the sentence containing that cursor.
+     *  Falls back to the last sentence of the cleaned body when no
+     *  audio cursor is available. Used by the mini-player so its
+     *  "lyrics" line tracks the actual audio timeline, not the
+     *  text-stream which can race ahead of TTS playback. */
+    _miniPlayerCaption(source, cleanBody) {
+      const audio = source && source.audio;
+      // (a) Per-chunk captions (live TTS) · use only when the
+      //     current queue carries them.
+      const captions = source && source._q && source._q.captions;
+      if (audio && captions && captions.length > 0) {
+        const t = audio.currentTime;
+        let pickIdx = -1;
+        for (let i = 0; i < captions.length; i++) {
+          const end = captions[i].endTime;
+          if (end !== null && end !== undefined && t < end) { pickIdx = i; break; }
+        }
+        if (pickIdx === -1) {
+          for (let i = captions.length - 1; i >= 0; i--) {
+            if (captions[i].text) { pickIdx = i; break; }
+          }
+        }
+        const txt = (pickIdx >= 0 && captions[pickIdx]) ? captions[pickIdx].text : "";
+        if (txt) return String(txt).trim();
+      }
+      // Sentence-split fallback used by both the replay interpolation
+      // path and the no-audio "show last sentence" path.
+      const parts = [];
+      const re = /[^。！？.!?；;\n]+[。！？.!?；;\n]?/g;
+      let mtch;
+      while ((mtch = re.exec(cleanBody)) !== null) {
+        const s = mtch[0].trim();
+        if (s) parts.push(s);
+      }
+      if (parts.length === 0) return cleanBody;
+      // (b) Replay-style interpolation · single-clip audio with
+      //     known duration. Map currentTime → cursor in body, find
+      //     the sentence containing that cursor.
+      if (audio && isFinite(audio.duration) && audio.duration > 0) {
+        const progress = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+        const cursor = Math.floor(cleanBody.length * progress);
+        let acc = 0;
+        let pickIdx = parts.length - 1;
+        for (let i = 0; i < parts.length; i++) {
+          acc += parts[i].length;
+          if (acc >= cursor) { pickIdx = i; break; }
+        }
+        return parts[pickIdx];
+      }
+      // (c) No audio cursor · last sentence (the freshest one).
+      return parts[parts.length - 1];
+    },
+
+    /** Integrated mini-player · surfaces as the bottom row of <main>
+     *  when a voice room (live TTS) OR the adjourned-room voice
+     *  replay is still playing audio but the user has navigated
+     *  away from that room. Spotify-style layout · avatar + speaker
+     *  + live "lyrics" subtitle + controls + bottom progress bar.
+     *  Idempotent · safe to call from every audio mutation site,
+     *  from openRoom/closeRoom, and from the audio's own timeupdate
+     *  event (~4 Hz) which keeps the lyric line + progress bar in
+     *  sync with the actual audio timeline.
+     *
+     *  Source detection (live priority, replay fallback):
+     *    · "live"   · `voiceQueues` carries an unfinished HTMLAudio-
+     *                 Element with per-chunk captions[] (audio-time
+     *                 aligned). Subtitle picks the chunk whose
+     *                 endTime > currentTime.
+     *    · "replay" · `boardroomVoiceReplay.getActive()` returns the
+     *                 full {authorId, body}; subtitle interpolates
+     *                 currentTime / duration into a body-position
+     *                 cursor and shows the sentence at that cursor.
+     *
+     *  Visibility rule: the source's roomId !== currentRoomId. */
+    refreshMiniPlayer() {
+      const el = document.querySelector("[data-mini-player]");
+      if (!el) return;
+      this._ensureMiniPlayerWave();
+      let source = null;
+      // (1) Live TTS · directors / chair streaming in a voice room.
+      for (const mid of Object.keys(this.voiceQueues || {})) {
+        const q = this.voiceQueues[mid];
+        if (!q || !q.audio) continue;
+        if (q.audio.ended) continue;
+        source = {
+          kind: "live",
+          roomId: q.roomId,
+          audio: q.audio,
+          authorId: q.authorId || null,
+          body: q.cachedBody || "",
+          _q: q,
+        };
+        break;
+      }
+      // (1b) Thinking · between speakers, no audio yet but a fresh
+      //      director's placeholder message has been appended.
+      //      Without this the bar sits on the previous speaker's
+      //      info (stale) or jumps straight to "Live · awaiting
+      //      next speaker", and the user can't tell anything is
+      //      happening. Pulls from BG cache (cross-room) OR
+      //      currentMessages (same-room when bar showing for
+      //      another reason). Most-recent streaming agent message
+      //      wins.
+      if (!source && this._activeVoiceRoomId) {
+        let candidate = null;
+        if (this._bgMessages) {
+          for (const mid of Object.keys(this._bgMessages)) {
+            const m = this._bgMessages[mid];
+            if (!m || !m.streaming) continue;
+            // Skip if a voice queue with audio already exists for this
+            // message (we'd be double-counting · live source already
+            // covered it above, except live is null right now meaning
+            // no live audio. So if a queue exists with audio.ended,
+            // skip it too — that turn's done).
+            const vq = this.voiceQueues[mid];
+            if (vq && vq.audio && !vq.audio.ended) continue;
+            if (!candidate || (m.appendedAt > (candidate._m.appendedAt || 0))) {
+              candidate = {
+                kind: "thinking",
+                roomId: this._activeVoiceRoomId,
+                audio: null,
+                authorId: m.authorId,
+                body: m.body || "",
+                _m: m,
+              };
+            }
+          }
+        }
+        if (candidate) source = candidate;
+      }
+      // (2) Voice replay · adjourned-room transcript playback.
+      if (!source) {
+        const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+        if (vr && typeof vr.isOpen === "function" && vr.isOpen()) {
+          const audio = (typeof vr.getActiveAudio === "function") ? vr.getActiveAudio() : null;
+          const rid = (typeof vr.getRoomId === "function") ? vr.getRoomId() : null;
+          const active = (typeof vr.getActive === "function") ? vr.getActive() : null;
+          if (audio && rid) {
+            source = {
+              kind: "replay",
+              roomId: rid,
+              audio,
+              authorId: (active && active.authorId) || null,
+              body: (active && active.body) || "",
+              _replay: vr,
+            };
+          }
+        }
+      }
+      // (3) Idle voice room · no audio in flight, but the user is
+      //     still tracking a live/paused voice room. Bar persists
+      //     through thinking / vote / clarify phases · those only
+      //     exist for voice rooms in the user's mental model and
+      //     they want the anchor visible the whole time. Falls
+      //     back to a status pill in place of the lyric line.
+      if (!source && this._activeVoiceRoomId) {
+        const tracked = (this.rooms || []).find((r) => r.id === this._activeVoiceRoomId);
+        const stillEligible = !!(
+          tracked &&
+          tracked.deliveryMode === "voice" &&
+          tracked.status !== "adjourned"
+        );
+        if (stillEligible) {
+          source = {
+            kind: "idle",
+            roomId: tracked.id,
+            audio: null,
+            authorId: null,
+            body: "",
+            _room: tracked,
+          };
+        } else {
+          // Tracked room is gone / adjourned · drop the anchor so
+          // we don't keep retrying the lookup every refresh.
+          this._activeVoiceRoomId = null;
+        }
+      }
+      // Paused rooms · the bar only surfaces for actively live
+      // voice rooms. If the user has paused the room, drop the
+      // source so the bar hides — they explicitly don't want a
+      // floating "this room is paused" anchor in the sidebar.
+      // Voice replay (adjourned-room transcript playback) is a
+      // separate flow and stays visible regardless.
+      if (source && source.kind !== "replay") {
+        const sourceRoom = (this.rooms || []).find((r) => r.id === source.roomId);
+        if (sourceRoom && sourceRoom.status === "paused") {
+          source = null;
+        }
+      }
+      // Visibility · hide only when the user is actively viewing the
+      // same room as the playing source. "Actively viewing" means BOTH
+      // currentRoomId matches AND the sidebar's active tab is rooms.
+      // When the user switches to the Agents tab (or any non-rooms
+      // tab), currentRoomId stays sticky to the last-opened room, but
+      // the user is no longer looking at the room's stream — the
+      // player is now their only anchor back to the live audio, so it
+      // has to surface even though the ids match.
+      const activeTabEl = document.querySelector(".sidebar-tab.active[data-sidebar-tab]");
+      const activeTab = activeTabEl ? activeTabEl.dataset.sidebarTab : null;
+      const viewingRoomsTab = !activeTab || activeTab === "rooms";
+      const viewingSameRoom = !!(
+        source &&
+        source.roomId &&
+        source.roomId === this.currentRoomId &&
+        viewingRoomsTab
+      );
+      if (!source || viewingSameRoom) {
+        el.hidden = true;
+        el.removeAttribute("data-mini-player-room-id");
+        el.removeAttribute("data-mini-player-kind");
+        el.style.removeProperty("--mp-progress");
+        return;
+      }
+      el.hidden = false;
+      el.setAttribute("data-paused", (source.audio && source.audio.paused) ? "true" : "false");
+      el.setAttribute("data-mini-player-room-id", source.roomId);
+      el.setAttribute("data-mini-player-kind", source.kind);
+      // Progress bar · 0-1 ratio of currentTime / duration. Only
+      // meaningful when audio is in flight; idle/thinking sources
+      // reset to 0 so the lime track collapses between speakers.
+      const audio = source.audio;
+      if (audio && isFinite(audio.duration) && audio.duration > 0) {
+        const ratio = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+        el.style.setProperty("--mp-progress", ratio.toFixed(4));
+      } else if (source.kind === "idle" || source.kind === "thinking") {
+        el.style.setProperty("--mp-progress", "0");
+      }
+      // Thinking SFX · the looping 8-bit blip already plays for
+      // the in-room round-table stage; mirror it for the bar so
+      // the user has an audible cue that the next speaker is
+      // warming up. Only fire when the bar's source is "thinking"
+      // — live/idle/replay don't need it. The SFX module is
+      // idempotent + visibility-gated so it's safe to call on
+      // every refresh.
+      try {
+        if (window.boardroomTypingSfx && typeof window.boardroomTypingSfx.setThinking === "function") {
+          window.boardroomTypingSfx.setThinking(source.kind === "thinking");
+        }
+      } catch (_) { /* SFX best-effort */ }
+      // Speaker + room name lookups · agentsById is the canonical
+      // global map; falls back to "" when the agent isn't cached
+      // (e.g. fresh page load before agents fetch completes).
+      const agent = (source.authorId && this.agentsById) ? this.agentsById[source.authorId] : null;
+      const room = (this.rooms || []).find((r) => r.id === source.roomId);
+      const roomName = (room && room.name) ? room.name : "";
+      // Speaker text · while audio plays, the actual speaker name.
+      // Idle mode has no speaker · use the room subject (the user's
+      // convene question, truncated) so the bar reads as "[topic]
+      // · live · awaiting next speaker" rather than a generic
+      // "Now playing".
+      let speakerName = "";
+      if (agent && agent.name) {
+        speakerName = agent.name;
+      } else if (source.kind === "idle") {
+        speakerName = (room && (room.subject || room.name)) || "";
+      }
+      // Subtitle · clean markdown out of the body, then ask the
+      // caption picker to pull the sentence at the audio cursor.
+      // The picker switches between per-chunk captions (live) and
+      // duration-interpolation (replay) automatically. Idle source
+      // gets a phase-specific status string in place of the lyric
+      // line ("Live · awaiting next speaker", "Vote phase",
+      // "Awaiting your reply", "Paused").
+      let subtitle = "";
+      if (source.kind === "idle") {
+        const r = source._room;
+        if (r.status === "paused") {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_paused") : "Paused";
+        } else if (r.awaitingClarify) {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_clarify") : "Awaiting your reply";
+        } else if (r.awaitingContinue) {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_vote") : "Vote phase";
+        } else {
+          subtitle = window.I18n ? window.I18n.t("mini_player_state_live") : "Live · awaiting next speaker";
+        }
+      } else if (source.kind === "thinking") {
+        // Thinking state · the next director has been picked but
+        // TTS hasn't started yet. Show the streaming text body
+        // tail if any (LLM may already be generating), otherwise
+        // a localized "Thinking…" pill. CSS appends animated dots.
+        const cleanBody = String(source.body || "")
+          .replace(/\*+/g, "")
+          .replace(/^#+\s*/gm, "")
+          .replace(/^[-*]\s+/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (cleanBody) {
+          subtitle = cleanBody;
+        } else {
+          // rt_thinking already lives in all 4 locales for the
+          // round-table stage's thinking bubble — reuse it so the
+          // mini-player narrates the same word.
+          subtitle = window.I18n ? window.I18n.t("rt_thinking") : "Thinking";
+        }
+      } else {
+        const cleanBody = String(source.body || "")
+          .replace(/\*+/g, "")
+          .replace(/^#+\s*/gm, "")
+          .replace(/^[-*]\s+/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        subtitle = cleanBody ? this._miniPlayerCaption(source, cleanBody) : "";
+      }
+      // Avatar · prefer the stored avatarPath; fall back to a single
+      // mono initial letter from the speaker (or room) name.
+      const avatarEl = el.querySelector("[data-mini-player-avatar]");
+      const fallbackEl = el.querySelector("[data-mini-player-avatar-fallback]");
+      const avatarPath = (agent && agent.avatarPath) ? agent.avatarPath : "";
+      if (avatarPath) {
+        if (avatarEl) {
+          if (avatarEl.getAttribute("src") !== avatarPath) avatarEl.setAttribute("src", avatarPath);
+          avatarEl.hidden = false;
+        }
+        if (fallbackEl) fallbackEl.textContent = "";
+      } else {
+        if (avatarEl) avatarEl.hidden = true;
+        const seed = speakerName || roomName || "·";
+        if (fallbackEl) fallbackEl.textContent = (seed[0] || "·").toUpperCase();
+      }
+      const speakerEl = el.querySelector("[data-mini-player-speaker]");
+      if (speakerEl) {
+        const next = speakerName || (window.I18n ? window.I18n.t("mini_player_now_playing") : "Now playing");
+        if (speakerEl.textContent !== next) speakerEl.textContent = next;
+      }
+      // Room-name slot · always the actual room title, in every
+      // state. The phase string ("Paused" / "Vote phase" / etc.)
+      // used to overload this slot in idle / thinking modes, but
+      // the sidebar bar now reads as a pure "audio is playing
+      // over there, here's which room" affordance — the phase
+      // belongs inside the room itself, not in the bar's label.
+      const roomEl = el.querySelector("[data-mini-player-room-name]");
+      if (roomEl) {
+        if (roomEl.textContent !== roomName) roomEl.textContent = roomName;
+      }
+      // Legacy subtitle slot · sidebar layout removed it, but if
+      // a downstream surface still mounts one, keep it in sync.
+      const subEl = el.querySelector("[data-mini-player-subtitle]");
+      if (subEl) {
+        const next = subtitle || "";
+        if (subEl.textContent !== next) {
+          subEl.textContent = next;
+          subEl.classList.remove("mp-sub-enter");
+          // eslint-disable-next-line no-unused-expressions
+          void subEl.offsetWidth;
+          subEl.classList.add("mp-sub-enter");
+        }
+      }
+      // Toggle button · the pause/resume control only makes sense
+      // when audio exists. Hide it cleanly during idle phases (the
+      // CSS targets data-mini-player-kind="idle"). Aria label
+      // reflects the current pause state when visible.
+      const toggleBtn = el.querySelector("[data-mini-player-toggle]");
+      if (toggleBtn && window.I18n && source.audio) {
+        const labelKey = source.audio.paused ? "mini_player_resume" : "mini_player_pause";
+        const label = window.I18n.t(labelKey);
+        toggleBtn.setAttribute("aria-label", label);
+        toggleBtn.setAttribute("title", label);
+      }
+      // Media Session API · declares this page as actively playing
+      // media. Without it, browsers (especially Chrome on macOS)
+      // de-prioritize the page when its window backgrounds (Cmd+Tab,
+      // mac space switch) and may pause the audio, throttle the SSE
+      // stream, or refuse to start audio.play() for the next speaker.
+      // Setting up metadata + action handlers tells the OS this is
+      // proper media playback and registers the page in the Now
+      // Playing widget. Only install when audio is in flight.
+      this._updateMediaSession(source);
+    },
+
+    /** Wire the page into the OS-level Media Session so the browser
+     *  treats audio as foreground media and doesn't pause / throttle
+     *  it when the window backgrounds. Idempotent · safe to call from
+     *  every refreshMiniPlayer pass; only re-writes metadata when the
+     *  speaker / pause-state changes. Action handlers feed back into
+     *  the queue's audio element so OS-level pause/play (lock screen,
+     *  control center, media keys) work too. */
+    _updateMediaSession(source) {
+      if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+      try {
+        if (!source || !source.audio) {
+          navigator.mediaSession.playbackState = "none";
+          return;
+        }
+        const agent = (source.authorId && this.agentsById) ? this.agentsById[source.authorId] : null;
+        const speakerName = (agent && agent.name) ? agent.name : "Boardroom";
+        const room = (this.rooms || []).find((r) => r.id === source.roomId);
+        const roomName = (room && room.name) ? room.name : "";
+        // Skip metadata re-writes when nothing changed · setting
+        // MediaMetadata flushes the OS widget, which on macOS can
+        // briefly steal audio focus.
+        const sig = speakerName + "::" + roomName + "::" + (source.kind || "");
+        if (this._mediaSessionSig !== sig) {
+          this._mediaSessionSig = sig;
+          const artwork = (agent && agent.avatarPath)
+            ? [{ src: agent.avatarPath, sizes: "512x512" }]
+            : [];
+          navigator.mediaSession.metadata = new window.MediaMetadata({
+            title: speakerName,
+            artist: roomName || "Boardroom",
+            album: "Voice Room",
+            artwork,
+          });
+          // Wire OS-level controls into the same toggle path the
+          // mini-player uses. Bound once per signature change so the
+          // handler always points at the current audio element.
+          navigator.mediaSession.setActionHandler("play", () => {
+            try {
+              const p = source.audio.play();
+              if (p && typeof p.catch === "function") p.catch(() => {});
+            } catch (_) {}
+          });
+          navigator.mediaSession.setActionHandler("pause", () => {
+            try { source.audio.pause(); } catch (_) {}
+          });
+        }
+        navigator.mediaSession.playbackState = source.audio.paused ? "paused" : "playing";
+      } catch (_) { /* MediaSession is best-effort */ }
     },
 
     /** Unlock HTMLAudioElement autoplay policy.
@@ -13447,11 +14991,13 @@
             <div class="convene-eyebrow">${this.escape(this._t("convene_eyebrow"))}</div>
             ${originHtml}
             <h2 class="convene-body">${this.renderBody(m.body)}</h2>
-            ${toggleHtml}
             <div class="convene-meta">
-              <span class="convene-by">${who}</span>
-              <span class="convene-time">· ${this.timeFmt(m.createdAt)}</span>
-              <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(displayAgentHandle(a.handle))).join(" ")}</span>
+              <span class="convene-meta-info">
+                <span class="convene-by">${who}</span>
+                <span class="convene-time">· ${this.timeFmt(m.createdAt)}</span>
+                <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(displayAgentHandle(a.handle))).join(" ")}</span>
+              </span>
+              ${toggleHtml}
             </div>
           </article>
         `;
@@ -13667,45 +15213,12 @@
       }
 
       // No-brief closing marker · chair posts this when the user
-      // adjourned with skipBrief. Rendered as a milestone card (chip +
-      // flanking lines) instead of a chat bubble so the transcript
-      // ends on a clear "no report filed" beat that doesn't read as
-      // just another chair turn.
-      //
-      // CTA · "Generate report now" button surfaces when the room is
-      // adjourned + no brief exists yet. The user can change their
-      // mind without opening a follow-up room. Hidden once a brief
-      // has been filed (currentBrief !== null) — the card then reads
-      // as a historical marker only.
-      if (isChair && metaKind === "no-brief") {
-        const ts = this.timeFmt(m.createdAt);
-        // System UI · always English (no-brief card chrome).
-        const hasBrief = !!this.currentBrief;
-        const chairName = (this.prefs?.name || "").trim() || this._t("nb_chair_fallback");
-        const cta = hasBrief
-          ? ""
-          : `
-            <div class="nb-actions">
-              <button type="button" class="nb-cta" data-generate-brief>
-                <span class="nb-cta-mark">▸</span>
-                <span class="nb-cta-text">${this.escape(this._t("nb_cta"))}</span>
-              </button>
-            </div>
-          `;
-        return `
-          <div class="no-brief-card" data-message-id="${this.escape(m.id)}">
-            <span class="nb-chip">
-              <span class="nb-mark">⊘</span>
-              <span class="nb-eyebrow">${this.escape(this._t("nb_eyebrow"))}</span>
-            </span>
-            <div class="nb-body">
-              <strong>${this.escape(chairName)}</strong> ${this.escape(this._t("nb_body"))}
-            </div>
-            ${cta}
-            <div class="nb-meta">${this.escape(ts)}</div>
-          </div>
-        `;
-      }
+      // adjourned with skipBrief. Previously rendered as a special
+      // milestone card; now falls through to the regular chair
+      // bubble below so the closer reads as the chair speaking,
+      // not as separate UI chrome. The "Generate report" affordance
+      // still lives in the room header for users who change their
+      // mind.
 
       const baseCls = isUser
         ? "user"
@@ -14096,6 +15609,51 @@
       }
     },
 
+    /** Decide whether the speaking-queue strip should be collapsed
+     *  given the current room state. The rule: collapse by default
+     *  (one-liner is enough when a single director is streaming),
+     *  expand when the user benefits from seeing the full cast:
+     *    · awaitingClarify · cast preview before chair releases them
+     *    · awaitingContinue · vote pending, next-round preview
+     *    · pendingUserMessage · user just queued, show what comes
+     *      before / after their message
+     *  Empty queue + idle stays collapsed (nothing to expand to).
+     *
+     *  This is the "auto" baseline; manual user clicks on the
+     *  chevron inverse it until the next significant state shift
+     *  (see `_applyQueueAutoState`). */
+    _computeQueueAutoCollapsed() {
+      const room = this.currentRoom;
+      if (!room) return true;
+      if (room.awaitingClarify) return false;
+      if (room.awaitingContinue) return false;
+      if (this.pendingUserMessage) return false;
+      // Default collapsed otherwise · the one-liner summary is the
+      // right shape when a director is streaming or queued.
+      return true;
+    },
+
+    /** Apply the auto-collapse decision to the speaking-queue
+     *  DOM. Resets the user override when the auto state would
+     *  flip (so a clarify→continue transition picks up the new
+     *  auto baseline rather than carrying a stale manual pick). */
+    _applyQueueAutoState() {
+      const queue = document.getElementById("speaking-queue");
+      if (!queue) return;
+      const newAuto = this._computeQueueAutoCollapsed();
+      if (newAuto !== this._queueAutoCollapsed) {
+        this._queueAutoCollapsed = newAuto;
+        // Auto baseline flipped · drop the user override so the
+        // new auto-target shows through. The user can re-flip
+        // explicitly any time by clicking the chevron.
+        this._queueUserOverride = false;
+      }
+      const finalCollapsed = this._queueUserOverride ? !newAuto : newAuto;
+      queue.classList.toggle("collapsed", finalCollapsed);
+      const btn = queue.querySelector(".queue-toggle");
+      if (btn) btn.setAttribute("aria-expanded", finalCollapsed ? "false" : "true");
+    },
+
     /** Build the one-line summary shown in the collapsed speaking-queue
      *  strip. Mirrors the expanded queue: speaking, pending, or idle. */
     renderQueueCollapsed(items) {
@@ -14186,6 +15744,13 @@
       // Update the collapsed summary alongside the expanded list so the
       // collapsed strip never shows stale text.
       this.renderQueueCollapsed(renderItems);
+      // Auto-expand/collapse logic · the strip flips based on the
+      // room state (clarify / continue / pending user message
+      // expand it; everything else collapses). User can still
+      // override via the chevron — see _applyQueueAutoState. Has
+      // to run after we've populated renderItems so the auto
+      // decision sees the current queue shape.
+      this._applyQueueAutoState();
 
       if (renderItems.length === 0) {
         list.innerHTML = "";
@@ -14314,8 +15879,19 @@
       // leftmost / rightmost director seats at the table's vertical
       // centre (y ≈ 41%) — beside the table edge, like real
       // boardroom side chairs.
+      //
+      // Per-count arc tuning:
+      //   · 1 director  → single seat at 270° (top-centre).
+      //   · 2 directors → narrow 60° arc centred on 270° so the
+      //     pair lands at y≈28% (above the table) instead of
+      //     y≈34% (chairs dipping into the table top with no
+      //     centre seat to anchor the arc visually).
+      //   · 3+ directors → full 180° arc; side seats overlap the
+      //     table edges but the centre seat anchors the
+      //     composition and the overlap reads as "tucked in".
       if (directorCount > 0) {
-        const arcDeg = 180;
+        const arcDeg   = directorCount === 2 ? 60  : 180;
+        const arcStart = directorCount === 2 ? 240 : 180;
         // Single director: stepDeg division-by-zero guard · place at
         // the arc midpoint (top-centre) when only one director is
         // seated.
@@ -14327,7 +15903,7 @@
           const m = members[1 + i];
           const t = directorCount === 1
             ? 270
-            : 180 + (i + 0.5) * stepDeg;
+            : arcStart + (i + 0.5) * stepDeg;
           const theta = (t * Math.PI) / 180;
           out.push({
             member: m,
@@ -14726,23 +16302,58 @@
         speakingId = this.currentChair.id;
         speakerState = "thinking";
       }
+      // (3b) Convening sequence active (auto-pick + chair prep) ·
+      //      the chat-side convening card is hidden in voice mode,
+      //      so without this the stage shows nothing happening for
+      //      the 3-4s the picker LLM + chair tools + LLM startup
+      //      take. chairPending above only fires AFTER auto-pick-
+      //      complete; conveneState covers the EARLIER picker phase
+      //      too. Cleared on the chair's first message-appended.
+      if (!speakingId && this.conveneState && this.currentChair) {
+        speakingId = this.currentChair.id;
+        speakerState = "thinking";
+      }
       if (!speakingId && Array.isArray(this.currentQueue) && this.currentQueue[0] && this.currentQueue[0].status === "speaking") {
         speakingId = this.currentQueue[0].agentId;
         speakerState = "thinking";
       }
 
-      // Speaker-change SFX · fire a soft chime when the active
-      // speaker flips (idle → first speaker, or A → B). Skips
-      // speaker → idle (no chime when the room goes quiet) and
-      // skips repeated calls within the same speaker. Same toggle
-      // gate as the typing tick · user-settings "sound" toggle.
-      if (speakingId !== this._lastSpeakerId) {
-        if (speakingId && window.boardroomTypingSfx
-            && typeof window.boardroomTypingSfx.speakerChange === "function") {
-          window.boardroomTypingSfx.speakerChange();
-        }
-        this._lastSpeakerId = speakingId;
+      // Speaker / thinking SFX · two distinct cues:
+      //   · `setThinking(true)` starts a looping 8-bit pulse hum
+      //     while a seat shows the thought-bubble. Idempotent ·
+      //     calling repeatedly during the thinking phase is free.
+      //     Switched off as soon as the speaker starts streaming
+      //     (state flips to "speaking") OR the room goes idle.
+      //   · `speakerChange()` (legacy triangle-wave chime) only
+      //     fires for the rarer direct-to-speaking transition
+      //     where there's no thinking phase between A → B (e.g.
+      //     chair templated announcements that stream voice
+      //     immediately). Skips speaker → idle.
+      // Critical · the thinking loop's AudioContext oscillators
+      // overlap with the HTMLAudioElement used for TTS playback,
+      // and on some browsers (Safari / iOS) a continuously-active
+      // AudioContext claims the audio session and prevents a fresh
+      // `audio.play()` from proceeding. Gate the loop on
+      // `voiceQueues` being empty so the moment any director's
+      // TTS audio is queued the loop stops and the audio session
+      // is free for the media element to grab.
+      // Same toggle gate as the typing tick · user-settings
+      // "sound" toggle controls all of these uniformly.
+      const sfx = window.boardroomTypingSfx;
+      const anyVoiceQueued = !!(this.voiceQueues && Object.keys(this.voiceQueues).length > 0);
+      const shouldBeThinking = !!speakingId
+        && speakerState === "thinking"
+        && !anyVoiceQueued;
+      if (sfx && typeof sfx.setThinking === "function") {
+        sfx.setThinking(shouldBeThinking);
       }
+      const speakerChanged = speakingId !== this._lastSpeakerId;
+      if (speakerChanged && speakingId && speakerState === "speaking"
+          && sfx && typeof sfx.speakerChange === "function") {
+        sfx.speakerChange();
+      }
+      if (speakerChanged) this._lastSpeakerId = speakingId;
+      this._lastSpeakerState = speakerState;
 
       const html = seatsByZ.map(({ seat, i }) => {
         const m = seat.member;
@@ -14769,7 +16380,12 @@
             avatar = `<div class="rt-avatar rt-avatar-user rt-avatar-initial">${initial}</div>`;
           }
         } else {
-          avatar = `<img class="rt-avatar" src="${this.escape(m.avatarPath || "")}" alt="" aria-hidden="true">`;
+          // `data-agent` opens the lightweight director overlay (see
+          // public/agent-overlay.js bubble-phase click handler). Tagged
+          // on directors AND the chair so the user can peek at any
+          // seated voice from the stage; user seat is a div, not an
+          // img, and is intentionally not tagged.
+          avatar = `<img class="rt-avatar" data-agent="${this.escape(m.id)}" src="${this.escape(m.avatarPath || "")}" alt="${this.escape(m.name || "")}">`;
         }
         // Name plate · adds a small "Chairman / 董事长" title beneath
         // the user's name so the user seat reads as the room owner /
@@ -14788,9 +16404,23 @@
         // word ("thinking" / "speaking") is rendered as a smaller
         // mono kicker beneath the name. Color + dots animation still
         // distinguishes thinking (amber) from speaking (lime).
-        const statusWord = bubbleState === "thinking"
+        // Convene override · while the room is mid-convening, the
+        // chair seat shows the current stage label ("Analyzing topic"
+        // / "Seating directors" / "Preparing remarks") instead of the
+        // generic "Thinking" so the user knows WHICH part of the
+        // setup is in flight. Falls back to the generic label for
+        // every non-chair speaker and for chair turns post-convene.
+        let statusWord = bubbleState === "thinking"
           ? this._t("rt_thinking")
           : this._t("rt_speaking");
+        if (bubbleState === "thinking" && isChair && this.conveneState) {
+          const stageKey = ({
+            analyzing: "conv_stage_analyzing_title",
+            seating: "conv_stage_seating_title",
+            preparing: "conv_stage_preparing_title",
+          })[this.conveneState.stage];
+          if (stageKey) statusWord = this._t(stageKey);
+        }
         const bubbleCls = bubbleState === "thinking"
           ? "rt-bubble is-thinking"
           : "rt-bubble";
@@ -14982,6 +16612,11 @@
     renderRtSubtitle() {
       const slot = document.querySelector("[data-rt-subtitle]");
       if (!slot) return;
+      // Minimize-affordance template · prepended to every populated
+      // innerHTML branch below so the corner button is present on the
+      // thinking / streaming / replay variants without being a sibling
+      // of the slot (which would survive the slot.hidden = true reset).
+      const minBtn = `<button type="button" class="rt-sub-min" data-rt-sub-min title="Minimize" aria-label="Minimize subtitle"></button>`;
       const msgs = this.currentMessages || [];
       let speakerId = null;
       let body = "";
@@ -15042,6 +16677,35 @@
           }
         }
       }
+      // (3) Convene fallback · no live speaker, but the room is
+      //     mid-convening (auto-pick + chair preparing). Surface the
+      //     stage's deck text so the subtitle bar gives the user
+      //     explicit textual feedback during the 3-4s of silent
+      //     setup. Falls back to hide-when-empty for non-convening
+      //     idle states (the prior behaviour).
+      if (!speakerId && this.conveneState && this.currentChair) {
+        const stage = this.conveneState.stage;
+        const titleKey = ({
+          analyzing: "conv_stage_analyzing_title",
+          seating: "conv_stage_seating_title",
+          preparing: "conv_stage_preparing_title",
+        })[stage];
+        const deckKey = ({
+          analyzing: "conv_stage_analyzing_deck",
+          seating: "conv_stage_seating_deck",
+          preparing: "conv_stage_preparing_deck",
+        })[stage];
+        if (titleKey && deckKey) {
+          slot.hidden = false;
+          slot.innerHTML = minBtn +
+            `<span class="rt-sub-kicker">${this.escape(this.currentChair.name || "")} · ${this.escape(this._t(titleKey))}</span>` +
+            `<p class="rt-sub-text rt-sub-thinking">` +
+              `<span class="rt-sub-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
+              `<span class="rt-sub-thinking-label">${this.escape(this._t(deckKey))}</span>` +
+            `</p>`;
+          return;
+        }
+      }
       if (!speakerId) {
         slot._rtSubtitleSig = "";
         slot.hidden = true;
@@ -15077,6 +16741,22 @@
         .replace(/\s+/g, " ")
         .trim();
       if (!text) {
+        if (isStreaming) {
+          // Empty body but the speaker placeholder IS streaming ·
+          // director is "thinking" (no tokens yet). Show a loading
+          // panel with the speaker's name + animated dots so the
+          // subtitle band doesn't pop in/out as the first token
+          // lands. When the body fills in this branch falls through
+          // to the normal caption render below.
+          slot.hidden = false;
+          slot.innerHTML = minBtn +
+            `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
+            `<p class="rt-sub-text rt-sub-thinking">` +
+              `<span class="rt-sub-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
+              `<span class="rt-sub-thinking-label">${this.escape(this._t("rt_thinking"))}</span>` +
+            `</p>`;
+          return;
+        }
         slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
@@ -15172,7 +16852,7 @@
       slot._rtSubtitleSig = sig;
       const wasHidden = !!slot.hidden;
       slot.hidden = false;
-      const html =
+      const html = minBtn +
         `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
         `<p class="rt-sub-text">${this.escape(visTrim)}</p>`;
       if (slot.innerHTML !== html) slot.innerHTML = html;
@@ -15223,6 +16903,11 @@
         else if (r.awaitingClarify)       { stateLabel = "WAIT";  stateKind = "wait";  }
         else if (r.awaitingContinue)      { stateLabel = "VOTE";  stateKind = "vote";  }
       }
+      // Convening overrides the live-state label for the 3-4s of
+      // auto-pick + chair-prep. Without this the HUD reads "LIVE"
+      // while nothing visible is happening — the user wonders if
+      // the room is broken. Cleared on chair's first message.
+      if (this.conveneState) { stateLabel = "CONVENE"; stateKind = "wait"; }
       const replayOn = !!(typeof window !== "undefined"
         && window.boardroomVoiceReplay
         && typeof window.boardroomVoiceReplay.isOpen === "function"
@@ -15416,28 +17101,22 @@
       if (voiceMp3Btn) voiceMp3Btn.hidden = !isVoiceRoom;
       if (eligible) {
         const inStage = showStage;
-        // Label semantics depend on whether we're in voice mode yet:
-        //   · voice + stage visible → "Transcript" (clicking goes there)
-        //   · voice + chat visible  → "Round table" (clicking goes there)
-        //   · text mode             → "Voice mode" (clicking enables it)
+        // Label semantics · the toggle now reads "Round table" in
+        // BOTH voice-mode states (stage AND transcript). The pressed
+        // state (aria-pressed below) is the only signal that flips
+        // when the user is currently viewing the round-table — same
+        // affordance as a selected toggle button. Text mode keeps
+        // the "Voice mode" label (the entry-point label is different
+        // there because the click also flips deliveryMode).
         const destLabelKey = !isVoiceRoom
           ? "rt_toggle_enable_voice"
-          : (inStage ? "rt_toggle_transcript" : "rt_toggle_roundtable");
+          : "rt_toggle_roundtable";
         const destLabel = this._t(destLabelKey);
-        // Inline-SVG glyphs · NO emoji. currentColor inherits the
-        // lime accent from .ib-rt-glyph so a single rule themes both
-        // states. Transcript = a page with folded top-right corner
-        // and two text lines inside (reads as "written record /
-        // document"; the previous 3-stacked-lines glyph was too
-        // close to a hamburger-menu icon). Round-table = central
-        // circle ringed by 5 dots (reads as a seated cast).
-        const transcriptGlyphSvg =
-          `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
-          + `<path d="M3 2 H10 L13 5 V14 H3 Z" />`
-          + `<path d="M10 2 V5 H13" />`
-          + `<line x1="5.5" y1="8.5" x2="10.5" y2="8.5" />`
-          + `<line x1="5.5" y1="11"  x2="9"    y2="11" />`
-          + `</svg>`;
+        // Inline-SVG glyph · NO emoji. currentColor inherits the
+        // lime accent from .ib-rt-glyph. Round-table = central
+        // circle ringed by 5 dots (reads as a seated cast). Same
+        // glyph for both states in voice mode — the pressed state
+        // alone carries the "you are here" signal.
         const roundTableGlyphSvg =
           `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true">`
           + `<circle cx="8"    cy="8"    r="4.6" />`
@@ -15447,32 +17126,22 @@
           + `<circle cx="4.6"  cy="13.4" r="1.3" fill="currentColor" stroke="none" />`
           + `<circle cx="2.5"  cy="6.2"  r="1.3" fill="currentColor" stroke="none" />`
           + `</svg>`;
-        // In text mode the destination is "voice / round-table" —
-        // the icon should preview the round-table cast like the
-        // chat-view-of-a-voice-room case. inStage being false in
-        // that case (no stage to be in) gives the right glyph.
-        const currentGlyphSvg = (isVoiceRoom && inStage) ? transcriptGlyphSvg : roundTableGlyphSvg;
-        // Hover preview SVG · 5-dot circle for round-table,
-        // page-with-folded-corner for transcript. These are the
-        // DESTINATION sketches, not the current view's.
-        const previewSvg = (isVoiceRoom && inStage)
-          ? `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
-            + `<path class="rt-prev-stroke" d="M20 4 H36 L42 10 V26 H20 Z" />`
-            + `<path class="rt-prev-stroke" d="M36 4 V10 H42" />`
-            + `<line class="rt-prev-stroke" x1="24" y1="14" x2="38" y2="14" />`
-            + `<line class="rt-prev-stroke" x1="24" y1="18" x2="34" y2="18" />`
-            + `<line class="rt-prev-stroke" x1="24" y1="22" x2="36" y2="22" />`
-            + `</svg>`
-          : `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
-            + `<circle class="rt-prev-stroke" cx="30" cy="15" r="11" />`
-            + `<circle class="rt-prev-fill"   cx="30" cy="4"  r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="40.5" cy="10" r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="36.5" cy="22" r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="23.5" cy="22" r="2.4" />`
-            + `<circle class="rt-prev-fill"   cx="19.5" cy="10" r="2.4" />`
-            + `</svg>`;
+        const currentGlyphSvg = roundTableGlyphSvg;
+        // Hover preview SVG · 5-dot circle for round-table. Same
+        // sketch in both voice states; the label / pressed state
+        // carry the toggle meaning.
+        const previewSvg =
+          `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
+          + `<circle class="rt-prev-stroke" cx="30" cy="15" r="11" />`
+          + `<circle class="rt-prev-fill"   cx="30" cy="4"  r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="40.5" cy="10" r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="36.5" cy="22" r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="23.5" cy="22" r="2.4" />`
+          + `<circle class="rt-prev-fill"   cx="19.5" cy="10" r="2.4" />`
+          + `</svg>`;
         const innerHTML =
           `<span class="ib-rt-glyph" aria-hidden="true">${currentGlyphSvg}</span>` +
+          `<span class="ib-rt-label">${this.escape(destLabel)}</span>` +
           `<div class="ib-rt-preview" role="tooltip" aria-hidden="true" data-rt-preview>` +
             `<div class="ib-rt-preview-kicker">// ${this.escape(destLabel)}</div>` +
             previewSvg +
@@ -15480,6 +17149,7 @@
           `</div>`;
         btns.forEach((btn) => {
           btn.innerHTML = innerHTML;
+          btn.classList.add("has-label");
           // Aria-pressed reflects "round-table view active" not the
           // toggle's destination · `inStage` is the active state.
           btn.setAttribute("aria-pressed", inStage ? "true" : "false");
@@ -15810,15 +17480,14 @@
       // `tabsStripHtml` so both error and success paths can mount it.
       const tabsHtml = tabsStripHtml;
 
-      // Ceremonial wrapper · the deliverable hits the table inside an
-      // ending-block frame.
+      // Brief-card wrapper · the ceremonial `.ending-block-head`
+      // divider that used to live above this block was removed — the
+      // amber `.round-open-card.is-adjourned` marker that
+      // `renderSessionAnalytics()` injects right above the analytics
+      // tile already provides the closing-section break for the
+      // room, so a second lime "BRIEF OUTPUT" rule below it was
+      // redundant.
       card.innerHTML = `
-        <header class="ending-block-head">
-          <span class="ending-block-line"></span>
-          <span class="ending-block-label">${this.escape(this._t("brief_output_head"))}</span>
-          <span class="ending-block-line"></span>
-        </header>
-
         <div class="brief-card">
           ${tabsHtml}
 
@@ -16003,12 +17672,10 @@
       const open = b.llmLogOpen === true;
       const running = logs.filter((l) => l.status === "running").length;
       const failed = logs.filter((l) => l.status === "failed").length;
-      const label = open
-        ? (b.language === "zh" ? "收起模型流水" : "Hide model stream")
-        : (b.language === "zh" ? "查看模型流水" : "View model stream");
+      const label = this._t(open ? "brief_llm_hide_stream" : "brief_llm_view_stream");
       const countText = logs.length
         ? `${logs.length} call${logs.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}${failed ? ` · ${failed} failed` : ""}`
-        : (b.language === "zh" ? "等待首个调用" : "waiting for first call");
+        : this._t("brief_llm_waiting_first");
       const button = `
         <button type="button" class="brief-llm-toggle" data-brief-llm-toggle data-brief-id="${this.escape(b.id || "")}" aria-expanded="${open ? "true" : "false"}">
           <span class="brief-llm-toggle-mark">${open ? "−" : "+"}</span>
@@ -16027,7 +17694,7 @@
         const text = (l.text || "").trim();
         const preview = text
           ? this.escape(text)
-          : `<span class="brief-llm-empty">${this.escape(b.language === "zh" ? "等待模型输出…" : "waiting for output…")}</span>`;
+          : `<span class="brief-llm-empty">${this.escape(this._t("brief_llm_waiting_output"))}</span>`;
         const meta = [
           l.modelV || "",
           elapsed,
@@ -16770,27 +18437,114 @@
       app.closePauseChoiceModal();
       return;
     }
-    // Resume (paused → live)
+    // Reload-confirm modal buttons (Ctrl+R intercept). Same
+    // three-option grammar as pause-choice but the action is
+    // "reload after handling the in-flight speaker."
+    const rChoice = e.target.closest("[data-reload-choice]");
+    if (rChoice) {
+      e.preventDefault();
+      app.handleReloadChoice(rChoice.getAttribute("data-reload-choice"));
+      return;
+    }
+    if (e.target.id === "reload-choice-overlay") {
+      app.closeReloadChoiceModal();
+      return;
+    }
+    // Resume (paused → live). Voice rooms need a TTS provider
+    // key · if the user previously configured one, opened the
+    // room, then later removed the key from settings, every
+    // director's speech would silently degrade to text-only
+    // chunks. Instead of hard-blocking (the old behaviour,
+    // which dead-ended the user), surface the resume-choice
+    // modal so they can configure a key OR convert the room
+    // to text mode and resume.
     if (e.target.closest("[data-resume]")) {
       e.preventDefault();
+      const room = app.currentRoom;
+      const needsVoiceKey = !!room
+        && room.deliveryMode === "voice"
+        && typeof app.hasAnyVoiceKey === "function"
+        && !app.hasAnyVoiceKey();
+      if (needsVoiceKey) {
+        app.openResumeChoiceModal();
+        return;
+      }
       app.resumeRoom().catch((err) => alert("Resume failed: " + err.message));
       return;
     }
-    // Export · adjourned-bar action. Browser handles the download
-    // natively from the route's Content-Disposition header.
+    // Resume-choice modal buttons. Same three-option grammar as
+    // pause-choice / reload-choice modals.
+    const resChoice = e.target.closest("[data-resume-choice]");
+    if (resChoice) {
+      e.preventDefault();
+      app.handleResumeChoice(resChoice.getAttribute("data-resume-choice"));
+      return;
+    }
+    if (e.target.id === "resume-choice-overlay") {
+      app.closeResumeChoiceModal();
+      return;
+    }
+    // Export · adjourned-room action (input-bar's left cluster).
+    // Browser handles the download natively from the route's
+    // Content-Disposition header.
     if (e.target.closest("[data-room-export]")) {
       e.preventDefault();
       if (!app.currentRoomId) return;
       window.location.href = "/api/rooms/" + encodeURIComponent(app.currentRoomId) + "/export.md";
       return;
     }
-    // Voice Replay · adjourned-bar action. Plays the transcript
+    // Divergence report · opens a read-only overlay for the
+    // current room. Available across live / paused / adjourned.
+    if (e.target.closest("[data-divergence-open]")) {
+      e.preventDefault();
+      app.openDivergenceOverlay();
+      return;
+    }
+    // Jump-to-opener · scroll the chat back to the room's first
+    // user message (the convene question). Useful when a long room
+    // has scrolled the opener many screens up.
+    if (e.target.closest("[data-jump-to-opener]")) {
+      e.preventDefault();
+      app.scrollToOpener();
+      return;
+    }
+    // Floating mini-player · the whole bar is the click target.
+    // A click anywhere on the surface (including the inner jump
+    // button) navigates to the room. Match the outer aside so
+    // any descendant click bubbles up to the same handler.
+    if (e.target.closest("[data-mini-player]")) {
+      e.preventDefault();
+      const el = document.querySelector("[data-mini-player]");
+      const roomId = el && el.getAttribute("data-mini-player-room-id");
+      if (roomId) app.navigateToRoom(roomId);
+      return;
+    }
+    if (e.target.closest("[data-divergence-close]")) {
+      e.preventDefault();
+      app.closeDivergenceOverlay();
+      return;
+    }
+    // Voice Replay · adjourned-room action (input-bar's left cluster). Plays the transcript
     // back via TTS in chronological order, each director in their
     // own voice. Routed through the standalone voice-replay module
     // so the playback state machine + overlay live in one place.
     if (e.target.closest("[data-room-replay]")) {
       e.preventDefault();
       if (!app.currentRoomId) return;
+      // Key gate · the replay module also checks /api/voices and
+      // shows an in-overlay [Configure] CTA when no TTS key is set,
+      // but that's a two-step (click replay → click Configure). For
+      // the common case where the user previously had a key, opened
+      // a voice room, then later removed the key, deep-link straight
+      // to user-settings → keys → minimax so they're one click from
+      // pasting the key. Falls through to the overlay path on
+      // platforms where openUserSettings isn't wired (degrades to
+      // the existing CTA).
+      if (typeof app.hasAnyVoiceKey === "function" && !app.hasAnyVoiceKey()
+          && typeof window.openUserSettings === "function") {
+        window.openUserSettings({ section: "keys", focusProvider: "minimax" });
+        return;
+      }
       if (window.boardroomVoiceReplay && typeof window.boardroomVoiceReplay.open === "function") {
         // Pass historicalMembers (includes excused directors) so
         // past messages from a director the chair has excused still
@@ -16882,8 +18636,11 @@
       // does the navigation.
     }
 
-    // Convene Follow-up · adjourned-bar action. Opens the follow-up
-    // overlay with parent reference + form for the new question.
+    // Convene Follow-up · adjourned-room action (input-bar's left
+    // cluster icon, or via the input-bar's Send button which routes
+    // through submitFromComposer with a prefilled subject). Opens
+    // the follow-up overlay with parent reference + form for the
+    // new question.
     if (e.target.closest("[data-room-followup]")) {
       e.preventDefault();
       app.openFollowUpOverlay();
@@ -17091,24 +18848,6 @@
     if (e.target.closest("[data-supplement-confirm]")) {
       e.preventDefault();
       app.submitSupplement();
-      return;
-    }
-    // Paused-bar · open the supplement overlay (add a thought while paused).
-    if (e.target.closest("[data-paused-supplement]")) {
-      e.preventDefault();
-      app.openPausedSupplementOverlay();
-      return;
-    }
-    // Paused-supplement overlay · close / cancel / backdrop.
-    if (e.target.closest("[data-paused-supplement-close]")) {
-      e.preventDefault();
-      app.closePausedSupplementOverlay();
-      return;
-    }
-    // Paused-supplement overlay · confirm.
-    if (e.target.closest("[data-paused-supplement-confirm]")) {
-      e.preventDefault();
-      app.submitPausedSupplement();
       return;
     }
     // Continue · resume the directors after a chair-driven round-end.
@@ -17376,7 +19115,12 @@
       if (!configured) {
         // Stale `data-configured` may say 1 if the user added then
         // removed a key without a re-render; live cache wins.
-        if (typeof window.openUserSettings === "function") {
+        // First-stop: voice-mode onboarding overlay (themed promo).
+        // Its CTA opens user-settings → MiniMax key row.
+        if (typeof window.openVoiceOnboarding === "function") {
+          window.openVoiceOnboarding();
+        } else if (typeof window.openUserSettings === "function") {
+          // Defensive fallback if the onboarding module fails to load.
           window.openUserSettings({ section: "keys", focusProvider: "minimax" });
         }
         return;
@@ -17459,6 +19203,19 @@
         : "Generation runs offline · click to enable web search";
       return;
     }
+    // Agent build-mode toggle · binary signal ↔ full flip. The button
+    // lives in the new-agent composer's bottombar (left of the web
+    // search toggle). Click hands off to setAgentBuilderMode, which
+    // persists + re-renders the empty state so the CTA copy / aria-
+    // pressed / hint all repaint in lock-step.
+    const buildToggle = e.target.closest("[data-agent-builder-toggle]");
+    if (buildToggle) {
+      e.preventDefault();
+      const cur = app.loadAgentBuilderMode();
+      const next = cur === "full" ? "signal" : "full";
+      app.setAgentBuilderMode(next);
+      return;
+    }
     // ─── Agent spec preview · field actions
     if (e.target.closest("[data-agent-spec-reroll]")) {
       e.preventDefault();
@@ -17523,11 +19280,8 @@
     // ALSO toggle on label clicks, but it skipped checkbox clicks,
     // which left direct-checkbox clicks dead. Owning toggling from
     // the change event is the simpler, correct path.
-    if (e.target.closest("[data-composer-pick-done]")) {
-      e.preventDefault();
-      app.closeComposerDirectorPicker();
-      return;
-    }
+    // (Done button removed · checkbox toggles take effect immediately;
+    //  the picker auto-dismisses on outside click.)
     // Tune dropdown trigger (tone / intensity)
     const ddTrigger = e.target.closest("[data-cmp-dropdown]");
     if (ddTrigger) {
@@ -17601,8 +19355,8 @@
           }
           if (trigger) {
             const valSpan = trigger.querySelector("[data-cmp-dd-value]");
-            if (valSpan) {
-              valSpan.textContent = v === "zh" ? "中文" : "EN";
+            if (valSpan && window.I18n && typeof window.I18n.t === "function") {
+              valSpan.textContent = window.I18n.t(`locale_${v}`);
             }
           }
         }
@@ -17725,11 +19479,38 @@
   // submit. Browsers signal this via:
   //   · `e.isComposing === true` (standard, all modern browsers)
   //   · `e.keyCode === 229` (legacy fallback for old WebKit / Chromium)
-  // Either of those means "this Enter belongs to the IME, leave it
-  // alone." Without the guard, every pinyin confirmation accidentally
-  // sends the message — a constant misclick for CJK users.
+  // ··· third case ···
+  //   · Safari (and some Chrome builds) fire `compositionend` SLIGHTLY
+  //     BEFORE the Enter keydown that confirmed the candidate. By the
+  //     time JS reads the keydown, `isComposing` is already false and
+  //     `keyCode === 13`, so the first two signals miss it and the
+  //     pinyin confirmation accidentally fires submit. We patch this
+  //     by tracking the time of the most recent `compositionend` per
+  //     input element and treating a keydown within ~120 ms of it as
+  //     IME-owned.
+  //
+  // The map is keyed by the input element; the global compositionend
+  // listener stamps the timestamp; the per-input grace window survives
+  // re-renders because the map is GC'd when the element is detached.
+  const _compositionEndAt = new WeakMap();
+  document.addEventListener("compositionend", (ev) => {
+    const t = ev.target;
+    if (t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) {
+      _compositionEndAt.set(t, Date.now());
+    }
+  }, true);
   function isImeComposing(ev) {
-    return !!(ev && (ev.isComposing || ev.keyCode === 229));
+    if (!ev) return false;
+    if (ev.isComposing || ev.keyCode === 229) return true;
+    const t = ev.target;
+    if (t && _compositionEndAt.has(t)) {
+      // 120 ms covers the Safari / Chrome window between
+      // compositionend and the IME-confirm Enter without
+      // affecting genuine post-paste Enter taps (those land
+      // well after the grace window).
+      if (Date.now() - _compositionEndAt.get(t) < 120) return true;
+    }
+    return false;
   }
   document.addEventListener("keydown", (e) => {
     const target = e.target;
@@ -17778,6 +19559,13 @@
       app.autosizeAgentComposerTextarea();
     } else if (e.target && e.target.matches && e.target.matches("[data-search-input]")) {
       app.runSearch(e.target.value);
+    } else if (e.target && e.target.matches && e.target.matches(".ib-textarea[data-send-input]")) {
+      // Room input-bar textarea · autosize as the user types so
+      // the floating card grows up to the max-height cap, then
+      // scrolls internally. No state persistence here · the
+      // input-bar's value is fired-and-cleared on send (unlike
+      // the composer's persistent draft).
+      app.autosizeRoomInputTextarea();
     }
   });
   // Keep agentSpec in sync as the user edits any preview field — guards
@@ -17912,7 +19700,46 @@
         app.tickBriefStallWatch();
       }
     }
+    // Voice playback safety net · if the browser paused any audio
+    // queue while the tab was backgrounded (some Chrome versions
+    // do this even with Media Session declared), resume them on
+    // tab return so the user doesn't have to manually re-start.
+    if (app && app.voiceQueues) {
+      for (const mid of Object.keys(app.voiceQueues)) {
+        const q = app.voiceQueues[mid];
+        if (!q || !q.audio) continue;
+        if (q.audio.paused && !q.audio.ended) {
+          try {
+            const p = q.audio.play();
+            if (p && typeof p.catch === "function") p.catch(() => { /* autoplay block */ });
+          } catch (_) {}
+        }
+      }
+      app.refreshMiniPlayer();
+    }
   });
+
+  // Input-bar textarea scrollbar reveal · the scrollbar is
+  // permanently hidden via `.ib-textarea { scrollbar-width: none }`
+  // and only flips visible while the user is actively scrolling.
+  // We toggle a `.is-scrolling` class on the SCROLLING element with
+  // a debounced removal so the scrollbar fades back out ~800 ms
+  // after the last scroll event. Scroll events don't bubble, so the
+  // listener is in capture phase to catch them from any textarea
+  // anywhere in the document.
+  const _scrollDecayTimers = new WeakMap();
+  document.addEventListener("scroll", (ev) => {
+    const t = ev.target;
+    if (!t || !(t instanceof HTMLTextAreaElement)) return;
+    if (!t.classList.contains("ib-textarea")) return;
+    t.classList.add("is-scrolling");
+    const prev = _scrollDecayTimers.get(t);
+    if (prev) clearTimeout(prev);
+    _scrollDecayTimers.set(t, setTimeout(() => {
+      t.classList.remove("is-scrolling");
+      _scrollDecayTimers.delete(t);
+    }, 800));
+  }, true);
 
   // Global one-shot listener: unlock audio playback on first user
   // interaction so voice mode works regardless of which button was

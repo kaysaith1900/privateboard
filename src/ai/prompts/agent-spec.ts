@@ -333,11 +333,12 @@ function parseAbility(raw: unknown): Record<string, number> {
 }
 
 const ALLOWED_MODELS = new Set([
-  "sonnet-4-6", "opus-4-6", "opus-4-7", "haiku-4-5",
+  "sonnet-4-6", "opus-4-7", "haiku-4-5",
   "gpt-5-5", "gpt-5-4", "gpt-5-4-mini",
   "gemini-3-1", "gemini-3-flash", "gemini-3-1-flash",
-  "grok-4-3", "grok-4-1-fast",
   "deepseek-v4-pro", "deepseek-v4-flash",
+  "glm-5-1", "kimi-k2-6",
+  "minimax-m2-7", "minimax-m2-5",
 ]);
 
 function clamp(s: string, max: number): string {

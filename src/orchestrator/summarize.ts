@@ -116,11 +116,26 @@ async function generateL1ForRound(roomId: string, roundNum: number): Promise<voi
   const modelV = utilityModelFor();
   if (!modelV) return; // no carrier configured · skip silently
 
+  // Divergence-preserving summary · the previous prompt asked for
+  // "distinct positions / where they pushed back / claims that
+  // emerged" — which biases the summary toward the room's modal
+  // claim. By round 4-5 of a converging room, this prompt would
+  // distill 3 nearby positions into "directors converged on X",
+  // and that distillation becomes anchoring preamble for future
+  // rounds. New prompt preserves NEGATIVE SPACE (new variables
+  // introduced even if ignored, angles waved past, dimensions
+  // notably absent, existing tensions) so future rounds see "what
+  // was unexplored" alongside "what was said".
   const prompt =
-    `Summarise round ${roundNum} of a multi-director boardroom discussion in 2-4 short sentences. ` +
-    `Capture: (a) what the directors actually said (their distinct positions, not just topics), ` +
-    `(b) where they pushed back on each other, (c) any concrete claim or recommendation that emerged. ` +
-    `Do NOT restate the original question. Do NOT add commentary. Plain prose, third person, present tense.` +
+    `Summarise round ${roundNum} of a multi-director boardroom discussion in 4-7 short sentences. ` +
+    `Your PRIMARY job is to **protect divergence** — preserve angles the room raised but did not develop, so future rounds know what's still open. ` +
+    `Capture, in this order:\n` +
+    `(a) **New variables / lenses** any director introduced (even if the room ignored them) — list each by name. These are the room's unspent fuel.\n` +
+    `(b) **What was waved past** — angles mentioned in one sentence then abandoned. Name them explicitly.\n` +
+    `(c) **What was notably ABSENT** — if the round all discussed X, name 1-2 obvious dimensions (time scale, stakeholder type, geographic context, technical layer, cultural angle) that the round did NOT touch but should have.\n` +
+    `(d) **Tensions** — where directors took different positions (not "they all agreed on X"; that erases the divergence we want to preserve).\n` +
+    `(e) Only AFTER (a)-(d), 1-2 sentences on the substantive claims that emerged.\n` +
+    `Do NOT restate the original question. Do NOT add commentary. Do NOT use phrases like "directors converged" or "consensus emerged" — those distill out exactly the divergence we want to keep. Plain prose, third person, present tense.` +
     `\n\n--- Round ${roundNum} transcript ---\n${transcript}` +
     keyPointsBlock;
 
@@ -130,8 +145,8 @@ async function generateL1ForRound(roomId: string, roundNum: number): Promise<voi
     messages: [
       { role: "user", content: prompt },
     ],
-    temperature: 0.2,
-    maxTokens: 400,
+    temperature: 0.3,
+    maxTokens: 650,
   });
   const trimmed = body.trim();
   if (!trimmed) return;
@@ -166,12 +181,22 @@ async function foldL1IntoL2(
     ? `Previous narrative covering rounds ${existing.startRound}-${existing.endRound}:\n${existing.body}\n\n`
     : "";
 
+  // Same divergence-preserving discipline as the L1 prompt above.
+  // The rolling L2 narrative is the longest-lived summary in the
+  // system · any bias toward distilling "what was loudest" compounds
+  // across many rounds. Force the L2 narrative to maintain a running
+  // list of "open angles" (raised then abandoned) so by round 15+
+  // the room still has a record of paths it hasn't taken.
   const prompt =
     `You maintain a rolling consolidated narrative of an ongoing multi-director boardroom discussion. ` +
     `A new round just dropped out of the recent window and needs to be folded in. ` +
-    `Produce a single narrative of 4-7 sentences covering rounds ${startRound} through ${endRound}. ` +
-    `Preserve: each director's evolving position, where the discussion sharpened, decisions / commitments that emerged. ` +
-    `Drop: minor exchanges, repeated points already captured. Plain prose, third person.` +
+    `Produce a single narrative of 6-10 sentences covering rounds ${startRound} through ${endRound}.\n\n` +
+    `Your PRIMARY job is to **protect divergence over time** — long rooms drift toward a single thread, and your narrative is what the next 10 rounds will use to remember the room. Maintain:\n` +
+    `(a) **A running list of "still-open angles"** — variables / lenses that were raised in any round and not deeply developed. Carry these forward across folds; do NOT prune them when a new round dominates a different track.\n` +
+    `(b) **Each director's distinctive lens** — what makes their contribution NOT interchangeable with the others. Avoid "all directors agreed on X" framings.\n` +
+    `(c) **Major pivots** — points where the room genuinely shifted direction (versus just deepened an existing track).\n` +
+    `(d) **Tensions that remain unresolved** — disagreements that haven't been settled. Preserve them; do NOT smooth them into consensus.\n` +
+    `Drop: minor exchanges, micro-clarifications, repeated points. Plain prose, third person. Do NOT use phrases like "directors converged" or "consensus emerged" — they erase exactly the divergence we want to preserve.` +
     `\n\n${previousBlock}` +
     `New round ${newRoundNum} (just demoted from L1):\n${newL1Body}`;
 
@@ -179,8 +204,8 @@ async function foldL1IntoL2(
     modelV: modelV as ModelV,
     carrier: null,
     messages: [{ role: "user", content: prompt }],
-    temperature: 0.25,
-    maxTokens: 600,
+    temperature: 0.3,
+    maxTokens: 900,
   });
   const trimmed = body.trim();
   if (!trimmed) return;

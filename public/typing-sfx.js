@@ -79,7 +79,17 @@
 
   function ensureContext() {
     if (_ctxFailed) return null;
-    if (_ctx) return _ctx;
+    if (_ctx) {
+      // Resume on EVERY call when suspended · we proactively suspend
+      // the context between SFX bursts (see `releaseContextSoon`) to
+      // release the audio session for the HTMLAudioElement TTS path.
+      // Without this re-check, a context suspended for TTS would
+      // stay silent on the next tick/blip/gavel.
+      if (_ctx.state === "suspended") {
+        _ctx.resume().catch(() => { /* swallow */ });
+      }
+      return _ctx;
+    }
     if (!_hadGesture) return null; // refuse to create until gestured
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -95,6 +105,33 @@
       _ctxFailed = true;
       return null;
     }
+  }
+
+  /** Suspend the AudioContext shortly after `setThinking(false)` so
+   *  the system audio session is released for the HTMLAudioElement
+   *  TTS path. Browsers (Safari / iOS especially) treat a "running"
+   *  AudioContext as the active audio source; an `<audio>` element
+   *  starting `play()` against that state can be blocked or silently
+   *  routed away.
+   *
+   *  We don't suspend instantly · a small grace lets the thinking
+   *  fade-out finish without click. */
+  let _releaseTimer = null;
+  function releaseContextSoon() {
+    if (!_ctx) return;
+    if (_releaseTimer) { clearTimeout(_releaseTimer); _releaseTimer = null; }
+    _releaseTimer = setTimeout(() => {
+      _releaseTimer = null;
+      // Only suspend when nothing has restarted the loop in the
+      // meantime · belt-and-suspenders against rapid toggle races.
+      if (!_thinkingInterval && _ctx && _ctx.state === "running") {
+        _ctx.suspend().catch(() => { /* swallow */ });
+      }
+    }, 200);
+  }
+
+  function cancelRelease() {
+    if (_releaseTimer) { clearTimeout(_releaseTimer); _releaseTimer = null; }
   }
 
   function tick() {
@@ -171,6 +208,91 @@
     osc.stop(t0 + dur);
   }
 
+  /** Director thinking cue · loops the original 8-bit "blip-blip"
+   *  pair while a voice-room seat shows the thought-bubble. Each
+   *  cycle: two pulse-wave blips spaced 60 ms apart (G5 → B5, a
+   *  minor third up · reads as "thought lifting"), each blip about
+   *  60 ms long with a fast attack and exponential decay. Cycles
+   *  repeat every ~1100 ms — generous silence between pairs so the
+   *  rhythm feels like classic NES dialog blips, not an alarm.
+   *
+   *  Per-blip oscillator creation is recreated on each tick · the
+   *  earlier TTS conflict turned out to be a missing TTS provider
+   *  key, not AudioContext churn, so we can safely use setInterval
+   *  for the loop. */
+  let _thinkingInterval = null;
+  let _thinkingPhase = 0;
+
+  function _playThinkingPair() {
+    if (!_enabled) { setThinking(false); return; }
+    if (document.visibilityState !== "visible") return;
+    const ctx = ensureContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    // Two blips · G5 (784 Hz) then B5 (988 Hz). 60 ms gap between
+    // blip starts so the ear hears them as a pair, not a chord.
+    // Phase-flip every cycle (B5→G5 alternation across cycles)
+    // adds slight melodic interest, like a thinker switching gears.
+    const ascending = _thinkingPhase % 2 === 0;
+    _thinkingPhase = (_thinkingPhase + 1) % 1024;
+    const blips = ascending
+      ? [{ freq: 784, start: 0.000 }, { freq: 988, start: 0.060 }]
+      : [{ freq: 988, start: 0.000 }, { freq: 784, start: 0.060 }];
+    for (const b of blips) {
+      const t = t0 + b.start;
+      const osc = ctx.createOscillator();
+      osc.type = "square";
+      osc.frequency.value = b.freq;
+      // Low-pass softens the harsh square edges so the blip sits
+      // in the room ambience rather than slicing through it.
+      const lpf = ctx.createBiquadFilter();
+      lpf.type = "lowpass";
+      lpf.frequency.value = 4500;
+      lpf.Q.value = 0.7;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.05, t + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+      osc.connect(lpf).connect(gain).connect(ctx.destination);
+      osc.start(t);
+      const stopAt = t + 0.08;
+      osc.stop(stopAt);
+      // Cleanup · disconnect after stop so GainNodes aren't retained
+      // across hundreds of blips on a long thinking phase.
+      osc.onended = () => {
+        try { osc.disconnect(); } catch { /* ignore */ }
+        try { lpf.disconnect(); } catch { /* ignore */ }
+        try { gain.disconnect(); } catch { /* ignore */ }
+      };
+    }
+  }
+
+  function setThinking(on) {
+    if (on) {
+      cancelRelease();
+      if (_thinkingInterval) return;       // already looping · idempotent
+      if (!_enabled) return;
+      // First pair immediately so the user hears feedback the moment
+      // the bubble appears; subsequent pairs on a ~1100 ms cadence.
+      // 1100 ms (~0.9 Hz) is intentionally slow — earlier 700 ms /
+      // 1.4 Hz read as an alarm tempo; this sits closer to a
+      // contemplative NES dialog cadence.
+      _thinkingPhase = 0;
+      _playThinkingPair();
+      _thinkingInterval = setInterval(_playThinkingPair, 1100);
+    } else {
+      if (!_thinkingInterval) return;
+      clearInterval(_thinkingInterval);
+      _thinkingInterval = null;
+      _thinkingPhase = 0;
+      // Suspend the AudioContext after a brief grace so the audio
+      // session is fully released for any HTMLAudioElement TTS that
+      // might be about to play. ensureContext resumes automatically
+      // on the next SFX call.
+      releaseContextSoon();
+    }
+  }
+
   /** Chair gavel cue · fires before chair voice playback begins in
    *  voice mode. Two-strike wooden knock that reads as "court is in
    *  session — listen up." Designed by ear:
@@ -228,10 +350,61 @@
     }
   }
 
+  /** Continue / vote auto-fire countdown beep · fires once per second
+   *  on the 10 → 1 visible tick so the user feels the timer urgency
+   *  audibly, not just visually. Two tiers:
+   *    · seconds 10-4 · low square-wave (~600 Hz), 50 ms, quiet — a
+   *      steady "metronome" tick that's clearly background.
+   *    · seconds 3-1  · higher square-wave (~880 Hz), 80 ms, louder —
+   *      the "3-2-1!" alarm register that signals imminent fire.
+   *  Second 0 is skipped here; the auto-continue action that fires
+   *  on hit-zero has its own UX (the room moves on). Low-pass keeps
+   *  the square edges from slicing through, same approach as the
+   *  thinking-blip pair. */
+  function countdownTick(secondsLeft) {
+    if (!_enabled) return;
+    if (document.visibilityState !== "visible") return;
+    if (typeof secondsLeft !== "number" || secondsLeft <= 0) return;
+    const ctx = ensureContext();
+    if (!ctx) return;
+
+    const urgent = secondsLeft <= 3;
+    const freq = urgent ? 880 : 600;
+    const dur = urgent ? 0.08 : 0.05;
+    const peak = urgent ? 0.075 : 0.045;
+
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = "square";
+    osc.frequency.value = freq;
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = "lowpass";
+    lpf.frequency.value = 4000;
+    lpf.Q.value = 0.7;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(lpf).connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+    osc.onended = () => {
+      try { osc.disconnect(); } catch { /* ignore */ }
+      try { lpf.disconnect(); } catch { /* ignore */ }
+      try { gain.disconnect(); } catch { /* ignore */ }
+    };
+  }
+
   function setEnabled(on) {
     _enabled = !!on;
     writeEnabled(_enabled);
-    // No-op when disabling · live AudioContext stays alive cheaply
+    // Stop any in-flight thinking loop when SFX gets disabled · we
+    // don't want a stale setInterval ticking silently and resuming
+    // audio the moment the user toggles back on inside the same
+    // thinking phase. Re-entry happens cleanly via the next
+    // `setThinking(true)` call from the render loop.
+    if (!_enabled) setThinking(false);
+    // No-op for AudioContext when disabling · stays alive cheaply
     // (a few KB) and an outright close() leaves us re-paying the
     // creation cost if the user toggles back on within the session.
   }
@@ -240,5 +413,5 @@
 
   // Public surface · attached to window so app.js (and the
   // user-settings toggle) can reach it without an import.
-  window.boardroomTypingSfx = { tick, speakerChange, gavel, setEnabled, isEnabled };
+  window.boardroomTypingSfx = { tick, speakerChange, setThinking, gavel, countdownTick, setEnabled, isEnabled };
 })();

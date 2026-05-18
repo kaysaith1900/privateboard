@@ -64,6 +64,11 @@
      *  next message is being fetched / synthesised, then "speaking"
      *  once audio.play resolves. Cleared on close + on playlist end. */
     active: null, // { messageId, authorId, kind, state, body }
+    /** Room id the replay belongs to · captured from `open()` so
+     *  the floating mini-player can jump back to the source room
+     *  and so cross-room navigation knows whose audio is playing.
+     *  Null when no replay is active. */
+    roomId: null,
   };
 
   function isOpen() {
@@ -82,6 +87,27 @@
    *  playhead — there's no per-chunk timing metadata available. */
   function getActiveAudio() {
     return STATE.audio || null;
+  }
+
+  function getRoomId() {
+    return STATE.roomId || null;
+  }
+
+  /** Fire a "boardroom:replay-state" event so listeners (the cross-
+   *  room mini-player in app.js) can sync the play/pause glyph
+   *  without polling the audio element. Composed bubbling event so
+   *  doc-level listeners catch it. */
+  function emitStateChanged() {
+    try {
+      document.dispatchEvent(new CustomEvent("boardroom:replay-state", {
+        detail: {
+          open: isOpen(),
+          paused: !!(STATE.audio && STATE.audio.paused),
+          roomId: STATE.roomId || null,
+        },
+        bubbles: true,
+      }));
+    } catch { /* old browsers · noop */ }
   }
 
   /** Fire a DOM event so listeners (the room view's renderRoundTable
@@ -164,6 +190,7 @@
     const chair = (opts && opts.chair) || null;
     STATE.members = members;
     STATE.chair = chair;
+    STATE.roomId = (opts && opts.roomId) || null;
     STATE.skipUser = true;
     STATE.speed = 1;
     STATE.paused = false;
@@ -207,10 +234,12 @@
       STATE.overlay = null;
     }
     clearActiveHighlight();
-    removeInlineExpand(); // any inline pill in the adjourned-bar drops too
+    removeInlineExpand(); // any inline pill in the input-bar drops too
     STATE.playlist = [];
     STATE.prefetched = new Map();
+    STATE.roomId = null;
     setActive(null); // round-table stage clears its replay seat / subtitle
+    emitStateChanged(); // cross-room mini-player drops too
   }
 
   // ─── Mount + render ──────────────────────────────────────────
@@ -282,8 +311,9 @@
   }
 
   /** Doc-level handler for the inline replay control group in the
-   *  adjourned-bar — those buttons are mounted OUTSIDE the overlay
-   *  so the overlay-scoped click delegate above can't see them.
+   *  input-bar's left cluster — those buttons are mounted OUTSIDE
+   *  the overlay so the overlay-scoped click delegate above can't
+   *  see them.
    *  Bound once per page lifetime; safe even when no replay is
    *  active (the buttons simply aren't in the DOM until
    *  toggleCollapsed mounts them). */
@@ -317,8 +347,8 @@
   }
 
   /** Collapse the player by hiding the floating overlay entirely +
-   *  surfacing the inline replay control group in the adjourned-bar
-   *  right after where the Voice Replay button used to be. Audio
+   *  surfacing the inline replay control group in the input-bar's
+   *  left cluster, right after the Voice Replay icon. Audio
    *  keeps playing in the background; the user's content is no
    *  longer blocked.
    *
@@ -344,7 +374,7 @@
    *  a no-op when the group is already present. */
   function mountInlineExpand() {
     if (document.querySelector("[data-vr-inline-group]")) return;
-    const replayBtn = document.querySelector(".adjourned-bar [data-room-replay]");
+    const replayBtn = document.querySelector("[data-room-replay]");
     if (!replayBtn) return;
     const group = document.createElement("span");
     group.className = "vr-inline-group";
@@ -392,10 +422,10 @@
       </svg>
     `;
     group.innerHTML = `
-      <button type="button" class="ghost-btn vr-inline-btn" data-vr-inline-next aria-label="Next message" title="Next message">${NEXT_SVG}</button>
-      <button type="button" class="ghost-btn vr-inline-btn" data-vr-inline-pause aria-label="Pause" title="Pause"><span data-vib-pause-mark>${PAUSE_SVG}</span></button>
-      <button type="button" class="ghost-btn vr-inline-btn" data-vr-inline-stop aria-label="Stop replay" title="Stop replay">${STOP_SVG}</button>
-      <button type="button" class="ghost-btn vr-inline-btn vr-inline-expand" data-vr-inline-expand aria-label="Expand voice replay" title="Expand voice replay">${EXPAND_SVG}<span class="vie-pulse" aria-hidden="true"></span></button>
+      <button type="button" class="ib-action vr-inline-btn" data-vr-inline-next aria-label="Next message" title="Next message">${NEXT_SVG}</button>
+      <button type="button" class="ib-action vr-inline-btn" data-vr-inline-pause aria-label="Pause" title="Pause"><span data-vib-pause-mark>${PAUSE_SVG}</span></button>
+      <button type="button" class="ib-action vr-inline-btn" data-vr-inline-stop aria-label="Stop replay" title="Stop replay">${STOP_SVG}</button>
+      <button type="button" class="ib-action vr-inline-btn vr-inline-expand" data-vr-inline-expand aria-label="Expand voice replay" title="Expand voice replay">${EXPAND_SVG}<span class="vie-pulse" aria-hidden="true"></span></button>
     `;
     replayBtn.insertAdjacentElement("afterend", group);
     // Hide the original Voice Replay anchor while the inline group
@@ -414,7 +444,7 @@
     // so the user can re-trigger the player. We stashed the prior
     // inline display when we hid it; restore it (empty string ==
     // CSS default).
-    const replayBtn = document.querySelector(".adjourned-bar [data-room-replay]");
+    const replayBtn = document.querySelector("[data-room-replay]");
     if (replayBtn) {
       const prev = replayBtn.dataset.vrPrevDisplay;
       replayBtn.style.display = (prev === undefined || prev === null) ? "" : prev;
@@ -570,6 +600,12 @@
     STATE.audio.playbackRate = STATE.speed;
     STATE.audio.addEventListener("ended", () => advance());
     STATE.audio.addEventListener("error", () => advance());
+    // Cross-room mini-player sync · its play/pause glyph keys off
+    // audio.paused. A new Audio is created per message so listeners
+    // must re-attach on every playCurrent. Also fires on the FIRST
+    // attached state so the mini-player surfaces immediately.
+    STATE.audio.addEventListener("play",  () => emitStateChanged());
+    STATE.audio.addEventListener("pause", () => emitStateChanged());
     // Tick out a DOM event on every timeupdate (~4 Hz) so the
     // round-table stage's subtitle bar can poll currentTime /
     // duration and interpolate which sentence is being read. We
@@ -849,6 +885,8 @@
     isOpen: isOpen,
     getActive: getActive,
     getActiveAudio: getActiveAudio,
+    getRoomId: getRoomId,
+    togglePause: togglePause,
     // Exposed for testing.
     _internals: { buildPlaylist, PROCEDURAL_KINDS },
   };

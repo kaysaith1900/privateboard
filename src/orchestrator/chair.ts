@@ -22,6 +22,7 @@ import {
   deleteMessage,
   getMessage,
   insertMessage,
+  listMessages,
   listRecentMessages,
   updateMessageBody,
 } from "../storage/messages.js";
@@ -46,7 +47,9 @@ import {
   parseRoundEndOutput,
 } from "./prompt.js";
 import { pickChairClarifyDecision, pickChairWebSearch } from "./skill-picker.js";
+import { extractNegativeSpace } from "./negative-space-extract.js";
 import { runRoundEndSummarization } from "./summarize.js";
+import { insertNegativeSpaceAngles } from "../storage/negative-space.js";
 import { collectUrlsFromHistory, fetchOne, renderUrlContextBlock, type FetchAttemptHook, type UrlExtract } from "../skills/url-fetch.js";
 import { roomBus } from "./stream.js";
 import { waitForVoicePlayback } from "./room.js";
@@ -61,7 +64,7 @@ const MAX_CLARIFY_TURNS = 3;
  *  it in stderr. The most common failure modes:
  *   · NoKeyError → user has the wrong / no key for the chair's model
  *   · "model not found" / "does not exist" → chair model picked but the
- *     direct API doesn't ship that id (e.g. openrouterOnly model
+ *     direct API doesn't ship that id (e.g. viaUniversalOnly model
  *     against the direct OpenAI SDK)
  *   · network / timeout → transient, suggest retry */
 /** Thrown by `streamChairMessage` when the chair's LLM call errors and
@@ -805,7 +808,7 @@ async function streamChairMessage(args: DispatchArgs & {
       // bubble so the user understands why the chair didn't speak.
       // Common failure modes: model unreachable with current keys,
       // direct provider API rejected the model id (e.g. an
-      // openrouterOnly model called against the direct SDK that
+      // viaUniversalOnly model called against the direct SDK that
       // hasn't shipped it). The chair model name is included so the
       // user can see exactly which slot needs attention.
       const friendly = friendlyChairError(chair, errorMessage);
@@ -1223,6 +1226,32 @@ export async function runChairRoundEnd(roomId: string, roundNum: number): Promis
   // best-effort, the room shouldn't block on it. Errors are logged
   // inside runRoundEndSummarization.
   void runRoundEndSummarization(roomId, roundNum);
+
+  // Layer 3.2 · negative-space extraction. Fire-and-forget. Extracts
+  // 1-3 angles this round did NOT touch and persists them so the
+  // next round's director prompts can show "UNEXPLORED ANGLES" as
+  // positive-space breadcrumbs alongside the frame-break negative-
+  // space rules. Errors logged but never block the room.
+  void (async () => {
+    try {
+      const room = getRoom(roomId);
+      if (!room) return;
+      const allMsgs = listMessages(roomId);
+      const roundMsgs = allMsgs.filter((m) => m.roundNum === roundNum);
+      if (roundMsgs.length === 0) return;
+      const angles = await extractNegativeSpace({
+        roundMessages: roundMsgs,
+        roomSubject: room.subject || "",
+      });
+      if (angles.length > 0) {
+        insertNegativeSpaceAngles(roomId, roundNum, angles);
+      }
+    } catch (e) {
+      process.stderr.write(
+        `[chair] negative-space extract failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  })();
 }
 
 /**
@@ -1664,7 +1693,7 @@ export function announceAdjournNoBrief(roomId: string): void {
   const chair = getChairAgent();
   if (!chair) return;
   const body =
-    "Adjourned without filing a brief. The chair (you) declared no report is needed for this session.";
+    "Session adjourned without a report. If you'd like one later, use *Generate report* in the room header.";
   const m = insertMessage({
     roomId,
     authorKind: "agent",

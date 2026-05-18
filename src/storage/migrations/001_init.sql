@@ -5,6 +5,11 @@
 -- ═══════════════════════════════════════════
 
 -- User preferences · single-row table.
+-- Note: the `theme` column is historical · appearance moved to
+-- localStorage. The column stays defined here so existing rows
+-- keep validating (NOT NULL DEFAULT), but the server code no
+-- longer reads or writes it. Will be retired in a future cleanup
+-- migration bundled with other DB-shape changes.
 CREATE TABLE prefs (
   id          INTEGER PRIMARY KEY CHECK (id = 1),
   name        TEXT    NOT NULL DEFAULT 'You',
