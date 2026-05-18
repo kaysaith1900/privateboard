@@ -1,6 +1,6 @@
 {
   "name": "privateboard",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
   "main": "electron-entry.cjs",
@@ -103,6 +103,12 @@
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "arm64"
           ]
