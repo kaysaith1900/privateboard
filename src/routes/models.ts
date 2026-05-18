@@ -16,11 +16,13 @@ import { Hono } from "hono";
 
 import {
   effectiveDefaultModel,
+  getProviderKeyState,
   hasAnyModelKey,
   modelAvailability,
   utilityModelFor,
   type ModelAvailability,
 } from "../ai/availability.js";
+import { isMultiModelProvider } from "../ai/providers.js";
 
 export function modelsRouter(): Hono {
   const r = new Hono();
@@ -28,6 +30,7 @@ export function modelsRouter(): Hono {
   r.get("/", (c) => {
     const all = modelAvailability();
     const reachable = all.filter((m) => m.reachable);
+    const active = getProviderKeyState().activeLlmProvider;
     return c.json({
       /** Whether any LLM provider key is configured. False → frontend
        *  redirects the user to the API Key settings before letting
@@ -51,6 +54,15 @@ export function modelsRouter(): Hono {
       /** Provider summary · so the frontend can show "you have OR +
        *  OpenAI direct" at a glance without iterating models. */
       providers: collectProviderSummary(all),
+      /** The user's single active LLM provider (under the single-
+       *  active-LLM-provider invariant). Null when none configured.
+       *  Frontend pickers use this to decide grouping strategy:
+       *  multi-model → group by family with "via {provider}" caption,
+       *  single-model → flat list. */
+      activeLlmProvider: active,
+      activeLlmClassification: active
+        ? (isMultiModelProvider(active) ? "multi-model" : "single-model")
+        : null,
     });
   });
 

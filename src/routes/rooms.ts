@@ -35,6 +35,7 @@ import {
   resumeRoom,
   setPendingUserAfterCurrent,
   markVoicePlaybackDone,
+  bumpVoicePlaybackHeartbeat,
   tickRoom,
 } from "../orchestrator/room.js";
 import { pickDirectors } from "../orchestrator/director-picker.js";
@@ -49,7 +50,6 @@ import {
   type KeyPointVote,
 } from "../storage/key_points.js";
 import { getCurrentRound, insertMessage, listMessages, nextUserRoundNum } from "../storage/messages.js";
-import { markTopicRecOpened } from "../storage/topic-recs.js";
 import { listBranchesForRoom } from "../storage/topic-branches.js";
 import { coverageForRoom, listQDForRoom } from "../storage/qd-archive.js";
 import { getRecentUnexploredAngles } from "../storage/negative-space.js";
@@ -191,7 +191,6 @@ export function roomsRouter(): Hono {
       autoPick?: unknown;
       parentRoomId?: unknown;
       parentBriefId?: unknown;
-      seedContext?: unknown;
     };
 
     const subject = typeof b.subject === "string" ? b.subject.trim() : "";
@@ -346,53 +345,6 @@ export function roomsRouter(): Hono {
       actorKind: "user",
     });
 
-    // Seed-context plumbing · the home composer's "topic
-    // recommendations" tray can hand us a payload that bundles
-    // pre-fetched web snippets + a back-reference to the rec the
-    // user clicked. We attach the trimmed payload to the opening
-    // message's meta so the chair's clarify prompt + downstream
-    // director prompts can read it as background material.
-    type SeedContext = {
-      topicRecId?: string;
-      rationale?: string;
-      snippets?: Array<{ title: string; url: string; description: string }>;
-    };
-    let seedContext: SeedContext | null = null;
-    if (b.seedContext && typeof b.seedContext === "object") {
-      const raw = b.seedContext as { topicRecId?: unknown; rationale?: unknown; snippets?: unknown };
-      const topicRecId = typeof raw.topicRecId === "string" && raw.topicRecId.trim().length > 0
-        ? raw.topicRecId.trim().slice(0, 64)
-        : undefined;
-      // Rationale is the synthesiser's "why this fits you"
-      // one-liner. Hidden from the picker UI but stored on
-      // the opening message's meta so the chair's clarify
-      // prompt can surface it (see `buildSeedContextSystem`).
-      const rationale = typeof raw.rationale === "string" && raw.rationale.trim().length > 0
-        ? raw.rationale.trim().slice(0, 400)
-        : undefined;
-      const rawSnippets = Array.isArray(raw.snippets) ? raw.snippets : [];
-      const snippets = rawSnippets
-        .filter((s): s is { title: string; url: string; description: string } =>
-          !!s && typeof s === "object"
-          && typeof (s as { title?: unknown }).title === "string"
-          && typeof (s as { url?: unknown }).url === "string"
-          && typeof (s as { description?: unknown }).description === "string",
-        )
-        .slice(0, 12) // cap so a runaway payload can't bloat the meta blob
-        .map((s) => ({
-          title: s.title.slice(0, 200),
-          url: s.url.slice(0, 600),
-          description: s.description.slice(0, 600),
-        }));
-      if (topicRecId || rationale || snippets.length > 0) {
-        seedContext = {
-          ...(topicRecId ? { topicRecId } : {}),
-          ...(rationale ? { rationale } : {}),
-          ...(snippets.length > 0 ? { snippets } : {}),
-        };
-      }
-    }
-
     // The convene subject IS the user's opening question — insert it as the
     // first user message. The chair fires a clarification turn FIRST; if
     // the subject is concrete enough the chair returns SKIP and we tick
@@ -403,15 +355,7 @@ export function roomsRouter(): Hono {
       authorKind: "user",
       body: subject,
       roundNum: 1,
-      meta: seedContext ? { seedContext } : undefined,
     });
-    if (seedContext?.topicRecId) {
-      try {
-        markTopicRecOpened(seedContext.topicRecId, room.id);
-      } catch (e) {
-        process.stderr.write(`[rooms] topic-rec link failed: ${e instanceof Error ? e.message : String(e)}\n`);
-      }
-    }
     roomBus.emit(room.id, {
       type: "message-appended",
       messageId: opening.id,
@@ -602,24 +546,41 @@ export function roomsRouter(): Hono {
     });
   });
 
-  // ── SSE event stream
+  // ── SSE event stream · Last-Event-ID aware
   r.get("/:id/stream", (c) => {
     const id = c.req.param("id");
     if (!getRoom(id)) return c.json({ error: "not found" }, 404);
 
-    // streamSSE sets Content-Type / Cache-Control / Connection automatically
-    // and flushes the response on every writeSSE — the prior `stream` helper
-    // was buffering until the generator returned, hiding token-by-token output.
+    // EventSource auto-sends Last-Event-ID on auto-reconnect (the
+    // browser remembers the most-recent `id: N` we wrote). Parse it
+    // so we can replay events from the in-memory ring buffer · the
+    // gap between disconnect and reconnect would otherwise lose
+    // voice-chunks / message-tokens silently and leave the orchestrator
+    // hanging in waitForVoicePlayback (the client never sends a final
+    // voice-done because it never knew the voice-final arrived).
+    const lastIdHeader = c.req.header("last-event-id");
+    const sinceId = lastIdHeader ? Number.parseInt(lastIdHeader, 10) : NaN;
+
     return streamSSE(c, async (s) => {
       // Send a hello so the client knows the channel is live.
       await s.writeSSE({ event: "hello", data: JSON.stringify({ roomId: id, ts: Date.now() }) });
 
-      const queue: RoomEvent[] = [];
+      // Replay missed events before subscribing for new ones. Order
+      // matters · subscribe FIRST would race the replay (a new event
+      // could arrive mid-replay and end up out of order). We hold
+      // new events in `queue` from the start; replay events are
+      // pushed onto the queue's head so they drain first.
+      const queue: Array<{ id: number; event: RoomEvent }> = [];
       let resolveWaiter: (() => void) | null = null;
       let closed = false;
 
-      const off = roomBus.subscribe(id, (event: RoomEvent) => {
-        queue.push(event);
+      if (Number.isFinite(sinceId) && sinceId > 0) {
+        const missed = roomBus.replay(id, sinceId);
+        for (const m of missed) queue.push({ id: m.id, event: m.event });
+      }
+
+      const off = roomBus.subscribeWithId(id, (eventId, event) => {
+        queue.push({ id: eventId, event });
         if (resolveWaiter) {
           resolveWaiter();
           resolveWaiter = null;
@@ -636,15 +597,19 @@ export function roomsRouter(): Hono {
       });
 
       // Pump events from the bus to the client one at a time, awaiting each
-      // write so back-pressure is honored.
+      // write so back-pressure is honored. The `id:` field is what
+      // EventSource records for its next Last-Event-ID handshake.
       while (!closed) {
         if (queue.length === 0) {
-          // Wait for the next event (or abort).
           await new Promise<void>((resolve) => { resolveWaiter = resolve; });
           continue;
         }
-        const event = queue.shift()!;
-        await s.writeSSE({ event: event.type, data: JSON.stringify(event) });
+        const { id: eventId, event } = queue.shift()!;
+        await s.writeSSE({
+          id: String(eventId),
+          event: event.type,
+          data: JSON.stringify(event),
+        });
       }
     });
   });
@@ -785,6 +750,19 @@ export function roomsRouter(): Hono {
     const messageId = c.req.param("messageId");
     if (!getRoom(id)) return c.json({ error: "not found" }, 404);
     return c.json({ ok: markVoicePlaybackDone(id, messageId) });
+  });
+
+  // Heartbeat · the client POSTs this every few seconds while voice
+  // playback advances. Resets the no-heartbeat fallback in
+  // waitForVoicePlayback so long director responses (slow rate,
+  // long sentence count) don't trip the orchestrator's timeout and
+  // emit the chair vote summary mid-playback. The fallback only
+  // fires when the heartbeat goes silent (tab killed / network drop).
+  r.post("/:id/messages/:messageId/voice-progress", (c) => {
+    const id = c.req.param("id");
+    const messageId = c.req.param("messageId");
+    if (!getRoom(id)) return c.json({ error: "not found" }, 404);
+    return c.json({ ok: bumpVoicePlaybackHeartbeat(id, messageId) });
   });
 
   // ── Pause the room — body { mode: "hard" | "soft" }.

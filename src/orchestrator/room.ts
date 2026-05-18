@@ -65,9 +65,12 @@ import {
 } from "../storage/topic-branches.js";
 import { pickNextSpeaker, pickRoundWrap, pickSkills } from "./skill-picker.js";
 import { roomBus, type RoomEvent } from "./stream.js";
+import { withTimeout, TimeoutError } from "./timeouts.js";
+import { emitAutoSkipped } from "./auto-skip.js";
+import { finalizeStreamingMessage } from "../storage/messages.js";
 import { listSkillsForAgent } from "../storage/skills.js";
 import { SentenceChunker } from "../voice/sentence-splitter.js";
-import { synthesizeSpeechStream, voiceProfileForAgent } from "../voice/tts.js";
+import { synthesizeSpeechStream, tryExtractTtsBillingError, voiceProfileForAgent } from "../voice/tts.js";
 import type { AgentVoiceProfile } from "../storage/agents.js";
 
 type QueueStatus = "queued" | "speaking";
@@ -83,9 +86,38 @@ interface PendingUserAfterCurrent {
   replyToId: string | null;
 }
 
+/** Pre-warmed next-speaker state · cross-director pipelining.
+ *  Populated by the `onMessageFinal` hook of the currently-streaming
+ *  director's `streamSpeakerTurn` — the moment LLM text is done (so
+ *  the next speaker's prompt has the full context), we fire B's
+ *  streamSpeakerTurn off the side. The promise resolves in the
+ *  background while A's TTS plays out client-side; pumpQueue's next
+ *  iteration consumes it without re-issuing the call. `messageId` is
+ *  empty until streamSpeakerTurn's `onPlaceholder` callback fills it
+ *  in (after insertMessage + message-appended emit). */
+interface PreWarmedSpeaker {
+  agentId: string;
+  messageId: string;
+  promise: Promise<string | null>;
+  abortController: AbortController;
+}
+
 interface RoomState {
   queue: QueueEntry[];
-  inflight: AbortController | null;
+  /** In-flight LLM streams keyed by messageId. Up to two active at
+   *  once during pre-warm: the currently-audible director (A) + the
+   *  pre-warmed next-up (B). The map allows abort routes
+   *  (abortRoom / chairInterrupt / tickRoom) to fan out an abort over
+   *  every active stream. Sentinel key `pending:<agentId>` is used
+   *  for the brief window between AbortController creation and the
+   *  placeholder.id being known (streamSpeakerTurn rekeys via the
+   *  `onPlaceholder` callback). */
+  inflight: Map<string, AbortController>;
+  /** One-deep look-ahead · the next speaker whose LLM is already
+   *  running in the background. Null when no pre-warm is active.
+   *  Consumed at the top of the next pumpQueue iteration when its
+   *  `agentId` matches queue[0]. */
+  preWarmed: PreWarmedSpeaker | null;
   processing: boolean;
   roundNum: number;
   /** Total speakers fired since the last user message. Capped to avoid runaway. */
@@ -145,7 +177,24 @@ interface RoomState {
    *  next user-message tick (tickRoom resets state) so the user can try
    *  again after fixing the key. */
   billingHaltedThisTurn: boolean;
-  voiceWaiters: Map<string, () => void>;
+  /** Per-message voice playback waiter. `resolve()` fires when the
+   *  client POSTs /voice-done. `bump()` resets the no-heartbeat
+   *  timeout — every /voice-progress POST from the client (driven by
+   *  audio.timeupdate) calls this so a long but actively-playing
+   *  audio doesn't trip the fallback. The fallback only fires when
+   *  the heartbeat goes silent (browser tab killed, network drop). */
+  voiceWaiters: Map<string, { resolve: () => void; bump: () => void }>;
+  /** Pre-done messageIds · client posted /voice-done BEFORE the
+   *  orchestrator called waitForVoicePlayback for that id. Without
+   *  this set, the late waitForVoicePlayback would hang for its 30s
+   *  fallback because the resolving POST has already been consumed
+   *  and discarded. The user-skip path can race here in particular:
+   *  POST /voice-done lands while streamSpeakerTurn is still
+   *  processing the LLM abort; by the time pumpQueue gets to
+   *  waitForVoicePlayback(messageId), the "done" signal is gone.
+   *  waitForVoicePlayback checks this set first and resolves
+   *  immediately if pre-marked, then deletes the entry. */
+  voicePredone: Set<string>;
 }
 
 const _state = new Map<string, RoomState>();
@@ -203,7 +252,8 @@ function ensureState(roomId: string): RoomState {
   if (!s) {
     s = {
       queue: [],
-      inflight: null,
+      inflight: new Map(),
+      preWarmed: null,
       processing: false,
       roundNum: 1,
       speakersThisTurn: 0,
@@ -218,6 +268,7 @@ function ensureState(roomId: string): RoomState {
       lastFrameBreakerAgentId: null,
       billingHaltedThisTurn: false,
       voiceWaiters: new Map(),
+      voicePredone: new Set(),
     };
     _state.set(roomId, s);
   }
@@ -226,32 +277,95 @@ function ensureState(roomId: string): RoomState {
 
 export function markVoicePlaybackDone(roomId: string, messageId: string): boolean {
   const s = _state.get(roomId);
-  const waiter = s?.voiceWaiters.get(messageId);
-  if (!waiter || !s) return false;
-  s.voiceWaiters.delete(messageId);
-  waiter();
+  if (!s) return false;
+  const waiter = s.voiceWaiters.get(messageId);
+  if (waiter) {
+    s.voiceWaiters.delete(messageId);
+    waiter.resolve();
+    return true;
+  }
+  // No waiter yet · record the "done" signal so a later
+  // waitForVoicePlayback for this messageId resolves immediately
+  // instead of hanging for the fallback. The user-initiated skip
+  // path races here: the client POSTs /voice-done while
+  // streamSpeakerTurn is still in its catch, then pumpQueue
+  // eventually calls waitForVoicePlayback when the function returns
+  // — by which point the "done" signal has nowhere to land.
+  s.voicePredone.add(messageId);
+  return false;
+}
+
+/** Client heartbeat · the audio element is actively producing sound.
+ *  Called from POST /voice-progress, fired by the client every few
+ *  seconds while audio.timeupdate ticks. Resets the no-heartbeat
+ *  timeout so long playback (slow rate, long response) doesn't trip
+ *  the fallback. Returns true when a waiter was found (and bumped),
+ *  false when none was registered (waitForVoicePlayback hadn't been
+ *  called yet, or the message is already done). */
+export function bumpVoicePlaybackHeartbeat(roomId: string, messageId: string): boolean {
+  const s = _state.get(roomId);
+  if (!s) return false;
+  const waiter = s.voiceWaiters.get(messageId);
+  if (!waiter) return false;
+  waiter.bump();
   return true;
 }
 
-export function waitForVoicePlayback(roomId: string, messageId: string, timeoutMs = 120_000): Promise<void> {
+/** Server-side fallback timeout for the client to POST /voice-done.
+ *  The timeout is HEARTBEAT-BASED · every /voice-progress POST from
+ *  the client (driven by audio.timeupdate while playback advances)
+ *  resets the clock. So as long as audio is actively playing on the
+ *  client, the wait extends indefinitely. The fallback only fires
+ *  when the heartbeat goes silent — meaning the browser tab was
+ *  killed, the user navigated away mid-audio, or the network dropped.
+ *  60s of silence is generous enough to absorb a brief network blip
+ *  while still recovering from a true client crash within the same
+ *  minute. */
+export function waitForVoicePlayback(
+  roomId: string,
+  messageId: string,
+  timeoutMs = 60_000,
+): Promise<void> {
   const s = ensureState(roomId);
+  // Pre-done check · honour any /voice-done POST that arrived
+  // BEFORE this waiter was registered. Consume the flag so subsequent
+  // waits for the same id (shouldn't happen, but defensive) don't
+  // resolve spuriously.
+  if (s.voicePredone.has(messageId)) {
+    s.voicePredone.delete(messageId);
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      s.voiceWaiters.delete(messageId);
-      resolve();
-    }, timeoutMs);
-    s.voiceWaiters.set(messageId, () => {
-      clearTimeout(timer);
-      resolve();
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      timer = setTimeout(() => {
+        s.voiceWaiters.delete(messageId);
+        process.stderr.write(
+          `[voice-wait] no-heartbeat fallback fired for msg=${messageId.slice(0, 8)} after ${timeoutMs}ms\n`,
+        );
+        resolve();
+      }, timeoutMs);
+    };
+    arm();
+    s.voiceWaiters.set(messageId, {
+      resolve: () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      bump: () => {
+        clearTimeout(timer);
+        arm();
+      },
     });
   });
 }
 
-/** True if a director is currently streaming a turn. */
+/** True if any director is currently streaming a turn. Counts BOTH
+ *  the audible speaker and the pre-warmed look-ahead. */
 export function isRoomSpeaking(roomId: string): boolean {
   const s = _state.get(roomId);
   if (!s) return false;
-  return s.inflight !== null;
+  return s.inflight.size > 0;
 }
 
 /**
@@ -311,7 +425,7 @@ export function injectSpeakers(roomId: string, agentIds: string[]): void {
 export function requestSoftPause(roomId: string): void {
   const s = ensureState(roomId);
   s.pauseAfterCurrent = true;
-  rlog(roomId, "soft-pause-requested", { remaining: s.queue.length, speaking: s.inflight ? 1 : 0 });
+  rlog(roomId, "soft-pause-requested", { remaining: s.queue.length, speaking: s.inflight.size });
 }
 
 /** Stash a user message to be delivered between the current speaker
@@ -335,7 +449,7 @@ export function setPendingUserAfterCurrent(
 export function requestRoundEndAfterCurrent(roomId: string): void {
   const s = ensureState(roomId);
   s.pendingRoundEnd = true;
-  rlog(roomId, "round-end-deferred", { remaining: s.queue.length, speaking: s.inflight ? 1 : 0 });
+  rlog(roomId, "round-end-deferred", { remaining: s.queue.length, speaking: s.inflight.size });
 }
 
 /** Has a soft-pause request been honored / cleared? */
@@ -377,35 +491,40 @@ export async function chairInterrupt(roomId: string): Promise<void> {
     status: "queued" as const,
   }));
 
-  // Abort the in-flight speaker · cancel their stream and delete their
-  // partial message so the chat doesn't carry a truncated bubble next
-  // to the chair's direct response.
+  // Abort all in-flight speakers (audible + pre-warmed) · cancel
+  // their streams. The chair direct response supersedes whatever
+  // director(s) were running. Pre-warmed must also abort so its LLM
+  // doesn't keep producing tokens after the chair takes over.
   let interruptedAgentId: string | null = null;
-  if (state.inflight) {
+  if (state.inflight.size > 0) {
     interruptedAgentId = state.queue[0]?.agentId ?? null;
-    state.inflight.abort();
-    state.inflight = null;
-    if (interruptedAgentId) {
-      // Find the most recent streaming agent message from this speaker
-      // and remove it. The placeholder was inserted by streamSpeakerTurn
-      // moments before the abort.
-      const recent = listRecentMessages(roomId, 8);
-      for (let i = recent.length - 1; i >= 0; i--) {
-        const m = recent[i];
-        if (
-          m.authorKind === "agent" &&
-          m.authorId === interruptedAgentId &&
-          m.meta &&
-          (m.meta as { streaming?: boolean }).streaming === true
-        ) {
-          deleteMessage(m.id);
-          roomBus.emit(roomId, {
-            type: "message-removed",
-            messageId: m.id,
-            reason: "chair-interrupt",
-          });
-          break;
-        }
+    for (const ac of state.inflight.values()) ac.abort();
+    state.inflight.clear();
+  }
+  if (state.preWarmed) {
+    try { state.preWarmed.abortController.abort(); } catch (_) {}
+    state.preWarmed = null;
+  }
+  if (interruptedAgentId) {
+    // Find the most recent streaming agent message from this speaker
+    // and remove it. The placeholder was inserted by streamSpeakerTurn
+    // moments before the abort.
+    const recent = listRecentMessages(roomId, 8);
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const m = recent[i];
+      if (
+        m.authorKind === "agent" &&
+        m.authorId === interruptedAgentId &&
+        m.meta &&
+        (m.meta as { streaming?: boolean }).streaming === true
+      ) {
+        deleteMessage(m.id);
+        roomBus.emit(roomId, {
+          type: "message-removed",
+          messageId: m.id,
+          reason: "chair-interrupt",
+        });
+        break;
       }
     }
   }
@@ -463,7 +582,7 @@ export function abortRoom(roomId: string): void {
     maxSpeakersThisTurn: s.maxSpeakersThisTurn,
   };
   s.queue = [];
-  const wasSpeaking = s.inflight !== null;
+  const wasSpeaking = s.inflight.size > 0;
   // Don't reset s.speakersThisTurn — leaving it at K means the
   // queue-update we emit below carries the *true* "K spoken / N total"
   // for the paused round. Resetting it to 0 used to make the round
@@ -472,18 +591,29 @@ export function abortRoom(roomId: string): void {
   // would read the wrong value. resumeRoom restores from the snapshot
   // (a no-op since we kept the same value here); tickRoom does its own
   // explicit reset when the resume falls through to a fresh replan.
-  if (s.inflight) {
-    s.inflight.abort();
-    s.inflight = null;
+  for (const ac of s.inflight.values()) ac.abort();
+  s.inflight.clear();
+  // Pre-warmed look-ahead · abort + clear. The pre-warmed speaker's
+  // LLM was launched without user consent for "right now play it";
+  // a hard pause should kill it cleanly so credits aren't burned on
+  // tokens nobody will hear.
+  if (s.preWarmed) {
+    try { s.preWarmed.abortController.abort(); } catch (_) {}
+    s.preWarmed = null;
   }
   // Clear all pending voice waiters so waitForVoicePlayback resolves
-  // immediately instead of hanging for 120s. The frontend already
-  // stopped playback on hard-pause; these waiters will never be
-  // fulfilled by a voice-done POST.
-  for (const [id, waiter] of s.voiceWaiters) {
-    waiter();
+  // immediately instead of hanging for its fallback timeout. The
+  // frontend already stopped playback on hard-pause; these waiters
+  // will never be fulfilled by a voice-done POST.
+  for (const [, waiter] of s.voiceWaiters) {
+    waiter.resolve();
   }
   s.voiceWaiters.clear();
+  // Pre-done flags are room-scoped state · a hard pause invalidates
+  // any deferred "done" signals, so clear them too. Otherwise a stale
+  // predone entry from before pause could short-circuit a future
+  // legitimate waitForVoicePlayback after resume.
+  s.voicePredone.clear();
   rlog(roomId, "abort", {
     snapshot: remaining.length,
     round: s.roundNum,
@@ -629,9 +759,16 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
 
   const state = ensureState(roomId);
 
-  // Abort any in-flight speaker; the pump's finally clause will see the new
-  // queue when it resumes.
-  if (state.inflight) state.inflight.abort();
+  // Abort all in-flight speakers (audible + pre-warmed). The pump's
+  // finally clause will see the new queue when it resumes. Replanning
+  // invalidates whoever was pre-warmed (their context is now stale),
+  // so kill that one too.
+  for (const ac of state.inflight.values()) ac.abort();
+  state.inflight.clear();
+  if (state.preWarmed) {
+    try { state.preWarmed.abortController.abort(); } catch (_) {}
+    state.preWarmed = null;
+  }
 
   // Voice rooms · the aborted speaker streamed some text before the abort
   // → streamSpeakerTurn returns its messageId (not null) → the pump is
@@ -645,7 +782,7 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
   // continues with the fresh plan. Mirrors abortRoom's voice-waiter
   // drain. Safe in text rooms · voiceWaiters is empty there.
   for (const [, waiter] of state.voiceWaiters) {
-    waiter();
+    waiter.resolve();
   }
   state.voiceWaiters.clear();
 
@@ -694,6 +831,148 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
   }
 }
 
+/* ── Cross-director pre-warm helpers ──────────────────────────────────
+   Called by streamSpeakerTurn's `onMessageFinal` callback to launch
+   the NEXT director's LLM stream while the current director's TTS is
+   still playing on the client. Depth-1: never pre-warm more than one
+   ahead. Reuses pickNextSpeaker for discipline (with a 15s timeout
+   fallback to queue order). Stores the in-flight promise in
+   state.preWarmed; pumpQueue's next iteration consumes it without
+   re-issuing the LLM call. */
+
+function schedulePreWarm(roomId: string, currentMessageId: string): void {
+  // Fire-and-forget · the picker haiku is awaited inside, but pumpQueue
+  // doesn't block on this scheduling call. Errors are logged, never
+  // thrown — pre-warm is a UX optimisation, not a correctness gate.
+  void runPickerThenPrewarm(roomId, currentMessageId).catch((e) => {
+    process.stderr.write(`[pre-warm] failed: ${e instanceof Error ? e.message : String(e)}\n`);
+  });
+}
+
+async function runPickerThenPrewarm(roomId: string, _currentMessageId: string): Promise<void> {
+  const state = ensureState(roomId);
+  // Race guards · these checks fire in the brief window between
+  // message-final emit and pumpQueue's next iteration consuming
+  // preWarmed. abortRoom / tickRoom / chairInterrupt all clear
+  // preWarmed; if anyone did so between scheduling and execution,
+  // bail out (the room state has moved on).
+  if (state.preWarmed) return;
+  if (state.queue.length < 2) return;
+  const room = getRoom(roomId);
+  if (!room || room.status !== "live") return;
+  if (room.deliveryMode !== "voice") return; // text mode has no TTS gap to fill
+  if (state.pendingRoundEnd || state.pauseAfterCurrent || state.billingHaltedThisTurn) return;
+  if (room.awaitingClarify || room.awaitingContinue) return;
+
+  // Lightweight picker discipline · simpler than pumpQueue's inline
+  // path (no divergence-stack / convergent-terms feedback). The v1
+  // pre-warm path trades that nuance for the 5-15s latency win.
+  // When the picker times out or errors, fall back to queue order.
+  const recent = listRecentMessages(roomId, 30);
+  const directorAlreadySpoke = recent.some((m) => {
+    if (m.authorKind !== "agent" || m.roundNum !== state.roundNum) return false;
+    if ((m.meta as { kind?: string })?.kind) return false;
+    const a = m.authorId ? getAgent(m.authorId) : null;
+    return a?.roleKind === "director";
+  });
+
+  const candidates: Agent[] = state.queue
+    .map((q) => getAgent(q.agentId))
+    .filter((a): a is Agent => a !== null);
+
+  let pickedAgentId: string | null = null;
+  if (directorAlreadySpoke && candidates.length >= 2) {
+    try {
+      const pick = await withTimeout(
+        pickNextSpeaker({
+          candidates,
+          history: recent,
+          room: { subject: room.subject ?? null },
+          mode: "lens-gap",
+        }),
+        15_000,
+        "prewarm-picker",
+      );
+      pickedAgentId = pick.agentId;
+    } catch (e) {
+      process.stderr.write(`[pre-warm picker] ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  }
+
+  // Re-check race guards after the await · the room might have moved
+  // on while picker was running.
+  if (state.preWarmed) return;
+  const live = getRoom(roomId);
+  if (!live || live.status !== "live") return;
+  if (state.queue.length < 2) return;
+
+  // Reorder · move picker's choice into queue[1] (queue[0] is the
+  // currently-audible director, still streaming TTS chunks).
+  if (pickedAgentId) {
+    const idx = state.queue.findIndex((q) => q.agentId === pickedAgentId);
+    if (idx > 1) {
+      const [picked] = state.queue.splice(idx, 1);
+      state.queue.splice(1, 0, picked!);
+      emitQueueUpdate(roomId, state);
+    }
+  }
+
+  const nextEntry = state.queue[1];
+  if (!nextEntry) return;
+  const nextSpeaker = getAgent(nextEntry.agentId);
+  if (!nextSpeaker) return;
+  // Skip self-heal here · streamSpeakerTurn does its own reconcile if
+  // the modelV isn't reachable, so we don't need to duplicate.
+
+  // Spin up B's stream fire-and-forget. Inflight is keyed by the
+  // sentinel until streamSpeakerTurn calls onPlaceholder with the
+  // real messageId, at which point we rekey.
+  const ac = new AbortController();
+  const sentinel = `pending:${nextSpeaker.id}`;
+  state.inflight.set(sentinel, ac);
+
+  rlog(roomId, "prewarm-start", {
+    agent: nextSpeaker.name,
+    agentId: nextSpeaker.id,
+    pickedByHaiku: !!pickedAgentId,
+    queueHead: state.queue[0]?.agentId,
+  });
+
+  const preWarmed: PreWarmedSpeaker = {
+    agentId: nextEntry.agentId,
+    messageId: "",
+    promise: Promise.resolve(null), // backfilled below
+    abortController: ac,
+  };
+
+  preWarmed.promise = streamSpeakerTurn({
+    roomId,
+    speaker: nextSpeaker,
+    roundNum: state.roundNum,
+    signal: ac.signal,
+    preWarmed: true,
+    onPlaceholder: (info) => {
+      preWarmed.messageId = info.messageId;
+      if (state.inflight.has(sentinel)) {
+        state.inflight.delete(sentinel);
+        state.inflight.set(info.messageId, ac);
+      }
+    },
+    // Chain trigger lives in pumpQueue's consume point, NOT here.
+    // Rationale: B's `message-final` fires while B is still occupying
+    // `state.preWarmed`. A nested schedulePreWarm() call from inside
+    // B's pre-warm stream would hit the `if (state.preWarmed) return`
+    // guard at the top of runPickerThenPrewarm and bail — C never
+    // gets pre-warmed, depth-1 collapses to "first pair only". The
+    // correct hook is the moment pumpQueue clears preWarmed (consume
+    // path); at that instant the slot is free, the queue head has
+    // advanced, and the next pre-warm has the right context.
+    // onMessageFinal intentionally omitted.
+  });
+
+  state.preWarmed = preWarmed;
+}
+
 async function pumpQueue(roomId: string): Promise<void> {
   const state = ensureState(roomId);
   if (state.processing) {
@@ -722,6 +1001,14 @@ async function pumpQueue(roomId: string): Promise<void> {
         emitQueueUpdate(roomId, state);
         break;
       }
+      // Pre-warmed consume · the prior iteration's onMessageFinal
+      // scheduled this speaker's LLM ahead of time (runPickerThenPrewarm
+      // already ran the picker + started streamSpeakerTurn). If the
+      // pre-warmed agent matches queue[0], skip the inline picker block
+      // below (it would re-run pointlessly) and reuse the in-flight
+      // promise + AbortController.
+      const preWarmedHit = !!(state.preWarmed && state.queue[0]
+        && state.preWarmed.agentId === state.queue[0].agentId);
       // ─── Next-speaker discipline · reactive rounds only ───────────
       // Before pulling the head of the queue, ask haiku to pick the
       // director whose lens most sharply addresses the previous turn's
@@ -729,7 +1016,10 @@ async function pumpQueue(roomId: string): Promise<void> {
       // prior turn to react to), on the FIRST speaker of a reactive
       // round (no prior turn yet either), and on single-candidate
       // queues. Failures fall back to the existing round-robin order.
-      if (state.queue.length >= 2) {
+      // Also skipped when consuming a pre-warmed stream · the picker
+      // already ran in runPickerThenPrewarm; re-running here would
+      // emit a confusing chair-pending "next-speaker" placeholder.
+      if (!preWarmedHit && state.queue.length >= 2) {
         const recent = listRecentMessages(roomId, 30);
         const round = state.roundNum;
         let isReactive = false;
@@ -836,13 +1126,40 @@ async function pumpQueue(roomId: string): Promise<void> {
                   }
                 } catch { /* defensive */ }
               }
-              const pick = await pickNextSpeaker({
-                candidates: pickerCandidates,
-                history: recent,
-                room: pickRoom ?? undefined,
-                mode: useDissentMode ? "dissent-gap" : "lens-gap",
-                convergentTerms: useDissentMode ? convergentTerms : undefined,
-              });
+              // 15s timeout · picker is a single haiku call (2–3s typical).
+              // If it hangs we fall back to the existing round-robin
+              // queue order — pick.agentId resolves to null and the
+              // reorder-block below skips, letting state.queue[0] win.
+              // emitAutoSkipped tells the client a fallback happened so
+              // the user sees a toast instead of wondering why the
+              // dissent-mode pick didn't take effect.
+              const fallbackPick: Awaited<ReturnType<typeof pickNextSpeaker>> = {
+                agentId: null, rationale: "", intervention: null,
+              };
+              let pick: Awaited<ReturnType<typeof pickNextSpeaker>> = fallbackPick;
+              try {
+                pick = await withTimeout(
+                  pickNextSpeaker({
+                    candidates: pickerCandidates,
+                    history: recent,
+                    room: pickRoom ?? undefined,
+                    mode: useDissentMode ? "dissent-gap" : "lens-gap",
+                    convergentTerms: useDissentMode ? convergentTerms : undefined,
+                  }),
+                  15_000,
+                  "speaker-picker",
+                );
+              } catch (e) {
+                if (e instanceof TimeoutError) {
+                  process.stderr.write(`[picker] timeout — falling back to round-robin\n`);
+                  emitAutoSkipped(roomId, "picker", "picker-timeout");
+                } else {
+                  process.stderr.write(
+                    `[picker] error: ${e instanceof Error ? e.message : String(e)}\n`,
+                  );
+                }
+                pick = fallbackPick;
+              }
               // Frame-breaker rotation · Layer 2.2 · designate ONE
               // director per converging reactive round to do a
               // structural frame-break. Preference order:
@@ -982,8 +1299,61 @@ async function pumpQueue(roomId: string): Promise<void> {
         continue;
       }
 
-      const ac = new AbortController();
-      state.inflight = ac;
+      // Dispatch · consume pre-warmed promise when its agent matches
+      // queue[0], otherwise start streamSpeakerTurn fresh. The fresh
+      // path wires onPlaceholder (rekey inflight) and onMessageFinal
+      // (schedule the FIRST pre-warm A→B). Subsequent links in the
+      // rolling depth-1 chain (B→C, C→D, ...) are scheduled right
+      // here at the consume point — see comment below.
+      let ac: AbortController;
+      let streamPromise: Promise<string | null>;
+      if (preWarmedHit && state.preWarmed) {
+        const justConsumed = state.preWarmed;
+        ac = state.preWarmed.abortController;
+        streamPromise = state.preWarmed.promise;
+        state.preWarmed = null;
+        rlog(roomId, "speaker-prewarm-consumed", {
+          agent: speaker.name,
+          agentId: speaker.id,
+        });
+        // Rolling depth-1 chain · the slot we just freed is the
+        // place for the NEXT pre-warm. Without this hook the chain
+        // dies after the A→B handoff: B's onMessageFinal already
+        // fired while state.preWarmed was still B (guard bail in
+        // runPickerThenPrewarm), so nothing ever schedules C. By
+        // calling here, C/D/E each get pre-warmed exactly when the
+        // queue head advances. schedulePreWarm has its own race
+        // guards (live status, queue.length>=2, not paused, etc.),
+        // so this is safe even when the round is winding down.
+        schedulePreWarm(roomId, justConsumed.messageId);
+      } else {
+        rlog(roomId, "speaker-fresh-path", {
+          agent: speaker.name,
+          agentId: speaker.id,
+          hasPrewarm: !!state.preWarmed,
+          prewarmAgent: state.preWarmed?.agentId ?? null,
+          queueHead: state.queue[0]?.agentId,
+          note: "Pre-warm did NOT cover this speaker · they go through fresh path. Their meta.preWarmed will be false; their bubble will NOT be hidden during a prior TTS.",
+        });
+        ac = new AbortController();
+        const sentinel = `pending:${speaker.id}`;
+        state.inflight.set(sentinel, ac);
+        streamPromise = streamSpeakerTurn({
+          roomId,
+          speaker,
+          roundNum: state.roundNum,
+          signal: ac.signal,
+          onPlaceholder: (info) => {
+            if (state.inflight.has(sentinel)) {
+              state.inflight.delete(sentinel);
+              state.inflight.set(info.messageId, ac);
+            }
+          },
+          onMessageFinal: (info) => {
+            schedulePreWarm(roomId, info.messageId);
+          },
+        });
+      }
 
       const turnStart = Date.now();
       rlog(roomId, "speaker-start", {
@@ -992,15 +1362,11 @@ async function pumpQueue(roomId: string): Promise<void> {
         modelV: speaker.modelV,
         round: state.roundNum,
         position: `${state.speakersThisTurn + 1}/${state.maxSpeakersThisTurn}`,
+        preWarmed: preWarmedHit,
       });
 
       try {
-        const messageId = await streamSpeakerTurn({
-          roomId,
-          speaker,
-          roundNum: state.roundNum,
-          signal: ac.signal,
-        });
+        const messageId = await streamPromise;
         // Voice mode: wait for the frontend to signal playback is complete
         // before allowing the next director to speak.
         if (messageId && getRoom(roomId)?.deliveryMode === "voice") {
@@ -1023,7 +1389,15 @@ async function pumpQueue(roomId: string): Promise<void> {
         });
         process.stderr.write(`[orchestrator] stream error: ${msg}\n`);
       } finally {
-        state.inflight = null;
+        // Clean up inflight by AbortController reference · the entry
+        // may be keyed by `pending:<agentId>` sentinel OR by the real
+        // messageId depending on whether onPlaceholder fired before
+        // catch/finally. Walking by ref handles both.
+        const keysToDel: string[] = [];
+        for (const [key, val] of state.inflight) {
+          if (val === ac) keysToDel.push(key);
+        }
+        for (const key of keysToDel) state.inflight.delete(key);
       }
 
       // Was this turn aborted by a fresh tick? If so, the queue's been
@@ -1173,15 +1547,36 @@ async function pumpQueue(roomId: string): Promise<void> {
         room.voteTrigger !== "manual"
       ) {
         const wrappedRound = state.roundNum;
+        // Bridge the silent gap · pickRoundWrap is a haiku (1-3s
+        // typical, slow path 10s+ on network blips). Without a
+        // signal, the user sees the room frozen after the last
+        // director speaks. emitChairPending lights up the chair
+        // seat with "Summarizing round" so the user understands
+        // why the next 1-3s are quiet. Phase string maps to
+        // i18n key rt_phase_vote_summary.
+        emitChairPending(roomId, "vote-summary");
         let recommendation: { kind: "end" | "continue"; rationale: string } | undefined;
         try {
           const recent = listRecentMessages(roomId, 30);
-          const wrap = await pickRoundWrap({ history: recent, roundNum: wrappedRound, room });
+          // 15s timeout · matches the rest of the haiku call sites
+          // (clarify-decision, next-speaker picker). On timeout,
+          // proceed without a recommendation → announceRoundPrompt
+          // falls back to the neutral templated tail.
+          const wrap = await withTimeout(
+            pickRoundWrap({ history: recent, roundNum: wrappedRound, room }),
+            15_000,
+            "pickRoundWrap",
+          );
           recommendation = { kind: wrap.recommendation, rationale: wrap.rationale };
         } catch (e) {
-          rlog(roomId, "round-wrap-error", {
-            error: e instanceof Error ? e.message : String(e),
-          });
+          if (e instanceof TimeoutError) {
+            process.stderr.write(`[round-wrap] timeout — using neutral prompt\n`);
+            emitAutoSkipped(roomId, "picker", "pickRoundWrap-timeout");
+          } else {
+            rlog(roomId, "round-wrap-error", {
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
         }
         // Re-check guards after the haiku · a competing tickRoom could
         // have flipped the room's status / phase / round mid-flight.
@@ -1224,10 +1619,28 @@ interface StreamArgs {
   speaker: Agent;
   roundNum: number;
   signal: AbortSignal;
+  /** True when this stream is the pre-warmed look-ahead (B started
+   *  while A's TTS is still playing). The placeholder meta carries
+   *  `preWarmed: true` so the client knows to hide the chat bubble
+   *  until the audio actually starts playing. Default false. */
+  preWarmed?: boolean;
+  /** Called synchronously right after the placeholder is inserted +
+   *  `message-appended` is emitted. Lets pumpQueue rekey its
+   *  `pending:<agentId>` sentinel in `state.inflight` to the real
+   *  messageId, so abort routes (pause, chairInterrupt, tickRoom)
+   *  see the canonical key. Best-effort · failures are swallowed. */
+  onPlaceholder?: (info: { messageId: string }) => void;
+  /** Called synchronously after `message-final` is emitted but before
+   *  this function returns. Used by pumpQueue to schedule pre-warm
+   *  of the next speaker the moment LLM text is done (TTS chunks may
+   *  still be emitting). The callback runs inside the same task as
+   *  the message-final emit so the timestamps line up; callers
+   *  should keep it cheap (fire-and-forget). */
+  onMessageFinal?: (info: { messageId: string }) => void;
 }
 
 async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
-  const { roomId, speaker, roundNum, signal } = args;
+  const { roomId, speaker, roundNum, signal, preWarmed = false, onPlaceholder, onMessageFinal } = args;
 
   const room = getRoom(roomId);
   if (!room) return null;
@@ -1471,6 +1884,14 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     speakerStatus: "streaming",
     streaming: true,
   };
+  // Pre-warm marker · the cross-director pipeline emits message-
+  // appended for B while A's TTS is still playing on this client. The
+  // client uses this flag to hide B's bubble (data-prewarmed) until
+  // its audio actually starts. _fireVoiceDone's promote logic +
+  // message-error fallback reveal the bubble at the right time.
+  if (preWarmed) {
+    placeholderMeta.preWarmed = true;
+  }
   if (activeSkills.length > 0) {
     placeholderMeta.skillsUsed = activeSkills.map((s) => s.slug);
     if (pickerReason) placeholderMeta.skillsReason = pickerReason;
@@ -1503,6 +1924,15 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     roundNum: placeholder.roundNum,
     createdAt: placeholder.createdAt,
   });
+
+  // Tell pumpQueue the placeholder.id so it can rekey its inflight
+  // sentinel from `pending:<agentId>` to the real messageId. Best-
+  // effort · callback errors are swallowed so a buggy listener can't
+  // crash the stream.
+  if (onPlaceholder) {
+    try { onPlaceholder({ messageId: placeholder.id }); }
+    catch (e) { process.stderr.write(`[onPlaceholder] ${e instanceof Error ? e.message : String(e)}\n`); }
+  }
 
   let buf = "";
   let finishReason: string | undefined;
@@ -1552,35 +1982,122 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     const voiceProfile = currentVoiceProfile();
     if (!voiceProfile) return;
     process.stderr.write(`[tts] emitVoiceText called: provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} textLen=${text.length} text="${text.slice(0, 50)}"\n`);
-    let chunkCount = 0;
-    try {
-      for await (const chunk of synthesizeSpeechStream(text, voiceProfile, signal)) {
-        if (signal.aborted) break;
-        chunkCount++;
-        roomBus.emit(roomId, {
-          type: "voice-chunk",
-          messageId: placeholder.id,
-          seq: voiceSeq++,
-          text: chunk.text,
-          provider: chunk.provider,
-          model: chunk.model,
-          voiceId: chunk.voiceId,
-          ...(chunk.mimeType ? { mimeType: chunk.mimeType } : {}),
-          ...(chunk.audioBase64 ? { audioBase64: chunk.audioBase64 } : {}),
-        });
+
+    // Per-attempt timeout · MiniMax / ElevenLabs occasionally accept
+    // the HTTP request then never push the streaming body. Without a
+    // timeout the for-await loop hangs forever and the room sits in
+    // waitForVoicePlayback for its full grace window (~30s after the
+    // client watchdog change). 30s is generous · a healthy first
+    // chunk lands in 200-800ms; even a 5s response is unusual.
+    //
+    // Retry policy · only re-attempt when zero chunks reached the
+    // client on the first try (pure timeout / network blip). If we
+    // had partial success and then a mid-stream error, the client
+    // already started playing audio · re-emitting the same sentence
+    // from scratch would concatenate fresh audio onto the half-played
+    // clip → duplicated / garbled speech. Accept the partial loss.
+    const MAX_ATTEMPTS = 2;
+    const TIMEOUT_MS = 30_000;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (signal.aborted) return;
+      // Combine the outer room abort with a per-attempt timeout into
+      // a single AbortController · synthesizeSpeechStream cancels on
+      // EITHER signal.
+      const timeoutCtrl = new AbortController();
+      const timer = setTimeout(() => timeoutCtrl.abort(), TIMEOUT_MS);
+      const onOuterAbort = (): void => timeoutCtrl.abort();
+      signal.addEventListener("abort", onOuterAbort);
+
+      let chunkCount = 0;
+      let failure: Error | null = null;
+      try {
+        for await (const chunk of synthesizeSpeechStream(text, voiceProfile, timeoutCtrl.signal)) {
+          if (signal.aborted) break;
+          chunkCount++;
+          roomBus.emit(roomId, {
+            type: "voice-chunk",
+            messageId: placeholder.id,
+            seq: voiceSeq++,
+            text: chunk.text,
+            provider: chunk.provider,
+            model: chunk.model,
+            voiceId: chunk.voiceId,
+            ...(chunk.mimeType ? { mimeType: chunk.mimeType } : {}),
+            ...(chunk.audioBase64 ? { audioBase64: chunk.audioBase64 } : {}),
+          });
+        }
+      } catch (e) {
+        failure = e instanceof Error ? e : new Error(String(e));
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onOuterAbort);
       }
-      process.stderr.write(`[tts] emitVoiceText done: ${chunkCount} chunks emitted\n`);
-    } catch (e) {
-      // TTS failed (no key for new provider, voiceId rejected,
-      // upstream rate-limit, network blip). The turn keeps
-      // streaming text via the LLM path; this sentence just
-      // won't have audio. Stderr message is the source of truth
-      // for diagnosing why an agent "went quiet" mid-room.
+
+      if (signal.aborted) {
+        process.stderr.write(`[tts] outer abort during attempt ${attempt}, giving up\n`);
+        return;
+      }
+      if (!failure) {
+        process.stderr.write(`[tts] emitVoiceText done (attempt ${attempt}/${MAX_ATTEMPTS}): ${chunkCount} chunks emitted\n`);
+        return;
+      }
+      // Billing failure · don't waste retries on it (the user has to
+      // top up first). Forward to the frontend so the upgrade overlay
+      // surfaces and skip the remaining attempts.
+      const billing = tryExtractTtsBillingError(failure);
+      if (billing) {
+        roomBus.emit(roomId, {
+          type: "voice-error",
+          messageId: placeholder.id,
+          code: billing.code,
+          provider: billing.provider,
+          message: billing.message,
+          upgradeUrl: billing.upgradeUrl,
+        });
+        process.stderr.write(
+          `[tts] BILLING-ERROR room=${roomId} agent=${speaker.name} provider=${voiceProfile.provider} · ${billing.message}\n`,
+        );
+        return;
+      }
+      const willRetry = attempt < MAX_ATTEMPTS && chunkCount === 0;
       process.stderr.write(
-        `[tts] ERROR room=${roomId} agent=${speaker.name} provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} · ${e instanceof Error ? e.stack || e.message : String(e)}\n`,
+        `[tts] ERROR attempt=${attempt}/${MAX_ATTEMPTS} room=${roomId} agent=${speaker.name} provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} chunks=${chunkCount} · ${failure.stack || failure.message}` +
+        (willRetry ? " · retrying\n" : " · giving up\n"),
       );
+      if (!willRetry) return;
+      // Small backoff before re-attempt · gives a transient upstream
+      // failure (rate-limit, DNS hiccup) a moment to clear.
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
+
+  // Per-turn timeout layer · composes the outer room signal with two
+  // per-turn watchdogs so a hanging LLM doesn't leave the director
+  // bubble in "Thinking…" forever:
+  //   · firstTokenTimer  — 60s · if no text token has arrived, abort.
+  //     Catches "stream opened but provider returns nothing."
+  //   · hardCapTimer     — 120s · absolute ceiling on the entire LLM
+  //     stream. Catches "first token arrives, then long mid-stream
+  //     hang." 120s already covers the slowest legitimate turn we've
+  //     observed (deep-reasoning models on long contexts).
+  // Both timers abort `turnCtrl`, which is what we pass into
+  // callLLMStream. emitVoiceText keeps the outer `signal` so TTS for
+  // already-flushed sentences honours room pause/adjourn cleanly.
+  const turnCtrl = new AbortController();
+  const onRoomAbort = (): void => turnCtrl.abort();
+  if (signal.aborted) turnCtrl.abort();
+  else signal.addEventListener("abort", onRoomAbort);
+  let hardCapTimedOut = false;
+  let firstTokenTimedOut = false;
+  const hardCapTimer = setTimeout(() => {
+    if (!turnCtrl.signal.aborted) { hardCapTimedOut = true; turnCtrl.abort(); }
+  }, 120_000);
+  let firstTokenTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    if (buf.length === 0 && !turnCtrl.signal.aborted) {
+      firstTokenTimedOut = true; turnCtrl.abort();
+    }
+  }, 60_000);
 
   try {
   for await (const chunk of callLLMStream({
@@ -1600,11 +2117,15 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     // the next move is to cap reasoning explicitly via providerOptions
     // (`reasoning.max_tokens`) instead of just enlarging the total cap.
     maxTokens: 4000,
-    signal,
+    signal: turnCtrl.signal,
   })) {
     if (signal.aborted) break;
 
     if (chunk.type === "text") {
+      // First text token arrived · disarm the first-token watchdog
+      // so a long mid-stream pause doesn't get killed by a stale
+      // "nothing produced yet" check.
+      if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
       buf += chunk.delta;
       updateMessageBody(placeholder.id, buf, {
         ...placeholderMeta,
@@ -1709,7 +2230,18 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     // so pumpQueue's outer catch still logs (and skips the
     // speakersThisTurn increment).
     errored = true;
-    const msg = e instanceof Error ? e.message : String(e);
+    let msg = e instanceof Error ? e.message : String(e);
+    // Distinguish our per-turn watchdog timeouts from generic network
+    // errors so the auto-skipped toast tells the right story. Each
+    // watchdog also emits via emitAutoSkipped so the client toast
+    // can be tagged to this messageId.
+    if (firstTokenTimedOut) {
+      msg = `LLM did not produce any token within 60s · auto-skipped`;
+      emitAutoSkipped(roomId, "llm", "llm-first-token-timeout", placeholder.id);
+    } else if (hardCapTimedOut) {
+      msg = `LLM stream exceeded 120s hard cap · auto-skipped`;
+      emitAutoSkipped(roomId, "llm", "llm-timeout", placeholder.id);
+    }
     process.stderr.write(
       `[stream-throw] room=${roomId} agent=${speaker.name} modelV=${speaker.modelV} · ${msg}\n`,
     );
@@ -1724,7 +2256,24 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       messageId: placeholder.id,
       message: msg,
     });
-    throw e;
+    // Voice waiters · release the audio gate so the next speaker
+    // queues immediately instead of waiting the 30s waitForVoicePlayback
+    // fallback. Same path the client's stalled-bubble Skip uses.
+    markVoicePlaybackDone(roomId, placeholder.id);
+    // Don't re-throw on our own timeouts · they're a legitimate skip
+    // path, not a crash. Re-throw only for true unknown errors so
+    // pumpQueue's outer catch still surfaces them.
+    if (!firstTokenTimedOut && !hardCapTimedOut) throw e;
+  } finally {
+    // Always tear down watchdogs + listener · finalizeStreamingMessage
+    // is a defensive belt for any path that could leave the message
+    // in streaming:true (e.g., a future code change adds a new throw
+    // site). Idempotent · no-op when the message has already been
+    // finalized by the normal happy path or the catch above.
+    clearTimeout(hardCapTimer);
+    if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
+    signal.removeEventListener("abort", onRoomAbort);
+    finalizeStreamingMessage(placeholder.id, "turn-cleanup");
   }
 
   if (signal.aborted) {
@@ -1783,6 +2332,14 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       messageId: placeholder.id,
       finishReason,
     });
+    // Pre-warm hook · LLM text is done, full body is in DB, can be
+    // used as context for the next speaker. pumpQueue uses this to
+    // fire B's streamSpeakerTurn in the background while A's TTS
+    // chunks keep streaming out to the client. Best-effort.
+    if (onMessageFinal) {
+      try { onMessageFinal({ messageId: placeholder.id }); }
+      catch (e) { process.stderr.write(`[onMessageFinal] ${e instanceof Error ? e.message : String(e)}\n`); }
+    }
     // Layer 3.1 · topic tree · fire-and-forget post-turn branch tag.
     // Layer 4   · QD archive · fire-and-forget post-turn cell score.
     // Both run in parallel · independent failures. Skip trivially

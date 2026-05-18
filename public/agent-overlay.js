@@ -216,9 +216,29 @@
 
           <div class="agent-block agent-model-block">
             <div class="agent-block-label" data-i18n="ao_model">Model</div>
-            <div class="agent-model-display">
+            <div class="agent-model-display agent-model-display-readonly">
               <span class="agent-model-name"></span>
               <span class="agent-model-provider"></span>
+            </div>
+            <!-- Interactive model picker · only mounted when window.app
+                 is present (in-room view); on standalone gallery pages
+                 the readonly display above shows instead. Trigger reuses
+                 the agent-profile model dropdown vocabulary (ap-model-*)
+                 so the in-room overlay and the full profile page share
+                 ONE control treatment for model selection · same panel
+                 bar, name + provider chip + caret, same popover rows. -->
+            <div class="agent-model-edit private-only" data-agent-model-edit hidden>
+              <button type="button" class="ap-model-trigger" data-agent-model-trigger>
+                <span class="ap-model-trigger-text">
+                  <span class="ap-model-trigger-name" data-agent-model-value></span>
+                  <span class="ap-model-trigger-provider" data-agent-model-provider-tag></span>
+                </span>
+                <span class="ap-model-trigger-caret">▾</span>
+              </button>
+              <div class="agent-model-meta">
+                <span class="agent-model-saving" data-agent-model-saving hidden data-i18n="ao_model_saving">Saving…</span>
+                <span class="agent-model-error" data-agent-model-error hidden></span>
+              </div>
             </div>
           </div>
 
@@ -257,6 +277,17 @@
                 to see what they have said and where their stance shifted.
               </div>
             </div>
+          </div>
+
+          <!-- Kick-from-room block · only visible when this overlay is
+               opened from inside a live room AND the agent is a director
+               member of that room (NOT the chair · chair is structural).
+               Renders a confirm dialog before firing the PATCH so a
+               misclick can't silently boot a director mid-conversation. -->
+          <div class="agent-block agent-room-actions private-only" data-agent-room-actions hidden>
+            <button type="button" class="agent-kick-btn" data-agent-kick-btn>
+              <span data-i18n="ao_kick_button">Remove from this room</span>
+            </button>
           </div>
 
         </div>
@@ -383,22 +414,140 @@
 
       // Model · resolved from the live record (catalog entries don't
       // ship a modelV). Fall back to displaying the raw id if we don't
-      // have a friendly label for it yet.
-      const modelV = live ? live.modelV : null;
-      const modelMeta = modelV ? MODEL_LABELS[modelV] : null;
-      const modelBlock = card.querySelector(".agent-model-block");
-      const modelNameEl = card.querySelector(".agent-model-name");
-      const modelProvEl = card.querySelector(".agent-model-provider");
-      if (modelMeta) {
-        modelNameEl.textContent = modelMeta.name;
-        modelProvEl.textContent = modelMeta.provider;
-        modelBlock.style.display = "";
-      } else if (modelV) {
-        modelNameEl.textContent = modelV;
-        modelProvEl.textContent = "";
-        modelBlock.style.display = "";
-      } else {
-        modelBlock.style.display = "none";
+      // have a friendly label for it yet. When `live` is present (the
+      // common case · in-room view + signed-in roster), the read-only
+      // chip swaps to an interactive `<select>` so the user can switch
+      // the director's model without leaving the conversation.
+      // Model block + kick block setup · wrapped in try/catch so a
+      // missing selector or a broken sub-call can't prevent the rest
+      // of open() from reaching `overlay.classList.add("open")`. Without
+      // this guard, ANY thrown error here would silently abort the
+      // open() flow and the user would experience "clicked the avatar
+      // but nothing happened" with no visible affordance for the bug.
+      try {
+        const modelV = live ? live.modelV : null;
+        const modelMeta = modelV ? MODEL_LABELS[modelV] : null;
+        const modelBlock = card.querySelector(".agent-model-block");
+        const modelReadonly = card.querySelector(".agent-model-display-readonly");
+        const modelEdit = card.querySelector("[data-agent-model-edit]");
+        const modelNameEl = card.querySelector(".agent-model-display-readonly .agent-model-name");
+        const modelProvEl = card.querySelector(".agent-model-display-readonly .agent-model-provider");
+        const modelTrigger = card.querySelector("[data-agent-model-trigger]");
+        const modelValueEl = card.querySelector("[data-agent-model-value]");
+        const modelProviderTagEl = card.querySelector("[data-agent-model-provider-tag]");
+        const modelSavingEl = card.querySelector("[data-agent-model-saving]");
+        const modelErrorEl = card.querySelector("[data-agent-model-error]");
+        // Reset transient state on every open so a prior save's
+        // saving/error chips don't leak into the new agent's view.
+        if (modelSavingEl) modelSavingEl.hidden = true;
+        if (modelErrorEl) { modelErrorEl.hidden = true; modelErrorEl.textContent = ""; }
+
+        if (modelBlock) {
+          if (modelMeta) {
+            if (modelNameEl) modelNameEl.textContent = modelMeta.name;
+            if (modelProvEl) modelProvEl.textContent = modelMeta.provider;
+            modelBlock.style.display = "";
+          } else if (modelV) {
+            if (modelNameEl) modelNameEl.textContent = modelV;
+            if (modelProvEl) modelProvEl.textContent = "";
+            modelBlock.style.display = "";
+          } else {
+            modelBlock.style.display = "none";
+          }
+        }
+
+        // Wire the editable picker only when this overlay is mounted in
+        // the live in-room context (window.app + live record). Otherwise
+        // keep the readonly chip · standalone gallery pages can't PATCH.
+        const canEditModel = !!(live && window.app
+          && typeof fetch === "function"
+          && !document.body.classList.contains("public"));
+        if (canEditModel && modelTrigger && modelEdit && modelReadonly) {
+          // Trigger · name on the left, provider chip on the right,
+          // caret last. Matches the agent-profile `.ap-model-trigger`
+          // pattern so both surfaces read as one control vocabulary.
+          if (modelValueEl) {
+            modelValueEl.textContent = modelMeta
+              ? modelMeta.name
+              : (modelV || "—");
+          }
+          if (modelProviderTagEl) {
+            modelProviderTagEl.textContent = modelMeta ? modelMeta.provider : "";
+          }
+
+          // Replace any prior trigger listener (the DOM node persists
+          // across open() calls, so naïve addEventListener stacks
+          // duplicates · cloneNode wipes the listeners).
+          const newTrigger = modelTrigger.cloneNode(true);
+          modelTrigger.parentNode.replaceChild(newTrigger, modelTrigger);
+          // Re-fetch refs AFTER clone since the old references point
+          // at the detached node.
+          const triggerValEl = newTrigger.querySelector("[data-agent-model-value]");
+          const triggerProvEl = newTrigger.querySelector("[data-agent-model-provider-tag]");
+          newTrigger.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            if (newTrigger.classList.contains("open")) {
+              closeAgentModelPicker();
+              return;
+            }
+            openAgentModelPicker(slug, {
+              trigger: newTrigger,
+              valueEl: triggerValEl,
+              providerEl: triggerProvEl,
+              saving: modelSavingEl,
+              error: modelErrorEl,
+              readonlyName: modelNameEl,
+              readonlyProv: modelProvEl,
+            });
+          });
+
+          // Show editor, hide readonly chip.
+          modelReadonly.style.display = "none";
+          modelEdit.hidden = false;
+        } else if (modelEdit && modelReadonly) {
+          modelReadonly.style.display = "";
+          modelEdit.hidden = true;
+        }
+      } catch (e) {
+        // Don't let model-picker wiring abort the overlay open.
+        try { console.warn("[agent-overlay] model picker setup failed:", e); } catch (_) {}
+      }
+
+      // Kick-from-room button · visible only when (a) we're inside a
+      // live room, (b) this agent is a director member of that room
+      // (chair excluded · the role is structural), (c) the room isn't
+      // adjourned (member changes are rejected by the server then).
+      try {
+        const kickBlock = card.querySelector("[data-agent-room-actions]");
+        const kickBtn = card.querySelector("[data-agent-kick-btn]");
+        if (kickBlock && kickBtn) {
+          const app = window.app;
+          const room = app && app.currentRoom;
+          const members = (app && app.currentMembers) || [];
+          const isMember = members.some((m) => m && m.id === slug);
+          const isChair = !!(live && live.roleKind === "moderator");
+          const adjourned = room && room.status === "adjourned";
+          const canKick = !!room && isMember && !isChair && !adjourned;
+          if (canKick) {
+            kickBlock.hidden = false;
+            kickBtn.disabled = false;
+            // Replace any prior listener to avoid stacking after re-open.
+            const newKick = kickBtn.cloneNode(true);
+            kickBtn.parentNode.replaceChild(newKick, kickBtn);
+            newKick.addEventListener("click", () => {
+              const promptKey = ovT("ao_kick_confirm", { name: a.name });
+              if (!window.confirm(promptKey)) return;
+              kickFromRoom(slug, room.id, members, {
+                btn: newKick,
+                onDone: () => close(),
+              });
+            });
+          } else {
+            kickBlock.hidden = true;
+          }
+        }
+      } catch (e) {
+        try { console.warn("[agent-overlay] kick button setup failed:", e); } catch (_) {}
       }
 
       card.querySelector(".agent-traits").innerHTML = (a.traits || [])
@@ -576,9 +725,302 @@
 
     function close() {
       overlayOpenSlug = null;
+      // Close the model picker first · it lives in document.body and
+      // wouldn't dismiss with the overlay otherwise (would leave a
+      // floating popover orphaned over the page).
+      try { closeAgentModelPicker(); } catch (_) {}
       overlay.classList.remove("open");
       overlay.setAttribute("aria-hidden", "true");
       document.body.style.overflow = "";
+    }
+
+    /** Open the model picker popover · mirrors the agent-profile
+     *  `.ap-model-picker` vocabulary (panel surface, hairline border,
+     *  grouped by provider via `.ap-model-group` headers, `.ap-model-opt`
+     *  rows with sans label + mono uppercase hint). Built fresh on each
+     *  open, attached to document.body so its `position: fixed` escapes
+     *  the overlay card's `overflow-y: auto` clip. z-index lifted above
+     *  the overlay's 9700 via the `.ap-model-picker-overlay` modifier
+     *  class so the popover floats above the modal backdrop. */
+    let _agentModelPopover = null;
+    let _agentModelPopoverOutsideHandler = null;
+    let _agentModelPopoverKeyHandler = null;
+    function closeAgentModelPicker() {
+      if (_agentModelPopover && _agentModelPopover.parentNode) {
+        _agentModelPopover.parentNode.removeChild(_agentModelPopover);
+      }
+      _agentModelPopover = null;
+      const openTrigger = card.querySelector("[data-agent-model-trigger].open");
+      if (openTrigger) openTrigger.classList.remove("open");
+      if (_agentModelPopoverOutsideHandler) {
+        document.removeEventListener("mousedown", _agentModelPopoverOutsideHandler, true);
+        _agentModelPopoverOutsideHandler = null;
+      }
+      if (_agentModelPopoverKeyHandler) {
+        document.removeEventListener("keydown", _agentModelPopoverKeyHandler, true);
+        _agentModelPopoverKeyHandler = null;
+      }
+    }
+    function openAgentModelPicker(slug, ui) {
+      closeAgentModelPicker();
+      const live = window.app && window.app.agentsById
+        ? window.app.agentsById[slug]
+        : null;
+      if (!live) return;
+      const currentV = live.modelV || "";
+
+      // Group reachable models by provider (server filters by the
+      // user's active credential, so only that credential's family
+      // shows up). Falls back to the full MODEL_LABELS catalog only
+      // when the /api/models cache hasn't loaded yet — short cold-
+      // start window; cache lands in ~50ms.
+      const cache = (typeof window.boardroomModels === "function")
+        ? window.boardroomModels()
+        : null;
+      const reachable = (cache && Array.isArray(cache.reachable) && cache.reachable.length > 0)
+        ? cache.reachable
+        : null;
+
+      const byProvider = new Map();
+      if (reachable) {
+        for (const m of reachable) {
+          const meta = MODEL_LABELS[m.modelV];
+          const providerName = meta ? meta.provider : m.provider;
+          const displayName = meta ? meta.name : m.displayName;
+          if (!byProvider.has(providerName)) byProvider.set(providerName, []);
+          byProvider.get(providerName).push({ v: m.modelV, name: displayName });
+        }
+      } else {
+        for (const v of Object.keys(MODEL_LABELS)) {
+          const meta = MODEL_LABELS[v];
+          if (!byProvider.has(meta.provider)) byProvider.set(meta.provider, []);
+          byProvider.get(meta.provider).push({ v, name: meta.name });
+        }
+      }
+
+      // If the agent's currently-stored modelV isn't in the reachable
+      // set (active credential just switched, or registry retired the
+      // model), prepend a "current (unreachable)" entry so the user
+      // can still see what their agent is on — and pick a different
+      // reachable model to swap to.
+      const reachableHas = reachable
+        ? reachable.some((m) => m.modelV === currentV)
+        : !!MODEL_LABELS[currentV];
+      let unknownRow = "";
+      if (currentV && !reachableHas) {
+        const meta = MODEL_LABELS[currentV];
+        const label = meta ? meta.name : currentV;
+        const hint = meta ? "unreachable · pick a model below" : "unrecognised id";
+        unknownRow =
+          `<div class="ap-model-group">Current (unreachable)</div>` +
+          `<button type="button" class="ap-model-opt active" data-agent-model-pick="${escapeHtml(currentV)}" disabled>` +
+            `<span class="ap-model-opt-label">${escapeHtml(label)}</span>` +
+            `<span class="ap-model-opt-hint">${escapeHtml(hint)}</span>` +
+          `</button>`;
+      }
+
+      const rows = [];
+      for (const [provider, items] of byProvider.entries()) {
+        rows.push(`<div class="ap-model-group">${escapeHtml(provider)}</div>`);
+        for (const it of items) {
+          const isActive = it.v === currentV;
+          rows.push(
+            `<button type="button" class="ap-model-opt${isActive ? " active" : ""}" data-agent-model-pick="${escapeHtml(it.v)}">` +
+              `<span class="ap-model-opt-label">${escapeHtml(it.name)}</span>` +
+              `<span class="ap-model-opt-hint">${escapeHtml(it.v)}</span>` +
+            `</button>`,
+          );
+        }
+      }
+
+      // Empty-reachable safety · cache loaded but no models accessible
+      // (e.g. xAI-only active provider with empty registry rows).
+      if (rows.length === 0 && !unknownRow) {
+        rows.push(
+          `<div class="ap-model-picker-loading">No models reachable with your current API key. Configure another provider in Preferences.</div>`,
+        );
+      }
+
+      const pop = document.createElement("div");
+      pop.className = "ap-model-picker ap-model-picker-overlay";
+      pop.setAttribute("role", "listbox");
+      pop.innerHTML = unknownRow + rows.join("");
+      document.body.appendChild(pop);
+
+      // Position · anchored under the trigger, left edge aligned with
+      // the trigger's left edge. Pop width matches trigger width with
+      // a sane minimum so even short triggers get a usable menu.
+      const r = ui.trigger.getBoundingClientRect();
+      const popMinWidth = 240;
+      const popWidth = Math.max(r.width, popMinWidth);
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      let popLeft = r.left;
+      // Don't run off the right edge of the viewport.
+      if (popLeft + popWidth > vw - 8) popLeft = Math.max(8, vw - popWidth - 8);
+      let popTop = r.bottom + 4;
+      pop.style.minWidth = popWidth + "px";
+      pop.style.left = popLeft + "px";
+      pop.style.top = popTop + "px";
+      // After mount the pop has measured height; if it would overflow
+      // the viewport bottom, flip it ABOVE the trigger instead.
+      const popH = pop.getBoundingClientRect().height;
+      if (popTop + popH > vh - 8) {
+        popTop = Math.max(8, r.top - popH - 4);
+        pop.style.top = popTop + "px";
+      }
+
+      ui.trigger.classList.add("open");
+      _agentModelPopover = pop;
+
+      // Row pick · save through the existing fetch helper, swap chip /
+      // trigger value on success, close popover regardless of outcome
+      // (errors surface inline below the trigger via `ui.error`).
+      pop.addEventListener("click", (ev) => {
+        const btn = ev.target.closest("[data-agent-model-pick]");
+        if (!btn) return;
+        const v = btn.getAttribute("data-agent-model-pick");
+        if (!v) return;
+        // Optimistic UI · update trigger label + provider chip
+        // immediately so the user gets feedback even before the
+        // PATCH lands.
+        const meta = MODEL_LABELS[v];
+        if (ui.valueEl) ui.valueEl.textContent = meta ? meta.name : v;
+        if (ui.providerEl) ui.providerEl.textContent = meta ? meta.provider : "";
+        closeAgentModelPicker();
+        if (v === currentV) return; // no-op pick
+        saveModelForAgent(slug, v, {
+          select: null, // legacy field · saveModelForAgent only uses it to disable
+          saving: ui.saving,
+          error: ui.error,
+          providerTag: ui.providerEl,
+          readonlyName: ui.readonlyName,
+          readonlyProv: ui.readonlyProv,
+          previous: currentV,
+          // On error revert the trigger label + provider chip back to
+          // the previous model so the visible state matches what the
+          // server actually has.
+          onError: () => {
+            const prevMeta = MODEL_LABELS[currentV];
+            if (ui.valueEl) ui.valueEl.textContent = prevMeta ? prevMeta.name : (currentV || "—");
+            if (ui.providerEl) ui.providerEl.textContent = prevMeta ? prevMeta.provider : "";
+          },
+        });
+      });
+
+      // Outside-click + Esc close · use capture phase so the popover
+      // beats other click handlers (e.g. agent-overlay's own backdrop
+      // dismiss) when the user clicks elsewhere with the popover open.
+      _agentModelPopoverOutsideHandler = (ev) => {
+        if (pop.contains(ev.target) || ui.trigger.contains(ev.target)) return;
+        closeAgentModelPicker();
+      };
+      _agentModelPopoverKeyHandler = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          closeAgentModelPicker();
+        }
+      };
+      // defer attachment a tick so the click that opened us doesn't
+      // immediately close it via the outside-click handler.
+      setTimeout(() => {
+        document.addEventListener("mousedown", _agentModelPopoverOutsideHandler, true);
+        document.addEventListener("keydown", _agentModelPopoverKeyHandler, true);
+      }, 0);
+    }
+
+    /** Persist a new modelV for the agent · PATCH /api/agents/:slug
+     *  with `{ modelV }`. On success, update the live roster in place
+     *  and refresh the readonly chip so a re-open shows the new model
+     *  without a network round-trip. On failure, revert the select
+     *  back to the previous value + surface the server error inline
+     *  (mirrors the inline-error pattern from agent-profile.js so
+     *  users don't have to dismiss an alert just to retry). */
+    function saveModelForAgent(slug, v, ui) {
+      const live = window.app && window.app.agentsById
+        ? window.app.agentsById[slug]
+        : null;
+      if (!live) return;
+      if (ui.saving) ui.saving.hidden = false;
+      if (ui.error) { ui.error.hidden = true; ui.error.textContent = ""; }
+      if (ui.select) ui.select.disabled = true;
+      fetch("/api/agents/" + encodeURIComponent(slug), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ modelV: v }),
+      })
+        .then(async (r) => {
+          if (r.ok) return r.json();
+          const j = await r.json().catch(() => ({}));
+          const detail = j && typeof j.error === "string"
+            ? j.error
+            : ("HTTP " + r.status);
+          throw new Error(detail);
+        })
+        .then((updated) => {
+          // Reflect the saved modelV in the in-memory roster so other
+          // surfaces (agent profile, sidebar badges) read the new value.
+          live.modelV = updated.modelV || v;
+          const meta = MODEL_LABELS[live.modelV];
+          if (ui.readonlyName) ui.readonlyName.textContent = meta ? meta.name : live.modelV;
+          if (ui.readonlyProv) ui.readonlyProv.textContent = meta ? meta.provider : "";
+          if (ui.providerTag) ui.providerTag.textContent = meta ? meta.provider : "";
+          if (typeof window.app.refreshAgents === "function") {
+            window.app.refreshAgents().catch(() => {});
+          }
+        })
+        .catch((e) => {
+          // Revert visible state to the previous value so what the
+          // user sees matches what the server has, then surface the
+          // error so they can retry.
+          if (ui.select && ui.previous) ui.select.value = ui.previous;
+          if (typeof ui.onError === "function") ui.onError(e);
+          if (ui.error) {
+            ui.error.hidden = false;
+            ui.error.textContent = (e && e.message ? e.message : String(e));
+          }
+        })
+        .finally(() => {
+          if (ui.saving) ui.saving.hidden = true;
+          if (ui.select) ui.select.disabled = false;
+        });
+    }
+
+    /** Remove an agent from the current room. PATCH
+     *  /api/rooms/:roomId/members with the desired-state list (all
+     *  current director ids MINUS this one). The endpoint diffs against
+     *  current state, fires a chair farewell, and re-emits config-event
+     *  so other clients see the change. On failure, alert the user with
+     *  the server's error string (most likely "room must keep at least
+     *  one director"). */
+    function kickFromRoom(slug, roomId, members, opts) {
+      const remaining = (members || [])
+        .filter((m) => m && m.id && m.id !== slug)
+        .map((m) => m.id);
+      if (opts.btn) opts.btn.disabled = true;
+      fetch("/api/rooms/" + encodeURIComponent(roomId) + "/members", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentIds: remaining }),
+      })
+        .then(async (r) => {
+          if (r.ok) return r.json();
+          const j = await r.json().catch(() => ({}));
+          const detail = j && typeof j.error === "string"
+            ? j.error
+            : ("HTTP " + r.status);
+          throw new Error(detail);
+        })
+        .then(() => {
+          // Server's config-event SSE will trigger app.js to patch
+          // currentMembers + re-render the queue / cast. Close the
+          // overlay so the user sees the updated room state.
+          if (typeof opts.onDone === "function") opts.onDone();
+        })
+        .catch((e) => {
+          window.alert(ovT("ao_kick_failed", { detail: (e && e.message ? e.message : String(e)) }));
+          if (opts.btn) opts.btn.disabled = false;
+        });
     }
 
     // Public surface · other modules (e.g. agent-profile.js's voice

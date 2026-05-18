@@ -13,7 +13,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, streamText, type LanguageModel, type ProviderMetadata } from "ai";
 
-import { getKey } from "../storage/keys.js";
+import { getLlmCredentialKey, getLlmCredentialMeta } from "../storage/credentials.js";
+import { getPrefs } from "../storage/prefs.js";
 
 import { getModel, type ModelMeta, type ModelV, type Provider } from "./registry.js";
 
@@ -287,152 +288,61 @@ interface ResolvedModel {
 
 /** Resolve which model + which credentials to use right now.
  *
- *  Routing precedence:
- *    0. EXPLICIT carrier override (caller passed `carrier` on the
- *       request, typically from agent.carrierPref) → if reachable,
- *       use it directly. Skips precedence rules below — the user
- *       picked this carrier on purpose. Unreachable preference
- *       (carrier missing key, or model not on that carrier) falls
- *       through to default routing rather than hard-failing.
-*    1. `viaUniversalOnly` AND OpenRouter key → OpenRouter (preview /
- *       no-direct-SDK models land here first because the universal
- *       carrier is their primary route).
- *    2. Direct provider key → direct SDK (the normal path · skipped
- *       when `viaUniversalOnly`).
- *    3. B.AI carrier when present (B.AI ships newer model IDs faster
- *       than OR's preview catalog, hence preferred over OR).
- *    4. OpenRouter key (any other model) → OpenRouter as carrier.
- *    5. `viaUniversalOnly` model with NO OR / B.AI key BUT direct
- *       provider key → attempt direct anyway. The flag is conservative;
- *       direct SDKs eventually catch up to model IDs and the user
- *       shouldn't silently fail because we didn't update a flag. If
- *       the direct call rejects (model unknown), the LLM error
- *       surfaces and the user can swap models — better than the
- *       previous silent NoKeyError that hid the real issue.
- *    6. No keys at all → NoKeyError. */
+ *  Under the single-active-LLM-provider invariant, the user has exactly
+ *  one configured LLM provider. Routing is deterministic:
+ *
+ *    1. multi-model active (openrouter / bai) → that carrier, provided
+ *       the model carries the matching carrier id.
+ *    2. single-model active (anthropic / openai / google / xai) →
+ *       direct SDK, provided the model's family matches.
+ *    3. no key configured → NoKeyError.
+ *
+ *  The `carrier` parameter is accepted but ignored under single-active
+ *  — there's no other carrier to switch to. Older `agent.carrierPref`
+ *  values are no-ops here; reconcileAgentModels() clears them on the
+ *  next reconcile pass.
+ *
+ *  The `excludeCarriers` parameter is also accepted-but-ignored — the
+ *  carrier-rotation retry it once supported has been removed (there's
+ *  only one carrier under single-active; rotation is meaningless).
+ */
 function resolveModel(
   modelV: ModelV,
-  carrier?: RequestCarrier | null,
-  excludeCarriers?: Set<CarrierId>,
+  _carrier?: RequestCarrier | null,
+  _excludeCarriers?: Set<CarrierId>,
 ): ResolvedModel {
+  void _carrier; void _excludeCarriers;
   const meta = getModel(modelV);
-  const skip = (c: CarrierId) => excludeCarriers?.has(c) === true;
-  const orKey = !skip("openrouter") ? getKey("openrouter") : undefined;
-  const baiKey = !skip("bai") ? getKey("bai") : undefined;
-  const directKey = !skip(meta.provider) ? getKey(meta.provider) : undefined;
+  // Multi-instance credentials · the user's prefs name an active
+  // credential id; resolve through it to the provider + key in one
+  // step. Stale prefs (credential deleted out-from-under) fall
+  // through to NoKeyError so the orchestrator can surface a clean
+  // "configure a key" message.
+  const credId = getPrefs().activeLlmCredentialId;
+  if (!credId) throw new NoKeyError(meta.provider);
+  const credMeta = getLlmCredentialMeta(credId);
+  const key = getLlmCredentialKey(credId);
+  if (!credMeta || !key) throw new NoKeyError(meta.provider);
+  const p = credMeta.provider;
 
-  // Preference 0 · explicit carrier override (only honored if the
-  // carrier isn't on the exclude list · fallback-retry logic).
-  if (carrier === "openrouter" && orKey) {
-    process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId} (pinned)\n`);
-    return openRouterResolved(meta, orKey);
+  if (p === "openrouter") {
+    if (!meta.openrouterId) throw new NoKeyError(meta.provider);
+    process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId} (cred:${credMeta.label})\n`);
+    return openRouterResolved(meta, key);
   }
-  if (carrier === "bai" && baiKey && meta.baiId) {
-    process.stderr.write(`[adapter] modelV=${modelV} → bai:${meta.baiId} (pinned)\n`);
-    return baiResolved(meta, baiKey);
+  if (p === "bai") {
+    if (!meta.baiId) throw new NoKeyError(meta.provider);
+    process.stderr.write(`[adapter] modelV=${modelV} → bai:${meta.baiId} (cred:${credMeta.label})\n`);
+    return baiResolved(meta, key);
   }
-  if (carrier && carrier !== "openrouter" && carrier !== "bai" && carrier === meta.provider) {
-    const pinnedKey = !skip(carrier) ? getKey(carrier) : undefined;
-    if (pinnedKey) {
-      process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId} (pinned)\n`);
-      return directResolved(meta, pinnedKey);
-    }
+  // Single-model active provider · the model's family must match. xAI
+  // currently has no MODELS rows so this branch never executes for it,
+  // but the check stays so a future Grok entry routes cleanly.
+  if (meta.provider !== p || meta.viaUniversalOnly) {
+    throw new NoKeyError(meta.provider);
   }
-  // Override requested but unreachable · log + fall through. Keeps the
-  // call live rather than failing on a stale agent preference.
-  if (carrier && !excludeCarriers?.size) {
-    process.stderr.write(
-      `[adapter] modelV=${modelV} pinned carrier=${carrier} unreachable; falling back to default routing\n`,
-    );
-  }
-
-  // Preference 1: viaUniversalOnly + OR key → OpenRouter.
-  if (meta.viaUniversalOnly && orKey) {
-    process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId} (preferred)\n`);
-    return openRouterResolved(meta, orKey);
-  }
-
-  // Preference 2: direct key (most models · skipped when the model is
-  // marked viaUniversalOnly · those land on B.AI / OR / direct-fallback
-  // below).
-  if (directKey && !meta.viaUniversalOnly) {
-    process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId}\n`);
-    return directResolved(meta, directKey);
-  }
-
-  // Preference 3: any other model · B.AI carrier (checked before OR
-  // since most direct provider keys win above and B.AI tends to ship
-  // newer model IDs faster than OR's preview catalog). Requires a
-  // baiId in the registry — older / niche models without one skip.
-  if (baiKey && meta.baiId) {
-    process.stderr.write(`[adapter] modelV=${modelV} → bai:${meta.baiId}\n`);
-    return baiResolved(meta, baiKey);
-  }
-
-  // Preference 4: OR carrier when OR key exists.
-  if (orKey) {
-    process.stderr.write(`[adapter] modelV=${modelV} → openrouter:${meta.openrouterId}\n`);
-    return openRouterResolved(meta, orKey);
-  }
-
-  // Preference 5: viaUniversalOnly model + direct key only · attempt
-  // direct anyway. The flag is conservative; many direct SDKs ship
-  // the model ID later. We log so the user can see in stderr which
-  // path the call took.
-  if (meta.viaUniversalOnly && directKey) {
-    process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId} (viaUniversalOnly fallback · no OR / B.AI key)\n`);
-    return directResolved(meta, directKey);
-  }
-
-  // Preference 6: no usable keys.
-  throw new NoKeyError(meta.provider);
-}
-
-/** True when an error message from a carrier indicates the request was
- *  rejected because the user's account on THAT carrier can't access
- *  the requested model — typically 402/403 with `access_denied`,
- *  `deposit required`, `paid_plan_required`, `insufficient_quota`, or
- *  similar wording. These errors won't go away on retry against the
- *  same carrier, but a DIFFERENT carrier (e.g. direct provider key,
- *  OpenRouter when we tried B.AI first) may succeed. Triggers the
- *  carrier-rotation fallback in callLLMStream. */
-function isCarrierAccessDenied(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  // HTTP 402 / 403 status codes paired with payment / access language.
-  if (/\b40[23]\b/.test(m) && /(access|deposit|payment|paid|premium|subscri|quota|balance|fund)/.test(m)) return true;
-  // Common phrase variants across providers (OpenRouter, B.AI, OpenAI,
-  // Anthropic, MiniMax). Case-insensitive substring match.
-  if (/access[_\s-]?denied/.test(m)) return true;
-  if (/deposit\s+required/.test(m)) return true;
-  if (/paid[_\s-]?plan[_\s-]?required/.test(m)) return true;
-  if (/premium[_\s-]?model/.test(m)) return true;
-  if (/insufficient[_\s-]?(?:quota|balance|fund)/.test(m)) return true;
-  if (/quota[_\s-]?exceeded/.test(m)) return true;
-  if (/payment[_\s-]?required/.test(m)) return true;
-  if (/billing/.test(m) && /(disabled|inactive|required|invalid|missing)/.test(m)) return true;
-  // Carrier doesn't have this model in its catalog · same "try another
-  // carrier" semantics as access denials. Triggered by B.AI's
-  // `model_not_found / no available channel for model` 503 when our
-  // baiId mapping points at a slug the aggregator doesn't route, and
-  // by OpenRouter's `model not found / invalid model` 404 when a
-  // preview id has been retired upstream.
-  if (/model[_\s-]?not[_\s-]?found/.test(m)) return true;
-  if (/no\s+available\s+channel/.test(m)) return true;
-  if (/no\s+endpoints?\s+found/.test(m)) return true;
-  if (/invalid\s+model/.test(m)) return true;
-  if (/model.*(unavailable|not\s+(?:supported|available))/.test(m)) return true;
-  // Sub-provider ToS / content-policy rejection · OpenRouter's
-  // standard phrasing when one of its upstream providers blocks the
-  // request, e.g. "The request is prohibited due to a violation of
-  // provider Terms Of Service." Another carrier (direct provider key,
-  // B.AI, or a different OR sub-provider) may carry the same request
-  // through, so we treat it as carrier-rotation triggerable. If every
-  // carrier ends up refusing, the final error still surfaces.
-  if (/prohibited.*(?:terms?\s+of\s+service|provider)/.test(m)) return true;
-  if (/provider.*terms?\s+of\s+service/.test(m)) return true;
-  if (/violates?\s+(?:our|the)?\s*(?:terms|policy|content)/.test(m)) return true;
-  return false;
+  process.stderr.write(`[adapter] modelV=${modelV} → direct:${meta.provider}/${meta.directApiId} (cred:${credMeta.label})\n`);
+  return directResolved(meta, key);
 }
 
 function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
@@ -688,13 +598,11 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
   let attempt = 0;
   let lastTransientMessage = "";
   let yieldedText = false;
-  // Carrier-rotation state · when a carrier rejects with an access-
-  // denied / payment-required error AND no text has streamed, we
-  // exclude it and ask resolveModel for the next-best carrier. Stops
-  // the user from seeing "Deposit required" on a per-director basis
-  // when they have another carrier (direct key / OR) available.
-  const triedCarriers = new Set<CarrierId>();
-  triedCarriers.add(resolved.carrier);
+  // Carrier-rotation removed · under the single-active-LLM-provider
+  // invariant there's only one carrier, nothing to rotate to. Access-
+  // denied / payment-required errors from upstream now surface directly
+  // to the user (which is the correct behaviour — the user needs to
+  // know their card was declined, not see the boardroom paper over it).
 
   while (attempt < RETRY_MAX_ATTEMPTS) {
     attempt++;
@@ -751,27 +659,9 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
             retriableErrorMessage = msg;
             break; // exit the for-await; outer while will retry
           }
-          // Access-denied / payment-required from this carrier · try a
-          // different carrier (BAI → OR → direct, etc.) before
-          // surfacing the error. The next carrier's account is unlikely
-          // to share the same payment block.
-          if (!yieldedText && isCarrierAccessDenied(msg)) {
-            try {
-              const next = resolveModel(req.modelV, null, triedCarriers);
-              triedCarriers.add(next.carrier);
-              process.stderr.write(
-                `[adapter] modelV=${req.modelV} carrier=${resolved.carrier} rejected (access denied); ` +
-                  `retrying via ${next.carrier}\n`,
-              );
-              resolved = next;
-              attempt = 0; // restart attempt counter for the new carrier
-              retriableErrorMessage = msg;
-              break;
-            } catch {
-              // No other carrier reachable · fall through to yield the
-              // original error so the user sees the actual reason.
-            }
-          }
+          // Carrier-rotation removed · access-denied / payment-required
+          // errors now surface directly. Only one carrier under the
+          // single-active invariant.
           sawError = true;
           yield { type: "error", message: msg };
           // Don't break on terminal errors · let the SDK finish draining
@@ -850,22 +740,8 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
         lastTransientMessage = msg;
         continue;
       }
-      // Carrier access-denied · try another carrier before giving up.
-      if (!yieldedText && isCarrierAccessDenied(msg)) {
-        try {
-          const next = resolveModel(req.modelV, null, triedCarriers);
-          triedCarriers.add(next.carrier);
-          process.stderr.write(
-            `[adapter] modelV=${req.modelV} carrier=${resolved.carrier} rejected (access denied / threw); ` +
-              `retrying via ${next.carrier}\n`,
-          );
-          resolved = next;
-          attempt = 0;
-          continue;
-        } catch {
-          // No other carrier · surface the original error.
-        }
-      }
+      // Carrier-rotation removed · single-active invariant means no
+      // alternate carrier to try. Surface the upstream error directly.
       yield { type: "error", message: msg };
       return;
     }

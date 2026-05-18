@@ -180,16 +180,28 @@ export function voicesRouter(): Hono {
       ttsCacheSet(key, out);
       return c.json(out);
     } catch (e) {
+      // Preserve structured tagging (paid-plan-required + upgradeUrl)
+      // when the synthesizer threw a billing-class error · the frontend
+      // routes those into the upgrade overlay. Earlier this catch
+      // overwrote `code` with a heuristic and discarded `upgradeUrl`,
+      // so insufficient-balance failures landed as plain "tts-error"
+      // with no actionable affordance.
+      const tagged = (e ?? {}) as { code?: unknown; provider?: unknown; upgradeUrl?: unknown };
       const msg = ttsErrorMessage(e, profile.provider);
-      // Heuristic: missing key surfaces as a fetch error to the
-      // provider domain. The frontend uses the `code` to decide
-      // whether to deep-link to settings.
       const isNoKey = /401|403|api[\s-]?key|unauthor/i.test(msg);
-      return c.json({
+      const payload: Record<string, unknown> = {
         error: msg,
-        code: isNoKey ? "no-key" : "tts-error",
-        provider: profile.provider,
-      }, 502);
+        provider: typeof tagged.provider === "string" ? tagged.provider : profile.provider,
+      };
+      if (typeof tagged.code === "string") {
+        payload.code = tagged.code;
+      } else {
+        payload.code = isNoKey ? "no-key" : "tts-error";
+      }
+      if (typeof tagged.upgradeUrl === "string") {
+        payload.upgradeUrl = tagged.upgradeUrl;
+      }
+      return c.json(payload, 502);
     }
   });
 

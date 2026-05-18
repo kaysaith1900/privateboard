@@ -211,6 +211,88 @@ img[data-agent]:hover { filter: brightness(1.15); }
 }
 .agent-model-provider:empty { display: none; }
 
+/* Editable model picker · the trigger + popover reuse the
+   agent-profile model dropdown vocabulary (`.ap-model-trigger` /
+   `.ap-model-picker` / `.ap-model-group` / `.ap-model-opt`), defined
+   in agent-profile.css so the styles are shared automatically. Both
+   stylesheets are loaded on the main app page (see index.html), so
+   the classes resolve identically inside the overlay. */
+.agent-model-edit[hidden] { display: none; }
+/* Lift the `.ap-model-picker` popover above the overlay backdrop ·
+   the overlay is z-index 9700; the agent-profile picker default is
+   9100, which would sit behind the modal. Scoped modifier class so
+   we don't regress the profile-page stacking. */
+.ap-model-picker.ap-model-picker-overlay { z-index: 9800; }
+
+.agent-model-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.agent-model-saving {
+  color: var(--text-faint);
+  letter-spacing: 0.14em;
+}
+.agent-model-saving[hidden] { display: none; }
+.agent-model-error {
+  color: var(--red, #B5706A);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 11px;
+  flex-basis: 100%;
+}
+.agent-model-error[hidden] { display: none; }
+
+/* Kick-from-room block · alert-coloured destructive action. Reads as
+   "this will remove someone" from idle state — not just on hover —
+   so the user perceives the danger BEFORE they reach for it. Uses
+   the project's `--red` token (#B5706A · the same alert tint
+   referenced in `.notes-item-unfav` and the brief-llm failure rows)
+   so the colour vocabulary matches other destructive surfaces.
+   `[data-agent-room-actions][hidden]` gates the block · the overlay
+   JS only un-hides it when the agent is kickable
+   (in-room + director + non-adjourned). */
+.agent-room-actions[hidden] { display: none; }
+.agent-kick-btn {
+  appearance: none;
+  display: block;
+  width: 100%;
+  background: color-mix(in srgb, var(--red, #B5706A) 6%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--red, #B5706A) 55%, var(--line-bright));
+  color: var(--red, #B5706A);
+  font-family: var(--mono);
+  font-size: 11px;
+  /* Weight 400 (was 700) · the alert tint + uppercase letter-spacing
+     already carry the "destructive" register; bold on top read as
+     shouting. Quieter weight pairs better with the calm overlay
+     surface around it. */
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.agent-kick-btn:hover {
+  background: color-mix(in srgb, var(--red, #B5706A) 14%, transparent);
+  border-color: var(--red, #B5706A);
+  /* Bright white text on hover lifts the affordance from "noted
+     danger" to "click to commit". */
+  color: #FFFFFF;
+}
+.agent-kick-btn:active { transform: translateY(1px); }
+.agent-kick-btn:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
 .agent-traits {
   display: flex;
   flex-wrap: wrap;

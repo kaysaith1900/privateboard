@@ -408,13 +408,23 @@
   }
 
   function getProviderStatus(provider) {
-    const keys = (typeof window.boardroomKeys === "function" ? window.boardroomKeys() : {}) || {};
-    if (keys[provider])    return { label: t("na_key_direct"),         cls: "direct" };
-    // Any universal aggregator (OR or B.AI) routes this provider's
-    // models · without `|| keys.bai` here, a B.AI-only user would see
-    // every model labeled "no key" even though most are reachable.
-    if (keys.openrouter || keys.bai) return { label: t("na_key_via"), cls: "via" };
-    return                       { label: t("na_key_none"),           cls: "none" };
+    // Under the single-active-LLM-provider invariant the user has at
+    // most one configured LLM key. Three states the badge surfaces:
+    //   · multi-model active (openrouter / bai) → "via {provider}"
+    //     because every model family is reachable through that one
+    //     carrier.
+    //   · single-model active matching this provider → "direct"
+    //   · everything else → "no key" (model family unreachable)
+    const cache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
+    const active = cache && cache.activeLlmProvider;
+    const cls = cache && cache.activeLlmClassification;
+    if (!active) return { label: t("na_key_none"), cls: "none" };
+    if (cls === "multi-model") {
+      const label = t("na_key_via_active") || ("via " + active);
+      return { label, cls: "via" };
+    }
+    if (provider === active) return { label: t("na_key_direct"), cls: "direct" };
+    return { label: t("na_key_none"), cls: "none" };
   }
 
   function refreshProviderStatus() {

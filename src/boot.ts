@@ -22,7 +22,6 @@ import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
 import { recoverStuckClarifyRooms } from "./storage/rooms.js";
 import { markRunningJobsFailed } from "./storage/persona-jobs.js";
-import { markRunningTopicRecJobsFailed } from "./storage/topic-recs.js";
 import { listAllAgents } from "./storage/agents.js";
 import { countMemoriesForAgent } from "./storage/memories.js";
 import { runDreamCycle, bootCeilingFor } from "./orchestrator/dream.js";
@@ -69,6 +68,15 @@ export async function bootApp(opts: BootOptions = {}): Promise<BootResult> {
     process.stderr.write(`[boot] orphan cleanup failed: ${errMsg(e)}\n`);
   }
 
+  // Runtime orphan watchdog · every 60s, sweep any message that has
+  // been streaming:true for over 5 minutes with no token update. The
+  // per-turn try/finally in streamSpeakerTurn already finalises on
+  // abort / timeout / exception; this is a defense-in-depth net for
+  // future code paths or rare race conditions that bypass it. The 5
+  // min threshold is far above the 120s hard cap so legitimate long
+  // streams aren't killed mid-flight.
+  startRuntimeOrphanSweep();
+
   try {
     const fixed = recoverStuckClarifyRooms();
     if (fixed > 0) {
@@ -85,15 +93,6 @@ export async function bootApp(opts: BootOptions = {}): Promise<BootResult> {
     }
   } catch (e) {
     process.stderr.write(`[boot] persona-job recovery failed: ${errMsg(e)}\n`);
-  }
-
-  try {
-    const failed = markRunningTopicRecJobsFailed();
-    if (failed > 0) {
-      process.stderr.write(`[boot] marked ${failed} topic-rec job(s) failed (server restarted mid-build)\n`);
-    }
-  } catch (e) {
-    process.stderr.write(`[boot] topic-rec recovery failed: ${errMsg(e)}\n`);
   }
 
   // Dream sweep · fire-and-forget. Per-agent memory counters reset on
@@ -137,6 +136,7 @@ let shuttingDown = false;
 export async function shutdownApp(server: RunningServer | null): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopRuntimeOrphanSweep();
   try {
     await server?.close();
   } catch (e) {
@@ -146,6 +146,43 @@ export async function shutdownApp(server: RunningServer | null): Promise<void> {
     closeDb();
   } catch (e) {
     console.error("  ! error closing db", e);
+  }
+}
+
+/* ── Runtime orphan sweep ───────────────────────────────────────────
+   Periodic watchdog that finalises any message left in streaming:true
+   for over 5 minutes. The per-turn try/finally in streamSpeakerTurn
+   already handles abort / timeout / exception paths; this is the
+   safety net for any future code path that bypasses it. Wired into
+   bootApp + shutdownApp so the interval starts at boot and clears at
+   shutdown (no leaked timers on hot reload). */
+const RUNTIME_SWEEP_INTERVAL_MS = 60_000;
+const RUNTIME_SWEEP_MAX_AGE_MS = 5 * 60_000;
+let runtimeSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+function startRuntimeOrphanSweep(): void {
+  if (runtimeSweepTimer) return;
+  runtimeSweepTimer = setInterval(() => {
+    try {
+      const r = cleanupOrphanedStreams({
+        maxAgeMs: RUNTIME_SWEEP_MAX_AGE_MS,
+        reason: "runtime-sweep · 5min stuck",
+      });
+      if (r.fixed + r.deleted > 0) {
+        process.stderr.write(
+          `[runtime-sweep] finalised ${r.fixed} stuck stream(s), dropped ${r.deleted} empty placeholder(s)\n`,
+        );
+      }
+    } catch (e) {
+      process.stderr.write(`[runtime-sweep] failed: ${errMsg(e)}\n`);
+    }
+  }, RUNTIME_SWEEP_INTERVAL_MS);
+}
+
+function stopRuntimeOrphanSweep(): void {
+  if (runtimeSweepTimer) {
+    clearInterval(runtimeSweepTimer);
+    runtimeSweepTimer = null;
   }
 }
 

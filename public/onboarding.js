@@ -32,61 +32,6 @@
     { slug: "user-empathy",     name: "User-Empathy",     role: "field empath" },
   ];
 
-  /** Composer empty-state fallback · the new-room composer in app.js
-   *  shows topic recommendations first, then falls back to these
-   *  hardcoded starters via `window.BOARDROOM_STARTERS` if recs are
-   *  empty or still loading. Onboarding itself no longer renders
-   *  them — they live here purely to feed the composer's tray on a
-   *  brand-new install. */
-  const STARTER_QUESTIONS = [
-    {
-      tag: "// ai-startup",
-      text: "OpenAI and Anthropic keep launching everything — does my AI startup still have a real shot in 2026?",
-      hint: "skeptic + pattern hunter + causal reasoner stress-test the moat thesis",
-      tone: "debate",
-      intensity: "sharp",
-      briefStyle: "auto",
-      agents: ["socrates", "value-investor", "first-principles"],
-    },
-    {
-      tag: "// quit-tech",
-      text: "$300K saved, senior eng job at a Big Tech — quit now to build, or wait two more years?",
-      hint: "long-horizon vs. value-investor on a real fork in your career",
-      tone: "constructive",
-      intensity: "calm",
-      briefStyle: "auto",
-      agents: ["long-horizon", "value-investor", "socrates"],
-    },
-    {
-      tag: "// pricing",
-      text: "$49/mo B2B SaaS with sticky enterprise users — are we leaving 5–10x on the table by not raising to $499?",
-      hint: "is your unit economics actually consumer-priced for an enterprise problem?",
-      tone: "debate",
-      intensity: "sharp",
-      briefStyle: "auto",
-      agents: ["value-investor", "user-empathy", "socrates"],
-    },
-    {
-      tag: "// pivot",
-      text: "Six months of runway, real users but flat MRR — pivot the product, hold the line, or shut it down?",
-      hint: "critique room: each director audits the plan — blocker / major / minor",
-      tone: "critique",
-      intensity: "sharp",
-      briefStyle: "auto",
-      agents: ["socrates", "first-principles", "long-horizon"],
-    },
-    {
-      tag: "// agent-stack",
-      text: "Cursor + Claude Code + ChatGPT — am I overpaying for overlap, or is this the right mix for 2026?",
-      hint: "first-principles + user-empathy figure out what each tool actually buys you",
-      tone: "constructive",
-      intensity: "sharp",
-      briefStyle: "auto",
-      agents: ["first-principles", "user-empathy", "value-investor"],
-    },
-  ];
-  try { window.BOARDROOM_STARTERS = STARTER_QUESTIONS; } catch (e) {}
-
   /** EN-locked fallback for every onb_v2_* key — used when window.I18n
    *  hasn't booted yet, or the active locale is missing the key. Mirrors
    *  the EN block in i18n.js exactly; keep these in sync if you edit the
@@ -153,36 +98,46 @@
   }
 
   // ── Provider catalogue ─────────────────────────────────
-  // Model providers shown on step 2. Universal aggregators (OpenRouter
-  // and B.AI) lead — each unlocks every model from a single key, so
-  // they're the lowest-friction first stop. Both carry `recommend: true`
-  // and render as the prominent value-prop cards at the top of the
-  // step; the rest fall through to the smaller "or — a direct provider"
-  // chip row beneath.
+  // Model providers shown on step 2. Two-tier card grid:
+  //  · MULTI_MODEL_CARDS on top · one key reaches every flagship model
+  //    family (Claude / GPT / Gemini / Kimi / DeepSeek / MiniMax / GLM).
+  //  · SINGLE_MODEL_CARDS below · one key reaches one model family.
+  //
+  // Under the single-active-LLM-provider invariant, picking one card
+  // and saving its key atomically replaces whatever the user had before
+  // (backend handles the swap in one transaction). The frontend used to
+  // chase parity by client-side-deleting every other LLM row after each
+  // save — that path is gone now, atomic on the server.
+  //
+  // xAI is in SINGLE_MODEL_CARDS but its registry has no Grok rows as
+  // of 2026-05-17; the renderer filters it out when /api/models reports
+  // zero reachable models for it (auto-hides until a Grok entry returns).
+  //
   // `slug` matches /api/keys/{slug} on the backend.
-  const KEY_PROVIDERS = [
+  const MULTI_MODEL_CARDS = [
     {
       slug: "openrouter",
       label: "OpenRouter",
-      sub: "all-in-one router",
+      sub: "universal aggregator · Claude · GPT · Gemini · Kimi · DeepSeek",
       placeholder: "sk-or-v1-…",
       help: "openrouter.ai/keys",
       helpUrl: "https://openrouter.ai/keys",
-      recommend: true,
     },
     {
       slug: "bai",
       label: "B.AI",
-      sub: "all-in-one aggregator",
+      sub: "universal aggregator · same catalog · CN pricing channel",
       placeholder: "sk-…",
       help: "b.ai",
       helpUrl: "https://b.ai/",
-      recommend: true,
     },
+  ];
+
+  const SINGLE_MODEL_CARDS = [
     {
       slug: "anthropic",
       label: "Claude",
-      sub: "Anthropic",
+      sub: "Anthropic direct",
       placeholder: "sk-ant-…",
       help: "console.anthropic.com",
       helpUrl: "https://console.anthropic.com/settings/keys",
@@ -190,7 +145,7 @@
     {
       slug: "openai",
       label: "ChatGPT",
-      sub: "OpenAI",
+      sub: "OpenAI direct",
       placeholder: "sk-…",
       help: "platform.openai.com",
       helpUrl: "https://platform.openai.com/api-keys",
@@ -203,7 +158,20 @@
       help: "aistudio.google.com",
       helpUrl: "https://aistudio.google.com/apikey",
     },
+    {
+      slug: "xai",
+      label: "Grok",
+      sub: "xAI direct",
+      placeholder: "xai-…",
+      help: "console.x.ai",
+      helpUrl: "https://console.x.ai/team",
+    },
   ];
+
+  // Legacy alias · existing callsites that iterate every LLM provider
+  // for status painting still work via the flat union. New code should
+  // branch on MULTI_MODEL_CARDS vs SINGLE_MODEL_CARDS directly.
+  const KEY_PROVIDERS = [...MULTI_MODEL_CARDS, ...SINGLE_MODEL_CARDS];
 
   /** TTS providers offered on step 3 (optional). MiniMax leads because
    *  it ships a richer roster of localised Chinese voices and an
@@ -247,6 +215,7 @@
     anthropic: false,
     openai: false,
     google: false,
+    xai: false,
   };
   let voiceProviderConfigured = {
     minimax: false,
@@ -272,35 +241,46 @@
   // ── Persistence ────────────────────────────────────────
   async function loadInitial() {
     try {
-      const [prefsRes, keysRes] = await Promise.all([
+      // /api/keys still covers voice (minimax, elevenlabs) + skill
+      // (brave, tavily). LLM providers moved to /api/credentials —
+      // multi-instance now, so we mark a provider "configured" if
+      // ANY credential of that provider exists.
+      const [prefsRes, keysRes, credsRes] = await Promise.all([
         fetch("/api/prefs"),
         fetch("/api/keys"),
+        fetch("/api/credentials"),
       ]);
       if (prefsRes.ok) {
         const p = await prefsRes.json();
         prefsCache = { name: p.name === "You" ? "" : (p.name || ""), intro: p.intro || "" };
       }
+      for (const slug of Object.keys(providerConfigured)) {
+        providerConfigured[slug] = false;
+      }
+      for (const slug of Object.keys(voiceProviderConfigured)) {
+        voiceProviderConfigured[slug] = false;
+      }
       if (keysRes.ok) {
         const k = await keysRes.json();
-        for (const slug of Object.keys(providerConfigured)) {
-          providerConfigured[slug] = false;
-        }
-        for (const slug of Object.keys(voiceProviderConfigured)) {
-          voiceProviderConfigured[slug] = false;
-        }
         for (const row of (k.keys || [])) {
           if (!row || typeof row.provider !== "string") continue;
-          if (row.provider in providerConfigured) {
-            providerConfigured[row.provider] = !!row.configured;
-          }
           if (row.provider in voiceProviderConfigured) {
             voiceProviderConfigured[row.provider] = !!row.configured;
           }
         }
-        const firstConfigured = KEY_PROVIDERS.find((p) => providerConfigured[p.slug]);
-        if (firstConfigured) activeProvider = firstConfigured.slug;
         const firstVoiceConfigured = VOICE_PROVIDERS.find((p) => voiceProviderConfigured[p.slug]);
         if (firstVoiceConfigured) activeVoiceProvider = firstVoiceConfigured.slug;
+      }
+      if (credsRes.ok) {
+        const cr = await credsRes.json();
+        for (const row of (cr.credentials || [])) {
+          if (!row || typeof row.provider !== "string") continue;
+          if (row.provider in providerConfigured) {
+            providerConfigured[row.provider] = true;
+          }
+        }
+        const firstConfigured = KEY_PROVIDERS.find((p) => providerConfigured[p.slug]);
+        if (firstConfigured) activeProvider = firstConfigured.slug;
       }
     } catch (e) { /* keep defaults */ }
   }
@@ -326,29 +306,29 @@
     } catch (e) { /* */ }
   }
 
-  /** Save a key for a given provider. PUT /api/keys/{provider} with
-   *  { key, makeDefault: true } — the makeDefault flag flips
-   *  prefs.defaultModelV server-side and reconciles every agent's
-   *  modelV to the new provider's flagship. */
-  async function deleteProviderKey(provider) {
-    try {
-      await fetch("/api/keys/" + encodeURIComponent(provider), { method: "DELETE" });
-    } catch (e) { /* */ }
-    providerConfigured[provider] = false;
+  /** Save an LLM provider key as a new credential. POST /api/credentials
+   *  creates the row (auto-labelled with the provider's display name +
+   *  numeric suffix when duplicates exist) and auto-activates it. The
+   *  same provider can now have multiple credentials on file, so this
+   *  no longer needs the "wipe sibling LLM keys" client-side dance. */
+  async function deleteProviderKey() {
+    // No-op under the credentials model · onboarding never needs to
+    // delete anything; users can manage credentials in Settings later.
+    return;
   }
 
   async function saveProviderKey(provider, value) {
     const trimmed = (value || "").trim();
     if (!trimmed) return false;
     try {
-      const r = await fetch("/api/keys/" + encodeURIComponent(provider), {
-        method: "PUT",
+      const r = await fetch("/api/credentials", {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key: trimmed, makeDefault: true }),
+        body: JSON.stringify({ provider, key: trimmed, label: null }),
       });
       if (!r.ok) return false;
       const data = await r.json();
-      const ok = !!data.configured;
+      const ok = !!(data && data.id);
       providerConfigured[provider] = ok;
       return ok;
     } catch (e) {
@@ -457,26 +437,20 @@
     else if (currentStep === 2) {
       const active = KEY_PROVIDERS.find((p) => p.slug === activeProvider) || KEY_PROVIDERS[0];
 
-      // Recommended path · render a value-prop card for every provider
-      // tagged `recommend: true` (currently OpenRouter + B.AI, the two
-      // universal aggregators). Cards stack vertically via the parent
-      // `.onb-key-frame`'s flex column; selecting any card flips it to
-      // active and swaps the field below to that provider's key form.
-      const recommendProviders = KEY_PROVIDERS.filter((p) => p.recommend);
-      const recommendCards = recommendProviders.map((p) => {
+      // Multi-model cards · one key reaches every flagship model
+      // family. Reuses the legacy `.onb-key-recommend` class for visual
+      // continuity (big card shape) — paintProviderConfigured() keys
+      // off that class to decide where to plant the configured dot.
+      const multiCards = MULTI_MODEL_CARDS.map((p) => {
         const isActive = p.slug === active.slug;
         const isConfigured = providerConfigured[p.slug];
-        // Per-provider i18n: `onb_v2_key_recommend_<slug>_name` and
-        // `_body`. The shared `_badge` ("// recommended") is the same
-        // for every recommend card.
-        const nameText = t(`onb_v2_key_recommend_${p.slug}_name`);
-        const bodyText = t(`onb_v2_key_recommend_${p.slug}_body`);
+        const nameText = t(`onb_v2_multi_pitch_${p.slug}_name`);
+        const bodyText = t(`onb_v2_multi_pitch_${p.slug}_body`);
         return `
           <button type="button"
                   class="onb-key-recommend${isActive ? " active" : ""}${isConfigured ? " configured" : ""}"
                   data-onb-provider="${escape(p.slug)}">
             <div class="onb-key-recommend-head">
-              <span class="onb-key-recommend-badge">${escape(t("onb_v2_key_recommend_badge"))}</span>
               <span class="onb-key-recommend-name">${escape(nameText)}</span>
               ${isConfigured ? `<span class="onb-key-recommend-dot" title="configured">●</span>` : ""}
             </div>
@@ -485,10 +459,21 @@
         `;
       }).join("");
 
-      // Direct providers · same-model alternative · everything NOT
-      // tagged `recommend: true` falls into the smaller chip row.
-      const directProviders = KEY_PROVIDERS.filter((p) => !p.recommend);
-      const directChips = directProviders.map((p) => {
+      // Single-model cards · one key reaches one model family. xAI
+      // auto-hides when the /api/models cache reports zero reachable
+      // models for it (registry currently has no Grok rows; cards
+      // re-appear automatically once a Grok entry returns). Reuses
+      // the legacy `.onb-key-direct` class for visual continuity.
+      const cache = (typeof window !== "undefined" && typeof window.boardroomModels === "function")
+        ? window.boardroomModels() : null;
+      const allModels = (cache && Array.isArray(cache.models)) ? cache.models : [];
+      const singleCards = SINGLE_MODEL_CARDS.filter((p) => {
+        // Hide the card when the registry has no models for that
+        // provider AND the cache is loaded (avoids race · pre-cache
+        // we show every card and let post-cache re-render filter).
+        if (!cache) return true;
+        return allModels.some((m) => m && m.provider === p.slug);
+      }).map((p) => {
         const isActive = p.slug === active.slug;
         const isConfigured = providerConfigured[p.slug];
         return `
@@ -512,14 +497,15 @@
       `;
       body.innerHTML = `
         <div class="onb-key-frame">
-          ${recommendCards}
+          <div class="onb-key-section-deck">${escape(t("onb_v2_multi_pitch_intro"))}</div>
+          ${multiCards}
           <div class="onb-key-or">
             <span class="onb-key-or-line"></span>
             <span class="onb-key-or-text">${escape(t("onb_v2_key_or"))}</span>
             <span class="onb-key-or-line"></span>
           </div>
-          <div class="onb-key-or-body">${escape(t("onb_v2_key_or_body"))}</div>
-          <div class="onb-key-directs">${directChips}</div>
+          <div class="onb-key-or-body">${escape(t("onb_v2_single_pitch_intro"))}</div>
+          <div class="onb-key-directs">${singleCards}</div>
           <div class="onb-field">
             <div class="onb-field-label" data-onb-field-label>${escape(active.label)} API key</div>
             <div class="onb-input-wrap">
@@ -741,11 +727,16 @@
     const ok = await saveProviderKey(provider, value);
     const fresh = overlay.querySelector(".onb-key-status, [class^=onb-key-status]");
     if (ok) {
-      // Single-provider invariant · retire other configured providers.
+      // Backend now enforces single-active-LLM-provider atomically
+      // (setActiveLlmKey in src/storage/keys.ts wipes every other LLM
+      // row in the same transaction). No client-side DELETE loop
+      // needed; just re-paint the sibling dots from the fresh meta.
       for (const slug of Object.keys(providerConfigured)) {
-        if (slug === provider || !providerConfigured[slug]) continue;
-        await deleteProviderKey(slug);
-        paintProviderConfigured(slug, false);
+        if (slug === provider) continue;
+        if (providerConfigured[slug]) {
+          providerConfigured[slug] = false;
+          paintProviderConfigured(slug, false);
+        }
       }
       if (fresh) fresh.outerHTML = `<div class="onb-key-status ok">● ${escape(label)} key configured</div>`;
       else {

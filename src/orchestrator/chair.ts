@@ -53,8 +53,10 @@ import { insertNegativeSpaceAngles } from "../storage/negative-space.js";
 import { collectUrlsFromHistory, fetchOne, renderUrlContextBlock, type FetchAttemptHook, type UrlExtract } from "../skills/url-fetch.js";
 import { roomBus } from "./stream.js";
 import { waitForVoicePlayback } from "./room.js";
+import { withTimeout, TimeoutError } from "./timeouts.js";
+import { emitAutoSkipped } from "./auto-skip.js";
 import { SentenceChunker } from "../voice/sentence-splitter.js";
-import { synthesizeSpeechStream, voiceProfileForAgent } from "../voice/tts.js";
+import { synthesizeSpeechStream, tryExtractTtsBillingError, voiceProfileForAgent } from "../voice/tts.js";
 
 /** Hard cap on chair clarification turns to prevent runaway loops. */
 const MAX_CLARIFY_TURNS = 3;
@@ -701,6 +703,21 @@ async function streamChairMessage(args: DispatchArgs & {
         });
       }
     } catch (e) {
+      // Billing failure · forward to the frontend so the upgrade
+      // overlay surfaces. Other errors fall through to the stderr
+      // log path · they're either transient (network / TTS provider
+      // hiccup) or already-surfaced via the message stream.
+      const billing = tryExtractTtsBillingError(e);
+      if (billing) {
+        roomBus.emit(roomId, {
+          type: "voice-error",
+          messageId: placeholder.id,
+          code: billing.code,
+          provider: billing.provider,
+          message: billing.message,
+          upgradeUrl: billing.upgradeUrl,
+        });
+      }
       process.stderr.write(`[tts-chair] ${e instanceof Error ? e.message : String(e)}\n`);
     }
   }
@@ -972,14 +989,44 @@ export async function runChairClarify(roomId: string): Promise<ClarifyResult> {
   // chair LLM round-trip — the room opens fast and the chair stays out
   // of the way. Follow-up turns (turnNumber > 1) bypass the gate
   // because the user is mid-conversation with the chair already.
+  //
+  // 15s timeout · the haiku gate is supposed to be cheap (1–3s typical)
+  // but if it hangs we'd block the entire clarify phase silently. On
+  // timeout we treat the decision as "skip clarify" so directors start
+  // immediately, and emit auto-skipped so the user sees a toast
+  // explaining why the chair didn't ask.
   if (turnNumber === 1) {
-    const decision = await pickChairClarifyDecision({ history });
-    if (!decision.shouldAsk) {
+    // Emit a phase signal so the round-table bubble can label the
+    // silent window as "Considering clarify" instead of generic
+    // "Thinking". emitChairPending above already painted a generic
+    // chair-pending; this refines it.
+    emitChairPending(roomId, "clarify-deciding");
+    let decision: { shouldAsk: boolean; rationale?: string } | null = null;
+    try {
+      decision = await withTimeout(
+        pickChairClarifyDecision({ history }),
+        15_000,
+        "chair-clarify-decision",
+      );
+    } catch (e) {
+      if (e instanceof TimeoutError) {
+        process.stderr.write(`[chair-clarify] decision timeout — skipping clarify\n`);
+        emitAutoSkipped(roomId, "clarify", "clarify-timeout");
+        decision = { shouldAsk: false, rationale: "timeout" };
+      } else {
+        // Non-timeout failure already silent-skipped before — preserve that.
+        process.stderr.write(
+          `[chair-clarify] decision error: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+        decision = { shouldAsk: false, rationale: "error" };
+      }
+    }
+    if (!decision || !decision.shouldAsk) {
       setAwaitingClarify(roomId, false);
       roomBus.emit(roomId, {
         type: "config-event",
         kind: "clarify-ready",
-        payload: { skipped: true, rationale: decision.rationale },
+        payload: { skipped: true, rationale: decision?.rationale },
         createdAt: Date.now(),
       });
       return { asked: false, ready: true, exhausted: false };
@@ -1324,6 +1371,17 @@ async function emitChairAnnouncementVoice(
     // against a stuck audio path so the room never deadlocks.
     await waitForVoicePlayback(roomId, messageId, 60_000);
   } catch (e) {
+    const billing = tryExtractTtsBillingError(e);
+    if (billing) {
+      roomBus.emit(roomId, {
+        type: "voice-error",
+        messageId,
+        code: billing.code,
+        provider: billing.provider,
+        message: billing.message,
+        upgradeUrl: billing.upgradeUrl,
+      });
+    }
     process.stderr.write(`[tts-chair-announce] ${e instanceof Error ? e.message : String(e)}\n`);
   }
 }

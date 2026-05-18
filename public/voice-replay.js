@@ -691,6 +691,22 @@
       // the failure was provider-key related.
       const err = new Error(msg);
       err.code = code;
+      // Billing failures (insufficient balance / paid plan required) ·
+      // open the upgrade overlay immediately. Replay is interactive,
+      // the user expects an actionable response, not just a red inline
+      // error. Same overlay path the room SSE handler uses, so the
+      // UX is consistent across surfaces.
+      if (code === "paid-plan-required"
+          && root.AgentProfileVoice
+          && typeof root.AgentProfileVoice.openPaidOverlay === "function") {
+        try {
+          root.AgentProfileVoice.openPaidOverlay({
+            provider: j.provider || "",
+            upgradeUrl: j.upgradeUrl || "",
+            message: msg,
+          });
+        } catch (_) { /* defensive · don't let the overlay open mask the throw */ }
+      }
       throw err;
     }
     return r.json();

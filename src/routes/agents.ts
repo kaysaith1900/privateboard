@@ -23,6 +23,7 @@ import {
   isPersonaJobRunning,
   startPersonaBuild,
 } from "../orchestrator/persona-builder.js";
+import { generateCelebritySeed } from "../orchestrator/celebrity-seed.js";
 import { personaBus, type PersonaEvent } from "../orchestrator/persona-stream.js";
 import { renderPersonaMarkdown, synthesizePersonaBio, synthesizePersonaInstruction } from "../ai/prompts/persona-render.js";
 import {
@@ -518,6 +519,30 @@ export function agentsRouter(): Hono {
       localeRaw === "zh" || localeRaw === "ja" || localeRaw === "es" ? localeRaw : "en";
     const jobId = startPersonaBuild({ description, locale });
     return c.json({ jobId });
+  });
+
+  // ── Celebrity seed top-up ────────────────────────────────────
+  // Client-side state tracks which celebrity seed cards the user
+  // has consumed (saved a director from). When the available pool
+  // dips below 12 the client fires this endpoint to invent ONE
+  // fresh entry that isn't in the exclude list. Single short LLM
+  // call (utility tier), no streaming, no DB writes — the seed
+  // lives only in the client's localStorage.
+  r.post("/celebrity-seed", async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { body = {}; }
+    const b = (body ?? {}) as { excludeIds?: unknown };
+    const excludeIds = Array.isArray(b.excludeIds)
+      ? b.excludeIds.filter((x): x is string => typeof x === "string").slice(0, 200)
+      : [];
+    try {
+      const seed = await generateCelebritySeed({ excludeIds });
+      return c.json({ seed });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ error: msg }, 502);
+    }
   });
 
   r.get("/generate-persona/:jobId/stream", (c) => {
