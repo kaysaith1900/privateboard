@@ -16715,6 +16715,35 @@
       return { id: null, state: null };
     },
 
+    /** Stage SFX driver · used by BOTH the 3D delegate path and the
+     *  legacy 2D path so the thinking-blip loop + speaker-change
+     *  chime fire regardless of which stage renderer is active.
+     *  Earlier this logic only lived inside the 2D render tail and
+     *  the 3D path's early `return` silenced it entirely. Gated by
+     *  the same voice-queue / sfx-enabled rules as before.
+     *  Critical · the thinking loop's AudioContext oscillators
+     *  overlap with the HTMLAudioElement used for TTS playback, so
+     *  gate the loop on `voiceQueues` being empty so the audio
+     *  session is free for the media element to grab. */
+    _applyStageSfx(speakingId, speakerState) {
+      const sfx = window.boardroomTypingSfx;
+      if (!sfx) return;
+      const anyVoiceQueued = !!(this.voiceQueues && Object.keys(this.voiceQueues).length > 0);
+      const shouldBeThinking = !!speakingId
+        && speakerState === "thinking"
+        && !anyVoiceQueued;
+      if (typeof sfx.setThinking === "function") {
+        sfx.setThinking(shouldBeThinking);
+      }
+      const speakerChanged = speakingId !== this._lastSpeakerId;
+      if (speakerChanged && speakingId && speakerState === "speaking"
+          && typeof sfx.speakerChange === "function") {
+        sfx.speakerChange();
+      }
+      if (speakerChanged) this._lastSpeakerId = speakingId;
+      this._lastSpeakerState = speakerState;
+    },
+
     renderRoundTable() {
       const stage = document.querySelector("[data-roundtable-stage]");
       if (!stage) return;
@@ -16779,6 +16808,10 @@
           // toggling the tone" which was exactly that race.
           this.renderRoundTableHud();
           this.renderRtSubtitle();
+          // Stage SFX · same call the 2D tail makes (thinking loop +
+          // speaker-change chime). Reuses `sp` resolved above so the
+          // helper sees the exact speaker/state the 3D scene rendered.
+          this._applyStageSfx(sp.id, sp.state);
           return;
         } catch (e) {
           // 3D path blew up · fall through to the legacy 2D render
@@ -16941,42 +16974,11 @@
         ? this.voiceQueues[speakingMsgId]
         : null;
 
-      // Speaker / thinking SFX · two distinct cues:
-      //   · `setThinking(true)` starts a looping 8-bit pulse hum
-      //     while a seat shows the thought-bubble. Idempotent ·
-      //     calling repeatedly during the thinking phase is free.
-      //     Switched off as soon as the speaker starts streaming
-      //     (state flips to "speaking") OR the room goes idle.
-      //   · `speakerChange()` (legacy triangle-wave chime) only
-      //     fires for the rarer direct-to-speaking transition
-      //     where there's no thinking phase between A → B (e.g.
-      //     chair templated announcements that stream voice
-      //     immediately). Skips speaker → idle.
-      // Critical · the thinking loop's AudioContext oscillators
-      // overlap with the HTMLAudioElement used for TTS playback,
-      // and on some browsers (Safari / iOS) a continuously-active
-      // AudioContext claims the audio session and prevents a fresh
-      // `audio.play()` from proceeding. Gate the loop on
-      // `voiceQueues` being empty so the moment any director's
-      // TTS audio is queued the loop stops and the audio session
-      // is free for the media element to grab.
-      // Same toggle gate as the typing tick · user-settings
-      // "sound" toggle controls all of these uniformly.
-      const sfx = window.boardroomTypingSfx;
-      const anyVoiceQueued = !!(this.voiceQueues && Object.keys(this.voiceQueues).length > 0);
-      const shouldBeThinking = !!speakingId
-        && speakerState === "thinking"
-        && !anyVoiceQueued;
-      if (sfx && typeof sfx.setThinking === "function") {
-        sfx.setThinking(shouldBeThinking);
-      }
-      const speakerChanged = speakingId !== this._lastSpeakerId;
-      if (speakerChanged && speakingId && speakerState === "speaking"
-          && sfx && typeof sfx.speakerChange === "function") {
-        sfx.speakerChange();
-      }
-      if (speakerChanged) this._lastSpeakerId = speakingId;
-      this._lastSpeakerState = speakerState;
+      // Stage SFX · thinking loop + speaker-change chime. Logic
+      // lives in _applyStageSfx so the 3D delegate path can reuse
+      // it; see that helper for the AudioContext / voice-queue
+      // gating rationale.
+      this._applyStageSfx(speakingId, speakerState);
 
       const html = seatsByZ.map(({ seat, i }) => {
         const m = seat.member;

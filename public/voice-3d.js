@@ -232,13 +232,26 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *  texture stayed visible; voxel head doesn't. */
 
   /* ── Public API ─────────────────────────────────────────────── */
+  /** WebGL availability cache · the test creates a throw-away canvas
+   *  + GL context, both of which count against Chrome's per-tab WebGL
+   *  context cap (~16). With this called once per renderRoundTable,
+   *  a chair-handoff SSE burst (dozens of renders in quick succession)
+   *  pushes the cap, makes `getContext("webgl")` momentarily return
+   *  null → `use3d` evaluates false → 3D unmounts and the room
+   *  visibly flips to the 2D fallback for a few seconds until the
+   *  throw-away canvases get GC'd. Caching the first definitive
+   *  answer makes subsequent checks free and removes the flicker.
+   *  Availability doesn't change at runtime so the cache is safe. */
+  let _isSupportedCache = null;
   function isSupported() {
+    if (_isSupportedCache !== null) return _isSupportedCache;
     try {
       const c = document.createElement("canvas");
-      return !!(c.getContext("webgl2") || c.getContext("webgl"));
+      _isSupportedCache = !!(c.getContext("webgl2") || c.getContext("webgl"));
     } catch (_) {
-      return false;
+      _isSupportedCache = false;
     }
+    return _isSupportedCache;
   }
 
   function mount(host) {
