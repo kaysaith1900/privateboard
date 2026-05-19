@@ -12,7 +12,7 @@
     cp public/voice-3d.js public/home-3d-loader.js public/home-3d-mock.js _site/ &&
     if [ -f public/home-3d-poster.webp ]; then cp public/home-3d-poster.webp _site/; fi &&
     if [ -f public/home-3d-poster.jpg ];  then cp public/home-3d-poster.jpg  _site/; fi &&
-    cp public/vendor/three.module.min.js public/vendor/OrbitControls.js _site/vendor/ &&
+    cp public/vendor/three.module.min.js public/vendor/three.core.min.js public/vendor/OrbitControls.js _site/vendor/ &&
     cp public/fonts/human-sans.woff2 public/fonts/agent-Italic.woff2 _site/fonts/ &&
     cp public/avatars/socrates.svg public/avatars/first-principles.svg public/avatars/value-investor.svg public/avatars/user-empathy.svg public/avatars/long-horizon.svg public/avatars/phenomenologist.svg public/avatars/chair.svg public/avatars/historian.svg _site/avatars/
   """
