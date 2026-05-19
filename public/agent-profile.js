@@ -1235,6 +1235,155 @@
     return `<ol class="ap-rules-list">${list}</ol>`;
   }
 
+  /** Render the chair-only "Long-term about you" block · pulls from
+   *  the parallel user_long_memory table that survives every dream
+   *  cycle. Bootstraps with a placeholder; the actual list loads
+   *  asynchronously via /api/agents/chair/user-long-memory after
+   *  paint. Each row supports edit (claim only — label is the tag
+   *  identity, immutable post-creation) + delete. No manual add —
+   *  the chair is the author; the user is the editor. */
+  function renderUserLongMemoryBlock() {
+    return `
+      <div class="ap-ulm" data-ap-ulm>
+        <div class="ap-ulm-list" data-ap-ulm-list>
+          <div class="ap-empty">loading…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function ulmRowHTML(t) {
+    return `
+      <div class="ap-ulm-row" data-ap-ulm-row data-id="${escape(t.id)}">
+        <div class="ap-ulm-row-head">
+          <span class="ap-ulm-label">[${escape(t.label || "")}]</span>
+          <div class="ap-ulm-actions">
+            <button type="button" class="ap-ulm-edit" data-ap-ulm-edit aria-label="${escape(uiT("chair_ulm_edit_label"))}" title="${escape(uiT("chair_ulm_edit_label"))}">
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg>
+            </button>
+            <button type="button" class="ap-ulm-delete" data-ap-ulm-delete aria-label="${escape(uiT("chair_ulm_delete_label"))}" title="${escape(uiT("chair_ulm_delete_label"))}">×</button>
+          </div>
+        </div>
+        <div class="ap-ulm-claim" data-ap-ulm-claim>${escape(t.claim || "")}</div>
+      </div>
+    `;
+  }
+
+  /** Empty-state markup · a small 8-bit pixel-art diagram showing
+   *  the harvest pipeline (rooms → arrow → tag crystal) above a
+   *  3-step ordered list. Goal is to make the section's mechanism
+   *  legible without reading docs: the user sees that the chair
+   *  watches across MULTIPLE rooms and that patterns CRYSTALLIZE
+   *  here as tags. Reuses the project's 8-bit register
+   *  (shape-rendering: crispEdges, currentColor + var(--lime)
+   *  accent) so it inherits dark/light theme tokens cleanly. */
+  function ulmEmptyStageHTML() {
+    return `
+      <div class="ap-ulm-empty-stage">
+        <svg class="ap-ulm-empty-art" viewBox="0 0 240 50" shape-rendering="crispEdges" aria-hidden="true">
+          <!-- Three room panels · each is a 36×28 frame with a tiny
+               chair sprite inside (4×8 back + 8×6 seat). The chairs
+               are uniform · the gamified read is "same chair, three
+               rooms" so the user gets that this aggregates across
+               sessions. -->
+          <g fill="currentColor">
+            <rect x="6"  y="6"  width="36" height="28" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55"/>
+            <rect x="20" y="14" width="8"  height="6"  opacity="0.55"/>
+            <rect x="20" y="22" width="8"  height="6"  opacity="0.9"/>
+            <rect x="52" y="6"  width="36" height="28" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55"/>
+            <rect x="66" y="14" width="8"  height="6"  opacity="0.55"/>
+            <rect x="66" y="22" width="8"  height="6"  opacity="0.9"/>
+            <rect x="98"  y="6"  width="36" height="28" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55"/>
+            <rect x="112" y="14" width="8"  height="6"  opacity="0.55"/>
+            <rect x="112" y="22" width="8"  height="6"  opacity="0.9"/>
+          </g>
+          <!-- Arrow · faint, leads the eye rightward. Pixel-art
+               style (rect-only, no path) keeps the crispEdges
+               aesthetic consistent. -->
+          <g fill="currentColor" opacity="0.45">
+            <rect x="142" y="19" width="18" height="2"/>
+            <rect x="158" y="15" width="2"  height="2"/>
+            <rect x="160" y="17" width="2"  height="2"/>
+            <rect x="162" y="19" width="2"  height="2"/>
+            <rect x="160" y="21" width="2"  height="2"/>
+            <rect x="158" y="23" width="2"  height="2"/>
+          </g>
+          <!-- Tag crystal · lime-stroked frame + three "content"
+               lines that read as a saved tag entry. Small spark
+               above the top-right corner marks it as "freshly
+               minted / something to look forward to". -->
+          <g>
+            <rect x="170" y="6"  width="64" height="28" fill="none" stroke="var(--lime)" stroke-width="1"/>
+            <rect x="176" y="12" width="4"  height="2"  fill="var(--lime)"/>
+            <rect x="182" y="12" width="2"  height="2"  fill="var(--lime)"/>
+            <rect x="186" y="12" width="8"  height="2"  fill="var(--lime)"/>
+            <rect x="196" y="12" width="2"  height="2"  fill="var(--lime)"/>
+            <rect x="200" y="12" width="4"  height="2"  fill="var(--lime)"/>
+            <rect x="176" y="18" width="52" height="2"  fill="var(--lime)" opacity="0.55"/>
+            <rect x="176" y="24" width="36" height="2"  fill="var(--lime)" opacity="0.3"/>
+            <!-- spark · 3 pixels above the top-right edge -->
+            <rect x="228" y="0"  width="2"  height="2"  fill="var(--lime)"/>
+            <rect x="232" y="2"  width="2"  height="2"  fill="var(--lime)" opacity="0.7"/>
+            <rect x="226" y="3"  width="2"  height="2"  fill="var(--lime)" opacity="0.5"/>
+          </g>
+        </svg>
+        <ol class="ap-ulm-empty-steps">
+          <li><span class="ap-ulm-empty-num">1</span><span>${escape(uiT("chair_ulm_empty_step_1"))}</span></li>
+          <li><span class="ap-ulm-empty-num">2</span><span>${escape(uiT("chair_ulm_empty_step_2"))}</span></li>
+          <li><span class="ap-ulm-empty-num">3</span><span>${escape(uiT("chair_ulm_empty_step_3"))}</span></li>
+        </ol>
+        <p class="ap-ulm-empty-caption">${escape(uiT("chair_ulm_empty"))}</p>
+      </div>
+    `;
+  }
+
+  async function loadUserLongMemory() {
+    const block = document.querySelector("[data-ap-ulm]");
+    if (!block) return;
+    const list = block.querySelector("[data-ap-ulm-list]");
+    if (!list) return;
+    try {
+      const r = await fetch("/api/agents/chair/user-long-memory");
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        list.innerHTML = `<div class="ap-empty">${escape(j.error || ("HTTP " + r.status))}</div>`;
+        return;
+      }
+      const j = await r.json();
+      const items = Array.isArray(j.items) ? j.items : [];
+      if (items.length === 0) {
+        list.innerHTML = ulmEmptyStageHTML();
+        return;
+      }
+      list.innerHTML = items.map(ulmRowHTML).join("");
+    } catch (e) {
+      list.innerHTML = `<div class="ap-empty">${escape(e && e.message ? e.message : String(e))}</div>`;
+    }
+  }
+
+  async function patchUserLongMemory(id, claim) {
+    const r = await fetch("/api/agents/chair/user-long-memory/" + encodeURIComponent(id), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ claim }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
+    return r.json();
+  }
+
+  async function deleteUserLongMemoryRow(id) {
+    const r = await fetch("/api/agents/chair/user-long-memory/" + encodeURIComponent(id), {
+      method: "DELETE",
+    });
+    if (!r.ok && r.status !== 204) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
+  }
+
   /** Render the MEMORY block · live, per-agent long-term notes about
    *  the user. Bootstraps with a placeholder; the actual list loads
    *  asynchronously via /api/agents/:id/memories so the profile paint
@@ -3244,6 +3393,12 @@
               </header>
               ${renderMemoryBlock(slug)}
             </section>
+            <section class="ap-block">
+              <header class="ap-block-h">
+                <span class="ap-block-h-title">${escape(uiT("chair_ulm_section_title"))}</span>
+              </header>
+              ${renderUserLongMemoryBlock()}
+            </section>
             ` : ""}
 
           </div>
@@ -3462,6 +3617,12 @@
     loadTrackRecord(slug);
     // Lazy-load this agent's long-term memory pool.
     loadMemoriesFor(slug);
+    // Lazy-load the chair-only user_long_memory sanctuary (the
+    // "long-term about you" block). renderUserLongMemoryBlock
+    // is only inserted into the markup when isChair, so this
+    // no-ops for director profiles via the early-return in
+    // loadUserLongMemory when the [data-ap-ulm] node is absent.
+    loadUserLongMemory();
     // Lazy-load this agent's installed skills (radar + list).
     loadSkillsForV2(slug);
   }
@@ -3864,6 +4025,66 @@
         if (!confirm(msg)) return;
         deleteMemoryFor(slug, id)
           .then(() => loadMemoriesFor(slug))
+          .catch((err) => alert("Couldn't delete: " + (err && err.message ? err.message : err)));
+        return;
+      }
+      // ── user-long-memory · chair-only sanctuary handlers ─────
+      // Edit · swap the claim line into an inline textarea (label
+      // is immutable so we don't touch it).
+      const ulmEdit = e.target.closest("[data-ap-ulm-edit]");
+      if (ulmEdit) {
+        e.preventDefault();
+        const row = ulmEdit.closest("[data-ap-ulm-row]");
+        const claimEl = row?.querySelector("[data-ap-ulm-claim]");
+        if (!row || !claimEl) return;
+        if (row.classList.contains("editing")) return;
+        const current = claimEl.textContent || "";
+        claimEl.innerHTML = `<textarea class="ap-ulm-edit-area" data-ap-ulm-edit-area maxlength="240">${escape(current)}</textarea>
+          <div class="ap-ulm-edit-actions">
+            <button type="button" class="ap-ulm-edit-cancel" data-ap-ulm-edit-cancel data-orig="${escape(current)}">cancel</button>
+            <button type="button" class="ap-ulm-edit-save" data-ap-ulm-edit-save>save</button>
+          </div>`;
+        row.classList.add("editing");
+        const ta = claimEl.querySelector("textarea");
+        if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+        return;
+      }
+      const ulmCancel = e.target.closest("[data-ap-ulm-edit-cancel]");
+      if (ulmCancel) {
+        e.preventDefault();
+        const row = ulmCancel.closest("[data-ap-ulm-row]");
+        const claimEl = row?.querySelector("[data-ap-ulm-claim]");
+        if (!row || !claimEl) return;
+        claimEl.textContent = ulmCancel.getAttribute("data-orig") || "";
+        row.classList.remove("editing");
+        return;
+      }
+      const ulmSave = e.target.closest("[data-ap-ulm-edit-save]");
+      if (ulmSave) {
+        e.preventDefault();
+        const row = ulmSave.closest("[data-ap-ulm-row]");
+        const id = row?.getAttribute("data-id");
+        const ta = row?.querySelector("[data-ap-ulm-edit-area]");
+        if (!id || !ta) return;
+        const claim = ta.value.trim();
+        if (claim.length < 1 || claim.length > 240) {
+          alert("Claim must be 1–240 chars.");
+          return;
+        }
+        patchUserLongMemory(id, claim)
+          .then(() => loadUserLongMemory())
+          .catch((err) => alert("Couldn't save: " + (err && err.message ? err.message : err)));
+        return;
+      }
+      const ulmDel = e.target.closest("[data-ap-ulm-delete]");
+      if (ulmDel) {
+        e.preventDefault();
+        const row = ulmDel.closest("[data-ap-ulm-row]");
+        const id = row?.getAttribute("data-id");
+        if (!id) return;
+        if (!confirm(uiT("chair_ulm_delete_confirm"))) return;
+        deleteUserLongMemoryRow(id)
+          .then(() => loadUserLongMemory())
           .catch((err) => alert("Couldn't delete: " + (err && err.message ? err.message : err)));
         return;
       }

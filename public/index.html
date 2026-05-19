@@ -1894,10 +1894,20 @@
   }
   .main-view {
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    /* `.room-head` is now absolutely positioned (frosted glass over
+       chat) — it no longer occupies a grid row. Row 1 is `.body`;
+       row 2 is reserved for a future footer / status strip. */
+    grid-template-rows: 1fr auto;
     overflow: hidden;
     min-height: 0;
     height: 100%;
+    /* Containing block for the absolute-positioned `.room-head`. */
+    position: relative;
+    /* Header height token · single-line title + 11px×2 padding = ~56px.
+       Consumed by `.chat` via calc() for top inset so first message
+       isn't covered. Override in narrower media queries if header
+       wraps to a second row. */
+    --room-head-h: 56px;
   }
   .main-view[data-main-view="agent"] {
     /* Switch from grid to block so the profile card flows naturally
@@ -4065,13 +4075,50 @@
      padding moderately tight while still leaving the kicker +
      title pair some breathing room. */
   .room-head {
-    background: var(--panel-2);
+    /* Frosted glass floating over `.body` · chat content scrolls
+       under this strip and is visible-but-blurred through it.
+       `.main-view` is `position: relative` (1895) so this absolute
+       takes its containing block from the view, not the viewport. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    /* Frosted-glass · IDENTICAL parameters to `.input-bar` (15118-15121)
+       so top and bottom chrome read as the same material. Two
+       declarations · first is the opaque fallback for browsers that
+       can't parse the nested color-mix or `transparent` token; second
+       is the real value · 88% opaque tint over 12% transparency. Blur
+       24px + saturate 180% matches the input-bar's defaults exactly. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    /* 0.5px hairline at the bottom · seam between glass and content,
+       matches the project's hairline language (sidebar / input-bar). */
     border-bottom: 0.5px solid var(--line-bright);
     padding: 11px 16px;
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 12px;
     align-items: center;
+  }
+  /* Defense in depth · `backdrop-filter` not supported (older Edge,
+     some Linux Chromium) OR user opted into reduced transparency.
+     Fall back to opaque `--panel-2` so the header is still readable
+     against the chat content; both themes resolve correctly because
+     `--panel-2` is theme-aware. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .room-head {
+      background: var(--panel-2);
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .room-head {
+      background: var(--panel-2);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
   /* When the sidebar is collapsed the room-head gains a leading
      auto-sized track for the in-header `.room-head-expand` button.
@@ -6527,13 +6574,13 @@
     overflow: hidden;
     min-height: 0;
     height: 100%;
-    /* Pin to .main-view's 1fr row · without this, when room-head is
-       :empty + display:none (composer mode), .body becomes the first
-       non-hidden grid child and auto-flows into row 1 (auto), where
-       it collapses to content height. Vertical centring then has no
-       free space. Explicit grid-row: 2 keeps .body in the 1fr row
-       regardless of whether room-head is visible. */
-    grid-row: 2;
+    /* Pin to .main-view's 1fr row · `.room-head` is now absolutely
+       positioned (frosted glass overlay), so it no longer occupies a
+       grid row. `.body` is the first in-flow grid child and lands in
+       row 1 naturally; the explicit `grid-row: 1` is belt-and-braces
+       for future grid additions (e.g. a row 0 marker) so .body always
+       owns the 1fr track. */
+    grid-row: 1;
   }
 
   /* Chat (zen plain text) */
@@ -6542,7 +6589,14 @@
     min-height: 0;
     overflow-y: auto;
     background: var(--panel);
-    /* Bottom padding leaves room for the floating `.ib-stack`
+    /* Top padding · clears the frosted-glass `.room-head` (which is
+       now absolutely positioned, ~56px tall). Without this, the first
+       message would render under the glass on initial load. The
+       `--room-head-h` var lives on `.main-view`; the 14px fallback
+       preserves the pre-frosted layout if the cascade ever fails to
+       resolve the var. As the user scrolls down, content slides UNDER
+       the glass (which is the intended effect).
+       Bottom padding leaves room for the floating `.ib-stack`
        (input-bar + any speaking-queue / paused / adjourned strip
        above it). The stack absolute-positions at the chat-col
        bottom, so without this padding the last message would
@@ -6550,7 +6604,7 @@
        common case (textarea + one strip); tall textarea +
        multiple strips can still cover the bottom message, the
        user scrolls a touch — acceptable. */
-    padding: 14px 20px 140px;
+    padding: calc(14px + var(--room-head-h, 56px)) 20px 140px;
     transition: opacity 0.18s ease-out;
   }
   /* Note-jump loading state · the user clicked a note in the All
@@ -8534,8 +8588,8 @@
        Each floor SVG is tileable, paints with `shape-rendering=
        crispEdges`, and `image-rendering: pixelated` on the parent
        keeps browser scaling crisp on HiDPI / non-integer zooms. */
-    --floor-bg: #0E0805;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' shape-rendering='crispEdges'><rect width='192' height='192' fill='%230E0805'/><rect x='0' y='0' width='95' height='23' fill='%232A1F18'/><rect x='96' y='0' width='96' height='23' fill='%232E221A'/><rect x='0' y='24' width='47' height='23' fill='%232E221A'/><rect x='48' y='24' width='95' height='23' fill='%232A1F18'/><rect x='144' y='24' width='48' height='23' fill='%232E221A'/><rect x='0' y='48' width='95' height='23' fill='%232A1F18'/><rect x='96' y='48' width='96' height='23' fill='%232E221A'/><rect x='0' y='72' width='47' height='23' fill='%232E221A'/><rect x='48' y='72' width='95' height='23' fill='%232A1F18'/><rect x='144' y='72' width='48' height='23' fill='%232E221A'/><rect x='0' y='96' width='95' height='23' fill='%232A1F18'/><rect x='96' y='96' width='96' height='23' fill='%232E221A'/><rect x='0' y='120' width='47' height='23' fill='%232E221A'/><rect x='48' y='120' width='95' height='23' fill='%232A1F18'/><rect x='144' y='120' width='48' height='23' fill='%232E221A'/><rect x='0' y='144' width='95' height='23' fill='%232A1F18'/><rect x='96' y='144' width='96' height='23' fill='%232E221A'/><rect x='0' y='168' width='47' height='23' fill='%232E221A'/><rect x='48' y='168' width='95' height='23' fill='%232A1F18'/><rect x='144' y='168' width='48' height='23' fill='%232E221A'/><rect x='12' y='11' width='80' height='1' fill='%231F140C'/><rect x='108' y='11' width='80' height='1' fill='%231F140C'/><rect x='60' y='35' width='80' height='1' fill='%231F140C'/><rect x='12' y='59' width='80' height='1' fill='%231F140C'/><rect x='108' y='59' width='80' height='1' fill='%231F140C'/><rect x='60' y='83' width='80' height='1' fill='%231F140C'/><rect x='12' y='107' width='80' height='1' fill='%231F140C'/><rect x='108' y='107' width='80' height='1' fill='%231F140C'/><rect x='60' y='131' width='80' height='1' fill='%231F140C'/><rect x='12' y='155' width='80' height='1' fill='%231F140C'/><rect x='108' y='155' width='80' height='1' fill='%231F140C'/><rect x='60' y='179' width='80' height='1' fill='%231F140C'/><rect x='6' y='5' width='2' height='2' fill='%231A100A'/><rect x='6' y='15' width='2' height='2' fill='%231A100A'/><rect x='102' y='5' width='2' height='2' fill='%231A100A'/><rect x='102' y='15' width='2' height='2' fill='%231A100A'/><rect x='54' y='29' width='2' height='2' fill='%231A100A'/><rect x='54' y='39' width='2' height='2' fill='%231A100A'/><rect x='150' y='29' width='2' height='2' fill='%231A100A'/><rect x='150' y='39' width='2' height='2' fill='%231A100A'/><rect x='6' y='53' width='2' height='2' fill='%231A100A'/><rect x='6' y='63' width='2' height='2' fill='%231A100A'/><rect x='102' y='53' width='2' height='2' fill='%231A100A'/><rect x='102' y='63' width='2' height='2' fill='%231A100A'/><rect x='54' y='77' width='2' height='2' fill='%231A100A'/><rect x='54' y='87' width='2' height='2' fill='%231A100A'/><rect x='150' y='77' width='2' height='2' fill='%231A100A'/><rect x='150' y='87' width='2' height='2' fill='%231A100A'/><rect x='6' y='101' width='2' height='2' fill='%231A100A'/><rect x='6' y='111' width='2' height='2' fill='%231A100A'/><rect x='102' y='101' width='2' height='2' fill='%231A100A'/><rect x='102' y='111' width='2' height='2' fill='%231A100A'/><rect x='54' y='125' width='2' height='2' fill='%231A100A'/><rect x='54' y='135' width='2' height='2' fill='%231A100A'/><rect x='150' y='125' width='2' height='2' fill='%231A100A'/><rect x='150' y='135' width='2' height='2' fill='%231A100A'/><rect x='6' y='149' width='2' height='2' fill='%231A100A'/><rect x='6' y='159' width='2' height='2' fill='%231A100A'/><rect x='102' y='149' width='2' height='2' fill='%231A100A'/><rect x='102' y='159' width='2' height='2' fill='%231A100A'/><rect x='54' y='173' width='2' height='2' fill='%231A100A'/><rect x='54' y='183' width='2' height='2' fill='%231A100A'/><rect x='150' y='173' width='2' height='2' fill='%231A100A'/><rect x='150' y='183' width='2' height='2' fill='%231A100A'/></svg>");
+    --floor-bg: #4D4136;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' shape-rendering='crispEdges'><rect width='192' height='192' fill='%232A2218'/><rect x='1' y='1' width='62' height='62' fill='%235A4D3F'/><rect x='65' y='1' width='62' height='62' fill='%23544739'/><rect x='129' y='1' width='62' height='62' fill='%235A4D3F'/><rect x='1' y='65' width='62' height='62' fill='%23544739'/><rect x='65' y='65' width='62' height='62' fill='%235A4D3F'/><rect x='129' y='65' width='62' height='62' fill='%23544739'/><rect x='1' y='129' width='62' height='62' fill='%235A4D3F'/><rect x='65' y='129' width='62' height='62' fill='%23544739'/><rect x='129' y='129' width='62' height='62' fill='%235A4D3F'/><rect x='1' y='1' width='62' height='1' fill='%237A6B58'/><rect x='65' y='1' width='62' height='1' fill='%2374664F'/><rect x='129' y='1' width='62' height='1' fill='%237A6B58'/><rect x='1' y='65' width='62' height='1' fill='%2374664F'/><rect x='65' y='65' width='62' height='1' fill='%237A6B58'/><rect x='129' y='65' width='62' height='1' fill='%2374664F'/><rect x='1' y='129' width='62' height='1' fill='%237A6B58'/><rect x='65' y='129' width='62' height='1' fill='%2374664F'/><rect x='129' y='129' width='62' height='1' fill='%237A6B58'/><rect x='1' y='62' width='62' height='1' fill='%233A2F23'/><rect x='65' y='62' width='62' height='1' fill='%233A2F23'/><rect x='129' y='62' width='62' height='1' fill='%233A2F23'/><rect x='1' y='126' width='62' height='1' fill='%233A2F23'/><rect x='65' y='126' width='62' height='1' fill='%233A2F23'/><rect x='129' y='126' width='62' height='1' fill='%233A2F23'/><rect x='1' y='190' width='62' height='1' fill='%233A2F23'/><rect x='65' y='190' width='62' height='1' fill='%233A2F23'/><rect x='129' y='190' width='62' height='1' fill='%233A2F23'/><rect x='12' y='24' width='40' height='1' fill='%237C6D5B'/><rect x='108' y='100' width='44' height='1' fill='%237C6D5B'/><rect x='72' y='156' width='38' height='1' fill='%237C6D5B'/><rect x='148' y='78' width='30' height='1' fill='%237C6D5B'/><rect x='28' y='140' width='1' height='32' fill='%237C6D5B'/><rect x='140' y='40' width='1' height='28' fill='%237C6D5B'/><rect x='168' y='178' width='1' height='9' fill='%237C6D5B'/></svg>");
     background-color: var(--floor-bg);
     background-image:
       radial-gradient(ellipse at 50% 50%,
@@ -8637,21 +8691,21 @@
      tiling). Two plank tones (A and B) alternate so adjacent
      boards read as separately-cut lumber.
 
-     Palette:
-       · Seam base `#0E0805` (near-black plank-gap colour;
-         visible as the hairline between every plank)
-       · Plank A `#2A1F18` (the dominant black-walnut body)
-       · Plank B `#2E221A` (slightly lighter neighbour · the
-         board-to-board variation real hardwood has)
-       · Grain `#1F140C` (one 80×1px subtle stripe down the
-         middle of each plank · barely-there wood texture)
-       · Nail `#1A100A` (2×2 bronze-nail dot · two per plank
-         at the left end, vertically stacked, matching the
-         floor.png nail signature) */
+     Palette · polished cool-slate tile (executive boardroom):
+       · Grout / seam `#2A2218` (hairline mortar between slabs)
+       · Slab A `#5A4D3F` (cool slate base · checker primary)
+       · Slab B `#544739` (slightly darker neighbour · the
+         tile-to-tile tone variation polished stone has)
+       · Top highlight `#7A6B58` / `#74664F` (1px per slab top
+         edge so each slab catches light along its upper rim)
+       · Bottom shadow `#3A2F23` (1px per slab bottom · the
+         "stone has weight" cue against the grout below)
+       · Vein `#7C6D5B` (a handful of short marble-style veins
+         scattered across the field for sculpted character) */
   .roundtable-stage[data-floor="constructive"] {
-    --floor-bg: #0E0805;
+    --floor-bg: #4D4136;
     --rt-chair-name: #C8A878;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' shape-rendering='crispEdges'><rect width='192' height='192' fill='%230E0805'/><rect x='0' y='0' width='95' height='23' fill='%232A1F18'/><rect x='96' y='0' width='96' height='23' fill='%232E221A'/><rect x='0' y='24' width='47' height='23' fill='%232E221A'/><rect x='48' y='24' width='95' height='23' fill='%232A1F18'/><rect x='144' y='24' width='48' height='23' fill='%232E221A'/><rect x='0' y='48' width='95' height='23' fill='%232A1F18'/><rect x='96' y='48' width='96' height='23' fill='%232E221A'/><rect x='0' y='72' width='47' height='23' fill='%232E221A'/><rect x='48' y='72' width='95' height='23' fill='%232A1F18'/><rect x='144' y='72' width='48' height='23' fill='%232E221A'/><rect x='0' y='96' width='95' height='23' fill='%232A1F18'/><rect x='96' y='96' width='96' height='23' fill='%232E221A'/><rect x='0' y='120' width='47' height='23' fill='%232E221A'/><rect x='48' y='120' width='95' height='23' fill='%232A1F18'/><rect x='144' y='120' width='48' height='23' fill='%232E221A'/><rect x='0' y='144' width='95' height='23' fill='%232A1F18'/><rect x='96' y='144' width='96' height='23' fill='%232E221A'/><rect x='0' y='168' width='47' height='23' fill='%232E221A'/><rect x='48' y='168' width='95' height='23' fill='%232A1F18'/><rect x='144' y='168' width='48' height='23' fill='%232E221A'/><rect x='12' y='11' width='80' height='1' fill='%231F140C'/><rect x='108' y='11' width='80' height='1' fill='%231F140C'/><rect x='60' y='35' width='80' height='1' fill='%231F140C'/><rect x='12' y='59' width='80' height='1' fill='%231F140C'/><rect x='108' y='59' width='80' height='1' fill='%231F140C'/><rect x='60' y='83' width='80' height='1' fill='%231F140C'/><rect x='12' y='107' width='80' height='1' fill='%231F140C'/><rect x='108' y='107' width='80' height='1' fill='%231F140C'/><rect x='60' y='131' width='80' height='1' fill='%231F140C'/><rect x='12' y='155' width='80' height='1' fill='%231F140C'/><rect x='108' y='155' width='80' height='1' fill='%231F140C'/><rect x='60' y='179' width='80' height='1' fill='%231F140C'/><rect x='6' y='5' width='2' height='2' fill='%231A100A'/><rect x='6' y='15' width='2' height='2' fill='%231A100A'/><rect x='102' y='5' width='2' height='2' fill='%231A100A'/><rect x='102' y='15' width='2' height='2' fill='%231A100A'/><rect x='54' y='29' width='2' height='2' fill='%231A100A'/><rect x='54' y='39' width='2' height='2' fill='%231A100A'/><rect x='150' y='29' width='2' height='2' fill='%231A100A'/><rect x='150' y='39' width='2' height='2' fill='%231A100A'/><rect x='6' y='53' width='2' height='2' fill='%231A100A'/><rect x='6' y='63' width='2' height='2' fill='%231A100A'/><rect x='102' y='53' width='2' height='2' fill='%231A100A'/><rect x='102' y='63' width='2' height='2' fill='%231A100A'/><rect x='54' y='77' width='2' height='2' fill='%231A100A'/><rect x='54' y='87' width='2' height='2' fill='%231A100A'/><rect x='150' y='77' width='2' height='2' fill='%231A100A'/><rect x='150' y='87' width='2' height='2' fill='%231A100A'/><rect x='6' y='101' width='2' height='2' fill='%231A100A'/><rect x='6' y='111' width='2' height='2' fill='%231A100A'/><rect x='102' y='101' width='2' height='2' fill='%231A100A'/><rect x='102' y='111' width='2' height='2' fill='%231A100A'/><rect x='54' y='125' width='2' height='2' fill='%231A100A'/><rect x='54' y='135' width='2' height='2' fill='%231A100A'/><rect x='150' y='125' width='2' height='2' fill='%231A100A'/><rect x='150' y='135' width='2' height='2' fill='%231A100A'/><rect x='6' y='149' width='2' height='2' fill='%231A100A'/><rect x='6' y='159' width='2' height='2' fill='%231A100A'/><rect x='102' y='149' width='2' height='2' fill='%231A100A'/><rect x='102' y='159' width='2' height='2' fill='%231A100A'/><rect x='54' y='173' width='2' height='2' fill='%231A100A'/><rect x='54' y='183' width='2' height='2' fill='%231A100A'/><rect x='150' y='173' width='2' height='2' fill='%231A100A'/><rect x='150' y='183' width='2' height='2' fill='%231A100A'/></svg>");
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' shape-rendering='crispEdges'><rect width='192' height='192' fill='%232A2218'/><rect x='1' y='1' width='62' height='62' fill='%235A4D3F'/><rect x='65' y='1' width='62' height='62' fill='%23544739'/><rect x='129' y='1' width='62' height='62' fill='%235A4D3F'/><rect x='1' y='65' width='62' height='62' fill='%23544739'/><rect x='65' y='65' width='62' height='62' fill='%235A4D3F'/><rect x='129' y='65' width='62' height='62' fill='%23544739'/><rect x='1' y='129' width='62' height='62' fill='%235A4D3F'/><rect x='65' y='129' width='62' height='62' fill='%23544739'/><rect x='129' y='129' width='62' height='62' fill='%235A4D3F'/><rect x='1' y='1' width='62' height='1' fill='%237A6B58'/><rect x='65' y='1' width='62' height='1' fill='%2374664F'/><rect x='129' y='1' width='62' height='1' fill='%237A6B58'/><rect x='1' y='65' width='62' height='1' fill='%2374664F'/><rect x='65' y='65' width='62' height='1' fill='%237A6B58'/><rect x='129' y='65' width='62' height='1' fill='%2374664F'/><rect x='1' y='129' width='62' height='1' fill='%237A6B58'/><rect x='65' y='129' width='62' height='1' fill='%2374664F'/><rect x='129' y='129' width='62' height='1' fill='%237A6B58'/><rect x='1' y='62' width='62' height='1' fill='%233A2F23'/><rect x='65' y='62' width='62' height='1' fill='%233A2F23'/><rect x='129' y='62' width='62' height='1' fill='%233A2F23'/><rect x='1' y='126' width='62' height='1' fill='%233A2F23'/><rect x='65' y='126' width='62' height='1' fill='%233A2F23'/><rect x='129' y='126' width='62' height='1' fill='%233A2F23'/><rect x='1' y='190' width='62' height='1' fill='%233A2F23'/><rect x='65' y='190' width='62' height='1' fill='%233A2F23'/><rect x='129' y='190' width='62' height='1' fill='%233A2F23'/><rect x='12' y='24' width='40' height='1' fill='%237C6D5B'/><rect x='108' y='100' width='44' height='1' fill='%237C6D5B'/><rect x='72' y='156' width='38' height='1' fill='%237C6D5B'/><rect x='148' y='78' width='30' height='1' fill='%237C6D5B'/><rect x='28' y='140' width='1' height='32' fill='%237C6D5B'/><rect x='140' y='40' width='1' height='28' fill='%237C6D5B'/><rect x='168' y='178' width='1' height='9' fill='%237C6D5B'/></svg>");
   }
   /* ─── research · MARBLE floor ───────────────────────────────
      128×128 light marble with subtle slab tonal variation, dark
@@ -8671,14 +8725,15 @@
     --rt-chair-name: var(--red, #B5706A);
     --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' shape-rendering='crispEdges'><rect width='64' height='64' fill='%234A4945'/><rect x='0' y='0' width='32' height='32' fill='%234F4E4A'/><rect x='32' y='32' width='32' height='32' fill='%234F4E4A'/><rect x='31' y='0' width='2' height='64' fill='%232D2C2A'/><rect x='0' y='31' width='64' height='2' fill='%232D2C2A'/><rect x='10' y='10' width='2' height='6' fill='%232D2C2A'/><rect x='12' y='14' width='6' height='2' fill='%232D2C2A'/><rect x='44' y='8' width='6' height='2' fill='%232D2C2A'/><rect x='50' y='10' width='2' height='8' fill='%232D2C2A'/><rect x='8' y='44' width='2' height='8' fill='%232D2C2A'/><rect x='10' y='50' width='8' height='2' fill='%232D2C2A'/><rect x='44' y='46' width='2' height='6' fill='%232D2C2A'/><rect x='44' y='50' width='8' height='2' fill='%232D2C2A'/><rect x='22' y='6' width='2' height='2' fill='%23605F5B'/><rect x='6' y='24' width='2' height='2' fill='%23605F5B'/><rect x='40' y='26' width='2' height='2' fill='%23605F5B'/><rect x='56' y='42' width='2' height='2' fill='%23605F5B'/><rect x='24' y='56' width='2' height='2' fill='%23605F5B'/></svg>");
   }
-  /* ─── critique · CARPET floor ───────────────────────────────
-     32×32 deep-burgundy carpet with a centred diamond motif +
-     cross arms and corner texture-dots (carpet weave). Executive-
-     boardroom vibe — for a room that audits the deliverable. */
+  /* ─── critique · METAL-WEAVE floor ──────────────────────────
+     16×16 tight brass-on-gunmetal grid · centred diamond + cross
+     arms in antique brass, polished-gold corner dots. Smaller tile
+     than the burgundy carpet so the pattern reads as dense metallic
+     weave at room scale (executive boardroom polish). */
   .roundtable-stage[data-floor="critique"] {
-    --floor-bg: #5A2A2A;
-    --rt-chair-name: #D4B07A;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' shape-rendering='crispEdges'><rect width='32' height='32' fill='%235A2A2A'/><rect x='14' y='14' width='4' height='4' fill='%237A4040'/><rect x='12' y='15' width='8' height='2' fill='%237A4040'/><rect x='15' y='12' width='2' height='8' fill='%237A4040'/><rect x='15' y='4' width='2' height='4' fill='%23753838'/><rect x='15' y='24' width='2' height='4' fill='%23753838'/><rect x='4' y='15' width='4' height='2' fill='%23753838'/><rect x='24' y='15' width='4' height='2' fill='%23753838'/><rect x='2' y='2' width='1' height='1' fill='%23753838'/><rect x='29' y='2' width='1' height='1' fill='%23753838'/><rect x='2' y='29' width='1' height='1' fill='%23753838'/><rect x='29' y='29' width='1' height='1' fill='%23753838'/></svg>");
+    --floor-bg: #3E362C;
+    --rt-chair-name: #E8C788;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' shape-rendering='crispEdges'><rect width='16' height='16' fill='%233E362C'/><rect x='6' y='7' width='4' height='2' fill='%23BA9050'/><rect x='7' y='6' width='2' height='4' fill='%23BA9050'/><rect x='7' y='2' width='2' height='1' fill='%239F7C42'/><rect x='7' y='13' width='2' height='1' fill='%239F7C42'/><rect x='2' y='7' width='1' height='2' fill='%239F7C42'/><rect x='13' y='7' width='1' height='2' fill='%239F7C42'/><rect x='1' y='1' width='1' height='1' fill='%23E8C788'/><rect x='14' y='1' width='1' height='1' fill='%23E8C788'/><rect x='1' y='14' width='1' height='1' fill='%23E8C788'/><rect x='14' y='14' width='1' height='1' fill='%23E8C788'/></svg>");
   }
 
   /* 8-bit pixel-art conference table · sized to occupy the
@@ -8775,7 +8830,7 @@
   /* Plant 1 · top-right corner. Top-left is occupied by the HUD
      console and toast-tray, so the plant balances visual weight
      on the opposite corner. */
-  .rt-plant-1 { top: 16px; right: 16px; }
+  .rt-plant-1 { top: calc(16px + var(--room-head-h, 56px)); right: 16px; }
   /* Plant 2 · bottom-left corner. Diagonally opposite the HUD,
      in the floor area outside the seat ring (rx=36% / ry=28% from
      centre, so corners are always clear of seats). */
@@ -8784,7 +8839,7 @@
      don't squeeze the table on a 480px-wide voice room. */
   @container rtstage (max-width: 520px) {
     .rt-plant     { width: 64px; height: 80px; }
-    .rt-plant-1   { top: 8px;    right: 8px; }
+    .rt-plant-1   { top: calc(8px + var(--room-head-h, 56px));    right: 8px; }
     .rt-plant-2   { bottom: 8px; left: 8px; }
   }
 
@@ -9089,7 +9144,8 @@
      in from the top, fades out. */
   .auto-skip-toast {
     position: absolute;
-    top: 14px;
+    /* Clear the frosted-glass `.room-head` overlay (~56px). */
+    top: calc(14px + var(--room-head-h, 56px));
     left: 50%;
     transform: translateX(-50%) translateY(-12px);
     padding: 6px 14px;
@@ -9504,7 +9560,8 @@
      chat surface normally renders but the round-table view hides. */
   .rt-toast-tray {
     position: absolute;
-    top: 12px;
+    /* Clear the frosted-glass `.room-head` overlay (~56px). */
+    top: calc(12px + var(--room-head-h, 56px));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -9602,7 +9659,10 @@
      of change; the HUD persists the running tally. */
   .rt-hud {
     position: absolute;
-    top: 12px;
+    /* Clear the frosted-glass `.room-head` (absolutely positioned at
+       top of `.main-view`, ~56px tall via `--room-head-h`). Without
+       this offset the HUD's status data hides under the glass. */
+    top: calc(12px + var(--room-head-h, 56px));
     left: 12px;
     z-index: 11;
     width: 200px;
@@ -10074,7 +10134,7 @@
      / numeral scale so it doesn't squeeze the table. The container-
      query parent is .roundtable-stage. */
   @container rtstage (max-width: 520px) {
-    .rt-hud { width: 172px; top: 8px; left: 8px; }
+    .rt-hud { width: 172px; top: calc(8px + var(--room-head-h, 56px)); left: 8px; }
     .rt-hud-stat-value { font-size: 18px; }
     .rt-hud-log { max-height: 110px; }
     .rt-hud-pip { width: 4px; }
@@ -10477,108 +10537,6 @@
     color: var(--bg, #0A0A0A);
   }
 
-  /* Hover preview popover · floats directly above the toggle
-     showing a tiny SVG sketch of the destination view + the
-     destination name + a "press to switch" prompt.
-     `position: fixed` to escape `.chat-col`'s `overflow:
-     hidden` (which clips position:absolute children — the
-     paused-bar's leftmost button hit this). The JS positioner
-     sets `left` and `top` to the EXPLICIT top-left corner of
-     the preview · no transform centering · so the position can
-     never silently drift from a transform-vs-anchor mismatch.
-     CSS owns visibility transitions and the rise-on-hover
-     animation only (translateY 6 → 0). */
-  .ib-rt-preview {
-    position: fixed;
-    width: 132px;
-    /* Surface uses --panel-2 (one step lighter than --panel) so the
-       popover reads as elevated against the chat backdrop without
-       any drop-shadow / coloured glow. The lime hairline border
-       carries the accent identity; no lime ring shadow underneath
-       (was double-bordering against the existing border anyway). */
-    background: var(--panel-2);
-    border: 0.5px solid var(--lime, #6FB572);
-    color: var(--text);
-    padding: 9px 10px 10px;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    z-index: 9100;
-    /* JS sets `left` + `top` to the preview's explicit top-left
-       pixel coordinates · NO `translate(-50%)` centering here.
-       Transform is reserved purely for the rise-on-hover
-       animation (translateY 6 → 0). */
-    transform: translateY(6px);
-    transition:
-      opacity 0.14s ease,
-      transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1),
-      visibility 0s linear 0.18s;
-  }
-  /* Visibility · CSS :hover is the primary trigger (kept here so
-     even if JS somehow fails, the tooltip still appears on hover).
-     `!important` defeats inline `opacity: 0` set by the JS
-     hidePreview handler when the user leaves the button. JS still
-     owns the POSITION (sets inline left/top from getBoundingClientRect
-     on mouseenter). Focus-visible deliberately excluded so clicking
-     the button doesn't latch the tooltip open. */
-  :is(.ib-rt-toggle, .head-rt-toggle):hover .ib-rt-preview {
-    opacity: 1 !important;
-    visibility: visible !important;
-    transform: translateY(0) !important;
-  }
-  .ib-rt-preview::before,
-  .ib-rt-preview::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 0;
-    height: 0;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-  }
-  .ib-rt-preview::before {
-    bottom: -6px;
-    border-top: 6px solid var(--lime, #6FB572);
-  }
-  .ib-rt-preview::after {
-    bottom: -5px;
-    border-top: 6px solid var(--panel);
-  }
-  .ib-rt-preview-kicker {
-    font-family: var(--mono);
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--lime, #6FB572);
-    margin-bottom: 6px;
-  }
-  .ib-rt-preview-svg {
-    display: block;
-    width: 100%;
-    height: 42px;
-    margin-bottom: 6px;
-  }
-  .ib-rt-preview-svg .rt-prev-fill { fill: var(--lime, #6FB572); }
-  .ib-rt-preview-svg .rt-prev-stroke {
-    stroke: var(--lime, #6FB572);
-    fill: none;
-    stroke-width: 1.2;
-  }
-  .ib-rt-preview-foot {
-    font-family: var(--mono);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--text-soft);
-    text-align: right;
-  }
-  .ib-rt-preview-foot .rt-prev-arrow {
-    color: var(--lime, #6FB572);
-    margin-left: 4px;
-  }
   @media (prefers-reduced-motion: reduce) {
     /* Strip every spatial animation · attention loop, click-swap,
        press-scale. The hover and active colour transitions stay
@@ -10589,11 +10547,6 @@
     }
     :is(.ib-rt-toggle, .head-rt-toggle):active .ib-rt-glyph {
       transform: none;
-    }
-    :is(.ib-rt-toggle, .head-rt-toggle):hover .ib-rt-preview,
-    :is(.ib-rt-toggle, .head-rt-toggle):focus-visible .ib-rt-preview {
-      transform: translateY(0);
-      transition: opacity 0.1s ease, visibility 0s;
     }
   }
 
@@ -10746,7 +10699,13 @@
     border-top-right-radius: 12px;
     background: var(--panel-2);
     box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
-    overflow: hidden;
+    /* `overflow: visible` (was `hidden`) so hover tooltips on header
+       controls — the mirrored `.rt-sub-restore::after` for the
+       subtitle-restore button — can escape upward above the strip.
+       Mirrors the same `overflow: visible` fix on `.speaking-queue`
+       (~line 10593). The rounded top corners clip the background
+       naturally via `border-radius`, so dropping the clip is safe. */
+    overflow: visible;
   }
   html[data-status="adjourned"] .adjourned-strip { display: block; }
   .adjourned-strip + .input-bar {
@@ -15981,12 +15940,14 @@
 <script src="new-agent.js" defer></script>
 <link rel="stylesheet" href="user-settings.css">
 <script type="module" src="keys-store.js"></script>
+<script src="key-validators.js" defer></script>
 <script src="user-settings.js" defer></script>
 <link rel="stylesheet" href="voice-replay.css">
 <script src="voice-replay.js" defer></script>
 <script src="mention-picker.js" defer></script>
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
+<script src="voice-3d-banner.js" defer></script>
 <script src="onboarding.js" defer></script>
 <link rel="stylesheet" href="voice-onboarding.css">
 <script src="voice-onboarding.js" defer></script>
@@ -16554,6 +16515,22 @@
               <span class="adjourned-strip-kicker" data-i18n="adjourned_strip_kicker">// adjourned</span>
               <div class="adjourned-strip-right">
                 <span class="adjourned-strip-meta" data-adjourned-strip-meta></span>
+                <!-- Subtitle restore · mirror copy for adjourned rooms.
+                     The primary copy lives inside `.speaking-queue
+                     .queue-head` (live state). When the room is
+                     adjourned, that queue is hidden by
+                     `html[data-status="adjourned"]`, so without this
+                     mirror the CC button has nowhere to live during
+                     voice replay. Same class + data-attr so the
+                     existing click delegate at app.js:350 picks it
+                     up. CSS visibility is gated by
+                     `body.is-subtitle-min`. -->
+                <button type="button" class="rt-sub-restore" data-rt-sub-restore
+                  title="Show live subtitle" aria-label="Show subtitle"
+                  data-tip="Show live subtitle"
+                  data-i18n-title="rt_sub_restore_tip"
+                  data-i18n-aria="rt_sub_restore_label"
+                  data-i18n-tip="rt_sub_restore_tip"></button>
                 <a href="#" class="adjourned-strip-replay" data-room-replay
                    data-i18n="adjourned_strip_replay"
                    data-i18n-aria="adj_replay_label"

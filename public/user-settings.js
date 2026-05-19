@@ -899,6 +899,7 @@
             spellcheck="false">
           <button type="button" class="us-key-eye" data-key-eye title="Show / hide">◉</button>
         </div>
+        <div class="us-key-warn" data-key-warn hidden></div>
         ${extras}
       </div>
     `;
@@ -1105,6 +1106,7 @@
                 spellcheck="false">
               <button type="button" class="us-key-eye" data-key-eye title="Show / hide">◉</button>
             </div>
+            <div class="us-key-warn" data-llm-add-key-warn hidden></div>
             <div class="us-llm-add-field-hint">
               <a href="${escape(card.helpUrl)}" target="_blank" rel="noopener" class="us-llm-card-help">${escape(card.helpLabel)} →</a>
             </div>
@@ -1712,11 +1714,35 @@
         const provider = form.dataset.provider;
         const labelInput = form.querySelector("[data-llm-add-label]");
         const keyInput = form.querySelector("[data-llm-add-key]");
+        const warnEl = form.querySelector("[data-llm-add-key-warn]");
         const label = labelInput ? labelInput.value.trim() : "";
         const key = keyInput ? keyInput.value.trim() : "";
         if (!provider || !key) {
           if (keyInput) keyInput.focus();
           return;
+        }
+        // Static format check before POSTing · saves a server round-trip
+        // when the user has clearly pasted the wrong thing (e.g. a
+        // Brave key into the OpenAI slot, or "123").
+        const validator = window.boardroomKeyValidator;
+        if (validator) {
+          const result = validator.validate(provider, key);
+          if (!result.ok) {
+            if (warnEl) {
+              warnEl.hidden = false;
+              warnEl.textContent = validator.describe(result);
+            }
+            if (keyInput) {
+              keyInput.classList.add("us-input-invalid");
+              keyInput.focus();
+            }
+            return;
+          }
+          if (warnEl) {
+            warnEl.hidden = true;
+            warnEl.textContent = "";
+          }
+          if (keyInput) keyInput.classList.remove("us-input-invalid");
         }
         btn.disabled = true;
         const created = window.keysStore && typeof window.keysStore.createLlmCredentialRequest === "function"
@@ -1743,6 +1769,33 @@
         const saveBtn = paneEl.querySelector("[data-llm-add-save]");
         if (saveBtn) saveBtn.click();
       });
+      // Live format hint · clears stale warnings as the user fixes
+      // them, and surfaces the warning the moment a typed value
+      // crosses the minimum-shape threshold without satisfying it.
+      input.addEventListener("input", () => {
+        const form = input.closest("[data-llm-add-form]");
+        const warnEl = form && form.querySelector("[data-llm-add-key-warn]");
+        const provider = form && form.dataset.provider;
+        const validator = window.boardroomKeyValidator;
+        if (!validator || !provider) return;
+        const v = input.value;
+        if (!v.trim()) {
+          if (warnEl) { warnEl.hidden = true; warnEl.textContent = ""; }
+          input.classList.remove("us-input-invalid");
+          return;
+        }
+        const result = validator.validate(provider, v);
+        if (result.ok) {
+          if (warnEl) { warnEl.hidden = true; warnEl.textContent = ""; }
+          input.classList.remove("us-input-invalid");
+        } else {
+          if (warnEl) {
+            warnEl.hidden = false;
+            warnEl.textContent = validator.describe(result);
+          }
+          input.classList.add("us-input-invalid");
+        }
+      });
     });
 
     // Default-model controls live in the sidebar's "Default Model"
@@ -1763,10 +1816,36 @@
       if (!provider || !input) return;
       const v = input.value;
       const trimmed = v.trim();
+      const warnEl = wrap.querySelector("[data-key-warn]");
 
       // No-op on empty · never DELETE via the input field. The ✕ button
-      // is the only path that clears a key.
-      if (!trimmed) return;
+      // is the only path that clears a key. Also drop any stale warning
+      // since "no key" isn't the same as "invalid key".
+      if (!trimmed) {
+        if (warnEl) { warnEl.hidden = true; warnEl.textContent = ""; }
+        input.classList.remove("us-input-invalid");
+        return;
+      }
+
+      // Static format check · bail before the optimistic status update
+      // and the debounced PUT so a paste of "123" never lights up the
+      // "configured" pill nor reaches the server.
+      const validator = window.boardroomKeyValidator;
+      if (validator) {
+        const result = validator.validate(provider, v);
+        if (!result.ok) {
+          if (warnEl) {
+            warnEl.hidden = false;
+            warnEl.textContent = validator.describe(result);
+          }
+          input.classList.add("us-input-invalid");
+          const prev = debounceMap.get(wrap);
+          if (prev) clearTimeout(prev);
+          return;
+        }
+        if (warnEl) { warnEl.hidden = true; warnEl.textContent = ""; }
+        input.classList.remove("us-input-invalid");
+      }
 
       // Optimistic status pill update (only voice / skill rows carry
       // [data-status] — LLM add-cards re-render after the save lands,

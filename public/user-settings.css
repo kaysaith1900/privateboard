@@ -520,6 +520,19 @@
   position: relative;
 }
 .us-input-wrap:focus-within { border-color: var(--lime); }
+.us-input-wrap:has(.us-input-invalid) { border-color: var(--red); }
+.us-input-wrap:has(.us-input-invalid)::before { color: var(--red); }
+.us-key-warn {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+.us-key-warn[hidden] { display: none; }
+.us-key-warn::before { content: "○ "; }
 .us-input-wrap::before {
   content: ">";
   color: var(--lime);

@@ -824,7 +824,12 @@
   .ant-slide.is-consensus .ant-body,
   .ant-slide.is-splits    .ant-body {
     padding: 56px 80px 68px;
-    justify-content: flex-start;
+    /* Keep `justify-content: center` (inherited from .ant-body) so
+       the "Where the room agreed" / "The hinge points" content
+       sits vertically centered in the deck. Content density is
+       already capped by per-row line-clamp + the 3-align /
+       2-split max counts, so it doesn't overflow at the typical
+       text lengths the chair-summary generator produces. */
   }
   .ant-slide.is-consensus .ant-headline,
   .ant-slide.is-splits    .ant-headline {

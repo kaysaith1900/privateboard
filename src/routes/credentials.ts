@@ -129,12 +129,20 @@ export function credentialsRouter(): Hono {
     const label = typeof labelRaw === "string" ? labelRaw : null;
     const meta = createLlmCredential(provider, label, key);
     if (!meta) return c.json({ error: "failed to create credential" }, 500);
-    // Newly-added credential auto-activates · paste = intent to use.
-    updatePrefs({ activeLlmCredentialId: meta.id });
-    const flagship = PRIMARY_BY_CARRIER[provider];
-    if (flagship) updatePrefs({ defaultModelV: flagship });
-    try { reconcileAgentModels({ forcePrimary: true }); }
-    catch (e) { process.stderr.write(`[credentials.post] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`); }
+    // Auto-activate ONLY when no active credential exists yet · the
+    // user explicitly requested that subsequent keys not take over
+    // the active slot, so they keep using their chosen credential
+    // until they manually switch via the keys list. Without the
+    // first-credential exception the system would have no default
+    // to dispatch against on a fresh install.
+    const hadActive = !!getPrefs().activeLlmCredentialId;
+    if (!hadActive) {
+      updatePrefs({ activeLlmCredentialId: meta.id });
+      const flagship = PRIMARY_BY_CARRIER[provider];
+      if (flagship) updatePrefs({ defaultModelV: flagship });
+      try { reconcileAgentModels({ forcePrimary: true }); }
+      catch (e) { process.stderr.write(`[credentials.post] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`); }
+    }
     const activeId = getPrefs().activeLlmCredentialId;
     return c.json(payloadFor(meta, activeId), 201);
   });

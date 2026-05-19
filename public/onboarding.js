@@ -390,7 +390,20 @@
     `;
   }
 
+  /** Tear down the live 3D banner if one is currently mounted in
+   *  step 3. Called at the top of every renderStep so leaving the
+   *  step (back / next / close) frees WebGL resources cleanly. */
+  let _voice3dBannerStop = null;
+  function unmountVoiceBannerScene() {
+    if (_voice3dBannerStop) {
+      try { _voice3dBannerStop(); } catch (_) {}
+      _voice3dBannerStop = null;
+    }
+  }
+
   function renderStep() {
+    // Always clean up any prior 3D mount before rebuilding step DOM.
+    unmountVoiceBannerScene();
     const head = overlay.querySelector("[data-onb-head]");
     const body = overlay.querySelector("[data-onb-body]");
     const back = overlay.querySelector("[data-onb-back]");
@@ -622,26 +635,44 @@
     }
   }
 
-  /** Clone the chosen voice-room preview from the shared
-   *  `<template id="vonb-themes">` into the step-3 banner slot. If
-   *  the template isn't present (e.g. running outside index.html),
-   *  fall back to a quiet placeholder so the step still renders. */
+  /** Paint the step-3 voice banner. Two-stage progressive enhancement:
+   *  1. Try the LIVE Three.js scene via `window.mountVoice3dBanner`
+   *     · same scene as the marketing homepage hero, brainstorm
+   *     tone (red brick + soil/grass floor + plants). User can
+   *     drag-orbit the camera; speaker rotates every 4 s.
+   *  2. If WebGL isn't available / `prefers-reduced-motion: reduce`
+   *     / module import fails → fall back to the static 3D poster
+   *     image (`home-3d-poster.webp`). Same artwork, no
+   *     interactivity.
+   *  3. If the poster file 404s too → JS `onerror` hides the broken
+   *     icon and the `.onb-voice-banner-missing` gradient
+   *     placeholder shows — still legible chrome, just un-illustrated.
+   *
+   *  Caller stashes the unmount fn in `_voice3dBannerStop` so the
+   *  next `renderStep()` tears down WebGL cleanly. */
   function mountVoiceBanner() {
     const slot = overlay && overlay.querySelector("[data-onb-voice-banner]");
     if (!slot) return;
-    const tpl = document.getElementById("vonb-themes");
-    if (!tpl || !tpl.content) {
-      slot.innerHTML = `<div class="onb-voice-banner-fallback"></div>`;
-      return;
+    slot.innerHTML = `<div class="onb-voice-banner-stage" data-onb-voice-banner-stage></div>`;
+    const stage = slot.querySelector("[data-onb-voice-banner-stage]");
+    if (stage && typeof window.mountVoice3dBanner === "function") {
+      const stop = window.mountVoice3dBanner(stage);
+      if (stop) {
+        _voice3dBannerStop = stop;
+        return;
+      }
     }
-    const cards = Array.from(tpl.content.querySelectorAll(".voice-room-preview"));
-    if (cards.length === 0) {
-      slot.innerHTML = `<div class="onb-voice-banner-fallback"></div>`;
-      return;
-    }
-    const match = cards.find((c) => c.getAttribute("data-preview-theme") === voicePreviewTheme);
-    const card = (match || cards[0]).cloneNode(true);
-    slot.replaceChildren(card);
+    // Fallback · static poster image, then gradient placeholder if
+    // the poster file isn't deployed yet.
+    slot.innerHTML = `
+      <picture class="onb-voice-banner-pic">
+        <source srcset="home-3d-poster.webp" type="image/webp">
+        <img src="home-3d-poster.jpg"
+             alt=""
+             loading="lazy" decoding="async"
+             onerror="this.style.display='none'; this.parentElement.parentElement.classList.add('onb-voice-banner-missing');">
+      </picture>
+    `;
   }
 
   // ── Actions ────────────────────────────────────────────
@@ -718,12 +749,65 @@
     }
   }
 
+  /** Repaint the inline status row (warn / ok / error) under the
+   *  active LLM key field. `mode` is "warn" | "error" | "ok". The
+   *  caller passes the rendered text; we own the DOM swap so the
+   *  validation + checking + saved flows share one slot. */
+  function setKeyStatus(mode, text) {
+    if (!overlay) return;
+    const wrap = overlay.querySelector("[data-onb-key]")?.closest(".onb-field");
+    if (!wrap) return;
+    const existing = wrap.querySelector(".onb-key-status");
+    const cls = mode === "ok" ? "ok" : mode === "error" ? "error" : "warn";
+    const glyph = mode === "ok" ? "●" : mode === "error" ? "✗" : "○";
+    const html = `<div class="onb-key-status ${cls}">${glyph} ${escape(text)}</div>`;
+    if (existing) existing.outerHTML = html;
+    else {
+      const inputWrap = wrap.querySelector(".onb-input-wrap");
+      if (inputWrap) inputWrap.insertAdjacentHTML("afterend", html);
+    }
+  }
+
+  function setKeyInputInvalid(invalid) {
+    if (!overlay) return;
+    const input = overlay.querySelector("[data-onb-key]");
+    if (input) input.classList.toggle("onb-input-invalid", !!invalid);
+  }
+
   async function trySaveKey(value) {
     const provider = activeProvider;
     const label = (KEY_PROVIDERS.find((p) => p.slug === provider) || {}).label || provider;
-    const status = overlay.querySelector(".onb-key-status");
     const nextBtn = overlay.querySelector("[data-onb-next]");
-    if (status) status.outerHTML = `<div class="onb-key-status warn">○ checking…</div>`;
+
+    // ── Static format check · skip the round-trip when the pasted
+    //    value is obviously not a real key (typos, "123", wrong
+    //    provider slot). The validator is loaded as a separate
+    //    script; if it hasn't landed yet we degrade to the prior
+    //    pass-through behaviour.
+    const validator = window.boardroomKeyValidator;
+    if (validator) {
+      const result = validator.validate(provider, value);
+      if (result.code === "empty") {
+        // User cleared the field · drop any stale warning + status
+        // (but keep the green "configured" pill if a prior save
+        // landed; that's still true on the server).
+        if (!providerConfigured[provider]) {
+          const existing = overlay.querySelector("[data-onb-key]")?.closest(".onb-field")?.querySelector(".onb-key-status");
+          if (existing) existing.remove();
+        }
+        setKeyInputInvalid(false);
+        return;
+      }
+      if (!result.ok) {
+        setKeyInputInvalid(true);
+        setKeyStatus("warn", validator.describe(result));
+        if (nextBtn) nextBtn.disabled = !anyKeyConfigured();
+        return;
+      }
+    }
+    setKeyInputInvalid(false);
+
+    setKeyStatus("warn", "checking…");
     const ok = await saveProviderKey(provider, value);
     const fresh = overlay.querySelector(".onb-key-status, [class^=onb-key-status]");
     if (ok) {
@@ -804,11 +888,56 @@
     }
   }
 
+  function setVoiceKeyStatus(mode, text) {
+    if (!overlay) return;
+    const wrap = overlay.querySelector("[data-onb-voice-key]")?.closest(".onb-field");
+    if (!wrap) return;
+    const existing = wrap.querySelector(".onb-key-status");
+    const cls = mode === "ok" ? "ok" : mode === "error" ? "error" : "warn";
+    const glyph = mode === "ok" ? "●" : mode === "error" ? "✗" : "○";
+    const html = `<div class="onb-key-status ${cls}">${glyph} ${escape(text)}</div>`;
+    if (existing) existing.outerHTML = html;
+    else {
+      const inputWrap = wrap.querySelector(".onb-input-wrap");
+      if (inputWrap) inputWrap.insertAdjacentHTML("afterend", html);
+    }
+  }
+
+  function setVoiceKeyInputInvalid(invalid) {
+    if (!overlay) return;
+    const input = overlay.querySelector("[data-onb-voice-key]");
+    if (input) input.classList.toggle("onb-input-invalid", !!invalid);
+  }
+
   async function trySaveVoiceKey(value) {
     const provider = activeVoiceProvider;
     const label = (VOICE_PROVIDERS.find((p) => p.slug === provider) || {}).label || provider;
-    const status = overlay.querySelector("[data-onb-voice-key]")?.closest(".onb-field")?.querySelector(".onb-key-status");
-    if (status) status.outerHTML = `<div class="onb-key-status warn">○ checking…</div>`;
+
+    // Static format check · same gate as the LLM key field. Voice
+    // keys are optional (step 3 is skippable) so we still suppress
+    // the warning when the value is blank — typing nothing is a
+    // valid choice here, not an error.
+    const validator = window.boardroomKeyValidator;
+    if (validator) {
+      const result = validator.validate(provider, value);
+      if (result.code === "empty") {
+        if (!voiceProviderConfigured[provider]) {
+          const wrap = overlay.querySelector("[data-onb-voice-key]")?.closest(".onb-field");
+          const existing = wrap && wrap.querySelector(".onb-key-status");
+          if (existing) existing.remove();
+        }
+        setVoiceKeyInputInvalid(false);
+        return;
+      }
+      if (!result.ok) {
+        setVoiceKeyInputInvalid(true);
+        setVoiceKeyStatus("warn", validator.describe(result));
+        return;
+      }
+    }
+    setVoiceKeyInputInvalid(false);
+
+    setVoiceKeyStatus("warn", "checking…");
     const ok = await saveVoiceKey(provider, value);
     const wrap = overlay.querySelector("[data-onb-voice-key]")?.closest(".onb-field");
     const fresh = wrap && wrap.querySelector(".onb-key-status");

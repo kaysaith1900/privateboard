@@ -95,6 +95,46 @@
     document.body.classList.remove("upd-locked");
   }
 
+  function isDownloading() {
+    return !!(lastState && lastState.kind === "downloading");
+  }
+
+  function t(key, fallback) {
+    const I18n = window.I18n;
+    if (I18n && typeof I18n.t === "function") {
+      const v = I18n.t(key);
+      if (v && v !== key) return v;
+    }
+    return fallback;
+  }
+
+  // Mid-download dismiss · gate behind a confirm so a stray ESC /
+  // backdrop click doesn't silently throw away an in-progress
+  // download. Returns true if the dismiss should proceed.
+  function attemptDismiss() {
+    if (isDownloading()) {
+      const msg = t("upd_confirm_abandon", "The update is still downloading. Close this dialog and abandon the update?");
+      if (!window.confirm(msg)) return false;
+    }
+    userDismissed = true;
+    closeModal();
+    try { bridge.dismiss(); } catch (_) {}
+    return true;
+  }
+
+  // Refresh / window-close guard. While `downloading`, the renderer
+  // navigating away abandons the in-flight binary; warn the user via
+  // the standard beforeunload prompt so they can cancel. Browsers
+  // (and Electron) only honour `returnValue` + `preventDefault`; the
+  // displayed copy is OS-controlled, our string is best-effort.
+  function onBeforeUnload(e) {
+    if (!isDownloading()) return undefined;
+    const msg = t("upd_beforeunload_warn", "An update is downloading. Leaving this page will interrupt it.");
+    e.preventDefault();
+    e.returnValue = msg;
+    return msg;
+  }
+
   function paint(state) {
     if (!overlayEl || !state) return;
     const from = currentVersion();
@@ -165,9 +205,7 @@
       const close = e.target.closest("[data-upd-close], [data-upd-dismiss]");
       if (close) {
         e.preventDefault();
-        userDismissed = true;
-        closeModal();
-        bridge.dismiss();
+        attemptDismiss();
         return;
       }
       const dl = e.target.closest("[data-upd-download]");
@@ -197,14 +235,13 @@
     document.addEventListener("keydown", (e) => {
       if (!overlayEl.classList.contains("open")) return;
       if (e.key !== "Escape") return;
-      // Escape never installs · only dismisses. During a download or
-      // ready state, this is the same as the "Hide"/"Later" button.
+      // Escape never installs · only dismisses. During a download
+      // this routes through the same confirm gate as the Hide button.
       e.preventDefault();
-      userDismissed = true;
-      closeModal();
-      bridge.dismiss();
+      attemptDismiss();
     });
     document.addEventListener("boardroom:locale", applyI18n);
+    window.addEventListener("beforeunload", onBeforeUnload);
   }
 
   function init() {

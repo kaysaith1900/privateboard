@@ -84,15 +84,40 @@
     labelEl.querySelector(".v-deck").textContent = deck;
   }
 
+  // Live-3D mount cleanup handle · set when `window.mountVoice3dBanner`
+  // returns a stop fn. Cleared on close so WebGL is released and the
+  // next legitimate mount (real voice room) gets a fresh state.
+  let stop3d = null;
+
   function mountPreview() {
     if (!bannerEl) return;
-    const themes = readThemes();
-    if (themes.length === 0) return;
-    const idx = nextThemeIdx(themes);
-    const card = themes[idx].cloneNode(true);
-    bannerEl.replaceChildren(card);
-    const themeKey = card.getAttribute("data-preview-theme") || "eastwood";
-    refreshLabel(themeKey);
+    // Tear down any prior mount before re-mounting · happens if the
+    // user closes + reopens the overlay rapidly.
+    if (stop3d) { try { stop3d(); } catch (e) {} stop3d = null; }
+    // Theme name + deck show the brainstorm tone (the scene the
+    // mount renders). Internal key is "eastwood" (legacy alias) →
+    // THEME_LABELS resolves it to { name: "Brainstorm", deck: ... }.
+    refreshLabel("eastwood");
+
+    // Two-stage progressive enhancement:
+    // 1. Try the LIVE Three.js scene (same scene as marketing
+    //    homepage). User can drag-orbit; speakers rotate every 4 s.
+    // 2. WebGL unavailable / reduced-motion / module fails → fall
+    //    back to the static 3D poster.
+    // 3. Poster file missing → onerror gradient placeholder.
+    bannerEl.innerHTML = '<div class="vonb-banner-stage" data-vonb-banner-stage></div>';
+    const stage = bannerEl.querySelector("[data-vonb-banner-stage]");
+    if (stage && typeof window.mountVoice3dBanner === "function") {
+      const stop = window.mountVoice3dBanner(stage);
+      if (stop) { stop3d = stop; return; }
+    }
+    // Poster fallback.
+    bannerEl.innerHTML =
+      '<picture class="vonb-banner-pic">' +
+        '<source srcset="home-3d-poster.webp" type="image/webp">' +
+        '<img src="home-3d-poster.jpg" alt="" loading="lazy" decoding="async"' +
+        ' onerror="this.style.display=\'none\'; this.parentElement.parentElement.classList.add(\'vonb-banner-missing\');">' +
+      '</picture>';
   }
 
   function wireEvents() {
@@ -137,6 +162,11 @@
 
   window.closeVoiceOnboarding = function () {
     if (!overlayEl) return;
+    // Tear down the live 3D scene (if mounted) before hiding the
+    // overlay · frees WebGL context and lets the next mount (real
+    // voice room) get a clean start. No-op when the fallback poster
+    // path was used.
+    if (stop3d) { try { stop3d(); } catch (e) {} stop3d = null; }
     overlayEl.classList.remove("open");
     overlayEl.setAttribute("aria-hidden", "true");
     document.body.classList.remove("vonb-locked");

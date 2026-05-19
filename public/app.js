@@ -11561,9 +11561,14 @@
       }
     },
 
-    /** User clicked Cancel during the build. Best-effort POST to
-     *  abort upstream; the SSE handler picks up the `persona-aborted`
-     *  event when the server flushes it. */
+    /** User clicked ABORT OPERATION on the build stage · confirm
+     *  intent (the operation drops all generated progress), POST a
+     *  best-effort abort upstream, then route through
+     *  discardPersonaBuild so the overlay closes and the user lands
+     *  back on the new-agent composer empty state. Silent variant
+     *  (opts.silent=true) skips the confirm + the navigation reset
+     *  and is used by internal cleanup paths (e.g. navigating to a
+     *  room mid-build). */
     cancelPersonaBuild(opts) {
       const silent = !!(opts && opts.silent);
       const job = this.personaJob;
@@ -11571,17 +11576,27 @@
         if (!silent) this.discardPersonaBuild();
         return;
       }
+      if (!silent) {
+        const ok = window.confirm(this._t("pb_cancel_confirm"));
+        if (!ok) return;
+      }
       if (job.status === "running") {
         try {
           fetch(`/api/agents/generate-persona/${encodeURIComponent(job.jobId)}/abort`, { method: "POST" });
         } catch { /* swallow · the SSE will close anyway when the job hits its abort path */ }
       }
-      this._closePersonaSse();
-      this._stopPersonaTick();
       if (silent) {
+        this._closePersonaSse();
+        this._stopPersonaTick();
         this.personaJob = null;
+        this._syncAgentBuildBgm();
+      } else {
+        // User-initiated · discardPersonaBuild handles SSE close +
+        // tick stop + state reset + closeNewAgent + renderEmptyState
+        // + sidebar refresh, exactly the "exit to new-agent home"
+        // flow the user expects after confirming abort.
+        this.discardPersonaBuild();
       }
-      this._syncAgentBuildBgm();
     },
 
     /** User clicked Discard from the failed / aborted card. Drops
@@ -18151,26 +18166,9 @@
           + `<circle cx="2.5"  cy="6.2"  r="1.3" fill="currentColor" stroke="none" />`
           + `</svg>`;
         const currentGlyphSvg = roundTableGlyphSvg;
-        // Hover preview SVG · 5-dot circle for round-table. Same
-        // sketch in both voice states; the label / pressed state
-        // carry the toggle meaning.
-        const previewSvg =
-          `<svg class="ib-rt-preview-svg" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
-          + `<circle class="rt-prev-stroke" cx="30" cy="15" r="11" />`
-          + `<circle class="rt-prev-fill"   cx="30" cy="4"  r="2.4" />`
-          + `<circle class="rt-prev-fill"   cx="40.5" cy="10" r="2.4" />`
-          + `<circle class="rt-prev-fill"   cx="36.5" cy="22" r="2.4" />`
-          + `<circle class="rt-prev-fill"   cx="23.5" cy="22" r="2.4" />`
-          + `<circle class="rt-prev-fill"   cx="19.5" cy="10" r="2.4" />`
-          + `</svg>`;
         const innerHTML =
           `<span class="ib-rt-glyph" aria-hidden="true">${currentGlyphSvg}</span>` +
-          `<span class="ib-rt-label">${this.escape(destLabel)}</span>` +
-          `<div class="ib-rt-preview" role="tooltip" aria-hidden="true" data-rt-preview>` +
-            `<div class="ib-rt-preview-kicker">// ${this.escape(destLabel)}</div>` +
-            previewSvg +
-            `<div class="ib-rt-preview-foot">press ▸</div>` +
-          `</div>`;
+          `<span class="ib-rt-label">${this.escape(destLabel)}</span>`;
         btns.forEach((btn) => {
           btn.innerHTML = innerHTML;
           btn.classList.add("has-label");
@@ -18179,37 +18177,6 @@
           btn.setAttribute("aria-pressed", inStage ? "true" : "false");
           btn.setAttribute("aria-label", destLabel);
           btn.setAttribute("title", "");
-          // Bind hover handlers DIRECTLY to the button. We tried
-          // document-level mouseover delegation first but it was
-          // unreliable in this layout (CSS :hover wasn't engaging
-          // either). mouseenter doesn't bubble, but firing direct
-          // on the button with `getBoundingClientRect()` taken
-          // inside the handler guarantees correct position +
-          // visibility on every hover.
-          const preview = btn.querySelector("[data-rt-preview]");
-          if (!preview) return;
-          const showPreview = () => {
-            const r = btn.getBoundingClientRect();
-            if (r.width === 0 || r.height === 0) return;
-            const previewW = preview.offsetWidth || 132;
-            const previewH = preview.offsetHeight || 80;
-            preview.style.left = `${Math.round(r.left + r.width / 2 - previewW / 2)}px`;
-            preview.style.top = `${Math.round(r.top - previewH - 8)}px`;
-            preview.style.bottom = "auto";
-            preview.style.right = "auto";
-            preview.style.opacity = "1";
-            preview.style.visibility = "visible";
-            preview.style.transform = "translateY(0)";
-          };
-          const hidePreview = () => {
-            preview.style.opacity = "0";
-            preview.style.visibility = "hidden";
-            preview.style.transform = "translateY(6px)";
-          };
-          btn.addEventListener("mouseenter", showPreview);
-          btn.addEventListener("mouseleave", hidePreview);
-          btn.addEventListener("focus", showPreview);
-          btn.addEventListener("blur", hidePreview);
         });
       }
     },
@@ -19296,46 +19263,6 @@
   };
 
   // ── DOM-level wiring (delegated; survives re-renders) ──────
-
-  // Round-table toggle hover · document-level delegation drives
-  // BOTH the visibility transition AND the position. The CSS
-  // :hover trigger was unreliable in this layout (the preview
-  // would only surface on click via :focus-visible, never on
-  // hover). Doing it explicitly in JS sidesteps every potential
-  // CSS-cascade / pointer-events / containing-block edge case.
-  // mouseover bubbles (mouseenter doesn't), so one document
-  // listener catches every hover across the two static buttons.
-  document.addEventListener("mouseover", (e) => {
-    const btn = e.target.closest && e.target.closest("[data-room-rt-toggle]");
-    if (!btn || btn.hidden) return;
-    const preview = btn.querySelector("[data-rt-preview]");
-    if (!preview) return;
-    const r = btn.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return;
-    const previewW = preview.offsetWidth || 132;
-    const previewH = preview.offsetHeight || 80;
-    preview.style.left = `${Math.round(r.left + r.width / 2 - previewW / 2)}px`;
-    preview.style.top = `${Math.round(r.top - previewH - 8)}px`;
-    preview.style.bottom = "auto";
-    preview.style.right = "auto";
-    // Force visible · CSS :hover wasn't engaging reliably.
-    preview.style.opacity = "1";
-    preview.style.visibility = "visible";
-    preview.style.transform = "translateY(0)";
-  });
-  document.addEventListener("mouseout", (e) => {
-    const btn = e.target.closest && e.target.closest("[data-room-rt-toggle]");
-    if (!btn) return;
-    // mouseout fires when the cursor leaves a child element too;
-    // only hide when the cursor has really left the button.
-    const related = e.relatedTarget;
-    if (related && btn.contains(related)) return;
-    const preview = btn.querySelector("[data-rt-preview]");
-    if (!preview) return;
-    preview.style.opacity = "0";
-    preview.style.visibility = "hidden";
-    preview.style.transform = "translateY(6px)";
-  });
 
   document.addEventListener("click", (e) => {
     // Round-table HUD · RATE button cycles voice playback speed

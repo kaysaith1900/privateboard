@@ -24,6 +24,12 @@ import {
   startPersonaBuild,
 } from "../orchestrator/persona-builder.js";
 import { generateCelebritySeed } from "../orchestrator/celebrity-seed.js";
+import {
+  deleteUserLongMemory,
+  getUserLongMemory,
+  listActiveUserLongMemory,
+  updateUserLongMemory,
+} from "../storage/user-long-memory.js";
 import { personaBus, type PersonaEvent } from "../orchestrator/persona-stream.js";
 import { renderPersonaMarkdown, synthesizePersonaBio, synthesizePersonaInstruction } from "../ai/prompts/persona-render.js";
 import {
@@ -544,6 +550,50 @@ export function agentsRouter(): Hono {
       const msg = e instanceof Error ? e.message : String(e);
       return c.json({ error: msg }, 502);
     }
+  });
+
+  // ── Long-term user-memory · chair-owned durable profile ─────
+  // The sanctuary table that survives every dream cycle (see
+  // `src/orchestrator/dream.ts` Step 6 for how rows get
+  // populated). Surfaced on the chair's agent-profile page so the
+  // user can review / edit-claim / delete entries the chair has
+  // accumulated. No POST · the chair is the author; the user is
+  // the editor.
+  r.get("/chair/user-long-memory", (c) => {
+    try {
+      const items = listActiveUserLongMemory();
+      return c.json({ items });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`[chair/user-long-memory] list failed: ${msg}\n`);
+      return c.json({ error: msg, items: [] }, 500);
+    }
+  });
+  r.patch("/chair/user-long-memory/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!getUserLongMemory(id)) return c.json({ error: "not found" }, 404);
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { return c.json({ error: "invalid JSON body" }, 400); }
+    const b = (body ?? {}) as { claim?: unknown };
+    if (typeof b.claim !== "string") {
+      return c.json({ error: "claim (string) is required" }, 400);
+    }
+    const claim = b.claim.trim();
+    if (claim.length === 0) return c.json({ error: "claim cannot be empty" }, 400);
+    if (claim.length > 240) return c.json({ error: "claim too long (max 240 chars)" }, 400);
+    try {
+      const updated = updateUserLongMemory(id, { claim });
+      return c.json({ item: updated });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+  r.delete("/chair/user-long-memory/:id", (c) => {
+    const id = c.req.param("id");
+    if (!getUserLongMemory(id)) return c.json({ error: "not found" }, 404);
+    deleteUserLongMemory(id);
+    return c.body(null, 204);
   });
 
   r.get("/generate-persona/:jobId/stream", (c) => {

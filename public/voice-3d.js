@@ -52,7 +52,15 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   let controls = null;         // OrbitControls · damped orbit + zoom + pan.
   let resizeObserver = null;   // For canvas auto-resize on stage resize.
   let rafId = 0;               // requestAnimationFrame handle.
-  let visible = true;          // Pause RAF when stage is hidden.
+  let visible = true;          // Pause RAF when document.visibilitychange
+                               // fires hidden (tab in background).
+  let elementVisible = true;   // Pause RAF when the stage element itself
+                               // is off-screen / display:none (user
+                               // switched away from the voice room view).
+                               // Without this, RAF + WebGL keep ticking
+                               // on a hidden canvas — measurable CPU/GPU
+                               // burn on low-end machines.
+  let intersectionObserver = null;
 
   /** Voxel pixel resolution · how many world units per "voxel cell".
    *  Drives the visual chunkiness — bigger value = chunkier blocks. */
@@ -98,10 +106,10 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *  just pick the dominant fill, Phase 4 will add the tile texture. */
   const FLOOR_COLOR_BY_TONE = {
     brainstorm:   "#5E6B47",
-    constructive: "#2A2C32",
+    constructive: "#4D4136",
     research:     "#C8B89A",
     debate:       "#3A2F26",
-    critique:     "#5C3033",
+    critique:     "#3E362C",
   };
 
   /** Tone → wall palette · 5 boardroom styles paired to each floor.
@@ -115,7 +123,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *  Each entry: { wall, trim (baseboard), rail (chair-rail accent) }. */
   const WALL_PALETTE_BY_TONE = {
     brainstorm:   { wall: 0xA3B8C4, trim: 0x5F7A8A, rail: 0x7B97A8 },
-    constructive: { wall: 0x4D525C, trim: 0x2A2C32, rail: 0x3A3F47 },
+    constructive: { wall: 0x6E7480, trim: 0x42454D, rail: 0x575C66 },
     research:     { wall: 0xD9CBAD, trim: 0x8B7355, rail: 0xB29874 },
     debate:       { wall: 0x4E3A2A, trim: 0x231811, rail: 0x382821 },
     critique:     { wall: 0x6B3F2F, trim: 0x2A1612, rail: 0x4A2A20 },
@@ -154,13 +162,34 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   let railMat = null;
   /** Sub-group holding baseboard + chair-rail meshes · split out so
    *  we can hide it as a unit when a tone swaps in a painted wall
-   *  texture (brainstorm → 山水) where a horizontal trim band would
-   *  slice the painting. */
+   *  texture (brainstorm → brick, constructive → stone) where a
+   *  horizontal trim band would slice the painting. */
   let wallTrimGroup = null;
-  /** Lazy procedural CanvasTexture · pixel-art 山水 (Chinese
-   *  landscape) painted into a 1024×512 canvas. Built on first use
-   *  and re-used across mounts. */
+  /** Lazy procedural CanvasTextures · painted on first use, re-used
+   *  across mounts. brainstorm → red brick, constructive → cool
+   *  stone block with moss vines (modelled after icons/wall1.png),
+   *  critique → warm sandstone / amber brick (modelled after
+   *  icons/wall2.png). */
   let brainstormWallTexture = null;
+  let constructiveWallTexture = null;
+  let critiqueWallTexture = null;
+  /** Procedural plant-baseboard texture · dense foliage band that
+   *  hugs the wall-floor seam in the constructive room (replaces a
+   *  cold sterile cove with a "boardroom is lived-in" green band).
+   *  Lazy + cached, same lifetime as the wall textures. */
+  let plantBaseboardTexture = null;
+  /** Shared material + group for the 3 plant-baseboard plane meshes
+   *  (back / left / right). Toggled via group.visible from
+   *  refreshWallColors. */
+  let plantBaseboardMat = null;
+  let plantBaseboardGroup = null;
+  /** Wooden baseboard variant · same lifecycle as plant baseboard
+   *  but a solid walnut-plank trim band (no transparency). Shown
+   *  under the critique stone wall to anchor the sandstone visually
+   *  to a warm wood floor edge. */
+  let woodBaseboardTexture = null;
+  let woodBaseboardMat = null;
+  let woodBaseboardGroup = null;
 
   /** DOM overlay layer · sits ABOVE the WebGL canvas as a sibling
    *  of it inside the stage. Hosts name-plates and speaker bubbles
@@ -224,6 +253,14 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   /** Resting camera position the entry animation lerps TO · captured
    *  in mount() after the resting camera is positioned. */
   let cameraRestPos = null;
+  /** Camera params resolved at mount() time · default to the legacy
+   *  app values (18 unit distance, 30° elevation, lookAt y = 0.5)
+   *  unless `mount(host, { camera: { ... } })` overrides them. The
+   *  marketing homepage uses lower elevation + closer pull so the
+   *  table fills the 21/9 letterbox frame. */
+  let _mountCamDistance = 18;
+  let _mountCamElevDeg = 30;
+  let _mountCamLookY = 0.5;
 
   /** (Removed) cylindrical billboard registry · with the head now a
    *  voxel sculpture (eyes/glasses/mustache as voxel features), the
@@ -254,11 +291,23 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     return _isSupportedCache;
   }
 
-  function mount(host) {
+  function mount(host, opts) {
     if (!host || !isSupported()) return false;
     if (stageEl === host && renderer) return true; // idempotent
     if (stageEl) unmount();
     stageEl = host;
+    // Optional camera overrides · the marketing homepage uses these
+    // to crop the view in tighter and drop the elevation a touch.
+    // The app passes nothing → defaults match the legacy 30°/18-unit
+    // view. Stored on closure-level state so the entry animation
+    // (which lerps INTO the resting camera) reads the same values.
+    const camOpts = (opts && opts.camera) || {};
+    if (typeof camOpts.distance === "number" && camOpts.distance > 0) _mountCamDistance = camOpts.distance;
+    else _mountCamDistance = 18;
+    if (typeof camOpts.elevationDeg === "number") _mountCamElevDeg = camOpts.elevationDeg;
+    else _mountCamElevDeg = 30;
+    if (typeof camOpts.lookAtY === "number") _mountCamLookY = camOpts.lookAtY;
+    else _mountCamLookY = 0.5;
 
     // Mark the stage so CSS can hide the legacy 2D children
     // (the `<svg.rt-table>`, the `[data-rt-seats]` grid, etc) without
@@ -350,9 +399,9 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // flattens depth and approximates an orthographic look without
     // losing the parallax that gives the scene its weight.
     camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-    const camR = 18;
-    const camTheta = Math.PI / 2;             // 90° → camera on +Z axis (frontal)
-    const camPhi = (90 - 30) * Math.PI / 180; // 30° above horizon
+    const camR = _mountCamDistance;
+    const camTheta = Math.PI / 2;                                // 90° → camera on +Z axis (frontal)
+    const camPhi = (90 - _mountCamElevDeg) * Math.PI / 180;      // elevation above horizon
     camera.position.set(
       camR * Math.sin(camPhi) * Math.cos(camTheta),
       camR * Math.cos(camPhi),
@@ -364,7 +413,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // around the viewport's vertical middle. (Was briefly 2.5
     // while the window experiment needed the upper wall in view ·
     // that experiment was reverted so we go back to table-centred.)
-    camera.lookAt(0, 0.5, 0);
+    camera.lookAt(0, _mountCamLookY, 0);
     // Stash the resting camera position so the entry animation
     // (kicked off at the end of mount) can lerp INTO this view.
     cameraRestPos = camera.position.clone();
@@ -382,7 +431,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     controls.enableDamping = true;
     controls.dampingFactor = 0.10;
     controls.enablePan = false;
-    controls.target.set(0, 0.5, 0);
+    controls.target.set(0, _mountCamLookY, 0);
     controls.minDistance = 10;
     controls.maxDistance = 28;
     controls.minPolarAngle = 0.25;     // ~14° from straight up (very high overhead)
@@ -443,6 +492,34 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     resizeRenderer();
     resizeObserver = new ResizeObserver(() => resizeRenderer());
     resizeObserver.observe(stageEl);
+
+    // Pause the RAF render loop when the stage element scrolls out
+    // of the viewport / is display:none (user navigated to a
+    // different view). Without this the canvas keeps repainting
+    // 60×/s on top of a hidden DOM node — measurable CPU + GPU
+    // load that surfaces as the "I'm leaving the voice room, the
+    // app pauses for a couple seconds" hitch on low-end machines.
+    // We stopRaf entirely (instead of just skipping render inside
+    // the tick) so the rAF callback itself isn't queued.
+    elementVisible = true;
+    if (typeof IntersectionObserver !== "undefined") {
+      intersectionObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.target !== stageEl) continue;
+          const wasVisible = elementVisible;
+          elementVisible = entry.isIntersecting;
+          if (elementVisible && !wasVisible) {
+            // Becoming visible · resume the loop. Belt-and-braces
+            // null-check `renderer` since a teardown could race.
+            if (renderer && scene && camera) startRaf();
+          } else if (!elementVisible && wasVisible) {
+            // Going hidden · cut the loop.
+            stopRaf();
+          }
+        }
+      }, { root: null, threshold: 0 });
+      intersectionObserver.observe(stageEl);
+    }
 
     // Kick off the entry animation · camera dollies in + chairs /
     // figures scale up from 0. Drives off `entryStartTime` in the
@@ -589,29 +666,51 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     avatarGroup = null;
     floorMesh = null;
     tableGroup = null;
-    // Wall materials are shared across all wall / trim / rail
-    // meshes (created lazily in buildBoardroomWalls) · the meshes
-    // themselves get cleaned up as scene children are GC'd, but
-    // the shared materials need explicit disposal + null-out so
-    // the next mount allocates fresh ones.
-    if (wallMat) { try { wallMat.dispose(); } catch (_) {} wallMat = null; }
-    if (trimMat) { try { trimMat.dispose(); } catch (_) {} trimMat = null; }
-    if (railMat) { try { railMat.dispose(); } catch (_) {} railMat = null; }
+    // Wall / trim / rail materials are shared module-scope
+    // singletons (lazy-created in buildBoardroomWalls). We KEEP
+    // them alive across unmount cycles so a room swap doesn't
+    // re-allocate the materials AND re-upload their currently-bound
+    // procedural texture to the GPU. Mesh refs go away with the
+    // scene; the materials get re-attached to new meshes on the
+    // next mount and re-configured by refreshWallColors().
     wallTrimGroup = null;
-    if (brainstormWallTexture) {
-      try { brainstormWallTexture.dispose(); } catch (_) {}
-      brainstormWallTexture = null;
-    }
+    // Plant + wood baseboard groups carry per-mount mesh references
+    // (3 planes each, scene-attached) so the group ref must be
+    // dropped between mounts. The MATERIAL on those groups is the
+    // shared module-scope plantBaseboardMat / woodBaseboardMat —
+    // those stay alive (see comment below) so the next mount reuses
+    // them without re-uploading the texture.
+    plantBaseboardGroup = null;
+    woodBaseboardGroup = null;
     if (stageEl) {
       stageEl.classList.remove("is-3d");
       stageEl = null;
     }
-    // Drop the texture cache so a future mount doesn't hold stale
-    // GPU-side textures (members may have changed their avatars).
-    for (const tex of texCache.values()) {
-      try { tex.dispose(); } catch (_) {}
+    if (intersectionObserver) {
+      try { intersectionObserver.disconnect(); } catch (_) {}
+      intersectionObserver = null;
     }
-    texCache.clear();
+    elementVisible = true;
+    // ── Caches preserved across mounts ────────────────────────
+    // The following module-scope resources are EXPENSIVE to rebuild
+    // (procedural textures = thousands of fillRect calls on a
+    // 1024×512 canvas, avatar textures = SVG decode + canvas paint)
+    // and they are SAFE to reuse:
+    //   · brainstorm/constructive/critique wall textures · pure
+    //     procedural output, identical bytes across mounts
+    //   · plant + wood baseboard textures · same as above
+    //   · avatar texCache · keyed by avatarPath; SVG content for a
+    //     given path is stable
+    //   · wallMat / trimMat / railMat · shared materials,
+    //     auto-reused by the next buildBoardroomWalls() (lazy
+    //     `if (!wallMat)` gate already in place)
+    //   · plantBaseboardMat / woodBaseboardMat · same lazy gate
+    // Disposing them on every unmount made a chair-handoff SSE
+    // burst (which can re-mount the stage many times) repaint
+    // hundreds of thousands of pixels per cycle and pegged the CPU
+    // on low-end machines. Page unload (full app teardown) is the
+    // only correct dispose site, and the browser handles that for
+    // us when the window closes.
   }
 
   /** Re-render the scene from app state.
@@ -677,6 +776,36 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       // shading. Lambert multiplies color × map per pixel.
       wallMat.color.setHex(0xFFFFFF);
       if (wallTrimGroup) wallTrimGroup.visible = false;
+      if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
+      if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
+      return;
+    }
+
+    if (mode === "constructive") {
+      if (!constructiveWallTexture) constructiveWallTexture = buildConstructiveWallTexture();
+      if (wallMat.map !== constructiveWallTexture) {
+        wallMat.map = constructiveWallTexture;
+        wallMat.needsUpdate = true;
+      }
+      wallMat.color.setHex(0xFFFFFF);
+      // Hide the original baseboard / chair-rail · the plant band
+      // takes over the bottom of the wall here.
+      if (wallTrimGroup) wallTrimGroup.visible = false;
+      if (plantBaseboardGroup) plantBaseboardGroup.visible = true;
+      if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
+      return;
+    }
+
+    if (mode === "critique") {
+      if (!critiqueWallTexture) critiqueWallTexture = buildCritiqueWallTexture();
+      if (wallMat.map !== critiqueWallTexture) {
+        wallMat.map = critiqueWallTexture;
+        wallMat.needsUpdate = true;
+      }
+      wallMat.color.setHex(0xFFFFFF);
+      if (wallTrimGroup) wallTrimGroup.visible = false;
+      if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
+      if (woodBaseboardGroup) woodBaseboardGroup.visible = true;
       return;
     }
 
@@ -688,6 +817,8 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     trimMat.color.setHex(palette.trim);
     railMat.color.setHex(palette.rail);
     if (wallTrimGroup) wallTrimGroup.visible = true;
+    if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
+    if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
   }
 
   /** Procedural pixel-art brick wall painted into a canvas, returned
@@ -825,6 +956,279 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     ctx.fillRect(cx + Math.floor(w * 0.6), cy + 1, 2, 1);
   }
 
+  /** Procedural pixel-art stone wall · modelled after
+   *  `public/icons/wall1.png`. Irregular rounded stone blocks in a
+   *  cool grey-blue palette with a few warm-rust accent stones,
+   *  dark mortar between blocks, top-edge highlights / bottom-edge
+   *  shadows on each block, and green moss patches scattered along
+   *  the seams with falling vine strands. Used for the constructive
+   *  tone in place of the flat-paint wall material. */
+  function buildConstructiveWallTexture() {
+    const W = 1024, H = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    // Mortar base · near-black cool grey fills the canvas so any
+    // gap between stone blocks reads as a deep seam.
+    ctx.fillStyle = "#15171C";
+    ctx.fillRect(0, 0, W, H);
+
+    // Stone palette · mostly cool slate greys with a handful of
+    // warm rust blocks for character (matches the reference's few
+    // tan / amber stones scattered through the field).
+    const stonePalette = [
+      "#6B7382", "#5C636F", "#7A8290", "#535A65",
+      "#67707D", "#737B89", "#5F6772",
+    ];
+    const stoneWarm = ["#7E6B58", "#8B7560", "#74614E"];
+    const highlightTone = (hex) => {
+      // Lift R/G/B by ~28 to make a top-edge highlight without
+      // pulling away from the base hue. Clamp at 255.
+      const n = parseInt(hex.slice(1), 16);
+      const r = Math.min(255, ((n >> 16) & 0xff) + 28);
+      const g = Math.min(255, ((n >> 8) & 0xff) + 28);
+      const b = Math.min(255, (n & 0xff) + 28);
+      return `rgb(${r},${g},${b})`;
+    };
+    const shadowTone = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      const r = Math.max(0, ((n >> 16) & 0xff) - 32);
+      const g = Math.max(0, ((n >> 8) & 0xff) - 32);
+      const b = Math.max(0, (n & 0xff) - 32);
+      return `rgb(${r},${g},${b})`;
+    };
+
+    // Stone rows · each row picks its own height (38-58px), then
+    // lays variable-width blocks across with mortar gaps. Row
+    // starts at a per-row x offset so neighbouring rows don't
+    // share vertical seams (broken-bond pattern, like masonry).
+    const mortar = 2;
+    const rand = mulberry32(13);
+    let y = 0;
+    let rowIdx = 0;
+    while (y < H) {
+      const rowH = 16 + Math.floor(rand() * 10);
+      const startOffset = Math.floor(rand() * 30);
+      let x = -startOffset;
+      while (x < W) {
+        const w = 24 + Math.floor(rand() * 28);
+        const useWarm = rand() < 0.10;
+        const base = useWarm
+          ? stoneWarm[Math.floor(rand() * stoneWarm.length)]
+          : stonePalette[Math.floor(rand() * stonePalette.length)];
+        const x0 = x + mortar;
+        const y0 = y + mortar;
+        const sw = w - mortar;
+        const sh = rowH - mortar;
+        // Block body.
+        ctx.fillStyle = base;
+        ctx.fillRect(x0, y0, sw, sh);
+        // Worn corners · clip a 2×2 chunk out of each corner so the
+        // block reads as a rounded river stone instead of a sharp
+        // rectangle. Mortar shows through the clip.
+        ctx.fillStyle = "#15171C";
+        ctx.fillRect(x0, y0, 2, 2);
+        ctx.fillRect(x0 + sw - 2, y0, 2, 2);
+        ctx.fillRect(x0, y0 + sh - 2, 2, 2);
+        ctx.fillRect(x0 + sw - 2, y0 + sh - 2, 2, 2);
+        // Top-edge highlight (skip the worn corners).
+        ctx.fillStyle = highlightTone(base);
+        ctx.fillRect(x0 + 2, y0, sw - 4, 1);
+        // Bottom-edge shadow.
+        ctx.fillStyle = shadowTone(base);
+        ctx.fillRect(x0 + 2, y0 + sh - 1, sw - 4, 1);
+        // A faint inner crack / blemish on ~30% of stones for
+        // texture variation.
+        if (rand() < 0.25 && sw > 12 && sh > 10) {
+          ctx.fillStyle = shadowTone(base);
+          const cx = x0 + 3 + Math.floor(rand() * Math.max(1, sw - 9));
+          const cy = y0 + 3 + Math.floor(rand() * Math.max(1, sh - 8));
+          const cl = 3 + Math.floor(rand() * 6);
+          if (rand() < 0.5) ctx.fillRect(cx, cy, cl, 1);
+          else ctx.fillRect(cx, cy, 1, cl);
+        }
+        x += w;
+      }
+      y += rowH;
+      rowIdx += 1;
+    }
+
+    // Moss patches · scatter green clusters along stone seams +
+    // pool moss at top + bottom of the wall (the reference has
+    // moss running along the upper edge and pooling at the floor).
+    const mossPalette = ["#5E7A3A", "#6E8E48", "#82A656", "#476830", "#7C9A48"];
+    const mossRand = mulberry32(91);
+    // Top moss band · several clusters along the top 36 px.
+    for (let n = 0; n < 28; n++) {
+      const mx = Math.floor(mossRand() * W);
+      const my = Math.floor(mossRand() * 30);
+      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    }
+    // Bottom moss band · taller clusters along the bottom 50 px
+    // so the wall reads as "rooted in earth" at floor level.
+    for (let n = 0; n < 36; n++) {
+      const mx = Math.floor(mossRand() * W);
+      const my = H - 40 + Math.floor(mossRand() * 36);
+      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    }
+    // Mid-wall moss · sparse clusters along internal seams.
+    for (let n = 0; n < 24; n++) {
+      const mx = Math.floor(mossRand() * W);
+      const my = 60 + Math.floor(mossRand() * (H - 120));
+      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    }
+
+    // Falling vines · a few thin vertical strands of green pixels
+    // hanging from the top down a third of the wall, mirroring the
+    // ivy strands in the reference.
+    const vinePalette = ["#5E7A3A", "#476830", "#3F5F2A"];
+    for (let v = 0; v < 9; v++) {
+      const vx = Math.floor(mossRand() * W);
+      const vy0 = Math.floor(mossRand() * 30);
+      const vLen = 60 + Math.floor(mossRand() * 110);
+      const tone = vinePalette[Math.floor(mossRand() * vinePalette.length)];
+      ctx.fillStyle = tone;
+      for (let py = 0; py < vLen; py++) {
+        // Wobble the vine a half pixel every few rows so it doesn't
+        // read as a solid rectangle.
+        const wobble = Math.sin(py * 0.18 + v) > 0 ? 1 : 0;
+        ctx.fillRect(vx + wobble, vy0 + py, 1, 1);
+      }
+      // Three small leaves along the vine.
+      for (let l = 0; l < 3; l++) {
+        const ly = vy0 + 14 + l * Math.floor(vLen / 3);
+        const lx = vx + (l % 2 === 0 ? 1 : -2);
+        ctx.fillRect(lx, ly, 3, 1);
+        ctx.fillRect(lx, ly + 1, 2, 1);
+      }
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** Procedural pixel-art warm sandstone wall · modelled after
+   *  `public/icons/wall2.png`. Same broken-bond layout as the
+   *  constructive stone wall but in an amber / sandstone / terracotta
+   *  palette · multi-tone stones range from pale sand to deep rust,
+   *  with occasional brighter terracotta accents for visual punch.
+   *  Used for the critique tone in place of the flat-paint wall. */
+  function buildCritiqueWallTexture() {
+    const W = 1024, H = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    // Mortar base · deep warm walnut · matches the existing
+    // critique trim colour family so the seams feel native.
+    ctx.fillStyle = "#2A1A0E";
+    ctx.fillRect(0, 0, W, H);
+
+    // Stone palette · warm sandstone family, low-sat to mid-sat
+    // golden browns mixing pale sand and deep rust.
+    const stonePalette = [
+      "#B8895A", "#9C7340", "#C8A06C", "#8B5E32",
+      "#D9B07C", "#A87850", "#7A4F30", "#B07A48",
+    ];
+    // Occasional brighter terracotta / amber stones for accent ·
+    // ~10% of stones pick from this set to mirror the reference's
+    // pop of orange-red here and there.
+    const stoneAccent = ["#C97448", "#D88A50", "#BA6634"];
+    const highlightTone = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      const r = Math.min(255, ((n >> 16) & 0xff) + 30);
+      const g = Math.min(255, ((n >> 8) & 0xff) + 26);
+      const b = Math.min(255, (n & 0xff) + 18);
+      return `rgb(${r},${g},${b})`;
+    };
+    const shadowTone = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      const r = Math.max(0, ((n >> 16) & 0xff) - 34);
+      const g = Math.max(0, ((n >> 8) & 0xff) - 28);
+      const b = Math.max(0, (n & 0xff) - 20);
+      return `rgb(${r},${g},${b})`;
+    };
+
+    // Block layout · rectangular bond pattern. Slightly larger
+    // blocks than constructive (the reference reads as chunky
+    // hand-cut sandstone, not pebble cobble) and a touch more
+    // mortar so the seams catch the eye.
+    const mortar = 2;
+    const rand = mulberry32(29);
+    let y = 0;
+    while (y < H) {
+      const rowH = 17 + Math.floor(rand() * 8);
+      const startOffset = Math.floor(rand() * 40);
+      let x = -startOffset;
+      while (x < W) {
+        const w = 24 + Math.floor(rand() * 30);
+        const useAccent = rand() < 0.10;
+        const base = useAccent
+          ? stoneAccent[Math.floor(rand() * stoneAccent.length)]
+          : stonePalette[Math.floor(rand() * stonePalette.length)];
+        const x0 = x + mortar;
+        const y0 = y + mortar;
+        const sw = w - mortar;
+        const sh = rowH - mortar;
+        // Block body.
+        ctx.fillStyle = base;
+        ctx.fillRect(x0, y0, sw, sh);
+        // Worn corners · clip a 2×2 chunk so each block reads as
+        // a hand-cut sandstone instead of a sharp rectangle.
+        ctx.fillStyle = "#2A1A0E";
+        ctx.fillRect(x0, y0, 2, 2);
+        ctx.fillRect(x0 + sw - 2, y0, 2, 2);
+        ctx.fillRect(x0, y0 + sh - 2, 2, 2);
+        ctx.fillRect(x0 + sw - 2, y0 + sh - 2, 2, 2);
+        // Top-edge highlight (skip the worn corners).
+        ctx.fillStyle = highlightTone(base);
+        ctx.fillRect(x0 + 2, y0, sw - 4, 1);
+        // Bottom-edge shadow.
+        ctx.fillStyle = shadowTone(base);
+        ctx.fillRect(x0 + 2, y0 + sh - 1, sw - 4, 1);
+        // Inner blemish · ~30% of stones get a small chip / crack
+        // for hand-cut character.
+        if (rand() < 0.30 && sw > 14 && sh > 12) {
+          ctx.fillStyle = shadowTone(base);
+          const cx = x0 + 3 + Math.floor(rand() * Math.max(1, sw - 9));
+          const cy = y0 + 3 + Math.floor(rand() * Math.max(1, sh - 8));
+          const cl = 3 + Math.floor(rand() * 7);
+          if (rand() < 0.5) ctx.fillRect(cx, cy, cl, 1);
+          else ctx.fillRect(cx, cy, 1, cl);
+        }
+        x += w;
+      }
+      y += rowH;
+    }
+
+    // Sparse moss accent · the reference has a hint of green only
+    // near the upper seams; keep it subtle (no bottom band, no
+    // vines) so the warm sandstone stays the dominant register.
+    const mossPalette = ["#5E7A3A", "#6E8E48", "#476830"];
+    const mossRand = mulberry32(73);
+    for (let n = 0; n < 12; n++) {
+      const mx = Math.floor(mossRand() * W);
+      const my = Math.floor(mossRand() * 36);
+      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
   /** Tiny deterministic PRNG (Mulberry32). Same seed → same sequence,
    *  used so mountain silhouettes stay stable across rebuilds. */
   function mulberry32(a) {
@@ -930,99 +1334,302 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     railR.rotation.y = -Math.PI / 2;
     wallTrimGroup.add(railR);
 
+    // Plant baseboard · dense foliage band hugging the wall-floor
+    // seam. Shared procedural texture (lazy) painted to a wide
+    // canvas, applied with `transparent: true` so the scalloped top
+    // edge shows the wall behind. 3 plane meshes (back / left /
+    // right) sit on a sub-group toggled per-tone via
+    // refreshWallColors · default hidden so non-constructive tones
+    // keep their clean baseboard.
+    if (!plantBaseboardTexture) plantBaseboardTexture = buildPlantBaseboardTexture();
+    if (!plantBaseboardMat) {
+      plantBaseboardMat = new THREE.MeshLambertMaterial({
+        map: plantBaseboardTexture,
+        transparent: true,
+        alphaTest: 0.4,    // crisp scalloped edge instead of a fuzzy halo
+        side: THREE.DoubleSide,
+      });
+    }
+    plantBaseboardGroup = new THREE.Group();
+    plantBaseboardGroup.visible = false;
+    g.add(plantBaseboardGroup);
+
+    // Foliage band geometry · 0.75 world-units tall, centred so the
+    // bottom sits at y=0 (floor level) and top reaches ~0.75. Sits
+    // 0.02 in front of the wall surface so the texture's transparent
+    // pixels show wall, not z-fighting.
+    const plantH = 0.75;
+    const plantY = plantH / 2;
+    const plantInset = 0.02;
+    const plantBack = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthBack, plantH),
+      plantBaseboardMat,
+    );
+    plantBack.position.set(0, plantY, -offsetZ + plantInset);
+    plantBaseboardGroup.add(plantBack);
+    const plantLeft = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthLR, plantH),
+      plantBaseboardMat,
+    );
+    plantLeft.position.set(-offsetX + plantInset, plantY, 0);
+    plantLeft.rotation.y = Math.PI / 2;
+    plantBaseboardGroup.add(plantLeft);
+    const plantRight = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthLR, plantH),
+      plantBaseboardMat,
+    );
+    plantRight.position.set(offsetX - plantInset, plantY, 0);
+    plantRight.rotation.y = -Math.PI / 2;
+    plantBaseboardGroup.add(plantRight);
+
+    // Wooden baseboard variant · slimmer (0.28h) solid walnut trim
+    // sitting at the wall-floor seam. Same 3-mesh layout as the
+    // plant baseboard but uses the wood-grain texture · shown under
+    // the critique sandstone wall to give the warm stone a wood
+    // anchor at floor level. Hidden by default; refreshWallColors
+    // flips it on per tone.
+    if (!woodBaseboardTexture) woodBaseboardTexture = buildWoodBaseboardTexture();
+    if (!woodBaseboardMat) {
+      woodBaseboardMat = new THREE.MeshLambertMaterial({
+        map: woodBaseboardTexture,
+        side: THREE.DoubleSide,
+      });
+    }
+    woodBaseboardGroup = new THREE.Group();
+    woodBaseboardGroup.visible = false;
+    g.add(woodBaseboardGroup);
+
+    const woodH = 0.50;
+    const woodY = woodH / 2;
+    const woodInset = 0.025;
+    const woodBack = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthBack, woodH),
+      woodBaseboardMat,
+    );
+    woodBack.position.set(0, woodY, -offsetZ + woodInset);
+    woodBaseboardGroup.add(woodBack);
+    const woodLeft = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthLR, woodH),
+      woodBaseboardMat,
+    );
+    woodLeft.position.set(-offsetX + woodInset, woodY, 0);
+    woodLeft.rotation.y = Math.PI / 2;
+    woodBaseboardGroup.add(woodLeft);
+    const woodRight = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthLR, woodH),
+      woodBaseboardMat,
+    );
+    woodRight.position.set(offsetX - woodInset, woodY, 0);
+    woodRight.rotation.y = -Math.PI / 2;
+    woodBaseboardGroup.add(woodRight);
+
     return g;
   }
 
-  /** Voxel props that sit on the table top · books, coffee cup, two
-   *  microphones. Mirrors the 2D SVG `.rt-prop-*` set under the
-   *  table SVG: same composition, same colour family, voxel-ised
-   *  for 3D consistency. Positioned in TABLE-LOCAL coords (x and
-   *  z are table-relative; y is on top of the table top slab). */
+  /** Procedural wood-baseboard texture · solid walnut plank with
+   *  subtle grain stripes + top highlight + bottom shadow + a few
+   *  vertical seams that read as butt-jointed boards. 1024×96
+   *  (wide-thin) so it stretches naturally across all three wall
+   *  lengths. Used as a regular (non-transparent) Lambert material. */
+  function buildWoodBaseboardTexture() {
+    const W = 1024, H = 96;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    // Plank body · deep warm walnut to anchor the warm critique room.
+    ctx.fillStyle = "#5A3A22";
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grain stripes · horizontal bands of slightly darker
+    // walnut, irregular spacing so the wood doesn't look striped.
+    const grainRand = mulberry32(91);
+    for (let n = 0; n < 28; n++) {
+      const gy = Math.floor(grainRand() * (H - 6)) + 3;
+      const gw = 60 + Math.floor(grainRand() * 200);
+      const gx = Math.floor(grainRand() * (W - gw));
+      ctx.fillStyle = grainRand() < 0.5 ? "#4A2E18" : "#6B4528";
+      ctx.fillRect(gx, gy, gw, 1);
+    }
+
+    // Top highlight · 2px brighter walnut at the upper edge so the
+    // baseboard catches a soft cove light.
+    ctx.fillStyle = "#8B6940";
+    ctx.fillRect(0, 0, W, 1);
+    ctx.fillStyle = "#7A5A38";
+    ctx.fillRect(0, 1, W, 1);
+
+    // Bottom shadow · 2px deep walnut so the baseboard reads as
+    // resting on the floor, not floating.
+    ctx.fillStyle = "#3A2410";
+    ctx.fillRect(0, H - 1, W, 1);
+    ctx.fillStyle = "#241408";
+    ctx.fillRect(0, H - 2, W, 1);
+
+    // Butt joints · 4-5 vertical seams across the canvas so the
+    // baseboard reads as discrete boards joined end-to-end, not
+    // one impossibly-long plank.
+    const seamCount = 5;
+    for (let i = 1; i < seamCount; i++) {
+      const sx = Math.floor((W / seamCount) * i + (grainRand() - 0.5) * 30);
+      ctx.fillStyle = "#2A1808";
+      ctx.fillRect(sx, 2, 1, H - 4);
+      ctx.fillStyle = "#3F2614";
+      ctx.fillRect(sx + 1, 2, 1, H - 4);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** Procedural plant-baseboard texture · dense foliage band
+   *  designed to hug the wall-floor seam. Drawn into a wide
+   *  1024×192 canvas with:
+   *   · transparent background above the scalloped top edge
+   *   · multi-tone green leaf clusters stacked from the bottom up
+   *   · taller fern-like fronds at irregular intervals
+   *   · a handful of tiny yellow flower speckles
+   *  Used as a `transparent + alphaTest` MeshLambertMaterial so
+   *  the silhouette is crisp against the stone wall behind. */
+  function buildPlantBaseboardTexture() {
+    const W = 1024, H = 192;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    // Start fully transparent · only leaf pixels stay opaque, so
+    // the scalloped top edge of the band shows the wall texture
+    // behind instead of a hard rectangle.
+    ctx.clearRect(0, 0, W, H);
+
+    const leafPalette = [
+      "#4A6630", "#5E7A3A", "#6E8E48", "#82A656",
+      "#476830", "#3F5F2A", "#7C9A48", "#62844A",
+    ];
+    const shadowPalette = ["#2F4322", "#37501F", "#283A18"];
+    const flowerPalette = ["#F2E36A", "#E8C84A", "#F0F0E0"];
+    const rand = mulberry32(37);
+
+    // Dense base · the bottom 60% is mostly opaque foliage so the
+    // band reads as a thick hedge resting on the floor, not as a
+    // sparse smattering of leaves.
+    const baseTop = Math.floor(H * 0.42);  // foliage solid below here
+    for (let y = baseTop; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const t = (y - baseTop) / (H - baseTop);
+        const pickShadow = rand() < (0.18 - t * 0.10);
+        const palette = pickShadow ? shadowPalette : leafPalette;
+        ctx.fillStyle = palette[Math.floor(rand() * palette.length)];
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    // Top scallop · cluster mounds of leaves above the solid base
+    // for an organic silhouette. Each mound is an irregular dome of
+    // leaf pixels picked from the palette.
+    const moundsPerSpan = 60;
+    for (let n = 0; n < moundsPerSpan; n++) {
+      const cx = Math.floor(rand() * W);
+      const r = 8 + Math.floor(rand() * 14);      // mound radius
+      const cy = baseTop - Math.floor(rand() * 8);
+      const tone = leafPalette[Math.floor(rand() * leafPalette.length)];
+      ctx.fillStyle = tone;
+      for (let py = -r; py <= 0; py++) {
+        const w = Math.floor(Math.sqrt(Math.max(0, r * r - py * py)));
+        // Wobble the edge by ±1 so it doesn't read as a perfect arc.
+        const wobble = (rand() < 0.5 ? 0 : 1);
+        ctx.fillRect(cx - w + wobble, cy + py, w * 2, 1);
+      }
+      // Highlight speckles on top of the mound.
+      ctx.fillStyle = leafPalette[Math.floor(rand() * leafPalette.length)];
+      ctx.fillRect(cx - 1, cy - r + 1, 2, 1);
+      ctx.fillRect(cx + Math.floor(r * 0.4), cy - Math.floor(r * 0.7), 2, 1);
+    }
+
+    // Tall fronds · vertical stems rising above the scallop on a
+    // handful of spots, with a small leaf cluster at the top.
+    const fronds = 16;
+    for (let n = 0; n < fronds; n++) {
+      const fx = Math.floor(rand() * W);
+      const fh = 22 + Math.floor(rand() * 30);
+      const stemTone = shadowPalette[Math.floor(rand() * shadowPalette.length)];
+      ctx.fillStyle = stemTone;
+      for (let py = 0; py < fh; py++) {
+        const wobble = Math.sin(py * 0.3 + n) > 0 ? 1 : 0;
+        ctx.fillRect(fx + wobble, baseTop - py, 1, 1);
+      }
+      // Top leaf cluster · 3 small leaves around the stem tip.
+      const leafTone = leafPalette[Math.floor(rand() * leafPalette.length)];
+      ctx.fillStyle = leafTone;
+      const tipY = baseTop - fh;
+      ctx.fillRect(fx - 2, tipY - 1, 5, 1);
+      ctx.fillRect(fx - 1, tipY - 2, 3, 1);
+      ctx.fillRect(fx, tipY - 3, 1, 1);
+    }
+
+    // Flower speckles · tiny 2×2 yellow / cream dots scattered
+    // across the foliage for a hint of bloom.
+    for (let n = 0; n < 24; n++) {
+      const fx = Math.floor(rand() * W);
+      const fy = baseTop + 4 + Math.floor(rand() * (H - baseTop - 6));
+      const tone = flowerPalette[Math.floor(rand() * flowerPalette.length)];
+      ctx.fillStyle = tone;
+      ctx.fillRect(fx, fy, 2, 2);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** Voxel props that sit on the table top.
+   *
+   *  Layout has two registers:
+   *    · MICS are fixed (front-facing toward chair + back-facing
+   *      toward top-row directors). The 2 microphones are the room's
+   *      anchor; they never move so the user always sees a stable
+   *      audio register.
+   *    · OTHER PROPS are randomised every mount · the pool includes
+   *      books, coffee cup, laptop, phone, marker, sticky notes,
+   *      water bottle. 4-5 props are picked at random from the pool
+   *      and dropped into 4-5 (randomly shuffled) slot positions
+   *      with a small jitter + rotation, so each room visit feels
+   *      lived-in instead of a static set dressing.
+   *
+   *  Positions are TABLE-LOCAL coords (x and z relative to table
+   *  centre; y is on top of the table top slab at TOP_Y = 1.25). */
   function buildTableProps() {
     const g = new THREE.Group();
     // Table top slab top y · matches the buildTable() math:
     // bodyH (0.9) + topH (0.35) = 1.25
     const TOP_Y = 1.25;
 
-    // Stack of two books · left third of the table.
-    // Bottom book · red spine
-    const bookBot = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, 0.08, 0.20),
-      new THREE.MeshLambertMaterial({ color: 0x9E4A3A }),
-    );
-    bookBot.position.set(-2.0, TOP_Y + 0.04, 0);
-    g.add(bookBot);
-    // Bottom book highlight band along the long edge
-    const bookBotHi = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, 0.015, 0.04),
-      new THREE.MeshLambertMaterial({ color: 0xBF6B5C }),
-    );
-    bookBotHi.position.set(-2.0, TOP_Y + 0.08, 0.085);
-    g.add(bookBotHi);
-    // Top book · navy spine, offset right & up
-    const bookTop = new THREE.Mesh(
-      new THREE.BoxGeometry(0.48, 0.07, 0.18),
-      new THREE.MeshLambertMaterial({ color: 0x2A3E5C }),
-    );
-    bookTop.position.set(-1.9, TOP_Y + 0.115, -0.02);
-    g.add(bookTop);
-    const bookTopHi = new THREE.Mesh(
-      new THREE.BoxGeometry(0.48, 0.012, 0.04),
-      new THREE.MeshLambertMaterial({ color: 0x4A6390 }),
-    );
-    bookTopHi.position.set(-1.9, TOP_Y + 0.148, 0.06);
-    g.add(bookTopHi);
-
-    // Coffee cup · short white cylinder with a handle, sits to the
-    // right of the books.
-    const cupBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.10, 0.08, 0.18, 16),
-      new THREE.MeshLambertMaterial({ color: 0xF0EDE6 }),
-    );
-    cupBody.position.set(-1.10, TOP_Y + 0.09, 0);
-    g.add(cupBody);
-    const cupRim = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.10, 0.10, 0.015, 16),
-      new THREE.MeshLambertMaterial({ color: 0xC9C5BE }),
-    );
-    cupRim.position.set(-1.10, TOP_Y + 0.182, 0);
-    g.add(cupRim);
-    // Cup handle · small torus on the side
-    const cupHandle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.05, 0.012, 6, 16),
-      new THREE.MeshLambertMaterial({ color: 0xF0EDE6 }),
-    );
-    cupHandle.position.set(-1.00, TOP_Y + 0.09, 0);
-    cupHandle.rotation.y = Math.PI / 2;
-    g.add(cupHandle);
-    // Saucer under the cup
-    const saucer = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.16, 0.16, 0.015, 20),
-      new THREE.MeshLambertMaterial({ color: 0xDED9D0 }),
-    );
-    saucer.position.set(-1.10, TOP_Y + 0.0075, 0);
-    g.add(saucer);
-
-    // Two microphones · front-facing (toward chair) and back-facing
-    // (toward top-row directors). Each = base disc + thin stand +
-    // mic head capsule.
+    // ── Mics · fixed positions ───────────────────────────────
     const buildMic = (x, z, faceForward) => {
       const mg = new THREE.Group();
-      // Base
       const base = new THREE.Mesh(
         new THREE.CylinderGeometry(0.10, 0.10, 0.025, 16),
         new THREE.MeshLambertMaterial({ color: 0x2A2A2A }),
       );
       base.position.set(0, TOP_Y + 0.012, 0);
       mg.add(base);
-      // Stand
       const stand = new THREE.Mesh(
         new THREE.CylinderGeometry(0.012, 0.012, 0.38, 8),
         new THREE.MeshLambertMaterial({ color: 0x3A3A3A }),
       );
       stand.position.set(0, TOP_Y + 0.215, 0);
       mg.add(stand);
-      // Head · tilted slightly toward the speaker the mic faces
       const head = new THREE.Mesh(
         new THREE.BoxGeometry(0.13, 0.16, 0.10),
         new THREE.MeshLambertMaterial({ color: 0x1A1A1A }),
@@ -1030,7 +1637,6 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       head.position.set(0, TOP_Y + 0.45, faceForward ? 0.03 : -0.03);
       head.rotation.x = faceForward ? -0.20 : 0.20;
       mg.add(head);
-      // Grille highlight strip
       const grille = new THREE.Mesh(
         new THREE.BoxGeometry(0.105, 0.10, 0.012),
         new THREE.MeshLambertMaterial({ color: 0x6B6B6B }),
@@ -1042,8 +1648,214 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       mg.position.set(x, 0, z);
       return mg;
     };
-    g.add(buildMic(0.4, 0.4, true));     // facing the chair (front row)
-    g.add(buildMic(0.4, -0.4, false));    // facing the back-row directors
+    g.add(buildMic(0.4, 0.4, true));
+    g.add(buildMic(0.4, -0.4, false));
+
+    // ── Random prop pool · each builder returns a group anchored
+    // at (0, 0, 0) so slot placement + rotation are uniform across
+    // prop types. ────────────────────────────────────────────────
+    function buildBookStackGroup() {
+      const pg = new THREE.Group();
+      const bookBot = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.08, 0.20),
+        new THREE.MeshLambertMaterial({ color: 0x9E4A3A }),
+      );
+      bookBot.position.set(0, TOP_Y + 0.04, 0);
+      pg.add(bookBot);
+      const bookBotHi = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.015, 0.04),
+        new THREE.MeshLambertMaterial({ color: 0xBF6B5C }),
+      );
+      bookBotHi.position.set(0, TOP_Y + 0.08, 0.085);
+      pg.add(bookBotHi);
+      const bookTop = new THREE.Mesh(
+        new THREE.BoxGeometry(0.48, 0.07, 0.18),
+        new THREE.MeshLambertMaterial({ color: 0x2A3E5C }),
+      );
+      bookTop.position.set(0.05, TOP_Y + 0.115, -0.015);
+      pg.add(bookTop);
+      const bookTopHi = new THREE.Mesh(
+        new THREE.BoxGeometry(0.48, 0.012, 0.04),
+        new THREE.MeshLambertMaterial({ color: 0x4A6390 }),
+      );
+      bookTopHi.position.set(0.05, TOP_Y + 0.148, 0.05);
+      pg.add(bookTopHi);
+      return pg;
+    }
+
+    function buildCoffeeCupGroup() {
+      const pg = new THREE.Group();
+      const saucer = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.16, 0.015, 20),
+        new THREE.MeshLambertMaterial({ color: 0xDED9D0 }),
+      );
+      saucer.position.set(0, TOP_Y + 0.0075, 0);
+      pg.add(saucer);
+      const cupBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.10, 0.08, 0.18, 16),
+        new THREE.MeshLambertMaterial({ color: 0xF0EDE6 }),
+      );
+      cupBody.position.set(0, TOP_Y + 0.09, 0);
+      pg.add(cupBody);
+      const cupRim = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.10, 0.10, 0.015, 16),
+        new THREE.MeshLambertMaterial({ color: 0xC9C5BE }),
+      );
+      cupRim.position.set(0, TOP_Y + 0.182, 0);
+      pg.add(cupRim);
+      const cupHandle = new THREE.Mesh(
+        new THREE.TorusGeometry(0.05, 0.012, 6, 16),
+        new THREE.MeshLambertMaterial({ color: 0xF0EDE6 }),
+      );
+      cupHandle.position.set(0.10, TOP_Y + 0.09, 0);
+      cupHandle.rotation.y = Math.PI / 2;
+      pg.add(cupHandle);
+      return pg;
+    }
+
+    function buildLaptopGroup() {
+      const pg = new THREE.Group();
+      // Keyboard base (slim slab)
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(0.45, 0.025, 0.30),
+        new THREE.MeshLambertMaterial({ color: 0x6B6B6B }),
+      );
+      base.position.set(0, TOP_Y + 0.013, 0);
+      pg.add(base);
+      // Lid (tilted back ~75° so the screen catches camera light)
+      const lidTilt = -Math.PI * 0.42;
+      const lid = new THREE.Mesh(
+        new THREE.BoxGeometry(0.45, 0.025, 0.28),
+        new THREE.MeshLambertMaterial({ color: 0x4A4A4A }),
+      );
+      lid.rotation.x = lidTilt;
+      lid.position.set(0, TOP_Y + 0.14, -0.13);
+      pg.add(lid);
+      // Screen face (slightly in front of lid)
+      const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.40, 0.24, 0.01),
+        new THREE.MeshLambertMaterial({ color: 0x6BA8D8 }),
+      );
+      screen.rotation.x = lidTilt;
+      screen.position.set(0, TOP_Y + 0.14, -0.118);
+      pg.add(screen);
+      return pg;
+    }
+
+    function buildPhoneGroup() {
+      const pg = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.02, 0.24),
+        new THREE.MeshLambertMaterial({ color: 0x1F1F1F }),
+      );
+      body.position.set(0, TOP_Y + 0.01, 0);
+      pg.add(body);
+      const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.10, 0.005, 0.21),
+        new THREE.MeshLambertMaterial({ color: 0x3A4A60 }),
+      );
+      screen.position.set(0, TOP_Y + 0.0225, 0);
+      pg.add(screen);
+      return pg;
+    }
+
+    function buildMarkerGroup() {
+      const pg = new THREE.Group();
+      // Body lies flat along the x axis (rotation Z brings cylinder
+      // from upright to horizontal).
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.018, 0.26, 8),
+        new THREE.MeshLambertMaterial({ color: 0x1A1A1A }),
+      );
+      body.rotation.z = Math.PI / 2;
+      body.position.set(0, TOP_Y + 0.018, 0);
+      pg.add(body);
+      // Cap on one end · accent colour for a pop of red.
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.020, 0.020, 0.05, 8),
+        new THREE.MeshLambertMaterial({ color: 0xC04A3A }),
+      );
+      cap.rotation.z = Math.PI / 2;
+      cap.position.set(-0.13, TOP_Y + 0.018, 0);
+      pg.add(cap);
+      return pg;
+    }
+
+    function buildStickyNotesGroup() {
+      const pg = new THREE.Group();
+      const pad = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, 0.04, 0.26),
+        new THREE.MeshLambertMaterial({ color: 0xE8D858 }),
+      );
+      pad.position.set(0, TOP_Y + 0.02, 0);
+      pg.add(pad);
+      // Brighter top sheet (most recent sticky note).
+      const top = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, 0.006, 0.26),
+        new THREE.MeshLambertMaterial({ color: 0xF7E97A }),
+      );
+      top.position.set(0, TOP_Y + 0.0432, 0);
+      pg.add(top);
+      return pg;
+    }
+
+    function buildWaterBottleGroup() {
+      const pg = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.30, 12),
+        new THREE.MeshLambertMaterial({ color: 0xA8C8E0 }),
+      );
+      body.position.y = TOP_Y + 0.15;
+      pg.add(body);
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.038, 0.038, 0.05, 12),
+        new THREE.MeshLambertMaterial({ color: 0x2A4D70 }),
+      );
+      cap.position.y = TOP_Y + 0.325;
+      pg.add(cap);
+      return pg;
+    }
+
+    // ── Slot positions · mic-free zones around the table top.
+    // Chosen so the minimum distance from any slot centre to either
+    // mic (0.4, ±0.4) is > 0.6 world-units even after jitter, so
+    // randomly-rotated props don't clip into the mic stands.
+    const slots = [
+      { x: -2.2, z: -0.40 },
+      { x: -1.8, z:  0.42 },
+      { x: -1.05, z: -0.42 },
+      { x: -1.05, z:  0.42 },
+      { x:  1.6, z: -0.42 },
+      { x:  1.6, z:  0.42 },
+      { x:  2.3, z:  0.00 },
+      { x: -0.20, z:  0.00 },
+    ];
+    const pool = [
+      buildBookStackGroup,
+      buildCoffeeCupGroup,
+      buildLaptopGroup,
+      buildPhoneGroup,
+      buildMarkerGroup,
+      buildStickyNotesGroup,
+      buildWaterBottleGroup,
+    ];
+
+    // Shuffle slots + pick 4-5 of them; for each pick a random prop
+    // and apply small jitter + rotation so the table reads as
+    // "freshly used" rather than a perfectly aligned set.
+    const shuffled = slots.slice().sort(() => Math.random() - 0.5);
+    const propCount = 4 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < propCount && i < shuffled.length; i++) {
+      const slot = shuffled[i];
+      const builder = pool[Math.floor(Math.random() * pool.length)];
+      const propGroup = builder();
+      const jitterX = (Math.random() - 0.5) * 0.20;
+      const jitterZ = (Math.random() - 0.5) * 0.14;
+      const rotY = (Math.random() - 0.5) * 0.7;
+      propGroup.position.set(slot.x + jitterX, 0, slot.z + jitterZ);
+      propGroup.rotation.y = rotY;
+      g.add(propGroup);
+    }
 
     return g;
   }
@@ -1781,7 +2593,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     const tCam = Math.max(0, Math.min(1, dt / ENTRY_DURATION_MS));
     const easeCam = 1 - Math.pow(1 - tCam, 3);
     // Start = rest + (rest - target) * 0.6  (i.e. 60% further out)
-    const tx = 0, ty = 0.5, tz = 0;
+    const tx = 0, ty = _mountCamLookY, tz = 0;
     const startX = cameraRestPos.x + (cameraRestPos.x - tx) * 0.6;
     const startY = cameraRestPos.y + (cameraRestPos.y - ty) * 0.6;
     const startZ = cameraRestPos.z + (cameraRestPos.z - tz) * 0.6;
@@ -1926,7 +2738,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     stopRaf();
     const tick = () => {
       rafId = requestAnimationFrame(tick);
-      if (!visible || !renderer || !scene || !camera) return;
+      if (!visible || !elementVisible || !renderer || !scene || !camera) return;
       // Animations BEFORE render so the frame shows the latest
       // positions / glow-ring opacity; projection AFTER render so
       // the overlay DOM transforms align with what was just drawn.

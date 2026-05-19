@@ -1024,7 +1024,6 @@ html.is-electron-mac .room-settings-overlay * {
 .head-icon-btn:hover,
 .room-settings-trigger:hover {
   color: var(--lime);
-  background: var(--panel-2, rgba(255, 255, 255, 0.04));
 }
 /* Hover-name tooltip · mirrors `.ib-action::after`'s register (panel-2
    surface, mono micro-type, ~300ms reveal). Anchored BELOW the icon

@@ -3279,6 +3279,202 @@
 
 .ap-memory-row.editing .ap-memory-actions { visibility: hidden; }
 
+/* ─── User long-memory sanctuary · chair-only "Long-term about you"
+   block beneath the main memory section. Surfaces the parallel
+   user_long_memory table that survives every dream cycle.
+   Visual register matches .ap-memory-* but: rows are slightly
+   denser (two-line layout · [label] · claim), no pin / kind / source
+   metadata (rows are tag-shaped, not free notes), and the label
+   gets a mono-uppercase tag treatment for tag identity. */
+.ap-ulm-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -22px;
+  gap: 0;
+}
+.ap-ulm-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 22px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 0.5px solid var(--line);
+  transition: background 0.12s;
+}
+.ap-ulm-row:last-child { border-bottom: none; }
+.ap-ulm-row:hover { background: var(--panel); }
+.ap-ulm-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+.ap-ulm-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.ap-ulm-claim {
+  font-family: var(--font-human);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  letter-spacing: -0.003em;
+  min-width: 0;
+  word-break: break-word;
+}
+.ap-ulm-edit-area {
+  width: 100%;
+  background: var(--bg);
+  border: 0.5px solid var(--text-soft);
+  color: var(--text);
+  font-family: var(--font-human);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  outline: none;
+  resize: vertical;
+  min-height: 48px;
+  letter-spacing: -0.003em;
+}
+.ap-ulm-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ap-ulm-edit-cancel,
+.ap-ulm-edit-save {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  cursor: pointer;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+}
+.ap-ulm-edit-save { background: var(--text); color: var(--bg); border-color: var(--text); }
+.ap-ulm-edit-cancel:hover { color: var(--text); border-color: var(--text-soft); }
+.ap-ulm-edit-save:hover { background: var(--text-soft); border-color: var(--text-soft); }
+.ap-ulm-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.ap-ulm-edit,
+.ap-ulm-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  opacity: 0.45;
+  cursor: pointer;
+  padding: 3px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 3px;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.ap-ulm-row:hover .ap-ulm-edit,
+.ap-ulm-row:hover .ap-ulm-delete { opacity: 0.7; }
+.ap-ulm-edit:hover {
+  opacity: 1;
+  color: var(--text);
+  background: var(--line-bright);
+}
+.ap-ulm-edit svg { display: block; width: 9px; height: 9px; }
+.ap-ulm-delete { font-size: 14px; font-weight: 300; }
+.ap-ulm-delete:hover {
+  opacity: 1;
+  color: var(--red);
+  background: var(--line-bright);
+}
+.ap-ulm-row.editing .ap-ulm-actions { visibility: hidden; }
+
+/* ─── User long-memory empty-state stage ─────────────────────
+   Replaces the bare "Nothing yet" placeholder when no tags
+   exist. Three elements stack:
+     1. an 8-bit pixel-art diagram showing three rooms →
+        arrow → tag crystal (so the user sees the mechanism)
+     2. a 3-step ordered list (so the user reads the
+        mechanism in words)
+     3. a one-line caption ("Nothing yet — keep convening").
+   Visual language inherits from the rest of the profile —
+   mono kicker tokens, lime accent on the tag crystal +
+   step numbers, faint everywhere else. */
+.ap-ulm-empty-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 18px 18px;
+  color: var(--text-soft);
+}
+.ap-ulm-empty-art {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  color: var(--text-soft);
+  image-rendering: pixelated;
+}
+.ap-ulm-empty-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 320px;
+}
+.ap-ulm-empty-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.ap-ulm-empty-num {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--lime);
+  border: 1px solid var(--lime);
+  border-radius: 0;
+  background: transparent;
+}
+.ap-ulm-empty-caption {
+  margin: 4px 0 0;
+  font-family: var(--font-human);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  font-style: italic;
+  text-align: center;
+  max-width: 320px;
+}
+
 /* ─── Memory · legacy tile gallery (kept for callers
    that still pass `p.memory` shape). v1 profiles render the
    .ap-memory list above and never enter this block. */

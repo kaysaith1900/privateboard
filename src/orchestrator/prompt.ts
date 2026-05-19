@@ -12,6 +12,7 @@ import type { LLMMessage } from "../ai/adapter.js";
 import type { Agent } from "../storage/agents.js";
 import type { KeyPoint } from "../storage/key_points.js";
 import { memoriesForContext, bumpUsage, type AgentMemory } from "../storage/memories.js";
+import { listActiveUserLongMemory } from "../storage/user-long-memory.js";
 import type { Message } from "../storage/messages.js";
 import type { Prefs } from "../storage/prefs.js";
 import type { Room } from "../storage/rooms.js";
@@ -219,6 +220,26 @@ export function buildFollowUpPriorContext(opts: PriorContextOpts): string {
  *  the system prompt. Returns an empty string when the agent has no
  *  memories yet, so callers can spread it conditionally without leaking
  *  an empty section header. */
+/** Render the chair-only "LONG-TERM ABOUT {userName}" block. Reads
+ *  the parallel `user_long_memory` table (sanctuary that the dream
+ *  cycle never touches). Returns an empty string when the table is
+ *  empty so callers can spread conditionally without leaking an
+ *  empty header. Director prompts MUST NOT use this — the
+ *  abstractions are intended as the chair's personalised carry-over
+ *  across rooms, not redistributed to the cast. */
+function renderUserLongMemoryBlock(userName: string): string {
+  const items = listActiveUserLongMemory();
+  if (items.length === 0) return "";
+  const lines = items.map((t) => `  · [${t.label}] · ${t.claim}`);
+  return [
+    "",
+    `─── LONG-TERM ABOUT ${userName} (durable · what you've come to know across rooms) ───`,
+    `These tags survive every dream cycle. Treat them as priors that hold across the boardroom's lifetime with this user; they are only displaced on direct contradiction. Use them to ground clarify turns + convening speeches, but don't quote them at the user.`,
+    ...lines,
+    "",
+  ].join("\n");
+}
+
 function renderLongTermMemoryBlock(agentId: string, userName: string): string {
   const memories: AgentMemory[] = memoriesForContext(agentId);
   if (memories.length === 0) return "";
@@ -592,27 +613,24 @@ const TONE_GUIDANCE: Record<string, string> = {
     "",
     "## Each turn MUST",
     "  (1) **Ground in specific material.** Cite a quote, a datapoint, a stated claim, a result, or a prior turn. No riffing from thin air. If you can't ground a claim, name the gap explicitly: \"the materials don't tell us whether X.\" A named gap is as valuable as a finding.",
-    "  (2) **Tag claims inline** with one of three epistemic markers, at the SENTENCE level when claims mix types:",
-    "         **OBSERVATION** · what the source literally says",
-    "         **INFERENCE** · what you reasonably conclude from it",
-    "         **SPECULATION** · what you'd want to test",
-    "      Conflating INFERENCE with OBSERVATION is the mode's signature failure — keep the tags clean.",
-    "  (3) **State confidence on load-bearing claims** · `low` (might be wrong) · `med` (lean this way) · `high` (would defend). For any load-bearing claim, add ONE sentence on **why-not-the-next-level-up** — what would have to be true to push the confidence higher. Don't tag every sentence; tag the claims the room's map will rest on.",
+    "  (2) **Keep the seam visible — in prose — between what the source actually says, what you're concluding from it, and what you'd want to test.** Phrasing does this work without any header: \"the report literally says X\" / \"that points toward Y, though it goes a step beyond what the data shows\" / \"if Y holds, the test would be Z\". The signature failure of this mode is letting a one-step inference parade as a direct observation; the cure is careful sentences, not a label.",
+    "  (3) **Be clear about how firm a load-bearing claim is, and what would move it.** State plainly when you'd defend the claim under cross-examination versus when you're leaning that way as a working bet — and name what specifically would push you off it. ONE sentence. Surface firmness only on claims the room's map will rest on; don't qualify every line.",
     "  (4) **On reactive turns**, connect to another director's finding (\"X plus Y suggests Z\") OR surface a **disagreement between sources** (\"source A says X; Drucker's prior turn says Y; the falsifier between them is Z\"). When two sources conflict, do not silently pick one — name the disagreement and what would resolve it. Refer to peers by NAME, never by `@handle`.",
     "",
     "## Web-search hygiene (when available)",
-    "Search results are SOURCES, not FACTS. Quote the line, name the source, then tag your reading OBSERVATION / INFERENCE / SPECULATION. A retrieved sentence is still a CLAIM living inside someone else's frame; treat it accordingly.",
+    "Search results are SOURCES, not FACTS. Quote the line, name the source, then make clear in the prose whether you're reporting what the source says, drawing a conclusion from it, or speculating beyond it. A retrieved sentence is still a CLAIM living inside someone else's frame; treat it accordingly.",
     "",
-    "## Worked turn (illustrative — adapt to your lens, don't copy the template)",
-    "> **OBSERVATION** · The 2023 Stanford AI Index reports developer adoption of code-LLMs grew 4.7× in 18 months (Stanford HAI 2023, p.142). **INFERENCE** · Adoption at this rate without comparable revenue growth in the tooling layer suggests substitution within existing dev-tool budgets, not budget expansion. **Confidence: med** — the next level up would require aggregate dev-tool revenue staying flat over the same period; we don't have that yet. **SPECULATION** · If the substitution read holds, the durable winners aren't the LLM vendors but the surfaces that already control dev-workflow attention.",
+    "## Worked turn (illustrative — adapt to your lens, don't copy the shape)",
+    "> The 2023 Stanford AI Index reports developer adoption of code-LLMs grew 4.7× in 18 months (Stanford HAI 2023, p.142). That growth without comparable revenue growth in the tooling layer points toward substitution within existing dev-tool budgets rather than budget expansion — a step beyond what the report itself claims, so I'd hold it as a working read, not a load-bearing finding. The clearest test: if aggregate dev-tool revenue has stayed flat over the same window, the substitution story tightens; if it grew alongside, the read needs dropping. If substitution does hold, the durable winners aren't the LLM vendors but the surfaces that already control dev-workflow attention — that's the next thread to pull, not a conclusion.",
     "",
     "## Forbidden",
     "  · Ungrounded opinion / intuition with no source citation.",
     "  · Treating one example or anecdote as proof of a pattern.",
-    "  · Conflating INFERENCE with OBSERVATION — the tags are load-bearing; blurring them defeats the mode.",
+    "  · Letting an inference (\"so this means…\") parade as an observation (\"the source says…\") — the seam between the two must stay visible in the prose.",
     "  · Jumping to recommendations before the room has established what's known.",
     "  · Trend-chasing language (\"X is exploding / blowing up / clearly winning\") without the data points underneath.",
-    "  · The 6-field form-letter style (Claim / Type / Reasoning / Confidence / Evidence / Alternative as a literal block on every turn). Use INLINE tags as prose; the structure lives in the tags, not in a form.",
+    "  · **Literal epistemic stamps as form-letter labels** — `**OBSERVATION** ·` / `**INFERENCE** ·` / `**SPECULATION** ·` / `**Confidence: high/med/low**` / `信心高 / 信心中 / 信心低` / any equivalent kicker. Those read as filling out a worksheet and break the conversational register. Distinguish source from inference from speculation in prose; never as a heading, kicker, or bold-stamp prefix.",
+    "  · The 6-field form-letter style (Claim / Type / Reasoning / Confidence / Evidence / Alternative as a literal block on every turn). Structure lives in the prose, not in a form.",
     "",
     "PERSONA OVERRIDE · your director instruction may emphasize attacking arguments first, refusing to defer until premises are pinned, or leading with disagreement — defaults common in adversarial personas. For THIS room you can build on another director's finding without first finding fault with it; the value comes from triangulating the material, not carving out adversarial territory. But your director method (definition-check / mechanism / base-rate / analogy / user-moment / horizon / room-dynamics) STAYS — it IS your research instrument. The override pauses the *attack-first* default, not your lens.",
   ].join("\n"),
@@ -676,11 +694,11 @@ const CHAIR_MODE_PROTOCOL: Record<string, string> = {
     `If a round closes with directors all clustered in 1–2 lenses, name the gap.`,
     ``,
     `**Trigger-based inquiry — NOT every-round ritual.** The questions below are interventions, not a checklist. Fire each ONLY when its trigger is met; asking these out of turn turns the room into a quiz instead of a research conversation.`,
-    `  · "What do we actually know vs. what are we inferring?" — TRIGGER: 3+ rounds with no inline OBSERVATION/INFERENCE/SPECULATION tagging from any director.`,
+    `  · "What do we actually know vs. what are we inferring?" — TRIGGER: 3+ rounds where directors' inferences ("so this implies…") are being allowed to stand alongside source quotes without anyone naming the gap between the two in prose.`,
     `  · "What evidence would falsify this view?" — TRIGGER: a director's load-bearing claim has no stated falsifier and no other director has named one.`,
     `  · "Are we confusing trend, anecdote, and proof?" — TRIGGER: 2+ consecutive turns build on a single example with no comparable case named.`,
     `  · "What are the competing explanations?" — TRIGGER: directors converge on one mechanism without anyone surfacing an alternative reading.`,
-    `  · "What confidence levels are we at on the load-bearing claims?" — TRIGGER: a major claim is becoming structural for the room's emerging map but no director has stated low/med/high on it.`,
+    `  · "How firm is the room actually on this — and what would move us off it?" — TRIGGER: a major claim is becoming structural for the room's emerging map but no director has been clear about whether they'd defend it under cross-examination, lean toward it, or hold it as a working bet.`,
     `  · "What's the closest analogous case — and how does it differ?" — TRIGGER: an "this is unprecedented" framing has gone unchallenged for 2+ rounds.`,
     `  · "What's the next research step?" — TRIGGER: at round close, when the map has open questions but the room is starting to circle.`,
     ``,
@@ -708,7 +726,7 @@ const HOUSE_ENGAGE_BY_TONE: Record<string, string> = {
   brainstorm: "toss 3-6 ideas as a quick bulleted list (1-2 sentences each), mixing NEW directions, YES-AND extensions of prior ideas, and at least one WILD half-formed possibility — volume over polish",
   constructive: "pick a load-bearing assumption to sharpen, propose how it would need to be reshaped to hold up, or ask the sharper question the room hasn't asked",
   debate: "steelman the target claim before attacking it, distinguish confidence from preference, and name what would change your mind",
-  research: "cite a specific piece of material, tag claims INLINE as OBSERVATION/INFERENCE/SPECULATION, state low/med/high confidence on load-bearing claims, or surface a disagreement between sources",
+  research: "cite a specific piece of material, keep the seam visible IN PROSE between what the source says and what you're concluding from it, be clear how firm any load-bearing claim is and what would move you off it, or surface a disagreement between sources",
   critique: "audit one specific load-bearing piece, name the mechanism for why it fails, and label severity",
 };
 const HOUSE_ENGAGE_DEFAULT = HOUSE_ENGAGE_BY_TONE.debate;
@@ -717,7 +735,7 @@ const TONE_OVERRIDE_BY_TONE: Record<string, string> = {
   brainstorm: "your default trained preference to evaluate, critique, or anchor on the most recent idea. Open NEW possibility spaces — switch lens when the room narrows; divergence is the goal, not consensus.",
   constructive: "your default trained preference to be diplomatically vague. Be specific about which joint you're sharpening, even when you're being supportive.",
   debate: "your default trained preference for diplomatic middle ground OR for manufactured contrarianism. Pick a side, steelman before attacking, and flag position updates openly rather than retreating silently.",
-  research: "your default trained preference to leap to recommendations AND your trained tendency to merge inference with observation. Stay in the materials — what they say, what they don't say, what your lens makes visible — and keep OBSERVATION / INFERENCE / SPECULATION cleanly tagged before any director recommends anything.",
+  research: "your default trained preference to leap to recommendations AND your trained tendency to merge inference with observation. Stay in the materials — what they say, what they don't say, what your lens makes visible — and keep the seam visible IN PROSE between what's cited, what's concluded, and what's still untested before any director recommends anything. Do NOT stamp literal **OBSERVATION** / **INFERENCE** / **SPECULATION** / **Confidence: high|med|low** labels or their Chinese equivalents — the distinction lives in careful sentences, not in form-letter kickers.",
   critique: "your default trained preference to soften criticism or salvage the work via redesign. Audit as-is. Severity labels are required, not optional.",
 };
 const TONE_OVERRIDE_DEFAULT = TONE_OVERRIDE_BY_TONE.debate;
@@ -1227,6 +1245,13 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
   // clarification turns (it remembers how the user typically frames
   // things across rooms). Same recency cap as directors.
   const memoryBlock = renderLongTermMemoryBlock(chair.id, prefs.name || "the user");
+  // Long-term USER profile · the chair-only sanctuary table that
+  // survives every dream cycle. Tag-shaped abstractions about the
+  // user ("founder", "anti-jargon", "long-horizon-bias") — used as
+  // priors the chair carries forever unless directly contradicted.
+  // Sits ABOVE the per-agent memory block so durable identity
+  // anchors are read first; per-room observations follow.
+  const userLongBlock = renderUserLongMemoryBlock(prefs.name || "the user");
   // Mode-specific chair protocol · only research mode currently ships
   // one (lens-coverage tracking, trigger-based questions, source-
   // disagreement handling). Sits between ROOM CONTEXT and the per-turn
@@ -1246,6 +1271,7 @@ function buildChairSystem(opts: ChairBuildOpts, task: string): LLMMessage {
       `Directors at the table:`,
       `  · ${directors}`,
       `User: ${youLine}`,
+      ...(userLongBlock ? [userLongBlock] : []),
       ...(memoryBlock ? [memoryBlock] : []),
       "",
       // Top-level language rule · sits near the start of the chair

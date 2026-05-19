@@ -57,6 +57,7 @@ import oneActiveLlmKey044 from "./migrations/044_one_active_llm_key.sql";
 import activeLlmProviderPref045 from "./migrations/045_active_llm_provider_pref.sql";
 import llmCredentials046 from "./migrations/046_llm_credentials.sql";
 import dropTopicRecs047 from "./migrations/047_drop_topic_recs.sql";
+import userLongMemory048 from "./migrations/048_user_long_memory.sql";
 
 interface Migration {
   name: string;
@@ -111,6 +112,7 @@ const MIGRATIONS: Migration[] = [
   { name: "045_active_llm_provider_pref.sql", sql: activeLlmProviderPref045 },
   { name: "046_llm_credentials.sql", sql: llmCredentials046 },
   { name: "047_drop_topic_recs.sql", sql: dropTopicRecs047 },
+  { name: "048_user_long_memory.sql", sql: userLongMemory048 },
 ];
 
 let _db: Database.Database | null = null;
@@ -169,12 +171,40 @@ export function runMigrations(): { applied: string[] } {
 
   for (const m of MIGRATIONS) {
     if (seen.has(m.name)) continue;
-    const tx = db.transaction(() => {
-      db.exec(m.sql);
-      insert.run(m.name, Date.now());
-    });
-    tx();
-    applied.push(m.name);
+    try {
+      const tx = db.transaction(() => {
+        db.exec(m.sql);
+        insert.run(m.name, Date.now());
+      });
+      tx();
+      applied.push(m.name);
+    } catch (e) {
+      // "duplicate column name X" / "table X already exists" ·
+      // the migration's structural work was already done by an
+      // earlier-named migration on this db (typical after a
+      // rebase that renumbered pending files; e.g. an upstream
+      // PR slid in new migrations at 034-038 and pushed our
+      // pending 041-044 down to 044-047). The data-side work in
+      // these migrations is written to be idempotent (UPDATE …
+      // WHERE col IS NULL is a no-op once seeded; INSERT FROM
+      // provider_keys yields zero rows once the source was
+      // emptied by the prior run; DROP TABLE IF EXISTS is
+      // already idempotent), so the only thing that genuinely
+      // fails is the structural ADD COLUMN / CREATE TABLE that
+      // SQLite can't gate with IF NOT EXISTS. Record the
+      // migration as applied so it doesn't try again next boot.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/duplicate column name|already exists/i.test(msg)) {
+        try { insert.run(m.name, Date.now()); }
+        catch { /* _migrations row may already exist · ignore */ }
+        process.stderr.write(
+          `[migrations] ${m.name} · already applied (${msg.split("\n")[0]}); marked as recorded\n`,
+        );
+        applied.push(`${m.name} (no-op · already applied)`);
+        continue;
+      }
+      throw e;
+    }
   }
 
   return { applied };

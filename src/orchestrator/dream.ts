@@ -46,6 +46,7 @@ import {
 import { getAgent, type AgentRoleKind } from "../storage/agents.js";
 import { callLLM } from "../ai/adapter.js";
 import { utilityModelFor } from "../ai/availability.js";
+import type { ModelV } from "../ai/registry.js";
 import {
   buildClusterPrompt,
   parseClusterOutput,
@@ -55,6 +56,16 @@ import {
   parseConflictOutput,
 } from "../ai/prompts/dream-prompts.js";
 import { getPrefs } from "../storage/prefs.js";
+import {
+  bumpUserLongMemoryProvenance,
+  countActiveUserLongMemory,
+  getUserLongMemory,
+  insertUserLongMemory,
+  listActiveUserLongMemory,
+  markUserLongMemorySuperseded,
+  pruneActiveUserLongMemoryToCap,
+  type UserLongMemory,
+} from "../storage/user-long-memory.js";
 
 /** Adjourn-count K at which the next dream fires.
  *  Chair gets a tighter K because it participates in EVERY room
@@ -151,6 +162,18 @@ const CLUSTER_MAX_SIZE = 60;
 const PROMOTE_MIN_PROVENANCE = 3;
 const PROMOTE_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PROMOTE_MIN_CONFIDENCE = 0.6;
+
+/** Step-6 harvest gate · only fire the chair-only user_long_memory
+ *  harvest pass when there's enough signal to be worth an LLM call.
+ *  Either the chair already has a substantial long-tier pool (>=5
+ *  entries) OR this dream just promoted enough new memories
+ *  (>=3) for fresh patterns to be worth lifting. */
+const USER_LONG_HARVEST_MIN_LONG = 5;
+const USER_LONG_HARVEST_MIN_NEW_PROMOTED = 3;
+/** Soft cap on active user_long_memory rows · keeps the chair
+ *  prompt block + chair-profile UI bounded. Cap is "active" rows
+ *  only (superseded rows live forever as audit trail). */
+const USER_LONG_CAP = 30;
 
 /** Run one dream cycle for a single agent. Five-step pipeline:
  *  decay → cluster → merge → conflict-resolve → promote. Each step
@@ -296,16 +319,103 @@ export async function runDreamCycle(agentId: string, config: DreamConfig = {}): 
     promoted = promoteToLong(promoteIds);
   }
 
+  // Resolve the agent record once · used by Step 6's chair-gate
+  // AND by the audit log block at the bottom.
+  const agent = getAgent(agentId);
+
+  // ── Step 6 · chair-only harvest into user_long_memory ────────
+  // The four LLM-and-heuristic passes above operate on the
+  // PER-AGENT memory pool (agent_memories). They consolidate
+  // and tier-promote that pool — but a chair memory that the
+  // dream considered "stable" can still be merged into another
+  // canonical sentence on a later cycle, or marked superseded
+  // when the user's framing shifts mid-arc, or simply lose its
+  // entitled abstraction when collapsed alongside specifics.
+  //
+  // This step lifts a DIFFERENT shape of memory out of the
+  // chair's tier='long' set — tag-shaped abstractions about the
+  // USER themselves (founder · anti-jargon · long-horizon-bias)
+  // — into the parallel `user_long_memory` table where the
+  // dream cycle never touches them again. Future dreams over
+  // agent_memories don't disturb that sanctuary; the LLM here
+  // only ever appends or supersedes-on-direct-contradiction.
+  let userLongInserted = 0;
+  let userLongReinforced = 0;
+  let userLongSuperseded = 0;
+  let userLongPruned = 0;
+  if (
+    !config.skipLLM &&
+    utility &&
+    agent?.roleKind === "moderator"
+  ) {
+    try {
+      const chairLong = listTierForAgent(agentId, "long");
+      const eligible = chairLong.length >= USER_LONG_HARVEST_MIN_LONG
+        || promoted >= USER_LONG_HARVEST_MIN_NEW_PROMOTED;
+      if (eligible) {
+        const existing = listActiveUserLongMemory();
+        const harvest = await harvestUserLongMemory({
+          modelV: utility,
+          userName,
+          chairLong,
+          existing,
+        });
+        for (const t of harvest.newTags) {
+          try {
+            insertUserLongMemory({
+              label: t.label,
+              claim: t.claim,
+              confidence: t.confidence,
+              provenanceRooms: t.provenanceRooms,
+            });
+            userLongInserted++;
+          } catch { /* skip malformed individual entries */ }
+        }
+        for (const r of harvest.reinforce) {
+          if (getUserLongMemory(r.id)) {
+            bumpUserLongMemoryProvenance(r.id);
+            userLongReinforced++;
+          }
+        }
+        for (const s of harvest.supersede) {
+          if (!getUserLongMemory(s.oldId)) continue;
+          try {
+            const fresh = insertUserLongMemory({
+              label: s.newTag.label,
+              claim: s.newTag.claim,
+              confidence: s.newTag.confidence,
+              provenanceRooms: s.newTag.provenanceRooms,
+            });
+            markUserLongMemorySuperseded(s.oldId, fresh.id);
+            userLongSuperseded++;
+          } catch { /* skip · keep the old row alive rather than drop both */ }
+        }
+        // Cap-30 safety prune · only fires when the harvest
+        // (plus prior runs) has pushed the table above cap.
+        if (countActiveUserLongMemory() > USER_LONG_CAP) {
+          userLongPruned = pruneActiveUserLongMemoryToCap(USER_LONG_CAP);
+        }
+      }
+    } catch (e) {
+      process.stderr.write(
+        `[dream] user_long harvest failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  }
+
   const finishedAt = Date.now();
   const afterCount = countMemoriesForAgent(agentId);
 
   // Audit log line + persistent dream-log row.
-  const agent = getAgent(agentId);
   const label = agent ? `${agent.name} (${agentId.slice(0, 8)})` : agentId.slice(0, 8);
+  const userLongTail =
+    userLongInserted + userLongReinforced + userLongSuperseded + userLongPruned > 0
+      ? ` userLong=+${userLongInserted}/~${userLongReinforced}/×${userLongSuperseded}/-${userLongPruned}`
+      : "";
   process.stderr.write(
     `[dream] ${label} · before=${beforeCount} after=${afterCount} ` +
       `decayed=${decayed} merged=${merged} promoted=${promoted} superseded=${supersededCount} ` +
-      `took=${finishedAt - startedAt}ms\n`,
+      `took=${finishedAt - startedAt}ms${userLongTail}\n`,
   );
   try {
     recordDream({
@@ -342,4 +452,161 @@ export async function runDreamCycle(agentId: string, config: DreamConfig = {}): 
     promoted,
     superseded: supersededCount,
   };
+}
+
+// ───────────────────────────────────────────────────────────────
+// Step-6 harvest · chair-only LLM pass that lifts tag-shaped
+// abstractions from the chair's tier='long' memory pool into the
+// parallel `user_long_memory` table. Single short LLM call,
+// strict-JSON output, tolerant parser. Failure is non-fatal — the
+// dream cycle continues; the user_long_memory table just doesn't
+// grow this round.
+// ───────────────────────────────────────────────────────────────
+
+interface HarvestNewTag {
+  label: string;
+  claim: string;
+  confidence: number;
+  provenanceRooms: number;
+}
+interface HarvestReinforce {
+  id: string;
+}
+interface HarvestSupersede {
+  oldId: string;
+  newTag: HarvestNewTag;
+}
+interface HarvestResult {
+  newTags: HarvestNewTag[];
+  reinforce: HarvestReinforce[];
+  supersede: HarvestSupersede[];
+}
+
+const HARVEST_EMPTY: HarvestResult = { newTags: [], reinforce: [], supersede: [] };
+
+function buildHarvestPrompt(opts: {
+  userName: string;
+  chairLong: AgentMemory[];
+  existing: UserLongMemory[];
+}): string {
+  const existingBlock = opts.existing.length === 0
+    ? "(no existing tags yet)"
+    : opts.existing
+        .map((t) => `[${t.id}] ${t.label} · ${t.claim} · provenance=${t.provenanceRooms}`)
+        .join("\n");
+  const chairBlock = opts.chairLong.length === 0
+    ? "(no long-tier chair memories yet)"
+    : opts.chairLong
+        .map((m) => `· (${m.kind}, conf=${m.confidence.toFixed(2)}, rooms=${m.provenanceRooms}) ${m.content}`)
+        .join("\n");
+  return [
+    `You are reviewing the chair's long-term memories about ${opts.userName} to extract durable, tag-shaped abstractions that should live in a separate sanctuary table (never decayed, only displaced on direct contradiction).`,
+    ``,
+    `## Existing user-long-memory tags`,
+    existingBlock,
+    ``,
+    `## Chair's long-tier memories about ${opts.userName}`,
+    chairBlock,
+    ``,
+    `## Output`,
+    `Return ONE JSON object with exactly three arrays, nothing else (no prose, no fences):`,
+    `{`,
+    `  "newTags": [`,
+    `    { "label": "short-1-to-3-words", "claim": "short sentence ≤240 chars", "confidence": 0.0-1.0, "provenanceRooms": int>=1 }`,
+    `  ],`,
+    `  "reinforce": [`,
+    `    { "id": "existing-tag-id-from-the-list-above" }`,
+    `  ],`,
+    `  "supersede": [`,
+    `    { "oldId": "existing-tag-id", "newTag": { "label": "...", "claim": "...", "confidence": 0.0-1.0, "provenanceRooms": int>=1 } }`,
+    `  ]`,
+    `}`,
+    ``,
+    `## Rules`,
+    `· newTags · only propose tags representing abstract, durable patterns about ${opts.userName} that aren't already covered by an existing tag. Each tag must be supported by at least TWO chair memories. Label is short (1-3 words, lowercase-hyphenated), claim is a complete sentence the chair could use as a working hypothesis ("User is a founder who reasons from first principles and refuses corporate vocabulary").`,
+    `· reinforce · only when an existing tag's claim is clearly supported by NEW chair memories (memories that weren't already counted toward its provenance).`,
+    `· supersede · ONLY on direct contradiction. The existing tag's claim must be NEGATED by evidence in the chair memories. Partial overlap, refinement, or different framing is NOT contradiction — leave those alone.`,
+    `· Output empty arrays if nothing applies. Conservative is better than chatty — these tags persist forever unless contradicted.`,
+  ].join("\n");
+}
+
+function parseHarvestOutput(raw: string): HarvestResult {
+  let s = (raw || "").trim();
+  if (s.startsWith("```")) {
+    s = s.replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(s); } catch { return HARVEST_EMPTY; }
+  if (!parsed || typeof parsed !== "object") return HARVEST_EMPTY;
+  const j = parsed as Record<string, unknown>;
+  const out: HarvestResult = { newTags: [], reinforce: [], supersede: [] };
+
+  const parseTag = (raw: unknown): HarvestNewTag | null => {
+    if (!raw || typeof raw !== "object") return null;
+    const o = raw as Record<string, unknown>;
+    const label = typeof o.label === "string" ? o.label.trim() : "";
+    const claim = typeof o.claim === "string" ? o.claim.trim() : "";
+    if (!label || !claim) return null;
+    if (label.length > 32 || claim.length > 240) return null;
+    const confidence = typeof o.confidence === "number" && Number.isFinite(o.confidence)
+      ? Math.max(0, Math.min(1, o.confidence))
+      : 0.7;
+    const provenanceRooms = typeof o.provenanceRooms === "number" && Number.isFinite(o.provenanceRooms)
+      ? Math.max(1, Math.floor(o.provenanceRooms))
+      : 1;
+    return { label, claim, confidence, provenanceRooms };
+  };
+
+  if (Array.isArray(j.newTags)) {
+    for (const raw of j.newTags) {
+      const t = parseTag(raw);
+      if (t) out.newTags.push(t);
+    }
+  }
+  if (Array.isArray(j.reinforce)) {
+    for (const raw of j.reinforce) {
+      if (!raw || typeof raw !== "object") continue;
+      const o = raw as Record<string, unknown>;
+      const id = typeof o.id === "string" ? o.id.trim() : "";
+      if (id) out.reinforce.push({ id });
+    }
+  }
+  if (Array.isArray(j.supersede)) {
+    for (const raw of j.supersede) {
+      if (!raw || typeof raw !== "object") continue;
+      const o = raw as Record<string, unknown>;
+      const oldId = typeof o.oldId === "string" ? o.oldId.trim() : "";
+      const newTag = parseTag(o.newTag);
+      if (oldId && newTag) out.supersede.push({ oldId, newTag });
+    }
+  }
+  return out;
+}
+
+async function harvestUserLongMemory(opts: {
+  modelV: ModelV;
+  userName: string;
+  chairLong: AgentMemory[];
+  existing: UserLongMemory[];
+}): Promise<HarvestResult> {
+  const prompt = buildHarvestPrompt({
+    userName: opts.userName,
+    chairLong: opts.chairLong,
+    existing: opts.existing,
+  });
+  let raw: string;
+  try {
+    raw = await callLLM({
+      modelV: opts.modelV,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.4,
+      maxTokens: 1200,
+    });
+  } catch (e) {
+    process.stderr.write(
+      `[dream] user_long harvest LLM call failed: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+    return HARVEST_EMPTY;
+  }
+  return parseHarvestOutput(raw);
 }
