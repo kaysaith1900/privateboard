@@ -1794,6 +1794,7 @@
 /* Intel · bio prose. The .ap-intel-view variant matches body but
    rendered inside the .ap-intel container so the edit toggle can swap
    it with a textarea (mirrors the Instruction edit pattern). */
+.ap-intel { display: flex; flex-direction: column; gap: 0; }
 .ap-intel-view,
 .ap-intel-body {
   font-family: var(--font-human);
@@ -1802,6 +1803,55 @@
   color: var(--text);
   letter-spacing: -0.003em;
 }
+/* Collapsed default · 3 lines of body copy (14px × 1.55 line-height
+   ≈ 22 px/line → 68 px). JS adds an .overflowing class on the
+   parent when scrollHeight exceeds this, which reveals the fade
+   gradient and the show-more toggle. */
+.ap-intel-view {
+  position: relative;
+  max-height: 68px;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+}
+.ap-intel-view.expanded {
+  max-height: none;
+}
+/* Fade-out gradient at the bottom edge while collapsed — fades to
+   the parent .ap-block panel colour so the cut reads as "more
+   below" rather than a sharp line. */
+.ap-intel-view::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  background: linear-gradient(to bottom, transparent, var(--panel-2));
+}
+.ap-intel.overflowing .ap-intel-view:not(.expanded)::after { opacity: 1; }
+/* Toggle button · hidden unless content actually overflows. Same
+   mono-uppercase look as `.ap-instr-toggle` for visual consistency. */
+.ap-intel-toggle {
+  display: none;
+  align-self: flex-start;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+}
+.ap-intel-toggle:hover { border-color: var(--text-soft); color: var(--text); }
+.ap-intel.overflowing .ap-intel-toggle { display: inline-block; }
 
 /* Skills · 4 progress bars */
 .ap-skill-rows { display: flex; flex-direction: column; gap: 9px; }

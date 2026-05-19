@@ -1422,6 +1422,17 @@
     .hero-3d-hint { transition: none; }
   }
 
+  /* Narrow viewports (phone) · the round table compresses into a
+     small frame where the 7-8 director nameplates around the table
+     overlap into an unreadable stack. Hide director plates here;
+     the chair plate stays (it's the room's identifier) and the
+     speaker bubble stays (it's the live state cue), both retain
+     informational value at small sizes. `.rt-name-director` and
+     `.rt-name-chair` are stamped by voice-3d.js per seat kind. */
+  @media (max-width: 760px) {
+    .hero-3d .rt-name-director { display: none !important; }
+  }
+
   /* ─────────── DOM overlay over the 3D canvas ───────────
      `voice-3d.js` projects each seat's world-space head position to
      screen coords every frame and applies CSS transforms to these

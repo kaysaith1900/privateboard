@@ -929,13 +929,56 @@
   function repaintIntel(slug, p) {
     const block = document.querySelector(`[data-ap-intel][data-slug="${slug}"]`);
     if (!block) return;
+    block.classList.remove("overflowing");
     const bio = bioFor(slug, p);
     block.innerHTML = `
       <div class="ap-intel-view" data-ap-intel-view>${
         escape(bio) || `<span class="ap-empty">${escape(uiT("ap_intel_empty"))}</span>`
       }</div>
+      <button type="button" class="ap-intel-toggle" data-ap-intel-toggle aria-expanded="false">${escape(uiT("ap_show_more"))}</button>
     `;
+    evaluateIntelOverflow(slug);
   }
+
+  /** After rendering, measure whether the intel view exceeds its
+   *  collapsed 3-line max-height. If so, mark the block as
+   *  overflowing — that reveals the toggle button + fade gradient
+   *  via CSS. Mirrors `evaluateInstructionOverflow` but with the
+   *  3-line cap defined in `.ap-intel-view` CSS. Re-evaluated on
+   *  every repaint and again on window resize (the rendered width
+   *  changes, so the wrapped line count can change too). */
+  function evaluateIntelOverflow(slug) {
+    const block = document.querySelector(`[data-ap-intel][data-slug="${slug}"]`);
+    if (!block) return;
+    const view = block.querySelector("[data-ap-intel-view]");
+    const toggle = block.querySelector("[data-ap-intel-toggle]");
+    if (!view || !toggle) return;
+    // Reset to collapsed default before measuring — prevents stale
+    // 'expanded' state from a prior interaction shadowing the check.
+    view.classList.remove("expanded");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.textContent = uiT("ap_show_more");
+    if (view.scrollHeight - view.clientHeight > 4) {
+      block.classList.add("overflowing");
+    } else {
+      block.classList.remove("overflowing");
+    }
+  }
+  // Re-evaluate every visible intel block when the layout reflows
+  // (sidebar resize, window resize). Debounced so resize storms
+  // don't trip us — one tick after the resize ends. Same pattern
+  // as the Instruction resize listener directly below the
+  // `evaluateInstructionOverflow` definition.
+  let _intelResizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (_intelResizeTimer) clearTimeout(_intelResizeTimer);
+    _intelResizeTimer = setTimeout(() => {
+      document.querySelectorAll("[data-ap-intel]").forEach((b) => {
+        const slug = b.getAttribute("data-slug");
+        if (slug) evaluateIntelOverflow(slug);
+      });
+    }, 80);
+  });
 
   function openIntelEditor(slug, p) {
     const block = document.querySelector(`[data-ap-intel][data-slug="${slug}"]`);
@@ -3358,6 +3401,7 @@
               </header>
               <div class="ap-intel" data-ap-intel data-slug="${escape(slug)}">
                 <div class="ap-intel-view" data-ap-intel-view>${escape(bioBody) || `<span class="ap-empty">${escape(uiT("ap_intel_empty"))}</span>`}</div>
+                <button type="button" class="ap-intel-toggle" data-ap-intel-toggle aria-expanded="false">${escape(uiT("ap_show_more"))}</button>
               </div>
             </section>
 
@@ -3611,6 +3655,8 @@
     // Detect whether the instruction prose exceeds the collapsed cap.
     // Has to run AFTER innerHTML mounts (so layout/wrapping is real).
     evaluateInstructionOverflow(slug);
+    // Same overflow detection for the Intel bio (3-line clamp).
+    evaluateIntelOverflow(slug);
     // Lazy-load Track Record counters (rooms / rounds / tokens). Runs
     // off the main paint thread; placeholders ("—") show until the
     // fetch resolves so the layout never reflows.
@@ -4557,6 +4603,22 @@
         const expanded = view.classList.toggle("expanded");
         instrToggle.setAttribute("aria-expanded", String(expanded));
         instrToggle.textContent = expanded ? uiT("ap_show_less") : uiT("ap_show_more");
+        return;
+      }
+      // Intel · same show-more / show-less pattern as Instruction.
+      // CSS clamps `.ap-intel-view` to a 3-line max-height by default;
+      // the .expanded class lifts the cap. Toggle button visibility
+      // is gated by `.ap-intel.overflowing` (set in
+      // evaluateIntelOverflow).
+      const intelToggle = e.target.closest("[data-ap-intel-toggle]");
+      if (intelToggle) {
+        e.preventDefault();
+        const block = intelToggle.closest("[data-ap-intel]");
+        const view = block?.querySelector("[data-ap-intel-view]");
+        if (!view) return;
+        const expanded = view.classList.toggle("expanded");
+        intelToggle.setAttribute("aria-expanded", String(expanded));
+        intelToggle.textContent = expanded ? uiT("ap_show_less") : uiT("ap_show_more");
         return;
       }
 

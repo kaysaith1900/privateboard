@@ -83,7 +83,10 @@
       // VS3D.mount(stage) with no opts).
       if (!VS3D.mount(stageEl, {
         camera: {
-          distance: 13,        // closer (default 18) · the room fills the frame
+          distance: 10,        // pulled to the OrbitControls minDistance · the
+                               // closest comfortable framing where the long
+                               // table still fits horizontally inside the
+                               // 21:9 hero frame at FOV 28°.
           elevationDeg: 24,    // soft top-down lean (default 30 was steep, 18 too flat)
           lookAtY: 0.75,       // target slightly above the table top so seated heads centre
         },

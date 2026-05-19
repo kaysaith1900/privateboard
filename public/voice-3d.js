@@ -2423,7 +2423,14 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
         // 3D overlay. text-align centre keeps multi-word names
         // visually centred over the head.
         const namePlate = document.createElement("div");
-        namePlate.className = "rt-name";
+        // Mark director vs chair on the plate so the marketing
+        // homepage (and any narrow viewport) can hide director name
+        // plates without affecting the chair plate · director plates
+        // overlap badly when the entire round table is squeezed into
+        // a phone-width frame.
+        namePlate.className = "rt-name " + (pos.kind === "chair"
+          ? "rt-name-chair"
+          : "rt-name-director");
         namePlate.style.cssText = [
           "position: static",   // override the .rt-name absolute
           "top: auto", "left: auto",
