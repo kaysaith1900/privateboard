@@ -1,0 +1,28 @@
+/Users/bytedance/dev/code/privateboard
+total 368
+drwxr-xr-x@  26 bytedance  staff     832 May  9 20:38 .
+drwxr-xr-x@  63 bytedance  staff    2016 May  8 13:05 ..
+drwxr-xr-x@   3 bytedance  staff      96 May  9 09:58 .claude
+drwxr-xr-x@   5 bytedance  staff     160 May  9 20:38 .claw
+drwxr-xr-x@  22 bytedance  staff     704 May  9 20:34 .git
+-rw-r--r--@   1 bytedance  staff     524 May  9 20:34 .gitignore
+drwxr-xr-x@   2 bytedance  staff      64 May  9 20:38 .sandbox-home
+drwxr-xr-x@   2 bytedance  staff      64 May  9 20:38 .sandbox-tmp
+-rw-r--r--@   1 bytedance  staff   12907 May  8 17:51 AGENTS.md
+-rw-r--r--@   1 bytedance  staff   12981 May  8 13:05 CLAUDE.md
+-rw-r--r--@   1 bytedance  staff    1069 May  8 13:05 LICENSE
+-rw-r--r--@   1 bytedance  staff    4870 May  8 13:05 README.md
+drwxr-xr-x@   4 bytedance  staff     128 May  9 20:36 dist
+drwxr-xr-x@   6 bytedance  staff     192 May  8 13:05 docs
+-rw-r--r--@   1 bytedance  staff    1593 May  8 13:05 netlify.toml
+drwxr-xr-x@ 142 bytedance  staff    4544 May  8 15:13 node_modules
+-rw-r--r--@   1 bytedance  staff  114339 May  8 13:15 package-lock.json
+-rw-r--r--@   1 bytedance  staff    1658 May  9 20:34 package.json
+drwxr-xr-x@  36 bytedance  staff    1152 May  9 20:34 public
+drwxr-xr-x@   4 bytedance  staff     128 May  9 20:34 scripts
+-rw-r--r--@   1 bytedance  staff     269 May  9 20:34 skills-lock.json
+drwxr-xr-x@  14 bytedance  staff     448 May  9 20:34 src
+drwxr-xr-x@  24 bytedance  staff     768 May  9 20:34 tests
+-rw-r--r--@   1 bytedance  staff     683 May  8 13:05 tsconfig.json
+-rw-r--r--@   1 bytedance  staff     540 May  8 13:05 tsup.config.ts
+-rw-r--r--@   1 bytedance  staff    1095 May  8 13:05 vitest.config.ts

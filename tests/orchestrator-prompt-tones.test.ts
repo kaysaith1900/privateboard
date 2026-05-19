@@ -30,7 +30,7 @@ function fixtureAgent(overrides: Partial<Agent> = {}): Agent {
   return {
     id: "agent-1",
     name: "Socrates",
-    handle: "/socrates",
+    handle: "@socrates",
     roleTag: "First-Principles Skeptic",
     roleKind: "director",
     bio: "Tests every premise.",
@@ -85,8 +85,8 @@ function fixturePrefs(): Prefs {
 }
 
 function buildSystemPrompt(mode: string, intensity: string): string {
-  const speaker = fixtureAgent({ id: "speaker", name: "Speaker", handle: "/speaker" });
-  const peer = fixtureAgent({ id: "peer", name: "Peer", handle: "/peer" });
+  const speaker = fixtureAgent({ id: "speaker", name: "Speaker", handle: "@speaker" });
+  const peer = fixtureAgent({ id: "peer", name: "Peer", handle: "@peer" });
   const msgs = buildDirectorMessages({
     speaker,
     cast: [speaker, peer],
@@ -108,7 +108,7 @@ const TONE_SIGNATURES: Record<(typeof TONES)[number], string[]> = {
   constructive:  ["CONSTRUCTIVE", "stronger version", "load-bearing assumption"],
   debate:        ["DEBATE", "PRODUCTIVE DISAGREEMENT", "steelman", "Honest pass", "What would change my mind"],
   research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "low/med/high"],
-  critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "MINOR", "audit"],
+  critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "minor", "audit"],
 };
 
 // Signature phrases for each intensity. Same approach.
@@ -205,8 +205,8 @@ describe("buildDirectorMessages · tone normalization", () => {
 
 describe("buildDirectorMessages · voice delivery mode", () => {
   it("injects colloquial roundtable guidance", () => {
-    const speaker = fixtureAgent({ id: "speaker", name: "Speaker", handle: "/speaker" });
-    const peer = fixtureAgent({ id: "peer", name: "Peer", handle: "/peer" });
+    const speaker = fixtureAgent({ id: "speaker", name: "Speaker", handle: "@speaker" });
+    const peer = fixtureAgent({ id: "peer", name: "Peer", handle: "@peer" });
     const room: Room = { ...fixtureRoom("constructive", "sharp"), deliveryMode: "voice" };
     const msgs = buildDirectorMessages({
       speaker,

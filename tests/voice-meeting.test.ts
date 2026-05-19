@@ -68,14 +68,15 @@ vi.mock("../src/voice/tts.js", async (importOriginal) => {
 // ── Imports (after mocks) ────────────────────────────────────
 
 import { createRoom, getRoom, updateRoomSettings } from "../src/storage/rooms.js";
-import { insertMessage } from "../src/storage/messages.js";
-import { getAgent, getChairAgent } from "../src/storage/agents.js";
+import { insertMessage, updateMessageBody } from "../src/storage/messages.js";
 import { roomBus } from "../src/orchestrator/stream.js";
 import {
   markVoicePlaybackDone,
   waitForVoicePlayback,
   abortRoom,
 } from "../src/orchestrator/room.js";
+import { runSeed } from "../src/seed/run.js";
+import { getUsableMessageVoice } from "../src/storage/message-voice.js";
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -325,5 +326,108 @@ describe("Voice meeting — sequential turn enforcement", () => {
     await pB;
 
     expect(order).toEqual(["A-done", "B-done"]);
+  });
+});
+
+describe("Message voice persistence", () => {
+  beforeEach(() => {
+    runSeed();
+  });
+
+  it("concatenates voice-chunk payloads and flushes on voice-final", () => {
+    const { room } = createRoom({
+      name: "pv",
+      subject: "persistence",
+      mode: "constructive",
+      intensity: "calm",
+      deliveryMode: "voice",
+      agentIds: ["socrates"],
+    });
+
+    const m = insertMessage({
+      roomId: room.id,
+      authorKind: "agent",
+      authorId: "socrates",
+      body: "Persist this spoken line.",
+    });
+
+    const piece = Buffer.from("fake-mp3").toString("base64");
+    roomBus.emit(room.id, {
+      type: "voice-chunk",
+      messageId: m.id,
+      seq: 0,
+      text: "Persist",
+      provider: "minimax",
+      model: "speech-2.8-hd",
+      voiceId: "male-qn-qingse",
+      mimeType: "audio/mpeg",
+      audioBase64: piece,
+    });
+    roomBus.emit(room.id, {
+      type: "voice-chunk",
+      messageId: m.id,
+      seq: 1,
+      text: " this",
+      provider: "minimax",
+      model: "speech-2.8-hd",
+      voiceId: "male-qn-qingse",
+      mimeType: "audio/mpeg",
+      audioBase64: piece,
+    });
+    roomBus.emit(room.id, { type: "voice-final", messageId: m.id });
+
+    const row = getUsableMessageVoice(m.id);
+    expect(row).not.toBeNull();
+    expect(
+      row!.audioMp3.equals(Buffer.concat([Buffer.from("fake-mp3"), Buffer.from("fake-mp3")])),
+    ).toBe(true);
+    expect(row!.meta.segments.length).toBe(2);
+  });
+
+  it("invalidates stored audio on message-updated", () => {
+    const { room } = createRoom({
+      name: "pv2",
+      subject: "persistence",
+      mode: "constructive",
+      intensity: "calm",
+      deliveryMode: "voice",
+      agentIds: ["socrates"],
+    });
+
+    const m = insertMessage({
+      roomId: room.id,
+      authorKind: "agent",
+      authorId: "socrates",
+      body: "Original body.",
+    });
+
+    const piece = Buffer.from("x").toString("base64");
+    roomBus.emit(room.id, {
+      type: "voice-chunk",
+      messageId: m.id,
+      seq: 0,
+      text: "x",
+      provider: "minimax",
+      model: "speech-2.8-hd",
+      voiceId: "male-qn-qingse",
+      mimeType: "audio/mpeg",
+      audioBase64: piece,
+    });
+    roomBus.emit(room.id, { type: "voice-final", messageId: m.id });
+
+    expect(getUsableMessageVoice(m.id)).not.toBeNull();
+
+    updateMessageBody(m.id, "Edited body completely.", {
+      speakerStatus: "final",
+      streaming: false,
+    });
+    roomBus.emit(room.id, {
+      type: "message-updated",
+      messageId: m.id,
+      body: "Edited body completely.",
+      meta: { speakerStatus: "final", streaming: false },
+    });
+
+    expect(getUsableMessageVoice(m.id)).toBeNull();
   });
 });

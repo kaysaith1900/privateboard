@@ -752,7 +752,7 @@
       "socrates": "socrates",
       "first-principles": "first_p",
       "value-investor": "value_inv",
-      "user-empathy": "user_emp",
+      "user-empathy": "user_e",
       "long-horizon": "long_h",
       "phenomenologist": "phen"
     };

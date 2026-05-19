@@ -5,11 +5,11 @@ import { createRoom, getRoom, listRoomMembers, listRooms, setRoomStatus } from "
 
 function seedTwoAgents() {
   insertAgent({
-    id: "soc", name: "Socrates", handle: "/socrates", roleTag: "skeptic",
+    id: "soc", name: "Socrates", handle: "@socrates", roleTag: "skeptic",
     bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/a.svg",
   });
   insertAgent({
-    id: "fp", name: "First Principles", handle: "/first_p", roleTag: "physicist",
+    id: "fp", name: "First Principles", handle: "@first_p", roleTag: "physicist",
     bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/b.svg",
   });
 }

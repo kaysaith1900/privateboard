@@ -444,6 +444,70 @@
   pointer-events: none;
 }
 
+/* Spine / house-style / structured template row · adjourn + supplement. */
+.adjourn-render-themes {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-strong, rgba(255, 255, 255, 0.12));
+}
+.adjourn-render-body {
+  margin-top: 10px;
+}
+.adjourn-render-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.adjourn-render-row:first-child {
+  margin-top: 0;
+}
+.adjourn-render-field-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-soft, rgba(255, 255, 255, 0.55));
+}
+.adjourn-render-select {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.2));
+}
+.adjourn-render-hint {
+  font-size: 11px;
+  color: var(--text-faint, rgba(255, 255, 255, 0.45));
+  margin: 12px 0 0;
+  line-height: 1.5;
+}
+.adjourn-variant-block {
+  margin-top: 10px;
+}
+.adjourn-variant-block:first-child {
+  margin-top: 0;
+}
+.adjourn-variant-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 8px;
+}
+.adjourn-variant-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.adjourn-variant-opt input {
+  accent-color: var(--lime);
+}
+
 /* Narrow viewport · summary rows tighten. The modal width itself
    already collapses gracefully below ~592px via the
    `min(560px, calc(100vw - 32px))` rule on .adjourn-modal. */

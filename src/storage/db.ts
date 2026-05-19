@@ -43,17 +43,20 @@ import minimaxRegion030 from "./migrations/030_minimax_region.sql";
 import agentPersonaSpec031 from "./migrations/031_agent_persona_spec.sql";
 import roomVoteTrigger032 from "./migrations/032_room_vote_trigger.sql";
 import roomMembersRemovedAt033 from "./migrations/033_room_members_removed_at.sql";
-import userTopicRecs034 from "./migrations/034_user_topic_recs.sql";
-import topicRecTag035 from "./migrations/035_topic_rec_tag.sql";
-import negativeSpace036 from "./migrations/036_negative_space.sql";
-import topicBranches037 from "./migrations/037_topic_branches.sql";
-import qdArchive038 from "./migrations/038_qd_archive.sql";
-import remapRemovedModels039 from "./migrations/039_remap_removed_models.sql";
-import remapKimiK25ToK26_040 from "./migrations/040_remap_kimi_k2_5_to_k2_6.sql";
-import oneActiveLlmKey041 from "./migrations/041_one_active_llm_key.sql";
-import activeLlmProviderPref042 from "./migrations/042_active_llm_provider_pref.sql";
-import llmCredentials043 from "./migrations/043_llm_credentials.sql";
-import dropTopicRecs044 from "./migrations/044_drop_topic_recs.sql";
+import briefViewerVariant034 from "./migrations/034_brief_viewer_variant.sql";
+import agentHandleAt035 from "./migrations/035_agent_handle_at_prefix.sql";
+import userTopicRecs036 from "./migrations/036_user_topic_recs.sql";
+import topicRecTag037 from "./migrations/037_topic_rec_tag.sql";
+import messageVoice038 from "./migrations/038_message_voice.sql";
+import negativeSpace039 from "./migrations/039_negative_space.sql";
+import topicBranches040 from "./migrations/040_topic_branches.sql";
+import qdArchive041 from "./migrations/041_qd_archive.sql";
+import remapRemovedModels042 from "./migrations/042_remap_removed_models.sql";
+import remapKimiK25ToK26_043 from "./migrations/043_remap_kimi_k2_5_to_k2_6.sql";
+import oneActiveLlmKey044 from "./migrations/044_one_active_llm_key.sql";
+import activeLlmProviderPref045 from "./migrations/045_active_llm_provider_pref.sql";
+import llmCredentials046 from "./migrations/046_llm_credentials.sql";
+import dropTopicRecs047 from "./migrations/047_drop_topic_recs.sql";
 
 interface Migration {
   name: string;
@@ -94,17 +97,20 @@ const MIGRATIONS: Migration[] = [
   { name: "031_agent_persona_spec.sql", sql: agentPersonaSpec031 },
   { name: "032_room_vote_trigger.sql", sql: roomVoteTrigger032 },
   { name: "033_room_members_removed_at.sql", sql: roomMembersRemovedAt033 },
-  { name: "034_user_topic_recs.sql", sql: userTopicRecs034 },
-  { name: "035_topic_rec_tag.sql", sql: topicRecTag035 },
-  { name: "036_negative_space.sql", sql: negativeSpace036 },
-  { name: "037_topic_branches.sql", sql: topicBranches037 },
-  { name: "038_qd_archive.sql", sql: qdArchive038 },
-  { name: "039_remap_removed_models.sql", sql: remapRemovedModels039 },
-  { name: "040_remap_kimi_k2_5_to_k2_6.sql", sql: remapKimiK25ToK26_040 },
-  { name: "041_one_active_llm_key.sql", sql: oneActiveLlmKey041 },
-  { name: "042_active_llm_provider_pref.sql", sql: activeLlmProviderPref042 },
-  { name: "043_llm_credentials.sql", sql: llmCredentials043 },
-  { name: "044_drop_topic_recs.sql", sql: dropTopicRecs044 },
+  { name: "034_brief_viewer_variant.sql", sql: briefViewerVariant034 },
+  { name: "035_agent_handle_at_prefix.sql", sql: agentHandleAt035 },
+  { name: "036_user_topic_recs.sql", sql: userTopicRecs036 },
+  { name: "037_topic_rec_tag.sql", sql: topicRecTag037 },
+  { name: "038_message_voice.sql", sql: messageVoice038 },
+  { name: "039_negative_space.sql", sql: negativeSpace039 },
+  { name: "040_topic_branches.sql", sql: topicBranches040 },
+  { name: "041_qd_archive.sql", sql: qdArchive041 },
+  { name: "042_remap_removed_models.sql", sql: remapRemovedModels042 },
+  { name: "043_remap_kimi_k2_5_to_k2_6.sql", sql: remapKimiK25ToK26_043 },
+  { name: "044_one_active_llm_key.sql", sql: oneActiveLlmKey044 },
+  { name: "045_active_llm_provider_pref.sql", sql: activeLlmProviderPref045 },
+  { name: "046_llm_credentials.sql", sql: llmCredentials046 },
+  { name: "047_drop_topic_recs.sql", sql: dropTopicRecs047 },
 ];
 
 let _db: Database.Database | null = null;

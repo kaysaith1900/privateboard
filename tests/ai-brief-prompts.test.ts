@@ -37,7 +37,7 @@ describe("buildBriefMessages", () => {
     adjournedAt: null,
   };
   const members = [
-    { id: "socrates", name: "Socrates", handle: "/socrates", roleTag: "skeptic", bio: "doubt", coverQuote: null, instruction: "", modelV: "sonnet-4-6", avatarPath: "/a.svg", isPinned: false, isSeed: true, createdAt: 0, updatedAt: 0 },
+    { id: "socrates", name: "Socrates", handle: "@socrates", roleTag: "skeptic", bio: "doubt", coverQuote: null, instruction: "", modelV: "sonnet-4-6", avatarPath: "/a.svg", isPinned: false, isSeed: true, createdAt: 0, updatedAt: 0 },
   ];
   const transcript = [
     { id: "m1", roomId: "r1", authorKind: "user" as const, authorId: null, replyToId: null, body: "hello", meta: {}, roundNum: 1, createdAt: 0 },

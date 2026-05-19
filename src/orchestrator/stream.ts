@@ -7,6 +7,8 @@
  */
 import { EventEmitter } from "node:events";
 
+import { handleVoiceRoomEvent } from "../voice/persistence.js";
+
 export type RoomEvent =
   | {
       type: "message-appended";
@@ -121,6 +123,7 @@ class RoomBus {
     while (buf.length > MAX_BUFFER_PER_ROOM) buf.shift();
     while (buf.length && ts - buf[0]!.ts > BUFFER_TTL_MS) buf.shift();
     this.get(roomId).emit("event", id, event);
+    handleVoiceRoomEvent(roomId, event);
   }
 
   /** Legacy subscribe · returns events without ids. Kept for callers

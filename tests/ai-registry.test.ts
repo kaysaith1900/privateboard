@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { getModel, isModelV, listModels, MODELS } from "../src/ai/registry.js";
 
 describe("model registry", () => {
-  it("exposes 18 known models", () => {
-    expect(listModels()).toHaveLength(18);
+  it("exposes 17 known models", () => {
+    expect(listModels()).toHaveLength(17);
   });
 
   it("isModelV gates unknown ids", () => {
@@ -24,7 +24,16 @@ describe("model registry", () => {
   });
 
   it("every model groups under one of the known providers", () => {
-    const valid = new Set(["anthropic", "openai", "google", "xai", "deepseek"]);
+    const valid = new Set([
+      "anthropic",
+      "openai",
+      "google",
+      "xai",
+      "deepseek",
+      "zhipu",
+      "moonshot",
+      "minimax",
+    ]);
     for (const m of Object.values(MODELS)) {
       expect(valid.has(m.provider)).toBe(true);
     }

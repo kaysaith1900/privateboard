@@ -109,7 +109,7 @@ describe("POST /api/voices/by-message/:id", () => {
     insertAgent({
       id: "ag-empty",
       name: "Empty",
-      handle: "/empty",
+      handle: "@empty",
       roleTag: "director",
       bio: "",
       instruction: "",
@@ -135,7 +135,7 @@ describe("POST /api/voices/by-message/:id", () => {
     insertAgent({
       id: "ag-soc",
       name: "Socrates",
-      handle: "/soc",
+      handle: "@soc",
       roleTag: "skeptic",
       bio: "",
       instruction: "",
@@ -168,7 +168,7 @@ describe("POST /api/voices/by-message/:id", () => {
     insertAgent({
       id: "ag-cache",
       name: "Cache",
-      handle: "/cache",
+      handle: "@cache",
       roleTag: "director",
       bio: "",
       instruction: "",

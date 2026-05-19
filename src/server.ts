@@ -21,6 +21,7 @@ import { usageRouter } from "./routes/usage.js";
 import { voicesRouter } from "./routes/voices.js";
 import { publicDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
+import { renderPickerCatalog } from "./utils/render-picker-catalog.js";
 
 interface StartOptions {
   port: number;
@@ -114,6 +115,10 @@ export function createApp() {
       return c.json({ migrations: [] });
     }
   });
+
+  // Spine / house-style allow-list for modal pickers · no LLM (the heavy
+  // `brief-render-preview` Stage-1 preview path has been retired).
+  app.get("/api/render-catalog", (c) => c.json(renderPickerCatalog()));
 
   // /api routers
   app.route("/api/prefs", prefsRouter());

@@ -13,7 +13,7 @@ import { createRoom } from "../src/storage/rooms.js";
 
 function seed() {
   insertAgent({
-    id: "soc", name: "Socrates", handle: "/socrates", roleTag: "skeptic",
+    id: "soc", name: "Socrates", handle: "@socrates", roleTag: "skeptic",
     bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/a.svg",
   });
   return createRoom({ name: "t", subject: "x", agentIds: ["soc"] }).room.id;

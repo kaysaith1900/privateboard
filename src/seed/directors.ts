@@ -42,7 +42,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "socrates",
     name: "Socrates",
-    handle: "/socrates",
+    handle: "@socrates",
     roleTag: "skeptic",
     bio: "Refuses unclear premises. Forces you to define your terms before you defend them.",
     coverQuote: "What do you mean — exactly — when you say that word?",
@@ -107,7 +107,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "first-principles",
     name: "First Principles",
-    handle: "/first_p",
+    handle: "@first_p",
     roleTag: "physicist",
     bio: "Strips problems down to observables and causal chains. Refuses to import assumptions from analogy.",
     coverQuote: "What do we know to be physically true here, and what are we just inheriting from a story?",
@@ -172,7 +172,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "value-investor",
     name: "Value Investor",
-    handle: "/value_inv",
+    handle: "@value_inv",
     roleTag: "long-pattern",
     bio: "Reads the question against thirty years of category history. Distrusts novelty until it's stress-tested against base rates.",
     coverQuote: "Show me a wave of this idea that worked. Now show me three that didn't, and tell me what's different.",
@@ -237,7 +237,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "historian",
     name: "Historian",
-    handle: "/historian",
+    handle: "@historian",
     roleTag: "analogist",
     bio: "Reaches across centuries and domains for the closest precedent. Treats every \"unprecedented\" framing as a hypothesis to test, not a license to skip the comparison.",
     coverQuote: "Every time someone tells me a thing is unprecedented, I find three precedents in twenty minutes — and the differences are where the real argument lives.",
@@ -305,7 +305,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "user-empathy",
     name: "User-Empathy",
-    handle: "/user_e",
+    handle: "@user_e",
     roleTag: "advocate",
     bio: "Reasons from the user's lived experience at the moment of friction. Refuses vendor-side rationalisations.",
     coverQuote: "On the day this ships, what is the user looking at, and what is annoying them?",
@@ -370,7 +370,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "long-horizon",
     name: "Long Horizon",
-    handle: "/long_h",
+    handle: "@long_h",
     roleTag: "strategist",
     bio: "Plays the move four steps out. Distinguishes 'right now' from 'right at the time horizon that matters'.",
     coverQuote: "If this works, what does the next move force you into — and is that a corner you want to be in?",
@@ -435,7 +435,7 @@ export const SEED_DIRECTORS: AgentInsert[] = [
   {
     id: "phenomenologist",
     name: "Phenomenologist",
-    handle: "/phenom",
+    handle: "@phenom",
     roleTag: "observer",
     bio: "Notices what's happening in the room itself, including what isn't being said. The meta-witness.",
     coverQuote: "I notice you all agreed within ten seconds. What did each of you assume the others were thinking?",

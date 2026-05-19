@@ -13,6 +13,29 @@
    their existing handlers.
 */
 (function () {
+  /** Mirror of `src/utils/render-picker-catalog.ts`. If `GET /api/render-catalog`
+   *  fails (old server binary, offline), the adjourn / supplement modal still
+   *  shows the validated allow-list instead of an “Auto-only” dead-end. */
+  const RENDER_CATALOG_FALLBACK = {
+    spines: [
+      "boardroom-dark",
+      "a16z-thesis",
+      "anthropic-essay",
+      "gartner-note",
+      "mckinsey-deck",
+      "openai-paper",
+    ],
+    houseStyles: [
+      { id: "boardroom-default", label: "Boardroom (default)" },
+      { id: "sequoia-memo", label: "Sequoia memo" },
+      { id: "a16z-thesis", label: "a16z thesis" },
+      { id: "anthropic", label: "Anthropic essay" },
+      { id: "bcg-strategy", label: "BCG strategy memo" },
+      { id: "first-round-essay", label: "First Round Review essay" },
+      { id: "gartner-research", label: "Gartner research note" },
+    ],
+  };
+
   /** Display labels for the registry's modelV ids · used to print
    *  "Opus 4.7" next to a director's name in the chat header. Mirror
    *  of src/ai/registry.ts's displayName field. */
@@ -79,6 +102,14 @@
     critique:
       "Review board. The room audits a finished deliverable systematically — each turn names the dimension being audited (logic / evidence / scope / risk / etc.), surfaces 2–3 specific flaws labelled BLOCKER · MAJOR · MINOR, points at the load-bearing piece, and indicates the direction a fix would lie. At least one BLOCKER or MAJOR per turn is mandatory.",
   };
+
+  /** Legacy DB rows may still store `/slug`; product UI always shows `@slug`. */
+  function displayAgentHandle(h) {
+    if (h == null || typeof h !== "string") return h;
+    const t = h.trim();
+    if (t.startsWith("/")) return "@" + t.slice(1);
+    return t;
+  }
 
   const app = {
     // ── State ─────────────────────────────────────────────────
@@ -1559,12 +1590,43 @@
       this.sse.addEventListener("message-error", (e) => {
         const data = JSON.parse(e.data);
         const msg = this.currentMessages.find((m) => m.id === data.messageId);
-        if (msg) msg.meta = { ...(msg.meta || {}), error: data.message };
-        this.updateMessageBodyDom(data.messageId, msg ? msg.body : `[error: ${data.message}]`, false);
+        const errText =
+          typeof data.message === "string" ? data.message : String(data.message ?? "");
+        if (msg) {
+          msg.meta = {
+            ...(msg.meta || {}),
+            streaming: false,
+            speakerStatus: "final",
+            error: errText,
+          };
+          if (!String(msg.body || "").trim()) {
+            msg.body = `[error: ${errText}]`;
+          }
+        }
+        const vq = this.voiceQueues[data.messageId];
+        if (vq) {
+          if (vq.audio) {
+            try { vq.audio.pause(); } catch (_) {}
+            try { URL.revokeObjectURL(vq.audio.src); } catch (_) {}
+          }
+          delete this.voiceQueues[data.messageId];
+        }
+        // Director (and some chair) failures emit message-error but not
+        // always message-final · without clearing streaming + repaint the
+        // round-table stays on THINKING and voice queues never drain.
+        this.renderRoundTable();
+        this.renderRtSubtitle();
+        this.updateMessageBodyDom(
+          data.messageId,
+          msg ? msg.body : `[error: ${errText}]`,
+          false,
+        );
         // Reveal hidden pre-warmed bubble · the LLM stream failed for
         // this speaker, no audio will play, so the user needs to see
         // the error message in chat rather than have it stay hidden.
         this._revealPrewarmedBubble(data.messageId);
+        this.refreshRoundEndButton();
+        this.maybeStartContinueCountdown();
       });
 
       this.sse.addEventListener("message-removed", (e) => {
@@ -2128,6 +2190,10 @@
                     return {
                       ...sb,
                       bodyMd,
+                      /* `mode` must survive refetches. Older server builds /
+                         JSON paths occasionally omitted `mode` on GET; the
+                         in-memory brief from `brief-started` still has it. */
+                      mode: sb.mode ?? prev.mode ?? "research-note",
                       // UI-only state — preserve in-memory.
                       stages: prev.stages,
                       error: prev.error,
@@ -2923,10 +2989,10 @@
     briefModeLabel(b) {
       const mode = (b && b.mode) || "research-note";
       switch (mode) {
-        case "magazine":  return "Magazine";
-        case "newspaper": return "Newspaper";
-        case "ppt":       return "Slides";
-        default:          return "Report";
+        case "magazine":  return this._t("adj_fmt_magazine_title");
+        case "newspaper": return this._t("adj_fmt_newspaper_title");
+        case "ppt":       return this._t("adj_fmt_slides_title");
+        default:          return this._t("adj_fmt_report_title");
       }
     },
 
@@ -3007,20 +3073,178 @@
               <input type="radio" name="brief-mode" value="${value}"${safe === value ? " checked" : ""}>
               <div class="adjourn-mode-icon">${ICONS[value] || ""}</div>
               <div class="adjourn-mode-body">
-                <div class="adjourn-mode-title">${title}</div>
-                <div class="adjourn-mode-deck">${deck}</div>
+                <div class="adjourn-mode-title">${this.escape(title)}</div>
+                <div class="adjourn-mode-deck">${this.escape(deck)}</div>
               </div>
             </label>`;
       return `
         <div class="adjourn-mode-picker" data-mode-picker>
-          <div class="adjourn-mode-label">// report format</div>
+          <div class="adjourn-mode-label">${this.escape(this._t("adj_mode_label_format"))}</div>
           <div class="adjourn-mode-options adjourn-mode-options-4">
-            ${opt("research-note", "Report", "Long-form markdown · bottom line, findings, recommendations.", true)}
-            ${opt("magazine", "Magazine", "Editorial spread · cover line, 5 cards, dark closer.")}
-            ${opt("newspaper", "Newspaper", "Broadsheet · banner masthead, 3-column editorial.")}
-            ${opt("ppt", "Slides", "Slide deck · 7-9 slides, arrow-key navigation, present mode.")}
+            ${opt("research-note", this._t("adj_fmt_report_title"), this._t("adj_fmt_report_deck"), true)}
+            ${opt("magazine", this._t("adj_fmt_magazine_title"), this._t("adj_fmt_magazine_deck"))}
+            ${opt("newspaper", this._t("adj_fmt_newspaper_title"), this._t("adj_fmt_newspaper_deck"))}
+            ${opt("ppt", this._t("adj_fmt_slides_title"), this._t("adj_fmt_slides_deck"))}
           </div>
         </div>`;
+    },
+
+    /** Spine · house-style (report) and template variant (structured).
+     *  `Auto` omits overrides — Composer / room hash decide at runtime.
+     *  Catalog comes from lightweight GET `/api/render-catalog` (no LLM). */
+    renderBriefThemeRow() {
+      const auto = this.escape(this._t("adj_render_opt_auto"));
+      return `
+        <div class="adjourn-render-themes" data-render-themes>
+          <div class="adjourn-mode-label">${this.escape(this._t("adj_mode_label_look"))}</div>
+          <div class="adjourn-render-body" data-render-body>
+            <div class="adjourn-render-tier" hidden data-tier="research-note">
+              <div class="adjourn-render-row">
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_field_spine"))}</span>
+                <select data-render-spine class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_spine"))}">
+                  <option value="">${auto}</option>
+                </select>
+              </div>
+              <div class="adjourn-render-row">
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_field_house_style"))}</span>
+                <select data-render-house-style class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_house_style"))}">
+                  <option value="">${auto}</option>
+                </select>
+              </div>
+              <p class="adjourn-render-hint">${this.escape(this._t("adj_render_hint_rn"))}</p>
+            </div>
+            <div class="adjourn-render-tier" hidden data-tier="structured">
+              <div class="adjourn-variant-block" hidden data-struct="ppt">
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_struct_slides"))}</span>
+                <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="auto" checked><span>${auto}</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="keynote"><span>Keynote</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-ppt-variant" value="anthropic"><span>Anthropic</span></label>
+                </div>
+              </div>
+              <div class="adjourn-variant-block" hidden data-struct="magazine">
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_struct_magazine"))}</span>
+                <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="auto" checked><span>${auto}</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="gq"><span>GQ</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-mag-variant" value="vogue"><span>Vogue</span></label>
+                </div>
+              </div>
+              <div class="adjourn-variant-block" hidden data-struct="newspaper">
+                <span class="adjourn-render-field-label">${this.escape(this._t("adj_struct_newspaper"))}</span>
+                <div class="adjourn-variant-opts">
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="auto" checked><span>${auto}</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="times"><span>Times</span></label>
+                  <label class="adjourn-variant-opt"><input type="radio" name="render-np-variant" value="post"><span>Post</span></label>
+                </div>
+              </div>
+              <p class="adjourn-render-hint">${this.escape(this._t("adj_render_hint_struct"))}</p>
+            </div>
+          </div>
+        </div>`;
+    },
+
+    syncBriefThemeTier(overlayEl) {
+      if (!overlayEl?.querySelector) return;
+      if (!overlayEl.querySelector("[data-render-themes]")) return;
+      const tierRn = overlayEl.querySelector('[data-tier="research-note"]');
+      const tierSt = overlayEl.querySelector('[data-tier="structured"]');
+      let briefModeInput = overlayEl.querySelector('input[name="brief-mode"]:checked');
+      if (!briefModeInput) {
+        const fb = overlayEl.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fb) {
+          fb.checked = true;
+          briefModeInput = fb;
+        }
+      }
+      const v = briefModeInput && briefModeInput.value;
+      const mode = this.isStructuredBriefMode(v) ? v : "research-note";
+      if (mode === "research-note") {
+        if (tierRn) tierRn.hidden = false;
+        if (tierSt) tierSt.hidden = true;
+      } else {
+        if (tierRn) tierRn.hidden = true;
+        if (tierSt) tierSt.hidden = false;
+        const blocks = tierSt ? tierSt.querySelectorAll(".adjourn-variant-block[data-struct]") : [];
+        blocks.forEach((b) => {
+          b.hidden = b.getAttribute("data-struct") !== mode;
+        });
+      }
+    },
+
+    collectRenderPrefs(overlayEl) {
+      if (!overlayEl) return null;
+      let briefModeInput = overlayEl.querySelector('input[name="brief-mode"]:checked');
+      if (!briefModeInput) {
+        const fb = overlayEl.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fb) {
+          fb.checked = true;
+          briefModeInput = fb;
+        }
+      }
+      const v = briefModeInput && briefModeInput.value;
+      const mode = this.isStructuredBriefMode(v) ? v : "research-note";
+      const prefs = {};
+      if (mode === "research-note") {
+        const spineSel = overlayEl.querySelector("[data-render-spine]");
+        const hsSel = overlayEl.querySelector("[data-render-house-style]");
+        const sv = spineSel && spineSel.value && String(spineSel.value).trim();
+        const hv = hsSel && hsSel.value && String(hsSel.value).trim();
+        if (sv) prefs.reportSpine = sv;
+        if (hv) prefs.reportHouseStyle = hv;
+      } else if (mode === "ppt") {
+        const r = overlayEl.querySelector('input[name="render-ppt-variant"]:checked');
+        if (r && r.value && r.value !== "auto") prefs.pptVariant = r.value;
+      } else if (mode === "magazine") {
+        const r = overlayEl.querySelector('input[name="render-mag-variant"]:checked');
+        if (r && r.value && r.value !== "auto") prefs.magazineVariant = r.value;
+      } else if (mode === "newspaper") {
+        const r = overlayEl.querySelector('input[name="render-np-variant"]:checked');
+        if (r && r.value && r.value !== "auto") prefs.newspaperVariant = r.value;
+      }
+      return Object.keys(prefs).length ? prefs : null;
+    },
+
+    async loadRenderCatalogIntoOverlay(overlayEl) {
+      if (!overlayEl?.querySelector) return;
+      const spineSel = overlayEl.querySelector("[data-render-spine]");
+      const hsSel = overlayEl.querySelector("[data-render-house-style]");
+      if (!spineSel || !hsSel) return;
+      const autoLab = this._t("adj_render_opt_auto");
+      let spines = [];
+      let houseStyles = [];
+      try {
+        const res = await fetch("/api/render-catalog");
+        if (res.ok) {
+          const data = await res.json();
+          spines = data.spines || data.catalog?.spines || [];
+          houseStyles = data.houseStyles || data.catalog?.houseStyles || [];
+        }
+      } catch { /* offline */ }
+      if (!Array.isArray(spines) || spines.length === 0) spines = RENDER_CATALOG_FALLBACK.spines.slice();
+      if (!Array.isArray(houseStyles) || houseStyles.length === 0) {
+        houseStyles = RENDER_CATALOG_FALLBACK.houseStyles.slice();
+      }
+      const spineVal = spineSel.value;
+      const hsVal = hsSel.value;
+      spineSel.innerHTML =
+        `<option value="">${this.escape(autoLab)}</option>` +
+        spines
+          .map((s) => `<option value="${this.escape(String(s))}">${this.escape(String(s))}</option>`)
+          .join("");
+      hsSel.innerHTML =
+        `<option value="">${this.escape(autoLab)}</option>` +
+        houseStyles
+          .map((h) => {
+            const id = h.id != null ? String(h.id) : "";
+            const label = h.label != null ? String(h.label) : id;
+            return `<option value="${this.escape(id)}">${this.escape(label)}</option>`;
+          })
+          .join("");
+      const hasSp = Array.prototype.some.call(spineSel.options || [], (o) => o.value === spineVal);
+      spineSel.value = hasSp ? spineVal : "";
+      const hasHs = Array.prototype.some.call(hsSel.options || [], (o) => o.value === hsVal);
+      hsSel.value = hasHs ? hsVal : "";
     },
 
     /** Read the user's last-picked report mode from localStorage so the
@@ -3257,17 +3481,28 @@
       const mode = opts && this.isStructuredBriefMode(opts.mode)
         ? opts.mode
         : "research-note";
+      const renderPrefs =
+        opts &&
+        opts.renderPrefs &&
+        typeof opts.renderPrefs === "object" &&
+        !Array.isArray(opts.renderPrefs)
+          ? opts.renderPrefs
+          : null;
       // Pre-flight · adjourn-with-brief triggers the brief writer
       // pipeline (3 LLM stages). When skipBrief=true the chair just
       // posts the no-brief marker without LLM calls, so we let it
       // through even without a key.
       if (!skipBrief && !(await this.requireModelKey())) return;
+      let body;
+      if (skipBrief) body = { skipBrief: true };
+      else if (renderPrefs) body = { mode, renderPrefs };
+      else body = { mode };
       const r = await fetch(
         "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/adjourn",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(skipBrief ? { skipBrief: true } : { mode }),
+          body: JSON.stringify(body),
         },
       );
       if (!r.ok) {
@@ -3282,7 +3517,7 @@
        round-end card "Adjourn & file brief" CTA, and the round-prompt
        Adjourn link. Confirms the user wants to terminate the room and
        file a standard report — or opts out entirely with "End without
-       report". No format picker; the report is one standard layout. */
+       report". Format row + render overrides (Auto lets Composer / room hash decide). */
 
     openAdjournOverlay(opts) {
       if (!this.currentRoomId) return;
@@ -3335,7 +3570,7 @@
                   <span class="adjourn-summary-key">${this.escape(this._t("adj_key_subject"))}</span>
                   <div class="adjourn-summary-val adjourn-subject-wrap">
                     <span class="adjourn-subject-text is-clamped" data-adjourn-subject>${this.escape(subjectTxt)}</span>
-                    <button type="button" class="adjourn-subject-toggle" data-adjourn-subject-toggle hidden>Show more</button>
+                    <button type="button" class="adjourn-subject-toggle" data-adjourn-subject-toggle hidden>${this.escape(this._t("adj_subject_more"))}</button>
                   </div>
                 </div>
                 <div class="adjourn-summary-row">
@@ -3352,6 +3587,7 @@
               </p>
 
               ${this.renderBriefModePicker(defaultMode)}
+              ${this.renderBriefThemeRow()}
             </div>
 
             <footer class="adjourn-foot">
@@ -3383,6 +3619,11 @@
         const subjBtn = document.querySelector("[data-adjourn-subject-toggle]");
         if (subjEl && subjBtn && subjEl.scrollHeight > subjEl.clientHeight + 1) {
           subjBtn.hidden = false;
+        }
+        const adj = document.getElementById("adjourn-overlay");
+        if (adj) {
+          this.syncBriefThemeTier(adj);
+          this.loadRenderCatalogIntoOverlay(adj);
         }
       });
       // Esc closes the overlay. Listener auto-detaches on close so
@@ -3449,6 +3690,7 @@
               <textarea class="supplement-input" data-supplement-input rows="6" placeholder="${this.escape(t.placeholder)}"></textarea>
               <p class="supplement-hint">${this.escape(t.hint)}</p>
               ${this.renderBriefModePicker(defaultMode)}
+              ${this.renderBriefThemeRow()}
             </div>
             <footer class="supplement-foot">
               <button type="button" class="supplement-cancel" data-supplement-close>${this.escape(t.cancel)}</button>
@@ -3473,6 +3715,11 @@
       setTimeout(() => {
         const input = document.querySelector("[data-supplement-input]");
         if (input) input.focus();
+        const sup = document.getElementById("supplement-overlay");
+        if (sup) {
+          this.syncBriefThemeTier(sup);
+          this.loadRenderCatalogIntoOverlay(sup);
+        }
       }, 30);
     },
 
@@ -3872,7 +4119,7 @@
               <div class="followup-parent-card">
                 <div class="followup-parent-subject is-clamped" data-followup-subject-text>${this.escape(subjectFull)}</div>
                 <div class="followup-parent-meta-row">
-                  <button type="button" class="followup-parent-subject-toggle" data-followup-subject-toggle hidden>Show more</button>
+                  <button type="button" class="followup-parent-subject-toggle" data-followup-subject-toggle hidden>${this.escape(this._t("adj_subject_more"))}</button>
                   <div class="followup-parent-meta">${this.escape(adjournedLine)}${adjournedLine && briefLine ? " · " : ""}${this.escape(briefLine)}</div>
                 </div>
                 <div class="followup-parent-note">${this.escape(t.contextNote)}</div>
@@ -3964,7 +4211,7 @@
           subjBtn.addEventListener("click", (ev) => {
             ev.preventDefault();
             const expanded = subjEl.classList.toggle("is-clamped") === false;
-            subjBtn.textContent = expanded ? "Show less" : "Show more";
+            subjBtn.textContent = expanded ? this._t("adj_subject_less") : this._t("adj_subject_more");
           });
         }
         const sameCheckbox = overlayEl.querySelector("[data-followup-same-cast]");
@@ -4327,10 +4574,20 @@
       // time. Server-side the same `/api/rooms/:id/brief` route reads
       // `mode` regardless of whether the call came from supplement or
       // generate-brief, so no backend change is needed.
-      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      let briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      /* Tile highlight (`.on`) is authoritative when no radio ticks ·
+       * `:checked` can be absent with custom-hidden radios / browser quirks. */
+      if (!briefModeInput) {
+        const fallback = overlay.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fallback) {
+          fallback.checked = true;
+          briefModeInput = fallback;
+        }
+      }
       const v = briefModeInput && briefModeInput.value;
       const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
       this.saveLastBriefMode(briefMode);
+      const themePrefs = this.collectRenderPrefs(overlay);
       // Frontend in-flight guard · without this, a slow server roundtrip
       // gives the user time to click confirm twice (or to close+reopen
       // the overlay and click again). Each click was firing its own POST,
@@ -4349,7 +4606,11 @@
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ supplement: text, mode: briefMode }),
+            body: JSON.stringify(
+              themePrefs
+                ? { supplement: text, mode: briefMode, renderPrefs: themePrefs }
+                : { supplement: text, mode: briefMode },
+            ),
           },
         );
         if (!r.ok) {
@@ -4579,8 +4840,12 @@
         // with-perspective flow). Anything else (style etc) is
         // re-derived server-side from the room's stored config.
         const retryBody = {};
-        if (failed && this.isStructuredBriefMode(failed.mode)) {
-          retryBody.mode = failed.mode;
+        const retryMode =
+          failed && typeof failed.mode === "string"
+            ? failed.mode
+            : null;
+        if (failed && this.isStructuredBriefMode(retryMode)) {
+          retryBody.mode = retryMode;
         }
         if (failed && typeof failed.supplement === "string" && failed.supplement.trim()) {
           retryBody.supplement = failed.supplement;
@@ -4628,10 +4893,20 @@
       const skipPicked = overlay.querySelector(".adjourn-skip-btn.picked") !== null;
       // Read the report-mode picker (research-note / bento). Persist the
       // choice so the picker defaults to the same option next time.
-      const briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      let briefModeInput = overlay.querySelector('input[name="brief-mode"]:checked');
+      /* Match supplement overlay fallback · never send research-note while
+       * the lime `.on` tile is a structured mode whose radio slipped. */
+      if (!briefModeInput) {
+        const fallback = overlay.querySelector('.adjourn-mode-option.on input[name="brief-mode"]');
+        if (fallback) {
+          fallback.checked = true;
+          briefModeInput = fallback;
+        }
+      }
       const v = briefModeInput && briefModeInput.value;
       const briefMode = this.isStructuredBriefMode(v) ? v : "research-note";
       this.saveLastBriefMode(briefMode);
+      const themePrefs = this.collectRenderPrefs(overlay);
       const btn = overlay.querySelector("[data-adjourn-confirm]");
       const origLabel = isGen ? this._t("adj_confirm_generate") : this._t("adj_confirm_file");
       const busyLabel = isGen ? this._t("adj_busy_generate") : this._t("adj_busy_adjourn");
@@ -4651,11 +4926,14 @@
           this.applyRoundTableVisibility(this.currentRoomId);
         }
         if (isGen) {
-          await this.generateBriefForAdjournedRoom(briefMode);
+          await this.generateBriefForAdjournedRoom(briefMode, themePrefs);
         } else if (skipPicked) {
           await this.adjournRoom({ skipBrief: true });
         } else {
-          await this.adjournRoom({ mode: briefMode });
+          await this.adjournRoom({
+            mode: briefMode,
+            renderPrefs: themePrefs || undefined,
+          });
         }
         this.closeAdjournOverlay();
       } catch (e) {
@@ -4668,18 +4946,22 @@
      *  whose user originally skipped the brief. Server emits the same
      *  brief-started / brief-token / brief-final SSE events as a normal
      *  adjourn, so the existing handlers in connectSSE handle the rest. */
-    async generateBriefForAdjournedRoom(mode) {
+    async generateBriefForAdjournedRoom(mode, renderPrefs) {
       if (!this.currentRoomId) return;
       const briefMode = this.isStructuredBriefMode(mode) ? mode : "research-note";
       // Pre-flight · the brief writer is a 3-stage LLM pipeline (per-
       // director extract → composer → final write). All require a key.
       if (!(await this.requireModelKey())) return;
+      const payload = { mode: briefMode };
+      if (renderPrefs && typeof renderPrefs === "object" && !Array.isArray(renderPrefs)) {
+        payload.renderPrefs = renderPrefs;
+      }
       const r = await fetch(
         "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ mode: briefMode }),
+          body: JSON.stringify(payload),
         },
       );
       if (!r.ok) {
@@ -5605,7 +5887,7 @@
 
       // 1) Highlight references to the USER (the human in the room) first —
       //    these get a lime accent so they read as the addressee. Matches
-      //    @Name / /Name where Name is the user's prefs.name (case-
+      //    @Name or /Name where Name is the user's prefs.name (case-
       //    insensitive). We try the full name, then the first token, so
       //    "@Kay Smith" and "@Kay" both light up for a user named "Kay Smith".
       const userName = (this.prefs?.name || "").trim();
@@ -5619,8 +5901,8 @@
           .sort((a, b) => b.length - a.length)
           .join("|");
         const reUser = new RegExp(`(^|[^\\w/@])([@/])(${alt})\\b`, "gi");
-        out = out.replace(reUser, (_, pre, sigil, name) => {
-          return `${pre}<span class="msg-mention msg-mention-user">${sigil}${name}</span>`;
+        out = out.replace(reUser, (_, pre, _sigil, name) => {
+          return `${pre}<span class="msg-mention msg-mention-user">@${name}</span>`;
         });
       }
 
@@ -5629,13 +5911,13 @@
       //    from the user mention above.
       if (this.currentMembers && this.currentMembers.length) {
         const handles = this.currentMembers
-          .map((a) => (a.handle || "").replace(/^\//, ""))
+          .map((a) => (a.handle || "").replace(/^[@/]+/, ""))
           .filter(Boolean)
           .sort((a, b) => b.length - a.length);
         if (handles.length) {
           const re = new RegExp(`(^|[^\\w/@])([@/])(${handles.join("|")})\\b`, "g");
-          out = out.replace(re, (_, pre, sigil, name) => {
-            return `${pre}<span class="msg-mention msg-mention-agent" data-mention="${name}">${sigil}${name}</span>`;
+          out = out.replace(re, (_, pre, _sigil, name) => {
+            return `${pre}<span class="msg-mention msg-mention-agent" data-mention="${name}">@${name}</span>`;
           });
         }
       }
@@ -8707,6 +8989,49 @@
       }
     },
 
+    /** Batch-download persisted voice MP3s for the current adjourned
+     *  voice room · one file per message that has `message_voice` rows.
+     *  Sequenced with a short delay so the browser doesn't suppress
+     *  multiple download prompts. */
+    async downloadRoomVoiceMp3s() {
+      const roomId = this.currentRoomId;
+      if (!roomId) return;
+      let ids = [];
+      try {
+        const r = await fetch("/api/voices/room/" + encodeURIComponent(roomId) + "/clips");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const j = await r.json();
+        ids = Array.isArray(j.messageIds) ? j.messageIds : [];
+      } catch (e) {
+        alert(this._t("room_voice_mp3_err"));
+        return;
+      }
+      if (ids.length === 0) {
+        alert(this._t("room_voice_mp3_empty"));
+        return;
+      }
+      const room = this.currentRoom;
+      const slug = room && typeof room.number === "number"
+        ? String(room.number)
+        : roomId.replace(/[^a-zA-Z0-9_-]+/g, "").slice(0, 12) || "room";
+      for (let i = 0; i < ids.length; i += 1) {
+        const id = ids[i];
+        const url = "/api/voices/message/" + encodeURIComponent(id) + "/audio";
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const u = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = u;
+          a.download = "privateboard-voice-" + slug + "-" + String(i + 1).padStart(2, "0") + "-" + id.slice(0, 8) + ".mp3";
+          a.click();
+          URL.revokeObjectURL(u);
+          await new Promise((resolve) => setTimeout(resolve, 450));
+        } catch { /* skip broken clip */ }
+      }
+    },
+
     /** DELETE /api/notes/:id · drops a saved excerpt from the index.
      *  Confirmation is light because the action is reversible only by
      *  re-saving the same passage; we keep the prompt as a single
@@ -10181,8 +10506,9 @@
 
     /** Central ceremony glyph · a heptagonal sigil with one node per
      *  stage. As stages complete, nodes light up (lime fill) and the
-     *  chord from the previous node draws. A continuously rotating
-     *  scanner line sweeps from center. The substage-rotating central
+     *  chord from the previous node draws. A scanner line sweeps from
+     *  center (rotation from wall-clock elapsed — not CSS keyframes, so
+     *  it survives the ~600ms sigil re-paints). The substage-rotating central
      *  glyph swaps each tick to feel like the system is "shaping" the
      *  director. Pure SVG — scales cleanly, theme-aware via CSS vars. */
     renderAgentGenSigilSvg(stages, active, elapsed) {
@@ -10222,11 +10548,15 @@
           </g>
         `;
       }).join("");
-      // Center scanner line — rotates continuously (CSS animation). The
-      // angle attribute sets the start rotation; the animation handles
-      // the rest. A separate cross-line gives it a "compass needle" feel.
+      // Center scanner line — rotation must be derived from wall-clock
+      // elapsed time, NOT a CSS keyframe on this node. refreshAgentGenStages()
+      // replaces this SVG every ~600ms; a CSS animation would restart from
+      // 0° each time and the tip would appear "stuck" in the first ~36°
+      // wedge instead of sweeping the ring.
+      const SCAN_PERIOD_SEC = 6;
+      const scanDeg = ((elapsed % SCAN_PERIOD_SEC) / SCAN_PERIOD_SEC) * 360;
       const scanner = `
-        <g class="ag-gen-scanner" transform-origin="${cx} ${cy}">
+        <g class="ag-gen-scanner" transform="rotate(${scanDeg.toFixed(2)} ${cx} ${cy})">
           <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - r}" class="ag-gen-scanner-line"/>
           <circle cx="${cx}" cy="${cy - r}" r="2.5" class="ag-gen-scanner-tip"/>
         </g>
@@ -11725,7 +12055,7 @@
           // POST the user-edited fields to the persona save
           // endpoint · server re-synthesizes instruction if the
           // user blanked it, otherwise honours the override.
-          const handle = "/" + (data.name || "director").toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 16);
+          const handle = "@" + (data.name || "director").toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 16);
           const ability = (job.finalAbility && Object.keys(job.finalAbility).length > 0)
             ? job.finalAbility
             : null;
@@ -15359,7 +15689,7 @@
               <span class="convene-meta-info">
                 <span class="convene-by">${who}</span>
                 <span class="convene-time">· ${this.timeFmt(m.createdAt)}</span>
-                <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(a.handle)).join(" ")}</span>
+                <span class="convene-cast">· ${this.escape(this._t("convene_meta_to"))} ${this.currentMembers.map((a) => this.escape(displayAgentHandle(a.handle))).join(" ")}</span>
               </span>
               ${toggleHtml}
             </div>
@@ -17396,14 +17726,26 @@
         }
       }
       if (!speakerId) {
+        slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
+        slot.classList.remove("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) {
+          clearTimeout(slot._rtSubtitleEnterTimer);
+          slot._rtSubtitleEnterTimer = null;
+        }
         return;
       }
       const speaker = this.agentsById[speakerId];
       if (!speaker) {
+        slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
+        slot.classList.remove("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) {
+          clearTimeout(slot._rtSubtitleEnterTimer);
+          slot._rtSubtitleEnterTimer = null;
+        }
         return;
       }
       // Clean the body for plain-text caption · drop markdown
@@ -17418,13 +17760,13 @@
         .replace(/\s+/g, " ")
         .trim();
       if (!text) {
-        // Empty body but the speaker placeholder IS streaming ·
-        // director is "thinking" (no tokens yet). Show a loading
-        // panel with the speaker's name + animated dots so the
-        // subtitle band doesn't pop in/out as the first token
-        // lands. When the body fills in this branch falls through
-        // to the normal caption render below.
         if (isStreaming) {
+          // Empty body but the speaker placeholder IS streaming ·
+          // director is "thinking" (no tokens yet). Show a loading
+          // panel with the speaker's name + animated dots so the
+          // subtitle band doesn't pop in/out as the first token
+          // lands. When the body fills in this branch falls through
+          // to the normal caption render below.
           slot.hidden = false;
           slot.innerHTML = minBtn +
             `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
@@ -17434,8 +17776,14 @@
             `</p>`;
           return;
         }
+        slot._rtSubtitleSig = "";
         slot.hidden = true;
         slot.innerHTML = "";
+        slot.classList.remove("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) {
+          clearTimeout(slot._rtSubtitleEnterTimer);
+          slot._rtSubtitleEnterTimer = null;
+        }
         return;
       }
       // Caption picker · use the EXACT playback-time range for each
@@ -17516,10 +17864,28 @@
         }
         visible = parts.length ? parts[parts.length - 1] : text;
       }
+      const visTrim = visible.trim();
+      const sig =
+        `${speakerId}\x00${replayActive ? "r" : "l"}\x00${String(speaker.name || "")}\x00${visTrim}`;
+      if (!slot.hidden && slot._rtSubtitleSig === sig) return;
+      slot._rtSubtitleSig = sig;
+      const wasHidden = !!slot.hidden;
       slot.hidden = false;
-      slot.innerHTML = minBtn +
+      const html = minBtn +
         `<span class="rt-sub-kicker">${this.escape(speaker.name || "")}</span>` +
-        `<p class="rt-sub-text">${this.escape(visible.trim())}</p>`;
+        `<p class="rt-sub-text">${this.escape(visTrim)}</p>`;
+      if (slot.innerHTML !== html) slot.innerHTML = html;
+      if (wasHidden) {
+        slot.classList.remove("is-sub-enter");
+        // Re-trigger enter animation cleanly when re-opening after idle.
+        void slot.offsetWidth;
+        slot.classList.add("is-sub-enter");
+        if (slot._rtSubtitleEnterTimer) clearTimeout(slot._rtSubtitleEnterTimer);
+        slot._rtSubtitleEnterTimer = setTimeout(() => {
+          slot.classList.remove("is-sub-enter");
+          slot._rtSubtitleEnterTimer = null;
+        }, 260);
+      }
     },
 
     renderRoundTableHud() {
@@ -17755,6 +18121,8 @@
       // user-visible at a time (the other's parent is display:none).
       const btns = document.querySelectorAll("[data-room-rt-toggle]");
       btns.forEach((b) => { b.hidden = !eligible; });
+      const voiceMp3Btn = document.querySelector("[data-room-voice-mp3]");
+      if (voiceMp3Btn) voiceMp3Btn.hidden = !isVoiceRoom;
       if (eligible) {
         const inStage = showStage;
         // Label semantics · the toggle now reads "Round table" in
@@ -19237,6 +19605,13 @@
       }
       return;
     }
+    if (e.target.closest("[data-room-voice-mp3]")) {
+      e.preventDefault();
+      if (!app.currentRoomId) return;
+      if (!app.currentRoom || app.currentRoom.deliveryMode !== "voice") return;
+      app.downloadRoomVoiceMp3s().catch((err) => alert(String(err && err.message ? err.message : err)));
+      return;
+    }
     // Search view · clear-input button (X) inside the input wrap.
     if (e.target.closest("[data-search-clear]")) {
       e.preventDefault();
@@ -19379,50 +19754,6 @@
       app.openAdjournOverlay();
       return;
     }
-    // Generate report now · escape hatch for users who adjourned with
-    // skipBrief and later want a brief filed. Two surfaces share this
-    // hook: (a) the chat's no-brief milestone card, (b) the header
-    // [ ▸ Generate Report ] link that replaces the old [ ⊘ No Report ]
-    // static text. Both carry data-generate-brief; click → POST
-    // /api/rooms/:id/brief → existing brief-* SSE handlers render the
-    // in-progress + final brief bubbles in the brief slot. After
-    // success, currentBrief flips non-null → next renderHeader/Chat
-    // swaps the button to [ View Report ] automatically.
-    const genBriefBtn = e.target.closest("[data-generate-brief]");
-    if (genBriefBtn) {
-      e.preventDefault();
-      if (genBriefBtn.getAttribute("data-pending") === "1") return;
-      genBriefBtn.setAttribute("data-pending", "1");
-      if ("disabled" in genBriefBtn) genBriefBtn.disabled = true;
-
-      // System UI · always English (generating-button chrome).
-      const generatingText = "generating…";
-      const originalHtml = genBriefBtn.innerHTML;
-
-      // Swap to a "generating…" state. The two button shapes both
-      // contain a small ▸ mark + text label; flip the mark to · and
-      // replace the label with the generating phrase. We save the
-      // original innerHTML so a failure can roll back cleanly.
-      const textEl = genBriefBtn.querySelector(".nb-cta-text");
-      const markEl = genBriefBtn.querySelector(".nb-cta-mark, .vr-mark");
-      if (textEl) {
-        textEl.textContent = generatingText;
-        if (markEl) markEl.textContent = "·";
-      } else {
-        // Header anchor · text lives as a sibling text node next to
-        // the mark span. Easiest to re-emit the whole inner content.
-        const markCls = markEl ? markEl.className : "vr-mark";
-        genBriefBtn.innerHTML = `<span class="${app.escape(markCls)}">·</span> ${app.escape(generatingText)}`;
-      }
-
-      app.generateBriefForAdjournedRoom().catch((err) => {
-        genBriefBtn.removeAttribute("data-pending");
-        if ("disabled" in genBriefBtn) genBriefBtn.disabled = false;
-        genBriefBtn.innerHTML = originalHtml;
-        alert("Brief generation failed: " + (err && err.message ? err.message : err));
-      });
-      return;
-    }
     // Brief-mode picker · clicking a label (or its radio) toggles the
     // .on class on that option AND off on the siblings. Used by both
     // the adjourn overlay and the supplement overlay. We scope to the
@@ -19441,6 +19772,8 @@
         const radio = modeOpt.querySelector('input[type="radio"]');
         if (radio) radio.checked = true;
       }
+      const overlayRoot = modeOpt.closest("#adjourn-overlay, #supplement-overlay");
+      if (overlayRoot) app.syncBriefThemeTier(overlayRoot);
       // Don't preventDefault · let the label's native click behaviour
       // also tick the radio for keyboard / a11y users.
     }
@@ -19475,7 +19808,7 @@
       const subjEl = document.querySelector("[data-adjourn-subject]");
       if (subjEl) {
         const expanded = subjEl.classList.toggle("is-clamped") === false;
-        subjToggle.textContent = expanded ? "Show less" : "Show more";
+        subjToggle.textContent = expanded ? app._t("adj_subject_less") : app._t("adj_subject_more");
       }
       return;
     }

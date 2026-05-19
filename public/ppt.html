@@ -109,6 +109,7 @@
     font-weight: 700;
     color: #F4EFDF;
     text-decoration: none;
+    cursor: default;
   }
   .ppt-crumb::before {
     content: "";
@@ -152,7 +153,7 @@
     background: transparent;
     border: 1px solid rgba(244, 239, 223, 0.30);
     color: #F4EFDF;
-    cursor: pointer;
+    cursor: default;
     text-decoration: none;
     text-transform: uppercase;
     font-weight: 600;
@@ -186,16 +187,16 @@
     overflow: hidden;
   }
   .ppt-slide.is-active { display: flex; }
-  /* Click halves · invisible regions on each slide for prev / next
-     navigation. Sit above tile content with z-index lower than
-     chrome but above text · text is still selectable. */
+  /* Click halves · invisible prev/next strips. Must stack above in-flow
+     flex content (.ant-body / .key-body) — otherwise the body pane eats
+     all clicks and mouse navigation silently fails (keyboard still works).
+     Corner mono counters / kickers use z-index ≤ 3; keep strips higher. */
   .ppt-slide-click {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 18%;
-    z-index: 2;
-    cursor: pointer;
+    width: 22%;
+    z-index: 25;
     background: transparent;
     border: 0;
     padding: 0;
@@ -211,6 +212,14 @@
   .ppt-slide-click::-moz-focus-inner { border: 0; padding: 0; }
   .ppt-slide-click.prev { left: 0; }
   .ppt-slide-click.next { right: 0; }
+
+  /* Arrow everywhere on the deck · no text-beam over copy, no split-hand
+     between body vs nav strips vs chrome (thumbs / FS / export share it). */
+  .ppt-deck,
+  .ppt-deck .ppt-slide,
+  .ppt-deck .ppt-slide * {
+    cursor: default;
+  }
 
   /* ═══════════════════════════════════════════════════════════════
      ANTHROPIC-ESSAY variant · research-note register
@@ -1592,7 +1601,7 @@
     aspect-ratio: 16 / 9;
     background: rgba(244, 239, 223, 0.06);
     border: 1px solid rgba(244, 239, 223, 0.16);
-    cursor: pointer;
+    cursor: default;
     transition: border-color 0.12s, transform 0.12s;
     color: #C8C2AE;
     padding: 8px 10px;
@@ -1772,6 +1781,13 @@
         h |= 0;
       }
       return (Math.abs(h) % 2) === 0 ? "anthropic" : "keynote";
+    }
+
+    /** Prefer persisted `viewerVariant` from adjourn-picker · fallback to deterministic id hash. */
+    function resolveDeckVariant(brief) {
+      const v = String(brief && brief.viewerVariant || "").trim().toLowerCase();
+      if (v === "anthropic" || v === "keynote") return v;
+      return pickVariant(brief && brief.id);
     }
 
     function formatDate(footerTag) {
@@ -2499,6 +2515,22 @@
         if (e.target.closest("[data-ppt-print]")) {
           e.preventDefault(); exportPdf(); return;
         }
+        /* Fallback · clicks on the main slide canvas (flex body fills most of
+           the 16×9 frame) never reached the edge strips when those strips sat
+           under in-flow content. Split active slide by X · left half = back,
+           right half = forward — matches presenter intuition / fullscreen. */
+        const slide = e.target.closest(".ppt-slide.is-active");
+        const deck = slide && slide.closest("[data-ppt-paper]");
+        if (deck && !e.target.closest(".ppt-top-bar, .ppt-thumbs")) {
+          const interactive = e.target.closest("a[href], button, input, textarea, select");
+          if (!interactive) {
+            const rect = slide.getBoundingClientRect();
+            const w = rect.width || 1;
+            const ratio = (e.clientX - rect.left) / w;
+            e.preventDefault();
+            goTo(_state.current + (ratio < 0.5 ? -1 : 1));
+          }
+        }
       });
       // Hash sync · external nav (link click) updates the slide
       window.addEventListener("hashchange", () => {
@@ -2553,7 +2585,7 @@
 
       if (m.title) document.title = `${m.title} · Slides`;
 
-      const variant = pickVariant(brief.id);
+      const variant = resolveDeckVariant(brief);
       document.body.setAttribute("data-ppt-variant", variant);
       if (variantBadge) {
         variantBadge.textContent = variant === "keynote" ? "Keynote Edition" : "Anthropic Edition";
@@ -2600,29 +2632,57 @@
       await _h2iLoaded;
     }
 
-    /** Capture the active slide as a PNG data URL. */
+    /** Capture one slide as PNG. Inactive slides use `display:none` and
+     *  report 0×0 until laid out — measuring before `display:flex` produced
+     *  black PDF pages for every slide after the active one. */
     async function captureSlidePng(slideEl) {
       await ensureHtmlToImage();
       if (document.fonts && document.fonts.ready) {
         try { await document.fonts.ready; } catch { /* best-effort */ }
       }
-      const width = Math.max(slideEl.scrollWidth, slideEl.offsetWidth, slideEl.clientWidth);
-      const height = Math.max(slideEl.scrollHeight, slideEl.offsetHeight, slideEl.clientHeight);
-      // Force the slide into display:flex temporarily so html-to-image
-      // can capture even non-active slides. Remember the old display
-      // and restore after.
+
+      const allSlides = document.querySelectorAll(".ppt-slide");
+      const prevActive = document.querySelector(".ppt-slide.is-active");
+      allSlides.forEach((el) => el.classList.remove("is-active"));
+      slideEl.classList.add("is-active");
+
       const prevDisplay = slideEl.style.display;
       slideEl.style.display = "flex";
+      await new Promise((r) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(r);
+        });
+      });
+
+      const deck = slideEl.closest(".ppt-deck");
+      let width = Math.max(slideEl.scrollWidth, slideEl.offsetWidth, slideEl.clientWidth);
+      let height = Math.max(slideEl.scrollHeight, slideEl.offsetHeight, slideEl.clientHeight);
+      if (width < 2 || height < 2) {
+        if (deck) {
+          width = deck.clientWidth;
+          height = deck.clientHeight;
+        }
+      }
+      if (width < 2 || height < 2) {
+        width = 1120;
+        height = 630;
+      }
+
+      const bg = getComputedStyle(slideEl).backgroundColor || "#0E0E10";
       try {
         return await window.htmlToImage.toPng(slideEl, {
           pixelRatio: 2,
-          backgroundColor: getComputedStyle(slideEl).backgroundColor || "#FFFFFF",
+          backgroundColor: bg,
           cacheBust: true,
-          width, height,
-          canvasWidth: width, canvasHeight: height,
+          width,
+          height,
+          canvasWidth: width,
+          canvasHeight: height,
           style: { margin: "0", width: `${width}px`, height: `${height}px`, display: "flex" },
         });
       } finally {
+        allSlides.forEach((el) => el.classList.remove("is-active"));
+        if (prevActive) prevActive.classList.add("is-active");
         slideEl.style.display = prevDisplay;
       }
     }
@@ -2666,13 +2726,34 @@
           return;
         }
         const slug = slugTitle();
-        const imgs = dataUrls.map((url, i) => `<img alt="${slug} slide ${i + 1}" src="${url}">`).join("");
+        const pages = dataUrls.map(
+          (url, i) =>
+            `<div class="ppt-print-page"><img alt="${slug} slide ${i + 1}" src="${url}"></div>`,
+        ).join("");
         win.document.open();
         win.document.write(`<!doctype html><html lang="en"><head>
           <meta charset="utf-8">
           <title>${slug}</title>
           <style>
-            @page { size: 16in 9in landscape; margin: 0; }
+            /* One slide = one sheet · 16∶9. Do NOT add "landscape" after two
+               lengths — that pairing is invalid per @page and Chrome drops the
+               whole rule, falling back to A4 portrait (tiny centred slide). */
+            @page {
+              size: 16in 9in;
+              margin: 0;
+              /* Claim margin boxes so Chrome does not inject title/URL/date.
+                 User can still re-enable "Headers and footers" in the dialog. */
+              @top-left { content: ""; }
+              @top-center { content: ""; }
+              @top-right { content: ""; }
+              @bottom-left { content: ""; }
+              @bottom-right { content: ""; }
+              @bottom-center { content: ""; }
+            }
+            *, *::before, *::after {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
             * { box-sizing: border-box; margin: 0; padding: 0; }
             html, body { background: #0E0E10; }
             body {
@@ -2683,18 +2764,43 @@
               gap: 24px;
               min-height: 100vh;
             }
-            img {
-              display: block;
-              width: 100%;
-              max-width: 1200px;
+            .ppt-print-page {
+              width: min(96vw, 1280px);
               aspect-ratio: 16 / 9;
-              object-fit: contain;
+              flex: 0 0 auto;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #0E0E10;
               box-shadow: 0 0 24px rgba(0, 0, 0, 0.40);
             }
+            .ppt-print-page img {
+              display: block;
+              width: 100%;
+              height: 100%;
+              object-fit: contain;
+            }
             @media print {
-              body { padding: 0; gap: 0; background: white; }
-              img { box-shadow: none; max-width: none; width: 100vw; height: 100vh; aspect-ratio: auto; page-break-after: always; }
-              img:last-child { page-break-after: auto; }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100%;
+                height: auto;
+                display: block;
+                background: #0E0E10;
+              }
+              .ppt-print-page {
+                width: 16in;
+                height: 9in;
+                max-width: none;
+                aspect-ratio: auto;
+                box-shadow: none;
+                page-break-after: always;
+                break-after: page;
+                page-break-inside: avoid;
+                break-inside: avoid;
+              }
+              .ppt-print-page:last-child { page-break-after: auto; break-after: auto; }
             }
             .hint {
               position: fixed; top: 12px; left: 12px;
@@ -2706,13 +2812,13 @@
             @media print { .hint { display: none; } }
           </style>
         </head><body>
-          <div class="hint">// press <kbd>⌘P</kbd> / <kbd>Ctrl+P</kbd> · save as PDF · landscape</div>
-          ${imgs}
+          <div class="hint">// 保存为 PDF · 每页 16∶9。若仍有网址/日期，请在打印对话框中关闭「页眉和页脚」。</div>
+          ${pages}
           <script>
             (function () {
               var imgs = document.querySelectorAll("img");
               var loaded = 0;
-              function go() { setTimeout(function () { window.print(); }, 200); }
+              function go() { setTimeout(function () { window.print(); }, 450); }
               if (!imgs.length) { go(); return; }
               imgs.forEach(function (img) {
                 if (img.complete) { loaded++; if (loaded === imgs.length) go(); }

@@ -8,7 +8,7 @@ describe("agents DAO", () => {
     insertAgent({
       id: "test1",
       name: "Test One",
-      handle: "/t1",
+      handle: "@t1",
       roleTag: "skeptic",
       bio: "questions everything",
       instruction: "system prompt",
@@ -24,7 +24,7 @@ describe("agents DAO", () => {
     insertAgent({
       id: "soc",
       name: "Socrates",
-      handle: "/socrates",
+      handle: "@socrates",
       roleTag: "skeptic",
       bio: "",
       instruction: "",
@@ -32,21 +32,23 @@ describe("agents DAO", () => {
       avatarPath: "/avatars/socrates.svg",
     });
     expect(getAgent("soc")?.name).toBe("Socrates");
+    expect(getAgentByHandle("@socrates")?.id).toBe("soc");
     expect(getAgentByHandle("/socrates")?.id).toBe("soc");
+    expect(getAgentByHandle("socrates")?.id).toBe("soc");
     expect(getAgent("nope")).toBeNull();
     expect(getAgentByHandle("/nope")).toBeNull();
   });
 
   it("listAgents puts pinned first, then chronological", () => {
     insertAgent({
-      id: "a", name: "A", handle: "/a", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/a.svg",
+      id: "a", name: "A", handle: "@a", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/a.svg",
     });
     insertAgent({
-      id: "b", name: "B", handle: "/b", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/b.svg",
+      id: "b", name: "B", handle: "@b", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/b.svg",
       isPinned: true,
     });
     insertAgent({
-      id: "c", name: "C", handle: "/c", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/c.svg",
+      id: "c", name: "C", handle: "@c", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/c.svg",
     });
     const order = listAgents().map((a) => a.id);
     expect(order[0]).toBe("b");        // pinned wins
@@ -54,13 +56,29 @@ describe("agents DAO", () => {
     expect(order.includes("c")).toBe(true);
   });
 
+  it("getAgentByHandle resolves legacy slash row when queried with @ or bare slug", () => {
+    insertAgent({
+      id: "leg",
+      name: "Legacy",
+      handle: "/legacy_slug",
+      roleTag: "",
+      bio: "",
+      instruction: "",
+      modelV: "sonnet-4-6",
+      avatarPath: "/avatars/socrates.svg",
+    });
+    expect(getAgentByHandle("@legacy_slug")?.id).toBe("leg");
+    expect(getAgentByHandle("legacy_slug")?.id).toBe("leg");
+    expect(getAgentByHandle("/legacy_slug")?.id).toBe("leg");
+  });
+
   it("rejects duplicate handles via UNIQUE constraint", () => {
     insertAgent({
-      id: "x1", name: "X", handle: "/x", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/x.svg",
+      id: "x1", name: "X", handle: "@x", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/x.svg",
     });
     expect(() =>
       insertAgent({
-        id: "x2", name: "X2", handle: "/x", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/x2.svg",
+        id: "x2", name: "X2", handle: "@x", roleTag: "", bio: "", instruction: "", modelV: "sonnet-4-6", avatarPath: "/x2.svg",
       }),
     ).toThrow();
   });
@@ -69,7 +87,7 @@ describe("agents DAO", () => {
     insertAgent({
       id: "voice-agent",
       name: "Voice Agent",
-      handle: "/voice_agent",
+      handle: "@voice_agent",
       roleTag: "operator",
       bio: "speaks in short sentences",
       instruction: "system prompt",

@@ -12,7 +12,7 @@ import type { Agent } from "../src/storage/agents.js";
 const director: Agent = {
   id: "socrates",
   name: "Socrates",
-  handle: "/socrates",
+  handle: "@socrates",
   roleTag: "skeptic",
   bio: "doubt",
   coverQuote: null,

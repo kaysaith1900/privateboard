@@ -51,6 +51,14 @@ import { getAgent, getChairAgent, incrementAgentTokens, type Agent } from "../st
 import { listMessages } from "../storage/messages.js";
 import { getRoom, listRoomMembers } from "../storage/rooms.js";
 import { insertBrief, setBriefTitle, updateBriefAssets, updateBriefBody, updateBriefBodyJson, updateBriefCompose, type BriefMode } from "../storage/briefs.js";
+import { coerceBriefMode } from "../utils/brief-mode.js";
+import {
+  emptyParsedRenderPrefs,
+  type ParsedRenderPrefs,
+  VALID_HOUSE_STYLE_IDS,
+  VALID_SPINES,
+  viewerVariantForMode,
+} from "../utils/render-prefs.js";
 import { ensureBoardroomDir } from "../utils/paths.js";
 import { estimateTokens } from "../utils/tokens.js";
 
@@ -165,6 +173,9 @@ interface GenerateOpts {
    *  JSON in body_json). The pipeline branches at Stage 2 based on
    *  this; Stage 1 (per-director extract) is shared. */
   mode?: BriefMode;
+  /** Overrides for composer spine / house style (report) and viewer
+   *  templates (structured modes). Parsed by routes from POST JSON. */
+  renderPrefs?: ParsedRenderPrefs;
 }
 
 /** In-flight pipeline state, keyed by briefId. Lives for the duration
@@ -402,9 +413,8 @@ export function abortBriefGeneration(briefId: string): boolean {
 export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: string }> {
   const { roomId } = opts;
   const style: BriefStyle = opts.style ?? "mckinsey";
-  const mode: BriefMode = opts.mode === "magazine" || opts.mode === "newspaper" || opts.mode === "ppt"
-    ? opts.mode
-    : "research-note";
+  const mode: BriefMode = coerceBriefMode(opts.mode);
+  const renderPrefs: ParsedRenderPrefs = opts.renderPrefs ?? emptyParsedRenderPrefs();
 
   const room = getRoom(roomId);
   if (!room) throw new Error(`room not found: ${roomId}`);
@@ -415,6 +425,8 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     .filter((a): a is Agent => a !== null);
   const transcript = listMessages(roomId).filter((m) => m.authorKind !== "system");
 
+  const viewerVariant = viewerVariantForMode(mode, roomId, renderPrefs);
+
   const placeholder = insertBrief({
     roomId,
     style,
@@ -422,6 +434,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     bodyMd: "",
     supplement: opts.supplement,
     mode,
+    viewerVariant,
   });
 
   // Capture the chair + room language up front so the rehydration
@@ -456,6 +469,7 @@ export async function generateBrief(opts: GenerateOpts): Promise<{ briefId: stri
     room,
     supplement: opts.supplement,
     signal: controller.signal,
+    renderPrefs,
   }).finally(() => {
     inFlightBriefs.delete(placeholder.id);
   });
@@ -480,6 +494,8 @@ interface PipelineArgs {
    *  immediately. The pipeline checks `signal.aborted` between
    *  stages to short-circuit cleanly when the user deletes mid-run. */
   signal?: AbortSignal;
+  /** Client theme overrides for composer spine / house style. */
+  renderPrefs?: ParsedRenderPrefs;
 }
 
 /** Stage labels that ship to the UI checklist. Frontend matches on
@@ -776,6 +792,7 @@ function estimateStage3Eta(args: Stage3EtaArgs): StageEta {
 
 async function runPipeline(args: PipelineArgs): Promise<void> {
   const { briefId, roomId, style, members, transcript, room, supplement } = args;
+  const renderPrefs: ParsedRenderPrefs = args.renderPrefs ?? emptyParsedRenderPrefs();
 
   const directors = members.filter((m) => m.roleKind === "director");
   const chair = members.find((m) => m.roleKind === "moderator") ?? null;
@@ -976,29 +993,30 @@ async function runPipeline(args: PipelineArgs): Promise<void> {
       provenance,
     });
     if (args.signal?.aborted) return;
+    const mergedComposition = mergeReportRenderPrefs(composition, renderPrefs);
     updateBriefCompose(briefId, {
-      spine: composition.spine,
-      components: composition.components,
-      composerRationale: composition.rationale || null,
-      subjectType: composition.subjectType,
-      houseStyle: composition.houseStyle,
+      spine: mergedComposition.spine,
+      components: mergedComposition.components,
+      composerRationale: mergedComposition.rationale || null,
+      subjectType: mergedComposition.subjectType,
+      houseStyle: mergedComposition.houseStyle,
     });
     roomBus.emit(roomId, {
       type: "config-event",
       kind: "brief-compose",
       payload: {
         briefId,
-        spine: composition.spine,
-        components: composition.components,
-        rationale: composition.rationale,
-        subjectType: composition.subjectType,
-        houseStyle: composition.houseStyle,
-        fromComposer: composition.fromComposer,
+        spine: mergedComposition.spine,
+        components: mergedComposition.components,
+        rationale: mergedComposition.rationale,
+        subjectType: mergedComposition.subjectType,
+        houseStyle: mergedComposition.houseStyle,
+        fromComposer: mergedComposition.fromComposer,
       },
       createdAt: Date.now(),
     });
     emitStage(roomId, briefId, "compose", "done");
-    const pickedKinds = composition.components.map((c) => c.kind);
+    const pickedKinds = mergedComposition.components.map((c) => c.kind);
 
     // ── Stage 2 · chair cluster + scaffold ───────────────────────────────
     // Quality over silent degradation · retry up to 3 times with rising
@@ -1478,6 +1496,25 @@ interface ComposerArgs {
    *  success. Optional so callers that don't care about provenance
    *  (tests, future paths) can omit it. */
   provenance?: PipelineProvenance;
+}
+
+function mergeReportRenderPrefs(
+  composition: ComposerResult,
+  prefs: ParsedRenderPrefs | undefined,
+): ComposerResult {
+  if (!prefs) return composition;
+  const spineRaw = prefs.reportSpine;
+  const spine =
+    spineRaw && VALID_SPINES.has(spineRaw)
+      ? (spineRaw as ComposerResult["spine"])
+      : composition.spine;
+  const hsRaw = prefs.reportHouseStyle;
+  const houseStyle =
+    hsRaw && VALID_HOUSE_STYLE_IDS.has(hsRaw)
+      ? hsRaw
+      : composition.houseStyle;
+  if (spine === composition.spine && houseStyle === composition.houseStyle) return composition;
+  return { ...composition, spine, houseStyle };
 }
 
 async function runComposer(args: ComposerArgs): Promise<ComposerResult> {

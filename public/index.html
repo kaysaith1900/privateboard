@@ -8275,11 +8275,11 @@
     margin-bottom: 10px;
   }
 
-  /* Inline @mention / /handle pill. Two flavours so the addressee is
-     glanceable: agent mentions get amber, user mentions get lime.
-     Unscoped so the styling lands in any context (chat bubble, convene
-     opener, brief body, etc.). Fallback rgba sits before color-mix
-     so older engines still tint the background. */
+  /* Inline @-mention pill (legacy /-prefixed handles normalise to @ in chat
+     render). Two flavours so the addressee is glanceable: agent mentions
+     get amber, user mentions get lime. Unscoped so the styling lands in any
+     context (chat bubble, convene opener, brief body, etc.). Fallback rgba
+     sits before color-mix so older engines still tint the background. */
   .msg-mention {
     display: inline-block;
     font-weight: 700;
@@ -9635,6 +9635,10 @@
      Auto-hides when no one's speaking. Width is capped so very
      wide stages don't sprawl the caption across the whole row. */
   .rt-subtitle {
+    /* Local tokens · this card is ALWAYS near-black glass regardless of
+       `data-theme`. Light themes set global `--text` to dark ink for
+       paper panels; inheriting it here makes body copy disappear. */
+    --rt-caption-ink: rgba(237, 234, 228, 0.96);
     position: absolute;
     left: 50%;
     /* Subtitle is a child of .rt-stage-inner, which shrinks from
@@ -9651,6 +9655,12 @@
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(2px);
     pointer-events: none;
+  }
+  /* Enter animation · applied only when JS first shows the bar after
+     a stretch hidden, not on every caption token / audio time tick.
+     Putting `animation` on the base `.rt-subtitle` re-triggers noisy
+     repaints alongside `innerHTML` churn and reads as flicker. */
+  .rt-subtitle.is-sub-enter {
     animation: rt-sub-in 0.18s ease-out;
   }
   .rt-subtitle[hidden] { display: none; }
@@ -9705,7 +9715,9 @@
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--lime, #6FB572);
+    /* Solid fallback · `color-mix` unsupported in older Safari builds. */
+    color: #BFE6C4;
+    color: color-mix(in srgb, var(--lime, #6FB572) 88%, rgb(248, 250, 248));
     margin-bottom: 6px;
   }
   .rt-sub-text {
@@ -9713,13 +9725,7 @@
     font-family: var(--font-human);
     font-size: 14px;
     line-height: 1.5;
-    /* Hardcoded light caption text · the subtitle panel uses a
-       fixed near-black background regardless of theme (cinema-
-       caption aesthetic for legibility over a busy stage), so the
-       body text can't follow var(--text). On light themes
-       (pinterest / atrium / etc.) var(--text) is near-black and
-       collides with the panel — black-on-black caption. */
-    color: #F4F4F6;
+    color: var(--rt-caption-ink);
     word-break: break-word;
     /* The renderer slices `text` to a ~140-char window ending at
        the current TTS cursor (`audio.currentTime / duration`), so
@@ -12995,11 +13001,11 @@
     stroke-width: 0.8;
   }
 
-  /* Rotating compass needle / scanner line. Origin is the sigil
-     center; spins once every ~6s so it feels stately (not jittery). */
+  /* Compass needle / scanner line. Rotation is applied inline in SVG via
+     transform="rotate(…)" from elapsed wall time — see renderAgentGenSigilSvg.
+     (A CSS keyframe here would reset on every sigil re-paint ~600ms.) */
   .ag-gen-scanner {
     transform-origin: 100px 100px;
-    animation: ag-gen-scan-rotate 6s linear infinite;
   }
   .ag-gen-scanner-line {
     stroke: var(--lime);
@@ -13012,11 +13018,6 @@
     opacity: 0.85;
     filter: blur(0.4px);
   }
-  @keyframes ag-gen-scan-rotate {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-
   /* Center glyph — symbolic mark that swaps every tick. Faint enough
      to feel like a watermark, not a focal element. */
   .ag-gen-center-glyph {

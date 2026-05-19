@@ -59,6 +59,10 @@ export interface Brief {
    *  the body_json shape is identical so they render correctly
    *  under the magazine viewer. */
   mode: BriefMode;
+  /** Client-picked or seeded template for ppt/magazine/newspaper viewers
+   *  (e.g. keynote, gq). NULL for research-note or legacy rows · viewer
+   *  falls back to deterministic pick from brief id. */
+  viewerVariant: string | null;
   createdAt: number;
 }
 
@@ -99,13 +103,14 @@ interface Row {
   house_style: string;
   assets_json: string | null;
   mode: string;
+  viewer_variant: string | null;
   created_at: number;
 }
 
 const COLS =
   "id, room_id, style, title, body_md, body_json, supplement, " +
   "spine, components_json, composer_rationale, subject_type, " +
-  "house_style, assets_json, mode, created_at";
+  "house_style, assets_json, mode, viewer_variant, created_at";
 
 /** Parse the persisted assets JSON into typed bundles. Tolerant: any
  *  malformed entry / field is dropped silently and falls through to
@@ -312,6 +317,9 @@ function mapRow(row: Row): Brief {
     mode: row.mode === "magazine" || row.mode === "newspaper" || row.mode === "ppt"
       ? row.mode
       : (row.mode === "bento" ? "magazine" : "research-note"),
+    viewerVariant: row.viewer_variant && row.viewer_variant.trim()
+      ? row.viewer_variant.trim()
+      : null,
     createdAt: row.created_at,
   };
 }
@@ -375,7 +383,8 @@ export function listAllBriefs(): BriefWithRoom[] {
     .prepare(
       `SELECT b.id, b.room_id, b.style, b.title, b.body_md, b.body_json,
               b.supplement, b.spine, b.components_json,
-              b.composer_rationale, b.subject_type, b.house_style, b.assets_json, b.mode, b.created_at,
+              b.composer_rationale, b.subject_type, b.house_style, b.assets_json,
+              b.mode, b.viewer_variant, b.created_at,
               r.name AS room_name, r.subject AS room_subject,
               r.number AS room_number, r.status AS room_status
          FROM briefs b
@@ -413,9 +422,11 @@ export interface BriefInsert {
    *  omitted (no section-label overrides, neutral voice). */
   houseStyle?: string;
   /** Output mode · 'research-note' (default · markdown report rendered
-   *  by report.html) or 'magazine' / 'newspaper' (structured BentoScaffold
-   *  JSON persisted in body_json, rendered by magazine.html / newspaper.html). */
+   *  by report.html) or 'magazine' / 'newspaper' / 'ppt' (structured
+   *  JSON persisted in body_json). */
   mode?: BriefMode;
+  /** Persisted ppt/mag/newspaper template slug when mode is structured. */
+  viewerVariant?: string | null;
 }
 
 /**
@@ -441,8 +452,14 @@ export function insertBrief(b: BriefInsert): Brief {
   const mode: BriefMode = b.mode === "magazine" || b.mode === "newspaper" || b.mode === "ppt"
     ? b.mode
     : "research-note";
+  const viewerVariant =
+    b.viewerVariant !== undefined &&
+    b.viewerVariant !== null &&
+    String(b.viewerVariant).trim().length > 0
+      ? String(b.viewerVariant).trim()
+      : null;
   db.prepare(
-    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO briefs (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     b.roomId,
@@ -458,6 +475,7 @@ export function insertBrief(b: BriefInsert): Brief {
     houseStyle,
     null,            // assets_json · filled later by updateBriefAssets
     mode,
+    viewerVariant,
     now,
   );
   return getBrief(id)!;

@@ -10,7 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { insertAgent } from "../src/storage/agents.js";
-import { setKey } from "../src/storage/keys.js";
+import { createLlmCredential } from "../src/storage/credentials.js";
+import { updatePrefs } from "../src/storage/prefs.js";
 import {
   insertMemory,
   listMemoriesForAgent,
@@ -42,7 +43,7 @@ beforeEach(() => {
   insertAgent({
     id: AGENT_ID,
     name: "P2",
-    handle: "/p2",
+    handle: "@p2",
     roleTag: "director",
     bio: "",
     instruction: "",
@@ -291,7 +292,9 @@ describe("purgeStaleSupersededMemories", () => {
 describe("runDreamCycle · full pipeline (mocked LLM)", () => {
   it("merges duplicates, supersedes contradictions, promotes stable, decays noise", async () => {
     // Make a utility model reachable so the LLM-gated steps run.
-    setKey("openai", "sk-test");
+    const cred = createLlmCredential("openai", null, "sk-test");
+    if (!cred) throw new Error("failed to seed openai credential");
+    updatePrefs({ activeLlmCredentialId: cred.id });
 
     // Set up a varied memory pile:
     //   · two near-duplicates (about concise output)

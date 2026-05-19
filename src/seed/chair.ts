@@ -15,7 +15,7 @@
 import type { AgentInsert } from "../storage/agents.js";
 
 export const CHAIR_ID = "chair";
-export const CHAIR_HANDLE = "/chair";
+export const CHAIR_HANDLE = "@chair";
 
 export const SEED_CHAIR: AgentInsert = {
   id: CHAIR_ID,

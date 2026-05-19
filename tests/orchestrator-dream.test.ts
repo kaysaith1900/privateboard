@@ -32,7 +32,7 @@ beforeEach(() => {
   insertAgent({
     id: AGENT_ID,
     name: "Test Agent",
-    handle: "/test",
+    handle: "@test",
     roleTag: "director",
     bio: "",
     instruction: "",
@@ -157,7 +157,7 @@ describe("dream trigger · adjourn counter", () => {
     insertAgent({
       id: "ag-chair",
       name: "Chair",
-      handle: "/chair",
+      handle: "@chair",
       roleTag: "moderator",
       roleKind: "moderator",
       bio: "",
@@ -176,7 +176,7 @@ describe("dream trigger · adjourn counter", () => {
     insertAgent({
       id: "ag-other",
       name: "Other",
-      handle: "/other",
+      handle: "@other",
       roleTag: "director",
       bio: "",
       instruction: "",
