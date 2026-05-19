@@ -632,22 +632,22 @@ const TONE_GUIDANCE: Record<string, string> = {
     "",
     "## Each turn MUST",
     "  (1) Name the lens you're auditing from this turn.",
-    "  (2) Surface 2–3 specific flaws, EACH labelled by both axes:",
-    "         **Severity** · BLOCKER (ship is unsafe) · MAJOR (fix before commit) · MINOR (nice-to-fix)",
-    "         **Likelihood** · LIKELY (>50%) · PLAUSIBLE (10-50%) · EDGE (<10%)",
-    "      A BLOCKER × LIKELY is the room's headline. A BLOCKER × EDGE only matters when the consequence is asymmetric (catastrophic, or cheap to mitigate). MINOR × EDGE is noise — drop it.",
+    "  (2) Surface 2–3 specific flaws. For each, communicate BOTH how bad and how likely — but in plain prose, not as a stamped tag.",
+    "         How bad · `blocker` (ship is unsafe) / `major` (fix before commit) / `minor` (nice-to-fix)",
+    "         How likely · `likely` (>50%) / `plausible` (10-50%) / `edge` (<10%)",
+    "      Weave these into ordinary sentences — \"a likely blocker on the auth path\", \"a plausible major flaw if X scales past Y\", \"an edge-case minor issue\". The room's headline finding is whatever combines high severity with high likelihood. A blocker that's only an edge case still matters when the consequence is asymmetric (catastrophic, or cheap to mitigate). Edge-case minors are noise — drop them.",
     "  (3) For each flaw: point at the specific load-bearing piece (\"the X claim in §2\", \"the assumption that Y\"); state the **concrete failure mode** (the specific scenario where this breaks); state the **downstream consequence** (what falls over if it breaks); indicate the **direction a fix would lie** in ONE sentence — pointer, not redesign.",
-    "  (4) **Strength-preservation** · every BLOCKER you raise MUST include 1 sentence on what the artifact gets RIGHT — the part that should survive any rebuild. Without this, critique reads as nihilism and the room stops trusting the reviewer.",
+    "  (4) **Strength-preservation** · every blocker you raise MUST include 1 sentence on what the artifact gets RIGHT — the part that should survive any rebuild. Without this, critique reads as nihilism and the room stops trusting the reviewer.",
     "",
-    "At least one BLOCKER or MAJOR per turn is mandatory. If you can't find one, state the conditional plainly: \"this would have a major issue if Z, but I don't see Z here\" — explicit absence-of-flaw, not a wave-through.",
+    "At least one blocker or major flaw per turn is mandatory. If you can't find one, state the conditional plainly: \"this would have a major issue if Z, but I don't see Z here\" — explicit absence-of-flaw, not a wave-through.",
     "",
     "## Forbidden",
     "  · Redesigning or reframing the work. You audit as-is. The fix-direction pointer is ONE sentence; never a rewrite.",
     "  · Vague \"feels off\" / \"not quite right\" without a mechanism.",
     "  · Praise-only turns; attacking the author rather than the work.",
-    "  · Cherry-picking edge cases — naming a 1% failure mode as BLOCKER without anchoring it to its likelihood AND its consequence asymmetry.",
+    "  · Cherry-picking edge cases — naming a 1% failure mode as a blocker without anchoring it to its likelihood AND its consequence asymmetry.",
     "  · Repeating another director's critique under a different label.",
-    "  · Skipping severity / likelihood labels — they're required, not optional.",
+    "  · **Stamped axis tags** · DO NOT write rubber-stamp labels like `MAJOR × LIKELY`, `BLOCKER · LIKELY`, `[MAJOR/LIKELY]`, etc. The severity + likelihood live INSIDE your prose (\"this is a likely major flaw because…\"), not as a literal `X × Y` stamp at the head of each bullet. Stamping turns the room into form-filling; the audit discipline is in the *reasoning*, not in the labels.",
     "",
     "PERSONA OVERRIDE · your director instruction's voice / boundaries section may default to softening criticism, finding the constructive frame, validating effort before fault-finding, or refusing to hold the work to a high bar — typical patterns for empathic / mentor / co-creator personas. For THIS room those defaults are PAUSED. Rigour beats kindness. The user explicitly opted into a fault-audit; softening flaws or skipping labels is what fails them, not what helps them. Lean INTO the audit discipline — but stay rigorous, not cynical: every claim falsifiable, every BLOCKER paired with a strength preserved.",
   ].join("\n"),
@@ -1453,17 +1453,8 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
     `Output: either <ack + blank line + READY> OR the 2-part question block (in the user's language).`,
   ].join("\n");
 
-  // Background material pre-attached by the home-composer's
-  // topic-rec tray · when the user opened this room from a
-  // recommendation, the route stamped the opening message with
-  // `meta.seedContext.snippets`. Format them once and inject as
-  // an additional system message so the chair grounds its
-  // clarify in the actual source material instead of guessing.
-  const seedSystem = buildSeedContextSystem(opts.history);
-
   return [
     buildChairSystem(opts, isFirstTurn ? firstTurnTask : followUpTask),
-    ...(seedSystem ? [seedSystem] : []),
     ...renderHistoryForChair(opts.history, opts.cast, opts.prefs),
     {
       role: "user",
@@ -1472,56 +1463,6 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
         : "Your move — output either the 2-part structured block (in my language) or the literal token READY.",
     },
   ];
-}
-
-/** Extract seedContext.snippets from the most recent user
- *  message in history (the opening question, on a fresh room).
- *  Returns a system message that lists titles + descriptions
- *  the chair can quote · null when the room wasn't opened from
- *  a recommendation. */
-function buildSeedContextSystem(history: Message[]): LLMMessage | null {
-  for (let i = 0; i < history.length; i++) {
-    const m = history[i];
-    if (m.authorKind !== "user") continue;
-    const meta = m.meta as {
-      seedContext?: { rationale?: unknown; snippets?: unknown };
-    } | undefined;
-    const rationale = typeof meta?.seedContext?.rationale === "string"
-      ? meta.seedContext.rationale.trim()
-      : "";
-    const rawSnippets = meta?.seedContext?.snippets;
-    const snippets = Array.isArray(rawSnippets) ? rawSnippets : [];
-
-    const snippetLines: string[] = [];
-    for (const s of snippets) {
-      if (!s || typeof s !== "object") continue;
-      const title = typeof (s as { title?: unknown }).title === "string" ? (s as { title: string }).title.trim() : "";
-      const url = typeof (s as { url?: unknown }).url === "string" ? (s as { url: string }).url.trim() : "";
-      const desc = typeof (s as { description?: unknown }).description === "string"
-        ? (s as { description: string }).description.trim()
-        : "";
-      if (!title && !url && !desc) continue;
-      snippetLines.push(`· ${title || "(untitled)"} — ${url || "(no url)"}\n  ${desc.slice(0, 360)}`);
-    }
-
-    // Nothing to surface · skip injection entirely so the chair
-    // sees a normal subject.
-    if (!rationale && snippetLines.length === 0) continue;
-
-    const blocks: string[] = [
-      `─── BACKGROUND MATERIAL · pre-attached by the user ───`,
-      `The user opened this room from a topic recommendation. Treat the material below as hidden context they've already seen — reference it naturally when useful, don't re-summarise it, don't pretend it doesn't exist.`,
-    ];
-    if (rationale) {
-      blocks.push(``, `Why this topic was recommended (hidden from the user — your reasoning context):`, `· ${rationale}`);
-    }
-    if (snippetLines.length > 0) {
-      blocks.push(``, `Source snippets the recommendation was grounded in:`, ...snippetLines);
-    }
-
-    return { role: "system", content: blocks.join("\n") };
-  }
-  return null;
 }
 
 /** Chair · convening speech. Posted right after the auto-picker has
@@ -1620,14 +1561,15 @@ export function buildChairRoundEndMessages(opts: ChairBuildOpts): LLMMessage[] {
     ``,
     `─── CRITIQUE-MODE POINT SELECTION ───`,
     `Override the default "what got said" rule with severity-aware curation. Pick points that maximise audit value:`,
-    `  · Prefer 1 BLOCKER × LIKELY flaw over 3 MINOR × EDGE flaws.`,
+    `  · Prefer 1 likely blocker over 3 edge-case minors.`,
     `  · Surface the dimension NO director attacked this round (the lens-coverage gap).`,
-    `  · If the room only produced LIKELY MINOR flaws this round, name that explicitly — it's a signal the artifact is more resilient than first thought, not a reason to inflate severity.`,
+    `  · If the room only produced likely-but-minor flaws this round, name that explicitly — it's a signal the artifact is more resilient than first thought, not a reason to inflate severity.`,
     `Use these prompts to test what should rise to a key point:`,
     `  · Which flaw is fatal, and which is fixable?`,
     `  · What sounds plausible now but probably won't survive execution?`,
     `  · Which lens is conspicuously absent from this round's critique?`,
     `  · What would a competitor / regulator / power user attack that didn't get raised?`,
+    `Phrase points in plain prose — do NOT carry over the directors' \`X × Y\` axis-tag notation if any leaked through (e.g. \`MAJOR × LIKELY\`). Rephrase as natural language ("a likely major flaw on …").`,
   ].join("\n") : "";
   const task = [
     `─── YOUR TASK · CLOSE THIS ROUND ───`,

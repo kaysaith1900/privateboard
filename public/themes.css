@@ -157,3 +157,47 @@
    - `.cmp-input-frame` / `.search-card`: default border is `--lime-dim`
      (subtle brand tint), focus is `--lime` (full brand) — set inline
      in index.html, no theme-specific override required. */
+
+/* ─── Global radio control · mono / lime square ──────────────────
+   Browser default (blue/system-tinted circle) doesn't match the
+   project's mono+lime aesthetic. Override every `<input type=radio>`
+   with an `appearance: none` square — thin border idle, lime fill
+   with bg-color inner cut when checked. Specificity is intentionally
+   minimal (0,0,1) so callers that wrap the radio in custom chrome
+   (e.g. `.adjourn-mode-option` hides it 1×1; `.rs-radio-row` sets
+   13×13) still win via their parent-selector specificity. Anything
+   that just emits a bare `<input type=radio>` picks this style up
+   for free. */
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  border-radius: 0;
+  position: relative;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+input[type="radio"]:hover:not(:checked) { border-color: var(--text-faint); }
+input[type="radio"]:checked {
+  border-color: var(--lime);
+  background: var(--lime);
+}
+input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background: var(--bg);
+}
+input[type="radio"]:focus-visible {
+  outline: 1px solid var(--lime);
+  outline-offset: 1px;
+}
+input[type="radio"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

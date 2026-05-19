@@ -508,12 +508,25 @@
    accent (lime). Splitting the duties keeps the visual
    register cohesive with the rest of the theme.
    Pulse uses transform + opacity so layout doesn't reflow. */
+/* Pre-warmed director bubbles · cross-director pipeline.
+   While A's TTS is still playing, B's LLM is already streaming
+   into B's bubble (and the same for C if A is slow enough). B's
+   article carries both `streaming` and `data-prewarmed`.
+   data-prewarmed alone hides the article via `display: none`
+   in index.html, but the corner-bracket pulse animation should
+   ALSO be excluded by the selector — defence-in-depth in case
+   any race between message-appended (server says preWarmed) and
+   the next paint leaves the bubble briefly visible. The user
+   should only ever see ONE animated bubble at a time: the
+   audible speaker. The `:not([data-prewarmed])` filter on every
+   .streaming / .is-streaming pseudo-element rule below is what
+   enforces that. */
 .is-replay-active::before,
 .is-replay-active::after,
-[data-message-id].streaming::before,
-[data-message-id].streaming::after,
-[data-message-id].is-streaming::before,
-[data-message-id].is-streaming::after {
+[data-message-id]:not([data-prewarmed]).streaming::before,
+[data-message-id]:not([data-prewarmed]).streaming::after,
+[data-message-id]:not([data-prewarmed]).is-streaming::before,
+[data-message-id]:not([data-prewarmed]).is-streaming::after {
   content: "";
   position: absolute;
   inset: -12px;
@@ -521,8 +534,8 @@
   animation: replay-bracket-pulse 1.8s ease-in-out infinite;
 }
 .is-replay-active::before,
-[data-message-id].streaming::before,
-[data-message-id].is-streaming::before {
+[data-message-id]:not([data-prewarmed]).streaming::before,
+[data-message-id]:not([data-prewarmed]).is-streaming::before {
   /* Top-left + top-right corners. */
   background-image:
     linear-gradient(to right,  var(--text-soft) 16px, transparent 16px),
@@ -542,8 +555,8 @@
   background-repeat: no-repeat;
 }
 .is-replay-active::after,
-[data-message-id].streaming::after,
-[data-message-id].is-streaming::after {
+[data-message-id]:not([data-prewarmed]).streaming::after,
+[data-message-id]:not([data-prewarmed]).is-streaming::after {
   /* Bottom-left + bottom-right corners. */
   background-image:
     linear-gradient(to right, var(--text-soft) 16px, transparent 16px),
@@ -635,28 +648,28 @@
   .is-replay-active,
   .is-replay-active::before,
   .is-replay-active::after,
-  [data-message-id].streaming,
-  [data-message-id].streaming::before,
-  [data-message-id].streaming::after,
-  [data-message-id].is-streaming,
-  [data-message-id].is-streaming::before,
-  [data-message-id].is-streaming::after,
+  [data-message-id]:not([data-prewarmed]).streaming,
+  [data-message-id]:not([data-prewarmed]).streaming::before,
+  [data-message-id]:not([data-prewarmed]).streaming::after,
+  [data-message-id]:not([data-prewarmed]).is-streaming,
+  [data-message-id]:not([data-prewarmed]).is-streaming::before,
+  [data-message-id]:not([data-prewarmed]).is-streaming::after,
   .vr-now-playing,
   .vr-np-dot {
     animation: none !important;
   }
   .is-replay-active,
-  [data-message-id].streaming,
-  [data-message-id].is-streaming {
+  [data-message-id]:not([data-prewarmed]).streaming,
+  [data-message-id]:not([data-prewarmed]).is-streaming {
     background: rgba(200, 197, 190, 0.06);
     box-shadow: 0 0 22px rgba(200, 197, 190, 0.10);
   }
   .is-replay-active::before,
   .is-replay-active::after,
-  [data-message-id].streaming::before,
-  [data-message-id].streaming::after,
-  [data-message-id].is-streaming::before,
-  [data-message-id].is-streaming::after { opacity: 0.7; }
+  [data-message-id]:not([data-prewarmed]).streaming::before,
+  [data-message-id]:not([data-prewarmed]).streaming::after,
+  [data-message-id]:not([data-prewarmed]).is-streaming::before,
+  [data-message-id]:not([data-prewarmed]).is-streaming::after { opacity: 0.7; }
   .vr-np-dot { opacity: 1; transform: none; }
 }
 

@@ -2421,61 +2421,29 @@
    *    route   · short label rendered as the right-edge pill.            */
   function pickerEntries() {
     const cache = modelsSnapshot();
-    const out = [];
+    // Multi-SIM credential model · the user has exactly one active
+    // LLM provider at a time, so each reachable model maps to one
+    // pickable row (no carrier fork). `cache.reachable` is filtered
+    // server-side based on `prefs.active_llm_credential_id`, so the
+    // picker naturally collapses to the active provider's family.
     if (cache && Array.isArray(cache.reachable) && cache.reachable.length > 0) {
-      for (const m of cache.reachable) {
-        const directOk = !!(m.routes && m.routes.direct);
-        const orOk = !!(m.routes && m.routes.openrouter);
-        const baiOk = !!(m.routes && m.routes.bai);
-        const provider = providerLabel(m.provider);
-        // For each carrier that can serve this model, emit a separate
-        // pickable row · users can pin EITHER carrier explicitly. Order
-        // mirrors the adapter's default precedence so the natural top
-        // pick when the user just clicks "the model" is the same one
-        // the orchestrator would resolve unpinned. When only ONE
-        // carrier serves the model, we collapse to a single row with
-        // `carrier: null` so the agent uses default routing (and
-        // automatically follows the carrier if the user later
-        // reconfigures keys).
-        const reachableCarriers = [];
-        if (directOk) reachableCarriers.push({ carrier: m.provider, route: "via " + provider + " direct" });
-        if (baiOk) reachableCarriers.push({ carrier: "bai", route: "via B.AI" });
-        if (orOk) reachableCarriers.push({ carrier: "openrouter", route: "via OpenRouter" });
-        if (reachableCarriers.length === 0) continue;
-        if (reachableCarriers.length === 1) {
-          // Only one carrier serves this model · use the bare modelV
-          // id and `carrier: null` so the saved agent record uses
-          // default routing rather than a sticky pin to a carrier the
-          // user might later swap.
-          const only = reachableCarriers[0];
-          out.push({
-            id: m.modelV,
-            v: m.modelV,
-            carrier: null,
-            name: m.displayName,
-            provider,
-            deck: m.deck || "",
-            route: only.carrier === m.provider ? "direct" : only.route,
-          });
-          continue;
-        }
-        // Multi-carrier · one row per carrier · composite id
-        // `${modelV}@${carrier}` distinguishes them in the picker.
-        for (const { carrier, route } of reachableCarriers) {
-          out.push({
-            id: m.modelV + "@" + carrier,
-            v: m.modelV,
-            carrier,
-            name: m.displayName,
-            provider,
-            deck: m.deck || "",
-            route,
-          });
-        }
-      }
-      if (out.length > 0) return out;
+      return cache.reachable.map((m) => ({
+        id: m.modelV,
+        v: m.modelV,
+        carrier: null,
+        name: m.displayName,
+        provider: providerLabel(m.provider),
+        deck: m.deck || "",
+        route: "",
+      }));
     }
-    return PROFILE_MODELS.map((m) => ({ ...m, id: m.v, carrier: null, route: "" }));
+    // Cache not yet loaded · return an empty list. The renderer will
+    // show whatever stale info the agent's saved modelV resolves to
+    // and re-fetch the cache. We deliberately AVOID falling back to
+    // the hardcoded PROFILE_MODELS catalog here — that would surface
+    // models the user's credential can't reach (e.g. showing Claude
+    // when the active credential is OpenAI direct).
+    return [];
   }
 
   /** Look up a single entry by composite id (`${v}@${carrier}` or
@@ -3100,7 +3068,14 @@
    *  to the provider's billing/pricing page so the user is one click
    *  from resolving it. */
   function openVoicePaidOverlay(opts) {
-    closeVoicePaidOverlay();
+    // Idempotent · if an overlay is already showing, leave it alone.
+    // Repeated billing-error events (each director's failed TTS in a
+    // single round; replay + live-room hitting the same backend tag)
+    // would otherwise tear down + rebuild the DOM on every call,
+    // producing a visible "flash" as the panel reappears. The user
+    // only needs to see the upgrade prompt ONCE — every subsequent
+    // identical error is the same actionable item.
+    if (document.getElementById("ap-voice-paid-overlay")) return;
     const provider = (opts && opts.provider) || "";
     const upgradeUrl = (opts && opts.upgradeUrl) || "";
     const message = (opts && opts.message) || "";
@@ -4767,6 +4742,11 @@
    *  events from whichever copy is live. */
   window.AgentProfileVoice = {
     renderVoiceBlock,
+    // Public hook so the room SSE handler + voice-replay can open
+    // the same upgrade overlay when a TTS billing error fires
+    // mid-room (insufficient balance / paid plan required) instead
+    // of only when the user is on the agent-profile voice picker.
+    openPaidOverlay: openVoicePaidOverlay,
   };
 
   document.addEventListener("boardroom:locale", () => {

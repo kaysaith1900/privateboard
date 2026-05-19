@@ -1,0 +1,23 @@
+-- 041_one_active_llm_key.sql
+--
+-- ⚠️ DEPRECATED · superseded by 042_active_llm_provider_pref.sql
+--
+-- This migration originally collapsed multi-key LLM configurations
+-- down to one row by deleting all but the highest-priority. The
+-- design moved on: under the "multi-SIM" model (see migration 042)
+-- users keep MULTIPLE LLM provider keys on file, with a single
+-- `prefs.active_llm_provider` field flagging which one is currently
+-- routed through. Destructive deletion was the wrong tool — users
+-- want to switch between configured providers without re-pasting.
+--
+-- This file is kept as a no-op so the MIGRATIONS array indices stay
+-- stable and so any installation that already recorded "041 applied"
+-- (the developer who first ran the destructive version on a local
+-- db) doesn't try to re-run anything. SQLite's _migrations table is
+-- keyed by name, not content; the recorded run blocks future
+-- executions regardless of what the SQL says here.
+--
+-- New installs of v0.1.25+ see the no-op below, so users upgrading
+-- with multiple LLM keys configured under v0.1.24 don't lose data.
+
+SELECT 1;

@@ -1,27 +1,28 @@
 /**
  * Model availability layer.
  *
- * Decides which models in the registry the user can ACTUALLY reach
- * right now, given the API keys they've configured. This is the
- * single source of truth that pickers (composer, agent profile,
- * agent creation) and the adapter consult before showing / using
- * any model.
+ * Under the single-active-LLM-provider invariant (see
+ * `src/ai/providers.ts` + migration 041), the user has AT MOST ONE
+ * LLM provider key configured at a time. This module computes which
+ * models in the registry the user can reach given that one key, and
+ * is the single source of truth that pickers (composer, agent profile,
+ * agent creation) + the adapter consult before showing / using any
+ * model.
  *
- * The five user states this resolves cleanly:
+ * The three user states this resolves cleanly:
  *
- *   1. OpenRouter only       → every model reachable, route="openrouter"
- *   2. One direct provider   → only that provider's models, route="direct"
- *   3. Multiple direct       → union of those providers, route="direct"
- *   4. OR + 1+ direct        → every model; direct preferred when available
- *   5. No keys at all        → empty list, frontend prompts user to add one
+ *   1. multi-model provider active (openrouter / bai) → every model
+ *      with a matching carrier id (openrouterId / baiId) is reachable.
+ *   2. single-model provider active (anthropic / openai / google / xai)
+ *      → only that family's non-`viaUniversalOnly` models are reachable.
+ *   3. no key configured → empty list, frontend prompts setup.
  *
- * The adapter (src/ai/adapter.ts) already routes to direct vs
- * OpenRouter at call time based on the same key-presence checks;
- * this module surfaces that decision UPFRONT so frontends can hide
- * unreachable models from pickers and so the user has a clear
- * mental model of what they have access to.
+ * The adapter (src/ai/adapter.ts) routes to the active provider's
+ * carrier at call time using the same state.
  */
-import { listKeyMeta, type Provider } from "../storage/keys.js";
+import { type LlmProvider } from "./providers.js";
+import { getLlmCredentialMeta } from "../storage/credentials.js";
+import { type Provider } from "../storage/keys.js";
 import { getPrefs, updatePrefs } from "../storage/prefs.js";
 import { activeCarrier } from "../storage/reconcile-models.js";
 
@@ -37,42 +38,43 @@ export interface ModelAvailability {
    *  reasoning", "fast · low-cost", etc.). Already part of the
    *  registry; copied here so consumers don't need a second lookup. */
   deck: string;
-  /** Which routes are currently reachable. At least one is true if
-   *  `reachable` is true. */
-  routes: { direct: boolean; openrouter: boolean; bai: boolean };
-  /** True when at least one route works (direct OR openrouter OR bai). */
+  /** Whether the model is reachable through the active provider. The
+   *  legacy multi-route shape (direct / openrouter / bai) collapses to
+   *  a single boolean under single-active. */
   reachable: boolean;
-  /** The route the adapter will use given the current key set.
-   *  Direct wins over universal carriers (B.AI / OpenRouter) when
-   *  available — the user paid for the direct subscription, so we use
-   *  it (lower fees, fewer hops, often higher rate limits). When only
-   *  a universal carrier works, B.AI is preferred over OpenRouter to
-   *  match the adapter's precedence. */
+  /** Active provider's carrier type, or null when nothing's configured.
+   *  Multi-model carriers (openrouter, bai) preserve their identity;
+   *  single-model providers map to "direct". */
   preferredRoute: ModelRoute | null;
 }
 
-/** Snapshot of which providers the user has configured. */
+/** Snapshot of the user's currently active LLM provider. */
 export interface ProviderKeyState {
-  /** OpenRouter (universal-fallback route). */
-  hasOpenRouter: boolean;
-  /** B.AI (universal-fallback route · second universal carrier). */
-  hasBai: boolean;
-  /** Direct LLM provider keys, by provider. Skips brave (not an LLM). */
-  directProviders: Set<Provider>;
+  /** The single configured LLM provider, or null when none. */
+  activeLlmProvider: LlmProvider | null;
+  /** Convenience flag · null means no key. */
+  hasAnyLlmKey: boolean;
 }
 
 export function getProviderKeyState(): ProviderKeyState {
-  const directProviders = new Set<Provider>();
-  let hasOpenRouter = false;
-  let hasBai = false;
-  for (const meta of listKeyMeta()) {
-    if (!meta.configured) continue;
-    if (meta.provider === "openrouter") hasOpenRouter = true;
-    else if (meta.provider === "bai") hasBai = true;
-    else if (meta.provider === "brave" || meta.provider === "tavily" || meta.provider === "minimax" || meta.provider === "elevenlabs") continue; // skill / voice keys, not LLM
-    else directProviders.add(meta.provider);
+  // Multi-instance credentials · `prefs.active_llm_credential_id`
+  // names the single credential the user has flagged as active.
+  // Resolve to its provider; the credential meta is the source of
+  // truth (one provider may have many credentials).
+  const credId = getPrefs().activeLlmCredentialId;
+  if (credId) {
+    const meta = getLlmCredentialMeta(credId);
+    if (meta) return { activeLlmProvider: meta.provider, hasAnyLlmKey: true };
   }
-  return { hasOpenRouter, hasBai, directProviders };
+  return { activeLlmProvider: null, hasAnyLlmKey: false };
+}
+
+/** Resolve the carrier type for the active LLM provider. */
+function routeFor(p: LlmProvider | null): ModelRoute | null {
+  if (!p) return null;
+  if (p === "openrouter") return "openrouter";
+  if (p === "bai") return "bai";
+  return "direct";
 }
 
 /** Compute reachability for a single model under the given key state. */
@@ -80,18 +82,27 @@ export function availabilityFor(
   meta: ModelMeta,
   keys: ProviderKeyState,
 ): ModelAvailability {
-  const directReachable = !meta.viaUniversalOnly && keys.directProviders.has(meta.provider);
-  const orReachable = keys.hasOpenRouter && !!meta.openrouterId;
-  const baiReachable = keys.hasBai && !!meta.baiId;
-  const reachable = directReachable || orReachable || baiReachable;
+  const p = keys.activeLlmProvider;
+  let reachable = false;
+  if (p === "openrouter") {
+    // OpenRouter reaches anything with an openrouterId (every model
+    // in MODELS today carries one, so effectively "every model").
+    reachable = !!meta.openrouterId;
+  } else if (p === "bai") {
+    reachable = !!meta.baiId;
+  } else if (p) {
+    // Single-model provider · only that family's non-universal-only
+    // models. xAI currently has no MODELS rows so this is naturally
+    // empty for that provider.
+    reachable = meta.provider === p && !meta.viaUniversalOnly;
+  }
   return {
     modelV: meta.v,
     displayName: meta.displayName,
     provider: meta.provider,
     deck: meta.deck,
-    routes: { direct: directReachable, openrouter: orReachable, bai: baiReachable },
     reachable,
-    preferredRoute: directReachable ? "direct" : baiReachable ? "bai" : orReachable ? "openrouter" : null,
+    preferredRoute: reachable ? routeFor(p) : null,
   };
 }
 
@@ -109,17 +120,11 @@ export function reachableModels(): ModelAvailability[] {
   return modelAvailability().filter((m) => m.reachable);
 }
 
-/** True iff the user has configured at least one LLM provider. The
- *  bootstrap state — `false` here — means model pickers should not
- *  render and convene flows should redirect to settings. */
+/** True iff the user has configured an LLM provider. Bootstrap state
+ *  (`false`) means model pickers should not render and convene flows
+ *  should redirect to settings. */
 export function hasAnyModelKey(): boolean {
-  const keys = getProviderKeyState();
-  // Universal carriers (OpenRouter, B.AI) each count as "has a key" on
-  // their own · without including hasBai here, a user who configured
-  // only a B.AI key gets bounced to "no LLM key configured" in the
-  // settings default-model panel even though every model with a baiId
-  // is fully reachable.
-  return keys.hasOpenRouter || keys.hasBai || keys.directProviders.size > 0;
+  return getProviderKeyState().hasAnyLlmKey;
 }
 
 /** Pick a sensible default model for the user given their current
@@ -296,51 +301,19 @@ export function effectiveDefaultModel(): ModelV | null {
 }
 
 export function defaultModelFor(keys: ProviderKeyState = getProviderKeyState()): ModelV | null {
-  const reachable = modelAvailability().filter((m) => m.reachable);
-  if (reachable.length === 0) return null;
-  // Fast-default policy · pick the FAST-tier model for the active
-  // provider rather than its flagship. A brand-new user should
-  // land on a cheap-and-quick chair by default; if they want the
-  // flagship, they can flip it in settings. (PROVIDER_FLAGSHIP
-  // still drives spec-generation candidates elsewhere — it's
-  // not dead code, just no longer the user-facing default.)
-  if (!keys.hasOpenRouter && keys.directProviders.size === 1) {
-    const provider = Array.from(keys.directProviders)[0];
-    const fast = PROVIDER_FAST[provider];
-    if (fast && reachable.find((m) => m.modelV === fast)) return fast;
-    const flagship = PROVIDER_FLAGSHIP[provider];
-    if (flagship && reachable.find((m) => m.modelV === flagship)) return flagship;
-  }
-  // OpenRouter present · prefer Opus 4.6 Fast (per fast-default policy).
-  if (keys.hasOpenRouter) {
-    const fast = reachable.find((m) => m.modelV === "opus-4-6-fast");
-    if (fast) return fast.modelV;
-    const opus = reachable.find((m) => m.modelV === "opus-4-7");
-    if (opus) return opus.modelV;
-  }
-  // B.AI present · prefer Haiku 4.5 (matches PRIMARY_BY_CARRIER.bai +
-  // the fast-default policy). Falls back to Opus 4.7 if Haiku isn't
-  // routable (e.g. if a future B.AI key set yanked it). Without this
-  // branch, a B.AI-only user falls through to "any reachable" and
-  // gets whatever happens to be first in MODELS iteration order ·
-  // not necessarily the cheapest / fastest tier the user expects.
-  if (keys.hasBai) {
-    const fast = reachable.find((m) => m.modelV === "haiku-4-5");
-    if (fast) return fast.modelV;
-    const opus = reachable.find((m) => m.modelV === "opus-4-7");
-    if (opus) return opus.modelV;
-  }
-  // Multiple direct, no OR · pick the first reachable provider's fast tier.
-  for (const provider of keys.directProviders) {
-    const fast = PROVIDER_FAST[provider];
-    if (fast && reachable.find((m) => m.modelV === fast)) return fast;
-  }
-  for (const provider of keys.directProviders) {
-    const flagship = PROVIDER_FLAGSHIP[provider];
-    if (flagship && reachable.find((m) => m.modelV === flagship)) return flagship;
-  }
-  // Last resort — any reachable model.
-  return reachable[0].modelV;
+  const p = keys.activeLlmProvider;
+  if (!p) return null;
+  const reachable = new Set(reachableModels().map((m) => m.modelV));
+  if (reachable.size === 0) return null;
+  // Fast-default policy · brand-new user lands on a cheap/quick model
+  // for the active provider. If they want a flagship they flip it in
+  // settings. PROVIDER_FAST + PROVIDER_FLAGSHIP both indexed by Provider.
+  const fast = PROVIDER_FAST[p];
+  if (fast && reachable.has(fast)) return fast;
+  const flagship = PROVIDER_FLAGSHIP[p];
+  if (flagship && reachable.has(flagship)) return flagship;
+  // Last resort · any reachable model.
+  return reachableModels()[0]?.modelV ?? null;
 }
 
 /** Pick a "cheap utility" model for background tasks (skill picker,
@@ -389,32 +362,8 @@ const UTILITY_PREFERENCE: ModelV[] = [
 
 export function utilityModelFor(fallback: ModelV | null = null): ModelV | null {
   const reachable = new Set(reachableModels().map((m) => m.modelV));
-
-  // User-default-first · if the user explicitly picked a utility-class
-  // model as their default (Gemini Flash, GPT-mini, Haiku, Grok Fast),
-  // use it directly. The earlier carrier-aware path forced OpenRouter
-  // users onto haiku-4-5 even when they'd switched their default to
-  // a different family's small-fast model — the user reported this as
-  // "I changed default to Gemini 3.1 Flash but report generation still
-  // shows haiku in the terminal". That detour wasted both fidelity to
-  // the user's explicit choice AND the chance to keep the whole
-  // pipeline on a single model family. When the default is itself
-  // small-fast, just use it.
-  const prefs = getPrefs();
-  const userDefault = prefs.defaultModelV as ModelV | null;
-  if (
-    userDefault &&
-    (UTILITY_PREFERENCE as readonly ModelV[]).includes(userDefault) &&
-    reachable.has(userDefault)
-  ) {
-    return userDefault;
-  }
-
-  // Active-carrier-first · whichever carrier serves the user's current
-  // default model gets first dibs on the utility slot. Prevents the
-  // "I switched to Gemini but background calls still hit OpenAI" trap
-  // where a user with multiple direct keys saw the static preference
-  // table always pick gpt-5-4-mini.
+  // Active-provider-first · the carrier IS the user's single LLM
+  // provider, so its CHEAP_BY_CARRIER entry is the canonical pick.
   const carrier = activeCarrier();
   if (carrier) {
     const preferred = CHEAP_BY_CARRIER[carrier];

@@ -108,7 +108,7 @@ const TONE_SIGNATURES: Record<(typeof TONES)[number], string[]> = {
   constructive:  ["CONSTRUCTIVE", "stronger version", "load-bearing assumption"],
   debate:        ["DEBATE", "PRODUCTIVE DISAGREEMENT", "steelman", "Honest pass", "What would change my mind"],
   research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "low/med/high"],
-  critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "MINOR", "audit"],
+  critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "minor", "audit"],
 };
 
 // Signature phrases for each intensity. Same approach.

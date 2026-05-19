@@ -26,21 +26,57 @@
   // synchronous render code below stays simple. saveUser writes through.
   let _prefsCache = { name: "You", intro: "", avatarSeed: null, webSearchProvider: "brave", minimaxRegion: "cn" };
 
+  // ── Voice + skill providers (LLM rows moved to the active-provider
+  // card grid above the legacy renderKeyRow loop; see
+  // activeLlmSectionHTML below). Voice / skill keys remain multi-key
+  // by design — independent storage rows, no swap behaviour. ──
   const PROVIDERS = [
-    { id: "openrouter", label: "OpenRouter",  hint: "default · routes any model · sk-or-…",         placeholder: "sk-or-v1-…",  group: "llm" },
-    { id: "bai",        label: "B.AI",        hint: "aggregator · GPT-5, Claude 4.7, Gemini 3 · sk-…", placeholder: "sk-…",         group: "llm" },
-    { id: "anthropic",  label: "Anthropic",   hint: "Claude · Sonnet 4.6, Opus 4.7, Haiku 4.5",      placeholder: "sk-ant-…",     group: "llm" },
-    { id: "openai",     label: "OpenAI",      hint: "GPT · gpt-5, gpt-5 mini, gpt-4o",                placeholder: "sk-…",         group: "llm" },
-    { id: "google",     label: "Google",      hint: "Gemini · 2.5 Pro, 2.5 Flash",                    placeholder: "AIza…",        group: "llm" },
-    { id: "xai",        label: "xAI",         hint: "Grok · grok-4.3, grok-4.1 fast",                  placeholder: "xai-…",        group: "llm" },
     { id: "minimax",    label: "MiniMax",     hint: "speech · T2A voices, cloning, streaming audio",   placeholder: "mm-…",         group: "voice" },
     { id: "elevenlabs", label: "ElevenLabs",  hint: "text-to-speech · pricing & docs at elevenlabs.io",  placeholder: "xi-…",         group: "voice" },
-    // ── Skill Services (not LLM providers, but the same encrypted key store) ──
     { id: "brave",      label: "Brave Search", hint: "powers the Web Search system skill · ≈ $5 / 1000 queries · privacy-respecting",
       placeholder: "BSA…",         group: "skill" },
     { id: "tavily",     label: "Tavily Search", hint: "alternate Web Search backend · billed per Tavily credits · LLM-focused results",
       placeholder: "tvly-…",        group: "skill" },
   ];
+
+  // Single source of truth for the LLM card grid — mirrors the
+  // backend taxonomy at src/ai/providers.ts via the keys-store.js
+  // export. Cards carry their own pitch copy + placeholder + help link.
+  // xAI auto-hides when /api/models reports zero models for it.
+  // MIRROR: src/ai/providers.ts — kept local to this IIFE so the
+  // renderer can branch on multi-vs-single classification without
+  // reaching into window.keysStore (which loads as a module and may
+  // not be ready during the first paint).
+  const MULTI_MODEL_LLM_PROVIDERS = ["openrouter", "bai"];
+  // (SINGLE_MODEL_LLM_PROVIDERS derivable as anything in ALL_LLM_CARDS
+  // that's not in the multi set; we use it implicitly via
+  // LLM_CARDS_SINGLE.)
+
+  const LLM_CARDS_MULTI = [
+    {
+      id: "openrouter",
+      label: "OpenRouter",
+      tagline: "universal aggregator · Claude · GPT · Gemini · Kimi · DeepSeek",
+      placeholder: "sk-or-v1-…",
+      helpUrl: "https://openrouter.ai/keys",
+      helpLabel: "openrouter.ai/keys",
+    },
+    {
+      id: "bai",
+      label: "B.AI",
+      tagline: "universal aggregator · same catalog · CN pricing channel",
+      placeholder: "sk-…",
+      helpUrl: "https://b.ai/",
+      helpLabel: "b.ai",
+    },
+  ];
+  const LLM_CARDS_SINGLE = [
+    { id: "anthropic", label: "Claude",  tagline: "Anthropic direct",     placeholder: "sk-ant-…", helpUrl: "https://console.anthropic.com/settings/keys", helpLabel: "console.anthropic.com" },
+    { id: "openai",    label: "ChatGPT", tagline: "OpenAI direct",        placeholder: "sk-…",     helpUrl: "https://platform.openai.com/api-keys",        helpLabel: "platform.openai.com" },
+    { id: "google",    label: "Gemini",  tagline: "Google AI Studio",     placeholder: "AIza…",    helpUrl: "https://aistudio.google.com/apikey",          helpLabel: "aistudio.google.com" },
+    { id: "xai",       label: "Grok",    tagline: "xAI direct",           placeholder: "xai-…",    helpUrl: "https://console.x.ai/team",                   helpLabel: "console.x.ai" },
+  ];
+  const ALL_LLM_CARDS = [...LLM_CARDS_MULTI, ...LLM_CARDS_SINGLE];
 
   function escape(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
@@ -131,6 +167,18 @@
 
   function fetchKeyMeta() {
     return window.keysStore ? window.keysStore.fetchKeyMeta() : Promise.resolve();
+  }
+
+  function fetchLlmCredentials() {
+    return window.keysStore && typeof window.keysStore.fetchLlmCredentials === "function"
+      ? window.keysStore.fetchLlmCredentials()
+      : Promise.resolve();
+  }
+  function listLlmCredentials() {
+    return window.keysStore ? (window.keysStore.llmCredentials || []) : [];
+  }
+  function activeLlmCredentialId() {
+    return window.keysStore ? window.keysStore.activeLlmCredentialId : null;
   }
 
   // Sync read used by new-agent.js: returns a map { provider: truthy } where
@@ -240,6 +288,31 @@
     }).join("");
   }
 
+  /* ── Room style toggle (3D voxel boardroom vs 2D flat round-table)
+        Persists to `localStorage["boardroom.stage3d"]` ("on" | "off")
+        — same key voice-3d.js and renderRoundTable already gate on.
+        Default "on" matches the existing implicit default. */
+  const STAGE3D_KEY = "boardroom.stage3d";
+  function getStage3d() {
+    try { return localStorage.getItem(STAGE3D_KEY) !== "off"; }
+    catch (_) { return true; }
+  }
+  function setStage3d(on) {
+    try { localStorage.setItem(STAGE3D_KEY, on ? "on" : "off"); } catch (_) {}
+  }
+  function stageStyleSegmentsHTML() {
+    const cur = getStage3d() ? "3d" : "2d";
+    const items = [
+      { key: "3d", labelKey: "us_stage_3d" },
+      { key: "2d", labelKey: "us_stage_2d" },
+    ];
+    return items.map(({ key, labelKey }) => {
+      const label = tr(labelKey);
+      const cls = "us-seg-btn" + (key === cur ? " active" : "");
+      return `<button type="button" class="${cls}" data-stage="${key}" role="radio" aria-checked="${key === cur ? "true" : "false"}">${escape(label)}</button>`;
+    }).join("");
+  }
+
   function otherSettingsSectionHTML() {
     return `
       <div class="us-pane-head">
@@ -255,6 +328,16 @@
               ${appearanceSegmentsHTML()}
             </div>
             <p class="us-locale-deck">${escape(tr("us_appearance_deck"))}</p>
+          </div>
+        </div>
+
+        <div class="us-row">
+          <div class="us-row-label">${tr("us_stage_label")}</div>
+          <div class="us-row-field">
+            <div class="us-seg" role="radiogroup" aria-label="${escape(tr("us_stage_label"))}" data-us-stage>
+              ${stageStyleSegmentsHTML()}
+            </div>
+            <p class="us-locale-deck">${escape(tr("us_stage_deck"))}</p>
           </div>
         </div>
 
@@ -323,6 +406,31 @@
           el.classList.toggle("active", on);
           el.setAttribute("aria-checked", on ? "true" : "false");
         });
+      });
+    }
+
+    // Room style segmented control · 3D / 2D. Writes the
+    // localStorage key the voice-3d gate already reads, then asks
+    // the app to re-render the current round-table so the swap is
+    // visible immediately for anyone currently sitting in a voice
+    // room (instead of "have to leave + re-enter to see it").
+    const stGroup = paneEl.querySelector("[data-us-stage]");
+    if (stGroup) {
+      stGroup.addEventListener("click", (e) => {
+        const btn = e.target.closest(".us-seg-btn[data-stage]");
+        if (!btn) return;
+        const next = btn.dataset.stage; // "3d" | "2d"
+        setStage3d(next === "3d");
+        stGroup.querySelectorAll(".us-seg-btn").forEach((el) => {
+          const on = el.dataset.stage === next;
+          el.classList.toggle("active", on);
+          el.setAttribute("aria-checked", on ? "true" : "false");
+        });
+        try {
+          if (window.app && typeof window.app.renderRoundTable === "function") {
+            window.app.renderRoundTable();
+          }
+        } catch (_) { /* room may not be a voice room · ignore */ }
       });
     }
     // Typing-sound toggle · the persistence + audio context lives in
@@ -718,24 +826,25 @@
     }
   }
 
-  // LLM-provider IDs only (excludes Skill Services like Brave — those
-  // live in their own pinned subgroup and aren't subject to the
-  // "+ add provider" flow).
-  const LLM_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "llm").map((p) => p.id);
   const SKILL_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "skill").map((p) => p.id);
   const VOICE_PROVIDER_IDS = PROVIDERS.filter((p) => p.group === "voice").map((p) => p.id);
 
-  function ensureActiveProviders() {
-    if (activeProviders === null) {
-      // Only show rows for providers the user has actually configured.
-      // Unconfigured providers (incl. OpenRouter) live behind the
-      // "+ add provider" chips so the panel reflects what's really
-      // wired up rather than projecting an empty OpenRouter row onto
-      // a user who never picked it during onboarding.
-      activeProviders = LLM_PROVIDER_IDS.filter(
-        (k) => _keysMeta[k] && _keysMeta[k].configured,
-      );
-    }
+  /** Add-provider transient UI state · null = closed, an object = open.
+   *  Keys: `step` ("pick" | "key"), `provider` (selected provider id
+   *  when step==="key"). Lives outside the wireKeysSection closure so
+   *  a re-render preserves the in-progress state. */
+  let _addState = null;
+
+  /** Active credential lookup helpers (credential-based, not
+   *  provider-based — same provider can have multiple credentials). */
+  function activeCredential() {
+    const id = activeLlmCredentialId();
+    if (!id) return null;
+    return listLlmCredentials().find((c) => c.id === id) || null;
+  }
+  function activeLlmProvider() {
+    const c = activeCredential();
+    return c ? c.provider : null;
   }
 
   function renderKeyRow(p, removable) {
@@ -746,50 +855,33 @@
     // it as the placeholder lets the user verify which key is in which
     // slot — a real failure mode we hit when the OpenRouter slot
     // silently held a Brave key. When configured we show the preview
-    // alone (no "paste to replace" hint — the row is clearly populated
-    // and pasting overwrites by default); when empty we show the
+    // alone (no "paste to replace" hint); when empty we show the
     // provider's normal hint.
     const preview = has && meta.preview ? meta.preview : null;
     const placeholder = has
       ? (preview || "••••••••")
       : p.placeholder;
-    // Default-model selection lives entirely in the dedicated
-    // "Default Model" sidebar pane. The previous in-row "default"
-    // badge + "set as default" button on each LLM provider was a
-    // duplicate UX that also competed with the bottom-of-pane
-    // "Default model" picker · all three controls did the same
-    // thing. The single source of truth is now the sidebar pane.
+    // LLM rows no longer flow through this function — the active-LLM
+    // card grid (renderLlmCard) is their entry point. This renderer
+    // now exclusively handles voice + skill, both of which are
+    // multi-key by design and never carry the lock guard the LLM rows
+    // used to need.
+    // Per-provider extras · MiniMax needs an API-region selector
+    // (the same key works against two different host URLs — China
+    // vs international). Sits inside the row so it's visually
+    // attached to the key it modifies.
+    const extras = p.id === "minimax" && has
+      ? minimaxRegionRowHTML()
+      : "";
+
     return `
       <div class="us-key-row" data-provider="${p.id}">
         <div class="us-key-head">
           <div class="us-key-label">${escape(p.label)}</div>
           <div class="us-key-status ${has ? "on" : "off"}" data-status>${has ? "● configured" : "○ not set"}</div>
-          ${(() => {
-            if (!removable) return "";
-            // Last-LLM guardrail · matches the server's DELETE check.
-            // Block removal of the ONE configured LLM key so the boardroom
-            // never lands in "no usable carrier" state. Unconfigured rows
-            // (or non-LLM providers) bypass the lock — removing them
-            // doesn't reduce working-key count.
-            //
-            // ALWAYS emit `data-remove-provider` (even when locked) so the
-            // click delegate's selector matches in both states. The lock
-            // is expressed via `disabled` + `.is-locked` only · this lets
-            // `refreshLockButtons()` flip the state in place without
-            // re-rendering or re-binding any listeners. Without this, a
-            // locked-then-unlocked button would have no click handler
-            // attached (the original `[data-remove-provider]` selector
-            // wouldn't have matched it at wire-time).
-            const isLLM = p.group === "llm";
-            const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
-            const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
-              (id) => _keysMeta[id] && _keysMeta[id].configured,
-            ).length;
-            const lock = isLLM && isConfigured && llmConfiguredCount <= 1;
-            return lock
-              ? `<button type="button" class="us-key-remove is-locked" data-remove-provider="${p.id}" disabled title="Add another LLM key first — at least one must remain configured.">✕</button>`
-              : `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>`;
-          })()}
+          ${removable
+            ? `<button type="button" class="us-key-remove" data-remove-provider="${p.id}" title="Remove">✕</button>`
+            : ""}
         </div>
         <div class="us-key-hint">${escape(p.hint)}</div>
         <div class="us-input-wrap">
@@ -807,6 +899,234 @@
             spellcheck="false">
           <button type="button" class="us-key-eye" data-key-eye title="Show / hide">◉</button>
         </div>
+        ${extras}
+      </div>
+    `;
+  }
+
+  /** Resolve the rendering source for an LLM card by provider id. */
+  function llmCardByProvider(id) {
+    return ALL_LLM_CARDS.find((c) => c.id === id) || null;
+  }
+
+  /** Compress the server's length-preserving mask so long keys don't
+   *  overflow the hero / row containers. Server emits e.g.
+   *  `sk-or••••(56 dots)••••YjNH` (60 chars total). For the UI we
+   *  keep the head + tail real characters intact and collapse the
+   *  middle bullet run to a fixed-length 24 — giving roughly 32-char
+   *  previews like `sk-or••••••••••••••••••••••••YjNH`. Short masks
+   *  (already ≤ 24 bullets in the middle) are passed through untouched. */
+  function compactMask(preview) {
+    if (!preview || typeof preview !== "string") return preview || "";
+    return preview.replace(/[•]{25,}/g, "••••••••••••••••••••••••");
+  }
+
+  /** Hero · "Currently using" panel. Names the active credential's
+   *  label (e.g. "B.AI" or "OpenRouter 2") + provider + masked
+   *  preview. When no credential is configured, renders an
+   *  invite-to-add empty state. */
+  function activeLlmHeroHTML() {
+    const cred = activeCredential();
+    if (!cred) {
+      return `
+        <div class="us-llm-hero is-empty">
+          <div class="us-llm-hero-head">
+            <div class="us-llm-hero-title">${escape(tr("us_active_llm_hero_empty_title") || "No active LLM provider")}</div>
+            <div class="us-llm-hero-pill is-empty">○ ${escape(tr("us_active_llm_hero_empty_pill") || "no provider")}</div>
+          </div>
+          <div class="us-llm-hero-deck">${escape(tr("us_active_llm_hero_empty_deck") || "Add a provider below to power every director.")}</div>
+        </div>
+      `;
+    }
+    const card = llmCardByProvider(cred.provider);
+    const classification = MULTI_MODEL_LLM_PROVIDERS.indexOf(cred.provider) >= 0 ? "multi" : "single";
+    const pitch = tr(`us_active_llm_${classification}_pitch_${cred.provider}`) || (card ? card.tagline : "");
+    const providerName = card ? card.label : cred.provider;
+    return `
+      <div class="us-llm-hero is-active" data-llm-hero data-credential-id="${escape(cred.id)}">
+        <div class="us-llm-hero-head">
+          <div class="us-llm-hero-titleblock">
+            <div class="us-llm-hero-title">${escape(cred.label)}</div>
+            <div class="us-llm-hero-provider">${escape(providerName)}</div>
+          </div>
+          <div class="us-llm-hero-pill">● ${escape(tr("us_active_llm_hero_pill") || "ACTIVE")}</div>
+        </div>
+        <div class="us-llm-hero-deck">${escape(pitch)}</div>
+        ${cred.preview ? `<div class="us-llm-hero-preview">${escape(compactMask(cred.preview))}</div>` : ""}
+      </div>
+    `;
+  }
+
+  /** "Added providers" list · every configured credential, sorted by
+   *  createdAt. ✓ on the active row. Tap a non-active row to switch.
+   *  ✕ removes — server auto-rotates active when needed. */
+  function addedLlmListHTML() {
+    const creds = listLlmCredentials();
+    if (creds.length === 0) return "";
+    const activeId = activeLlmCredentialId();
+    const rows = creds.map((c) => {
+      const isActive = c.id === activeId;
+      const tapHint = tr("us_active_llm_tap_to_switch") || "tap to switch";
+      const card = llmCardByProvider(c.provider);
+      const providerName = card ? card.label : c.provider;
+      return `
+        <div class="us-llm-row${isActive ? " is-active" : ""}" data-llm-row data-credential-id="${escape(c.id)}" tabindex="0" role="button" aria-label="${escape(c.label)}">
+          <div class="us-llm-row-head">
+            <div class="us-llm-row-titleblock">
+              <span class="us-llm-row-label">${escape(c.label)}</span>
+              <span class="us-llm-row-provider">${escape(providerName)}</span>
+            </div>
+            <div class="us-llm-row-trailing">
+              ${isActive
+                ? `<span class="us-llm-row-mark">✓</span>`
+                : `<span class="us-llm-row-hint">${escape(tapHint)}</span>`}
+              <button type="button" class="us-key-remove" data-remove-credential="${escape(c.id)}" title="${escape(tr("us_active_llm_remove_tip") || "Remove")}">✕</button>
+            </div>
+          </div>
+          <div class="us-input-wrap us-llm-row-keywrap">
+            <div class="us-input us-llm-row-preview">${escape(compactMask(c.preview || ""))}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+    return `
+      <div class="us-llm-added">
+        <div class="us-llm-added-header">
+          <span>${escape(tr("us_active_llm_added_header") || "Added providers")}</span>
+          <span class="us-llm-added-count">${creds.length}</span>
+        </div>
+        <div class="us-llm-added-list">${rows}</div>
+      </div>
+    `;
+  }
+
+  /** Add-provider entry block · the closed state shows a single "+"
+   *  button. The open state has two steps:
+   *
+   *    step "pick"  · grid of every supported provider with tagline.
+   *                   Clicking one transitions to "key".
+   *    step "key"   · selected provider's pitch + optional label
+   *                   input + key paste + Save button. ← back to picker.
+   *
+   *  The same provider can be added multiple times — picker doesn't
+   *  filter out providers that already have a credential. xAI still
+   *  auto-hides when the registry has no Grok rows. */
+  function addProviderBlockHTML() {
+    if (!_addState) {
+      return `
+        <div class="us-llm-add">
+          <button type="button" class="us-llm-add-trigger" data-llm-add-open>
+            <span class="us-llm-add-glyph">+</span>
+            <span>${escape(tr("us_active_llm_add_btn") || "Add provider")}</span>
+          </button>
+        </div>
+      `;
+    }
+    if (_addState.step === "pick") {
+      const cache = modelsSnapshot();
+      const allModels = (cache && Array.isArray(cache.models)) ? cache.models : [];
+      const visibleSingle = LLM_CARDS_SINGLE.filter((c) => {
+        if (!cache) return true;
+        return allModels.some((m) => m && m.provider === c.id);
+      });
+      const renderPick = (card, classification) => {
+        const pitch = tr(`us_active_llm_${classification}_pitch_${card.id}`) || card.tagline || "";
+        return `
+          <button type="button" class="us-llm-pick us-llm-pick-${classification}" data-llm-pick="${escape(card.id)}">
+            <div class="us-llm-pick-head">
+              <div class="us-llm-pick-label">${escape(card.label)}</div>
+            </div>
+            <div class="us-llm-pick-tag">${escape(pitch)}</div>
+          </button>
+        `;
+      };
+      return `
+        <div class="us-llm-add is-open" data-llm-add-block>
+          <div class="us-llm-add-head">
+            <div class="us-llm-add-title">${escape(tr("us_active_llm_picker_title") || "Choose a provider")}</div>
+            <button type="button" class="us-llm-add-close" data-llm-add-cancel aria-label="Cancel">✕</button>
+          </div>
+          <div class="us-llm-add-body">
+            <div class="us-llm-multi-header">${escape(tr("us_active_llm_multi_header"))}</div>
+            <div class="us-llm-picks-row us-llm-picks-multi">
+              ${LLM_CARDS_MULTI.map((c) => renderPick(c, "multi")).join("")}
+            </div>
+            ${visibleSingle.length > 0 ? `
+              <div class="us-llm-single-header">${escape(tr("us_active_llm_single_header"))}</div>
+              <div class="us-llm-picks-row us-llm-picks-single">
+                ${visibleSingle.map((c) => renderPick(c, "single")).join("")}
+              </div>
+            ` : ""}
+          </div>
+        </div>
+      `;
+    }
+    // step === "key"
+    const card = llmCardByProvider(_addState.provider);
+    if (!card) {
+      // Provider id went stale — fall back to picker.
+      _addState = { step: "pick" };
+      return addProviderBlockHTML();
+    }
+    const classification = MULTI_MODEL_LLM_PROVIDERS.indexOf(card.id) >= 0 ? "multi" : "single";
+    const pitch = tr(`us_active_llm_${classification}_pitch_${card.id}`) || card.tagline || "";
+    return `
+      <div class="us-llm-add is-open" data-llm-add-block>
+        <div class="us-llm-add-head">
+          <button type="button" class="us-llm-add-back" data-llm-add-back aria-label="Back">◂</button>
+          <div class="us-llm-add-title">${escape(card.label)}</div>
+          <button type="button" class="us-llm-add-close" data-llm-add-cancel aria-label="Cancel">✕</button>
+        </div>
+        <div class="us-llm-add-body" data-llm-add-form data-provider="${escape(card.id)}">
+          <div class="us-llm-add-tag">${escape(pitch)}</div>
+          <div class="us-llm-add-field">
+            <div class="us-llm-add-field-label">${escape(tr("us_active_llm_label_field_label") || "Name (optional)")}</div>
+            <input
+              type="text"
+              class="us-input"
+              data-llm-add-label
+              placeholder="${escape(card.label)}"
+              maxlength="48"
+              autocomplete="off">
+            <div class="us-llm-add-field-hint">${escape(tr("us_active_llm_label_field_hint") || "Leave blank to use the provider's name; duplicates get a numeric suffix.")}</div>
+          </div>
+          <div class="us-llm-add-field">
+            <div class="us-llm-add-field-label">${escape(tr("us_active_llm_key_field_label") || "API key")}</div>
+            <div class="us-input-wrap">
+              <input
+                type="text"
+                class="us-input us-input-masked"
+                data-llm-add-key
+                placeholder="${escape(card.placeholder)}"
+                autocomplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                spellcheck="false">
+              <button type="button" class="us-key-eye" data-key-eye title="Show / hide">◉</button>
+            </div>
+            <div class="us-llm-add-field-hint">
+              <a href="${escape(card.helpUrl)}" target="_blank" rel="noopener" class="us-llm-card-help">${escape(card.helpLabel)} →</a>
+            </div>
+          </div>
+          <div class="us-llm-add-actions">
+            <button type="button" class="us-btn us-btn-ghost" data-llm-add-cancel>${escape(tr("us_active_llm_cancel_btn") || "Cancel")}</button>
+            <button type="button" class="us-btn us-btn-primary" data-llm-add-save>${escape(tr("us_active_llm_save_btn") || "Save & activate")}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /** Compose the three multi-SIM regions: hero, added list, add-block. */
+  function activeLlmSectionHTML() {
+    return `
+      <div class="us-key-group us-key-group-llm-active">
+        <div class="us-key-group-tag">${tr("us_active_llm_tag")}</div>
+        <div class="us-key-group-deck">${tr("us_active_llm_deck")}</div>
+        ${activeLlmHeroHTML()}
+        ${addedLlmListHTML()}
+        ${addProviderBlockHTML()}
       </div>
     `;
   }
@@ -835,41 +1155,32 @@
     `;
   }
 
-  function minimaxRegionPrefHTML() {
+  /** MiniMax region picker · rendered INSIDE the minimax row so it
+   *  sits next to the API key it modifies. Returns "" when no minimax
+   *  key is configured (row is still rendered, just without this
+   *  sub-control). */
+  function minimaxRegionRowHTML() {
     const minimaxOk = !!(_keysMeta.minimax && _keysMeta.minimax.configured);
     if (!minimaxOk) return "";
     const region = (_prefsCache && _prefsCache.minimaxRegion) || "cn";
     return `
-        <div class="us-key-group us-key-group-minimax-region" data-us-minimax-region-wrap>
-          <div class="us-key-group-tag">MiniMax API region</div>
-          <div class="us-key-group-deck">Select the region matching your API key source.</div>
-          <div class="us-ws-backend-radios">
-            <label class="us-ws-backend-label">
-              <input type="radio" name="us-minimax-region" value="cn" ${region === "cn" ? "checked" : ""}>
-              <span>China (api.minimaxi.com)</span>
-            </label>
-            <label class="us-ws-backend-label">
-              <input type="radio" name="us-minimax-region" value="intl" ${region === "intl" ? "checked" : ""}>
-              <span>International (api.minimax.io)</span>
-            </label>
-          </div>
+      <div class="us-key-subrow" data-us-minimax-region-wrap>
+        <div class="us-key-subrow-label">MiniMax API region</div>
+        <div class="us-ws-backend-radios">
+          <label class="us-ws-backend-label">
+            <input type="radio" name="us-minimax-region" value="cn" ${region === "cn" ? "checked" : ""}>
+            <span>China (api.minimaxi.com)</span>
+          </label>
+          <label class="us-ws-backend-label">
+            <input type="radio" name="us-minimax-region" value="intl" ${region === "intl" ? "checked" : ""}>
+            <span>International (api.minimax.io)</span>
+          </label>
         </div>
+      </div>
     `;
   }
 
   function keysSectionHTML() {
-    ensureActiveProviders();
-    // Anthropic is temporarily excluded from the "+ add provider"
-    // chips · only sonnet-4-6 is direct-routable on the Anthropic SDK
-    // right now (opus / haiku are viaUniversalOnly), so adding an
-    // Anthropic key alone unlocks just one model — confusing UX. Once
-    // the registry has ≥ 2 direct-routable Claude models, drop the
-    // exclusion. Existing users who already configured Anthropic still
-    // see their row (activeProviders preserves them). */
-    const HIDDEN_FROM_ADD = new Set(["anthropic"]);
-    const addable = PROVIDERS.filter(
-      (p) => p.group === "llm" && !HIDDEN_FROM_ADD.has(p.id) && !activeProviders.includes(p.id),
-    );
     const skillProviders = PROVIDERS.filter((p) => p.group === "skill");
     const voiceProviders = PROVIDERS.filter((p) => p.group === "voice");
 
@@ -881,24 +1192,7 @@
 
       <div class="us-pane-body">
 
-        <div class="us-key-group">
-          <div class="us-key-group-tag">${tr("us_keys_group_llm")}</div>
-          ${activeProviders.map((id) => {
-            const p = PROVIDERS.find((x) => x.id === id);
-            if (!p) return "";
-            return renderKeyRow(p, true);
-          }).join("")}
-          ${addable.length > 0 ? `
-            <div class="us-key-add">
-              <span class="us-key-add-label">${tr("us_keys_add_label")}</span>
-              <div class="us-key-add-chips">
-                ${addable.map((p) => `
-                  <button type="button" class="us-key-add-chip" data-add-provider="${p.id}">${escape(p.label)}</button>
-                `).join("")}
-              </div>
-            </div>
-          ` : ""}
-        </div>
+        ${activeLlmSectionHTML()}
 
         ${skillProviders.length > 0 ? `
           <div class="us-key-group us-key-group-skill">
@@ -917,8 +1211,6 @@
             ${voiceProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
           </div>
         ` : ""}
-
-        ${minimaxRegionPrefHTML()}
 
         <div data-models-summary>${modelsSummaryHTML()}</div>
 
@@ -943,22 +1235,6 @@
     bai:       "B.AI",
   };
   function providerLabel(p) { return PROVIDER_LABEL[p] || p; }
-
-  function routeBadgeHTML(m) {
-    const d = !!(m.routes && m.routes.direct);
-    const o = !!(m.routes && m.routes.openrouter);
-    const b = !!(m.routes && m.routes.bai);
-    // Compose a short label · "direct" wins display when present;
-    // when both universal carriers are reachable show "OR · B.AI"
-    // so the user knows fallback coverage. The adapter prefers
-    // direct → B.AI → OR; the badge mirrors that ordering.
-    const parts = [];
-    if (d) parts.push("direct");
-    if (b) parts.push("B.AI");
-    if (o) parts.push("OR");
-    if (parts.length === 0) return "";
-    return `<span class="us-models-route">${parts.join(" · ")}</span>`;
-  }
 
   function modelsSummaryHTML() {
     const cache = modelsSnapshot();
@@ -996,7 +1272,6 @@
               <div class="us-models-row">
                 <span class="us-models-name">${escape(m.displayName)}</span>
                 <span class="us-models-deck">${escape(m.deck || "")}</span>
-                ${routeBadgeHTML(m)}
               </div>
             `).join("")}
           </div>
@@ -1004,14 +1279,16 @@
       `;
     }).join("");
 
-    // Default-model selection moved to the sidebar's "Default Model"
-    // pane · the previous bottom-of-pane select duplicated that flow.
-    // The Available Models block is now read-only (which models are
-    // reachable + how they route), nothing else.
+    // Under the single-active-LLM-provider invariant, every reachable
+    // model arrives through the same active carrier. The deck reads
+    // "via {provider}" once at the section head instead of a per-row
+    // badge — same information, much quieter visual.
+    const activeProv = cache.activeLlmProvider;
+    const viaLabel = activeProv ? providerLabel(activeProv) : "";
     return `
       <div class="us-key-group us-key-group-models">
         <div class="us-key-group-tag">Available models</div>
-        <div class="us-key-group-deck">${reachable.length} model${reachable.length === 1 ? "" : "s"} reachable across ${providers.length} provider${providers.length === 1 ? "" : "s"}. <code>direct</code> uses the provider key, <code>OR</code> routes through OpenRouter.</div>
+        <div class="us-key-group-deck">${reachable.length} model${reachable.length === 1 ? "" : "s"} reachable${viaLabel ? ` via ${escape(viaLabel)}` : ""}.</div>
         <div class="us-models-list">${blocks}</div>
       </div>
     `;
@@ -1081,7 +1358,6 @@
               <span class="us-default-row-name">${escape(m.displayName)}</span>
               <span class="us-default-row-deck">${escape(m.deck || "")}</span>
             </span>
-            ${routeBadgeHTML(m)}
           </button>
         `;
       }).join("");
@@ -1193,7 +1469,6 @@
   }
 
   let overlay, modal, paneEl, currentSection = "user";
-  let activeProviders = null; // populated lazily from saved keys; reset on each open
 
   function renderSection(id) {
     currentSection = id;
@@ -1307,67 +1582,168 @@
       });
     });
 
-    // Add a provider row
-    paneEl.querySelectorAll("[data-add-provider]").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        const id = btn.dataset.addProvider;
-        if (!activeProviders.includes(id)) activeProviders.push(id);
-        rerenderKeysSection();
-      });
-    });
-
-    // Remove a provider row (server-side delete clears its key too).
-    // The handler binds to EVERY `.us-key-remove` regardless of locked
-    // state · in-handler `disabled` check is the gate. Pairs with
-    // `refreshLockButtons()` below: flipping a button's lock state in
-    // place doesn't strand it without a listener.
-    paneEl.querySelectorAll(".us-key-remove").forEach((btn) => {
+    // ✕ on voice / skill rows · server-side DELETE, then re-render.
+    paneEl.querySelectorAll(".us-key-remove[data-remove-provider]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
-        if (btn.disabled || btn.classList.contains("is-locked")) return;
+        e.stopPropagation();
+        if (btn.disabled) return;
         const id = btn.dataset.removeProvider;
         if (!id) return;
-        activeProviders = activeProviders.filter((p) => p !== id);
-        await setProviderKey(id, ""); // clears server-side
+        await setProviderKey(id, "");
         await refreshModels();
         rerenderKeysSection();
       });
     });
 
-    // Recompute every `.us-key-remove` button's lock state against the
-    // current `_keysMeta`. Called after a successful key PUT so adding
-    // a second LLM key immediately un-locks the first row's ✕ — the
-    // old flow only repainted the typed-into row's status pill, so the
-    // sibling rows kept their stale "locked" disabled state until the
-    // user closed and reopened the panel.
-    function refreshLockButtons() {
-      if (!paneEl) return;
-      const llmConfiguredCount = LLM_PROVIDER_IDS.filter(
-        (id) => _keysMeta[id] && _keysMeta[id].configured,
-      ).length;
-      paneEl.querySelectorAll(".us-key-row").forEach((row) => {
-        const provider = row.dataset.provider;
-        const p = PROVIDERS.find((x) => x.id === provider);
-        if (!p) return;
-        const btn = row.querySelector(".us-key-remove");
-        if (!btn) return;
-        const isLLM = p.group === "llm";
-        const isConfigured = !!(_keysMeta[p.id] && _keysMeta[p.id].configured);
-        const wantsLocked = isLLM && isConfigured && llmConfiguredCount <= 1;
-        const hasLocked = btn.classList.contains("is-locked");
-        if (wantsLocked === hasLocked) return;
-        if (wantsLocked) {
-          btn.classList.add("is-locked");
-          btn.disabled = true;
-          btn.title = "Add another LLM key first — at least one must remain configured.";
-        } else {
-          btn.classList.remove("is-locked");
-          btn.disabled = false;
-          btn.title = "Remove";
+    // ✕ on credential rows · DELETE /api/credentials/:id. If the
+    // credential is the currently active one, pop a confirm() first
+    // (matches the user's explicit ask: "删除后将无法正常使用").
+    paneEl.querySelectorAll(".us-key-remove[data-remove-credential]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const id = btn.dataset.removeCredential;
+        if (!id) return;
+        const isActive = id === activeLlmCredentialId();
+        if (isActive) {
+          const msg = tr("us_active_llm_delete_active_confirm")
+            || "Removing the active provider — the boardroom will fall back to the next added provider, or stop working until you add a new one. Continue?";
+          if (!window.confirm(msg)) return;
+        }
+        const ok = window.keysStore && typeof window.keysStore.deleteLlmCredentialRequest === "function"
+          ? await window.keysStore.deleteLlmCredentialRequest(id)
+          : false;
+        if (!ok) return;
+        await fetchLlmCredentials();
+        await refreshModels();
+        rerenderKeysSection();
+      });
+    });
+
+    // Credential row tap · switch which credential is active. Clicks
+    // on the inner ✕ are caught + stopPropagation'd by the remove
+    // handler above, so this handler only fires on the body.
+    paneEl.querySelectorAll("[data-llm-row]").forEach((row) => {
+      const handler = async (e) => {
+        if (e.target && e.target.closest && e.target.closest("button")) return;
+        if (row.classList.contains("is-active")) return;
+        const id = row.dataset.credentialId;
+        if (!id) return;
+        // Confirm switch · agents reconcile to the new provider's
+        // fast-pool, so the visible cast of director model badges
+        // changes. Showing a confirm keeps the swap intentional.
+        const target = listLlmCredentials().find((c) => c.id === id);
+        const targetLabel = target ? target.label : "";
+        const tmpl = tr("us_active_llm_switch_confirm")
+          || "Switch active LLM provider to {label}? Every director will be reassigned to the new provider's models.";
+        const msg = tmpl.replace("{label}", targetLabel);
+        if (!window.confirm(msg)) return;
+        const ok = window.keysStore && typeof window.keysStore.setActiveLlmCredentialRequest === "function"
+          ? await window.keysStore.setActiveLlmCredentialRequest(id)
+          : false;
+        if (!ok) return;
+        await fetchLlmCredentials();
+        await refreshModels();
+        rerenderKeysSection();
+      };
+      row.addEventListener("click", handler);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handler(e);
         }
       });
-    }
+    });
+
+    // Add-provider block · "+ Add" trigger.
+    paneEl.querySelectorAll("[data-llm-add-open]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addState = { step: "pick" };
+        rerenderKeysSection();
+      });
+    });
+
+    // Picker → key step.
+    paneEl.querySelectorAll("[data-llm-pick]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const provider = btn.dataset.llmPick;
+        if (!provider) return;
+        _addState = { step: "key", provider };
+        rerenderKeysSection();
+        // Auto-focus the key input after re-render.
+        setTimeout(() => {
+          const input = paneEl.querySelector("[data-llm-add-key]");
+          if (input) input.focus();
+        }, 0);
+      });
+    });
+
+    // Back to picker (key step → pick step).
+    paneEl.querySelectorAll("[data-llm-add-back]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addState = { step: "pick" };
+        rerenderKeysSection();
+      });
+    });
+
+    // Cancel the whole add-provider flow.
+    paneEl.querySelectorAll("[data-llm-add-cancel]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addState = null;
+        rerenderKeysSection();
+      });
+    });
+
+    // Save the key from the key-step form. Server creates a new
+    // credential + auto-activates; on success we clear add-state and
+    // re-render so the new row shows in the list with ✓ and the hero
+    // card flips to the new credential.
+    paneEl.querySelectorAll("[data-llm-add-save]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const form = paneEl.querySelector("[data-llm-add-form]");
+        if (!form) return;
+        const provider = form.dataset.provider;
+        const labelInput = form.querySelector("[data-llm-add-label]");
+        const keyInput = form.querySelector("[data-llm-add-key]");
+        const label = labelInput ? labelInput.value.trim() : "";
+        const key = keyInput ? keyInput.value.trim() : "";
+        if (!provider || !key) {
+          if (keyInput) keyInput.focus();
+          return;
+        }
+        btn.disabled = true;
+        const created = window.keysStore && typeof window.keysStore.createLlmCredentialRequest === "function"
+          ? await window.keysStore.createLlmCredentialRequest(provider, label, key)
+          : null;
+        btn.disabled = false;
+        if (!created) {
+          alert(tr("us_active_llm_save_failed") || "Could not save the credential — check the key and try again.");
+          return;
+        }
+        _addState = null;
+        await fetchLlmCredentials();
+        await refreshModels();
+        rerenderKeysSection();
+      });
+    });
+
+    // Enter inside the key input triggers save (parity with the
+    // onboarding paste UX).
+    paneEl.querySelectorAll("[data-llm-add-key]").forEach((input) => {
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const saveBtn = paneEl.querySelector("[data-llm-add-save]");
+        if (saveBtn) saveBtn.click();
+      });
+    });
 
     // Default-model controls live in the sidebar's "Default Model"
     // pane only · the previous in-row "set as default" button and
@@ -1381,50 +1757,50 @@
     // with v="", and we never want that to wipe a real key. Explicit
     // removal goes through the ✕ button.
     const debounceMap = new WeakMap();
-    function persistRow(row) {
-      const provider = row.dataset.provider;
-      const input = row.querySelector("[data-key-input]");
+    function persistRow(wrap) {
+      const provider = wrap.dataset.provider;
+      const input = wrap.querySelector("[data-key-input]");
+      if (!provider || !input) return;
       const v = input.value;
       const trimmed = v.trim();
 
       // No-op on empty · never DELETE via the input field. The ✕ button
-      // is the only path that clears a key. This protects against
-      // autofill races + accidental select-all+delete.
+      // is the only path that clears a key.
       if (!trimmed) return;
 
-      // Optimistic local UI update on non-empty input.
-      const status = row.querySelector("[data-status]");
-      status.classList.add("on");
-      status.classList.remove("off");
-      status.textContent = "● configured";
+      // Optimistic status pill update (only voice / skill rows carry
+      // [data-status] — LLM add-cards re-render after the save lands,
+      // so they don't need the inline tweak).
+      const status = wrap.querySelector("[data-status]");
+      if (status) {
+        status.classList.add("on");
+        status.classList.remove("off");
+        status.textContent = "● configured";
+      }
 
-      // Debounced server write
-      const prev = debounceMap.get(row);
+      const prev = debounceMap.get(wrap);
       if (prev) clearTimeout(prev);
       const timer = setTimeout(async () => {
         await setProviderKey(provider, v);
         await refreshModels();
-        refreshModelsSummary();
-        syncWsBackendPicker();
-        // After a successful key write, `_keysMeta[provider]` is fresh
-        // (setProviderKey mirrors the server response into the cache).
-        // Repaint every row's ✕ in-place so adding a second LLM key
-        // immediately unlocks the first row's delete button · the old
-        // flow waited for a close+reopen.
-        refreshLockButtons();
+        // For LLM provider keys the server also flips
+        // `prefs.active_llm_provider` to this provider (paste = use).
+        // Re-render moves the just-pasted card into the "Added
+        // providers" list with ✓ and updates the hero card.
+        rerenderKeysSection();
       }, 220);
-      debounceMap.set(row, timer);
+      debounceMap.set(wrap, timer);
     }
 
-    paneEl.querySelectorAll(".us-key-row").forEach((row) => {
-      const input = row.querySelector("[data-key-input]");
+    // Bind voice / skill rows · LLM keys flow through the dedicated
+    // two-step add-provider block above (POST /api/credentials), not
+    // through this debounced PUT path.
+    paneEl.querySelectorAll(".us-key-row").forEach((wrap) => {
+      const input = wrap.querySelector("[data-key-input]");
       if (!input) return;
-      input.addEventListener("input", () => persistRow(row));
-      // Paste handler — input fires after paste too, but this is explicit
-      // and lets us snap-update the status pill on the same tick.
+      input.addEventListener("input", () => persistRow(wrap));
       input.addEventListener("paste", () => {
-        // paste mutates value asynchronously; defer one tick
-        setTimeout(() => persistRow(row), 0);
+        setTimeout(() => persistRow(wrap), 0);
       });
     });
 
@@ -1490,24 +1866,18 @@
     // input placeholder INLINE (no full rerender) so the user's
     // typing-in-progress isn't disturbed and so we don't loop through
     // wireKeysSection again.
-    fetchKeyMeta().then(() => {
+    // Fetch both surfaces in parallel · keysMeta covers voice / skill,
+    // llmCredentials covers the multi-instance LLM list. Either being
+    // stale after onboarding causes the same "no row shown" symptom.
+    Promise.all([fetchKeyMeta(), fetchLlmCredentials()]).then(() => {
       if (currentSection !== "keys") return;
 
-      // After-onboarding sync · the bootstrap fetchKeyMeta ran before
-      // the user wrote their first key (during onboarding). When the
-      // user opens settings without a page refresh, _keysMeta was
-      // empty at first render, so activeProviders was derived without
-      // the just-configured provider — and the keys tab paints with
-      // no row for it (e.g. "no OpenRouter section visible until
-      // refresh"). Detect that drift here and rebuild the section
-      // when a configured provider is missing its row. Inline pill
-      // refresh below handles the simpler case where the row already
-      // exists and only its `● configured` state needs flipping.
-      const missingActive = LLM_PROVIDER_IDS.filter(
-        (id) => _keysMeta[id] && _keysMeta[id].configured && !activeProviders.includes(id),
-      );
-      if (missingActive.length > 0) {
-        activeProviders = null;
+      // After-onboarding sync · if the credential set has shifted
+      // since render time, rebuild the section so the hero +
+      // added-list reflect the truth.
+      const heroEl = paneEl.querySelector("[data-llm-hero]");
+      const renderedCredId = heroEl ? heroEl.dataset.credentialId : null;
+      if (renderedCredId !== activeLlmCredentialId()) {
         rerenderKeysSection();
         return;
       }
@@ -1551,7 +1921,6 @@
   /* ── Open / close ─────────────────────────────────────────── */
   function open() {
     if (!overlay) return;
-    activeProviders = null; // re-derive from saved keys on next render
     renderSection(currentSection || "user");
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");

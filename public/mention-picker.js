@@ -297,8 +297,14 @@
     const inserts = state.selectedOrder
       .map((id) => directorById(id))
       .filter(Boolean);
+    // Insert as `@<name>` (e.g. `@Socrates`, `@First Principles`)
+    // so the visible token IS the director's display name · matches
+    // how the user thinks of them at the table, not the internal
+    // handle slug. consumePendingMentions below resolves these back
+    // to agent ids by name + word-boundary regex so name overlaps
+    // (e.g. `First` vs `First Principles`) don't false-attribute.
     const insertText = inserts.length
-      ? inserts.map((d) => `@${d.handle}`).join(" ") + " "
+      ? inserts.map((d) => `@${d.name}`).join(" ") + " "
       : "@" + (state.query || "");
     const before = textarea.value.substring(0, state.trigger.start);
     const after = textarea.value.substring(state.zoneEnd);
@@ -331,11 +337,14 @@
 
   function close() {
     if (!state.open) return;
-    // Persist any inserted handles for the next send. consumePendingMentions
+    // Persist any inserted mentions for the next send. consumePendingMentions
     // will dedupe against the textarea body so backspaced-out ones drop.
+    // We store BOTH `name` (what the picker actually inserted) and
+    // `handle` (legacy · keeps backward compat for any caller still
+    // expecting the old shape).
     for (const id of state.selectedOrder) {
       const d = directorById(id);
-      if (d) state.pending.push({ id: d.id, handle: d.handle });
+      if (d) state.pending.push({ id: d.id, name: d.name, handle: d.handle });
     }
     state.open = false;
     state.trigger = null;
@@ -464,6 +473,18 @@
     if (id) toggleSelected(id);
   });
 
+  // Mousedown on the picker itself · preventDefault so the browser
+  // doesn't shift focus off the textarea (which would otherwise fire
+  // focusout → trigger the auto-dismiss path → kill the menu before
+  // the click event lands). Standard autocomplete-popover trick.
+  // Registered in capture phase so it runs before any other handler.
+  document.addEventListener("mousedown", (e) => {
+    if (!state.open) return;
+    if (e.target.closest && e.target.closest("[data-mention-picker]")) {
+      e.preventDefault();
+    }
+  }, true);
+
   // Click outside menu · dismiss. Any click landing outside the
   // picker's own DOM closes it · including clicks back into the
   // textarea (user spec: blur from menu area = auto-dismiss). The
@@ -511,11 +532,36 @@
       if (state.open) close();
       if (!state.pending.length) return [];
       const body = String(text || "");
+      // Sort longer names first so `First Principles` matches before
+      // its prefix `First` could spuriously claim the same span. Then
+      // strip each matched substring from a working copy of `body` so
+      // a single occurrence can't satisfy two overlapping pendings.
+      const sorted = state.pending.slice().sort((a, b) => {
+        const an = (a.name || a.handle || "").length;
+        const bn = (b.name || b.handle || "").length;
+        return bn - an;
+      });
+      const reEscape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let remaining = body;
       const seen = new Set();
       const out = [];
-      for (const p of state.pending) {
+      for (const p of sorted) {
         if (seen.has(p.id)) continue;
-        if (!body.includes(`@${p.handle}`)) continue;
+        // Match `@<name>` with a word-boundary tail so `@First` won't
+        // false-match inside `@First Principles`. Falls back to the
+        // legacy `@<handle>` form so any pending entry from an older
+        // session (or any future code path that still pushes handle-
+        // only entries) still resolves.
+        const tokens = [];
+        if (p.name) tokens.push(reEscape(p.name));
+        if (p.handle && p.handle !== p.name) tokens.push(reEscape(p.handle));
+        if (!tokens.length) continue;
+        const re = new RegExp("@(?:" + tokens.join("|") + ")(?![\\p{L}\\p{N}_])", "u");
+        const m = re.exec(remaining);
+        if (!m) continue;
+        // Consume the matched span so a later shorter pending can't
+        // re-match the same `@…` token in the body.
+        remaining = remaining.slice(0, m.index) + remaining.slice(m.index + m[0].length);
         seen.add(p.id);
         out.push(p.id);
       }

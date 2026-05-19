@@ -27,6 +27,77 @@ export interface TtsChunk {
   audioBase64?: string;
 }
 
+/** Tagged "MiniMax insufficient balance" error · the streaming AND
+ *  non-streaming TTS paths both throw THIS exact shape so the chair /
+ *  director SSE forwarders + the /api/voices route can recognise it
+ *  and surface the same upgrade overlay to the frontend. */
+export type TtsBillingError = Error & {
+  code: "paid-plan-required";
+  provider: string;
+  upgradeUrl: string;
+};
+
+function makeMiniMaxBalanceError(): TtsBillingError {
+  const err = new Error(
+    "Your MiniMax account balance is insufficient for TTS. " +
+    "Top up your account in the MiniMax console and try again.",
+  ) as TtsBillingError;
+  err.code = "paid-plan-required";
+  err.provider = "minimax";
+  // Pick the right console URL by region · CN keys can't sign in on
+  // the .io console and vice-versa.
+  err.upgradeUrl = getPrefs().minimaxRegion === "intl"
+    ? "https://platform.minimax.io/user-center/billing/overview"
+    : "https://platform.minimaxi.com/user-center/payment";
+  return err;
+}
+
+/** Tagged ElevenLabs "out of credits / paid plan required" error.
+ *  Library-voice gating (Rachel / George etc. on free tier) AND
+ *  credit-exhaustion (quota_exceeded) both route to the same upgrade
+ *  CTA — the user resolution is identical (upgrade or buy credits). */
+function makeElevenLabsBillingError(message: string): TtsBillingError {
+  const err = new Error(message) as TtsBillingError;
+  err.code = "paid-plan-required";
+  err.provider = "elevenlabs";
+  err.upgradeUrl = "https://elevenlabs.io/pricing";
+  return err;
+}
+
+/** Recognise the ElevenLabs credit/quota-exhaustion shapes that
+ *  aren't covered by the paid_plan_required gate (which targets
+ *  library voices specifically). Matches the JSON error bodies we've
+ *  observed: `quota_exceeded`, `insufficient_credit`, `out of credits`,
+ *  `voice_limit_reached`, plus a plain-text "credits" mention next to
+ *  a remaining-balance number. */
+function isElevenLabsCreditError(errText: string): boolean {
+  return /quota_exceeded|insufficient[ _-]?(?:credit|quota|balance|fund)|out\s+of\s+credits?|voice_limit_reached|余额不足/i.test(errText);
+}
+
+/** Unwrap a caught error and return its TtsBillingError shape when it
+ *  matches (code === "paid-plan-required"). Used by the streaming
+ *  callers (chair + director TTS) to decide whether to forward the
+ *  failure to the frontend via a `voice-error` SSE event so the
+ *  upgrade overlay can open. Returns null for any other error · the
+ *  caller still logs it to stderr as before. */
+export function tryExtractTtsBillingError(err: unknown): TtsBillingError | null {
+  if (!err || typeof err !== "object") return null;
+  const tagged = err as { code?: unknown; provider?: unknown; upgradeUrl?: unknown; message?: unknown };
+  if (tagged.code !== "paid-plan-required") return null;
+  if (typeof tagged.provider !== "string") return null;
+  const out = err as TtsBillingError;
+  if (typeof tagged.upgradeUrl !== "string") {
+    // Defensive · the producer should always set it, but if a future
+    // code path forgets, drop a sensible default so the overlay still
+    // surfaces (with no CTA · the close button still works).
+    out.upgradeUrl = "";
+  }
+  if (typeof tagged.message !== "string") {
+    out.message = "Voice synthesis requires a paid plan.";
+  }
+  return out;
+}
+
 /**
  * Strip markdown / code / urls / table syntax from a message body so
  * TTS doesn't read the formatting characters out loud. Used by both
@@ -192,13 +263,29 @@ export async function* synthesizeSpeechStream(
 
   if (!res.ok) {
     const errText = await res.text();
+    // Even on HTTP errors, MiniMax sometimes returns the structured
+    // base_resp · check for status_code 1008 / insufficient-balance
+    // wording so the streaming path tags the same error shape as the
+    // non-streaming `synthesizeMiniMax` below.
+    if (res.status === 402 || /"status_code"\s*:\s*1008|insufficient[ _-]?(?:balance|quota|credit|fund)|余额不足|余额[^a-zA-Z]?(?:不足|不够)/i.test(errText)) {
+      throw makeMiniMaxBalanceError();
+    }
     throw new Error(`MiniMax TTS stream HTTP ${res.status}: ${errText}`);
   }
 
-  // MiniMax may return 200 with an error body (JSON, not SSE) for auth failures.
+  // MiniMax returns 200 with an error body (JSON, not SSE) for auth
+  // AND for insufficient-balance failures. This is the actual path the
+  // user hits — the stream "succeeds" at the HTTP layer but the body
+  // is `{"base_resp":{"status_code":1008,"status_msg":"insufficient balance"}}`.
+  // Parse it explicitly so the failure surfaces as the same tagged
+  // upgrade error as the non-streaming path · the chair/director
+  // streaming callers then forward this via roomBus to the frontend.
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("text/event-stream")) {
     const errBody = await res.text();
+    if (/"status_code"\s*:\s*1008|insufficient[ _-]?(?:balance|quota|credit|fund)|余额不足|余额[^a-zA-Z]?(?:不足|不够)/i.test(errBody)) {
+      throw makeMiniMaxBalanceError();
+    }
     throw new Error(`MiniMax TTS: expected event-stream but got ${contentType}: ${errBody.slice(0, 200)}`);
   }
 
@@ -321,19 +408,7 @@ async function synthesizeMiniMax(text: string, profile: AgentVoiceProfile, signa
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 402 || /insufficient[ _-]?(?:balance|quota|credit|fund)|余额不足|余额[^a-zA-Z]?(?:不足|不够)/i.test(errText)) {
-      const err = new Error(
-        "Your MiniMax account balance is insufficient for TTS. " +
-        "Top up your account in the MiniMax console and try again.",
-      ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
-      err.code = "paid-plan-required";
-      err.provider = "minimax";
-      // Pick the right console URL by region · CN keys can't sign in
-      // on the .io console and vice-versa, so the deep-link respects
-      // the user's minimaxRegion preference.
-      err.upgradeUrl = getPrefs().minimaxRegion === "intl"
-        ? "https://platform.minimax.io/user-center/billing/overview"
-        : "https://platform.minimaxi.com/user-center/payment";
-      throw err;
+      throw makeMiniMaxBalanceError();
     }
     throw new Error(`MiniMax TTS HTTP ${res.status}: ${errText}`);
   }
@@ -349,16 +424,7 @@ async function synthesizeMiniMax(text: string, profile: AgentVoiceProfile, signa
   const status = json.base_resp?.status_code ?? 0;
   const statusMsg = json.base_resp?.status_msg || "";
   if (status !== 0 && (status === 1008 || /insufficient[ _-]?(?:balance|quota|credit|fund)|余额不足|余额[^a-zA-Z]?(?:不足|不够)/i.test(statusMsg))) {
-    const err = new Error(
-      "Your MiniMax account balance is insufficient for TTS. " +
-      "Top up your account in the MiniMax console and try again.",
-    ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
-    err.code = "paid-plan-required";
-    err.provider = "minimax";
-    err.upgradeUrl = getPrefs().minimaxRegion === "intl"
-      ? "https://platform.minimax.io/user-center/billing/overview"
-      : "https://platform.minimaxi.com/user-center/payment";
-    throw err;
+    throw makeMiniMaxBalanceError();
   }
   const hex = json.data?.audio ?? json.audio ?? "";
   if (!hex) {
@@ -463,14 +529,19 @@ async function synthesizeElevenLabs(text: string, profile: AgentVoiceProfile, si
     // a friendlier message than the raw JSON so users know to either
     // (a) clone their own voice, or (b) upgrade their ElevenLabs plan.
     if (res.status === 402 && /paid_plan_required|library voices/i.test(errText)) {
-      const err = new Error(
+      throw makeElevenLabsBillingError(
         "ElevenLabs library voices (Rachel, George, etc.) require a paid plan to use via the API. " +
         "Either upgrade your ElevenLabs subscription, or clone your own voice in the ElevenLabs dashboard and pick it here.",
-      ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
-      err.code = "paid-plan-required";
-      err.provider = "elevenlabs";
-      err.upgradeUrl = "https://elevenlabs.io/pricing";
-      throw err;
+      );
+    }
+    // Credit / quota exhaustion · separate signal from the
+    // paid_plan_required gate. ElevenLabs returns 401 or 422 here
+    // depending on plan tier, with `quota_exceeded` in the body.
+    if (isElevenLabsCreditError(errText)) {
+      throw makeElevenLabsBillingError(
+        "Your ElevenLabs account is out of credits. " +
+        "Top up your ElevenLabs plan and try again.",
+      );
     }
     throw new Error(`ElevenLabs TTS HTTP ${res.status}: ${errText.slice(0, 400)}`);
   }
@@ -514,14 +585,16 @@ async function* synthesizeElevenLabsStream(
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 402 && /paid_plan_required|library voices/i.test(errText)) {
-      const err = new Error(
+      throw makeElevenLabsBillingError(
         "ElevenLabs library voices (Rachel, George, etc.) require a paid plan to use via the API. " +
         "Either upgrade your ElevenLabs subscription, or clone your own voice in the ElevenLabs dashboard and pick it here.",
-      ) as Error & { code?: string; provider?: string; upgradeUrl?: string };
-      err.code = "paid-plan-required";
-      err.provider = "elevenlabs";
-      err.upgradeUrl = "https://elevenlabs.io/pricing";
-      throw err;
+      );
+    }
+    if (isElevenLabsCreditError(errText)) {
+      throw makeElevenLabsBillingError(
+        "Your ElevenLabs account is out of credits. " +
+        "Top up your ElevenLabs plan and try again.",
+      );
     }
     throw new Error(`ElevenLabs TTS stream HTTP ${res.status}: ${errText.slice(0, 400)}`);
   }

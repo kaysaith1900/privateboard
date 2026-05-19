@@ -669,6 +669,24 @@
   letter-spacing: -0.003em;
 }
 .us-key-row .us-input-wrap { background: var(--panel); }
+
+/* Per-row sub-control · used by the MiniMax row to host the
+   China / International region radio pair inline with the key. */
+.us-key-subrow {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.us-key-subrow-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
 .us-key-eye {
   background: transparent;
   border: none;
@@ -1432,18 +1450,35 @@
 .us-ws-backend-radios {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 22px;
+  gap: 8px 10px;
 }
 .us-ws-backend-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
   color: var(--text-soft);
   cursor: pointer;
+  padding: 6px 10px;
+  border: 0.5px solid var(--line);
+  background: var(--bg);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.us-ws-backend-label span {
+.us-ws-backend-label:hover {
+  border-color: var(--line-bright);
   color: var(--text);
+}
+.us-ws-backend-label span { color: inherit; }
+
+/* The radio itself uses the global square mono indicator (see
+   themes.css). The label pill gains a lime tint when its radio is
+   checked so the row reads as "selected" without relying on the
+   tiny 12px control alone. */
+.us-ws-backend-label:has(input[type="radio"]:checked) {
+  border-color: var(--lime);
+  color: var(--lime);
 }
 
 /* ─── Available models summary + default picker ───
@@ -1674,3 +1709,468 @@
   text-decoration-style: dotted;
   cursor: pointer;
 }
+
+/* ── Active LLM provider · multi-SIM layout ─────────────────────
+   Three regions:
+     1) Hero · big "currently using" card
+     2) Added providers · compact list (✓ on active, tap to switch, ✕ to remove)
+     3) Add another · collapsible card grid for not-yet-added providers
+*/
+.us-key-group-llm-active { display: flex; flex-direction: column; gap: 14px; }
+
+/* ─── Hero · "Currently using" ─────────────────────────────────── */
+.us-llm-hero {
+  position: relative;
+  background: var(--bg);
+  border: 1px solid var(--lime);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.us-llm-hero.is-empty {
+  border-color: var(--line-bright);
+  border-style: dashed;
+}
+.us-llm-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.us-llm-hero-titleblock {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.us-llm-hero-pill {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background: var(--lime);
+  padding: 2px 7px;
+  border: 0.5px solid var(--lime);
+}
+.us-llm-hero-pill.is-empty {
+  background: transparent;
+  color: var(--text-faint);
+  border-color: var(--line-bright);
+}
+.us-llm-hero-title {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.004em;
+  line-height: 1.2;
+}
+.us-llm-hero.is-active .us-llm-hero-title { color: var(--lime); }
+.us-llm-hero-deck {
+  font-family: var(--font-human);
+  font-size: 11px;
+  color: var(--text-soft);
+  line-height: 1.4;
+  letter-spacing: -0.003em;
+}
+.us-llm-hero-preview {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+  /* Defensive overflow guard · `compactMask()` in user-settings.js
+     collapses long bullet runs to a fixed length so the masked key
+     fits the hero. The overflow + ellipsis here catches any edge
+     case where the mask still exceeds the hero card's width. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ─── Added providers list ─────────────────────────────────────── */
+.us-llm-added {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.us-llm-added-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.us-llm-added-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  letter-spacing: 0;
+}
+.us-llm-added-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Credential row · two-deck layout:
+   ┌──────────────────────────────────────────┐
+   │ B.AI  B.AI                  tap to switch ✕│  ← head
+   │ > sk-or••••••••••••••••YjNH               │  ← keywrap
+   └──────────────────────────────────────────┘
+   The head uses flex with baseline alignment; the keywrap takes the
+   full row width below. Active state swaps the hint for the ✓ glyph;
+   the ✕ button is hidden until row hover. */
+.us-llm-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 0.5px solid var(--line);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  outline: none;
+}
+.us-llm-row:hover { border-color: var(--line-bright); }
+.us-llm-row:focus-visible { border-color: var(--lime); }
+.us-llm-row.is-active {
+  cursor: default;
+  /* No active-state border · the trailing ✓ mark carries the
+     "this one is in use" signal. */
+}
+
+/* ─── Head row · title block on the left, trailing cluster on the right ─── */
+.us-llm-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.us-llm-row-titleblock {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.us-llm-row-label {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.003em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.us-llm-row.is-active .us-llm-row-label { color: var(--lime); }
+.us-llm-row-provider {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.us-llm-row-trailing {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.us-llm-row-mark {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lime);
+  line-height: 1;
+}
+.us-llm-row-hint {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* ✕ remove · same glyph-only treatment as the ✓ mark (no border,
+   no square), hidden until the row gains hover OR keyboard focus.
+   `display: none` ↔ `inline-flex` keeps it out of the flex flow
+   entirely when idle, so no ghost gap remains. */
+.us-llm-row .us-key-remove {
+  display: none;
+  width: auto; height: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.us-llm-row:hover .us-key-remove,
+.us-llm-row:focus-within .us-key-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.us-llm-row .us-key-remove:hover { color: var(--red); }
+
+/* ─── Keywrap · masked-key input field below the head ─── */
+.us-llm-row-keywrap {
+  background: var(--panel);
+}
+.us-llm-row-preview {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 10px;
+  flex: 1;
+}
+
+/* ─── Hero provider line ───────────────────────────────────────── */
+.us-llm-hero-provider {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.us-llm-row-provider {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+}
+
+/* ─── Add Provider block (two-step) ────────────────────────────
+   Closed: a single "+" pill button.
+   Open · step "pick": grid of every provider with a tagline.
+   Open · step "key":  selected provider's pitch + label input + key
+                       input + Save/Cancel. */
+.us-llm-add { display: flex; flex-direction: column; gap: 10px; }
+.us-llm-add-trigger {
+  appearance: none;
+  background: transparent;
+  border: 0.5px dashed var(--line-bright);
+  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  cursor: pointer;
+  align-self: flex-start;
+  transition: color 0.12s, border-color 0.12s;
+}
+.us-llm-add-trigger:hover {
+  color: var(--lime);
+  border-color: var(--lime);
+}
+.us-llm-add-glyph {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.us-llm-add.is-open {
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  padding: 14px 16px;
+  gap: 14px;
+}
+.us-llm-add-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 0.5px dashed var(--line);
+}
+.us-llm-add-title {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.us-llm-add-back,
+.us-llm-add-close {
+  appearance: none;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 12px;
+  width: 22px; height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.us-llm-add-back:hover  { color: var(--lime); border-color: var(--lime); }
+.us-llm-add-close:hover { color: var(--red);  border-color: var(--red); }
+.us-llm-add-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Picker grid */
+.us-llm-multi-header,
+.us-llm-single-header {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.us-llm-picks-row {
+  display: grid;
+  gap: 8px;
+}
+.us-llm-picks-multi  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.us-llm-picks-single { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 720px) {
+  .us-llm-picks-multi,
+  .us-llm-picks-single { grid-template-columns: 1fr; }
+}
+.us-llm-pick {
+  appearance: none;
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright);
+  padding: 10px 12px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.us-llm-pick:hover { border-color: var(--lime); }
+.us-llm-pick-multi  { min-height: 78px; }
+.us-llm-pick-single { min-height: 64px; }
+.us-llm-pick-label {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.us-llm-pick:hover .us-llm-pick-label { color: var(--lime); }
+.us-llm-pick-tag {
+  font-family: var(--font-human);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+/* Key step · field stack + actions */
+.us-llm-add-tag {
+  font-family: var(--font-human);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.us-llm-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.us-llm-add-field-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.us-llm-add-field-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.us-llm-add-field .us-input,
+.us-llm-add-field .us-input-wrap {
+  background: var(--panel);
+}
+.us-llm-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+}
+.us-btn {
+  appearance: none;
+  border: 0.5px solid var(--line-bright);
+  background: transparent;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.us-btn:hover { color: var(--lime); border-color: var(--lime); }
+.us-btn-primary {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: var(--bg);
+  font-weight: 700;
+}
+.us-btn-primary:hover {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: var(--bg);
+  filter: brightness(1.05);
+}
+.us-btn-ghost { background: transparent; }
+.us-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* External help link inside the key step (reuse the legacy card-help
+   visual treatment so the link sits at the same micro-type as before). */
+.us-llm-card-help {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-decoration: none;
+  transition: color 0.12s;
+}
+.us-llm-card-help:hover { color: var(--lime); }

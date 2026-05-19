@@ -124,20 +124,6 @@
      *  miss falls back to the raw voiceId so the row never blocks on
      *  the fetch. */
     voiceLabels: {},
-    /** Interest-driven topic recommendations · the home composer's
-     *  "找你可能感兴趣的话题" tray. Always exactly 6 items (or
-     *  fewer if no batch has been generated yet) — every fresh
-     *  generation wipes the previous batch server-side, so
-     *  there's no pagination or history. `loaded` flips true
-     *  after the first `/api/topic-recs` fetch so first-paint
-     *  can show a sensible empty state. `job` is the live
-     *  generation job (id + phase + pct + detail) or null when
-     *  idle. */
-    topicRecs: {
-      items: [],
-      loaded: false,
-      job: null, // { id, phase, label, pct, detail, eventSource }
-    },
     rooms: [],
     currentRoomId: null,
     currentRoom: null,
@@ -152,6 +138,16 @@
     currentChair: null,            // chair agent for the current room
     currentQueue: [],
     voiceQueues: {},
+    /** Cross-director pipeline · pre-warmed messages whose chat
+     *  bubble should be HIDDEN (data-prewarmed) until their audio
+     *  starts playing. Set membership is the source of truth so the
+     *  attribute survives any `renderChat()` re-render — without this,
+     *  message-updated SSE (or brief-update / round-ended) wipes the
+     *  attribute and the still-pre-warmed bubble flashes its streaming
+     *  animation alongside the current speaker. Populated in
+     *  appendMessageDom, drained in _revealPrewarmedBubble, baked into
+     *  messageHtml so every render preserves the hidden state. */
+    _prewarmedHidden: new Set(),
     /** Mini-player anchor · when set, the cross-room bar persists
      *  for this voice room throughout its whole live/paused life
      *  (between speakers, during votes / clarify, idle phases) —
@@ -617,15 +613,28 @@
       closeBtn.addEventListener("click", dismiss, { once: true });
     },
 
-    /** Refetch /api/keys and update the local cache. Called by
-     *  user-settings on close so the requireModelKey gate sees the
-     *  user's just-configured keys without a full page reload. */
+    /** Refetch /api/keys + /api/credentials + the /api/models cache.
+     *  Called by user-settings on close so the requireModelKey gate
+     *  sees the user's just-configured credentials without a page
+     *  reload. `this.keys` covers voice + skill rows;
+     *  `window.keysStore.llmCredentials` covers LLM credentials. */
     async refreshKeys() {
       try {
         const r = await fetch("/api/keys");
-        if (!r.ok) return;
-        const j = await r.json();
-        this.keys = Object.fromEntries((j.keys || []).map((k) => [k.provider, k]));
+        if (r.ok) {
+          const j = await r.json();
+          this.keys = Object.fromEntries((j.keys || []).map((k) => [k.provider, k]));
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        if (window.keysStore && typeof window.keysStore.fetchLlmCredentials === "function") {
+          await window.keysStore.fetchLlmCredentials();
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        if (typeof window.boardroomModelsRefresh === "function") {
+          await window.boardroomModelsRefresh();
+        }
       } catch (e) { /* ignore */ }
     },
 
@@ -933,6 +942,11 @@
       this.agentSpec = null;
       this.agentSpecGenerating = false;
       this.agentSpecError = null;
+      // Cross-director pre-warm hidden set · scope is per-room.
+      // Carrying over from a prior room would mark messages in the
+      // new room as hidden if message IDs collide (rare but
+      // defensive). Empty on every room open.
+      this._prewarmedHidden = new Set();
       // Entering a room silences the agent-build ambient (the user
       // has shifted focus away from the agent composer). If a
       // build is still running, the sidebar Building row remains
@@ -1285,6 +1299,17 @@
             roundNum: data.roundNum || 1,
             createdAt: data.createdAt,
           });
+          // Client-side LLM first-token watchdog · mirrors the TTS
+          // chunk-arrival watchdog in mechanism but for the LLM stream
+          // itself. Streaming agent message just landed · start an 8s
+          // timer; if no message-token arrives in that window, flip
+          // _localPhase to "llm-warming" so the round-table bubble's
+          // status word changes to "Warming up" and the user sees the
+          // model is still working (not just frozen). Server-side 60s
+          // hard cap will eventually auto-skip if it really hung.
+          if (data.authorKind === "agent" && data.meta && data.meta.streaming === true) {
+            this._startLlmFirstTokenWatchdog(data.messageId);
+          }
           // Chair-pending placeholder · clear the moment ANY agent
           // message lands (chair OR director). The placeholder is a
           // stand-in while the chair did silent server-side work
@@ -1295,7 +1320,26 @@
           // OR a director turn — only the chair-restricted clear left
           // the placeholder lingering when the picker decided no
           // intervention was needed.
-          if (data.authorKind === "agent") {
+          // Hide chair-pending on agent message-appended · BUT keep
+          // it visible when the incoming message is a TEMPLATED chair
+          // vote message (round-prompt / round-end / intervention) in
+          // voice mode. Those have meta.streaming === false (the body
+          // is template-built, not LLM-streamed), so neither the
+          // streaming-message path nor the message-token path lights
+          // up the chair seat — there'd be a 0.5-2s dark window
+          // between message-appended and first voice-chunk. Keep
+          // chair-pending visible during that window; the voice-chunk
+          // handler clears _chairVoiceAwaiting and the next render
+          // takes over from there.
+          const isTemplatedChairVote = !!(
+            data.authorKind === "agent"
+            && this.currentChair && data.authorId === this.currentChair.id
+            && data.meta
+            && data.meta.streaming === false
+            && (data.meta.kind === "round-prompt" || data.meta.kind === "round-end" || data.meta.kind === "intervention")
+            && this.currentRoom && this.currentRoom.deliveryMode === "voice"
+          );
+          if (data.authorKind === "agent" && !isTemplatedChairVote) {
             this.hideChairPending();
           }
           // Chair vote-trigger message · register it as awaiting voice
@@ -1444,6 +1488,14 @@
         if (!msg) return;
         const wasEmpty = !String(msg.body || "").trim();
         msg.body += data.delta;
+        // First token landed · disarm the first-token watchdog and
+        // drop the local "warming" phase if it was set. Cheap no-op
+        // when the watchdog was never armed for this message (e.g.
+        // user-authored message, system message).
+        this._clearLlmFirstTokenWatchdog(data.messageId);
+        if (msg.meta && msg.meta._localPhase === "llm-warming") {
+          delete msg.meta._localPhase;
+        }
         // Mirror the body onto any voiceQueue for this message so
         // the cross-room mini-player can still show the "lyrics"
         // line after the user navigates away (SSE disconnects, but
@@ -1478,6 +1530,22 @@
           msg.meta = msg.meta || {};
           msg.meta.streaming = false;
           msg.meta.speakerStatus = "final";
+          if (msg.meta._localPhase === "llm-warming") delete msg.meta._localPhase;
+        }
+        // Stream finished · disarm the first-token watchdog as a
+        // safety net (normally cleared by the first message-token,
+        // but a stream that errors without a single token still
+        // emits message-final, so this catches it).
+        this._clearLlmFirstTokenWatchdog(data.messageId);
+        // Reveal hidden pre-warmed bubble · if this message had NO
+        // voice queue (text-mode rooms, OR voice-mode rooms where TTS
+        // failed silently for every sentence so no voice-chunk ever
+        // arrived), _fireVoiceDone's promote path can't reveal it.
+        // The voice path (queued → promoted on prior audio.ended)
+        // still owns reveals when a queue exists; this branch is the
+        // safety net for "LLM said something but audio never came".
+        if (!this.voiceQueues || !this.voiceQueues[data.messageId]) {
+          this._revealPrewarmedBubble(data.messageId);
         }
         // Chair clarify · in voice mode, the chair's clarifying
         // question just finished streaming. Pin the question text to
@@ -1504,7 +1572,14 @@
         // renderRtSubtitle's fallback branch); in text mode it
         // hides immediately since no voice clip is queued.
         this.renderRtSubtitle();
-        this.updateMessageBodyDom(data.messageId, msg ? msg.body : "", false);
+        // Keep the chat bubble's streaming pulse animation alive
+        // while TTS audio is still playing for this message. LLM
+        // text done ≠ speaker done · the user is still hearing the
+        // sentence. _fireVoiceDone explicitly clears the class when
+        // audio actually ends. In text-mode rooms (no voice queue)
+        // this collapses to the original `false` behaviour.
+        const ttsStillActive = !!(this.voiceQueues && this.voiceQueues[data.messageId]);
+        this.updateMessageBodyDom(data.messageId, msg ? msg.body : "", ttsStillActive);
         // A director just stopped streaming → the manual round-end
         // button may have flipped from disabled to enabled, and the
         // auto-continue countdown may now be eligible to start.
@@ -1546,6 +1621,10 @@
           msg ? msg.body : `[error: ${errText}]`,
           false,
         );
+        // Reveal hidden pre-warmed bubble · the LLM stream failed for
+        // this speaker, no audio will play, so the user needs to see
+        // the error message in chat rather than have it stay hidden.
+        this._revealPrewarmedBubble(data.messageId);
         this.refreshRoundEndButton();
         this.maybeStartContinueCountdown();
       });
@@ -1555,10 +1634,14 @@
         // Stop any voice playback for this message (e.g. READY control token)
         const vq = this.voiceQueues[data.messageId];
         if (vq) {
+          if (vq.watchdogId) { try { clearInterval(vq.watchdogId); } catch(_) {} vq.watchdogId = null; }
           if (vq.audio) { try { vq.audio.pause(); } catch(_) {} }
           delete this.voiceQueues[data.messageId];
           this.refreshMiniPlayer();
         }
+        // Also disarm first-token watchdog · message gone means no
+        // further token-arrival signal matters.
+        this._clearLlmFirstTokenWatchdog(data.messageId);
         // Drop the empty placeholder bubble.
         this.currentMessages = this.currentMessages.filter((m) => m.id !== data.messageId);
         const article = document.querySelector(`[data-message-id="${data.messageId}"]`);
@@ -1590,6 +1673,16 @@
         // _fireVoiceDone removes the queue at audio end).
         if (fresh && this._chairVoiceAwaiting) {
           this._chairVoiceAwaiting.delete(data.messageId);
+        }
+        // Chair templated voice has actually started · NOW hide the
+        // chair-pending placeholder (we deferred it earlier in the
+        // message-appended handler for templated chair vote messages
+        // so the user wasn't staring at a dark chair seat for the
+        // 0.5-2s window between message-appended and first voice-
+        // chunk). The voice queue will take over rendering via the
+        // playing-queue check in renderRoundTable.
+        if (fresh && this.chairPending) {
+          this.hideChairPending();
         }
         // Chair gavel SFX · fire ONCE when fresh chair voice starts
         // streaming, so the user hears the courtroom "knock-knock"
@@ -1644,6 +1737,34 @@
         q.messageId = data.messageId;
         q.roomId = roomId;
         this.drainVoiceQueue(roomId, data.messageId);
+      });
+
+      // TTS billing failure · MiniMax insufficient-balance / ElevenLabs
+      // out-of-credits / paid-plan-required gates. Server-side TTS
+      // streamers catch the tagged error and forward this event so the
+      // user gets an actionable overlay (with a top-up CTA) instead of
+      // silent failure. `openPaidOverlay` is itself idempotent (it
+      // no-ops when the overlay node is already in the DOM), so this
+      // handler can stay dumb · repeated events in a round just hit
+      // the early return inside the overlay function · no flashing.
+      this.sse.addEventListener("voice-error", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (!data || data.code !== "paid-plan-required") return;
+          if (window.AgentProfileVoice && typeof window.AgentProfileVoice.openPaidOverlay === "function") {
+            window.AgentProfileVoice.openPaidOverlay({
+              provider: data.provider || "",
+              upgradeUrl: data.upgradeUrl || "",
+              message: data.message || "",
+            });
+          } else if (data.message) {
+            // Fallback if the overlay module didn't load · still tell
+            // the user what happened rather than failing silently.
+            alert(data.message + (data.upgradeUrl ? ("\n\n" + data.upgradeUrl) : ""));
+          }
+        } catch (err) {
+          console.warn("[voice-error] handler failed:", err);
+        }
       });
 
       // Full body+meta replacement · used by tool-use rows whose
@@ -2321,6 +2442,14 @@
           // LLM startup). Show a transient placeholder so the user has
           // visible feedback until the real chair bubble arrives.
           this.showChairPending(payload?.phase || "");
+        } else if (kind === "auto-skipped") {
+          // Server-side timeout fired (TTS / LLM / picker / clarify)
+          // and the orchestrator auto-recovered. Surface a 3s toast
+          // so the user understands WHY the room jumped forward. The
+          // skip itself has already happened — this is purely the
+          // notification. messageId in payload (when present) is the
+          // target message id; reserved for future per-bubble hints.
+          this._showAutoSkipToast(payload?.phase || "", payload?.reason || "");
         } else if (kind === "room-opened") {
           // no-op: we already have full state
         } else if (kind === "auto-pick-started") {
@@ -2589,7 +2718,7 @@
     },
 
     // ── Actions ───────────────────────────────────────────────
-    async createRoom({ subject, agentIds, mode, intensity, briefStyle, autoPick, deliveryMode, seedContext }) {
+    async createRoom({ subject, agentIds, mode, intensity, briefStyle, autoPick, deliveryMode }) {
       const r = await fetch("/api/rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2601,11 +2730,6 @@
           briefStyle: briefStyle || "auto",
           deliveryMode: deliveryMode === "voice" ? "voice" : "text",
           ...(autoPick ? { autoPick: true } : {}),
-          // seedContext · attached when the user opened this room
-          // from a topic-rec card. Backend writes it to the
-          // opening message's meta so the chair grounds clarify
-          // in the actual source snippets.
-          ...(seedContext ? { seedContext } : {}),
         }),
       });
       if (!r.ok) {
@@ -3139,20 +3263,25 @@
       } catch { /* private-mode etc. — silently ignore */ }
     },
 
-    /** Pure cache read · returns true when the local app.keys map
-     *  reports any model provider as configured. Used by the gate
-     *  and (via wrappers) anywhere downstream UI needs the answer
-     *  cheaply.
-     *
-     *  Mirror the server-side LLM_PROVIDERS set (`routes/keys.ts:47`).
-     *  Without B.AI in this list, a user who configured ONLY a B.AI
-     *  key gets bounced to "configure an API key first" on every
-     *  pre-flight gate (topic-recs trigger, convene a room, etc.)
-     *  even though every model with a baiId is fully reachable. */
+    /** True iff the user has at least one LLM credential AND one is
+     *  flagged active. LLM credentials live in their own table
+     *  (multi-instance, see `/api/credentials`) — they're NOT in
+     *  `this.keys`, which only tracks voice + skill keys from
+     *  `/api/keys`. Read through the shared `/api/models` cache so
+     *  the server-side authority (active credential → reachable
+     *  provider) wins; fall back to the local keys-store when the
+     *  models cache hasn't loaded yet (cold start). */
     hasAnyModelKey() {
-      const MODEL_PROVIDERS = ["anthropic", "openai", "google", "xai", "deepseek", "openrouter", "bai"];
-      const keys = this.keys || {};
-      return MODEL_PROVIDERS.some((p) => keys[p] && keys[p].configured);
+      try {
+        const cache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
+        if (cache && typeof cache.hasAnyKey === "boolean") return cache.hasAnyKey;
+      } catch (_) { /* */ }
+      try {
+        const creds = (window.keysStore && Array.isArray(window.keysStore.llmCredentials))
+          ? window.keysStore.llmCredentials : [];
+        const activeId = window.keysStore ? window.keysStore.activeLlmCredentialId : null;
+        return creds.length > 0 && !!activeId && creds.some((c) => c.id === activeId);
+      } catch (_) { return false; }
     },
 
     /** Pure cache read · true when at least one voice provider
@@ -6925,19 +7054,10 @@
         const raw = localStorage.getItem("boardroom.composer");
         if (raw) saved = JSON.parse(raw);
       } catch { /* ignore */ }
-      // seedContext · pre-fetched web snippets the user attached
-      // by clicking a topic-rec card on the home composer. Round-
-      // tripped through localStorage so a page refresh between
-      // pick and convene doesn't lose the attached source
-      // material. Shape: { topicRecId?: string, snippets?: [] }.
-      const savedSeed = saved && typeof saved.seedContext === "object" && saved.seedContext
-        ? saved.seedContext
-        : null;
       this.composerState = {
         ...this.DEFAULT_COMPOSER,
         ...(saved || {}),
         subject: (saved && typeof saved.subject === "string") ? saved.subject : "",
-        seedContext: savedSeed,
       };
       return this.composerState;
     },
@@ -6945,10 +7065,10 @@
     saveComposerState() {
       if (!this.composerState) return;
       try {
-        const { directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject, seedContext } = this.composerState;
+        const { directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject } = this.composerState;
         localStorage.setItem(
           "boardroom.composer",
-          JSON.stringify({ directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject, seedContext: seedContext || null }),
+          JSON.stringify({ directorIds, mode, intensity, deliveryMode, autoPickDirectors, subject }),
         );
       } catch { /* ignore */ }
     },
@@ -6991,15 +7111,6 @@
       // overlay — typing in this view + Enter creates the room.
       const head = document.querySelector("[data-room-head]");
       if (head) head.innerHTML = "";  // CSS hides via html.no-room
-      // One-shot lazy fetch · the composer's "or try a starter"
-      // tray renders the latest topic recommendations when any
-      // exist (replacing the legacy hardcoded starters). Skipping
-      // when already loaded keeps re-renders cheap; the trigger
-      // button's SSE path explicitly refreshes after a successful
-      // generation so the list lands without polling.
-      if (!this.topicRecs.loaded) {
-        void this.refreshTopicRecs();
-      }
 
       // Strip stale follow-up fragments inserted by renderFollowUp-
       // Fragments() when a follow-up room was previously open. These
@@ -7098,7 +7209,7 @@
      *  centred. Called after composer render and on window resize.
      *
      *  The 0.7 threshold (was "strictly > viewport") catches the
-     *  in-between case where the input + ~6 topic-rec cards fit
+     *  in-between case where the input + scenario ad cards fit
      *  vertically but only just — centred layout would visually
      *  cram the hero against the top edge. Flipping to overflow
      *  mode at 70% gives the hero comfortable breathing room
@@ -7990,17 +8101,23 @@
              sparkles + horizon ticks + CSS scanlines (in CSS).
              Hidden in is-initial via opacity. -->
         <div class="search-results-deco">${RESULTS_DECO_SVG}</div>
-        <!-- Hero · longer wordmark + mono subline. Only visible
-             in .is-initial · faded + collapsed via CSS once
-             .has-results lands. -->
+        <!-- Hero · matches the new-room composer's two-row header ·
+             a mono caps greeting (cmp-greet · "Good afternoon, Kay")
+             above the headline. The old "across every room ..." sub-
+             line moved INSIDE the search-card's topbar so the card
+             itself surfaces its scope, matching .cmp-input-frame. -->
         <div class="search-hero">
+          <div class="cmp-greet">${this.escape(this.composerGreeting(this.composerLanguage(), (this.prefs?.name || "you").trim() || "you"))}</div>
           <h1 class="search-hero-title">Search every conversation</h1>
-          <p class="search-hero-sub">across every room · keyword · message body · room name</p>
         </div>
-        <!-- Card · is-initial = standalone framed input with
-             internal toolbar; has-results = flex row with the
-             meta beside it, toolbar hidden. -->
+        <!-- Card · is-initial = framed input with a brand-tinted
+             topbar hosting the scope hint, then the input below;
+             has-results = flex row with the meta beside it, topbar
+             collapsed via CSS. Mirrors new-room .cmp-input-frame. -->
         <div class="search-card${lastQuery ? "" : " is-empty"}" data-search-card>
+          <div class="search-topbar">
+            <span class="search-topbar-hint">across every room · keyword · message body · room name</span>
+          </div>
           <div class="search-input-wrap">
             <span class="search-input-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
@@ -9511,6 +9628,10 @@
         this.agentSpec = null;
         this.agentSpecGenerating = false;
       }
+      // Scenario placeholder hint is per-visit · drop it on any
+      // composer-mode change so the next render shows the default
+      // framing copy unless the user clicks a scenario again.
+      this._scenarioPlaceholder = null;
       // Make sure the room main view is the visible one — otherwise
       // our composer would render into a hidden container. Three
       // possible "previous" states: agent profile, all-reports, or a
@@ -9587,6 +9708,15 @@
      *  was retired at the user's request — it was a CTA-style nudge
      *  redundant with the heading question above the textarea. */
     _composerSubjectPlaceholder() {
+      // Scenario cards stash their starter subject here when
+      // clicked · we surface it as the placeholder so the user
+      // sees the suggested framing without it overwriting any
+      // draft they've already typed. Cleared on submit and on
+      // composer-mode switch so it doesn't follow the user
+      // across sessions / view changes.
+      if (typeof this._scenarioPlaceholder === "string" && this._scenarioPlaceholder.length > 0) {
+        return this._scenarioPlaceholder;
+      }
       return "Convening a room can stress-test a thesis, force a decision you've been avoiding, or surface the angle nobody on your real team brings.";
     },
 
@@ -9787,8 +9917,6 @@
         placeholder: this._composerSubjectPlaceholder(),
         convene: "Convene",
         tuneLabel: "tune",
-        starterLabel: "starter",
-        starterCaption: "or try a starter",
         pickerLabel: "Pick directors",
         directorsLabel: (n) => `${n} director${n === 1 ? "" : "s"}`,
         directorsAdd: "add",
@@ -9846,92 +9974,22 @@
       // unmistakeably a select) without taking up visual real estate.
       const toneLbl = this._t("cmp_tone_label");
       const intensityLbl = this._t("cmp_intensity_label");
-      // Starter grid · 2-col responsive cards. Two parallel
-      // pools render in the same `.cmp-starters-grid`:
-      //   1. Topic recommendations (newest-first, paged, visible
-      //      list, capped at 5 in the tray). Each card carries a
-      //      synthesiser-generated tag (e.g. "strategy") in the
-      //      left column. Clicking populates the composer with
-      //      the rec's subject + attaches its seedContext
-      //      snippets so the room opens grounded in the source
-      //      material.
-      //   2. Legacy hardcoded starters from window.BOARDROOM_STARTERS.
-      //      Show only when there are no recommendations yet (or
-      //      when recs are still loading on first paint) so a
-      //      brand-new user sees something useful in the tray.
-      const recs = (this.topicRecs.items || []).slice(0, 5);
-      // Card markup lives in `topicRecCardHtml` so the
-      // initial render path and any later append paths can't
-      // drift in shape / attributes.
-      const recCards = recs.map((rec) => this.topicRecCardHtml(rec)).join("");
-
-      const showLegacyStarters = recs.length === 0;
-      const starters = showLegacyStarters && Array.isArray(window.BOARDROOM_STARTERS)
-        ? window.BOARDROOM_STARTERS
-        : [];
-      const starterCards = starters.map((q, idx) => {
-        const tag = (q.tag || "").replace(/^\/\/\s*/, "");
-        return `
-          <button type="button" class="cmp-starter" data-composer-starter="${idx}">
-            <div class="cmp-starter-tag">${this.escape(tag)}</div>
-            <div class="cmp-starter-text">${this.escape(q.text || "")}</div>
-            <div class="cmp-starter-arrow">→</div>
-          </button>
-        `;
-      }).join("");
-      // Trigger card · disguised as the first row in the
-      // starters grid, so the "recommend" action lives in the
-      // same visual rhythm as the suggestions it produces. The
-      // card has TWO states wired through the same DOM hooks
-      // ([data-trec-label] / [data-trec-detail] / [data-trec-pct]
-      // / [data-trec-bar]) so the SSE handler can patch them
-      // in place without re-rendering the whole composer:
-      //   · IDLE (no job) · tag = "✦ discover", text = the
-      //     localised label (EN/ZH via i18n), arrow = "+".
-      //     Looks like a starter but with a lime accent +
-      //     dashed bottom rule.
-      //   · BUSY (job live) · tag = phase label (LLM-emitted,
-      //     stays English — those come from the orchestrator's
-      //     phaseLabels constant), text = animated dots +
-      //     phase detail, arrow = "N%". A thin lime progress
-      //     bar lives along the bottom edge and fills as the
-      //     pipeline ticks.
+      // Scenario ad cards · 5 hand-picked use-cases that double
+      // as long-form promotional units AND one-click room
+      // presets. Each card autoconfigures tone + intensity + a
+      // sensible 3-director cast, then drops a starter subject
+      // into the composer so the user lands on a working room
+      // shape instead of staring at a blank form.
       //
-      // The trigger LABEL is i18n'd (cmp_recs_trigger_label)
-      // because it's user-facing prompt copy, parallel to
-      // `cmp_prompt` and the time-of-day greeting above. The
-      // tag column ("discover") and starting placeholder are
-      // also keyed so locale switches flip them together.
-      const job = this.topicRecs.job;
-      const triggerBusy = !!job;
-      const triggerLabel = this._t("cmp_recs_trigger_label");
-      const triggerTag = this._t("cmp_recs_trigger_tag");
-      const triggerStarting = this._t("cmp_recs_trigger_starting");
-      const triggerCard = `
-        <button type="button"
-          class="cmp-starter cmp-recs-trigger-card${triggerBusy ? " is-busy" : ""}"
-          data-cmp-recs-trigger
-          data-topic-rec-progress
-          ${triggerBusy ? "disabled" : ""}
-          title="${this.escape(triggerLabel)}">
-          <div class="cmp-starter-tag" data-trec-label>${this.escape(triggerBusy ? (job.label || triggerStarting) : `✦ ${triggerTag}`)}</div>
-          <div class="cmp-starter-text">
-            ${triggerBusy
-              ? `<span class="cmp-recs-trigger-dots" aria-hidden="true"><i></i><i></i><i></i></span><span data-trec-detail>${this.escape(job.detail || "")}</span>`
-              : `<span>${this.escape(triggerLabel)}</span>`}
-          </div>
-          <div class="cmp-starter-arrow" data-trec-pct>${this.escape(triggerBusy ? (job.pct ? `${job.pct}%` : "·") : "+")}</div>
-          <div class="cmp-recs-trigger-bar" aria-hidden="true"><div class="cmp-recs-trigger-fill" data-trec-bar style="width: ${triggerBusy ? (job.pct || 0) : 0}%"></div></div>
-        </button>
-      `;
-
-      // Trigger card always leads; suggestions (or legacy
-      // starters as empty-state fallback) follow.
-      const trayCards = triggerCard + (recs.length > 0 ? recCards : starterCards);
-      // Pagination is intentionally OFF — the server keeps only
-      // the latest batch (6 rows). Every fresh generation wipes
-      // the previous batch, so there's never "older" data to
-      // page back to. The "+ N more" surface is gone.
+      // Card model (kept in one place so copy + visuals + click
+      // behaviour stay aligned · see this.SCENARIO_CARDS):
+      //   { id, icon, tag, headline, body, tonePill, directors,
+      //     starterSubject, tone, intensity }
+      // The button is a single click target; the inner avatar
+      // strip uses [data-agent-profile] (handled in capture by
+      // agent-profile.js) so users can still inspect a director
+      // without launching the scenario.
+      const scenarioCards = this.scenarioAdCardsHtml();
 
       return `
         <section class="cmp">
@@ -10024,13 +10082,13 @@
             </div>
           </div>
 
-          <div class="cmp-starters">
+          <div class="cmp-scenarios">
             <div class="cmp-starters-rule">
               <span class="cmp-starters-rule-line"></span>
-              <span class="cmp-starters-rule-label">${this.escape(t.starterCaption)}</span>
+              <span class="cmp-starters-rule-label">${this.escape(this._t("cmp_scenarios_caption"))}</span>
               <span class="cmp-starters-rule-line"></span>
             </div>
-            <div class="cmp-starters-grid">${trayCards}</div>
+            <div class="cmp-scenarios-stack">${scenarioCards}</div>
           </div>
         </section>
       `;
@@ -10137,19 +10195,16 @@
       }
     },
 
-    /** Tiny route badge for a ModelAvailability row from /api/models.
-     *  Returns "" when neither route works (caller shouldn't render
-     *  this row anyway), "direct" / "OR" alone, or "direct · OR" when
-     *  both are reachable. Mirrors the badges in user-settings.js
-     *  Available-models block so the visual vocabulary stays consistent
-     *  across pickers. */
-    modelRouteBadge(m) {
-      const d = !!(m && m.routes && m.routes.direct);
-      const o = !!(m && m.routes && m.routes.openrouter);
-      if (d && o) return "direct · OR";
-      if (d) return "direct";
-      if (o) return "OR";
-      return "";
+    /** Tiny route caption · returns "via {provider}" when the active
+     *  LLM provider is a multi-model carrier (openrouter / bai), or
+     *  "" when single-model active (the per-group header already
+     *  carries the provider identity, no caption needed). */
+    modelRouteCaption() {
+      const cache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
+      const active = cache && cache.activeLlmProvider;
+      const cls = cache && cache.activeLlmClassification;
+      if (!active || cls !== "multi-model") return "";
+      return "via " + this.providerLabel(active);
     },
 
     loadAgentComposerModel() {
@@ -10273,20 +10328,47 @@
       });
     },
 
-    /** Click handler for the agent-composer starter list. Drops the
-     *  starter's text into the textarea, focuses it, autosizes. The
-     *  user can edit before submitting. */
-    applyAgentStarter(idx) {
+    /** Card HTML for one celebrity seed. Avatar comes from
+     *  AvatarSkill (deterministic from seed.id), so the portrait
+     *  is the same every render. Intro picks the en/zh field
+     *  that matches the active locale; ja/es fall back to en. */
+    celebrityCardHtml(seed) {
       const lang = this.composerLanguage();
-      const list = this.AGENT_STARTERS_EN;
-      const item = list[idx];
-      if (!item) return;
-      const ta = document.querySelector("[data-agent-composer-desc]");
-      if (!ta) return;
-      ta.value = item.text;
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-      this.autosizeAgentComposerTextarea();
+      const intro = (seed.intro && (seed.intro[lang] || seed.intro.en || "")) || "";
+      const avatarUrl = (window.AvatarSkill && typeof window.AvatarSkill.generateDataUrl === "function")
+        ? window.AvatarSkill.generateDataUrl(seed.id)
+        : "";
+      const avatarHtml = avatarUrl
+        ? `<img class="cmp-celeb-img" src="${this.escape(avatarUrl)}" alt="${this.escape(seed.name)}">`
+        : `<span class="cmp-celeb-img-fallback" aria-hidden="true">·</span>`;
+      return `
+        <button type="button" class="cmp-celeb-card" data-celebrity-seed="${this.escape(seed.id)}" title="${this.escape(seed.name)}">
+          <span class="cmp-celeb-av">${avatarHtml}</span>
+          <span class="cmp-celeb-body">
+            <span class="cmp-celeb-name">${this.escape(seed.name)}</span>
+            <span class="cmp-celeb-role">${this.escape(seed.roleTag || "")}</span>
+            <span class="cmp-celeb-intro">${this.escape(intro)}</span>
+          </span>
+        </button>
+      `;
+    },
+
+    /** Click handler · kick the full-mode persona builder with the
+     *  celebrity's seed description, tag the live job with the seed
+     *  id so the save-success callback can mark it consumed. */
+    applyCelebritySeed(id) {
+      if (typeof id !== "string" || !id) return;
+      const pool = this._celebrityPool();
+      const seed = pool.find((s) => s.id === id);
+      if (!seed) return;
+      // Persist the description as the recovery draft (so a failed
+      // build can be retried via the existing error-card flow),
+      // then start the build. After startFullPersonaBuild() returns,
+      // `this.personaJob` is populated; tag it.
+      this._agentComposerLastDesc = seed.description;
+      this.startFullPersonaBuild(seed.description).then(() => {
+        if (this.personaJob) this.personaJob.celebritySeedId = seed.id;
+      }).catch(() => { /* startFullPersonaBuild surfaces its own error */ });
     },
 
     /** Stages shown during agent generation · each ticks active → done
@@ -10507,21 +10589,246 @@
       `;
     },
 
-    /** Starter prompts for the agent composer · 6 archetypal director
-     *  ideas that span the boardroom's style. Click → fills textarea. */
-    AGENT_STARTERS_EN: [
-      { tag: "long-horizon", text: "A strategist who plays four moves out — distinguishes 'right now' from 'right at the time horizon that matters'." },
-      { tag: "user-empathy", text: "A product hand who reasons from the user's moment of friction. Refuses any argument that doesn't name what the user is doing right then." },
-      { tag: "first-principles", text: "A physicist who strips problems to observables and causal chains. Refuses to import assumptions from analogy." },
-      { tag: "value-investor", text: "A long-pattern reader who tests every novel idea against thirty years of category history before believing it." },
-      { tag: "critique-reviewer", text: "A senior critic who audits any deliverable systematically — labels each flaw blocker / major / minor, points at the load-bearing piece, names the mechanism. Won't praise without finding at least one major issue." },
-      { tag: "phenomenologist", text: "An observer who notices what the room ISN'T saying. Tracks tone, what got skipped, who agreed too fast." },
+    /** Celebrity seed cards · 12 hand-curated famous figures that
+     *  act as one-click presets for the full-mode persona builder.
+     *  Click → `applyCelebritySeed(id)` → `startFullPersonaBuild(seed.description)`
+     *  → existing 7-phase build → confirmation overlay → save.
+     *  On save success the seed id is marked consumed and never
+     *  re-offered (see `_markCelebritySeedConsumed`). Pool stays
+     *  topped up via the LLM-driven `_topUpCelebritySeeds` path.
+     *
+     *  Per-entry shape:
+     *    · id           · kebab-slug · doubles as `AvatarSkill` seed
+     *                     (deterministic 8-bit portrait)
+     *    · name         · verbatim, no i18n (proper nouns)
+     *    · roleTag      · short mono tag · kept English to match the
+     *                     mono kicker register used elsewhere
+     *    · intro        · { en, zh } one-line tagline shown on the card;
+     *                     ja / es fall back to en (existing pattern)
+     *    · description  · seed text handed to `startFullPersonaBuild`;
+     *                     drives the full ReAct + 7-phase synthesis */
+    CELEBRITY_SEEDS_V1: [
+      {
+        id: "elon-musk",
+        name: "Elon Musk",
+        roleTag: "founder",
+        intro: {
+          en: "First-principles industrialist · electric / orbital / planetary",
+          zh: "第一性原理产业家 · 电动 / 轨道 / 行星尺度",
+        },
+        description: "A first-principles industrialist in the mold of Elon Musk — strips problems to physics, picks impossible-looking goals on civilizational time horizons (electric ground transport, orbital launch reuse, planetary multi-species existence), ships through aggressive execution. Refuses any plan whose constraints are 'industry standard' rather than physically forced.",
+      },
+      {
+        id: "marc-andreessen",
+        name: "Marc Andreessen",
+        roleTag: "venture",
+        intro: {
+          en: "Tech-optimist venture partner · software is eating the world",
+          zh: "技术乐观主义风险投资人 · 软件正在吞噬世界",
+        },
+        description: "A tech-optimist venture partner in the mold of Marc Andreessen — believes software is eating every industry, hunts for category-defining founders, frames every market in terms of long-arc compounding. Pushes founders to think 10x, distrusts incrementalism, treats history of tech disruption as the only valid reference class.",
+      },
+      {
+        id: "paul-graham",
+        name: "Paul Graham",
+        roleTag: "essayist",
+        intro: {
+          en: "Startup essayist · make something people want",
+          zh: "创业散文家 · 做用户真的想要的东西",
+        },
+        description: "An essayist-investor in the mold of Paul Graham — writes in clear short sentences, reasons from concrete observations of founder behaviour, distrusts hype and corporate vocabulary. Reduces strategy to two tests: do users love it, and is the team relentlessly resourceful. Treats writing as a debugging tool for thinking.",
+      },
+      {
+        id: "wittgenstein",
+        name: "Ludwig Wittgenstein",
+        roleTag: "philosopher",
+        intro: {
+          en: "Language philosopher · the limits of my language are the limits of my world",
+          zh: "语言哲学家 · 我语言的界限即我世界的界限",
+        },
+        description: "A language philosopher in the mold of Ludwig Wittgenstein — refuses any argument until the meaning of each word is shown in actual use. Treats philosophical problems as confusions of grammar, not deep mysteries. Pushes the room to describe what is happening rather than what we think is happening. Will stop a discussion cold to ask 'what would count as evidence that we are wrong'.",
+      },
+      {
+        id: "charlie-munger",
+        name: "Charlie Munger",
+        roleTag: "investor",
+        intro: {
+          en: "Mental-models compounder · invert, always invert",
+          zh: "心智模型复利大师 · 反过来想，永远反过来想",
+        },
+        description: "A latticework-of-mental-models investor in the mold of Charlie Munger — assembles answers by combining biology, history, psychology, and engineering. Inverts every question (what would make us fail?), insists on multidisciplinary referents, dismisses any argument that depends on a single discipline's framing. Patient, dry, allergic to the institutional imperative.",
+      },
+      {
+        id: "steve-jobs",
+        name: "Steve Jobs",
+        roleTag: "product",
+        intro: {
+          en: "Product taste-maker · design is how it works",
+          zh: "产品品味教父 · 设计是它如何运作",
+        },
+        description: "A product taste-maker in the mold of Steve Jobs — believes great products come from saying no to a thousand things, that taste is a real skill, that the user's hand-and-eye experience IS the product. Treats every feature decision as a question of what to cut. Refuses any spec that doesn't survive a 5-second hands-on demo.",
+      },
+      {
+        id: "wang-dingding",
+        name: "汪丁丁",
+        roleTag: "economist",
+        intro: {
+          en: "Institutional economist · ideas first, institutions follow",
+          zh: "制度经济学家 · 思想先行，制度跟随",
+        },
+        description: "An institutional economist in the mold of 汪丁丁 — reasons across economics, philosophy, and Chinese intellectual history. Treats every policy question as a question of what kind of human being the institution produces over time. Refuses purely quantitative framings; insists the room name the implicit anthropology behind any proposal.",
+      },
+      {
+        id: "naval-ravikant",
+        name: "Naval Ravikant",
+        roleTag: "philosopher",
+        intro: {
+          en: "Modern philosopher of wealth · seek leverage, not effort",
+          zh: "现代财富哲学家 · 追求杠杆，不要苦劳",
+        },
+        description: "A modern aphorist in the mold of Naval Ravikant — compresses arguments to single tweet-length lines, frames every life decision in terms of leverage (capital, labour, code, media), specific knowledge, and accountability. Distrusts traditional career narratives, treats reading and reflection as the primary capital-allocation activities.",
+      },
+      {
+        id: "peter-thiel",
+        name: "Peter Thiel",
+        roleTag: "contrarian",
+        intro: {
+          en: "Contrarian VC · what important truth do very few agree with you on",
+          zh: "反共识 VC · 你相信什么很少有人同意的重要真理",
+        },
+        description: "A contrarian venture capitalist in the mold of Peter Thiel — opens every conversation with 'what important truth do very few people agree with you on', treats competition as wasteful, hunts for monopolies and definite optimism. Distrusts consensus, refuses to validate ideas on social proof, reads history as a sequence of contingent crossings rather than progress.",
+      },
+      {
+        id: "richard-feynman",
+        name: "Richard Feynman",
+        roleTag: "physicist",
+        intro: {
+          en: "Intuitive physicist · what I cannot create, I do not understand",
+          zh: "直觉物理学家 · 我不能创造的，我就不理解",
+        },
+        description: "A first-principles physicist-teacher in the mold of Richard Feynman — explains hard ideas in everyday words, refuses to use jargon as a shield, demands the simplest experiment that would falsify any claim. Treats not understanding something as the most exciting state to be in. Will derive answers from scratch rather than quote them.",
+      },
+      {
+        id: "jensen-huang",
+        name: "Jensen Huang",
+        roleTag: "founder",
+        intro: {
+          en: "Accelerated-computing founder · the more you buy, the more you save",
+          zh: "加速计算缔造者 · 越买越省",
+        },
+        description: "An accelerated-computing visionary in the mold of Jensen Huang — sees every computing problem through the lens of parallel hardware, picks platform-scale bets a decade ahead of demand, builds developer ecosystems as a moat. Treats software, hardware, and developer mind-share as a single optimisation problem. Patient with technology, impatient with execution.",
+      },
+      {
+        id: "ray-dalio",
+        name: "Ray Dalio",
+        roleTag: "macro",
+        intro: {
+          en: "Principles-based macro investor · pain + reflection = progress",
+          zh: "原则派宏观投资人 · 痛苦 + 反思 = 进步",
+        },
+        description: "A principles-based macro investor in the mold of Ray Dalio — frames every market call as a debt-cycle / productivity-cycle / political-cycle interaction, insists every decision is written down as a testable principle, treats radical transparency and idea-meritocracy as institutional disciplines. Refuses unstructured opinions; asks the room to make their reasoning auditable.",
+      },
     ],
-    /** Legacy ZH list · kept as an alias of EN so any external caller
-     *  reading the property still resolves. System UI is English-only
-     *  per the global rule (the brief language doesn't change app
-     *  chrome). New code should reference AGENT_STARTERS_EN directly. */
-    get AGENT_STARTERS_ZH() { return this.AGENT_STARTERS_EN; },
+
+    /* ─── Celebrity seed · localStorage state + pool helpers ───
+       Single key `boardroom.celebrity_seeds` carries two arrays:
+         · consumed   · ids of seeds the user has successfully built
+                        a director from. Never re-offered.
+         · generated  · LLM-produced extra seeds, appended over time
+                        when the pool falls below the 12 threshold.
+       Pool = (CELEBRITY_SEEDS_V1 ∪ generated) − consumed. */
+    _CELEBRITY_KEY: "boardroom.celebrity_seeds",
+    _loadCelebrityState() {
+      try {
+        const raw = localStorage.getItem(this._CELEBRITY_KEY);
+        if (!raw) return { consumed: [], generated: [] };
+        const j = JSON.parse(raw);
+        return {
+          consumed: Array.isArray(j?.consumed) ? j.consumed.filter((x) => typeof x === "string") : [],
+          generated: Array.isArray(j?.generated) ? j.generated.filter((x) => x && typeof x === "object" && typeof x.id === "string") : [],
+        };
+      } catch { return { consumed: [], generated: [] }; }
+    },
+    _saveCelebrityState(state) {
+      try { localStorage.setItem(this._CELEBRITY_KEY, JSON.stringify(state)); }
+      catch { /* swallow · localStorage may be locked */ }
+    },
+    /** Returns all seeds (v1 + generated) NOT in consumed[]. Used as
+     *  the source pool for the random pick on each render. */
+    _celebrityPool() {
+      const state = this._loadCelebrityState();
+      const consumed = new Set(state.consumed);
+      const all = [...this.CELEBRITY_SEEDS_V1, ...state.generated];
+      // Deduplicate by id · LLM might occasionally collide with the
+      // hand-curated v1 catalog despite the excludeIds preamble.
+      const seen = new Set();
+      const out = [];
+      for (const s of all) {
+        if (!s || typeof s.id !== "string") continue;
+        if (consumed.has(s.id)) continue;
+        if (seen.has(s.id)) continue;
+        seen.add(s.id);
+        out.push(s);
+      }
+      return out;
+    },
+    /** Fisher-Yates partial · pick up to n distinct entries from pool. */
+    _pickRandomCelebrities(n) {
+      const pool = this._celebrityPool().slice();
+      const take = Math.min(n, pool.length);
+      for (let i = 0; i < take; i++) {
+        const j = i + Math.floor(Math.random() * (pool.length - i));
+        const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+      }
+      return pool.slice(0, take);
+    },
+    /** Tag a seed as consumed (called after a successful persona
+     *  save). If the pool then dips below 12, fire-and-forget the
+     *  LLM top-up — silently swallowed on failure since the user's
+     *  primary action (creating a director) already succeeded. */
+    _markCelebritySeedConsumed(id) {
+      if (typeof id !== "string" || !id) return;
+      const state = this._loadCelebrityState();
+      if (!state.consumed.includes(id)) {
+        state.consumed.push(id);
+        this._saveCelebrityState(state);
+      }
+      if (this._celebrityPool().length < 12) {
+        void this._topUpCelebritySeeds().catch(() => { /* swallow */ });
+      }
+    },
+    /** POST /api/agents/celebrity-seed with all known ids (v1 +
+     *  generated + consumed) as excludeIds, append the returned
+     *  fresh seed to localStorage.generated. */
+    async _topUpCelebritySeeds() {
+      const state = this._loadCelebrityState();
+      const excludeIds = [
+        ...this.CELEBRITY_SEEDS_V1.map((s) => s.id),
+        ...state.generated.map((s) => s.id),
+        ...state.consumed,
+      ];
+      const r = await fetch("/api/agents/celebrity-seed", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ excludeIds }),
+      });
+      if (!r.ok) throw new Error("celebrity-seed " + r.status);
+      const j = await r.json().catch(() => ({}));
+      const seed = j && typeof j === "object" ? j.seed : null;
+      if (!seed || typeof seed.id !== "string" || typeof seed.name !== "string") {
+        throw new Error("celebrity-seed · bad payload");
+      }
+      const fresh = this._loadCelebrityState();
+      // Guard against the rare race where the server returns an id
+      // we already have (we asked it to exclude, but trust no one).
+      const known = new Set([
+        ...this.CELEBRITY_SEEDS_V1.map((s) => s.id),
+        ...fresh.generated.map((s) => s.id),
+      ]);
+      if (known.has(seed.id)) return;
+      fresh.generated.push(seed);
+      this._saveCelebrityState(fresh);
+    },
 
     /** Persisted toggle · "signal" (current quick path) or "full"
      *  (the deep 5-10 min persona builder). Defaults to signal so
@@ -10549,7 +10856,8 @@
         ctaHint: this._t("ag_cmp_cta_hint"),
         manual: this._t("ag_cmp_manual"),
         generating: this._t("ag_cmp_generating"),
-        starterCaption: this._t("ag_cmp_starter_caption"),      };
+        celebrityCaption: this._t("ag_cmp_celebrity_caption"),
+      };
       // Full-mode build in flight or finished · separate render path.
       // Returns a different surface (SSE progress block or save card)
       // that hides the textarea + starters · the user is committed to
@@ -10580,14 +10888,12 @@
       const ctaHint = builderMode === "full"
         ? "5–10 min · ReAct research + 7-phase build"
         : t.ctaHint;
-      const starters = this.AGENT_STARTERS_EN;
-      const starterCards = starters.map((q, idx) => `
-        <button type="button" class="cmp-starter" data-agent-starter="${idx}">
-          <div class="cmp-starter-tag">${this.escape(q.tag)}</div>
-          <div class="cmp-starter-text">${this.escape(q.text)}</div>
-          <div class="cmp-starter-arrow">→</div>
-        </button>
-      `).join("");
+      // Celebrity seed cards · 6 random portraits from the pool of
+      // (CELEBRITY_SEEDS_V1 ∪ generated) − consumed. New random
+      // pick on every render so users browse a rotating set.
+      const celebrityCards = this._pickRandomCelebrities(6)
+        .map((seed) => this.celebrityCardHtml(seed))
+        .join("");
       return `
         <section class="cmp ag-cmp">
           <div class="cmp-bg-deco" aria-hidden="true">${this.composerBgDecoSvg("agent")}</div>
@@ -10697,13 +11003,13 @@
           ` : ""}
 
           ${!generating ? `
-            <div class="cmp-starters">
+            <div class="cmp-celeb-stack">
               <div class="cmp-starters-rule">
                 <span class="cmp-starters-rule-line"></span>
-                <span class="cmp-starters-rule-label">${this.escape(t.starterCaption)}</span>
+                <span class="cmp-starters-rule-label">${this.escape(t.celebrityCaption)}</span>
                 <span class="cmp-starters-rule-line"></span>
               </div>
-              <div class="cmp-starters-grid">${starterCards}</div>
+              <div class="cmp-celeb-grid">${celebrityCards}</div>
             </div>
           ` : ""}
         </section>
@@ -10715,9 +11021,22 @@
       const avatarSvg = (window.AvatarSkill && seed)
         ? window.AvatarSkill.generate(seed, { size: 96 })
         : `<div class="ag-prev-av-empty">—</div>`;
-      // Ordered + grouped by provider · same set as the toolbar
-      // dropdown so the user sees consistent picks pre/post generate.
-      const modelGroups = AGENT_COMPOSER_MODELS.reduce((acc, m) => {
+      // Reachable models only · filter by `/api/models` cache so the
+      // user can't pick a model their active credential can't route
+      // (e.g. Claude when active credential is OpenAI direct). Falls
+      // back to AGENT_COMPOSER_MODELS only when the cache hasn't
+      // loaded yet — rare cold-start path, browser will re-render
+      // after the first refresh.
+      const cache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
+      const reachable = (cache && Array.isArray(cache.reachable) && cache.reachable.length > 0)
+        ? cache.reachable.map((m) => ({
+            v: m.modelV,
+            label: m.displayName,
+            provider: this.providerLabel(m.provider),
+            deck: m.deck || "",
+          }))
+        : AGENT_COMPOSER_MODELS;
+      const modelGroups = reachable.reduce((acc, m) => {
         const last = acc[acc.length - 1];
         if (!last || last.provider !== m.provider) {
           acc.push({ provider: m.provider, items: [m] });
@@ -11759,6 +12078,12 @@
             const e = await r.json().catch(() => ({}));
             throw new Error(e.error || ("HTTP " + r.status));
           }
+          // Capture the celebrity seed id (if any) BEFORE nulling
+          // personaJob below · `_markCelebritySeedConsumed` needs
+          // it to update localStorage. Tagging happens in
+          // `applyCelebritySeed` when the build was kicked from a
+          // celebrity card; null for manual textarea builds.
+          const celebritySeedId = this.personaJob?.celebritySeedId || null;
           // Sync local state to mirror successful save. Null
           // `personaJob` BEFORE refreshAgents so the sidebar
           // re-render inside refreshAgents drops the Building
@@ -11767,6 +12092,10 @@
           this.personaJob = null;
           this._personaOverlayShown = false;
           await this.refreshAgents?.();
+          // Mark the celebrity seed consumed AFTER save + refresh
+          // both succeed. Fire-and-forget LLM top-up runs when the
+          // pool dips below 12 — never blocks the user's flow.
+          if (celebritySeedId) this._markCelebritySeedConsumed(celebritySeedId);
           this.composerMode = "room";
           this.setComposerMode?.("room");
           this.renderEmptyState();
@@ -12536,12 +12865,12 @@
         current = this.loadAgentBuilderMode();
       } else if (kind === "agent-model") {
         // Reachable-only model catalog · pulls from the shared
-        // /api/models cache so the picker reflects the user's
-        // current key set. Each row carries provider + deck + a
-        // route badge ("direct" / "OR" / "direct · OR") so power
-        // users can see how each model would route. When the cache
-        // hasn't loaded yet we fall back to the registry mirror so
-        // the picker isn't empty during first paint.
+        // /api/models cache. Under the single-active-LLM-provider
+        // invariant, every reachable model arrives via the SAME
+        // active carrier — so per-row route badges are redundant
+        // (a single "via {provider}" caption above the picker
+        // covers it for multi-model carriers). For single-model
+        // active, the per-group header already names the family.
         const cache = (typeof window.boardroomModels === "function") ? window.boardroomModels() : null;
         if (cache && Array.isArray(cache.reachable) && cache.reachable.length > 0) {
           opts = cache.reachable.map((m) => ({
@@ -12549,7 +12878,6 @@
             label: m.displayName,
             hint: m.deck || "",
             provider: this.providerLabel(m.provider),
-            badge: this.modelRouteBadge(m),
           }));
         } else {
           opts = AGENT_COMPOSER_MODELS.map((m) => ({
@@ -12557,7 +12885,6 @@
             label: m.label,
             hint: m.deck,
             provider: m.provider,
-            badge: "",
           }));
           // Kick off a refresh in the background so the next open
           // shows reachable-only data. No re-render of the current
@@ -12571,25 +12898,28 @@
         return;
       }
       // For the agent-model picker we group rows by provider with a
-      // tiny header label between groups. Tone / intensity remain a
-      // flat list (just 3-4 picks each — no grouping needed).
+      // tiny header label between groups. A single "via {provider}"
+      // caption sits at the top of the popover when a multi-model
+      // carrier is the active LLM provider (every reachable model
+      // arrives through the SAME carrier under the single-active
+      // invariant). Tone / intensity stay a flat list.
       let rows;
       if (kind === "agent-model") {
         const groups = [];
+        const caption = this.modelRouteCaption();
+        if (caption) {
+          groups.push(`<div class="cmp-dd-caption">${this.escape(caption)}</div>`);
+        }
         let lastProv = null;
         for (const o of opts) {
           if (o.provider !== lastProv) {
             groups.push(`<div class="cmp-dd-group">${this.escape(o.provider)}</div>`);
             lastProv = o.provider;
           }
-          const badge = o.badge
-            ? `<span class="cmp-dd-opt-route">${this.escape(o.badge)}</span>`
-            : "";
           groups.push(`
             <button type="button" class="cmp-dd-opt${o.v === current ? " active" : ""}" data-cmp-dd-pick="${this.escape(o.v)}" data-cmp-dd-kind="${this.escape(kind)}">
               <span class="cmp-dd-opt-label">${this.escape(o.label)}</span>
               <span class="cmp-dd-opt-hint">${this.escape(o.hint)}</span>
-              ${badge}
             </button>
           `);
         }
@@ -12751,16 +13081,14 @@
           intensity: state.intensity,
           deliveryMode: state.deliveryMode,
           autoPick: useAutoPick,
-          seedContext: state.seedContext || null,
         });
         // Clear the saved draft now that the room is convened — next
         // visit to "+ New Room" should land on a fresh textarea, not
-        // re-show the just-submitted subject. Also drop the attached
-        // seedContext — the snippets travelled into the room's
-        // opening message; we don't want them piggy-backing on the
-        // NEXT room the user opens.
+        // re-show the just-submitted subject. The scenario-card
+        // placeholder hint is also a one-shot · drop it so the next
+        // composer paint shows the default framing copy again.
         state.subject = "";
-        state.seedContext = null;
+        this._scenarioPlaceholder = null;
         this.saveComposerState();
       } catch (e) {
         if (btn) btn.classList.remove("busy");
@@ -12768,347 +13096,236 @@
       }
     },
 
-    /** Fetch the (single) page of topic recommendations · the
-     *  server keeps only the latest batch (6 rows), so one
-     *  request is the whole story. Idempotent — safe to call
-     *  from renderEmptyState() boot AND after a generation job
-     *  completes. Sets `topicRecs.loaded` so first-paint can
-     *  fall back to legacy hardcoded starters until this
-     *  resolves. */
-    async refreshTopicRecs() {
-      try {
-        const r = await fetch("/api/topic-recs?limit=6");
-        if (!r.ok) {
-          this.topicRecs.loaded = true;
-          this.renderEmptyState();
-          return;
-        }
-        const j = await r.json();
-        this.topicRecs.items = Array.isArray(j.items) ? j.items : [];
-        this.topicRecs.loaded = true;
-        // Re-render only when the user is still on the empty
-        // (composer) state · openRoom paths have already moved
-        // on and an unsolicited re-render would steal focus.
-        if (!this.currentRoomId) this.renderEmptyState();
-      } catch { /* network error · keep stale list, surface nothing */ }
+    /** Scenario use-case cards · 12 hand-curated boardroom
+     *  situations that also act as one-click room presets. Six
+     *  are picked at random on each composer render, so the user
+     *  sees a rotating set instead of a fixed list.
+     *
+     *  Each card:
+     *    · id           · stable kebab key (used in click handler)
+     *    · tagKey       · i18n key for the uppercase mono kicker
+     *                     (e.g. "INVESTOR · PITCH")
+     *    · headlineKey  · i18n key for the short serif italic title
+     *    · bodyKey      · i18n key for the italic 1-2 line intro
+     *    · directors    · 2-3 director slugs the click auto-picks
+     *    · tone         · room mode set on click
+     *    · intensity    · room intensity set on click
+     *    · subjectKey   · i18n key for the starter subject text
+     *                     dropped into the composer
+     *
+     *  Tone/intensity vocab matches what the room schema accepts
+     *  (brainstorm | constructive | research | debate | critique
+     *  × calm | sharp). Cards differentiate by content alone — no
+     *  accent colour, no rail, no icon. */
+    SCENARIO_CARDS: [
+      {
+        id: "investor-pitch",
+        tagKey: "scn_pitch_tag",
+        headlineKey: "scn_pitch_headline",
+        bodyKey: "scn_pitch_body",
+        directors: ["socrates", "value-investor", "first-principles"],
+        tone: "debate",
+        intensity: "sharp",
+        subjectKey: "scn_pitch_subject",
+      },
+      {
+        id: "product-brainstorm",
+        tagKey: "scn_brainstorm_tag",
+        headlineKey: "scn_brainstorm_headline",
+        bodyKey: "scn_brainstorm_body",
+        directors: ["first-principles", "user-empathy", "long-horizon"],
+        tone: "brainstorm",
+        intensity: "calm",
+        subjectKey: "scn_brainstorm_subject",
+      },
+      {
+        id: "topic-pk",
+        tagKey: "scn_pk_tag",
+        headlineKey: "scn_pk_headline",
+        bodyKey: "scn_pk_body",
+        directors: ["socrates", "value-investor"],
+        tone: "debate",
+        intensity: "sharp",
+        subjectKey: "scn_pk_subject",
+      },
+      {
+        id: "find-flaws",
+        tagKey: "scn_audit_tag",
+        headlineKey: "scn_audit_headline",
+        bodyKey: "scn_audit_body",
+        directors: ["socrates", "first-principles", "long-horizon"],
+        tone: "critique",
+        intensity: "sharp",
+        subjectKey: "scn_audit_subject",
+      },
+      {
+        id: "research-learn",
+        tagKey: "scn_research_tag",
+        headlineKey: "scn_research_headline",
+        bodyKey: "scn_research_body",
+        directors: ["first-principles", "long-horizon", "user-empathy"],
+        tone: "research",
+        intensity: "calm",
+        subjectKey: "scn_research_subject",
+      },
+      {
+        id: "negotiation-prep",
+        tagKey: "scn_negotiation_tag",
+        headlineKey: "scn_negotiation_headline",
+        bodyKey: "scn_negotiation_body",
+        directors: ["socrates", "value-investor", "user-empathy"],
+        tone: "debate",
+        intensity: "sharp",
+        subjectKey: "scn_negotiation_subject",
+      },
+      {
+        id: "decision-fork",
+        tagKey: "scn_decision_tag",
+        headlineKey: "scn_decision_headline",
+        bodyKey: "scn_decision_body",
+        directors: ["long-horizon", "first-principles", "value-investor"],
+        tone: "debate",
+        intensity: "calm",
+        subjectKey: "scn_decision_subject",
+      },
+      {
+        id: "red-team",
+        tagKey: "scn_red_team_tag",
+        headlineKey: "scn_red_team_headline",
+        bodyKey: "scn_red_team_body",
+        directors: ["socrates", "value-investor", "first-principles"],
+        tone: "critique",
+        intensity: "sharp",
+        subjectKey: "scn_red_team_subject",
+      },
+      {
+        id: "post-mortem",
+        tagKey: "scn_post_mortem_tag",
+        headlineKey: "scn_post_mortem_headline",
+        bodyKey: "scn_post_mortem_body",
+        directors: ["socrates", "first-principles", "long-horizon"],
+        tone: "research",
+        intensity: "calm",
+        subjectKey: "scn_post_mortem_subject",
+      },
+      {
+        id: "career-fork",
+        tagKey: "scn_career_tag",
+        headlineKey: "scn_career_headline",
+        bodyKey: "scn_career_body",
+        directors: ["long-horizon", "value-investor", "user-empathy"],
+        tone: "constructive",
+        intensity: "calm",
+        subjectKey: "scn_career_subject",
+      },
+      {
+        id: "hire-evaluation",
+        tagKey: "scn_hire_tag",
+        headlineKey: "scn_hire_headline",
+        bodyKey: "scn_hire_body",
+        directors: ["first-principles", "value-investor", "user-empathy"],
+        tone: "critique",
+        intensity: "sharp",
+        subjectKey: "scn_hire_subject",
+      },
+      {
+        id: "roadmap-priority",
+        tagKey: "scn_roadmap_tag",
+        headlineKey: "scn_roadmap_headline",
+        bodyKey: "scn_roadmap_body",
+        directors: ["user-empathy", "first-principles", "long-horizon"],
+        tone: "constructive",
+        intensity: "sharp",
+        subjectKey: "scn_roadmap_subject",
+      },
+    ],
+
+    /** Fisher-Yates partial · pick up to n distinct scenarios from
+     *  the catalog. Re-rolled on every composer render so the user
+     *  browses a rotating set. Unlike celebrity seeds, scenarios are
+     *  not "consumed" — the same set can be replayed forever. */
+    _pickRandomScenarios(n) {
+      const pool = (this.SCENARIO_CARDS || []).slice();
+      const take = Math.min(n, pool.length);
+      for (let i = 0; i < take; i++) {
+        const j = i + Math.floor(Math.random() * (pool.length - i));
+        const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+      }
+      return pool.slice(0, take);
     },
 
-    /** Derive a short tag from a subject string · used as the
-     *  client-side fallback when a rec row has no `tag` field
-     *  (legacy rows from before migration 035, or the rare
-     *  case where the LLM forgot to include one and the
-     *  orchestrator's safety-net path also fired). Mirrors the
-     *  orchestrator's `deriveTagFromSubject` logic so the
-     *  vocabulary stays consistent across paths. */
-    _deriveTagFromSubject(subject) {
-      const STOP = new Set([
-        "the", "and", "for", "are", "you", "your", "what", "how",
-        "why", "when", "with", "from", "this", "that", "should",
-        "could", "would", "have", "has", "will", "into", "about",
-      ]);
-      const words = (subject || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, " ")
-        .split(/\s+/)
-        .filter((w) => w.length > 2 && !STOP.has(w));
-      return words.slice(0, 2).join(" ").slice(0, 28) || "topic";
+    /** Build the markup for the 4 visible scenario cards. Compact
+     *  2-col grid layout — matches the celebrity seed cards on the
+     *  new-agent page (mono kicker → serif italic headline → italic
+     *  intro). No pills, no avatars, no CTA arrow — the entire card
+     *  is one click target. */
+    scenarioAdCardsHtml() {
+      return this._pickRandomScenarios(4)
+        .map((c) => this.scenarioCardHtml(c))
+        .join("");
     },
 
-    /** Build the HTML for a single topic-rec card. Used both by
-     *  `renderComposerHtml` (initial render) and `loadMoreTopicRecs`
-     *  (in-place append). Keeping the markup in one helper means
-     *  the two paths can't drift in shape or attributes. */
-    topicRecCardHtml(rec) {
-      // Tag priority: synthesiser-produced category > derive
-      // from subject. We NEVER fall back to "web" / "memory"
-      // as the visible tag — those are data-provenance tokens,
-      // not topic categories. The `data-source` attribute still
-      // carries the provenance for CSS to colour-tint with.
-      const tag = (typeof rec.tag === "string" && rec.tag.trim().length > 0)
-        ? rec.tag
-        : this._deriveTagFromSubject(rec.subject);
-      const hint = rec.rationale || "";
+    scenarioCardHtml(card) {
+      const tag = this._t(card.tagKey);
+      const headline = this._t(card.headlineKey);
+      const body = this._t(card.bodyKey);
+      // Cast strip · resolve director slugs against this.agentsById
+      // and render up to 3 small overlap-stacked avatars at the
+      // card foot. Each avatar carries [data-agent-profile] so a
+      // click on the avatar opens the profile overlay (handled in
+      // capture phase by agent-profile.js); clicks anywhere ELSE
+      // on the card still fire the scenario action via the
+      // [data-scenario-id] delegate.
+      const cast = (card.directors || [])
+        .map((id) => this.agentsById[id])
+        .filter(Boolean)
+        .slice(0, 3);
+      const castHtml = cast.map((a) => `
+        <span class="cmp-scn-av" title="${this.escape(a.name)}" data-agent-profile="${this.escape(a.id)}">
+          <img src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}">
+        </span>
+      `).join("");
       return `
-        <button type="button" class="cmp-starter cmp-rec" data-cmp-rec="${this.escape(rec.id)}" data-source="${this.escape(rec.source)}">
-          <div class="cmp-starter-tag">${this.escape(tag)}</div>
-          <div class="cmp-starter-text">${this.escape(rec.subject || "")}</div>
-          ${hint ? `<div class="cmp-rec-hint" title="${this.escape(hint)}">${this.escape(hint)}</div>` : ""}
-          <div class="cmp-starter-arrow">→</div>
+        <button type="button" class="cmp-scn-card" data-scenario-id="${this.escape(card.id)}">
+          <div class="cmp-scn-tag">${this.escape(tag)}</div>
+          <h3 class="cmp-scn-headline">${this.escape(headline)}</h3>
+          <p class="cmp-scn-desc">${this.escape(body)}</p>
+          ${cast.length > 0 ? `<div class="cmp-scn-cast">${castHtml}</div>` : ""}
         </button>
       `;
     },
 
-    // (no `loadMoreTopicRecs` — see comments at the
-    //  pagination-removed render block above.)
-
-    /** Kick off a new topic-recommendation generation job and
-     *  attach an SSE stream so the composer's progress strip
-     *  ticks through phases live. On `topic-final` we refresh
-     *  the tray from the API; on error we surface the message
-     *  inline so the user understands why nothing landed. */
-    async startTopicRecJob() {
-      if (this.topicRecs.job) return; // already running · idempotent click
-      // Pre-flight · API gate requires a model key. Surface the
-      // same prompt as Convene so the user fixes it once.
-      if (!(await this.requireModelKey())) return;
-      try {
-        const r = await fetch("/api/topic-recs", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
-        });
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          alert("Couldn't start: " + (j.error || r.statusText));
-          return;
-        }
-        const { jobId } = await r.json();
-        this.topicRecs.job = {
-          id: jobId,
-          phase: 0,
-          label: this._t("cmp_recs_trigger_starting"),
-          pct: 0,
-          detail: "",
-          es: null,
-          error: null,
-        };
-        if (!this.currentRoomId) this.renderEmptyState();
-        this._attachTopicRecJobSSE(jobId);
-      } catch (e) {
-        alert("Couldn't start: " + (e && e.message ? e.message : e));
-      }
-    },
-
-    /** Internal · attach the EventSource for a running job and
-     *  wire each event type to the in-memory job state. */
-    _attachTopicRecJobSSE(jobId) {
-      const url = `/api/topic-recs/jobs/${encodeURIComponent(jobId)}/stream`;
-      const es = new EventSource(url);
-      this.topicRecs.job.es = es;
-      const updateStrip = () => {
-        const el = document.querySelector("[data-topic-rec-progress]");
-        if (!el || !this.topicRecs.job) return;
-        const j = this.topicRecs.job;
-        const labelEl = el.querySelector("[data-trec-label]");
-        if (labelEl) labelEl.textContent = j.label || "";
-        const detailEl = el.querySelector("[data-trec-detail]");
-        if (detailEl) detailEl.textContent = j.detail || "";
-        const pctEl = el.querySelector("[data-trec-pct]");
-        if (pctEl) pctEl.textContent = j.pct ? `${j.pct}%` : "·";
-        const bar = el.querySelector("[data-trec-bar]");
-        if (bar) bar.style.width = `${j.pct || 0}%`;
-      };
-      const terminate = () => {
-        try { es.close(); } catch { /* noop */ }
-        this.topicRecs.job = null;
-        if (!this.currentRoomId) this.renderEmptyState();
-      };
-      es.addEventListener("hello", (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (this.topicRecs.job) {
-            this.topicRecs.job.phase = data.currentPhase || 0;
-            this.topicRecs.job.pct = data.progressPct || 0;
-          }
-          updateStrip();
-        } catch { /* noop */ }
-      });
-      es.addEventListener("topic-phase-start", (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (this.topicRecs.job) {
-            this.topicRecs.job.phase = data.phase;
-            this.topicRecs.job.label = data.label;
-            this.topicRecs.job.detail = "";
-          }
-          updateStrip();
-        } catch { /* noop */ }
-      });
-      es.addEventListener("topic-phase-progress", (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (this.topicRecs.job) {
-            this.topicRecs.job.phase = data.phase;
-            this.topicRecs.job.detail = data.detail || "";
-            this.topicRecs.job.pct = data.progressPct || this.topicRecs.job.pct;
-          }
-          updateStrip();
-        } catch { /* noop */ }
-      });
-      es.addEventListener("topic-phase-end", (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (this.topicRecs.job) {
-            this.topicRecs.job.pct = data.progressPct || this.topicRecs.job.pct;
-          }
-          updateStrip();
-        } catch { /* noop */ }
-      });
-      es.addEventListener("topic-final", () => {
-        // Pull the freshest first page so the new cards land
-        // immediately; closing the EventSource is on the same
-        // tick so the next click doesn't see a stale job.
-        terminate();
-        void this.refreshTopicRecs();
-      });
-      es.addEventListener("topic-error", (ev) => {
-        let msg = "generation failed";
-        try { msg = (JSON.parse(ev.data).message) || msg; } catch { /* noop */ }
-        alert("Topic generation failed: " + msg);
-        terminate();
-      });
-      es.addEventListener("topic-aborted", () => {
-        terminate();
-      });
-      es.onerror = () => {
-        // Transport hiccup · treat as terminal so the UI doesn't
-        // stay stuck on a phantom progress strip.
-        if (this.topicRecs.job) terminate();
-      };
-    },
-
-    /** Click handler on a recommendation card · fetches the
-     *  full row (to recover seedContext) then applies it to the
-     *  composer state so the next Convene carries the snippets
-     *  through to the opening message's meta. */
-    async applyTopicRec(id) {
-      if (!id) return;
-      try {
-        const r = await fetch(`/api/topic-recs/${encodeURIComponent(id)}`);
-        if (!r.ok) return;
-        const row = await r.json();
-        if (!row || typeof row.subject !== "string") return;
-        const state = this.loadComposerState();
-        state.subject = row.subject;
-        state.seedContext = {
-          topicRecId: row.id,
-          // Rationale is the "why this fits you" line the
-          // synthesiser produced · it's hidden from the card
-          // UI but forwarded as background context so the
-          // chair's clarify prompt can ground its first turn
-          // in the same reasoning the recommendation was
-          // built on.
-          rationale: typeof row.rationale === "string" ? row.rationale : "",
-          snippets: Array.isArray(row.seedContext) ? row.seedContext : [],
-        };
-        this.saveComposerState();
-        this.renderEmptyState();
-        setTimeout(() => {
-          const ta = document.querySelector("[data-composer-subject]");
-          if (ta) {
-            ta.focus();
-            ta.setSelectionRange(ta.value.length, ta.value.length);
-            this.autosizeComposerTextarea?.();
-          }
-        }, 50);
-      } catch { /* noop */ }
-    },
-
-    /** Apply a starter spec into the composer state — fills the
-     *  textarea, swaps the cast / tone / intensity to the starter's
-     *  presets, then re-renders. User can adjust before hitting Enter. */
-    applyComposerStarter(idx) {
-      const list = window.BOARDROOM_STARTERS || [];
-      const q = list[idx];
-      if (!q) return;
+    /** Click handler · apply a scenario preset into composer
+     *  state. Sets the director cast + tone + intensity and
+     *  replaces the textarea PLACEHOLDER (not the value) with the
+     *  scenario's starter subject — the user still types their
+     *  own real question. Submitting / leaving the composer wipes
+     *  the hint (see submitComposer / setComposerMode). */
+    applyScenarioCard(id) {
+      const card = (this.SCENARIO_CARDS || []).find((c) => c.id === id);
+      if (!card) return;
       const state = this.loadComposerState();
-      // Map starter agent slugs to actual ids if necessary; the spec
-      // already stores ids so just keep agents that exist.
-      const want = (q.agents || []).filter((id) => this.agentsById[id]);
-      if (want.length) state.directorIds = want;
-      if (q.tone) state.mode = q.tone;
-      if (q.intensity) state.intensity = q.intensity;
-      // Write the starter text into the persisted draft so it survives
-      // a navigation away and back, just like manual typing does.
-      state.subject = q.text || "";
+      const want = (card.directors || []).filter((aid) => this.agentsById[aid]);
+      if (want.length) {
+        state.directorIds = want;
+        state.autoPickDirectors = false;
+      }
+      if (card.tone) state.mode = card.tone;
+      if (card.intensity) state.intensity = card.intensity;
+      const subject = this._t(card.subjectKey) || "";
+      if (subject && subject !== card.subjectKey) {
+        this._scenarioPlaceholder = subject;
+      }
       this.saveComposerState();
-      // Re-render to reflect the new selections; keep autofocus at end of subject.
       this.renderEmptyState();
       setTimeout(() => {
         const ta = document.querySelector("[data-composer-subject]");
         if (ta) {
           ta.focus();
           ta.setSelectionRange(ta.value.length, ta.value.length);
-          this.autosizeComposerTextarea();
+          this.autosizeComposerTextarea?.();
         }
       }, 50);
-    },
-
-    /**
-     * Render one starter card. The cast + config come from the starter spec
-     * (window.BOARDROOM_STARTERS); each avatar is clickable to open the
-     * agent profile, the card body fires the starter action, and a
-     * [▶ Start] button appears on hover at the right.
-     */
-    starterCardHtml(q, idx) {
-      const cast = (q.agents || [])
-        .map((id) => this.agentsById[id])
-        .filter(Boolean);
-      const castHtml = cast.map((a) => `
-        <span class="starter-agent" title="${this.escape(a.name)} · ${this.escape(a.roleTag || "")}" data-agent-profile="${this.escape(a.id)}">
-          <img class="starter-av" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" data-agent-profile="${this.escape(a.id)}">
-          <span class="starter-name">${this.escape(a.name)}</span>
-        </span>
-      `).join("");
-      return `
-        <div class="starter-card" data-starter-idx="${idx}">
-          <div class="starter-tag">${this.escape(q.tag)}</div>
-          <div class="starter-main">
-            <div class="starter-text">${this.escape(q.text)}</div>
-            <div class="starter-hint">${this.escape(q.hint)}</div>
-            <div class="starter-meta">
-              <span class="meta-tag tag-tone"><span class="k">tone</span><span class="v">${this.escape(q.tone)}</span></span>
-              <span class="meta-tag tag-intensity"><span class="k">intensity</span><span class="v">${this.escape(q.intensity)}</span></span>
-            </div>
-          </div>
-          <div class="starter-cast" aria-label="${cast.length} directors">${castHtml}</div>
-          <button type="button" class="starter-start" data-starter-go="${idx}" title="Start this room">
-            <span class="starter-start-arrow">▶</span><span class="starter-start-label">Start</span>
-          </button>
-        </div>
-      `;
-    },
-
-    /**
-     * Create a room from a starter spec. The cast + tone + intensity come
-     * from `window.BOARDROOM_STARTERS` (or the explicit subject string for
-     * legacy callers). Falls back to the default trio if a referenced
-     * agent isn't seeded.
-     */
-    async createStarterRoom(subjectOrSpec) {
-      const starters = (typeof window !== "undefined" && Array.isArray(window.BOARDROOM_STARTERS))
-        ? window.BOARDROOM_STARTERS : [];
-      let spec = null;
-      if (subjectOrSpec && typeof subjectOrSpec === "object") {
-        spec = subjectOrSpec;
-      } else if (typeof subjectOrSpec === "string") {
-        const text = subjectOrSpec.trim();
-        spec = starters.find((s) => s.text === text) || { text };
-      }
-      if (!spec || !spec.text) return;
-
-      const have = new Set(this.agents.map((a) => a.id));
-      let agentIds = (spec.agents || []).filter((id) => have.has(id));
-      // Fallback to the canonical trio, then to any three seeded agents.
-      if (agentIds.length < 2) {
-        const trio = ["socrates", "first-principles", "value-investor"].filter((id) => have.has(id));
-        agentIds = trio.length >= 2 ? trio : this.agents.slice(0, 3).map((a) => a.id);
-      }
-      if (agentIds.length === 0) {
-        alert("No directors available — the agent catalog is empty.");
-        return;
-      }
-      try {
-        await this.createRoom({
-          subject: spec.text,
-          agentIds,
-          mode: spec.tone || "constructive",
-          intensity: spec.intensity || "sharp",
-          briefStyle: spec.briefStyle || "auto",
-        });
-      } catch (e) {
-        alert("Couldn't open the starter room: " + (e && e.message ? e.message : e));
-      }
     },
 
     /** Tone hover copy · i18n keyed by mode, falls back to TONE_TIPS. */
@@ -13221,7 +13438,7 @@
             <span class="kicker-intensity">${this.escape(intensity.toUpperCase())}</span>
             ${statusWord ? `<span class="kicker-sep">·</span><span class="kicker-status status-${this.escape(r.status)}">${statusWord}</span>` : ""}
           </div>
-          <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(this._truncateRoomSubject(r.subject, 30))}</h1>
+          <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(this._truncateRoomSubject(r.subject, 60))}</h1>
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
@@ -13446,6 +13663,36 @@
     appendMessageDom(msg) {
       const chat = document.querySelector("[data-chat-messages]");
       if (!chat) return;
+      // Cross-director pipeline · MUST decide hide-on-insert BEFORE
+      // calling messageHtml so the article's very first paint already
+      // carries `data-prewarmed=""`. Without this pre-mark, the
+      // article briefly paints with `.streaming` and no
+      // `data-prewarmed`, and the corner-bracket pulse flashes for
+      // one frame.
+      //
+      // Single authority · `msg.meta.preWarmed === true`. The server
+      // stamps this flag ONLY in the runPickerThenPrewarm path
+      // (room.ts streamSpeakerTurn with preWarmed:true). That path
+      // by definition runs while another director's TTS is playing,
+      // so the flag alone is sufficient. The earlier double-check
+      // against client-side voiceQueues `hasPlaying` introduced a
+      // race: if B's message-appended SSE arrived one frame before
+      // A's first voice-chunk created A's queue client-side,
+      // hasPlaying was false, B skipped the hidden set, and B's
+      // animation flashed. Server flag is the truth — trust it.
+      if (msg.meta && msg.meta.preWarmed === true && msg.authorKind === "agent") {
+        this._prewarmedHidden.add(msg.id);
+        console.log(`[pre-warm] hide msg=${msg.id} author=${msg.authorId} set-size=${this._prewarmedHidden.size}`);
+      } else if (msg.authorKind === "agent" && msg.meta) {
+        // Diagnostic · helps spot the case where the server didn't
+        // stamp meta.preWarmed but the client still saw the bubble
+        // animate during a prior speaker's TTS. If you see this log
+        // for a director that "appeared" mid-prior-speech, the bug
+        // is server-side: the placeholder was inserted via the fresh
+        // path (not runPickerThenPrewarm). Inspect pumpQueue's
+        // preWarmedHit branch for the relevant iteration.
+        console.log(`[pre-warm] NOT hide msg=${msg.id} author=${msg.authorId} preWarmed=${String(msg.meta.preWarmed)} streaming=${String(msg.meta.streaming)}`);
+      }
       // The very first user message in the room renders as the convene block.
       const isOpener = msg.id === this.firstUserMessageId();
       chat.insertAdjacentHTML("beforeend", this.messageHtml(msg, isOpener));
@@ -13453,6 +13700,58 @@
       // (single message, single map lookup) and keeps brand-new
       // bubbles consistent with the rest of the chat.
       this.applyNoteHighlightsForMessage(msg.id);
+      // Safety reveal · defense in depth, NOT a hard 30s cap.
+      //
+      // BUG history · a flat 30s force-reveal here turned into a real
+      // user-visible bug: if the predecessor director's TTS is longer
+      // than 30s, the pre-warmed bubble was sitting legitimately in
+      // "queued" state waiting its turn — the safety fired and ripped
+      // off `data-prewarmed`, the bubble flashed into view alongside
+      // the speaking director, and the user reported "C 出现了 和
+      // B 重叠". A long but healthy wait is exactly what the pre-warm
+      // pipeline is supposed to do.
+      //
+      // Correct semantics · only force-reveal when the pre-warm is
+      // genuinely STUCK (no voice queue ever materialized for this
+      // message, or its state went sideways). If the voice queue is
+      // present and "queued", a sibling MUST be "playing" — the
+      // hard concurrency guard enforces that invariant — so the
+      // normal `_fireVoiceDone` promote will eventually reveal us.
+      // Re-poll instead of giving up.
+      if (this._prewarmedHidden.has(msg.id)) {
+        const msgId = msg.id;
+        const SAFETY_POLL_MS = 30_000;
+        const safetyTick = () => {
+          if (!this._prewarmedHidden.has(msgId)) return; // already revealed
+          const vq = this.voiceQueues && this.voiceQueues[msgId];
+          if (vq && vq.playState === "queued") {
+            // Healthy wait · predecessor's TTS still playing.
+            // Re-poll; do NOT reveal.
+            setTimeout(safetyTick, SAFETY_POLL_MS);
+            return;
+          }
+          // No queue or unexpected state · the pre-warm path went
+          // wrong. Reveal so the user at least sees the text.
+          console.warn(
+            `[pre-warm] safety reveal msg=${msgId} `
+              + `vq=${vq ? vq.playState : "missing"}`,
+          );
+          this._revealPrewarmedBubble(msgId);
+        };
+        setTimeout(safetyTick, SAFETY_POLL_MS);
+      }
+    },
+
+    /** Reveal a previously-hidden pre-warmed chat bubble. Called from
+     *  _fireVoiceDone's promote logic and from the message-error SSE
+     *  handler. Idempotent · no-op if the bubble isn't marked. Drains
+     *  the persistent _prewarmedHidden set so subsequent renderChat
+     *  re-renders don't re-hide the bubble. */
+    _revealPrewarmedBubble(messageId) {
+      if (!messageId) return;
+      this._prewarmedHidden.delete(messageId);
+      const bubble = document.querySelector(`[data-message-id="${messageId}"]`);
+      if (bubble && bubble.removeAttribute) bubble.removeAttribute("data-prewarmed");
     },
 
     /** "Thinking…" bouncing-dots placeholder shown before the first token. */
@@ -13477,6 +13776,12 @@
       // chair-pending placeholder card (which is hidden in voice mode
       // because the chat is hidden).
       this.chairPending = true;
+      // Phase string · drives the status-word substitution in the
+      // round-table bubble so the user sees "Picking next speaker" /
+      // "Considering clarify" / etc. instead of generic "Thinking".
+      // i18n lookup happens at render time so locale changes apply
+      // without re-firing the event.
+      this.chairPendingPhase = String(phase || "");
       // Repaint the stage so the seat picks up the thinking state.
       // Cheap when stage is hidden (renderRoundTable bails fast).
       this.renderRoundTable();
@@ -13530,6 +13835,7 @@
       // ready / room-paused / etc).
       const wasPending = this.chairPending === true;
       this.chairPending = false;
+      this.chairPendingPhase = "";
       const chat = document.querySelector("[data-chat-messages]");
       if (chat) {
         const existing = chat.querySelector("[data-chair-pending]");
@@ -13567,34 +13873,42 @@
       try { window.boardroomTypingSfx?.setThinking?.(false); } catch { /* ignore */ }
       let q = this.voiceQueues[chunk.messageId];
       if (!q) {
-        // Serialize voice playback · only one TTS clip plays at a
-        // time. When a new voice-chunk arrives for a NEW messageId,
-        // tear down any currently-active voice queues so their audio
-        // doesn't overlap the incoming chair / director's speech.
-        // The most common overlap pattern was: round-prompt voice
-        // still playing → user clicks [Open vote] → server fires
-        // runChairRoundEnd → new voice chunks arrive → both audios
-        // double up. Cancelling stale queues at this seam serializes
-        // the voice timeline cleanly without changing the SSE shape.
-        const stale = Object.keys(this.voiceQueues || {});
-        for (const sid of stale) {
-          if (sid === chunk.messageId) continue;
-          const sq = this.voiceQueues[sid];
-          if (!sq) continue;
-          try { if (sq.audio) sq.audio.pause(); } catch (_) {}
-          try { if (sq.audio && sq.audio.src) URL.revokeObjectURL(sq.audio.src); } catch (_) {}
-          try { if (sq.audio && sq.audio.parentNode) sq.audio.parentNode.removeChild(sq.audio); } catch (_) {}
-          try {
-            if (sq.mediaSource && sq.mediaSource.readyState === "open") {
-              sq.mediaSource.endOfStream();
-            }
-          } catch (_) {}
-          delete this.voiceQueues[sid];
+        // Cross-director pipelining · the server now pre-warms B's
+        // LLM/TTS while A's audio still plays on this client. When
+        // chunks for B's messageId arrive, we MUST NOT tear down A's
+        // queue · A still has audio buffered. Instead, create B's
+        // queue in `playState: "queued"` so it doesn't auto-play.
+        // _fireVoiceDone (when A finishes) promotes the oldest
+        // "queued" sibling to "playing" + calls audio.play().
+        // Serialisation race guard · check ONLY playState, NOT
+        // audio.ended. Scenario the previous `!audio.ended` filter
+        // hit: B is playing, last buffer drains → audio.ended becomes
+        // true → audio.ended event queued in the event loop → BEFORE
+        // _fireVoiceDone(B) runs, C's first voice-chunk arrives. With
+        // the `!audio.ended` filter, B looks "done" → hasPlaying=false
+        // → C marked "playing" → C.audio.play() → B AND C overlap
+        // until _fireVoiceDone(B) finally ticks. The explicit promote
+        // inside _fireVoiceDone is the single source of truth for
+        // play-state transitions; until it runs, any playState===
+        // "playing" entry in voiceQueues must block C from auto-play.
+        const hasPlaying = Object.values(this.voiceQueues || {}).some(
+          (other) => other && other.playState === "playing",
+        );
+        const playState = hasPlaying ? "queued" : "playing";
+        q = this._createVoiceStream(roomId, chunk.messageId, playState);
+        // Reveal a previously-hidden chat bubble · race fix · when
+        // A's audio.ended fires BEFORE B's first voice-chunk arrives,
+        // _fireVoiceDone(A) doesn't find B in voiceQueues yet (no
+        // queue created), so it can't promote+reveal B. Now B's first
+        // chunk arrives with no playing sibling left → B is created
+        // as "playing" directly. Without this reveal, B's bubble
+        // remains marked data-prewarmed from appendMessageDom and
+        // never reappears in the chat. Safe to call unconditionally
+        // when playState === "playing" · it's a no-op if the bubble
+        // was never marked.
+        if (playState === "playing") {
+          this._revealPrewarmedBubble(chunk.messageId);
         }
-        // Stale queues torn down · the active queue is about to be
-        // recreated below. Mini-player refresh runs once after the
-        // new queue is inserted (next call site).
-        q = this._createVoiceStream(roomId, chunk.messageId);
         // Stash the speaker + current body on the queue so the
         // mini-player can render speaker name / avatar / subtitle.
         // Two sources to consult:
@@ -13618,6 +13932,25 @@
         // they joined this voice room indirectly.
         this._activeVoiceRoomId = roomId;
         // Mini-player · refresh now that a new queue exists.
+        this.refreshMiniPlayer();
+        // Topbar queue-head · a fresh "playing" queue (chair templated
+        // voice that arrives outside the director queue, or the first
+        // director on a cold start) means the audible speaker just
+        // changed. Re-render so the head bar reflects who's actually
+        // audible right now instead of whatever the last queue-update
+        // SSE event said.
+        if (playState === "playing") {
+          this.renderQueue();
+        }
+      }
+      // Watchdog feed · every arriving chunk resets the stall timer.
+      // If we had previously surfaced a "stalled" state in the bubble,
+      // un-flag it and repaint so the warning goes away the moment
+      // chunks resume flowing.
+      q.lastChunkAt = Date.now();
+      if (q.stalled) {
+        q.stalled = false;
+        this.renderRoundTable();
         this.refreshMiniPlayer();
       }
       // Convert base64 to Uint8Array and append to the MSE SourceBuffer
@@ -13841,7 +14174,7 @@
     },
 
     /** Create a MediaSource-backed audio stream for one speaker's turn. */
-    _createVoiceStream(roomId, messageId) {
+    _createVoiceStream(roomId, messageId, playState = "playing") {
       const audio = new Audio();
       // Attach to the DOM · without this Chrome treats the element
       // as "detached media" and the browser is free to pause it
@@ -13926,6 +14259,13 @@
         this.refreshMiniPlayer();
         // Re-assert without logging · fires ~4 Hz, would spam.
         applyRate();
+        // Heartbeat · while audio actively advances, POST
+        // /voice-progress every ~5s so the orchestrator's
+        // waitForVoicePlayback doesn't trip the no-heartbeat
+        // fallback for long responses (slow TTS rate / many
+        // sentences). The server resets its clock on each POST;
+        // only true silence (tab killed) trips the fallback.
+        this._maybeHeartbeatVoiceQueue(q);
       });
 
       const q = {
@@ -13938,6 +14278,14 @@
         final: false,
         doneSent: false,
         ready: false,
+        /** "playing" · audio.play() was called, browser is consuming
+         *  buffer through speaker. "queued" · pre-warmed for a later
+         *  promote; audio element exists + SourceBuffer fills + chunks
+         *  accumulate, but play() has not been called yet. _fireVoiceDone
+         *  promotes the oldest queued sibling when the playing queue
+         *  ends. enqueueVoiceChunk decides which to create based on
+         *  whether ANY existing queue is currently playing. */
+        playState,
         // Caption timing · the index of the caption whose audio bytes
         // are currently being appended to the SourceBuffer. After
         // `updateend` we record `buffered.end(0)` as that caption's
@@ -13945,7 +14293,83 @@
         // finishes. Reading audio.currentTime against these ranges
         // gives accurate per-chunk caption sync (no CBR assumption).
         flushingIdx: -1,
+        // Chunk-arrival watchdog · upstream TTS (MiniMax / ElevenLabs)
+        // occasionally hangs mid-stream and the SourceBuffer just sits
+        // there silently. lastChunkAt is bumped from enqueueVoiceChunk
+        // on every chunk; the interval below checks "have we gone too
+        // long without one?" and surfaces a Skip affordance in the
+        // round-table bubble + auto-fires _fireVoiceDone after a
+        // grace window so the server's waitForVoicePlayback resolves
+        // and the next director starts.
+        lastChunkAt: Date.now(),
+        stalled: false,
+        watchdogId: null,
       };
+      // Start the watchdog · 2s tick, warn at 8s idle, auto-skip at 15s.
+      // Stops itself once q.final is true (audio.ended timeout in
+      // _flushVoiceBuffer takes over) or when the queue is gone.
+      //
+      // Critical · "idle" means BOTH (no new chunks arriving) AND
+      // (audio has caught up to whatever is currently buffered). If
+      // the audio element is still playing through buffer we already
+      // received, we're NOT stalled · we're mid-sentence, and the
+      // server may take 5-15s of "real time" to flush the next
+      // sentence's TTS chunks while the user keeps hearing the
+      // previous one. Without this gate the watchdog fires
+      // mid-utterance on perfectly healthy long-sentence playback.
+      const VOICE_STALL_WARN_MS = 8000;
+      const VOICE_STALL_SKIP_MS = 15000;
+      const VOICE_AUDIO_AHEAD_GRACE_S = 0.5;
+      q.watchdogId = setInterval(() => {
+        const live = this.voiceQueues[q.messageId];
+        if (!live || live !== q) { clearInterval(q.watchdogId); q.watchdogId = null; return; }
+        if (q.final) { clearInterval(q.watchdogId); q.watchdogId = null; return; }
+        // If audio still has buffer to consume, the user is hearing
+        // sound · don't treat this as idle even if no new chunks
+        // arrived recently. Three positive cases:
+        //   1. We have undrained pendingBuffers that haven't been
+        //      appended to the SourceBuffer yet.
+        //   2. The SourceBuffer has audio ahead of currentTime.
+        //   3. Audio is paused with content remaining (user paused).
+        let stillConsuming = false;
+        try {
+          if (q.pendingBuffers && q.pendingBuffers.length > 0) {
+            stillConsuming = true;
+          } else if (q.audio && !q.audio.ended) {
+            const buf = q.audio.buffered;
+            if (buf && buf.length > 0) {
+              const aheadOfPlayhead = buf.end(buf.length - 1) - q.audio.currentTime;
+              if (aheadOfPlayhead > VOICE_AUDIO_AHEAD_GRACE_S) stillConsuming = true;
+              // Paused-with-content also counts · user explicitly held
+              // playback, the watchdog shouldn't penalise the pause.
+              if (q.audio.paused && aheadOfPlayhead > 0) stillConsuming = true;
+            }
+          }
+        } catch (_) { /* defensive · treat as not-consuming on error */ }
+        if (stillConsuming) {
+          // Reset the stall warning if it was previously set ·
+          // playback resumed naturally, no need for the amber pill.
+          if (q.stalled) {
+            q.stalled = false;
+            this.renderRoundTable();
+            this.refreshMiniPlayer();
+          }
+          return;
+        }
+        const idle = Date.now() - q.lastChunkAt;
+        if (idle >= VOICE_STALL_SKIP_MS) {
+          console.warn(`[voice-watchdog] auto-skip msg=${q.messageId} idle=${idle}ms (audio exhausted)`);
+          clearInterval(q.watchdogId); q.watchdogId = null;
+          this._fireVoiceDone(q);
+          return;
+        }
+        if (idle >= VOICE_STALL_WARN_MS && !q.stalled) {
+          q.stalled = true;
+          console.warn(`[voice-watchdog] stall warn msg=${q.messageId} idle=${idle}ms (audio exhausted)`);
+          this.renderRoundTable();
+          this.refreshMiniPlayer();
+        }
+      }, 2000);
 
       ms.addEventListener("sourceopen", () => {
         try {
@@ -13971,10 +14395,89 @@
         }
       });
 
-      // Start playing as soon as we have some data
-      audio.play().catch(() => {});
+      // Start playing as soon as we have some data — but only if this
+      // queue is the active "playing" one. Pre-warmed queues stay in
+      // "queued" state and have their audio.play() deferred until
+      // _fireVoiceDone promotes them when the prior speaker finishes.
+      // Routed through _playVoiceQueueAudio so the hard concurrency
+      // guard catches any cross-director overlap (audio.play() called
+      // while another queue's audio is still mid-playback).
+      if (q.playState === "playing") {
+        this._playVoiceQueueAudio(q, "create-stream");
+      }
 
       return q;
+    },
+
+    /** Hard concurrency guard around HTMLAudioElement.play() for voice
+     *  queues. Multiple voice elements playing concurrently is the
+     *  entire class of "B starts before A finishes" overlap bugs — no
+     *  matter what code path requests the play, the guarantee is:
+     *  AT MOST ONE voice queue's audio is unpaused at any time.
+     *
+     *  Behaviour: before calling .play(), scan every other queue's
+     *  audio element. If any has `!paused && !ended`, refuse the new
+     *  play (keep this queue in "queued" state) and log a stack trace
+     *  so the offending call path can be identified. _fireVoiceDone
+     *  for the actually-playing queue will retry the promote loop
+     *  when its audio ends, picking this queue back up.
+     *
+     *  Returns true when play was started, false when refused. */
+    _playVoiceQueueAudio(q, reason) {
+      if (!q || !q.audio) return false;
+      const conflicts = [];
+      for (const mid of Object.keys(this.voiceQueues)) {
+        if (mid === q.messageId) continue;
+        const other = this.voiceQueues[mid];
+        if (!other || !other.audio) continue;
+        if (other.audio.paused) continue;
+        if (other.audio.ended) continue;
+        conflicts.push({
+          messageId: mid,
+          playState: other.playState,
+          currentTime: other.audio.currentTime,
+          duration: other.audio.duration,
+        });
+      }
+      if (conflicts.length > 0) {
+        console.warn(
+          `[voice-overlap-guard] refusing audio.play() msg=${q.messageId} reason=${reason} · `
+            + `${conflicts.length} other queue(s) still audible:`,
+          conflicts,
+        );
+        // Keep this one queued · _fireVoiceDone's promote loop will
+        // retry once the conflicting audio ends.
+        q.playState = "queued";
+        return false;
+      }
+      q.playState = "playing";
+      try {
+        const p = q.audio.play();
+        if (p && typeof p.catch === "function") p.catch(() => { /* autoplay block */ });
+      } catch (_) { /* defensive */ }
+      return true;
+    },
+
+    /** Throttled heartbeat POST · keeps the server's
+     *  waitForVoicePlayback timer alive while this queue's audio is
+     *  actively producing sound. Only the currently-playing queue
+     *  heartbeats; queued (pre-warmed) queues stay silent so the
+     *  server doesn't think they're already playing. Fires at most
+     *  once per HEARTBEAT_INTERVAL_MS · 5000 leaves plenty of buffer
+     *  inside the server's 60s no-heartbeat fallback while keeping
+     *  the network noise low (~12 reqs/min per voice queue). */
+    _maybeHeartbeatVoiceQueue(q) {
+      if (!q || !q.audio || !q.roomId || !q.messageId) return;
+      if (q.playState !== "playing") return;
+      if (q.audio.paused || q.audio.ended) return;
+      const HEARTBEAT_INTERVAL_MS = 5000;
+      const now = Date.now();
+      if (q._lastHeartbeatAt && now - q._lastHeartbeatAt < HEARTBEAT_INTERVAL_MS) return;
+      q._lastHeartbeatAt = now;
+      fetch(
+        `/api/rooms/${encodeURIComponent(q.roomId)}/messages/${encodeURIComponent(q.messageId)}/voice-progress`,
+        { method: "POST" },
+      ).catch(() => { /* best-effort */ });
     },
 
     /** Flush pending buffers into the SourceBuffer one at a time. */
@@ -14007,14 +14510,57 @@
         } catch (_) {}
         // Wait for audio to finish playing, then fire voice-done
         q.audio.addEventListener("ended", () => this._fireVoiceDone(q));
-        // Safety timeout in case 'ended' doesn't fire (e.g. empty stream)
-        const duration = q.audio.duration;
-        const remaining = isFinite(duration) ? (duration - q.audio.currentTime) : 0;
-        setTimeout(() => {
-          if (!this.voiceQueues[q.messageId]) return; // already fired
-          this._fireVoiceDone(q);
-        }, (remaining * 1000) + 2000);
+        // Safety timeout · ONLY arm for queues that are actually
+        // playing. A queued (pre-warmed) queue has audio.currentTime
+        // === 0 because audio.play() was never called; the duration-
+        // based remaining estimate is then "all of B's audio" and the
+        // timer fires (duration + 2s) AFTER voice-final ─ which is
+        // typically BEFORE A's audio.ended. _fireVoiceDone(B) then
+        // runs prematurely · the promote loop runs while A is still
+        // playing, promotes the next queued sibling, and B/C overlap
+        // with A. _fireVoiceDone's promote loop re-arms the safety
+        // timer for the newly-promoted queue.
+        if (q.playState === "playing") {
+          this._armVoiceFinalSafetyTimer(q);
+        }
       }
+    },
+
+    /** Arm the safety timeout that force-fires _fireVoiceDone if the
+     *  HTMLAudioElement's `ended` event never arrives (empty stream,
+     *  browser bug, etc.). Computed at arm-time so duration / current-
+     *  Time reflect the actual playback state — never set this while
+     *  the queue is "queued" (currentTime is stuck at 0 and the timer
+     *  fires before the queue even gets to play). Idempotent · second
+     *  call is a no-op. */
+    _armVoiceFinalSafetyTimer(q) {
+      if (q.safetyTimerArmed) return;
+      q.safetyTimerArmed = true;
+      const duration = q.audio.duration;
+      const remaining = isFinite(duration) ? (duration - q.audio.currentTime) : 0;
+      setTimeout(() => {
+        if (!this.voiceQueues[q.messageId]) return; // already fired
+        // Don't kill a queue whose audio is still actively advancing.
+        // If currentTime is still meaningfully short of duration, the
+        // 'ended' event hasn't fired yet for legitimate reasons (slow
+        // browser tick, paused-then-resumed, etc.). Re-arm with a
+        // shorter grace and bail.
+        try {
+          if (q.audio && !q.audio.ended) {
+            const cur = q.audio.currentTime || 0;
+            const dur = isFinite(q.audio.duration) ? q.audio.duration : 0;
+            if (dur > 0 && cur < dur - 0.25) {
+              q.safetyTimerArmed = false;
+              setTimeout(() => {
+                if (!this.voiceQueues[q.messageId]) return;
+                this._fireVoiceDone(q);
+              }, Math.max(1000, (dur - cur) * 1000 + 1500));
+              return;
+            }
+          }
+        } catch (_) { /* fall through · force-fire on inspection error */ }
+        this._fireVoiceDone(q);
+      }, (remaining * 1000) + 2000);
     },
 
     _scheduleVoiceDone(q) {
@@ -14023,8 +14569,142 @@
       this._flushVoiceBuffer(q);
     },
 
+    /* ── LLM first-token watchdog ──────────────────────────────────
+       Per-message timer that flips a streaming agent message's local
+       phase to "llm-warming" when no token has arrived in 8s. Pairs
+       with the server-side 60s hard cap in streamSpeakerTurn —
+       client surfaces an early visual hint long before the server
+       times out, so the user doesn't sit looking at a static
+       "Thinking" bubble. */
+    _llmFirstTokenTimers: null,
+    _LLM_WARM_DELAY_MS: 8000,
+    _startLlmFirstTokenWatchdog(messageId) {
+      if (!messageId) return;
+      if (!this._llmFirstTokenTimers) this._llmFirstTokenTimers = {};
+      this._clearLlmFirstTokenWatchdog(messageId);
+      this._llmFirstTokenTimers[messageId] = setTimeout(() => {
+        const msg = this.currentMessages.find((m) => m.id === messageId);
+        if (!msg || !msg.meta) return;
+        if (msg.meta.streaming !== true) return;
+        if (String(msg.body || "").trim().length > 0) return; // tokens already arrived
+        msg.meta._localPhase = "llm-warming";
+        this.renderRoundTable();
+        this.renderRtSubtitle();
+      }, this._LLM_WARM_DELAY_MS);
+    },
+    _clearLlmFirstTokenWatchdog(messageId) {
+      if (!this._llmFirstTokenTimers || !this._llmFirstTokenTimers[messageId]) return;
+      clearTimeout(this._llmFirstTokenTimers[messageId]);
+      delete this._llmFirstTokenTimers[messageId];
+    },
+
+    /* ── Auto-skip toast ───────────────────────────────────────────
+       Server emits config-event kind=auto-skipped with
+       payload={phase, reason, messageId?}. We render a 3s amber
+       toast at the top of the stage so the user understands WHY the
+       speaker jumped / why the chair didn't ask. The reason field
+       maps to a specific i18n key (snake_case translation of the
+       reason string), with a generic phase-based fallback. */
+    _showAutoSkipToast(phase, reason) {
+      const reasonKey = `auto_skip_${String(reason || "").replace(/-/g, "_")}`;
+      const phaseKey = `auto_skip_${String(phase || "")}_timeout`;
+      let label = this._t(reasonKey);
+      if (label === reasonKey) label = this._t(phaseKey);
+      if (label === phaseKey) label = this._t("rt_audio_stalled"); // last-ditch
+      const stage = document.querySelector("[data-roundtable-stage]");
+      const host = stage || document.body;
+      const toast = document.createElement("div");
+      toast.className = "auto-skip-toast";
+      toast.textContent = label;
+      host.appendChild(toast);
+      // Force a layout read so the CSS animation kicks in reliably.
+      void toast.offsetHeight;
+      toast.classList.add("is-visible");
+      setTimeout(() => {
+        toast.classList.remove("is-visible");
+        setTimeout(() => { try { toast.remove(); } catch (_) {} }, 250);
+      }, 3000);
+    },
+
     _fireVoiceDone(q) {
       if (!this.voiceQueues[q.messageId]) return; // already fired
+      // Stop the chunk-arrival watchdog before tearing down the queue
+      // so a final tick can't race the delete and end up trying to
+      // skip again.
+      if (q.watchdogId) {
+        clearInterval(q.watchdogId);
+        q.watchdogId = null;
+      }
+      // PAUSE FIRST · before the promote loop starts the next queue's
+      // audio. The concurrency guard (_playVoiceQueueAudio) scans all
+      // OTHER queues for unpaused audio — if q.audio is still playing
+      // (e.g. watchdog / safety-timer-triggered force-fire path), the
+      // guard would refuse to promote the next queue. Pausing q here
+      // makes the guard's conflict check correctly exclude q. Also
+      // mark playState='ended' as belt-and-braces so callers that
+      // check playState see "definitely not playing" even before the
+      // delete below.
+      try { q.audio && q.audio.pause(); } catch (_) {}
+      q.playState = "ended";
+      // Audio truly ended · NOW clear the chat bubble's streaming
+      // pulse animation. message-final kept the class alive while
+      // the voice queue existed (LLM done but TTS still playing).
+      // Look up the message's body so updateMessageBodyDom paints
+      // the final text; falls back to empty string when the message
+      // was removed (message-removed race).
+      const finishedMsg = this.currentMessages
+        ? this.currentMessages.find((m) => m.id === q.messageId)
+        : null;
+      this.updateMessageBodyDom(q.messageId, finishedMsg ? finishedMsg.body : "", false);
+      // Cross-director pipeline · before deleting the just-finished
+      // queue, find the next "queued" sibling (pre-warmed by the
+      // server while q was playing) and promote it. The promoted
+      // queue's audio.play() starts immediately — its chunks are
+      // already buffered, so the user hears B with near-zero gap
+      // after A.ended. Insertion order in voiceQueues mirrors
+      // arrival order; iterate Object.keys to pick the OLDEST queued
+      // (the one that has been waiting longest = closest to ready).
+      for (const otherId of Object.keys(this.voiceQueues)) {
+        if (otherId === q.messageId) continue;
+        const other = this.voiceQueues[otherId];
+        if (!other || other.playState !== "queued") continue;
+        // Concurrency guard · q is already paused (q.audio.pause()
+        // at top of _fireVoiceDone). promote sets playState + calls
+        // play() through _playVoiceQueueAudio so any concurrent
+        // audible queue gets surfaced before we start.
+        const started = this._playVoiceQueueAudio(other, "promote-after-end");
+        if (!started) {
+          // Refused · some other queue still has audible audio.
+          // Schedule a one-shot retry so the queued queue isn't
+          // stranded forever. The conflicting queue will eventually
+          // fire _fireVoiceDone (audio.ended / safety timer); at that
+          // point its own promote loop will pick this one up. The
+          // retry is just a belt-and-braces in case both signals
+          // miss (browser glitch in audio.ended).
+          setTimeout(() => {
+            const liveOther = this.voiceQueues[otherId];
+            if (!liveOther || liveOther.playState !== "queued") return;
+            this._playVoiceQueueAudio(liveOther, "promote-retry");
+            if (liveOther.playState === "playing") {
+              this._revealPrewarmedBubble(otherId);
+              if (liveOther.final && liveOther.doneSent && !liveOther.safetyTimerArmed) {
+                this._armVoiceFinalSafetyTimer(liveOther);
+              }
+            }
+          }, 500);
+          break;
+        }
+        // Reveal the chat bubble for the newly-audible director ·
+        // appendMessageDom hid it earlier because A was still playing.
+        this._revealPrewarmedBubble(otherId);
+        // Re-arm the safety timer if it was deferred · queued queues
+        // skip _armVoiceFinalSafetyTimer in _flushVoiceBuffer because
+        // currentTime=0 would make the timer fire mid-playback.
+        if (other.final && other.doneSent && !other.safetyTimerArmed) {
+          this._armVoiceFinalSafetyTimer(other);
+        }
+        break;
+      }
       delete this.voiceQueues[q.messageId];
       if (this._voiceSeenSeqs) delete this._voiceSeenSeqs[q.messageId];
       // Detach from the DOM host · we appended on creation in
@@ -14036,8 +14716,8 @@
       // cross-room queue?" so hide it the moment the active queue
       // drains. Subsequent queues for the same room re-trigger it.
       this.refreshMiniPlayer();
-      // Clean up audio element
-      try { q.audio.pause(); } catch (_) {}
+      // q.audio.pause() already called at top · revoke the URL +
+      // detach from DOM only.
       try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
       fetch(`/api/rooms/${encodeURIComponent(q.roomId)}/messages/${encodeURIComponent(q.messageId)}/voice-done`, {
         method: "POST",
@@ -14051,6 +14731,13 @@
       // Subtitle · voice playback ended. If nobody else is mid-
       // stream / queued the panel hides itself.
       this.renderRtSubtitle();
+      // Topbar queue-head · the audible speaker may have just
+      // rotated (promote in the loop above) and the server's
+      // queue-update for the new speaker hasn't landed yet.
+      // renderQueueCollapsed prefers the voiceQueues "playing"
+      // speaker, so a re-render here keeps the topbar in sync with
+      // the round-table seat instead of lagging behind the SSE.
+      this.renderQueue();
       // Auto-continue countdown · canAutoContinue refuses to spin
       // up the timer while the chair's voice queue is still active,
       // so the round-prompt's ~5-10s read-aloud doesn't eat into
@@ -14073,6 +14760,7 @@
     stopVoicePlayback() {
       for (const messageId of Object.keys(this.voiceQueues)) {
         const q = this.voiceQueues[messageId];
+        if (q && q.watchdogId) { try { clearInterval(q.watchdogId); } catch (_) {} q.watchdogId = null; }
         if (q && q.audio) {
           try { q.audio.pause(); } catch (_) {}
           try { URL.revokeObjectURL(q.audio.src); } catch (_) {}
@@ -14206,11 +14894,17 @@
       if (!el) return;
       this._ensureMiniPlayerWave();
       let source = null;
-      // (1) Live TTS · directors / chair streaming in a voice room.
+      // (1) Live TTS · the queue that is currently AUDIBLE. With
+      //     cross-director pipelining we may also have a "queued"
+      //     pre-warmed queue sitting in voiceQueues with audio
+      //     buffered but play() not yet called · the mini-player
+      //     reflects who the user is hearing right now, not who's
+      //     ready next.
       for (const mid of Object.keys(this.voiceQueues || {})) {
         const q = this.voiceQueues[mid];
         if (!q || !q.audio) continue;
         if (q.audio.ended) continue;
+        if (q.playState !== "playing") continue;
         source = {
           kind: "live",
           roomId: q.roomId,
@@ -15371,8 +16065,19 @@
       const authorIdAttr = (!isUser && !isChair && author?.id)
         ? ` data-author-id="${this.escape(author.id)}"`
         : "";
+      // Pre-warm hidden state · baked into the article tag so it
+      // survives every renderChat re-render. Set membership is the
+      // source of truth (appendMessageDom adds, _revealPrewarmedBubble
+      // drains). Without this, a renderChat that fires between
+      // message-appended and audio promote (e.g. message-updated,
+      // brief-update, round-ended) wipes the data-prewarmed attribute
+      // and the still-pre-warmed bubble flashes its streaming
+      // animation behind the current speaker.
+      const prewarmedAttr = (this._prewarmedHidden && this._prewarmedHidden.has(m.id))
+        ? " data-prewarmed=\"\""
+        : "";
       return `
-        <article class="msg ${baseCls}${stateCls.length ? " " + stateCls.join(" ") : ""}" data-message-id="${this.escape(m.id)}" data-meta-kind="${this.escape(metaKind || "")}"${authorIdAttr}>
+        <article class="msg ${baseCls}${stateCls.length ? " " + stateCls.join(" ") : ""}" data-message-id="${this.escape(m.id)}" data-meta-kind="${this.escape(metaKind || "")}"${authorIdAttr}${prewarmedAttr}>
           ${avatarHtml}
           <div class="msg-content">
             ${chairPickKicker}
@@ -15659,15 +16364,56 @@
     renderQueueCollapsed(items) {
       const slot = document.querySelector("[data-queue-collapsed]");
       if (!slot) return;
+      // Cross-director pipeline · prefer the client's actually-audible
+      // speaker over server's queue[0]. With pre-warm, server's queue
+      // can lag the client briefly (between `_fireVoiceDone(A)` →
+      // promote B → server's queue-update for B speaking) — during
+      // that window queue[0] is still A but the user is hearing B.
+      // The round-table seat already uses voiceQueues, so without this
+      // sync the topbar queue-head shows a different name than the
+      // round-table bubble.
+      let liveAuthorId = null;
+      const voiceQueues = this.voiceQueues || {};
+      for (const mid of Object.keys(voiceQueues)) {
+        const q = voiceQueues[mid];
+        if (q && q.playState === "playing" && q.authorId) {
+          liveAuthorId = q.authorId;
+          break;
+        }
+      }
       if (!items || items.length === 0) {
+        // Even with no server queue, if a chair / director is audible
+        // on the client (e.g. chair templated voice plays after the
+        // round drains), surface them in the head bar instead of
+        // sitting on "idle".
+        if (liveAuthorId && this.agentsById[liveAuthorId]) {
+          const liveAgent = this.agentsById[liveAuthorId];
+          slot.innerHTML = `<span class="sum-marker">▶</span>`
+            + `<img class="sum-av" src="${this.escape(liveAgent.avatarPath)}" alt="" data-agent="${this.escape(liveAgent.id)}">`
+            + `<span class="sum-who">${this.escape(liveAgent.name)}</span>`
+            + `<span class="sum-state">${this.escape(this._t("q_speaking"))}</span>`;
+          return;
+        }
         slot.innerHTML = `<span class="sum-marker">·</span><span class="sum-state">${this.escape(this._t("q_idle"))}</span>`;
         return;
       }
       const head = items[0];
-      const a = this.agentsById[head.agentId];
+      // If a different director is currently audible (server queue is
+      // racing behind client promote), build the head from the live
+      // speaker. Otherwise fall back to queue[0]. Match against items
+      // first so the queue's own status pill is preserved when the
+      // live speaker IS queue[0].
+      let a = null;
+      let displayStatus = head.status;
+      if (liveAuthorId && this.agentsById[liveAuthorId] && liveAuthorId !== head.agentId) {
+        a = this.agentsById[liveAuthorId];
+        displayStatus = "speaking";
+      } else {
+        a = this.agentsById[head.agentId];
+      }
       if (!a) { slot.innerHTML = ""; return; }
-      const speaking = head.status === "speaking";
-      const pending = head.status === "pending";
+      const speaking = displayStatus === "speaking";
+      const pending = displayStatus === "pending";
       const stateLabel = speaking
         ? this._t("q_speaking")
         : pending
@@ -16205,6 +16951,129 @@
     /** Paint the round-table stage. Idempotent · safe to call from
      *  every renderQueue() call site. Reads from app.currentChair /
      *  currentMembers / currentQueue · doesn't mutate state. */
+    /** Resolve whether the chair's vote-pop card should be visible
+     *  RIGHT NOW · used by the 3D delegate so its DOM overlay can
+     *  mirror what the 2D `.rt-seat-voting` card surfaces. Same
+     *  gates as the 2D path at line ~17124:
+     *    · room exists + not adjourned
+     *    · either awaitingContinue (round-end vote phase) OR an
+     *      active round-prompt is alive (manual-vote phase)
+     *    · chair is NOT currently busy presenting (so the card
+     *      doesn't pop over the chair's own audio)
+     *  Returns the rendered HTML string, or "" when hidden. */
+    _resolveStageVotePop() {
+      const room = this.currentRoom;
+      if (!room || room.status === "adjourned") return "";
+      const hasActivePrompt = (typeof this.activeRoundPromptId === "function")
+        ? !!this.activeRoundPromptId()
+        : false;
+      const awaitingContinue = room.awaitingContinue === true;
+      if (!awaitingContinue && !hasActivePrompt) return "";
+      // Chair busy gate · streaming / voice-queued / chair-pending
+      // all count. Same logic as the 2D path's `isChairBusy` IIFE.
+      const isChairBusy = (() => {
+        if (this.chairPending === true) return true;
+        if (this._chairVoiceAwaiting && this._chairVoiceAwaiting.size > 0) return true;
+        const allMsgs = this.currentMessages || [];
+        for (let k = allMsgs.length - 1; k >= 0; k--) {
+          const mm = allMsgs[k];
+          if (!mm || mm.authorKind !== "agent") continue;
+          if (mm.meta && mm.meta.streaming === true) return true;
+          if (this.voiceQueues && this.voiceQueues[mm.id]) return true;
+          return false;
+        }
+        return false;
+      })();
+      if (isChairBusy) return "";
+      return (typeof this.renderRoundTableVotePop === "function")
+        ? this.renderRoundTableVotePop()
+        : "";
+    },
+
+    /** Compact replication of the 2D round-table's speaker-priority
+     *  chain · used by the 3D delegate so its overlay bubble lights
+     *  up the correct seat (audible playback wins over warmup, etc).
+     *  The 2D path below STILL re-derives speakingId / speakerState
+     *  with its full version (slightly more nuanced branches) since
+     *  it consumes more downstream signals — duplicate but contained.
+     *  Returns `{ id: string|null, state: "thinking"|"speaking"|null }`. */
+    _resolveStageSpeaker() {
+      // Voice-replay override · adjourned-room playback drives the seat.
+      const replayActive = (typeof window !== "undefined"
+        && window.boardroomVoiceReplay
+        && typeof window.boardroomVoiceReplay.getActive === "function")
+        ? window.boardroomVoiceReplay.getActive()
+        : null;
+      if (replayActive && replayActive.authorId) {
+        return {
+          id: replayActive.authorId,
+          state: replayActive.state === "speaking" ? "speaking" : "thinking",
+        };
+      }
+      const msgs = this.currentMessages || [];
+      // Audible voice queue (actually playing) takes precedence.
+      if (this.voiceQueues) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const mm = msgs[i];
+          if (!mm || mm.authorKind !== "agent") continue;
+          const vq = this.voiceQueues[mm.id];
+          if (vq && vq.playState === "playing") {
+            return { id: mm.authorId, state: "speaking" };
+          }
+        }
+      }
+      // Streaming agent message that isn't a pre-warmed queued speaker.
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const mm = msgs[i];
+        if (!(mm && mm.meta && mm.meta.streaming === true && mm.authorKind === "agent")) continue;
+        const vq = this.voiceQueues && this.voiceQueues[mm.id];
+        if (vq && vq.playState === "queued") continue;
+        const body = String(mm.body || "").trim();
+        return { id: mm.authorId, state: body.length > 0 ? "speaking" : "thinking" };
+      }
+      // Chair preparing (silent prep between user input + chair msg).
+      if (this.chairPending === true && this.currentChair) {
+        return { id: this.currentChair.id, state: "thinking" };
+      }
+      if (this.conveneState && this.currentChair) {
+        return { id: this.currentChair.id, state: "thinking" };
+      }
+      // Queue head just promoted but no message-appended yet.
+      if (Array.isArray(this.currentQueue) && this.currentQueue[0] && this.currentQueue[0].status === "speaking") {
+        return { id: this.currentQueue[0].agentId, state: "thinking" };
+      }
+      return { id: null, state: null };
+    },
+
+    /** Stage SFX driver · used by BOTH the 3D delegate path and the
+     *  legacy 2D path so the thinking-blip loop + speaker-change
+     *  chime fire regardless of which stage renderer is active.
+     *  Earlier this logic only lived inside the 2D render tail and
+     *  the 3D path's early `return` silenced it entirely. Gated by
+     *  the same voice-queue / sfx-enabled rules as before.
+     *  Critical · the thinking loop's AudioContext oscillators
+     *  overlap with the HTMLAudioElement used for TTS playback, so
+     *  gate the loop on `voiceQueues` being empty so the audio
+     *  session is free for the media element to grab. */
+    _applyStageSfx(speakingId, speakerState) {
+      const sfx = window.boardroomTypingSfx;
+      if (!sfx) return;
+      const anyVoiceQueued = !!(this.voiceQueues && Object.keys(this.voiceQueues).length > 0);
+      const shouldBeThinking = !!speakingId
+        && speakerState === "thinking"
+        && !anyVoiceQueued;
+      if (typeof sfx.setThinking === "function") {
+        sfx.setThinking(shouldBeThinking);
+      }
+      const speakerChanged = speakingId !== this._lastSpeakerId;
+      if (speakerChanged && speakingId && speakerState === "speaking"
+          && typeof sfx.speakerChange === "function") {
+        sfx.speakerChange();
+      }
+      if (speakerChanged) this._lastSpeakerId = speakingId;
+      this._lastSpeakerState = speakerState;
+    },
+
     renderRoundTable() {
       const stage = document.querySelector("[data-roundtable-stage]");
       if (!stage) return;
@@ -16218,11 +17087,79 @@
       // immediately alongside the rest of the stage.
       const VALID_FLOORS = ["brainstorm", "constructive", "research", "debate", "critique"];
       const tone = String(this.currentRoom?.mode || "constructive").toLowerCase();
-      stage.setAttribute("data-floor", VALID_FLOORS.includes(tone) ? tone : "constructive");
+      const floorMode = VALID_FLOORS.includes(tone) ? tone : "constructive";
+      stage.setAttribute("data-floor", floorMode);
+
+      // ── 3D stage delegate ─────────────────────────────────────
+      // When the user's "voxel 3D stage" toggle is on (default) AND
+      // the voice-3d module loaded AND WebGL is available, hand off
+      // to VoiceStage3D and skip the legacy 2D seat DOM render.
+      // Falls through to the 2D path on toggle off / no WebGL / no
+      // module · the legacy SVG table + seats DOM stay in place
+      // for that case (we never delete them, only `.is-3d` hides).
+      const stage3dPref = (() => {
+        try { return localStorage.getItem("boardroom.stage3d") !== "off"; }
+        catch (_) { return true; }
+      })();
+      const VS3D = window.VoiceStage3D;
+      const use3d = stage3dPref && VS3D && typeof VS3D.mount === "function" && VS3D.isSupported();
+      const members3d = this.roundTableMembers();
+      const positions3d = this.computeSeatPositions(members3d);
+      if (use3d) {
+        try {
+          VS3D.mount(stage);
+          // Compact speaker resolution · mirrors the longer 2D path
+          // below (priority: voice-replay → audible voice queue →
+          // streaming agent message → chair pending / convene →
+          // queue head). Enough to drive the 3D overlay's bubble +
+          // nameplate-hide while-speaking behaviour.
+          const sp = this._resolveStageSpeaker();
+          const votePopHtml = this._resolveStageVotePop();
+          VS3D.update({
+            members: members3d,
+            positions: positions3d,
+            mode: floorMode,
+            speakerId: sp.id,
+            speakerState: sp.state,
+            labels: {
+              thinking: this._t("rt_thinking"),
+              speaking: this._t("rt_speaking"),
+            },
+            votePop: votePopHtml,
+            userWait: !!this.pendingUserMessage,
+          });
+          // The 2D path below ends with calls to renderRoundTableHud
+          // + renderRtSubtitle so the status panel + live subtitle
+          // stay in sync with each renderRoundTable. The 3D delegate
+          // `return`s above the 2D code, so without these two calls
+          // here the HUD div stays empty until some unrelated SSE
+          // (config-event / queue-update) happens to fire them ·
+          // user reported "HUD shows as a thin line, fixed by
+          // toggling the tone" which was exactly that race.
+          this.renderRoundTableHud();
+          this.renderRtSubtitle();
+          // Stage SFX · same call the 2D tail makes (thinking loop +
+          // speaker-change chime). Reuses `sp` resolved above so the
+          // helper sees the exact speaker/state the 3D scene rendered.
+          this._applyStageSfx(sp.id, sp.state);
+          return;
+        } catch (e) {
+          // 3D path blew up · fall through to the legacy 2D render
+          // so the user still gets a working stage. Logged so we can
+          // diagnose later · the toggle stays on (user-flipped only).
+          console.warn("[voice-3d] mount/update failed, falling back to 2D:", e);
+          try { VS3D.unmount(); } catch (_) {}
+        }
+      } else if (VS3D && typeof VS3D.unmount === "function" && stage.classList.contains("is-3d")) {
+        // Toggle just flipped off · tear down the 3D canvas so the
+        // 2D path below paints into a clean stage.
+        try { VS3D.unmount(); } catch (_) {}
+      }
+
       const seatsHost = stage.querySelector("[data-rt-seats]");
       if (!seatsHost) return;
-      const members = this.roundTableMembers();
-      const positions = this.computeSeatPositions(members);
+      const members = members3d;
+      const positions = positions3d;
 
       // Build seat HTML. Z-order via inline style based on the y
       // coordinate so seats with larger y (front) paint last and
@@ -16269,22 +17206,53 @@
         replayBody = replayActive.body || "";
       }
       const msgs = this.currentMessages || [];
-      if (!speakingId) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const mm = msgs[i];
-          if (mm && mm.meta && mm.meta.streaming === true && mm.authorKind === "agent") {
-            speakingId = mm.authorId;
-            const body = String(mm.body || "").trim();
-            speakerState = body.length > 0 ? "speaking" : "thinking";
-            break;
-          }
-        }
-      }
+      // (1) Audible voice queue takes precedence · with cross-director
+      //     pipelining, the most-recent streaming message is often the
+      //     PRE-WARMED next speaker (B's placeholder lands while A's
+      //     audio still plays). The seat that lights up must match
+      //     whoever the user is HEARING — not whoever's text is
+      //     streaming in the background. Scan voiceQueues for the
+      //     playing one and resolve back to its message's author.
       if (!speakingId && this.voiceQueues) {
         for (let i = msgs.length - 1; i >= 0; i--) {
           const mm = msgs[i];
           if (!mm || mm.authorKind !== "agent") continue;
-          if (this.voiceQueues[mm.id]) {
+          const vq = this.voiceQueues[mm.id];
+          if (vq && vq.playState === "playing") {
+            speakingId = mm.authorId;
+            speakerState = "speaking";
+            break;
+          }
+        }
+      }
+      // (2) Streaming message fallback · only relevant when no audible
+      //     queue exists (text mode, OR the brief warmup between
+      //     message-appended and first voice-chunk). Picks the most
+      //     recent streaming agent message that ISN'T pre-warmed —
+      //     pre-warmed messages have a voiceQueue with playState
+      //     "queued" and should NOT light up a seat.
+      if (!speakingId) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const mm = msgs[i];
+          if (!(mm && mm.meta && mm.meta.streaming === true && mm.authorKind === "agent")) continue;
+          // Skip queued (pre-warmed) speakers · their voice waits for
+          // the playing speaker's audio to finish.
+          const vq = this.voiceQueues && this.voiceQueues[mm.id];
+          if (vq && vq.playState === "queued") continue;
+          speakingId = mm.authorId;
+          const body = String(mm.body || "").trim();
+          speakerState = body.length > 0 ? "speaking" : "thinking";
+          break;
+        }
+      }
+      // (2b) Dead branch removed · the old "voice queue exists at all"
+      //      path was replaced by the playing-queue priority above.
+      if (false && !speakingId && this.voiceQueues) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const mm = msgs[i];
+          if (!mm || mm.authorKind !== "agent") continue;
+          const vq = this.voiceQueues[mm.id];
+          if (vq && vq.playState === "playing") {
             speakingId = mm.authorId;
             speakerState = "speaking";
             break;
@@ -16318,42 +17286,29 @@
         speakerState = "thinking";
       }
 
-      // Speaker / thinking SFX · two distinct cues:
-      //   · `setThinking(true)` starts a looping 8-bit pulse hum
-      //     while a seat shows the thought-bubble. Idempotent ·
-      //     calling repeatedly during the thinking phase is free.
-      //     Switched off as soon as the speaker starts streaming
-      //     (state flips to "speaking") OR the room goes idle.
-      //   · `speakerChange()` (legacy triangle-wave chime) only
-      //     fires for the rarer direct-to-speaking transition
-      //     where there's no thinking phase between A → B (e.g.
-      //     chair templated announcements that stream voice
-      //     immediately). Skips speaker → idle.
-      // Critical · the thinking loop's AudioContext oscillators
-      // overlap with the HTMLAudioElement used for TTS playback,
-      // and on some browsers (Safari / iOS) a continuously-active
-      // AudioContext claims the audio session and prevents a fresh
-      // `audio.play()` from proceeding. Gate the loop on
-      // `voiceQueues` being empty so the moment any director's
-      // TTS audio is queued the loop stops and the audio session
-      // is free for the media element to grab.
-      // Same toggle gate as the typing tick · user-settings
-      // "sound" toggle controls all of these uniformly.
-      const sfx = window.boardroomTypingSfx;
-      const anyVoiceQueued = !!(this.voiceQueues && Object.keys(this.voiceQueues).length > 0);
-      const shouldBeThinking = !!speakingId
-        && speakerState === "thinking"
-        && !anyVoiceQueued;
-      if (sfx && typeof sfx.setThinking === "function") {
-        sfx.setThinking(shouldBeThinking);
+      // Speaker's messageId · derived from the same priority chain
+      // above. Used by the stalled-audio bubble (per-queue watchdog
+      // surfaces on the speaker's bubble + the Skip click needs the
+      // messageId to POST /voice-done). Null when the speaker is
+      // thinking-only (no message id yet) or during replay.
+      let speakingMsgId = null;
+      if (speakingId && this.voiceQueues) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const mm = msgs[i];
+          if (!mm || mm.authorKind !== "agent") continue;
+          if (mm.authorId !== speakingId) continue;
+          if (this.voiceQueues[mm.id]) { speakingMsgId = mm.id; break; }
+        }
       }
-      const speakerChanged = speakingId !== this._lastSpeakerId;
-      if (speakerChanged && speakingId && speakerState === "speaking"
-          && sfx && typeof sfx.speakerChange === "function") {
-        sfx.speakerChange();
-      }
-      if (speakerChanged) this._lastSpeakerId = speakingId;
-      this._lastSpeakerState = speakerState;
+      const stalledQ = (speakingMsgId && this.voiceQueues && this.voiceQueues[speakingMsgId] && this.voiceQueues[speakingMsgId].stalled)
+        ? this.voiceQueues[speakingMsgId]
+        : null;
+
+      // Stage SFX · thinking loop + speaker-change chime. Logic
+      // lives in _applyStageSfx so the 3D delegate path can reuse
+      // it; see that helper for the AudioContext / voice-queue
+      // gating rationale.
+      this._applyStageSfx(speakingId, speakerState);
 
       const html = seatsByZ.map(({ seat, i }) => {
         const m = seat.member;
@@ -16421,6 +17376,39 @@
           })[this.conveneState.stage];
           if (stageKey) statusWord = this._t(stageKey);
         }
+        // Chair-pending phase (server-driven · chair-pending payload.phase).
+        // Maps known phase strings to i18n keys so the bubble label
+        // reflects WHAT silent work is happening — picker LLM, clarify
+        // gate, vote summary, brief stages, etc. Falls back to the
+        // existing convene-stage / "Thinking" label when phase is
+        // empty or unrecognised.
+        if (bubbleState === "thinking" && isChair && this.chairPending && this.chairPendingPhase) {
+          const phaseKey = ({
+            "clarify-deciding": "rt_phase_clarify_deciding",
+            "picker-deciding":  "rt_phase_picker_deciding",
+            "next-speaker":     "rt_phase_next_speaker",
+            "llm-warming":      "rt_phase_llm_warming",
+            "vote-summary":     "rt_phase_vote_summary",
+            "brief-extracting": "rt_phase_brief_extracting",
+            "brief-composing":  "rt_phase_brief_composing",
+            "brief-writing":    "rt_phase_brief_writing",
+          })[this.chairPendingPhase];
+          if (phaseKey) statusWord = this._t(phaseKey);
+        }
+        // Per-message LLM first-token watchdog · client-side belt for
+        // the server's 60s hard cap. When a streaming director message
+        // has gone >8s with no message-token arriving, _localPhase is
+        // flipped to "llm-warming" and the bubble shows that label
+        // until the first token lands (or the server auto-skips).
+        if (bubbleState === "thinking" && !isChair) {
+          const streamingMsg = (this.currentMessages || []).slice().reverse().find(
+            (mm) => mm && mm.authorKind === "agent" && mm.authorId === m.id
+                 && mm.meta && mm.meta.streaming === true,
+          );
+          if (streamingMsg && streamingMsg.meta && streamingMsg.meta._localPhase === "llm-warming") {
+            statusWord = this._t("rt_phase_llm_warming");
+          }
+        }
         const bubbleCls = bubbleState === "thinking"
           ? "rt-bubble is-thinking"
           : "rt-bubble";
@@ -16456,7 +17444,25 @@
             `<button type="button" class="rt-bubble-chair-clarify-close" data-rt-chair-bubble-close aria-label="Dismiss">✕</button>` +
             `</div>`;
         } else if (isSpeaking) {
-          bubble = `<div class="${bubbleCls}"><span class="rt-bubble-name">${this.escape(m.name || "")}</span><span class="rt-bubble-status">${this.escape(statusWord)}</span><span class="rt-bubble-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+          // Stalled-audio variant · the chunk-arrival watchdog flipped
+          // q.stalled when no new TTS chunks arrived for ~8s. Repaint
+          // the bubble amber to signal the issue; the 15s auto-skip
+          // inside the watchdog will recover automatically.
+          if (stalledQ && stalledQ.messageId === (this.voiceQueues[speakingMsgId]?.messageId)) {
+            // Audio stalled · the chunk-arrival watchdog flipped
+            // q.stalled when no new TTS chunks arrived for ~8s. Show
+            // an amber state on the bubble so the user understands
+            // why playback paused. The 15s auto-skip in the watchdog
+            // recovers automatically · no manual click affordance.
+            const stalledText = this._t("rt_audio_stalled");
+            bubble = `<div class="${bubbleCls} is-stalled"`
+              + ` title="${this.escape(stalledText)}">`
+              + `<span class="rt-bubble-name">${this.escape(m.name || "")}</span>`
+              + `<span class="rt-bubble-status">${this.escape(stalledText)}</span>`
+              + `</div>`;
+          } else {
+            bubble = `<div class="${bubbleCls}"><span class="rt-bubble-name">${this.escape(m.name || "")}</span><span class="rt-bubble-status">${this.escape(statusWord)}</span><span class="rt-bubble-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+          }
         }
         const badge = (isQueued && !isSpeaking)
           ? `<div class="rt-badge">${String(qIdx + 1).padStart(2, "0")}</div>`
@@ -16644,8 +17650,34 @@
           replayAudio = window.boardroomVoiceReplay.getActiveAudio() || null;
         }
       }
-      // (1) Most recent streaming agent message · authoritative for
-      //     text-mode and the streaming phase of voice-mode turns.
+      // (1) Currently audible voice queue · with cross-director
+      //     pipelining, the most-recent streaming message may be the
+      //     pre-warmed next speaker whose audio is still queued. The
+      //     subtitle should reflect who the USER IS HEARING — the
+      //     "playing" queue — not whoever is streaming text in the
+      //     background. Check audible-playing queue first; only fall
+      //     back to "most recent streaming" when no queue is playing
+      //     (text mode or pre-stream warmup).
+      if (!speakerId && this.voiceQueues) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i];
+          if (!m || m.authorKind !== "agent") continue;
+          const vq = this.voiceQueues[m.id];
+          if (vq && vq.playState === "playing") {
+            speakerId = m.authorId;
+            body = m.body || "";
+            activeQueue = vq;
+            // isStreaming stays false · this branch covers
+            // playback whether the LLM stream is still going OR done.
+            break;
+          }
+        }
+      }
+      // (1b) Streaming-text fallback · no audible queue (text mode
+      //      OR pre-warm gap). The most-recent streaming agent
+      //      message wins, even if its voice queue is "queued" —
+      //      this captures text-mode turns and the brief moment
+      //      between message-appended and first voice-chunk.
       if (!speakerId) {
         for (let i = msgs.length - 1; i >= 0; i--) {
           const m = msgs[i];
@@ -16653,26 +17685,13 @@
             speakerId = m.authorId;
             body = m.body || "";
             isStreaming = true;
-            if (this.voiceQueues && this.voiceQueues[m.id]) {
+            // Only attach a voice queue if it's the playing one ·
+            // a queued voice queue stays in the background until
+            // promote.
+            if (this.voiceQueues && this.voiceQueues[m.id]
+                && this.voiceQueues[m.id].playState === "playing") {
               activeQueue = this.voiceQueues[m.id];
             }
-            break;
-          }
-        }
-      }
-      // (2) Fallback · stream finished but voice clip is still
-      //     playing (voice queue not yet drained). Keep the caption
-      //     up so the user reads while listening. Catches chair
-      //     templated voice (announceRoundPrompt / announceIntervention)
-      //     too — those emit voice without setting meta.streaming.
-      if (!speakerId && this.voiceQueues) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const m = msgs[i];
-          if (!m || m.authorKind !== "agent") continue;
-          if (this.voiceQueues[m.id]) {
-            speakerId = m.authorId;
-            body = m.body || "";
-            activeQueue = this.voiceQueues[m.id];
             break;
           }
         }
@@ -16965,6 +17984,11 @@
       const isVoice = !!(this.currentRoom && this.currentRoom.deliveryMode === "voice");
       const rate = this.voicePlaybackRate();
       const rateLabel = (rate === 1 ? "1.0" : String(rate)) + "X";
+      // Skip Current Speaker affordance lives inline on the queue
+      // row's `.actions` slot (see renderQueue) · the user's eye is
+      // already on the speaker name there, and a button on the HUD's
+      // status panel felt detached. The HUD keeps the Rate control
+      // (voice-mode only) as its single tab.
       const rateRow = isVoice
         ? `
           <div class="rt-hud-controls">
@@ -18510,13 +19534,31 @@
     }
     // Floating mini-player · the whole bar is the click target.
     // A click anywhere on the surface (including the inner jump
-    // button) navigates to the room. Match the outer aside so
-    // any descendant click bubbles up to the same handler.
+    // button) jumps back to the live room. Match the outer aside
+    // so any descendant click bubbles up to the same handler.
+    //
+    // Use `boardroomFocusRoom` (not the bare `navigateToRoom`)
+    // because the common entry path — Agents tab with an open
+    // agent profile — has BOTH `location.hash` already pointing
+    // at `#/r/<id>` AND `currentRoomId === id`. Plain hash
+    // assignment is a no-op for the browser and `handleRoute`
+    // would early-return either way; the agent profile would
+    // stay covering the main view and the sidebar would stay
+    // on the Agents tab. boardroomFocusRoom closes the profile
+    // overlay, switches the sidebar tab back to Rooms, and
+    // re-lights the room's sidebar row via markActiveRoom.
+    // Falls back to navigateToRoom on the rare path where the
+    // index.html IIFE hasn't published its window globals yet.
     if (e.target.closest("[data-mini-player]")) {
       e.preventDefault();
       const el = document.querySelector("[data-mini-player]");
       const roomId = el && el.getAttribute("data-mini-player-room-id");
-      if (roomId) app.navigateToRoom(roomId);
+      if (!roomId) return;
+      if (typeof window.boardroomFocusRoom === "function") {
+        window.boardroomFocusRoom(roomId);
+      } else {
+        app.navigateToRoom(roomId);
+      }
       return;
     }
     if (e.target.closest("[data-divergence-close]")) {
@@ -18990,31 +20032,6 @@
     }
     // View Report — link opens /report.html?r=<id> in a new tab; let the
     // anchor handle navigation. No preventDefault.
-    // Starter card · empty-state quick-convene. Avatars opt out (their
-    // own [data-agent-profile] handler runs via agent-profile.js capture
-    // phase). Both the [▶ Start] button and a click anywhere else on the
-    // card body fire the starter action.
-    const starterAv = e.target.closest("[data-agent-profile]");
-    if (starterAv && e.target.closest(".starter-card")) {
-      // Let agent-profile.js handle this; don't also start the room.
-      return;
-    }
-    const starterGo = e.target.closest("[data-starter-go]");
-    if (starterGo) {
-      e.preventDefault();
-      const idx = parseInt(starterGo.getAttribute("data-starter-go"), 10);
-      const list = window.BOARDROOM_STARTERS || [];
-      if (Number.isFinite(idx) && list[idx]) app.createStarterRoom(list[idx]);
-      return;
-    }
-    const starterCard = e.target.closest("[data-starter-idx]");
-    if (starterCard) {
-      e.preventDefault();
-      const idx = parseInt(starterCard.getAttribute("data-starter-idx"), 10);
-      const list = window.BOARDROOM_STARTERS || [];
-      if (Number.isFinite(idx) && list[idx]) app.createStarterRoom(list[idx]);
-      return;
-    }
     // ─── New room trigger (sidebar "+ New room" button, etc.) ──────
     // Was bound to the overlay; now just closes any active room so the
     // composer empty state shows. setComposerMode also flips the main
@@ -19364,12 +20381,15 @@
       app.closeComposerDropdown();
       return;
     }
-    // ─── Agent composer · starter prompt → fill textarea
-    const agStarter = e.target.closest("[data-agent-starter]");
-    if (agStarter) {
+    // ─── Agent composer · celebrity seed card → kick full-mode
+    //     persona build with the seed's `description`. The card
+    //     tags `personaJob.celebritySeedId` so the save-success
+    //     handler can mark the seed permanently consumed.
+    const celebCard = e.target.closest("[data-celebrity-seed]");
+    if (celebCard) {
       e.preventDefault();
-      const idx = parseInt(agStarter.getAttribute("data-agent-starter"), 10);
-      app.applyAgentStarter(idx);
+      const id = celebCard.getAttribute("data-celebrity-seed");
+      if (id) app.applyCelebritySeed(id);
       return;
     }
     // Convene button → submit
@@ -19378,31 +20398,18 @@
       app.submitComposer();
       return;
     }
-    // Starter row → fill composer + scroll into view
-    const composerStarter = e.target.closest("[data-composer-starter]");
-    if (composerStarter) {
+    // Scenario ad card → autoconfigure composer state with the
+    // card's preset (tone + intensity + 3 directors + starter
+    // subject), then re-render so the user lands on a working
+    // room shape. Inner [data-agent-profile] still fires the
+    // profile overlay via agent-profile.js's capture handler.
+    const scenarioCard = e.target.closest("[data-scenario-id]");
+    if (scenarioCard && !e.target.closest("[data-agent-profile]")) {
       e.preventDefault();
-      const idx = parseInt(composerStarter.getAttribute("data-composer-starter"), 10);
-      if (Number.isFinite(idx)) app.applyComposerStarter(idx);
+      const id = scenarioCard.getAttribute("data-scenario-id");
+      if (id) app.applyScenarioCard(id);
       return;
     }
-    // Topic-rec card → apply via /api/topic-recs/:id so the
-    // full seedContext lands in composer state.
-    const composerRec = e.target.closest("[data-cmp-rec]");
-    if (composerRec) {
-      e.preventDefault();
-      const id = composerRec.getAttribute("data-cmp-rec");
-      if (id) app.applyTopicRec(id);
-      return;
-    }
-    // Topic-rec trigger button → start a fresh generation job.
-    if (e.target.closest("[data-cmp-recs-trigger]")) {
-      e.preventDefault();
-      void app.startTopicRecJob();
-      return;
-    }
-    // ("+ N more" pagination removed · tray now always shows
-    //  the latest 6 recs and wipes on each fresh generation.)
     // Delete a room (any state): confirm, then real DELETE on the backend.
     const del = e.target.closest("[data-room-delete]");
     if (del) {
@@ -19704,10 +20711,19 @@
     // queue while the tab was backgrounded (some Chrome versions
     // do this even with Media Session declared), resume them on
     // tab return so the user doesn't have to manually re-start.
+    //
+    // CRITICAL · only resume queues whose playState is "playing".
+    // Pre-warmed queues sit in "queued" state with audio.paused=true
+    // (audio.play() was never called); blindly calling .play() on
+    // them starts the next speaker in parallel with the current one
+    // and produces the A/B overlap reported on macOS workspace
+    // switches, Cmd+Tab, Mission Control · each visibilitychange
+    // would resume every queue indiscriminately.
     if (app && app.voiceQueues) {
       for (const mid of Object.keys(app.voiceQueues)) {
         const q = app.voiceQueues[mid];
         if (!q || !q.audio) continue;
+        if (q.playState !== "playing") continue;
         if (q.audio.paused && !q.audio.ended) {
           try {
             const p = q.audio.play();

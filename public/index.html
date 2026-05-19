@@ -2627,24 +2627,17 @@
     max-width: 760px;
     margin: 0 auto;
     box-sizing: border-box;
-    /* Match the new-room composer's `.cmp-input-frame` vocabulary
-       beat-for-beat: frosted-glass surface from a panel-3/bg color-mix
-       behind a `backdrop-filter` blur, hairline `--line-strong`
-       border, 14 px rounded corners, lifted card shadow. The input
-       wrap inside inherits the frosted bg via `transparent`, and the
-       bottom hint toolbar is `--panel-2` (lighter) so the two tones
-       alone separate the action row from the typing zone — no
-       hairline divider needed. `overflow: hidden` keeps the panel-2
-       toolbar flush with the rounded corners. */
-    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
-    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    /* Match the new-room composer's `.cmp-input-frame` beat-for-beat ·
+       solid `var(--bg)` surface (was frosted glass; the previous
+       backdrop-filter + color-mix made the card read as its own
+       material register inside the chat-col, which clashed with the
+       calm framed-input look the composer ships). Same `0.5px
+       --accent-line` hairline border, same 14px radius, same
+       `overflow: hidden` so the inner `.search-topbar` panel-strip
+       sits flush with the rounded corners. */
+    background: var(--bg);
     border: 0.5px solid var(--accent-line);
     border-radius: 14px;
-    /* No drop shadow · mirrors cmp-input-frame after the lifted
-       card shadow was removed there. The frosted surface + hairline
-       border alone delineate the input card. */
     overflow: hidden;
     transition:
       border-color 0.18s,
@@ -2657,6 +2650,33 @@
        to full `--lime` for a clear "active" register. */
     border-color: var(--lime);
   }
+  /* Topbar inside the search card · mirrors `.cmp-topbar` from the
+     new-room composer · brand-tinted `--strip-bg` fill with an
+     `--accent-line` bottom hairline. Hosts the old `.search-hero-sub`
+     hint line ("across every room · keyword · message body · room
+     name") so the card itself surfaces its scope instead of needing
+     a separate sub-headline above. Only present in is-initial — the
+     has-results state collapses it alongside the hero. */
+  .search-topbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 14px;
+    background: var(--strip-bg);
+    border-bottom: 0.5px solid var(--accent-line);
+    min-height: 36px;
+  }
+  .search-topbar-hint {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    /* Same baseline tonality as `.search-hero-sub` had outside the
+       card · text-faint mono micro-caps sit quietly above the input. */
+  }
+  .search-page.has-results .search-topbar { display: none; }
   .search-page.has-results .search-card {
     display: flex;
     align-items: center;
@@ -3105,6 +3125,18 @@
     outline: 1.5px solid var(--lime);
     outline-offset: 12px;
     animation: search-hit-flash-anim 3s ease-out forwards;
+  }
+  /* Cross-director pipeline · pre-warmed message bubbles are hidden
+     in the chat until their audio actually starts playing. The
+     server emits message-appended / message-token for B up to 5-15s
+     before B is supposed to "speak" (pre-warm pipelines B's LLM
+     while A's TTS still plays). Without this rule the user sees B's
+     text streaming in chat WHILE hearing A — animation order mis-
+     matches the audio. The [data-prewarmed] attribute is set in
+     appendMessageDom when a playing voice queue exists, removed in
+     _fireVoiceDone's promote logic (or on message-error). */
+  article[data-message-id][data-prewarmed] {
+    display: none;
   }
   @keyframes search-hit-flash-anim {
     0% {
@@ -8488,7 +8520,7 @@
        different pixel-art floor per phase, so the stage's mood
        reads at a glance:
          · brainstorm   → soil + grass terrain (creative · open ground)
-         · constructive → graphite marble slabs (structured · executive)
+         · constructive → black-walnut staggered plank floor (boardroom · executive)
          · research     → marble (light + veins · scholarly)
          · debate       → ancient stone (dark slabs + cracks)
          · critique     → burgundy carpet (formal · executive)
@@ -8497,13 +8529,13 @@
        `[data-floor="..."]` rule. The vignette stays the same on
        all variants. JS `renderRoundTable` sets the data attribute
        from `currentRoom.mode`. Default (attr absent) is the
-       constructive graphite marble so the brief flash before JS runs
-       matches the most common tone.
+       constructive black-walnut plank so the brief flash before
+       JS runs matches the most common tone.
        Each floor SVG is tileable, paints with `shape-rendering=
        crispEdges`, and `image-rendering: pixelated` on the parent
        keeps browser scaling crisp on HiDPI / non-integer zooms. */
-    --floor-bg: #2A2C32;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%232A2C32'/><rect x='20' y='30' width='30' height='18' fill='%232F3138'/><rect x='75' y='75' width='25' height='25' fill='%2325272D'/><rect x='5' y='90' width='18' height='15' fill='%232D2F36'/><rect x='20' y='25' width='1' height='1' fill='%231F2026'/><rect x='50' y='65' width='1' height='1' fill='%231F2026'/><rect x='90' y='30' width='1' height='1' fill='%231F2026'/><rect x='110' y='100' width='1' height='1' fill='%231F2026'/><rect x='35' y='110' width='1' height='1' fill='%231F2026'/><rect x='65' y='15' width='1' height='1' fill='%231F2026'/><rect x='100' y='55' width='1' height='1' fill='%231F2026'/><rect x='15' y='15' width='1' height='1' fill='%233D4048'/><rect x='40' y='45' width='1' height='1' fill='%233D4048'/><rect x='70' y='35' width='1' height='1' fill='%233D4048'/><rect x='95' y='80' width='1' height='1' fill='%233D4048'/><rect x='25' y='75' width='1' height='1' fill='%233D4048'/><rect x='55' y='100' width='1' height='1' fill='%233D4048'/><rect x='30' y='55' width='1' height='1' fill='%234A4D55'/><rect x='80' y='20' width='1' height='1' fill='%234A4D55'/><rect x='115' y='65' width='1' height='1' fill='%234A4D55'/><rect x='45' y='85' width='2' height='1' fill='%233D4048'/><rect x='100' y='35' width='1' height='2' fill='%233D4048'/><rect x='10' y='50' width='2' height='1' fill='%231F2026'/><rect x='126' y='0' width='2' height='128' fill='%2315161B'/><rect x='0' y='126' width='128' height='2' fill='%2315161B'/></svg>");
+    --floor-bg: #0E0805;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' shape-rendering='crispEdges'><rect width='192' height='192' fill='%230E0805'/><rect x='0' y='0' width='95' height='23' fill='%232A1F18'/><rect x='96' y='0' width='96' height='23' fill='%232E221A'/><rect x='0' y='24' width='47' height='23' fill='%232E221A'/><rect x='48' y='24' width='95' height='23' fill='%232A1F18'/><rect x='144' y='24' width='48' height='23' fill='%232E221A'/><rect x='0' y='48' width='95' height='23' fill='%232A1F18'/><rect x='96' y='48' width='96' height='23' fill='%232E221A'/><rect x='0' y='72' width='47' height='23' fill='%232E221A'/><rect x='48' y='72' width='95' height='23' fill='%232A1F18'/><rect x='144' y='72' width='48' height='23' fill='%232E221A'/><rect x='0' y='96' width='95' height='23' fill='%232A1F18'/><rect x='96' y='96' width='96' height='23' fill='%232E221A'/><rect x='0' y='120' width='47' height='23' fill='%232E221A'/><rect x='48' y='120' width='95' height='23' fill='%232A1F18'/><rect x='144' y='120' width='48' height='23' fill='%232E221A'/><rect x='0' y='144' width='95' height='23' fill='%232A1F18'/><rect x='96' y='144' width='96' height='23' fill='%232E221A'/><rect x='0' y='168' width='47' height='23' fill='%232E221A'/><rect x='48' y='168' width='95' height='23' fill='%232A1F18'/><rect x='144' y='168' width='48' height='23' fill='%232E221A'/><rect x='12' y='11' width='80' height='1' fill='%231F140C'/><rect x='108' y='11' width='80' height='1' fill='%231F140C'/><rect x='60' y='35' width='80' height='1' fill='%231F140C'/><rect x='12' y='59' width='80' height='1' fill='%231F140C'/><rect x='108' y='59' width='80' height='1' fill='%231F140C'/><rect x='60' y='83' width='80' height='1' fill='%231F140C'/><rect x='12' y='107' width='80' height='1' fill='%231F140C'/><rect x='108' y='107' width='80' height='1' fill='%231F140C'/><rect x='60' y='131' width='80' height='1' fill='%231F140C'/><rect x='12' y='155' width='80' height='1' fill='%231F140C'/><rect x='108' y='155' width='80' height='1' fill='%231F140C'/><rect x='60' y='179' width='80' height='1' fill='%231F140C'/><rect x='6' y='5' width='2' height='2' fill='%231A100A'/><rect x='6' y='15' width='2' height='2' fill='%231A100A'/><rect x='102' y='5' width='2' height='2' fill='%231A100A'/><rect x='102' y='15' width='2' height='2' fill='%231A100A'/><rect x='54' y='29' width='2' height='2' fill='%231A100A'/><rect x='54' y='39' width='2' height='2' fill='%231A100A'/><rect x='150' y='29' width='2' height='2' fill='%231A100A'/><rect x='150' y='39' width='2' height='2' fill='%231A100A'/><rect x='6' y='53' width='2' height='2' fill='%231A100A'/><rect x='6' y='63' width='2' height='2' fill='%231A100A'/><rect x='102' y='53' width='2' height='2' fill='%231A100A'/><rect x='102' y='63' width='2' height='2' fill='%231A100A'/><rect x='54' y='77' width='2' height='2' fill='%231A100A'/><rect x='54' y='87' width='2' height='2' fill='%231A100A'/><rect x='150' y='77' width='2' height='2' fill='%231A100A'/><rect x='150' y='87' width='2' height='2' fill='%231A100A'/><rect x='6' y='101' width='2' height='2' fill='%231A100A'/><rect x='6' y='111' width='2' height='2' fill='%231A100A'/><rect x='102' y='101' width='2' height='2' fill='%231A100A'/><rect x='102' y='111' width='2' height='2' fill='%231A100A'/><rect x='54' y='125' width='2' height='2' fill='%231A100A'/><rect x='54' y='135' width='2' height='2' fill='%231A100A'/><rect x='150' y='125' width='2' height='2' fill='%231A100A'/><rect x='150' y='135' width='2' height='2' fill='%231A100A'/><rect x='6' y='149' width='2' height='2' fill='%231A100A'/><rect x='6' y='159' width='2' height='2' fill='%231A100A'/><rect x='102' y='149' width='2' height='2' fill='%231A100A'/><rect x='102' y='159' width='2' height='2' fill='%231A100A'/><rect x='54' y='173' width='2' height='2' fill='%231A100A'/><rect x='54' y='183' width='2' height='2' fill='%231A100A'/><rect x='150' y='173' width='2' height='2' fill='%231A100A'/><rect x='150' y='183' width='2' height='2' fill='%231A100A'/></svg>");
     background-color: var(--floor-bg);
     background-image:
       radial-gradient(ellipse at 50% 50%,
@@ -8518,6 +8550,43 @@
     container-name: rtstage;
   }
   .roundtable-stage[hidden] { display: none !important; }
+  /* 3D-mode visibility · when voice-3d.js mounts a WebGL canvas
+     into the stage it sets `.is-3d` so we can hide the 2D-only
+     children without removing them from the DOM (keeping them in
+     place means a 2D fallback path can take over instantly if the
+     3D toggle is flipped off). The wood-floor background on
+     `.roundtable-stage` itself stays painting underneath the
+     transparent canvas. Subtitle / HUD log / vote pop / toasts
+     remain visible · they're useful overlays even in 3D mode and
+     Phase 2+ will eventually replace them with CSS2DRenderer
+     versions positioned in 3D space. */
+  .roundtable-stage.is-3d .rt-table,
+  .roundtable-stage.is-3d [data-rt-seats],
+  .roundtable-stage.is-3d .rt-plant,
+  .roundtable-stage.is-3d .rt-empty {
+    display: none !important;
+  }
+  /* 3D-mode click-through · `.rt-stage-inner` sits ABOVE the WebGL
+     canvas in DOM order (canvas is the stage's first child, the
+     inner wrapper is a later child). With its default
+     `pointer-events: auto`, every click on the canvas area lands on
+     `.rt-stage-inner` instead — which is why the in-scene picker
+     (clicking a director sprite) never fired. Set `none` here so
+     clicks pass through to the canvas underneath; child elements
+     that NEED click (the HUD toggle button, subtitle-restore icon,
+     etc) already have `pointer-events: auto` set explicitly, so they
+     keep working. */
+  .roundtable-stage.is-3d .rt-stage-inner {
+    pointer-events: none;
+  }
+  /* Pin the wood-floor BG paint OFF when 3D is mounted · the WebGL
+     scene draws its own floor with a tone-keyed color. Keeping the
+     CSS tile would show through transparent areas of the canvas
+     (renderer alpha + clearColor 0) and double-up visually. */
+  .roundtable-stage.is-3d {
+    background-image: none;
+    background-color: transparent;
+  }
   /* Inner wrapper for all stage content (table / plants / HUD /
      seats / subtitle). Becomes the containing block for the stage's
      percentage-positioned children, so shrinking its bottom by
@@ -8550,36 +8619,39 @@
     --rt-chair-name: var(--lime, #6FB572);
     --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%235E6B47'/><rect x='0' y='8' width='20' height='16' fill='%234F5C3D'/><rect x='104' y='20' width='20' height='20' fill='%234F5C3D'/><rect x='88' y='64' width='24' height='16' fill='%234F5C3D'/><rect x='0' y='64' width='12' height='20' fill='%234F5C3D'/><rect x='44' y='64' width='16' height='8' fill='%234F5C3D'/><rect x='72' y='8' width='12' height='8' fill='%236E7A52'/><rect x='120' y='80' width='8' height='12' fill='%236E7A52'/><rect x='48' y='84' width='8' height='8' fill='%236E7A52'/><rect x='48' y='24' width='32' height='32' fill='%235C4838'/><rect x='44' y='28' width='4' height='24' fill='%235C4838'/><rect x='80' y='28' width='4' height='24' fill='%235C4838'/><rect x='52' y='20' width='24' height='4' fill='%235C4838'/><rect x='52' y='56' width='20' height='4' fill='%235C4838'/><rect x='56' y='16' width='12' height='4' fill='%235C4838'/><rect x='56' y='32' width='8' height='8' fill='%234A3A28'/><rect x='68' y='40' width='4' height='8' fill='%234A3A28'/><rect x='60' y='24' width='4' height='4' fill='%236E5A48'/><rect x='68' y='48' width='4' height='4' fill='%236E5A48'/><rect x='58' y='44' width='2' height='2' fill='%236B6258'/><rect x='72' y='32' width='2' height='2' fill='%236B6258'/><rect x='50' y='38' width='2' height='2' fill='%236B6258'/><rect x='16' y='96' width='24' height='20' fill='%235C4838'/><rect x='12' y='100' width='4' height='12' fill='%235C4838'/><rect x='40' y='100' width='4' height='12' fill='%235C4838'/><rect x='20' y='92' width='16' height='4' fill='%235C4838'/><rect x='22' y='104' width='8' height='4' fill='%234A3A28'/><rect x='20' y='100' width='4' height='4' fill='%236E5A48'/><rect x='24' y='108' width='2' height='2' fill='%236B6258'/><rect x='32' y='98' width='2' height='2' fill='%236B6258'/><rect x='8' y='40' width='1' height='2' fill='%238FA068'/><rect x='24' y='72' width='1' height='2' fill='%238FA068'/><rect x='104' y='56' width='1' height='2' fill='%238FA068'/><rect x='120' y='104' width='1' height='2' fill='%238FA068'/><rect x='88' y='44' width='1' height='2' fill='%238FA068'/><rect x='4' y='88' width='1' height='2' fill='%238FA068'/><rect x='64' y='88' width='1' height='2' fill='%238FA068'/><rect x='92' y='24' width='1' height='2' fill='%238FA068'/><rect x='44' y='62' width='1' height='2' fill='%238FA068'/><rect x='80' y='120' width='1' height='2' fill='%238FA068'/><rect x='12' y='12' width='1' height='2' fill='%238FA068'/><rect x='112' y='60' width='1' height='2' fill='%238FA068'/></svg>");
   }
-  /* ─── constructive · GRAPHITE MARBLE SLABS ────────────────────
-     128×128 tileable polished graphite marble · each tile renders
-     ONE large slab with 2px darker seams on the right + bottom
-     edges, so when the pattern repeats every adjacent slab is
-     visibly bordered.
+  /* ─── constructive · BLACK-WALNUT STAGGERED PLANK ─────────────
+     192×192 tileable boardroom floor · 8 rows of horizontal black-
+     walnut planks in a half-plank running-bond stagger, with two
+     bronze nail dots at each plank's left end. Style is lifted
+     from `icons/floor.png` (the bedroom-furniture floor sprite),
+     but recoloured to a deep black-walnut palette so the floor
+     stays distinct from the warmer walnut conference table and
+     chairs. Reference: a partner's-room hardwood floor — quiet,
+     orderly, and slightly austere — not a herringbone showroom.
 
-     Layer stack — pushed harder than the prior pass for the
-     "high-end polished stone" reading:
-       · Graphite base `#2A2C32` (slight cool/blue undertone for
-         the sophisticated upper-end-marble feel; the prior neutral
-         `#2A2A2E` read flat / cheap)
-       · Three tonal blobs in three different tones (`#2F3138` /
-         `#25272D` / `#2D2F36`) — wider tonal range gives slabs
-         more body variation
-       · 7 darker grain dots `#1F2026` (1×1) for stone micro-grain
-       · 6 mid-tone crystal speckles `#3D4048` (1×1) — flecks
-         catching light, the way a polished granite-marble does
-       · 3 brightest sparkle pixels `#4A4D55` (1×1) used sparingly
-         as crystal highlights
-       · 3 elongated mineral marks (2×1 / 1×2) — thin streaks
-         that read as small mineral inclusions in the stone
-       · 2px slab seams in `#15161B` on right + bottom edges so
-         every slab boundary reads as a hairline grout line
+     Layout · 8 rows × 24px tall · plank dimensions 95×23 with a
+     1px gap (filled by the seam-coloured base) so plank-to-plank
+     joints read as hairline grooves. Even rows align at x=0 and
+     x=96; odd rows shift by half-plank to x=48 (with a 47-wide
+     and a 48-wide partial at the tile edges that complete via
+     tiling). Two plank tones (A and B) alternate so adjacent
+     boards read as separately-cut lumber.
 
-     Total: ~22 visible pattern elements per slab vs. the prior 5,
-     so the marble has clear surface character without veining. */
+     Palette:
+       · Seam base `#0E0805` (near-black plank-gap colour;
+         visible as the hairline between every plank)
+       · Plank A `#2A1F18` (the dominant black-walnut body)
+       · Plank B `#2E221A` (slightly lighter neighbour · the
+         board-to-board variation real hardwood has)
+       · Grain `#1F140C` (one 80×1px subtle stripe down the
+         middle of each plank · barely-there wood texture)
+       · Nail `#1A100A` (2×2 bronze-nail dot · two per plank
+         at the left end, vertically stacked, matching the
+         floor.png nail signature) */
   .roundtable-stage[data-floor="constructive"] {
-    --floor-bg: #2A2C32;
-    --rt-chair-name: #A8AEB8;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%232A2C32'/><rect x='20' y='30' width='30' height='18' fill='%232F3138'/><rect x='75' y='75' width='25' height='25' fill='%2325272D'/><rect x='5' y='90' width='18' height='15' fill='%232D2F36'/><rect x='20' y='25' width='1' height='1' fill='%231F2026'/><rect x='50' y='65' width='1' height='1' fill='%231F2026'/><rect x='90' y='30' width='1' height='1' fill='%231F2026'/><rect x='110' y='100' width='1' height='1' fill='%231F2026'/><rect x='35' y='110' width='1' height='1' fill='%231F2026'/><rect x='65' y='15' width='1' height='1' fill='%231F2026'/><rect x='100' y='55' width='1' height='1' fill='%231F2026'/><rect x='15' y='15' width='1' height='1' fill='%233D4048'/><rect x='40' y='45' width='1' height='1' fill='%233D4048'/><rect x='70' y='35' width='1' height='1' fill='%233D4048'/><rect x='95' y='80' width='1' height='1' fill='%233D4048'/><rect x='25' y='75' width='1' height='1' fill='%233D4048'/><rect x='55' y='100' width='1' height='1' fill='%233D4048'/><rect x='30' y='55' width='1' height='1' fill='%234A4D55'/><rect x='80' y='20' width='1' height='1' fill='%234A4D55'/><rect x='115' y='65' width='1' height='1' fill='%234A4D55'/><rect x='45' y='85' width='2' height='1' fill='%233D4048'/><rect x='100' y='35' width='1' height='2' fill='%233D4048'/><rect x='10' y='50' width='2' height='1' fill='%231F2026'/><rect x='126' y='0' width='2' height='128' fill='%2315161B'/><rect x='0' y='126' width='128' height='2' fill='%2315161B'/></svg>");
+    --floor-bg: #0E0805;
+    --rt-chair-name: #C8A878;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' shape-rendering='crispEdges'><rect width='192' height='192' fill='%230E0805'/><rect x='0' y='0' width='95' height='23' fill='%232A1F18'/><rect x='96' y='0' width='96' height='23' fill='%232E221A'/><rect x='0' y='24' width='47' height='23' fill='%232E221A'/><rect x='48' y='24' width='95' height='23' fill='%232A1F18'/><rect x='144' y='24' width='48' height='23' fill='%232E221A'/><rect x='0' y='48' width='95' height='23' fill='%232A1F18'/><rect x='96' y='48' width='96' height='23' fill='%232E221A'/><rect x='0' y='72' width='47' height='23' fill='%232E221A'/><rect x='48' y='72' width='95' height='23' fill='%232A1F18'/><rect x='144' y='72' width='48' height='23' fill='%232E221A'/><rect x='0' y='96' width='95' height='23' fill='%232A1F18'/><rect x='96' y='96' width='96' height='23' fill='%232E221A'/><rect x='0' y='120' width='47' height='23' fill='%232E221A'/><rect x='48' y='120' width='95' height='23' fill='%232A1F18'/><rect x='144' y='120' width='48' height='23' fill='%232E221A'/><rect x='0' y='144' width='95' height='23' fill='%232A1F18'/><rect x='96' y='144' width='96' height='23' fill='%232E221A'/><rect x='0' y='168' width='47' height='23' fill='%232E221A'/><rect x='48' y='168' width='95' height='23' fill='%232A1F18'/><rect x='144' y='168' width='48' height='23' fill='%232E221A'/><rect x='12' y='11' width='80' height='1' fill='%231F140C'/><rect x='108' y='11' width='80' height='1' fill='%231F140C'/><rect x='60' y='35' width='80' height='1' fill='%231F140C'/><rect x='12' y='59' width='80' height='1' fill='%231F140C'/><rect x='108' y='59' width='80' height='1' fill='%231F140C'/><rect x='60' y='83' width='80' height='1' fill='%231F140C'/><rect x='12' y='107' width='80' height='1' fill='%231F140C'/><rect x='108' y='107' width='80' height='1' fill='%231F140C'/><rect x='60' y='131' width='80' height='1' fill='%231F140C'/><rect x='12' y='155' width='80' height='1' fill='%231F140C'/><rect x='108' y='155' width='80' height='1' fill='%231F140C'/><rect x='60' y='179' width='80' height='1' fill='%231F140C'/><rect x='6' y='5' width='2' height='2' fill='%231A100A'/><rect x='6' y='15' width='2' height='2' fill='%231A100A'/><rect x='102' y='5' width='2' height='2' fill='%231A100A'/><rect x='102' y='15' width='2' height='2' fill='%231A100A'/><rect x='54' y='29' width='2' height='2' fill='%231A100A'/><rect x='54' y='39' width='2' height='2' fill='%231A100A'/><rect x='150' y='29' width='2' height='2' fill='%231A100A'/><rect x='150' y='39' width='2' height='2' fill='%231A100A'/><rect x='6' y='53' width='2' height='2' fill='%231A100A'/><rect x='6' y='63' width='2' height='2' fill='%231A100A'/><rect x='102' y='53' width='2' height='2' fill='%231A100A'/><rect x='102' y='63' width='2' height='2' fill='%231A100A'/><rect x='54' y='77' width='2' height='2' fill='%231A100A'/><rect x='54' y='87' width='2' height='2' fill='%231A100A'/><rect x='150' y='77' width='2' height='2' fill='%231A100A'/><rect x='150' y='87' width='2' height='2' fill='%231A100A'/><rect x='6' y='101' width='2' height='2' fill='%231A100A'/><rect x='6' y='111' width='2' height='2' fill='%231A100A'/><rect x='102' y='101' width='2' height='2' fill='%231A100A'/><rect x='102' y='111' width='2' height='2' fill='%231A100A'/><rect x='54' y='125' width='2' height='2' fill='%231A100A'/><rect x='54' y='135' width='2' height='2' fill='%231A100A'/><rect x='150' y='125' width='2' height='2' fill='%231A100A'/><rect x='150' y='135' width='2' height='2' fill='%231A100A'/><rect x='6' y='149' width='2' height='2' fill='%231A100A'/><rect x='6' y='159' width='2' height='2' fill='%231A100A'/><rect x='102' y='149' width='2' height='2' fill='%231A100A'/><rect x='102' y='159' width='2' height='2' fill='%231A100A'/><rect x='54' y='173' width='2' height='2' fill='%231A100A'/><rect x='54' y='183' width='2' height='2' fill='%231A100A'/><rect x='150' y='173' width='2' height='2' fill='%231A100A'/><rect x='150' y='183' width='2' height='2' fill='%231A100A'/></svg>");
   }
   /* ─── research · MARBLE floor ───────────────────────────────
      128×128 light marble with subtle slab tonal variation, dark
@@ -8882,6 +8954,17 @@
     padding: 4px 9px;
     background: rgba(10, 10, 10, 0.62);
     border: 0.5px solid rgba(255, 255, 255, 0.08);
+    /* Cap the plate width so a long director name doesn't extend
+       symmetrically past the seat (88 px) and get sliced off by
+       `.roundtable-stage { overflow: hidden }`. Side-row seats sit
+       at x ≈ 8% / 92% with only ~40-60 px between the seat box and
+       the stage edge — without this cap, names like "MARIA
+       CONSTANTINOPOLITAN" hard-clipped mid-glyph. Ellipsis is the
+       graceful fallback; ~120 px holds ~10 uppercase-mono chars
+       which covers nearly every real director name. */
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .rt-seat-below .rt-name {
     /* Below variant anchors at the BOTTOM edge so the plate stays
@@ -8983,6 +9066,52 @@
     color: var(--lime);
     opacity: 0.78;
   }
+  /* Stalled audio variant · TTS chunks stopped arriving for the
+     active speaker. Repaints the bubble amber and pulses opacity
+     (no shadows, per project rule) to draw the eye. The watchdog's
+     15s auto-skip recovers without user input · no click affordance. */
+  .rt-bubble.is-stalled {
+    border-color: var(--amber, #d4a347);
+    color: var(--amber, #d4a347);
+    opacity: 1;
+    animation: rt-bubble-stalled-pulse 1.4s ease-in-out infinite;
+  }
+  .rt-bubble.is-stalled::after {
+    border-top-color: var(--amber, #d4a347);
+  }
+  @keyframes rt-bubble-stalled-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.6; }
+  }
+  /* Auto-skip toast · 3s amber pill at the top of the round-table
+     stage, fired by server config-event kind=auto-skipped. Tells the
+     user WHY the room jumped (TTS hung, LLM timed out, etc.). Slides
+     in from the top, fades out. */
+  .auto-skip-toast {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-12px);
+    padding: 6px 14px;
+    background: color-mix(in srgb, var(--amber, #d4a347) 18%, var(--panel-3));
+    color: var(--amber, #d4a347);
+    border: 1px solid var(--amber, #d4a347);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    z-index: 30;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+  .auto-skip-toast.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
   .rt-bubble::after {
     content: "";
     position: absolute;
@@ -9014,6 +9143,18 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: inherit;
+    /* Cap the in-bubble name so the whole bubble (name + " SPEAKING " +
+       3 dots, all in `white-space: nowrap` on `.rt-bubble`) doesn't
+       balloon and bleed past the stage edge on side-row seats. The
+       bubble is centered on the 88 px seat; without a cap, a long
+       name pushed the bubble out to ~250-300 px and the outer half
+       got chopped by `.roundtable-stage { overflow: hidden }`. The
+       outer `.rt-bubble` is `inline-flex`, so `min-width: 0` is
+       required for ellipsis to actually trigger on a flex child. */
+    min-width: 0;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .rt-bubble-status {
     font-family: var(--mono);
@@ -9962,7 +10103,16 @@
        reads as a chunky moderator chip instead. */
     min-width: 320px;
     max-width: 420px;
-    background: var(--panel-3);
+    /* Frosted-glass surface · same vocabulary as `.search-card` (the
+       project's other frosted moderator surface). Panel-3 tinted with
+       a touch of bg + alpha-reduced behind a 24 px blur + saturation
+       lift, so the wood-floor / props / seats behind the chair still
+       read through the panel as a subtle texture. Previously a flat
+       `var(--panel-3)` solid; the panel sat heavily on the stage and
+       didn't visually attach to the chair's "moment". */
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 78%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     border: 1px solid var(--cyan, #6A9B97);
     z-index: 10;
     pointer-events: auto;
@@ -10480,7 +10630,15 @@
     background: var(--panel-2);
     box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
     position: relative;
-    overflow: hidden;
+    /* `overflow: visible` (was `hidden`) so hover tooltips on header
+       controls — e.g. `.rt-sub-restore::after` — can escape upward
+       above the strip. The previous `hidden` was a defensive clip for
+       the rounded TOP corners; in practice the only top-corner child
+       is `.queue-head` (a single row of small icon buttons, vertically
+       centred) which never touches the 12 px radius, so removing the
+       clip is safe. Bottom corners are flat (the strip conjoins with
+       `.input-bar` below), so there's nothing to clip at the foot. */
+    overflow: visible;
     transition: border-color 0.12s;
   }
   /* Visually conjoin with the input-bar sitting just below · flat
@@ -11456,7 +11614,7 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 280px;
+    height: auto;
     pointer-events: none;
     z-index: -1;
     -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
@@ -12088,6 +12246,29 @@
     border-top: 0.5px solid var(--line);
   }
   .cmp-dd-group:first-child { border-top: none; padding-top: 5px; }
+  /* Active-carrier caption · sits at the top of the agent-model picker
+     when a multi-model carrier (OpenRouter / B.AI) is the active LLM
+     provider. Replaces the per-row "direct · OR" badges the legacy
+     picker carried — every reachable model arrives via the same
+     carrier under the single-active invariant, one caption beats 17
+     identical badges. */
+  .cmp-dd-caption {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--lime);
+    padding: 8px 10px 4px;
+    border-bottom: 0.5px dashed var(--line);
+    margin-bottom: 2px;
+  }
+  /* When a caption is present, the first .cmp-dd-group still wants its
+     dividing top rule (the caption acts as the visual section break,
+     but groups beneath should still be separated from each other). */
+  .cmp-dd-caption + .cmp-dd-group {
+    border-top: none;
+    padding-top: 5px;
+  }
   .cmp-dd-opt {
     display: flex;
     align-items: baseline;
@@ -12281,178 +12462,215 @@
     color: var(--text-faint);
     font-weight: 700;
   }
-  .cmp-starters-grid {
+  /* ─── Scenario use-case cards · home composer "convene" rail.
+     12 hand-curated boardroom situations live in JS; 6 random
+     are rendered on each composer paint. Compact 2-col grid
+     mirrors the new-agent celebrity-seed register: 1px hairline
+     border, lime hover, translateY(-1px) — no accent rail, no
+     icons, no cast strip, no CTA arrow. Differentiation is by
+     content alone (mono kicker + serif italic headline + italic
+     2-line intro). The entire card is a single click target. */
+  .cmp-scenarios {
+    margin-top: 32px;
+  }
+  .cmp-scenarios-stack {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  @container rtstage (max-width: 640px) {
+    .cmp-scenarios-stack {
+      grid-template-columns: 1fr;
+    }
+  }
+  .cmp-scn-card {
+    position: relative;
     display: flex;
     flex-direction: column;
-  }
-  .cmp-starter {
-    display: grid;
-    grid-template-columns: 130px 1fr 16px;
     gap: 6px;
-    align-items: center;
     width: 100%;
-    padding: 10px 4px;
+    padding: 16px 18px 14px;
     background: transparent;
-    border: none;
-    border-bottom: 0.5px solid var(--line);
-    color: var(--text-soft);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--text);
     text-align: left;
     cursor: pointer;
-    transition: color 0.12s;
+    transition: border-color 0.18s ease, transform 0.18s ease;
   }
-  .cmp-starter:last-child { border-bottom: none; }
-  .cmp-starter:hover { color: var(--text); }
-  .cmp-starter-tag {
+  .cmp-scn-card:hover {
+    border-color: var(--lime);
+    transform: translateY(-1px);
+  }
+  .cmp-scn-tag {
     font-family: var(--mono);
     font-size: 10px;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.22em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    color: var(--text-soft);
     font-weight: 700;
-    transition: color 0.12s;
+    line-height: 1;
   }
-  .cmp-starter:hover .cmp-starter-tag { color: var(--lime); }
-  .cmp-starter-text {
-    font-family: var(--font-human);
-    font-size: 14px;
-    line-height: 1.45;
-    letter-spacing: -0.003em;
+  .cmp-scn-headline {
+    margin: 6px 0 0;
+    font-family: "Charter", "Iowan Old Style", "Georgia", "Tiempos Text", serif;
+    font-size: 17px;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    color: var(--text);
+    font-weight: 500;
+    font-style: italic;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .cmp-starter-arrow {
-    justify-self: end;
-    color: var(--text-faint);
-    font-size: 13px;
-    line-height: 1;
-    transition: transform 0.18s ease, color 0.12s;
-  }
-  .cmp-starter:hover .cmp-starter-arrow {
-    color: var(--lime);
-    transform: translateX(3px);
-  }
-
-  /* ─── Topic recommendations · home composer "or try a starter"
-     tray.
-       · `.cmp-recs-trigger-card` · disguised as the FIRST row
-         in the starters grid. Click → SSE-driven loading +
-         animated dots happen INSIDE the same card (no separate
-         progress strip). Dashed lime-dim bottom rule + ✦ glyph
-         distinguish it from regular starters at a glance.
-       · `.cmp-rec` · each AI-generated topic. Tag is the
-         synthesiser's category (e.g. "strategy", "product").
-         Tray shows exactly 6 cards — every generation wipes
-         the previous batch, no pagination surface.
-     Theme-token only · no hardcoded colors. ─── */
-  .cmp-recs-trigger-card {
-    position: relative;
-    /* Dashed lime-dim bottom rule reads as "this row is the
-       generator" before any click. Override .cmp-starter's
-       solid var(--line) baseline; the progress bar lives on
-       this same edge during the busy state. */
-    border-bottom-style: dashed !important;
-    border-bottom-color: var(--lime-dim) !important;
-  }
-  .cmp-recs-trigger-card .cmp-starter-tag {
-    color: var(--lime);
-  }
-  .cmp-recs-trigger-card .cmp-starter-arrow {
-    color: var(--lime);
-    font-weight: 700;
-    transition: transform 0.18s ease;
-  }
-  .cmp-recs-trigger-card:hover:not(.is-busy) .cmp-starter-arrow {
-    transform: rotate(90deg);
-  }
-  .cmp-recs-trigger-card.is-busy {
-    cursor: progress;
-  }
-  .cmp-recs-trigger-card.is-busy .cmp-starter-text {
+  .cmp-scn-desc {
+    margin: 4px 0 0;
+    font-family: var(--font-human);
+    font-size: 12.5px;
+    line-height: 1.5;
     color: var(--text-soft);
-  }
-  /* Progress bar · sits flush along the card's dashed bottom
-     edge. Lime fill grows left-to-right as the pipeline ticks. */
-  .cmp-recs-trigger-bar {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -1px;
-    height: 2px;
-    background: transparent;
-    pointer-events: none;
+    font-style: italic;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .cmp-recs-trigger-fill {
-    height: 100%;
-    background: var(--lime);
-    width: 0;
-    transition: width 0.4s ease-out;
-  }
-  /* Three-dot loading glyph · matches the round-table
-     speech-bubble dots' rhythm; lime accent, compact, sits
-     inline next to the phase-detail text inside the busy
-     card so the user reads "<dots> scanning 3/10 keywords". */
-  .cmp-recs-trigger-dots {
+  /* Cast strip · 3 small director avatars at the card foot.
+     [data-agent-profile] on each avatar opts the click delegate
+     OUT of firing the scenario action (the parent's
+     [data-scenario-id] handler explicitly skips when the click
+     target is inside [data-agent-profile]) — so an avatar click
+     opens the director profile instead of starting the room. */
+  .cmp-scn-cast {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    margin-right: 6px;
-    vertical-align: middle;
+    margin-top: 10px;
   }
-  .cmp-recs-trigger-dots i {
-    width: 4px;
-    height: 4px;
-    background: var(--lime);
+  .cmp-scn-av {
+    width: 22px;
+    height: 22px;
+    margin-left: -6px;
     border-radius: 50%;
-    display: inline-block;
-    animation: cmp-trec-dot 1s ease-in-out infinite;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--bg);
   }
-  .cmp-recs-trigger-dots i:nth-child(2) { animation-delay: 0.15s; }
-  .cmp-recs-trigger-dots i:nth-child(3) { animation-delay: 0.30s; }
-  @keyframes cmp-trec-dot {
-    0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
-    40%           { opacity: 1;    transform: scale(1);   }
+  .cmp-scn-av:first-child { margin-left: 0; }
+  .cmp-scn-av img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    image-rendering: pixelated;
   }
-  /* Topic-rec card · extends .cmp-starter. The tag is the
-     synthesiser-produced category; the data-source attribute
-     drives a subtle colour cue (lime for web-grounded recs,
-     text-faint for memory-only) without taking real estate
-     away from the actual tag text. */
-  .cmp-rec {
-    /* `.cmp-starter` base is `auto 1fr auto`. The rec card adds
-       a hint row spanning the middle column so the middle column
-       stacks subject / hint. `align-items: start` so tag + arrow
-       anchor to the subject line, not the centre of the taller
-       block. */
-    align-items: start;
-    padding-top: 12px;
-    padding-bottom: 12px;
+
+  /* ─── Celebrity seed cards · new-agent composer "hire a known
+     mind" rail. Replaces the older AGENT_STARTERS_EN list. Six
+     portrait-style cards in a 2-col grid, each a one-click preset
+     for the full-mode persona builder.
+
+     Visual language inherits from the scenario-card register:
+     1px hairline border, hover swaps to var(--lime), no rail, no
+     accent gradient. The avatar tile on the left is the ONLY
+     decorative element — but it's content, not chrome (the 8-bit
+     portrait is the identity signal). */
+  .cmp-celeb-stack {
+    margin-top: 32px;
   }
-  .cmp-rec[data-source="web"] .cmp-starter-tag {
-    color: var(--lime);
+  .cmp-celeb-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 14px;
   }
-  .cmp-rec[data-source="memory"] .cmp-starter-tag {
+  @container rtstage (max-width: 640px) {
+    .cmp-celeb-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .cmp-celeb-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 14px;
+    align-items: stretch;
+    width: 100%;
+    padding: 14px 16px;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.18s ease, transform 0.18s ease;
+  }
+  .cmp-celeb-card:hover {
+    border-color: var(--lime);
+    transform: translateY(-1px);
+  }
+  .cmp-celeb-av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+  .cmp-celeb-img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    image-rendering: pixelated;
+  }
+  .cmp-celeb-img-fallback {
     color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 20px;
   }
-  /* Subtitle · synthesiser's "why this fits you" rationale.
-     Sits under the subject in the middle column, italic +
-     text-faint so it reads as caption-tier without competing
-     with the subject line above. ALSO travels into the room
-     as hidden seed context (see `applyTopicRec`). */
-  .cmp-rec-hint {
-    grid-column: 2;
-    margin-top: 4px;
+  .cmp-celeb-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .cmp-celeb-name {
     font-family: var(--font-human);
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--text-faint);
-    white-space: nowrap;
+    font-size: 15px;
+    line-height: 1.25;
+    letter-spacing: -0.003em;
+    color: var(--text);
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-style: italic;
+    white-space: nowrap;
   }
+  .cmp-celeb-role {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 700;
+    margin-top: 1px;
+  }
+  .cmp-celeb-intro {
+    margin-top: 4px;
+    font-family: var(--font-human);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+    font-style: italic;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   /* ─── New-agent composer · variant of the new-room composer.
      Reuses .cmp / .cmp-* classes for the hero + input frame; adds
      ag-cmp-* for agent-specific bits and ag-prev-* for the editable
@@ -15070,6 +15288,43 @@
     cursor: pointer;
     flex-shrink: 0;
     transition: color 0.12s;
+    /* Position context for the ::after hover-tip pseudo below — the
+       tip is `position: absolute` and needs the button itself as its
+       containing block so `bottom: 100%` / `right: 0` resolve. */
+    position: relative;
+  }
+  /* Hover tooltip · mirrors `.ib-action::after`'s pop pattern (300 ms
+     dwell · panel-2 surface · mono micro-type · 8 px above the
+     button), anchored to the RIGHT edge so the tip extends leftward
+     into the queue strip rather than past the chat column's edge —
+     this button sits flush against the queue-toggle on the right. */
+  .rt-sub-restore::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    transform: translateY(3px);
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-strong);
+    padding: 5px 9px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+    transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.18s;
+    z-index: 50;
+  }
+  .rt-sub-restore:hover::after,
+  .rt-sub-restore:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: opacity 0.14s ease 0.3s, transform 0.14s ease 0.3s, visibility 0s linear 0.3s;
   }
   .rt-sub-restore::before {
     content: "";
@@ -15742,6 +15997,13 @@
 <script src="typing-sfx.js" defer></script>
 <script src="agent-build-bgm.js" defer></script>
 <script src="share-cover-svg-creator.js" defer></script>
+<!-- voice-3d · voxel pixel-art 3D round-table renderer. ES module
+     (imports three.js from /vendor/three.module.min.js). Loads in
+     parallel with app.js · no ordering dependency, app.js feature-
+     detects window.VoiceStage3D at render time. Toggle in user-
+     settings (or localStorage["boardroom.stage3d"]) decides whether
+     to use it · default on, falls back to the legacy 2D SVG path. -->
+<script type="module" src="voice-3d.js"></script>
 <script src="app.js" defer></script>
 <script>
   /* FOUC-prevention: apply saved appearance preference synchronously
@@ -16243,7 +16505,12 @@
                    the LEFT of the expand/collapse toggle. Hidden
                    unless body.is-subtitle-min. Click brings the
                    minimized live-caption panel back. -->
-              <button type="button" class="rt-sub-restore" data-rt-sub-restore title="Show subtitle" aria-label="Show subtitle"></button>
+              <button type="button" class="rt-sub-restore" data-rt-sub-restore
+                title="Show live subtitle" aria-label="Show subtitle"
+                data-tip="Show live subtitle"
+                data-i18n-title="rt_sub_restore_tip"
+                data-i18n-aria="rt_sub_restore_label"
+                data-i18n-tip="rt_sub_restore_tip"></button>
               <button type="button" class="queue-toggle" data-i18n-title="queue_toggle" aria-expanded="true">
                 <!-- Expanded state · chevron-up = "fold the queue".
                      Collapsed state · list-rows = "open the queue".
@@ -17191,6 +17458,34 @@
       if (typeof window.openAgentProfile === "function") {
         try { window.openAgentProfile(agentId); } catch (_) {}
       }
+    };
+
+    /* Symmetric to boardroomFocusAgent · used by the floating mini-
+       player to jump back to a live room from anywhere (Agents tab
+       with an open agent profile, All Reports, All Notes, Search,
+       etc.). The bare `app.navigateToRoom(id)` path is insufficient
+       in two cases that BOTH apply when the user came from the live
+       room → Agents tab:
+         · `location.hash` is already `#/r/<id>` (the room was the
+           last thing routed to), so re-assigning the same hash is a
+           no-op — `hashchange` doesn't fire.
+         · `app.currentRoomId` already equals the target id (sticky
+           across tab switches), so even if hashchange fired,
+           `handleRoute` would early-return without re-showing the
+           room view.
+       This entry point handles both: close any overlay covering the
+       main view (agent profile), then `activate("rooms")` which
+       reads the freshly-written ROOMS_KEY and walks into the
+       same-hash + same-room branch of applyRoomsSubState — that
+       branch calls markActiveRoom to re-light the sidebar row. */
+    window.boardroomFocusRoom = function (roomId) {
+      if (!roomId) return;
+      lsSet(ROOMS_KEY, roomId);
+      lsSet(ROOMS_LAST_KEY, roomId);
+      if (typeof window.closeAgentProfile === "function") {
+        try { window.closeAgentProfile(); } catch (_) {}
+      }
+      activate("rooms");
     };
   })();
 

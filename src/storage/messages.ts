@@ -228,14 +228,67 @@ export function searchMessages(query: string, limit = 200): MessageSearchHit[] {
   }));
 }
 
-export function cleanupOrphanedStreams(): { fixed: number; deleted: number } {
+/** Strict-finalize a single message that's stuck in streaming:true.
+ *  Sets meta.streaming=false, meta.speakerStatus='final', meta.error
+ *  to the supplied reason. Used by:
+ *   - Per-turn try/finally blocks (LLM abort / exception / timeout)
+ *   - The runtime orphan sweep (5min-stale messages)
+ *  Idempotent · running it on an already-finalised message is a no-op
+ *  in semantic terms (streaming flag is already 0) and the SQL just
+ *  re-sets the same fields. Returns true when the row was actually
+ *  flipped (was streaming before), false if it was already done. */
+export function finalizeStreamingMessage(messageId: string, reason: string): boolean {
   const db = getDb();
+  // Check current state · only count "flipped" when we changed the
+  // streaming flag from 1 → 0. If it was already 0, callers can treat
+  // this as a no-op.
+  const before = db
+    .prepare(
+      `SELECT json_extract(meta_json, '$.streaming') AS streaming
+       FROM messages WHERE id = ?`,
+    )
+    .get(messageId) as { streaming: number | null } | undefined;
+  if (!before) return false;
+  if (before.streaming !== 1) return false;
+  db
+    .prepare(
+      `UPDATE messages
+       SET meta_json = json_set(
+         COALESCE(meta_json, '{}'),
+         '$.streaming', 0,
+         '$.speakerStatus', 'final',
+         '$.error', ?
+       )
+       WHERE id = ?`,
+    )
+    .run(String(reason || "finalized"), messageId);
+  return true;
+}
+
+/** Sweep stuck streaming:true messages. Two modes:
+ *   - No args / maxAgeMs unset → original boot behaviour: nuke empty-
+ *     body placeholders, flip non-empty ones to final with the boot
+ *     reason. Catches every orphan regardless of age.
+ *   - maxAgeMs set → only target messages whose updated_at (or
+ *     created_at, if updated_at isn't tracked) is older than that
+ *     threshold. Used by the runtime sweep (every 60s, threshold 5min)
+ *     so legitimate long-running streams aren't killed mid-flight.
+ *  Returns counts for telemetry. */
+export function cleanupOrphanedStreams(
+  opts: { maxAgeMs?: number; reason?: string } = {},
+): { fixed: number; deleted: number } {
+  const db = getDb();
+  const reason = opts.reason || "orphaned · server restarted mid-stream";
+  const ageClause = typeof opts.maxAgeMs === "number"
+    ? `AND created_at < ${Math.floor(Date.now() - opts.maxAgeMs)}`
+    : "";
   const del = db
     .prepare(
       `DELETE FROM messages
        WHERE json_valid(meta_json)
          AND json_extract(meta_json, '$.streaming') = 1
-         AND (body IS NULL OR trim(body) = '')`,
+         AND (body IS NULL OR trim(body) = '')
+         ${ageClause}`,
     )
     .run();
   // 0 instead of `json('false')` — SQLite stores it as a JSON number
@@ -249,11 +302,12 @@ export function cleanupOrphanedStreams(): { fixed: number; deleted: number } {
          meta_json,
          '$.streaming', 0,
          '$.speakerStatus', 'final',
-         '$.error', 'orphaned · server restarted mid-stream'
+         '$.error', ?
        )
        WHERE json_valid(meta_json)
-         AND json_extract(meta_json, '$.streaming') = 1`,
+         AND json_extract(meta_json, '$.streaming') = 1
+         ${ageClause}`,
     )
-    .run();
+    .run(reason);
   return { fixed: upd.changes, deleted: del.changes };
 }

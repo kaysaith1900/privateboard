@@ -53,6 +53,10 @@ import topicBranches040 from "./migrations/040_topic_branches.sql";
 import qdArchive041 from "./migrations/041_qd_archive.sql";
 import remapRemovedModels042 from "./migrations/042_remap_removed_models.sql";
 import remapKimiK25ToK26_043 from "./migrations/043_remap_kimi_k2_5_to_k2_6.sql";
+import oneActiveLlmKey044 from "./migrations/044_one_active_llm_key.sql";
+import activeLlmProviderPref045 from "./migrations/045_active_llm_provider_pref.sql";
+import llmCredentials046 from "./migrations/046_llm_credentials.sql";
+import dropTopicRecs047 from "./migrations/047_drop_topic_recs.sql";
 
 interface Migration {
   name: string;
@@ -103,6 +107,10 @@ const MIGRATIONS: Migration[] = [
   { name: "041_qd_archive.sql", sql: qdArchive041 },
   { name: "042_remap_removed_models.sql", sql: remapRemovedModels042 },
   { name: "043_remap_kimi_k2_5_to_k2_6.sql", sql: remapKimiK25ToK26_043 },
+  { name: "044_one_active_llm_key.sql", sql: oneActiveLlmKey044 },
+  { name: "045_active_llm_provider_pref.sql", sql: activeLlmProviderPref045 },
+  { name: "046_llm_credentials.sql", sql: llmCredentials046 },
+  { name: "047_drop_topic_recs.sql", sql: dropTopicRecs047 },
 ];
 
 let _db: Database.Database | null = null;
