@@ -247,6 +247,28 @@ async function callPhaseLLM(
   messages: { role: "system" | "user" | "assistant"; content: string }[],
   opts: { temperature: number; maxTokens: number },
 ): Promise<string | null> {
+  const r = await callPhaseLLMVerbose(state, modelV, messages, opts);
+  return r ? r.text : null;
+}
+
+export interface PhaseLLMResult {
+  text: string;
+  finishReason: string | null;
+}
+
+/** Same as `callPhaseLLM` but also surfaces the upstream
+ *  `finish_reason`. Callers that need to distinguish a clean
+ *  completion from a `length`-truncated response (notably the
+ *  profile pass, which has to detect OpenRouter mid-stream cuts to
+ *  decide whether to retry with a larger token ceiling) use this
+ *  variant. The plain helper above is preserved for all the other
+ *  phases that don't care, so this change is a non-breaking add. */
+async function callPhaseLLMVerbose(
+  state: PersonaJobState,
+  modelV: string,
+  messages: { role: "system" | "user" | "assistant"; content: string }[],
+  opts: { temperature: number; maxTokens: number },
+): Promise<PhaseLLMResult | null> {
   if (!isModelV(modelV)) return null;
   const t = signalWithTimeout(state.controller.signal, LLM_CALL_TIMEOUT_MS);
   try {
@@ -266,7 +288,7 @@ async function callPhaseLLM(
         return null;
       }
     }
-    return r.text;
+    return { text: r.text, finishReason: r.finishReason };
   } catch (e) {
     process.stderr.write(`[persona-builder] ${modelV} failed: ${e instanceof Error ? e.message : String(e)}\n`);
     return null;
@@ -507,7 +529,16 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
     if (!profileV1) {
       const status = checkAbortOrCap();
       if (status === "aborted") return finalizeAbort(state);
-      return fail("Phase 1 (persona spec) failed · no flagship model produced a parseable profile.");
+      // Surface a more diagnostic message · names the candidate model
+       // list so the user can tell whether the build failed because no
+       // models were reachable, or because the reachable models couldn't
+       // emit a parseable profile (often resolved by trying once more
+       // or switching to a stronger flagship via the keys panel).
+      const candidatesTried = flagshipCandidates();
+      const hint = candidatesTried.length === 0
+        ? "no flagship model is reachable with your current API key · open Preferences ▸ API Key and add a provider that exposes Claude / GPT / Gemini / Kimi / GLM"
+        : `${candidatesTried.length === 1 ? "the only reachable model" : "all reachable flagship models"} (${candidatesTried.join(", ")}) returned an unparseable profile — try again, or switch to a stronger model via Preferences ▸ API Key`;
+      return fail(`Phase 1 (persona spec) failed · ${hint}.`);
     }
     partial.profileV1 = profileV1;
     partial.spec = toCore(profileV1);
@@ -706,15 +737,87 @@ async function runProfilePass(
   webContext?: string,
 ): Promise<AgentProfile | null> {
   const messages = buildAgentProfileMessages({ description: state.description, webContext: webContext ?? null });
-  for (const modelV of flagshipCandidates()) {
+  const candidates = flagshipCandidates();
+  if (candidates.length === 0) {
+    process.stderr.write(`[persona-builder/${label}] no reachable models for the active credential · cannot build profile\n`);
+    return null;
+  }
+  // Per-model retries · the persona schema is fairly complex (nested
+  // lineage / concepts / referents / failure modes) and LLMs do
+  // occasionally emit a prose preamble OR get truncated by an
+  // aggregator like OpenRouter mid-stream, so a single sample failing
+  // isn't proof the model can't produce a valid spec. Under the
+  // single-active-credential model the candidate list often collapses
+  // to ONE entry (Kimi-only user sees only `kimi-k2-6`, GLM-only user
+  // sees only `glm-5-1`); without per-model retries, one unlucky
+  // sample killed the whole build with no fallback.
+  //
+  // Each retry tunes two knobs:
+  //   · temperature   — bumped on attempt 2 to nudge the model off a
+  //     failing sample (helps when the issue was prose preamble / wrong
+  //     field name on a deterministic model).
+  //   · maxTokens     — escalated when the prior attempt was truncated
+  //     (`finishReason === "length"`) OR when extractJson sees an
+  //     unbalanced `{` count (raw text starts with `{` but never
+  //     closes). OpenRouter routes that go through slower or
+  //     reasoning-heavy upstreams sometimes can't fit the JSON in the
+  //     default ceiling — bumping it is the actual fix, not retrying
+  //     at the same ceiling.
+  const PROFILE_ATTEMPTS_PER_MODEL = 2;
+  const PROFILE_MAX_TOKENS_BASE = 4096;
+  const PROFILE_MAX_TOKENS_ESCALATED = 6500;
+  for (const modelV of candidates) {
     if (state.controller.signal.aborted) return null;
-    const raw = await callPhaseLLM(state, modelV, messages, { temperature: 0.6, maxTokens: 2400 });
-    if (!raw) continue;
-    const parsed = parseAgentProfile(raw);
-    if (parsed) return parsed;
-    process.stderr.write(`[persona-builder/${label}] ${modelV} returned unparseable profile\n`);
+    let truncatedLastAttempt = false;
+    for (let attempt = 1; attempt <= PROFILE_ATTEMPTS_PER_MODEL; attempt++) {
+      if (state.controller.signal.aborted) return null;
+      const temperature = attempt === 1 ? 0.6 : 0.8;
+      const maxTokens = truncatedLastAttempt ? PROFILE_MAX_TOKENS_ESCALATED : PROFILE_MAX_TOKENS_BASE;
+      const result = await callPhaseLLMVerbose(state, modelV, messages, { temperature, maxTokens });
+      if (!result || !result.text) {
+        process.stderr.write(`[persona-builder/${label}] ${modelV} attempt ${attempt}/${PROFILE_ATTEMPTS_PER_MODEL} returned no text\n`);
+        truncatedLastAttempt = false;
+        continue;
+      }
+      const raw = result.text;
+      const parsed = parseAgentProfile(raw);
+      if (parsed) return parsed;
+      // Diagnose why parsing failed · "length" finish reason or
+      // unbalanced braces both mean the response was cut off and the
+      // next retry should escalate the token ceiling.
+      const truncated = result.finishReason === "length" || looksTruncated(raw);
+      truncatedLastAttempt = truncated;
+      const head = raw.slice(0, 200).replace(/\s+/g, " ");
+      const tail = raw.length > 200 ? raw.slice(-160).replace(/\s+/g, " ") : "";
+      process.stderr.write(
+        `[persona-builder/${label}] ${modelV} attempt ${attempt}/${PROFILE_ATTEMPTS_PER_MODEL} returned unparseable profile · ` +
+        `len=${raw.length} finish=${result.finishReason ?? "n/a"} maxTokens=${maxTokens}${truncated ? " TRUNCATED" : ""} · ` +
+        `head: ${head}${tail ? ` … tail: ${tail}` : ""}\n`,
+      );
+    }
   }
   return null;
+}
+
+/** Heuristic · the raw text looks truncated when it opens a JSON
+ *  object but never closes it. Used as a secondary signal alongside
+ *  `finish_reason === "length"` because some carriers (notably some
+ *  OpenRouter upstreams) don't reliably surface finish reasons even
+ *  when they truncate. */
+function looksTruncated(raw: string): boolean {
+  if (!raw) return false;
+  // Strip a possible ```json fence head so we look at the JSON body.
+  const fenceMatch = /```(?:json)?\s*([\s\S]*)$/i.exec(raw);
+  const body = fenceMatch ? fenceMatch[1] : raw;
+  if (!body) return false;
+  const start = body.indexOf("{");
+  if (start === -1) return false;
+  let depth = 0;
+  for (let i = start; i < body.length; i++) {
+    if (body[i] === "{") depth++;
+    else if (body[i] === "}") depth--;
+  }
+  return depth > 0;
 }
 
 /* ─────────── Phase 2 · ReAct knowledge loop ─────────── */

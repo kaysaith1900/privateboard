@@ -680,8 +680,13 @@ async function streamChairMessage(args: DispatchArgs & {
   // when we cross the `POINTS:` boundary; `voiceBuf` accumulates
   // post-boundary text that hasn't been pushed to the chunker yet
   // (we strip leading dashes / whitespace / cross-bullet line
-  // breaks before pushing).
+  // breaks before pushing). `tailDone` flips true when we hit the
+  // OPTIONAL `MODE-SHIFT:` block; from that point on we stop
+  // feeding the chunker entirely so TTS doesn't read aloud the
+  // literal words "MODE-SHIFT" / "BECAUSE" / the tone name (those
+  // are UI controls, not speech).
   let pingDone = false;
+  let tailDone = false;
   let voiceBuf = "";
   const voiceProfile = voiceMode ? voiceProfileForAgent(chair) : null;
   let voiceSeq = 0;
@@ -752,25 +757,56 @@ async function streamChairMessage(args: DispatchArgs & {
             // see "POINTS:" (case-insensitive). Once crossed, push
             // post-boundary text into the chunker minus the structural
             // markers (dash-bullets, blank lines).
-            voiceBuf += chunk.delta;
-            if (!pingDone) {
-              const idx = voiceBuf.search(/POINTS\s*:/i);
-              if (idx >= 0) {
-                pingDone = true;
-                // Drop everything up through the POINTS: marker.
-                const after = voiceBuf.slice(voiceBuf.search(/POINTS\s*:/i));
-                voiceBuf = after.replace(/POINTS\s*:/i, "");
+            // After tailDone (we hit MODE-SHIFT:), drop everything
+            // — the optional tail block is UI metadata, not speech.
+            if (tailDone) {
+              // no-op · don't accumulate further voice text. The
+              // raw `buf` still grows for the on-screen body (UI
+              // parses the markers); only TTS is gated off.
+            } else {
+              voiceBuf += chunk.delta;
+              if (!pingDone) {
+                const idx = voiceBuf.search(/POINTS\s*:/i);
+                if (idx >= 0) {
+                  pingDone = true;
+                  // Drop everything up through the POINTS: marker.
+                  const after = voiceBuf.slice(voiceBuf.search(/POINTS\s*:/i));
+                  voiceBuf = after.replace(/POINTS\s*:/i, "");
+                }
               }
-            }
-            if (pingDone && voiceBuf) {
-              // Strip leading bullet markers and surrounding
-              // whitespace so the chunker sees flat sentences.
-              // Replace dash-bullets with sentence boundary so each
-              // point reads as its own utterance.
-              const cleaned = voiceBuf.replace(/(^|\n)\s*[-*]\s*/g, ". ");
-              voiceBuf = "";
-              for (const spoken of voiceChunker.push(cleaned)) {
-                await emitChairVoice(spoken);
+              if (pingDone && voiceBuf) {
+                // MODE-SHIFT: marks the start of the optional tail
+                // block (a tone-switch proposal · UI affordance,
+                // not speech). Slice voiceBuf to JUST BEFORE the
+                // marker, push that final stretch to the chunker,
+                // and flip tailDone so subsequent tokens never
+                // reach TTS. Without this gate the literal words
+                // "MODE-SHIFT" / "BECAUSE" + the tone name + the
+                // rationale all get read aloud — which is exactly
+                // the "chair reads weird fixed words" symptom.
+                const tailIdx = voiceBuf.search(/MODE[-\s]?SHIFT\s*:/i);
+                if (tailIdx >= 0) {
+                  tailDone = true;
+                  const beforeTail = voiceBuf.slice(0, tailIdx);
+                  voiceBuf = beforeTail;
+                }
+                if (voiceBuf) {
+                  // Strip leading bullet markers and surrounding
+                  // whitespace so the chunker sees flat sentences.
+                  // Replace dash-bullets with sentence boundary so
+                  // each point reads as its own utterance. Also
+                  // drop a stray "BECAUSE:" prefix if the model
+                  // emitted it without the MODE-SHIFT: header
+                  // (defence-in-depth · the formal MODE-SHIFT
+                  // gate above is the primary guard).
+                  const cleaned = voiceBuf
+                    .replace(/(^|\n)\s*[-*]\s*/g, ". ")
+                    .replace(/\bBECAUSE\s*:\s*/gi, "");
+                  voiceBuf = "";
+                  for (const spoken of voiceChunker.push(cleaned)) {
+                    await emitChairVoice(spoken);
+                  }
+                }
               }
             }
           } else {

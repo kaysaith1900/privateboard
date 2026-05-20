@@ -166,6 +166,22 @@
       help: "console.x.ai",
       helpUrl: "https://console.x.ai/team",
     },
+    {
+      slug: "moonshot",
+      label: "Kimi",
+      sub: "Moonshot direct · 256k ctx",
+      placeholder: "sk-…",
+      help: "platform.moonshot.cn",
+      helpUrl: "https://platform.moonshot.cn/console/api-keys",
+    },
+    {
+      slug: "zhipu",
+      label: "GLM",
+      sub: "Zhipu direct · 200k ctx",
+      placeholder: "key.secret",
+      help: "open.bigmodel.cn",
+      helpUrl: "https://open.bigmodel.cn/usercenter/apikeys",
+    },
   ];
 
   // Legacy alias · existing callsites that iterate every LLM provider
@@ -241,14 +257,16 @@
   // ── Persistence ────────────────────────────────────────
   async function loadInitial() {
     try {
-      // /api/keys still covers voice (minimax, elevenlabs) + skill
-      // (brave, tavily). LLM providers moved to /api/credentials —
-      // multi-instance now, so we mark a provider "configured" if
-      // ANY credential of that provider exists.
-      const [prefsRes, keysRes, credsRes] = await Promise.all([
+      // LLM providers live in /api/credentials (multi-instance);
+      // voice providers (MiniMax / ElevenLabs) now live in their
+      // own multi-instance table at /api/voice-credentials; only
+      // skill keys (Brave / Tavily) still surface via /api/keys.
+      // We mark a provider "configured" if ANY credential of that
+      // provider exists.
+      const [prefsRes, credsRes, voiceCredsRes] = await Promise.all([
         fetch("/api/prefs"),
-        fetch("/api/keys"),
         fetch("/api/credentials"),
+        fetch("/api/voice-credentials"),
       ]);
       if (prefsRes.ok) {
         const p = await prefsRes.json();
@@ -260,16 +278,29 @@
       for (const slug of Object.keys(voiceProviderConfigured)) {
         voiceProviderConfigured[slug] = false;
       }
-      if (keysRes.ok) {
-        const k = await keysRes.json();
-        for (const row of (k.keys || [])) {
+      if (voiceCredsRes.ok) {
+        const vc = await voiceCredsRes.json();
+        for (const row of (vc.credentials || [])) {
           if (!row || typeof row.provider !== "string") continue;
           if (row.provider in voiceProviderConfigured) {
-            voiceProviderConfigured[row.provider] = !!row.configured;
+            voiceProviderConfigured[row.provider] = true;
           }
         }
-        const firstVoiceConfigured = VOICE_PROVIDERS.find((p) => voiceProviderConfigured[p.slug]);
-        if (firstVoiceConfigured) activeVoiceProvider = firstVoiceConfigured.slug;
+        // Active voice provider · prefer the server-side active id
+        // (post-migration users will already have one); otherwise
+        // fall back to the first VOICE_PROVIDERS entry that has a
+        // credential on file. Final fallback keeps the constructor
+        // default ("minimax").
+        const activeId = typeof vc.activeId === "string" ? vc.activeId : null;
+        if (activeId) {
+          const activeRow = (vc.credentials || []).find((r) => r && r.id === activeId);
+          if (activeRow && activeRow.provider in voiceProviderConfigured) {
+            activeVoiceProvider = activeRow.provider;
+          }
+        } else {
+          const firstVoiceConfigured = VOICE_PROVIDERS.find((p) => voiceProviderConfigured[p.slug]);
+          if (firstVoiceConfigured) activeVoiceProvider = firstVoiceConfigured.slug;
+        }
       }
       if (credsRes.ok) {
         const cr = await credsRes.json();
@@ -337,23 +368,28 @@
   }
 
   /** Save a voice / TTS provider key (MiniMax · ElevenLabs).
-   *  Unlike LLM providers, voice providers coexist — the backend
-   *  registry lets both carriers serve voices side-by-side — so we
-   *  do NOT pass `makeDefault` and do NOT retire siblings. The
-   *  backend's first-voice-key 0→1 transition still triggers
-   *  per-agent voice auto-assignment server-side. */
+   *  Voice providers now follow the single-active credential model
+   *  (mirrors the LLM credentials pattern). The server auto-activates
+   *  the FIRST voice credential and runs `reconcileAgentVoices` so
+   *  every existing director gets a voice from the new provider's
+   *  catalog · subsequent adds DO NOT take over active.
+   *
+   *  POST /api/voice-credentials returns 201 with the credential
+   *  payload on success · we set `voiceProviderConfigured` from the
+   *  presence of an `id` field instead of the legacy `configured`
+   *  flag (which only the /api/keys route returns). */
   async function saveVoiceKey(provider, value) {
     const trimmed = (value || "").trim();
     if (!trimmed) return false;
     try {
-      const r = await fetch("/api/keys/" + encodeURIComponent(provider), {
-        method: "PUT",
+      const r = await fetch("/api/voice-credentials", {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key: trimmed }),
+        body: JSON.stringify({ provider, key: trimmed, label: null }),
       });
       if (!r.ok) return false;
       const data = await r.json();
-      const ok = !!data.configured;
+      const ok = !!(data && data.id);
       voiceProviderConfigured[provider] = ok;
       return ok;
     } catch (e) {

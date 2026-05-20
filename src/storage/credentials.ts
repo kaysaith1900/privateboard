@@ -10,8 +10,7 @@
  * key from OS username). Keep the crypto helpers consistent — when
  * `keys.ts` swaps to OS keychain in v1.2, this file follows.
  */
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { userInfo } from "node:os";
+import { randomBytes } from "node:crypto";
 
 import {
   ALL_LLM_PROVIDERS,
@@ -19,43 +18,11 @@ import {
   type LlmProvider,
 } from "../ai/providers.js";
 import { getDb } from "./db.js";
-
-const SALT = "boardroom.v1.salt";
-const ALGO = "aes-256-gcm";
-
-let _key: Buffer | null = null;
-function deriveKey(): Buffer {
-  if (_key) return _key;
-  const username = userInfo().username || "boardroom-default";
-  _key = scryptSync(username, SALT, 32);
-  return _key;
-}
-
-function encrypt(plain: string): Buffer {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv(ALGO, deriveKey(), iv);
-  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, ct]);
-}
-
-function decrypt(blob: Buffer): string {
-  const iv = blob.subarray(0, 12);
-  const tag = blob.subarray(12, 28);
-  const ct = blob.subarray(28);
-  const decipher = createDecipheriv(ALGO, deriveKey(), iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
-}
-
-function maskKey(plain: string): string {
-  const trimmed = plain.trim();
-  if (!trimmed) return "";
-  const n = trimmed.length;
-  if (n <= 4) return "•".repeat(n);
-  if (n <= 12) return `${trimmed.slice(0, 2)}${"•".repeat(n - 4)}${trimmed.slice(-2)}`;
-  return `${trimmed.slice(0, 4)}${"•".repeat(n - 8)}${trimmed.slice(-4)}`;
-}
+import {
+  decryptCredential,
+  encryptCredential,
+  maskCredential,
+} from "./credential-crypto.js";
 
 export interface LlmCredentialMeta {
   id: string;
@@ -78,7 +45,7 @@ interface Row {
 function rowToMeta(row: Row): LlmCredentialMeta | null {
   if (!isLlmProvider(row.provider)) return null;
   let preview = "";
-  try { preview = maskKey(decrypt(row.key_blob)); }
+  try { preview = maskCredential(decryptCredential(row.key_blob)); }
   catch { preview = ""; }
   return {
     id: row.id,
@@ -114,7 +81,7 @@ export function getLlmCredentialKey(id: string): string | null {
     .prepare("SELECT key_blob FROM llm_credentials WHERE id = ?")
     .get(id) as { key_blob: Buffer } | undefined;
   if (!row) return null;
-  try { return decrypt(row.key_blob); }
+  try { return decryptCredential(row.key_blob); }
   catch { return null; }
 }
 
@@ -146,6 +113,13 @@ function providerDisplayName(provider: LlmProvider): string {
     case "openai":     return "ChatGPT";
     case "google":     return "Gemini";
     case "xai":        return "Grok";
+    // Brand-name labels for the two newest direct providers · "Kimi"
+    // (model brand) over "Moonshot" (company), "GLM" (model family)
+    // over "Zhipu" (company) · same convention as "Claude"/anthropic
+    // and "ChatGPT"/openai · the user-facing UI prefers the product
+    // name over the corporate slug.
+    case "moonshot":   return "Kimi";
+    case "zhipu":      return "GLM";
   }
 }
 
@@ -163,7 +137,7 @@ export function createLlmCredential(
   if (!(ALL_LLM_PROVIDERS as readonly string[]).includes(provider)) return null;
   const resolvedLabel = resolveFreeLabel(provider, label);
   const id = randomBytes(8).toString("hex");
-  const blob = encrypt(trimmed);
+  const blob = encryptCredential(trimmed);
   const now = Date.now();
   getDb()
     .prepare(

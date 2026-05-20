@@ -36,7 +36,7 @@ export interface LLMMessage {
  *  rather than re-importing to avoid the storage→ai dep). When set,
  *  resolveModel routes via that carrier instead of the default
  *  precedence rules. NULL/undefined preserves the historical behavior. */
-export type RequestCarrier = "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
+export type RequestCarrier = "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | "moonshot" | "zhipu";
 
 export interface LLMRequest {
   modelV: ModelV;
@@ -448,6 +448,40 @@ function directResolved(meta: ModelMeta, apiKey: string): ResolvedModel {
         carrier: "xai",
       };
     }
+    case "moonshot": {
+      // Moonshot Kimi · OpenAI-compatible chat-completions endpoint.
+      // CN endpoint is api.moonshot.cn/v1 (where mainland Moonshot
+      // keys auth); intl users on api.moonshot.ai/v1 are a follow-up
+      // if region-mismatch errors show up in the wild. CN is the
+      // correct default for this user base (per project CLAUDE.md
+      // language preference). Uses createOpenAICompatible.chatModel
+      // (same shape as B.AI / OpenRouter), NOT the Responses API
+      // — Moonshot exposes chat-completions only.
+      const compat = createOpenAICompatible({
+        name: "moonshot",
+        apiKey,
+        baseURL: "https://api.moonshot.cn/v1",
+        fetch: makeLoggedFetch("moonshot"),
+      });
+      return {
+        model: compat.chatModel(meta.directApiId),
+        carrier: "moonshot",
+      };
+    }
+    case "zhipu": {
+      // Zhipu GLM · OpenAI-compatible chat-completions at the global
+      // bigmodel.cn endpoint. Single endpoint · no region split.
+      const compat = createOpenAICompatible({
+        name: "zhipu",
+        apiKey,
+        baseURL: "https://open.bigmodel.cn/api/paas/v4/",
+        fetch: makeLoggedFetch("zhipu"),
+      });
+      return {
+        model: compat.chatModel(meta.directApiId),
+        carrier: "zhipu",
+      };
+    }
     default:
       throw new NoKeyError(meta.provider);
   }
@@ -789,9 +823,10 @@ export interface LLMUsage {
  */
 export async function callLLMWithUsage(
   req: LLMRequest,
-): Promise<{ text: string; usage: LLMUsage | null }> {
+): Promise<{ text: string; usage: LLMUsage | null; finishReason: string | null }> {
   let buf = "";
   let usage: LLMUsage | null = null;
+  let finishReason: string | null = null;
   for await (const chunk of callLLMStream(req)) {
     if (chunk.type === "text") buf += chunk.delta;
     else if (chunk.type === "error") throw new Error(chunk.message);
@@ -801,7 +836,18 @@ export async function callLLMWithUsage(
         completionTokens: chunk.completionTokens,
         totalTokens: chunk.totalTokens,
       };
+    } else if (chunk.type === "done") {
+      // Surface the upstream finish_reason · callers use this to
+      // distinguish "model completed cleanly" from "truncated at
+      // maxTokens" (`length`) or "stopped by stop sequence" / "content
+      // filter". The OpenRouter path in particular benefits — its
+      // upstream route is opaque, so without finishReason the only
+      // signal is unparseable JSON, which looks the same whether the
+      // model misformatted the output or the response was cut off.
+      if (typeof chunk.finishReason === "string" && chunk.finishReason.length > 0) {
+        finishReason = chunk.finishReason;
+      }
     }
   }
-  return { text: buf, usage };
+  return { text: buf, usage, finishReason };
 }

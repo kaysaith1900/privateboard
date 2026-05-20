@@ -1143,6 +1143,153 @@ html.is-electron-mac .room-settings-overlay * {
 .head-divergence {
   --icon: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.5" y1="7.5" x2="10.5" y2="10.5"/><line x1="16.5" y1="7.5" x2="13.5" y2="10.5"/><line x1="7.5" y1="16.5" x2="10.5" y2="13.5"/><line x1="16.5" y1="16.5" x2="13.5" y2="13.5"/></svg>');
 }
+/* Record · classic record-button glyph (ring + filled centre dot,
+   the universal "recording" shape used by Zoom / OBS / camera apps).
+   Even-odd path renders the donut and the inner solid circle in one
+   monochrome SVG so the head-icon-btn mask machinery can paint it
+   in `currentColor`. Special-cased to ALWAYS render red (not the
+   neutral text-soft → lime register of its siblings) so the record
+   action stays unmistakable even in the idle state · destructive /
+   weighty actions should not blend in. Sized one tier larger
+   (18×18) than the other head icons so it reads as a primary
+   affordance. Recording state adds pulse to communicate "live." */
+.head-record {
+  --icon: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black"><path d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19zm0 2a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15z" fill-rule="evenodd"/><circle cx="12" cy="12" r="4.5"/></svg>');
+  color: var(--red, #B5706A);
+}
+.head-record::before {
+  width: 18px;
+  height: 18px;
+  -webkit-mask-size: 18px 18px;
+          mask-size: 18px 18px;
+}
+.head-record:hover,
+.room-settings-trigger.head-record:hover {
+  /* Override head-icon-btn's default lime-on-hover · record stays red,
+     just slightly brighter on hover for affordance feedback. */
+  color: #D88A82;
+}
+.head-record.is-recording::before {
+  animation: head-record-pulse 1.1s ease-in-out infinite;
+}
+@keyframes head-record-pulse {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.86); }
+}
+
+/* ─────────── Record-start cinematic countdown ──────────────────
+   Full-stage overlay mounted right after the recorder starts. The
+   `Ready · 3 · 2 · 1` sequence is captured by the recorder (the
+   composite canvas crop region includes the overlay), so the
+   exported video opens with a movie-trailer-style intro card.
+   Pointer-events:none lets the user keep interacting with the
+   room beneath while the countdown runs (it's purely cosmetic). */
+.rec-countdown-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    circle at center,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.82) 100%
+  );
+  pointer-events: none;
+  animation: rec-cd-bg-fade 0.32s ease-out;
+}
+.rec-countdown-overlay.is-leaving {
+  opacity: 0;
+  transition: opacity 0.32s ease-in;
+}
+.rec-countdown-text {
+  font-family: var(--font-serif, "Tiempos Headline", "Charter", Georgia, serif);
+  font-weight: 900;
+  color: #FAF6E8;
+  letter-spacing: -0.04em;
+  /* Two-stop glow · warm ambient bloom + sharper drop shadow keeps
+     the numerals readable over any floor / wall combination. No
+     box-shadow (would be wrong on a text element) — text-shadow
+     stacks are the right primitive. */
+  text-shadow:
+    0 0 64px rgba(255, 220, 200, 0.55),
+    0 0 18px rgba(255, 240, 220, 0.85),
+    0 4px 24px rgba(0, 0, 0, 0.7);
+  user-select: none;
+}
+.rec-countdown-num {
+  font-size: clamp(140px, 32vw, 360px);
+  font-style: italic;
+  line-height: 0.85;
+}
+.rec-countdown-ready {
+  font-size: clamp(72px, 16vw, 180px);
+  letter-spacing: 0.08em;
+  font-style: normal;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.rec-countdown-pop {
+  animation: rec-cd-pop 0.85s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes rec-cd-pop {
+  0%   { opacity: 0; transform: scale(0.55); }
+  18%  { opacity: 1; transform: scale(1.08); }
+  36%  { opacity: 1; transform: scale(1);    }
+  76%  { opacity: 1; transform: scale(1);    }
+  100% { opacity: 0; transform: scale(1.22); }
+}
+@keyframes rec-cd-bg-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Stage-pinned REC pill · mounted as a sibling of the 3D canvas
+   inside [data-roundtable-stage] while a meeting recording is in
+   flight. Top-right corner, compact mono chip with a red pulse dot
+   + label + MM:SS timer. The pill IS captured by the recorder (the
+   crop region includes it) which is intentional · the playback
+   viewer sees "this is a recording" right on screen. */
+.rt-recording-pill {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 8px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--red, #B5706A);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #F0E6E2;
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+}
+.rt-recording-pill .rt-rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red, #B5706A);
+  animation: rt-rec-dot-pulse 1.1s ease-in-out infinite;
+}
+.rt-recording-pill .rt-rec-label {
+  color: var(--red, #B5706A);
+  font-weight: 700;
+}
+.rt-recording-pill .rt-rec-time {
+  color: #F0E6E2;
+  letter-spacing: 0.06em;
+}
+@keyframes rt-rec-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.85); }
+}
 
 @media (max-width: 600px) {
   .room-settings-overlay { padding: 12px; }

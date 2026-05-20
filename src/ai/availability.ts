@@ -231,6 +231,13 @@ export const FAST_POOL_BY_CARRIER: Record<string, readonly ModelV[]> = {
   openai: ["gpt-5-4-mini"],
   google: ["gemini-3-flash", "gemini-3-1-flash"],
   // xai · no fast pool (no LLM modelV in registry).
+  // Moonshot / Zhipu · single-entry pools because the registry only
+  // carries one LLM modelV per provider today. Every director on this
+  // carrier ends up on the same model (no brand variety), which is fine
+  // for these single-model providers · adding more Kimi / GLM rows
+  // to the registry would naturally extend the pool.
+  moonshot: ["kimi-k2-6"],
+  zhipu: ["glm-5-1"],
 };
 
 /** Pick a random fast-tier model for the given carrier. Filters

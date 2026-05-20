@@ -58,6 +58,10 @@ import activeLlmProviderPref045 from "./migrations/045_active_llm_provider_pref.
 import llmCredentials046 from "./migrations/046_llm_credentials.sql";
 import dropTopicRecs047 from "./migrations/047_drop_topic_recs.sql";
 import userLongMemory048 from "./migrations/048_user_long_memory.sql";
+import voiceCredentials049 from "./migrations/049_voice_credentials.sql";
+import agentProviderBuckets050 from "./migrations/050_agent_provider_buckets.sql";
+import searchCredentials051 from "./migrations/051_search_credentials.sql";
+import roomNameAuto052 from "./migrations/052_room_name_auto.sql";
 
 interface Migration {
   name: string;
@@ -113,6 +117,10 @@ const MIGRATIONS: Migration[] = [
   { name: "046_llm_credentials.sql", sql: llmCredentials046 },
   { name: "047_drop_topic_recs.sql", sql: dropTopicRecs047 },
   { name: "048_user_long_memory.sql", sql: userLongMemory048 },
+  { name: "049_voice_credentials.sql", sql: voiceCredentials049 },
+  { name: "050_agent_provider_buckets.sql", sql: agentProviderBuckets050 },
+  { name: "051_search_credentials.sql", sql: searchCredentials051 },
+  { name: "052_room_name_auto.sql", sql: roomNameAuto052 },
 ];
 
 let _db: Database.Database | null = null;

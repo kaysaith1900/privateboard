@@ -15,7 +15,7 @@ import { streamSSE } from "hono/streaming";
 import tinyPinyin from "tiny-pinyin";
 
 import { isModelV } from "../ai/registry.js";
-import { deleteAgent, getAgent, getAgentByHandle, getAgentStats, getChairAgent, incrementAgentTokens, insertAgent, listAgents, updateAgent, type AgentVoiceProvider, type PersonaSpec } from "../storage/agents.js";
+import { deleteAgent, deleteVoiceBucketEntry, getAgent, getAgentByHandle, getAgentStats, getChairAgent, incrementAgentTokens, insertAgent, listAgents, updateAgent, writeModelBucketEntry, writeVoiceBucketEntry, type AgentVoiceProvider, type PersonaSpec } from "../storage/agents.js";
 import { getPersonaJob } from "../storage/persona-jobs.js";
 import {
   abortPersonaBuild,
@@ -447,7 +447,14 @@ export function agentsRouter(): Hono {
             modelV,
             messages: profileMessages,
             temperature: 0.6,
-            maxTokens: 1600,
+            // Bumped from 1600 → 4096 · the profile JSON plus any
+            // chain-of-thought / reasoning preamble on Kimi / GLM /
+            // DeepSeek-R lines easily overran the smaller ceiling on
+            // OpenRouter routes, which surface truncation as
+            // "unparseable JSON" (the closing `}` is missing). Quick
+            // mode is single-shot — no retry — so the ceiling has to
+            // be generous up front.
+            maxTokens: 4096,
             signal,
           });
           const parsed = parseAgentProfile(raw);
@@ -455,6 +462,7 @@ export function agentsRouter(): Hono {
             profile = parsed;
             break;
           }
+          process.stderr.write(`[agent-spec/profile] ${modelV} returned unparseable profile · len=${raw.length} head: ${raw.slice(0, 200).replace(/\s+/g, " ")}\n`);
         } catch (e) {
           process.stderr.write(`[agent-spec/profile] ${modelV} failed: ${e instanceof Error ? e.message : String(e)}\n`);
         }
@@ -944,7 +952,7 @@ export function agentsRouter(): Hono {
     const patch: {
       avatarPath?: string;
       modelV?: string;
-      carrierPref?: "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | null;
+      carrierPref?: "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | "moonshot" | "zhipu" | null;
       bio?: string;
       webSearchEnabled?: boolean;
       voice?: {
@@ -993,11 +1001,11 @@ export function agentsRouter(): Hono {
         patch.carrierPref = null;
       } else if (typeof b.carrierPref === "string") {
         const v = b.carrierPref.trim();
-        const allowed = new Set(["openrouter", "bai", "anthropic", "openai", "google", "xai"]);
+        const allowed = new Set(["openrouter", "bai", "anthropic", "openai", "google", "xai", "moonshot", "zhipu"]);
         if (!allowed.has(v)) {
           return c.json({ error: `unknown carrier: ${v}` }, 400);
         }
-        patch.carrierPref = v as "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
+        patch.carrierPref = v as "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | "moonshot" | "zhipu";
       }
     }
 
@@ -1049,6 +1057,68 @@ export function agentsRouter(): Hono {
     }
 
     const updated = updateAgent(id, patch);
+
+    // SIM-swap memory · mirror the user's manual pick into the per-
+    // provider bucket so a subsequent provider switch can restore it.
+    //
+    // Model bucket · keyed by the CURRENTLY-active LLM carrier (what
+    // the user sees as "this is my current provider"). activeCarrier()
+    // returns null when no LLM credential is configured; we skip the
+    // bucket write in that case since there's nothing meaningful to
+    // key on.
+    //
+    // Voice bucket · keyed by the voice profile's OWN provider (the
+    // profile carries `provider` directly). Only credentialed providers
+    // (minimax / elevenlabs) seed the bucket — browser / openai / azure
+    // / custom voice profiles are fallbacks, not SIM cards, so they
+    // flow through unchanged. Clearing the voice removes the bucket
+    // entry for the OLD voice's provider so a restore on switch-back
+    // doesn't resurrect a profile the user explicitly cleared.
+    if (updated) {
+      if (patch.modelV !== undefined) {
+        const carrier = activeCarrier();
+        if (carrier) {
+          try { writeModelBucketEntry(id, carrier, patch.modelV); }
+          catch (e) {
+            process.stderr.write(
+              `[agents.patch] model bucket write failed for ${id}: ${e instanceof Error ? e.message : String(e)}\n`,
+            );
+          }
+        }
+      }
+      if ("voice" in patch) {
+        // Use `updated.voice` (re-read from storage) rather than
+        // `patch.voice` · the route's local patch type narrowed away
+        // emotion / modifyPitch / modifyIntensity / modifyTimbre, but
+        // those DO get persisted to voice_json. Reading them back from
+        // the fresh row ensures the bucket entry is a faithful copy
+        // of what was just stored (otherwise switch-back would restore
+        // a voice with the tuning fields silently dropped).
+        if (patch.voice && updated.voice
+            && (updated.voice.provider === "minimax" || updated.voice.provider === "elevenlabs")) {
+          try { writeVoiceBucketEntry(id, updated.voice.provider, updated.voice); }
+          catch (e) {
+            process.stderr.write(
+              `[agents.patch] voice bucket write failed for ${id}: ${e instanceof Error ? e.message : String(e)}\n`,
+            );
+          }
+        } else if (!patch.voice
+            && existing.voice
+            && (existing.voice.provider === "minimax" || existing.voice.provider === "elevenlabs")) {
+          // Voice cleared · drop the bucket entry for the provider
+          // that WAS in voice_json before this patch ran. Without
+          // this, a switch-back would restore a voice the user
+          // explicitly cleared.
+          try { deleteVoiceBucketEntry(id, existing.voice.provider); }
+          catch (e) {
+            process.stderr.write(
+              `[agents.patch] voice bucket delete failed for ${id}: ${e instanceof Error ? e.message : String(e)}\n`,
+            );
+          }
+        }
+      }
+    }
+
     return c.json(updated);
   });
 

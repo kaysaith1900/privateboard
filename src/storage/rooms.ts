@@ -45,6 +45,14 @@ export interface Room {
    *  (a parent room can have multiple briefs from regenerations).
    *  NULL when there's no parent OR the parent had no brief. */
   parentBriefId: string | null;
+  /** True when `name` was auto-derived (the first 60 chars of
+   *  `subject`) and is safe for the round-1 LLM topic-phrase pass to
+   *  overwrite. False when the client passed an explicit name at
+   *  creation — those are user-authored and must not be clobbered.
+   *  The SQL-side guard lives in `setRoomNameFromAuto` (UPDATE ...
+   *  WHERE name_auto = 1) so a future rename UI can flip this to 0
+   *  without racing the auto pipeline. */
+  nameAuto: boolean;
 }
 
 export interface RoomMember {
@@ -76,6 +84,7 @@ interface Row {
   incognito: number;
   parent_room_id: string | null;
   parent_brief_id: string | null;
+  name_auto: number;
 }
 
 interface MemberRow {
@@ -88,7 +97,7 @@ interface MemberRow {
 const ROOM_COLS =
   "id, number, name, subject, mode, intensity, delivery_mode, vote_trigger, status, brief_style, awaiting_continue, " +
   "awaiting_clarify, created_at, paused_at, adjourned_at, incognito, " +
-  "parent_room_id, parent_brief_id";
+  "parent_room_id, parent_brief_id, name_auto";
 
 function mapRow(row: Row): Room {
   return {
@@ -110,6 +119,7 @@ function mapRow(row: Row): Room {
     incognito: row.incognito === 1,
     parentRoomId: row.parent_room_id,
     parentBriefId: row.parent_brief_id,
+    nameAuto: row.name_auto === 1,
   };
 }
 
@@ -224,6 +234,11 @@ export interface RoomCreate {
    *  cast sees the prior judgement as settled context. */
   parentRoomId?: string | null;
   parentBriefId?: string | null;
+  /** False when the caller explicitly named the room (client passed
+   *  `name`); the round-1 auto-title pass must not overwrite. True
+   *  (default) when `name` is the 60-char fallback derived from
+   *  `subject` — fair game for the auto-summariser. */
+  nameAuto?: boolean;
 }
 
 /**
@@ -241,7 +256,7 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
   const deliveryMode = input.deliveryMode === "voice" ? "voice" : "text";
 
   const insertRoom = db.prepare(
-    "INSERT INTO rooms (id, number, name, subject, mode, intensity, delivery_mode, brief_style, status, created_at, parent_room_id, parent_brief_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?)",
+    "INSERT INTO rooms (id, number, name, subject, mode, intensity, delivery_mode, brief_style, status, created_at, parent_room_id, parent_brief_id, name_auto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?)",
   );
   const insertMember = db.prepare(
     "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
@@ -253,9 +268,13 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
   const chair = getChairAgent();
   const parentRoomId = input.parentRoomId && input.parentRoomId.trim() ? input.parentRoomId.trim() : null;
   const parentBriefId = input.parentBriefId && input.parentBriefId.trim() ? input.parentBriefId.trim() : null;
+  // Default to 1 (auto) when caller didn't say · same default as the
+  // migration. Caller in routes/rooms.ts flips to 0 when an explicit
+  // `name` came in on the request body.
+  const nameAuto = input.nameAuto === false ? 0 : 1;
 
   const tx = db.transaction(() => {
-    insertRoom.run(id, number, input.name, input.subject, mode, intensity, deliveryMode, briefStyle, now, parentRoomId, parentBriefId);
+    insertRoom.run(id, number, input.name, input.subject, mode, intensity, deliveryMode, briefStyle, now, parentRoomId, parentBriefId, nameAuto);
     if (chair) insertMember.run(id, chair.id, -1, now);
     input.agentIds.forEach((agentId, idx) => {
       // Don't double-insert if a caller passed the chair id explicitly.
@@ -287,6 +306,23 @@ export function setRoomStatus(
   if (ts.adjournedAt !== undefined) { sets.push("adjourned_at = ?"); vals.push(ts.adjournedAt); }
   vals.push(roomId);
   getDb().prepare(`UPDATE rooms SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+}
+
+/**
+ * Overwrite the room's display name with the round-1 LLM topic phrase,
+ * but ONLY when name_auto = 1 (i.e. the existing `name` was the 60-char
+ * fallback, not a user-authored title). The WHERE clause is enforced at
+ * the SQL layer so a future rename UI flipping name_auto to 0 races
+ * cleanly with an in-flight auto pass — the UPDATE just becomes a no-op.
+ * Returns true when a row was actually rewritten.
+ */
+export function setRoomNameFromAuto(roomId: string, name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const r = getDb()
+    .prepare("UPDATE rooms SET name = ? WHERE id = ? AND name_auto = 1")
+    .run(trimmed, roomId);
+  return r.changes > 0;
 }
 
 /**

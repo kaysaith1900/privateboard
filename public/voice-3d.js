@@ -234,6 +234,12 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   let chairAnchorWorld = null;
   let lastVotePopHtml = "";
 
+  /** User-spoke bubble · driven by `state.userBubble` in update().
+   *  When non-null the user seat shows their just-typed message as
+   *  a bubble (mirrors the 2D `data-rt-user-bubble` element). Null
+   *  means hide; the shape is `{ text, progress }`. */
+  let activeUserBubble = null;
+
   /** User wait-mark state · driven by `state.userWait` in update().
    *  When true and the user has typed a message that's queued
    *  behind the current speaker, the user seat shows a "⌛ WAIT"
@@ -490,7 +496,16 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // the stage box's size changes and we re-snap the renderer +
     // camera aspect.
     resizeRenderer();
-    resizeObserver = new ResizeObserver(() => resizeRenderer());
+    // Debounced resize · Electron window-drag fires ResizeObserver
+    // dozens of times per second. Each `renderer.setSize()`
+    // re-allocates the WebGL drawingBuffer, and the brief gap
+    // between teardown and the next rAF render painted black on
+    // top of the live scene, producing a strobe / flicker for the
+    // duration of the drag. We coalesce trailing resizes on a 100 ms
+    // timer so during a drag the canvas's CSS scales the existing
+    // buffer (slightly stretched but stable) and only commits the
+    // final size once the user stops resizing.
+    resizeObserver = new ResizeObserver(() => scheduleResize());
     resizeObserver.observe(stageEl);
 
     // Pause the RAF render loop when the stage element scrolls out
@@ -623,6 +638,10 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       try { resizeObserver.disconnect(); } catch (_) {}
       resizeObserver = null;
     }
+    if (_resizeTimer) {
+      clearTimeout(_resizeTimer);
+      _resizeTimer = null;
+    }
     if (controls) {
       try { controls.dispose(); } catch (_) {}
       controls = null;
@@ -732,6 +751,10 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     activeSpeakerId = (state && state.speakerId) || null;
     activeSpeakerState = (state && state.speakerState) || null;
     activeUserWait = !!(state && state.userWait);
+    activeUserBubble = (state && state.userBubble && typeof state.userBubble === "object"
+      && typeof state.userBubble.text === "string" && state.userBubble.text.trim())
+      ? { text: state.userBubble.text, progress: Number(state.userBubble.progress) || 0 }
+      : null;
     if (state && state.labels) {
       if (typeof state.labels.thinking === "string") activeSpeakerLabels.thinking = state.labels.thinking;
       if (typeof state.labels.speaking === "string") activeSpeakerLabels.speaking = state.labels.speaking;
@@ -2458,6 +2481,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
         // `.rt-seat-wait-mark` CSS so its pill shape + amber pulse
         // animation come for free.
         let waitMark = null;
+        let userBubbleEl = null;
         if (m.__isUser) {
           waitMark = document.createElement("div");
           waitMark.className = "rt-seat-wait-mark";
@@ -2470,6 +2494,23 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
           ].join("; ");
           waitMark.innerHTML = "⌛&nbsp;WAIT";
           wrapper.appendChild(waitMark);
+
+          // User-spoke bubble · separate element from the speaker
+          // bubble (which is keyed on _resolveStageSpeaker, which
+          // never returns the user). Reuses the legacy
+          // `data-rt-user-bubble` attribute so any conic-gradient
+          // countdown CSS from the 2D path applies for free.
+          userBubbleEl = document.createElement("div");
+          userBubbleEl.className = "rt-bubble rt-bubble-user";
+          userBubbleEl.setAttribute("data-rt-user-bubble", "");
+          userBubbleEl.style.cssText = [
+            "position: static",
+            "top: auto", "left: auto",
+            "transform: none",
+            "margin-top: 4px",
+            "display: none",
+          ].join("; ");
+          wrapper.appendChild(userBubbleEl);
         }
 
         overlayEl.appendChild(wrapper);
@@ -2490,6 +2531,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
           namePlate,
           bubble,
           waitMark,
+          userBubbleEl,
           // 3D refs · the figure group (for idle-bob position
           // animation) + the floor glow ring (for speaker halo).
           fig,
@@ -2550,6 +2592,27 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       if (seat.waitMark) {
         seat.waitMark.style.display = (activeUserWait && seat.isUser) ? "" : "none";
       }
+      // User-spoke bubble · only on the user seat. Shows the user's
+      // most recent message text with a countdown progress var so
+      // the existing 2D `.rt-bubble-user` CSS countdown ring (driven
+      // by `--rt-bubble-user-progress`) animates for free. Hides the
+      // user nameplate while visible so the head doesn't carry two
+      // stacked elements.
+      if (seat.isUser && seat.userBubbleEl) {
+        if (activeUserBubble) {
+          seat.userBubbleEl.style.display = "";
+          seat.userBubbleEl.style.setProperty(
+            "--rt-bubble-user-progress",
+            activeUserBubble.progress.toFixed(3),
+          );
+          seat.userBubbleEl.innerHTML =
+            `<span class="rt-bubble-name">YOU</span>` +
+            `<span class="rt-bubble-status">${escapeHtml(activeUserBubble.text)}</span>`;
+          if (seat.namePlate) seat.namePlate.style.display = "none";
+        } else {
+          seat.userBubbleEl.style.display = "none";
+        }
+      }
       // Floor glow ring · visible only for the active speaker; tint
       // tracks the state (lime / amber). Per-frame pulse handled
       // in the RAF tick — here we just toggle visibility + colour.
@@ -2563,8 +2626,11 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       }
       // Nameplate · always visible UNLESS this seat is the speaker
       // (then the bubble takes its place, same logic as the 2D
-      // `.rt-seat-speaking .rt-name { display: none }` rule).
-      seat.namePlate.style.display = isSpeaking ? "none" : "";
+      // `.rt-seat-speaking .rt-name { display: none }` rule) OR the
+      // user seat has an active user-spoke bubble (which takes the
+      // nameplate's slot for its TTL window).
+      const userBubbleActive = seat.isUser && !!activeUserBubble;
+      seat.namePlate.style.display = (isSpeaking || userBubbleActive) ? "none" : "";
       if (!isSpeaking) {
         seat.bubble.style.display = "none";
         continue;
@@ -2739,6 +2805,22 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // until the next RAF tick · visible as a flash when the stage
     // first becomes visible from a 0×0 hidden state).
     projectOverlay();
+  }
+
+  /** Trailing-debounce wrapper around `resizeRenderer` · ResizeObserver
+   *  fires once per layout pass, but a window drag triggers ~60 of
+   *  those a second. Each `renderer.setSize` re-allocates the
+   *  drawingBuffer and the inter-allocation gap shows as a black
+   *  frame · debouncing 100 ms lets the CSS-stretched canvas hold
+   *  the last good frame during the drag and only commits one final
+   *  resize when the user pauses. */
+  let _resizeTimer = null;
+  function scheduleResize() {
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => {
+      _resizeTimer = null;
+      resizeRenderer();
+    }, 100);
   }
 
   function startRaf() {

@@ -80,6 +80,10 @@ const PROFILE_SYSTEM = [
   "· DO NOT use generic personality words. Every entry names a person / case / concept / position.",
   "· If the user description maps to a real domain (VC, product, security, biotech, monetary policy, etc.), prefer NAMED references from that domain.",
   "· Avoid recreating the canonical six (Socrates, First Principles, Long Horizon, etc.) — pick a distinct angle.",
+  "",
+  "## CRITICAL · output format",
+  "",
+  "Your ENTIRE response is the JSON object inside ONE ```json fenced block. NO prose before. NO prose after. NO chain-of-thought, NO 'Here is...', NO 'I'll create...'. Use the EXACT field names from the schema above (`intellectualLineage`, `loadBearingConcepts`, `referentSet`, `failureModes`, `contrarianTakes` — camelCase, not snake_case, not abbreviated). If you cannot produce strong content for a field, emit an empty array `[]` for that field — DO NOT omit it, DO NOT substitute a different field name, DO NOT explain in prose why it's empty.",
 ].join("\n");
 
 /* ────────────────────────── Stage B · spec ────────────────────────────────
@@ -230,7 +234,7 @@ export function buildAgentProfileMessages(opts: AgentProfileOpts): LLMMessage[] 
   }
   userBody.push(
     "",
-    "Now produce the profile JSON object as specified.",
+    "Now produce the profile JSON object as specified — ```json fenced block, exact camelCase field names, no prose before or after.",
   );
   return [
     { role: "system", content: PROFILE_SYSTEM },
@@ -412,20 +416,90 @@ export function parseAgentSpec(raw: string): AgentSpec | null {
   };
 }
 
-/** Validate + coerce a Stage-A profile. Returns null when the JSON is
- *  missing or so degraded it can't seed Stage B (no concepts AND no
- *  referents — the two fields the spec template depends on). Drops
- *  individual entries that don't carry a name/ref so the spec generator
- *  doesn't see empty placeholders. */
+/** Pick the first array-valued key from a record, trying multiple
+ *  aliases. Weaker models (Kimi / GLM / Minimax) occasionally use
+ *  snake_case or shortened field names that don't match the strict
+ *  schema; accepting common variants prevents the whole build from
+ *  crashing on a field-name mismatch the user can't fix. */
+function pickArrayField(parsed: Record<string, unknown>, aliases: string[]): unknown[] {
+  for (const k of aliases) {
+    const v = parsed[k];
+    if (Array.isArray(v)) return v;
+  }
+  return [];
+}
+
+function pickObjectField(parsed: Record<string, unknown>, aliases: string[]): Record<string, unknown> {
+  for (const k of aliases) {
+    const v = parsed[k];
+    if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  }
+  return {};
+}
+
+/** Coerce a single concept entry · accepts the canonical
+ *  { name, gloss } shape AND the common variants weaker models emit
+ *  (`{ concept, description }`, `{ title, gloss }`, bare strings). */
+function coerceConceptEntry(c: unknown): { name: string; gloss: string } {
+  if (typeof c === "string") {
+    const s = c.trim();
+    // Allow "name · gloss" or "name - gloss" or "name: gloss" splits
+    // since weaker models sometimes flatten the pair into a single string.
+    const m = /^(.+?)\s*[·:\-—]\s*(.+)$/.exec(s);
+    if (m) return { name: clamp(m[1]!.trim(), 80), gloss: clamp(m[2]!.trim(), 200) };
+    return { name: clamp(s, 80), gloss: "" };
+  }
+  if (!c || typeof c !== "object") return { name: "", gloss: "" };
+  const o = c as Record<string, unknown>;
+  const name = [o.name, o.concept, o.title, o.handle, o.term].find(
+    (x): x is string => typeof x === "string" && x.trim().length > 0,
+  );
+  const gloss = [o.gloss, o.description, o.desc, o.detail, o.explanation, o.summary].find(
+    (x): x is string => typeof x === "string" && x.trim().length > 0,
+  );
+  return {
+    name: name ? clamp(name.trim(), 80) : "",
+    gloss: gloss ? clamp(gloss.trim(), 200) : "",
+  };
+}
+
+function coerceReferentEntry(r: unknown): { ref: string; why: string } {
+  if (typeof r === "string") {
+    const s = r.trim();
+    const m = /^(.+?)\s*[·:\-—]\s*(.+)$/.exec(s);
+    if (m) return { ref: clamp(m[1]!.trim(), 80), why: clamp(m[2]!.trim(), 200) };
+    return { ref: clamp(s, 80), why: "" };
+  }
+  if (!r || typeof r !== "object") return { ref: "", why: "" };
+  const o = r as Record<string, unknown>;
+  const ref = [o.ref, o.name, o.reference, o.anchor, o.title, o.case].find(
+    (x): x is string => typeof x === "string" && x.trim().length > 0,
+  );
+  const why = [o.why, o.reason, o.relevance, o.gloss, o.description, o.note].find(
+    (x): x is string => typeof x === "string" && x.trim().length > 0,
+  );
+  return {
+    ref: ref ? clamp(ref.trim(), 80) : "",
+    why: why ? clamp(why.trim(), 200) : "",
+  };
+}
+
+/** Validate + coerce a Stage-A profile. Returns null when no JSON can
+ *  be extracted at all OR when every load-bearing field comes back
+ *  empty after lenient parsing. The gate is intentionally permissive:
+ *  a profile with only `intellectualLineage` populated still passes
+ *  (Phase 3's knowledge-informed pass can fill the rest), because a
+ *  hard failure here kills the entire persona build with no escape. */
 export function parseAgentProfile(raw: string): AgentProfile | null {
   const parsed = extractJson<Record<string, unknown>>(raw);
   if (!parsed) return null;
 
-  const lineage = (parsed.intellectualLineage && typeof parsed.intellectualLineage === "object")
-    ? parsed.intellectualLineage as Record<string, unknown>
-    : {};
-  const influencedByRaw = Array.isArray(lineage.influencedBy) ? lineage.influencedBy : [];
-  const opposedToRaw = Array.isArray(lineage.opposedTo) ? lineage.opposedTo : [];
+  // Lineage · accept the canonical key plus snake_case and the bare
+  // `lineage` alias. Inner field aliases too — Kimi-class models often
+  // emit `influences` / `opposes`.
+  const lineage = pickObjectField(parsed, ["intellectualLineage", "intellectual_lineage", "lineage"]);
+  const influencedByRaw = pickArrayField(lineage, ["influencedBy", "influenced_by", "influences", "influenced"]);
+  const opposedToRaw = pickArrayField(lineage, ["opposedTo", "opposed_to", "opposes", "against"]);
   const influencedBy = influencedByRaw
     .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     .map((s) => clamp(s.trim(), 200))
@@ -435,42 +509,65 @@ export function parseAgentProfile(raw: string): AgentProfile | null {
     .map((s) => clamp(s.trim(), 200))
     .slice(0, 4);
 
-  const conceptsRaw = Array.isArray(parsed.loadBearingConcepts) ? parsed.loadBearingConcepts : [];
+  const conceptsRaw = pickArrayField(parsed, [
+    "loadBearingConcepts",
+    "load_bearing_concepts",
+    "concepts",
+    "frames",
+    "mentalTools",
+    "mental_tools",
+  ]);
   const loadBearingConcepts = conceptsRaw
-    .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
-    .map((c) => ({
-      name: typeof c.name === "string" ? clamp(c.name.trim(), 80) : "",
-      gloss: typeof c.gloss === "string" ? clamp(c.gloss.trim(), 200) : "",
-    }))
+    .map(coerceConceptEntry)
     .filter((c) => c.name.length > 0)
     .slice(0, 6);
 
-  const referentsRaw = Array.isArray(parsed.referentSet) ? parsed.referentSet : [];
+  const referentsRaw = pickArrayField(parsed, [
+    "referentSet",
+    "referent_set",
+    "referents",
+    "anchors",
+    "references",
+    "citations",
+  ]);
   const referentSet = referentsRaw
-    .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
-    .map((r) => ({
-      ref: typeof r.ref === "string" ? clamp(r.ref.trim(), 80) : "",
-      why: typeof r.why === "string" ? clamp(r.why.trim(), 200) : "",
-    }))
+    .map(coerceReferentEntry)
     .filter((r) => r.ref.length > 0)
     .slice(0, 6);
 
-  const failureModesRaw = Array.isArray(parsed.failureModes) ? parsed.failureModes : [];
+  const failureModesRaw = pickArrayField(parsed, ["failureModes", "failure_modes", "blindSpots", "blind_spots"]);
   const failureModes = failureModesRaw
     .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     .map((s) => clamp(s.trim(), 220))
     .slice(0, 4);
 
-  const contrarianTakesRaw = Array.isArray(parsed.contrarianTakes) ? parsed.contrarianTakes : [];
+  const contrarianTakesRaw = pickArrayField(parsed, [
+    "contrarianTakes",
+    "contrarian_takes",
+    "contrarianViews",
+    "contrarian_views",
+    "takes",
+  ]);
   const contrarianTakes = contrarianTakesRaw
     .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     .map((s) => clamp(s.trim(), 220))
     .slice(0, 4);
 
-  // If both of the spec-template-load-bearing fields are empty we bail
-  // out so the route falls back to single-stage generation instead of
-  // feeding a useless profile downstream.
-  if (loadBearingConcepts.length === 0 && referentSet.length === 0) return null;
+  // Permissive gate · accept the profile as long as ANY load-bearing
+  // field has at least one entry. Previously this required concepts OR
+  // referents specifically, which crashed the whole build when the
+  // user's only reachable flagship deterministically emitted a profile
+  // with lineage filled but concepts/referents named differently or
+  // absent. Phase 3 (knowledge-informed) gets a chance to enrich a
+  // sparse v1; that's strictly better than a hard fail.
+  const anyPopulated =
+    loadBearingConcepts.length > 0 ||
+    referentSet.length > 0 ||
+    influencedBy.length > 0 ||
+    opposedTo.length > 0 ||
+    failureModes.length > 0 ||
+    contrarianTakes.length > 0;
+  if (!anyPopulated) return null;
 
   return {
     intellectualLineage: { influencedBy, opposedTo },

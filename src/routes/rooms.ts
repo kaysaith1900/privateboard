@@ -71,6 +71,7 @@ import {
   setRoomStatus,
   updateRoomSettings,
 } from "../storage/rooms.js";
+import { generateRoomTitle } from "../orchestrator/roomTitle.js";
 
 /**
  * Auto-pick path · runs the LLM picker over the available director
@@ -292,9 +293,15 @@ export function roomsRouter(): Hono {
       }
     }
 
-    const name = typeof b.name === "string" && b.name.trim()
-      ? b.name.trim().slice(0, 80)
-      : subject.slice(0, 60);
+    // `name` source determines `name_auto`. Explicit name from the
+    // client → 0 (the round-1 auto-title pass leaves it alone).
+    // Falls back to `subject.slice(0, 60)` → 1 (the auto pass is
+    // expected to overwrite once round 1 closes with a short LLM
+    // topic phrase). See `setRoomNameFromAuto` for the SQL guard.
+    const rawName = typeof b.name === "string" ? b.name.trim() : "";
+    const hasExplicitName = rawName.length > 0;
+    const name = hasExplicitName ? rawName.slice(0, 80) : subject.slice(0, 60);
+    const nameAuto = !hasExplicitName;
 
     // Tone (mode), intensity, and brief style — accepted from the convene
     // overlay and stored on the room. Out-of-range values fall back to the
@@ -335,6 +342,7 @@ export function roomsRouter(): Hono {
       agentIds,
       parentRoomId,
       parentBriefId,
+      nameAuto,
     });
 
     // Seed the room-opened lifecycle event. For auto-pick rooms the
@@ -370,6 +378,32 @@ export function roomsRouter(): Hono {
       createdAt: opening.createdAt,
     });
     roomBus.emit(room.id, { type: "message-final", messageId: opening.id });
+
+    // Sidebar topic-phrase pass · rename the room from the 60-char
+    // subject truncation to a short ChatGPT-style label. Fire-and-
+    // forget so the POST response doesn't wait on the utility-model
+    // round-trip. The helper never throws; .then() logs skip-reasons
+    // so the operator can tail the server output and tell why a given
+    // room didn't get renamed. Idempotency lives inside the helper
+    // (the SQL guard + the `already-renamed` check).
+    generateRoomTitle(room.id)
+      .then((result) => {
+        if (result.kind === "ok") {
+          process.stderr.write(
+            `[room-title] room=${room.id} renamed "${result.before.slice(0, 40)}" → "${result.after}"\n`,
+          );
+        } else {
+          const tail = result.detail ? ` · detail=${result.detail.slice(0, 100)}` : "";
+          process.stderr.write(
+            `[room-title] room=${room.id} skipped · reason=${result.reason}${tail}\n`,
+          );
+        }
+      })
+      .catch((e) => {
+        process.stderr.write(
+          `[room-title] room=${room.id} threw: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      });
 
     // Mark the room as in clarification phase synchronously, before the
     // POST response goes back. The frontend's openRoom fetch will then

@@ -12,7 +12,11 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:
 import { userInfo } from "node:os";
 
 import { getDb } from "./db.js";
-import { getPrefs } from "./prefs.js";
+import {
+  getActiveSearchKeyPlaintext,
+  getActiveSearchProvider,
+  type SearchProvider,
+} from "./search-credentials.js";
 
 const SALT = "boardroom.v1.salt";
 const ALGO = "aes-256-gcm";
@@ -71,47 +75,40 @@ export type Provider =
   | "brave"
   | "tavily";
 
-export type WebSearchKeyProvider = "brave" | "tavily";
+export type WebSearchKeyProvider = SearchProvider;
 
-/** Brave key configured (Brave-only gate for legacy callers / copy). */
+/** Brave key configured · the ACTIVE search credential is brave. Kept
+ *  as a thin alias so legacy callers (UI gates, copy text) don't have
+ *  to learn the credential vocabulary. Migration 051 moved brave/
+ *  tavily out of `provider_keys` into `search_credentials`, so this
+ *  no longer reads `getKey("brave")` — it asks the active credential
+ *  resolver instead. Two brave credentials with only one active counts
+ *  as "brave configured" exactly when that credential is the active. */
 export function hasBraveKey(): boolean {
-  const k = getKey("brave");
-  return typeof k === "string" && k.length > 0;
+  return getActiveSearchProvider() === "brave";
 }
 
 export function hasTavilyKey(): boolean {
-  const k = getKey("tavily");
-  return typeof k === "string" && k.length > 0;
+  return getActiveSearchProvider() === "tavily";
 }
 
-/** True when at least one search API backing Web Search is available. */
+/** True when ANY search credential is currently active. */
 export function hasWebSearchKey(): boolean {
-  return hasBraveKey() || hasTavilyKey();
+  return getActiveSearchProvider() !== null;
 }
 
-/** Pick which search backend executes this turn · `preference` applies
- *  only when both keys exist (see prefs `web_search_provider`). */
-export function resolveWebSearchBackend(preference: WebSearchKeyProvider): WebSearchKeyProvider | null {
-  const b = hasBraveKey();
-  const t = hasTavilyKey();
-  if (!b && !t) return null;
-  if (b && !t) return "brave";
-  if (!b && t) return "tavily";
-  if (preference === "tavily" && t) return "tavily";
-  if (preference === "brave" && b) return "brave";
-  return b ? "brave" : "tavily";
-}
-
-/** Active backend + plaintext key · null when no search key configured. */
+/** Active backend + plaintext key · null when no search credential
+ *  is configured. Mirror of the LLM and voice "active key" helpers ·
+ *  the web-search routing layer in `runWebSearch` consumers calls
+ *  this to obtain the API key for the upstream Brave / Tavily HTTP
+ *  call. */
 export function getActiveWebSearchCredentials(): {
   backend: WebSearchKeyProvider;
   apiKey: string;
 } | null {
-  const prefRaw = getPrefs().webSearchProvider;
-  const preference: WebSearchKeyProvider = prefRaw === "tavily" ? "tavily" : "brave";
-  const backend = resolveWebSearchBackend(preference);
+  const backend = getActiveSearchProvider();
   if (!backend) return null;
-  const apiKey = getKey(backend);
+  const apiKey = getActiveSearchKeyPlaintext();
   return apiKey ? { backend, apiKey } : null;
 }
 

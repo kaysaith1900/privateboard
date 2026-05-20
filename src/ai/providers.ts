@@ -31,7 +31,14 @@ export type LlmProvider =
   | "anthropic"
   | "openai"
   | "google"
-  | "xai";
+  | "xai"
+  // Moonshot (Kimi) · Zhipu (GLM) · OpenAI-compatible chat-completions
+  // direct APIs. Historically reachable only via OpenRouter / B.AI
+  // (viaUniversalOnly: true on their model registry rows); promoted to
+  // first-class direct-key providers once the adapter learned each
+  // base URL.
+  | "moonshot"
+  | "zhipu";
 
 export type LlmClassification = "multi-model" | "single-model";
 
@@ -45,6 +52,8 @@ export const SINGLE_MODEL_LLM_PROVIDERS: readonly LlmProvider[] = [
   "openai",
   "google",
   "xai",
+  "moonshot",
+  "zhipu",
 ] as const;
 
 export const ALL_LLM_PROVIDERS: readonly LlmProvider[] = [
@@ -60,6 +69,8 @@ export const LLM_PROVIDER_PRIORITY: readonly LlmProvider[] = [
   "openai",
   "google",
   "xai",
+  "moonshot",
+  "zhipu",
 ] as const;
 
 export function isMultiModelProvider(p: string): p is "openrouter" | "bai" {

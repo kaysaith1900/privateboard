@@ -36,6 +36,15 @@
     openai:     { label: "ChatGPT",       prefixes: ["sk-"],    minLen: 20 },
     google:     { label: "Gemini",        prefixes: ["AIza"],   minLen: 30 },
     xai:        { label: "Grok",          prefixes: ["xai-"],   minLen: 32 },
+    // Moonshot keys are `sk-...` (the Moonshot SDK uses the OpenAI
+    // prefix convention so users frequently confuse them with OpenAI
+    // keys · we only enforce the prefix + length floor, not a stricter
+    // pattern that risks rejecting future key formats).
+    moonshot:   { label: "Kimi",          prefixes: ["sk-"],    minLen: 40 },
+    // Zhipu keys are `<32-hex>.<16-alnum>` (the period mid-string is
+    // distinctive but a regex check would be fragile if Zhipu rotates
+    // the format · the length floor catches the obvious bad paste).
+    zhipu:      { label: "GLM",           prefixes: [],         minLen: 30 },
     minimax:    { label: "MiniMax",       prefixes: [],         minLen: 24 },
     elevenlabs: { label: "ElevenLabs",    prefixes: [],         minLen: 24 },
     brave:      { label: "Brave Search",  prefixes: ["BSA"],    minLen: 24 },

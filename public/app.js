@@ -398,6 +398,24 @@
           && (e.key === "r" || e.key === "R" || e.code === "KeyR");
         if (!isReload) return;
         if (this._suppressReloadConfirm) return;
+        // Recording guard · first priority. If a meeting is being
+        // captured, stopping cleanly is more important than the
+        // soft/hard speaker pause flow — show the recording-exit
+        // modal so the user can save the file or cancel.
+        if (window.BoardroomRecorder && window.BoardroomRecorder.isRecording()) {
+          if (document.getElementById("recording-exit-overlay")) {
+            e.preventDefault();
+            return;
+          }
+          e.preventDefault();
+          this.openRecordingExitModal({
+            proceed: () => {
+              this._suppressReloadConfirm = true;
+              location.reload();
+            },
+          });
+          return;
+        }
         if (!this.currentRoomId) return;
         if (!this.isAgentSpeaking()) return;
         // Skip when the modal is already open · let the user
@@ -417,17 +435,64 @@
       // with custom HTML — they show a generic "Reload site?"
       // prompt — but returning a truthy value triggers that
       // prompt, which is still better than silently dropping a
-      // live turn. Only arms while a speaker is mid-stream and
-      // the user hasn't already confirmed via the keydown
-      // modal (the `_suppressReloadConfirm` flag).
+      // live turn. Also arms whenever a meeting recording is
+      // active — the native dialog is the last-line defense if
+      // the user dismisses our in-app modal via the chrome.
       window.addEventListener("beforeunload", (e) => {
         if (this._suppressReloadConfirm) return;
-        if (!this.currentRoomId) return;
-        if (!this.isAgentSpeaking()) return;
+        const recording = !!(window.BoardroomRecorder && window.BoardroomRecorder.isRecording());
+        if (!recording) {
+          if (!this.currentRoomId) return;
+          if (!this.isAgentSpeaking()) return;
+        }
         e.preventDefault();
         e.returnValue = "";
         return "";
       });
+
+      // Electron `before-quit` → renderer round-trip. Main process
+      // sends `recorder:quit-requested` when the user tries to quit
+      // while a recording is active; we show the exit modal here and
+      // confirm the quit through IPC once the recording has been
+      // stopped + saved.
+      window.addEventListener("boardroom:recorder-quit-requested", () => {
+        if (!window.BoardroomRecorder || !window.BoardroomRecorder.isRecording()) {
+          try { window.privateboard?.invoke("app:confirm-quit"); } catch (_) {}
+          return;
+        }
+        this.openRecordingExitModal({
+          proceed: async () => {
+            try { await window.privateboard?.invoke("app:confirm-quit"); } catch (_) {}
+          },
+        });
+      });
+
+      // Recorder state subscription · mirror state to the Electron
+      // main process (so before-quit knows whether to ask) AND
+      // surface a stage-pinned REC pill + repaint the head button
+      // for active-state CSS.
+      if (window.BoardroomRecorder && typeof window.BoardroomRecorder.onStateChange === "function") {
+        window.BoardroomRecorder.onStateChange((state) => {
+          try {
+            const active = state && state.kind === "started";
+            const ended = state && (state.kind === "stopped" || state.kind === "error");
+            if (active) {
+              this._mountRecPill();
+              try { window.privateboard?.invoke("recorder:set-state", true); } catch (_) {}
+            } else if (ended) {
+              this._unmountRecPill();
+              try { window.privateboard?.invoke("recorder:set-state", false); } catch (_) {}
+            }
+            // Repaint the room header so the record button's
+            // is-recording class + tooltip flip with state.
+            if (typeof this.renderHeader === "function") this.renderHeader();
+            // Belt-and-braces · also flip the button class inline in
+            // case the header isn't currently in the DOM tree.
+            const btn = document.querySelector("[data-record-toggle]");
+            if (btn) btn.classList.toggle("is-recording", active);
+          } catch (e) { console.warn("[recorder] state hook", e); }
+        });
+      }
       // Voice replay drives the round-table stage in adjourned rooms ·
       // every replay state transition (item start, thinking → speaking,
       // playlist end, close) emits `boardroom:replay-active` so the
@@ -539,19 +604,18 @@
       window.addEventListener("scroll", () => this.hideNoteTooltip(), true);
     },
 
-    /** Surface a one-line "storage was upgraded" notice when the user
+    /** Surface a centred "storage was upgraded" overlay when the user
      *  opens a build that ran new schema migrations against their
      *  existing DB. Compares the latest applied migration in the DB
      *  against the last-acknowledged name in localStorage; a fresh-
      *  install user sees nothing (no last-seen → first visit → write
-     *  current latest, no banner). Dismiss writes the latest name so
-     *  the banner doesn't re-show until truly-new migrations land. */
+     *  current latest, no overlay). Dismiss (✕ / Got it / Esc /
+     *  backdrop) writes the latest name so the overlay doesn't
+     *  re-show until truly-new migrations land. */
     async checkMigrationNotice() {
-      const banner = document.querySelector("[data-sys-notice]");
-      if (!banner) return;
-      const textEl = banner.querySelector("[data-sys-notice-text]");
-      const closeBtn = banner.querySelector("[data-sys-notice-close]");
-      if (!textEl || !closeBtn) return;
+      const overlay = document.querySelector("[data-migrate-overlay]");
+      if (!overlay) return;
+      const detailEl = overlay.querySelector("[data-migrate-detail]");
 
       let migrations = [];
       try {
@@ -568,7 +632,7 @@
       try { lastSeen = localStorage.getItem(KEY); } catch { /* */ }
 
       // Fresh-install (no last-seen recorded) · seed quietly with the
-      // current latest, no banner. The user hasn't been here before;
+      // current latest, no overlay. The user hasn't been here before;
       // showing "storage upgraded" makes no sense on first launch.
       if (!lastSeen) {
         try { localStorage.setItem(KEY, latest); } catch { /* */ }
@@ -582,7 +646,7 @@
       // production), treat it as orphaned and silently realign to the
       // current latest. Without this guard, a stray localStorage value
       // would surface every existing migration as "new" and trigger
-      // a permanent banner that the user can never dismiss away.
+      // a permanent overlay that the user can never dismiss away.
       const lastIdx = migrations.findIndex((m) => m.name === lastSeen);
       if (lastIdx === -1) {
         try { localStorage.setItem(KEY, latest); } catch { /* */ }
@@ -597,20 +661,48 @@
       const count = fresh.length;
       const names = fresh.map((m) => m.name).join(", ");
       const bodyKey = count === 1 ? "migrate_body_one" : "migrate_body";
-      const copy = {
-        head: this._t("migrate_head"),
-        body: this._t(bodyKey, { count }),        tooltip: names,
-      };
-      textEl.innerHTML =
-        `<span class="sys-notice-strong">${this.escape(copy.head)}</span> · ${this.escape(copy.body)}`;
-      banner.title = copy.tooltip;
-      banner.removeAttribute("hidden");
+      // JS populates only the detail slot · main title + body deck
+      // are static i18n strings stamped into the markup by the
+      // applyI18n pass; we just refresh them here so a locale
+      // switch between session boot and now picks up the right
+      // copy.
+      if (detailEl) {
+        detailEl.textContent = this._t(bodyKey, { count });
+        detailEl.title = names;
+      }
+      const titleEl = overlay.querySelector("[data-migrate-title]");
+      if (titleEl) titleEl.textContent = this._t("migrate_head");
+      const deckEl = overlay.querySelector(".migrate-deck");
+      if (deckEl) deckEl.textContent = this._t("migrate_overlay_deck");
+      const ctaEl = overlay.querySelector(".migrate-cta");
+      if (ctaEl) ctaEl.textContent = this._t("migrate_overlay_cta");
 
+      // Open the overlay · `.open` flips display:flex via CSS.
+      overlay.classList.add("open");
+      overlay.setAttribute("aria-hidden", "false");
+
+      // Dismiss handlers · ✕ button, Got-it CTA, backdrop click, Esc.
+      // Each writes the latest migration name to localStorage so the
+      // overlay stays closed until truly-new migrations land.
+      let dismissed = false;
       const dismiss = () => {
+        if (dismissed) return;
+        dismissed = true;
         try { localStorage.setItem(KEY, latest); } catch { /* */ }
-        banner.setAttribute("hidden", "");
+        overlay.classList.remove("open");
+        overlay.setAttribute("aria-hidden", "true");
+        document.removeEventListener("keydown", onKey, true);
       };
-      closeBtn.addEventListener("click", dismiss, { once: true });
+      const onKey = (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          dismiss();
+        }
+      };
+      overlay.querySelectorAll("[data-migrate-close]").forEach((el) => {
+        el.addEventListener("click", dismiss, { once: true });
+      });
+      document.addEventListener("keydown", onKey, true);
     },
 
     /** Refetch /api/keys + /api/credentials + the /api/models cache.
@@ -629,6 +721,16 @@
       try {
         if (window.keysStore && typeof window.keysStore.fetchLlmCredentials === "function") {
           await window.keysStore.fetchLlmCredentials();
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        if (window.keysStore && typeof window.keysStore.fetchVoiceCredentials === "function") {
+          await window.keysStore.fetchVoiceCredentials();
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        if (window.keysStore && typeof window.keysStore.fetchSearchCredentials === "function") {
+          await window.keysStore.fetchSearchCredentials();
         }
       } catch (e) { /* ignore */ }
       try {
@@ -672,6 +774,25 @@
         fetch("/api/keys"),
         fetch("/api/agents"),
         fetch("/api/rooms"),
+        // Voice credentials snapshot · powers the hasAnyVoiceKey gate.
+        // Result lives on window.keysStore; we don't need to capture
+        // the response object here (the gate reads from the store).
+        (async () => {
+          try {
+            if (window.keysStore && typeof window.keysStore.fetchVoiceCredentials === "function") {
+              await window.keysStore.fetchVoiceCredentials();
+            }
+          } catch (_) { /* keep empty snapshot on failure */ }
+        })(),
+        // Search credentials snapshot · powers the web-search gate
+        // (agentComposerWebSearchConfigured). Same pattern as voice.
+        (async () => {
+          try {
+            if (window.keysStore && typeof window.keysStore.fetchSearchCredentials === "function") {
+              await window.keysStore.fetchSearchCredentials();
+            }
+          } catch (_) { /* keep empty snapshot on failure */ }
+        })(),
       ]);
       if (prefsRes.ok)  this.prefs  = await prefsRes.json();
       if (keysRes.ok)   {
@@ -828,6 +949,37 @@
 
     // ── Room lifecycle ────────────────────────────────────────
     async openRoom(roomId) {
+      // Recording guard · switching to a DIFFERENT room while a
+      // capture is in flight would tear down the source room's
+      // stage mid-frame. Intercept and route through the exit modal.
+      // Idempotent re-open of the SAME room (the room-already-open
+      // path that openRoom handles internally) is allowed since the
+      // stage stays mounted.
+      if (!this._recordingExitInProgress
+          && roomId
+          && this.currentRoomId
+          && this.currentRoomId !== roomId
+          && window.BoardroomRecorder
+          && window.BoardroomRecorder.isRecording()) {
+        const target = roomId;
+        this.openRecordingExitModal({
+          proceed: async () => {
+            this._recordingExitInProgress = true;
+            try { await this.openRoom(target); }
+            finally { this._recordingExitInProgress = false; }
+          },
+          cancel: () => {
+            // Restore the hash so the URL reflects the room we
+            // actually stayed in (the sidebar click already moved it).
+            try {
+              if (this.currentRoomId) {
+                location.hash = "#/r/" + encodeURIComponent(this.currentRoomId);
+              }
+            } catch (_) {}
+          },
+        });
+        return;
+      }
       // Close the @-mention picker if open · its director list is
       // scoped to the previous room and would point at a stale cast
       // mid-navigation. Idempotent · no-op when already closed.
@@ -1174,6 +1326,25 @@
     },
 
     async closeRoom() {
+      // Recording guard · if a meeting capture is in progress for
+      // the current room, intercept and let the user choose:
+      // stop-and-save before leaving or cancel and stay. We re-route
+      // the close action through openRecordingExitModal · its
+      // `proceed` callback re-invokes closeRoom after stop is done,
+      // and the `_recordingExitInProgress` flag breaks the recursion.
+      if (!this._recordingExitInProgress
+          && window.BoardroomRecorder
+          && window.BoardroomRecorder.isRecording()
+          && this.currentRoomId) {
+        this.openRecordingExitModal({
+          proceed: async () => {
+            this._recordingExitInProgress = true;
+            try { await this.closeRoom(); }
+            finally { this._recordingExitInProgress = false; }
+          },
+        });
+        return;
+      }
       // Hand off SSE to the background tracker first (awaits "hello"
       // so the server-side subscription is registered before we
       // drop the foreground one — no events can fall into the gap).
@@ -1839,6 +2010,17 @@
             this._suppressReloadConfirm = true;
             location.reload();
           }
+          // Recording stop-choice "wait for speaker" path · the
+          // speaker has now finished and the room is paused, so
+          // adjourn it. Mirrors _pendingReloadOnPause's shape; the
+          // recording was already stopped + saved when the user
+          // picked "wait". skipBrief: recording-driven adjourns must
+          // NOT auto-generate a report — the user files one manually.
+          if (this._pendingAdjournAfterRecordStop) {
+            this._pendingAdjournAfterRecordStop = false;
+            try { this.adjournRoom({ skipBrief: true }); }
+            catch (e) { console.warn("[recorder] pending adjourn failed", e); }
+          }
         } else if (kind === "room-resumed") {
           if (this.currentRoom) {
             this.currentRoom.status = "live";
@@ -2243,6 +2425,16 @@
             if (ch.briefStyle) this.currentRoom.briefStyle = ch.briefStyle.to;
             if (ch.deliveryMode) this.currentRoom.deliveryMode = ch.deliveryMode.to;
             if (ch.voteTrigger) this.currentRoom.voteTrigger = ch.voteTrigger.to;
+            if (ch.name) this.currentRoom.name = ch.name.to;
+          }
+          // Round-1 sidebar topic-phrase pass writes `name` then emits
+          // settings-changed · patch the cached room in `this.rooms`
+          // so renderSidebarRooms picks up the new label immediately,
+          // and the room header refreshes via renderHeader below.
+          if (ch.name && Array.isArray(this.rooms)) {
+            const r = this.rooms.find((x) => x.id === (this.currentRoomId || (this.currentRoom && this.currentRoom.id)));
+            if (r) r.name = ch.name.to;
+            this.renderSidebarRooms();
           }
           this.renderHeader();
           syncSidebar({
@@ -2651,6 +2843,22 @@
         try {
           const data = JSON.parse(e.data);
           const kind = data.kind;
+          if (kind === "settings-changed") {
+            // Background tab picks up the round-1 topic-phrase
+            // rewrite for whichever room is being voice-played in
+            // the background · patch the cached room and refresh
+            // sidebar so the label updates even when the user isn't
+            // looking at this room. Forward to the foreground
+            // settings-changed branch is unnecessary; foreground
+            // already has its own listener.
+            const ch = (data.payload && data.payload.changes) || {};
+            if (ch.name && Array.isArray(this.rooms)) {
+              const r = this.rooms.find((x) => x.id === roomId);
+              if (r) r.name = ch.name.to;
+              this.renderSidebarRooms();
+            }
+            return;
+          }
           if (kind === "room-adjourned") {
             // Reflect onto the rooms list so the bar's idle source
             // check hides cleanly.
@@ -3101,15 +3309,19 @@
             <div class="adjourn-render-tier" hidden data-tier="research-note">
               <div class="adjourn-render-row">
                 <span class="adjourn-render-field-label">${this.escape(this._t("adj_field_spine"))}</span>
-                <select data-render-spine class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_spine"))}">
-                  <option value="">${auto}</option>
-                </select>
+                <span class="adjourn-render-select-wrap">
+                  <select data-render-spine class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_spine"))}">
+                    <option value="">${auto}</option>
+                  </select>
+                </span>
               </div>
               <div class="adjourn-render-row">
                 <span class="adjourn-render-field-label">${this.escape(this._t("adj_field_house_style"))}</span>
-                <select data-render-house-style class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_house_style"))}">
-                  <option value="">${auto}</option>
-                </select>
+                <span class="adjourn-render-select-wrap">
+                  <select data-render-house-style class="adjourn-render-select" aria-label="${this.escape(this._t("adj_aria_house_style"))}">
+                    <option value="">${auto}</option>
+                  </select>
+                </span>
               </div>
               <p class="adjourn-render-hint">${this.escape(this._t("adj_render_hint_rn"))}</p>
             </div>
@@ -3245,6 +3457,120 @@
       spineSel.value = hasSp ? spineVal : "";
       const hasHs = Array.prototype.some.call(hsSel.options || [], (o) => o.value === hsVal);
       hsSel.value = hasHs ? hsVal : "";
+      // After options are populated, wire the custom dropdown popover
+      // so the open menu uses the project's `.ap-model-picker` chrome
+      // instead of the browser's OS-native dropdown (which can't be
+      // restyled and clashes with the rest of the modal vocabulary).
+      this._wireRenderDropdowns(overlayEl);
+    },
+
+    /** Hijack native <select> click to open a `.ap-model-picker`-styled
+     *  popover instead. The native <select> stays in the DOM for state
+     *  storage + keyboard a11y; we just suppress its native menu. */
+    _wireRenderDropdowns(overlayEl) {
+      if (!overlayEl?.querySelectorAll) return;
+      const selects = overlayEl.querySelectorAll(".adjourn-render-select");
+      selects.forEach((sel) => {
+        if (sel.dataset.cdWired === "1") return;
+        sel.dataset.cdWired = "1";
+        // Suppress browser native dropdown on mousedown (the menu
+        // would otherwise pop on press, before our click handler).
+        sel.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          // Keep focus on the trigger for tab-cycle hygiene; the
+          // preventDefault above suppresses Chrome's focus shift.
+          try { sel.focus(); } catch (_) {}
+          this._openRenderDropdown(sel);
+        });
+        // Keyboard a11y · Space / Enter / ↓ all open the popover so
+        // tab-then-Space lands the user in our custom menu rather
+        // than the suppressed native one.
+        sel.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+            e.preventDefault();
+            this._openRenderDropdown(sel);
+          }
+        });
+      });
+    },
+
+    /** Open the custom popover under `selectEl`. Reuses the
+     *  `.ap-model-picker` + `.ap-model-opt` vocabulary defined in
+     *  `agent-profile.css` (loaded site-wide) so the open menu reads
+     *  identical to every other custom dropdown in the app. */
+    _openRenderDropdown(selectEl) {
+      this._closeRenderDropdown();
+      const wrap = selectEl.closest(".adjourn-render-select-wrap") || selectEl.parentElement;
+      if (!wrap) return;
+      const opts = Array.prototype.slice.call(selectEl.options || []);
+      if (opts.length === 0) return;
+      const pop = document.createElement("div");
+      pop.id = "adjourn-render-pop";
+      pop.className = "ap-model-picker adjourn-render-pop";
+      pop.innerHTML = opts.map((o) => {
+        const isActive = o.value === selectEl.value;
+        return `
+          <button type="button" class="ap-model-opt${isActive ? " active" : ""}" data-render-opt-value="${this.escape(o.value || "")}">
+            <span class="ap-model-opt-label">${this.escape(o.textContent || o.value || "")}</span>
+          </button>
+        `;
+      }).join("");
+      document.body.appendChild(pop);
+      // Anchor under the wrapper · `.ap-model-picker` is
+      // `position: fixed` so we set top/left relative to viewport.
+      const r = wrap.getBoundingClientRect();
+      pop.style.top = `${Math.round(r.bottom + 4)}px`;
+      pop.style.left = `${Math.round(r.left)}px`;
+      pop.style.width = `${Math.round(r.width)}px`;
+      // Dismiss handlers · attached synchronously, but the trigger's
+      // own wrap is whitelisted so the click that OPENED the popover
+      // (which fires AFTER mousedown · same user gesture) doesn't
+      // close it on the same tick. Mousedown already opened us; click
+      // arriving on the trigger should be a no-op.
+      this._renderDropdownTarget = selectEl;
+      const triggerWrap = wrap;
+      this._renderDropdownDocClick = (e) => {
+        const popEl = document.getElementById("adjourn-render-pop");
+        if (!popEl) return;
+        // Click inside popover · either choose an option or ignore.
+        if (e.target.closest("#adjourn-render-pop")) {
+          const optBtn = e.target.closest("[data-render-opt-value]");
+          if (optBtn) {
+            const v = optBtn.getAttribute("data-render-opt-value") || "";
+            selectEl.value = v;
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+            this._closeRenderDropdown();
+          }
+          return;
+        }
+        // Click on the opening trigger (wrap or select itself) ·
+        // skip · the mousedown handler above already manages the
+        // open / re-open lifecycle for repeat clicks.
+        if (triggerWrap && triggerWrap.contains(e.target)) return;
+        this._closeRenderDropdown();
+      };
+      document.addEventListener("click", this._renderDropdownDocClick, true);
+      this._renderDropdownEsc = (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this._closeRenderDropdown();
+        }
+      };
+      document.addEventListener("keydown", this._renderDropdownEsc, true);
+    },
+
+    _closeRenderDropdown() {
+      const pop = document.getElementById("adjourn-render-pop");
+      if (pop) pop.remove();
+      if (this._renderDropdownDocClick) {
+        document.removeEventListener("click", this._renderDropdownDocClick, true);
+        this._renderDropdownDocClick = null;
+      }
+      if (this._renderDropdownEsc) {
+        document.removeEventListener("keydown", this._renderDropdownEsc, true);
+        this._renderDropdownEsc = null;
+      }
+      this._renderDropdownTarget = null;
     },
 
     /** Read the user's last-picked report mode from localStorage so the
@@ -3284,15 +3610,21 @@
       } catch (_) { return false; }
     },
 
-    /** Pure cache read · true when at least one voice provider
-     *  (MiniMax / ElevenLabs) is configured. The composer's voice
-     *  toggle calls this before flipping ON; if false, we redirect
-     *  the user to the keys panel rather than silently enabling a
-     *  feature that has no provider behind it. */
+    /** Pure cache read · true when a voice credential is currently
+     *  configured AS THE ACTIVE one. The composer's voice toggle and
+     *  every other "is voice usable?" gate routes through this. Reads
+     *  the keys-store snapshot, which mirrors the server's single-
+     *  active voice credential model (see `src/storage/voice-
+     *  credentials.ts`). The old `hasAnyVoiceKey` name is preserved
+     *  as the call site so we don't have to touch every gate. */
     hasAnyVoiceKey() {
-      const VOICE_PROVIDERS = ["minimax", "elevenlabs"];
-      const keys = this.keys || {};
-      return VOICE_PROVIDERS.some((p) => keys[p] && keys[p].configured);
+      try {
+        const activeId = window.keysStore ? window.keysStore.activeVoiceCredentialId : null;
+        if (!activeId) return false;
+        const creds = (window.keysStore && Array.isArray(window.keysStore.voiceCredentials))
+          ? window.keysStore.voiceCredentials : [];
+        return creds.some((c) => c.id === activeId);
+      } catch (_) { return false; }
     },
 
     /** Secondary hint under a failed brief · the legacy copy always blamed
@@ -3623,6 +3955,12 @@
         const adj = document.getElementById("adjourn-overlay");
         if (adj) {
           this.syncBriefThemeTier(adj);
+          // Wire custom dropdowns BEFORE the async catalog fetch ·
+          // user might click the trigger while the options are still
+          // loading; without the mousedown intercept the browser
+          // would pop the OS-native menu (just showing the "Auto"
+          // option) before our custom popover takes over.
+          this._wireRenderDropdowns(adj);
           this.loadRenderCatalogIntoOverlay(adj);
         }
       });
@@ -3718,6 +4056,7 @@
         const sup = document.getElementById("supplement-overlay");
         if (sup) {
           this.syncBriefThemeTier(sup);
+          this._wireRenderDropdowns(sup);
           this.loadRenderCatalogIntoOverlay(sup);
         }
       }, 30);
@@ -5160,6 +5499,281 @@
     closeReloadChoiceModal() {
       const el = document.getElementById("reload-choice-overlay");
       if (el) el.remove();
+    },
+
+    /** Recording-exit modal · shown when the user tries to leave a
+     *  room / reload / quit the app while a meeting recording is
+     *  active. Two choices · Stop & exit (saves file + runs the
+     *  proceed callback) or Cancel (closes modal, optionally runs
+     *  cancel callback). Reuses the .pc-overlay/.pc-modal/.pc-choice
+     *  chrome so it sits in the same register as the reload modal.
+     *
+     *  @param {{ proceed: Function, cancel?: Function }} opts */
+    openRecordingExitModal(opts) {
+      this.closeRecordingExitModal();
+      this._recordingExitProceed = (opts && typeof opts.proceed === "function") ? opts.proceed : null;
+      this._recordingExitCancel  = (opts && typeof opts.cancel  === "function") ? opts.cancel  : null;
+      const html = `
+        <div id="recording-exit-overlay" class="pc-overlay">
+          <div class="pc-modal">
+            <div class="pc-classification">
+              <span><span class="dot">●</span> ${this.escape(this._t("rec_exit_class"))}</span>
+              <span class="right">${this.escape(this._t("rec_exit_right"))}</span>
+            </div>
+            <div class="pc-head">
+              <div class="pc-tag">${this.escape(this._t("rec_exit_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("rec_exit_title"))}</h2>
+              <p class="pc-deck">${this.escape(this._t("rec_exit_deck"))}</p>
+            </div>
+            <div class="pc-body">
+              <button type="button" class="pc-choice danger" data-rec-exit-choice="proceed">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_exit_stop_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_exit_stop_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice ghost" data-rec-exit-choice="cancel">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_exit_cancel_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_exit_cancel_deck"))}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+    },
+
+    closeRecordingExitModal() {
+      const el = document.getElementById("recording-exit-overlay");
+      if (el) el.remove();
+    },
+
+    async handleRecordingExitChoice(mode) {
+      this.closeRecordingExitModal();
+      const proceed = this._recordingExitProceed;
+      const cancel  = this._recordingExitCancel;
+      this._recordingExitProceed = null;
+      this._recordingExitCancel = null;
+      if (mode === "cancel") {
+        try { if (typeof cancel === "function") cancel(); } catch (_) {}
+        return;
+      }
+      // Stop the recording first (auto-downloads the webm) then run
+      // the proceed callback (reload / closeRoom / app.quit). Stop
+      // is awaited so the file is fully assembled before navigation
+      // tears the page down.
+      try {
+        if (window.BoardroomRecorder && window.BoardroomRecorder.isRecording()) {
+          await window.BoardroomRecorder.stopAndDownload();
+        }
+      } catch (e) { console.error("[recorder] stop on exit failed", e); }
+      try { if (typeof proceed === "function") await proceed(); } catch (e) {
+        console.error("[recorder] proceed action failed", e);
+      }
+    },
+
+    /** Toggle recording for the current voice room. Idempotent · if
+     *  already recording, stops + downloads; otherwise starts. */
+    async handleRecordToggle() {
+      const rec = window.BoardroomRecorder;
+      if (!rec) {
+        console.warn("[recorder] module not loaded");
+        return;
+      }
+      if (rec.isRecording()) {
+        // Live recording · open the stop-choice modal instead of
+        // stopping immediately. The user picks whether to also end
+        // the live room (interrupt / wait for speaker / keep room).
+        this.openRecordingStopModal();
+        return;
+      }
+      const room = this.currentRoom;
+      if (!room || room.deliveryMode !== "voice") return;
+      try {
+        await rec.start(room.id, room.subject || room.title || "Meeting");
+        // Recorder is now capturing chunks · play the cinematic
+        // Ready/3/2/1 countdown inside the stage so the video opens
+        // with a movie-trailer intro card. Fire-and-forget · the
+        // countdown is purely visual, recording proceeds in parallel.
+        this._playRecordCountdown().catch(() => {});
+      } catch (e) {
+        console.error("[recorder] start failed", e);
+        const reason = (e && (e.message || String(e))) || this._t("rec_error_toast");
+        try { alert(`${this._t("rec_error_toast")}\n\n${reason}`); } catch (_) {}
+      }
+    },
+
+    /** Movie-trailer countdown · 4 frames (Ready, 3, 2, 1) each
+     *  ~850 ms with a pop+fade animation. Mounts inside the stage
+     *  so the recording captures the overlay as an opening title
+     *  card. Resolves when the final frame fades out (~3.6 s). */
+    _playRecordCountdown() {
+      return new Promise((resolve) => {
+        const stage = document.querySelector("[data-roundtable-stage]");
+        if (!stage) { resolve(); return; }
+        // Hard-reset any leftover overlay from a fast toggle cycle.
+        const stale = stage.querySelector(".rec-countdown-overlay");
+        if (stale) stale.remove();
+
+        const overlay = document.createElement("div");
+        overlay.className = "rec-countdown-overlay";
+        const textEl = document.createElement("div");
+        textEl.className = "rec-countdown-text rec-countdown-ready rec-countdown-pop";
+        textEl.textContent = "Ready";
+        overlay.appendChild(textEl);
+        stage.appendChild(overlay);
+
+        const steps = ["3", "2", "1"];
+        const stepMs = 850;
+        let i = 0;
+        const advance = () => {
+          if (i >= steps.length) {
+            overlay.classList.add("is-leaving");
+            setTimeout(() => { try { overlay.remove(); } catch (_) {} resolve(); }, 340);
+            return;
+          }
+          const next = steps[i];
+          i += 1;
+          // Restart the pop animation · toggling the class on a
+          // forced reflow replays it (className reset alone won't).
+          textEl.className = "rec-countdown-text rec-countdown-num";
+          void textEl.offsetWidth;
+          textEl.textContent = next;
+          textEl.className = "rec-countdown-text rec-countdown-num rec-countdown-pop";
+          setTimeout(advance, stepMs);
+        };
+        setTimeout(advance, stepMs);
+      });
+    },
+
+    /** Stop-choice modal · clones the reload-choice chrome
+     *  (.pc-overlay / .pc-modal / .pc-choice). Four options:
+     *    · danger    "Interrupt & end room"   — adjourn hard
+     *    · primary   "End after speaker"      — soft-pause + adjourn
+     *    · secondary "Stop recording only"    — keep room running
+     *    · ghost     "Cancel"                  — close, keep recording
+     *  All non-cancel paths stop + download the recording first. */
+    openRecordingStopModal() {
+      this.closeRecordingStopModal();
+      const html = `
+        <div id="recording-stop-overlay" class="pc-overlay">
+          <div class="pc-modal">
+            <div class="pc-classification">
+              <span><span class="dot">●</span> ${this.escape(this._t("rec_stop_class"))}</span>
+              <span class="right">${this.escape(this._t("rec_stop_right"))}</span>
+            </div>
+            <div class="pc-head">
+              <div class="pc-tag">${this.escape(this._t("rec_stop_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("rec_stop_title"))}</h2>
+              <p class="pc-deck">${this.escape(this._t("rec_stop_deck"))}</p>
+            </div>
+            <div class="pc-body">
+              <button type="button" class="pc-choice danger" data-rec-stop-choice="interrupt">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_stop_interrupt_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_stop_interrupt_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice primary" data-rec-stop-choice="wait">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_stop_wait_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_stop_wait_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice" data-rec-stop-choice="only">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_stop_only_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_stop_only_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice ghost" data-rec-stop-choice="cancel">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_stop_cancel_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_stop_cancel_deck"))}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+    },
+
+    closeRecordingStopModal() {
+      const el = document.getElementById("recording-stop-overlay");
+      if (el) el.remove();
+    },
+
+    async handleRecordingStopChoice(mode) {
+      this.closeRecordingStopModal();
+      if (mode === "cancel") return;
+      // All other paths stop + download the recording first.
+      let blob = null;
+      try { blob = await window.BoardroomRecorder.stopAndDownload(); }
+      catch (e) { console.error("[recorder] stopAndDownload failed", e); }
+      if (blob && blob.size > 0) {
+        try {
+          this.showRoundTableToast({
+            kind: "settings",
+            glyph: "↓",
+            htmlText: this.escape(this._t("rec_saved_toast")),
+            lifetimeMs: 5200,
+          });
+        } catch (_) { /* toast is best-effort */ }
+      }
+      if (mode === "only") return; // recording stopped; room continues
+      if (mode === "interrupt") {
+        // Hard adjourn · cuts the speaker mid-sentence + ends room.
+        // skipBrief: recording-stop adjourns must NOT auto-generate a
+        // report — the user files one manually if/when they want it.
+        try { await this.adjournRoom({ skipBrief: true }); }
+        catch (e) { console.warn("[recorder] adjournRoom failed", e); }
+        return;
+      }
+      if (mode === "wait") {
+        // Soft-pause; the SSE `room-paused` handler picks up
+        // `_pendingAdjournAfterRecordStop` and adjourns once the
+        // current speaker finishes (mirrors the reload-soft pattern).
+        this._pendingAdjournAfterRecordStop = true;
+        try { await this.pauseRoom("soft"); }
+        catch (e) {
+          this._pendingAdjournAfterRecordStop = false;
+          console.warn("[recorder] soft-pause failed", e);
+        }
+      }
+    },
+
+    /** Mount the stage-pinned REC pill (red dot + label + MM:SS
+     *  timer). Runs from the BoardroomRecorder.onStateChange
+     *  callback on `started`; the 500 ms interval updates the
+     *  timer text without re-rendering the stage. */
+    _mountRecPill() {
+      const stage = document.querySelector("[data-roundtable-stage]");
+      if (!stage) return;
+      if (document.getElementById("rt-recording-pill")) return;
+      const pill = document.createElement("div");
+      pill.id = "rt-recording-pill";
+      pill.className = "rt-recording-pill";
+      pill.innerHTML =
+        `<span class="rt-rec-dot" aria-hidden="true"></span>` +
+        `<span class="rt-rec-label">${this.escape(this._t("rec_pill_label"))}</span>` +
+        `<span class="rt-rec-time">00:00</span>`;
+      stage.appendChild(pill);
+      this._tickRecPill();
+      if (this._recPillInterval) clearInterval(this._recPillInterval);
+      this._recPillInterval = setInterval(() => this._tickRecPill(), 500);
+    },
+
+    _unmountRecPill() {
+      const pill = document.getElementById("rt-recording-pill");
+      if (pill) pill.remove();
+      if (this._recPillInterval) {
+        clearInterval(this._recPillInterval);
+        this._recPillInterval = null;
+      }
+    },
+
+    _tickRecPill() {
+      const pill = document.getElementById("rt-recording-pill");
+      if (!pill) return;
+      const ms = (window.BoardroomRecorder && typeof window.BoardroomRecorder.getElapsedMs === "function")
+        ? window.BoardroomRecorder.getElapsedMs()
+        : 0;
+      const totalSec = Math.floor(ms / 1000);
+      const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+      const ss = String(totalSec % 60).padStart(2, "0");
+      const timeEl = pill.querySelector(".rt-rec-time");
+      if (timeEl) timeEl.textContent = `${mm}:${ss}`;
     },
 
     /** Apply the user's pick from the reload-confirm modal. */
@@ -10252,14 +10866,17 @@
       } catch { /* ignore */ }
     },
 
-    /** True when a Web Search backend key is configured · gates the
-     *  websearch toggle's "on" state (Brave Search and/or Tavily). Reads
-     *  through window.boardroomKeys · refetched after /api/keys mutations. */
+    /** True when an active Web Search credential is configured · gates
+     *  the websearch toggle's "on" state. Reads from the keys-store
+     *  snapshot (single-active model · migration 051 moved brave /
+     *  tavily out of provider_keys into search_credentials). */
     agentComposerWebSearchConfigured() {
       try {
-        if (typeof window.boardroomKeys !== "function") return false;
-        const k = window.boardroomKeys();
-        return !!(k && (k.brave || k.tavily));
+        const activeId = window.keysStore ? window.keysStore.activeSearchCredentialId : null;
+        if (!activeId) return false;
+        const creds = (window.keysStore && Array.isArray(window.keysStore.searchCredentials))
+          ? window.keysStore.searchCredentials : [];
+        return creds.some((c) => c.id === activeId);
       } catch { return false; }
     },
 
@@ -13453,7 +14070,7 @@
             <span class="kicker-intensity">${this.escape(intensity.toUpperCase())}</span>
             ${statusWord ? `<span class="kicker-sep">·</span><span class="kicker-status status-${this.escape(r.status)}">${statusWord}</span>` : ""}
           </div>
-          <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(this._truncateRoomSubject(r.subject, 60))}</h1>
+          <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(this._truncateRoomSubject(r.name || r.subject, 60))}</h1>
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
@@ -13507,6 +14124,17 @@
           ${r.status === "adjourned"
             ? `<a href="#" class="head-icon-btn head-followup" data-room-followup data-tip="${this.escape(this._t("adj_followup_label"))}" aria-label="${this.escape(this._t("adj_followup_label"))}"></a>`
             : `<a href="#" class="head-icon-btn head-adjourn" data-adjourn data-tip="${this.escape(this._t("ib_adjourn_tip"))}" aria-label="${this.escape(this._t("ib_adjourn_label"))}"></a>`}
+          ${(r.deliveryMode === "voice"
+              && r.status === "live"
+              && window.BoardroomRecorder
+              && typeof window.BoardroomRecorder.isAvailable === "function"
+              && window.BoardroomRecorder.isAvailable()) ? (() => {
+            const isRec = window.BoardroomRecorder.isRecording();
+            const tip = isRec ? this._t("head_record_stop_tip") : this._t("head_record_tip");
+            const cls = "head-icon-btn head-record" + (isRec ? " is-recording" : "");
+            const lbl = isRec ? this._t("head_record_stop_label") : this._t("head_record_label");
+            return `<a href="#" class="${cls}" data-record-toggle data-tip="${this.escape(tip)}" aria-label="${this.escape(lbl)}"></a>`;
+          })() : ""}
           <a href="#" class="head-icon-btn head-settings room-settings-trigger" data-room-settings-trigger data-tip="${this.escape(this._t("room_settings"))}" aria-label="${this.escape(this._t("room_settings"))}"></a>
         </div>
       `;
@@ -14205,6 +14833,10 @@
         document.body.appendChild(host);
       }
       host.appendChild(audio);
+      // Recorder hook · once attached to the DOM, the element is
+      // ready for the recorder's AudioContext to wire it into the
+      // mix. No-op when no meeting recording is in progress.
+      try { window.BoardroomRecorder?.attachAudioElement(audio); } catch (_) {}
       // Read the rate fresh every call so the LATEST cached value
       // wins · the user may have cycled rate between chunks and we
       // want each application point to pick that up. Browsers
@@ -17130,6 +17762,17 @@
           // nameplate-hide while-speaking behaviour.
           const sp = this._resolveStageSpeaker();
           const votePopHtml = this._resolveStageVotePop();
+          // User-spoke bubble · mirrors the 2D `data-rt-user-bubble`
+          // element. Active when the latest user message landed
+          // within the last USER_BUBBLE_TTL_MS, computed once per
+          // render so the bubble's countdown progress is fresh.
+          const ub = this.userBubble;
+          const nowMs = Date.now();
+          const ubActive = !!(ub && ub.text && !ub.dismissed && nowMs < ub.deadline);
+          const ubProgress = ubActive
+            ? Math.min(1, Math.max(0,
+                (this.USER_BUBBLE_TTL_MS - (ub.deadline - nowMs)) / this.USER_BUBBLE_TTL_MS))
+            : 0;
           VS3D.update({
             members: members3d,
             positions: positions3d,
@@ -17142,6 +17785,7 @@
             },
             votePop: votePopHtml,
             userWait: !!this.pendingUserMessage,
+            userBubble: ubActive ? { text: ub.text, progress: ubProgress } : null,
           });
           // The 2D path below ends with calls to renderRoundTableHud
           // + renderRtSubtitle so the status panel + live subtitle
@@ -19399,6 +20043,37 @@
     }
     if (e.target.id === "reload-choice-overlay") {
       app.closeReloadChoiceModal();
+      return;
+    }
+    // Recording-exit modal buttons (leave / reload / quit while
+    // recording). Two-option grammar · proceed (stop + run action)
+    // or cancel (close + run optional cancel).
+    const recChoice = e.target.closest("[data-rec-exit-choice]");
+    if (recChoice) {
+      e.preventDefault();
+      app.handleRecordingExitChoice(recChoice.getAttribute("data-rec-exit-choice"));
+      return;
+    }
+    if (e.target.id === "recording-exit-overlay") {
+      app.closeRecordingExitModal();
+      return;
+    }
+    // Stop-recording choice modal · four-option grammar
+    // (interrupt / wait / only / cancel).
+    const recStopChoice = e.target.closest("[data-rec-stop-choice]");
+    if (recStopChoice) {
+      e.preventDefault();
+      app.handleRecordingStopChoice(recStopChoice.getAttribute("data-rec-stop-choice"));
+      return;
+    }
+    if (e.target.id === "recording-stop-overlay") {
+      app.closeRecordingStopModal();
+      return;
+    }
+    // Record button in the room header · toggle on/off.
+    if (e.target.closest("[data-record-toggle]")) {
+      e.preventDefault();
+      app.handleRecordToggle();
       return;
     }
     // Resume (paused → live). Voice rooms need a TTS provider

@@ -58,6 +58,14 @@
     skipUser: true,
     abortCtrl: null,
     prefetched: new Map(), // idx → { audioBase64, mimeType }
+    /** Monotonic counter bumped by close() · every async path
+     *  (playCurrent, advance, audio event listeners) captures this
+     *  at entry into a local and bails if it diverges. Prevents
+     *  Stop from leaving the next clip queued: without the gate,
+     *  `audio.src = ""` fires an `error` event whose listener calls
+     *  advance(), which can re-enter playCurrent and start the
+     *  next message after the user already asked to stop. */
+    epoch: 0,
     /** Currently-active replay item · what the round-table stage
      *  reads via getActive() to drive seat highlights, the rt-bubble,
      *  and the subtitle bar. `state` flips to "thinking" while the
@@ -220,10 +228,40 @@
   }
 
   function close() {
+    // Bump the epoch FIRST · every in-flight playCurrent / advance /
+    // event-listener that fires after this point captures a stale
+    // epoch in its closure and bails before touching STATE.audio
+    // or queueing the next clip. Without this, the empty-src error
+    // event (triggered by clearing `audio.src`) re-enters advance()
+    // and can start the next message right after Stop.
+    STATE.epoch = (STATE.epoch || 0) + 1;
     if (STATE.audio) {
-      try { STATE.audio.pause(); } catch { /* noop */ }
-      STATE.audio.src = "";
+      // Drop the live reference up-front so any listener that races
+      // through finds STATE.audio === null and bails cleanly.
+      const a = STATE.audio;
       STATE.audio = null;
+      // Tear down attached listeners via the AbortController signal
+      // that playCurrent registered with each addEventListener.
+      // `addEventListener("ended", fn)` can't be cleared by
+      // `a.onended = null`, so the controller is the only handle.
+      if (a.__vrListenerCtrl) {
+        try { a.__vrListenerCtrl.abort(); } catch { /* noop */ }
+      }
+      // Silence first · pause() doesn't always flush the OS audio
+      // mixer's pre-buffered ~100-300ms instantly, so muting +
+      // zeroing volume kills the audible signal before pause runs.
+      try { a.muted = true; } catch { /* noop */ }
+      try { a.volume = 0; } catch { /* noop */ }
+      try { a.pause(); } catch { /* noop */ }
+      try { a.currentTime = 0; } catch { /* noop */ }
+      try {
+        a.removeAttribute("src");
+        a.src = "";
+        // load() forces the element to abandon the current decode +
+        // network activity and reset to empty-network state. Without
+        // it, the data: URL can keep a decoder alive briefly.
+        a.load();
+      } catch { /* noop */ }
     }
     if (STATE.abortCtrl) {
       try { STATE.abortCtrl.abort(); } catch { /* noop */ }
@@ -238,6 +276,8 @@
     STATE.playlist = [];
     STATE.prefetched = new Map();
     STATE.roomId = null;
+    STATE.idx = 0;
+    STATE.paused = false;
     setActive(null); // round-table stage clears its replay seat / subtitle
     emitStateChanged(); // cross-room mini-player drops too
   }
@@ -561,6 +601,10 @@
   // ─── Playback loop ───────────────────────────────────────────
   async function playCurrent() {
     if (!STATE.overlay) return;
+    // Snapshot the epoch · close() bumps STATE.epoch so any path
+    // that resumes after a Stop click sees the divergence and exits
+    // without queueing audio.
+    const myEpoch = STATE.epoch;
     const cur = STATE.playlist[STATE.idx];
     if (!cur) { close(); return; }
     renderPlayer();
@@ -580,6 +624,7 @@
     try {
       payload = await fetchAudio(STATE.idx);
     } catch (e) {
+      if (myEpoch !== STATE.epoch) return;
       // Surface error inline · don't crash the whole player.
       const body = STATE.overlay && STATE.overlay.querySelector("[data-vr-body]");
       if (body) {
@@ -589,6 +634,7 @@
       }
       return;
     }
+    if (myEpoch !== STATE.epoch) return;
     if (!STATE.overlay) return;
     if (!payload || !payload.audioBase64) {
       // Skip silently to next message (e.g. browser-provider fallback).
@@ -596,16 +642,28 @@
       return;
     }
     if (STATE.audio) { try { STATE.audio.pause(); } catch { /* noop */ } }
-    STATE.audio = new Audio(`data:${payload.mimeType || "audio/mp3"};base64,${payload.audioBase64}`);
-    STATE.audio.playbackRate = STATE.speed;
-    STATE.audio.addEventListener("ended", () => advance());
-    STATE.audio.addEventListener("error", () => advance());
+    const a = new Audio(`data:${payload.mimeType || "audio/mp3"};base64,${payload.audioBase64}`);
+    STATE.audio = a;
+    a.playbackRate = STATE.speed;
+    // Recorder hook · if a meeting recording is in progress, route this
+    // playback element's output into the recorder's AudioContext mix.
+    // No-op when the recorder isn't running.
+    try { window.BoardroomRecorder?.attachAudioElement(a); } catch (_) {}
+    // AbortController-scoped listeners · close() aborts the signal
+    // so every listener detaches in one shot. Without this, the
+    // empty-src `error` event triggered by clearing src can re-enter
+    // advance() and start the next clip after Stop.
+    const listenerCtrl = new AbortController();
+    a.__vrListenerCtrl = listenerCtrl;
+    const opt = { signal: listenerCtrl.signal };
+    a.addEventListener("ended", () => { if (myEpoch === STATE.epoch) advance(); }, opt);
+    a.addEventListener("error", () => { if (myEpoch === STATE.epoch) advance(); }, opt);
     // Cross-room mini-player sync · its play/pause glyph keys off
     // audio.paused. A new Audio is created per message so listeners
     // must re-attach on every playCurrent. Also fires on the FIRST
     // attached state so the mini-player surfaces immediately.
-    STATE.audio.addEventListener("play",  () => emitStateChanged());
-    STATE.audio.addEventListener("pause", () => emitStateChanged());
+    a.addEventListener("play",  () => emitStateChanged(), opt);
+    a.addEventListener("pause", () => emitStateChanged(), opt);
     // Tick out a DOM event on every timeupdate (~4 Hz) so the
     // round-table stage's subtitle bar can poll currentTime /
     // duration and interpolate which sentence is being read. We
@@ -613,15 +671,22 @@
     // a single base64-decoded clip, not a chunked stream), so the
     // subtitle has to estimate · firing the event keeps the
     // cadence consistent without coupling the modules.
-    STATE.audio.addEventListener("timeupdate", () => {
+    a.addEventListener("timeupdate", () => {
       try {
         const ev = new CustomEvent("boardroom:replay-tick", { bubbles: true });
         document.dispatchEvent(ev);
       } catch { /* old browsers · noop */ }
-    });
+    }, opt);
     if (!STATE.paused) {
       try {
-        await STATE.audio.play();
+        await a.play();
+        if (myEpoch !== STATE.epoch) {
+          // Stop fired during play() resolution · pause immediately
+          // so the speaker doesn't get even a single buffer flush
+          // worth of audio before close()'s teardown completes.
+          try { a.pause(); a.muted = true; a.volume = 0; } catch { /* noop */ }
+          return;
+        }
         // Audio is running · flip seat from "thinking" → "speaking".
         setActive({
           messageId: cur.messageId,
@@ -632,11 +697,13 @@
         });
       }
       catch (e) {
+        if (myEpoch !== STATE.epoch) return;
         // Autoplay block · pause and let the user click resume.
         STATE.paused = true;
         renderPlayer();
       }
     }
+    if (myEpoch !== STATE.epoch) return;
     // Sync the inline (collapsed) pause button so its glyph
     // tracks the live playback state across message handoffs.
     refreshInlinePauseButton();
@@ -646,6 +713,10 @@
   }
 
   function advance() {
+    // Bail if the player has been closed · listeners that survive
+    // until the next event-loop tick can still call advance() after
+    // close() ran, and we don't want to keep walking the playlist.
+    if (!STATE.overlay) return;
     clearActiveHighlight();
     STATE.idx += 1;
     if (STATE.idx >= STATE.playlist.length) {

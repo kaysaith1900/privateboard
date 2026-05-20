@@ -83,6 +83,22 @@ describe("ai/availability · model reachability per user state", () => {
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 
+  it("Moonshot direct · kimi-k2-6 reachable via direct route", () => {
+    activateLlm("moonshot", "sk-moonshot-test-key-long-enough");
+    const reachable = reachableModels();
+    const slugs = reachable.map((m) => m.modelV).sort();
+    expect(slugs).toEqual(["kimi-k2-6"]);
+    expect(reachable[0].preferredRoute).toBe("direct");
+  });
+
+  it("Zhipu direct · glm-5-1 reachable via direct route", () => {
+    activateLlm("zhipu", "zhipu-key.secret-long-enough");
+    const reachable = reachableModels();
+    const slugs = reachable.map((m) => m.modelV).sort();
+    expect(slugs).toEqual(["glm-5-1"]);
+    expect(reachable[0].preferredRoute).toBe("direct");
+  });
+
   it("openrouterOnly models reachable via openrouter, not direct openai", () => {
     activateLlm("openai", "sk-oa");
     expect(reachableModels().find((m) => m.modelV === "codex-5-4")).toBeUndefined();
@@ -120,6 +136,16 @@ describe("ai/availability · default model selection", () => {
   it("Google direct · returns gemini-3-1-flash (fast tier)", () => {
     activateLlm("google", "AIza-x");
     expect(defaultModelFor()).toBe("gemini-3-1-flash");
+  });
+
+  it("Moonshot direct · returns kimi-k2-6", () => {
+    activateLlm("moonshot", "sk-moonshot-test-key-long-enough");
+    expect(defaultModelFor()).toBe("kimi-k2-6");
+  });
+
+  it("Zhipu direct · returns glm-5-1", () => {
+    activateLlm("zhipu", "zhipu-key.secret-long-enough");
+    expect(defaultModelFor()).toBe("glm-5-1");
   });
 });
 

@@ -112,6 +112,68 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* Pin line-height + vertical-align so the group's inline
+     baseline doesn't inherit the parent's typographic line-height
+     and bump the row's intrinsic height. `flex: 0 0 auto` keeps
+     the group from stretching when it sits in a flex parent. */
+  line-height: 1;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+/* Default (input-bar `.ib-controls-row` context) · match the
+   sibling `.ib-action` 32 × 32 frame so the inline cluster lines
+   up with Pause / Adjourn / Vote. */
+.ib-controls-row .vr-inline-group {
+  height: 32px;
+}
+.ib-controls-row .vr-inline-group .vr-inline-btn {
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+}
+/* Adjourned-strip context · the strip's `.adjourned-strip-head`
+   has `min-height: 28px`. By default it uses `padding: 6px 14px`
+   so the content area is 16 px tall · fine for the bare
+   "▸ Voice replay" link, but too cramped once the 4-button inline
+   group lands here on minimize. We use `:has()` to detect the
+   group's presence and shrink the vertical padding to 4 px,
+   opening up a 20 px content slot. The strip stays the SAME 28 px
+   total (28 = 4 + 20 + 4) — the user's reading is preserved. */
+.adjourned-strip-head:has(.vr-inline-group) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.adjourned-strip-head .vr-inline-group {
+  height: 20px;
+  /* Breathable cluster · 6 px gap reads as 4 distinct buttons
+     rather than a smudged bar. The strip is comfortably wide
+     enough (no flex pressure) for this gap. */
+  gap: 6px;
+}
+.adjourned-strip-head .vr-inline-group .vr-inline-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+}
+.adjourned-strip-head .vr-inline-group .vib-icon {
+  /* 14 px icon in a 20 px button leaves a 3 px margin on each
+     side — crisp pixel-art register, still readable at strip
+     scale. Pulled up from 10 (which felt fragile). */
+  width: 14px;
+  height: 14px;
+}
+.adjourned-strip-head .vr-inline-group .vr-inline-expand {
+  /* Expand carries a 4 px pulse dot alongside the 14 px icon.
+     14 + 3 gap + 4 dot = 21 ≈ button width 20 (snug, dot slightly
+     overlaps the right margin — acceptable since the button itself
+     has its own 20 px box). */
+  gap: 3px;
+}
+.adjourned-strip-head .vr-inline-group .vie-pulse {
+  width: 4px;
+  height: 4px;
 }
 /* The inline child SVG centres inside the `.ib-action` 32×32 frame
    via the parent's `display: inline-flex; align-items: center;

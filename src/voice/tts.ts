@@ -1,7 +1,20 @@
 import { getKey } from "../storage/keys.js";
 import { getPrefs } from "../storage/prefs.js";
+import {
+  getActiveVoiceKeyPlaintext,
+  getActiveVoiceProvider,
+} from "../storage/voice-credentials.js";
 import type { Agent, AgentVoiceProfile } from "../storage/agents.js";
 import { defaultVoiceForProvider } from "./registry.js";
+
+/** Plaintext key for the active voice credential, when it matches the
+ *  per-call `wanted` provider. Returns null on a provider mismatch so
+ *  callers can short-circuit to the browser fallback instead of
+ *  routing a MiniMax voice request through an ElevenLabs key. */
+function activeVoiceKeyFor(wanted: "minimax" | "elevenlabs"): string | null {
+  if (getActiveVoiceProvider() !== wanted) return null;
+  return getActiveVoiceKeyPlaintext();
+}
 
 /**
  * MiniMax API base URL, selected by the user's `minimaxRegion` preference.
@@ -161,12 +174,40 @@ export function cleanForSpeech(md: string): string {
 }
 
 export function voiceProfileForAgent(agent: Agent): AgentVoiceProfile {
-  if (agent.voice) return agent.voice;
+  const activeProvider = getActiveVoiceProvider();
+
+  // Happy path · the agent already carries a voice from the active
+  // provider (the `reconcileAgentVoices` reshuffle keeps this true
+  // every time the active credential changes). Use it as-is.
+  if (agent.voice && agent.voice.provider === activeProvider) {
+    return agent.voice;
+  }
+
+  // Mismatch · the agent's stored voiceId belongs to a different
+  // provider (rare · only between a provider switch and the
+  // reconcile pass that follows). Pick a fresh default from the
+  // active provider's catalog so synthesis doesn't 404 against the
+  // wrong API. Preserve user-tuned dials (speed / pitch / volume /
+  // emotion) — those translate reasonably across voices in the
+  // same provider family.
+  if (agent.voice && activeProvider) {
+    const fresh = defaultVoiceForProvider(activeProvider);
+    if (fresh) {
+      return {
+        provider: fresh.provider as AgentVoiceProfile["provider"],
+        model: fresh.model,
+        voiceId: fresh.voiceId,
+        speed: agent.voice.speed ?? 1,
+        pitch: agent.voice.pitch ?? 0,
+        volume: agent.voice.volume ?? 1,
+        ...(agent.voice.emotion ? { emotion: agent.voice.emotion } : {}),
+      };
+    }
+  }
+
+  // No stored voice · pick a provider-appropriate default.
   const fallback = defaultVoiceForProvider(
-    getKey("minimax") ? "minimax"
-      : getKey("elevenlabs") ? "elevenlabs"
-        : getKey("openai") ? "openai"
-          : "browser",
+    activeProvider ?? (getKey("openai") ? "openai" : "browser"),
   );
   return {
     provider: (fallback?.provider ?? "browser") as AgentVoiceProfile["provider"],
@@ -209,18 +250,19 @@ export async function* synthesizeSpeechStream(
   profile: AgentVoiceProfile,
   signal?: AbortSignal,
 ): AsyncGenerator<TtsChunk> {
-  if (profile.provider === "elevenlabs" && getKey("elevenlabs")) {
+  if (profile.provider === "elevenlabs" && activeVoiceKeyFor("elevenlabs")) {
     yield* synthesizeElevenLabsStream(text, profile, signal);
     return;
   }
 
-  if (profile.provider !== "minimax" || !getKey("minimax")) {
+  const minimaxKey = activeVoiceKeyFor("minimax");
+  if (profile.provider !== "minimax" || !minimaxKey) {
     // Fallback: yield a single chunk (non-streaming).
     yield await synthesizeSpeech(text, profile, signal);
     return;
   }
 
-  const key = getKey("minimax")!;
+  const key = minimaxKey;
   const model = profile.model || "speech-2.8-hd";
 
   const res = await fetch(`${minimaxBaseUrl()}/v1/t2a_v2`, {
@@ -366,7 +408,7 @@ export async function* synthesizeSpeechStream(
 
 /** Original non-streaming MiniMax synthesis (kept for reference / fallback). */
 async function synthesizeMiniMax(text: string, profile: AgentVoiceProfile, signal?: AbortSignal): Promise<TtsChunk> {
-  const key = getKey("minimax");
+  const key = activeVoiceKeyFor("minimax");
   if (!key) {
     return { provider: "browser", model: "speechSynthesis", voiceId: "system-default", text };
   }
@@ -502,7 +544,7 @@ async function synthesizeOpenAI(text: string, profile: AgentVoiceProfile, signal
 }
 
 async function synthesizeElevenLabs(text: string, profile: AgentVoiceProfile, signal?: AbortSignal): Promise<TtsChunk> {
-  const key = getKey("elevenlabs");
+  const key = activeVoiceKeyFor("elevenlabs");
   if (!key) {
     return { provider: "browser", model: "speechSynthesis", voiceId: "system-default", text };
   }
@@ -561,7 +603,7 @@ async function* synthesizeElevenLabsStream(
   profile: AgentVoiceProfile,
   signal?: AbortSignal,
 ): AsyncGenerator<TtsChunk> {
-  const key = getKey("elevenlabs");
+  const key = activeVoiceKeyFor("elevenlabs");
   if (!key) {
     yield await synthesizeSpeech(text, profile, signal);
     return;

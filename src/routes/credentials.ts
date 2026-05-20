@@ -19,7 +19,7 @@ import {
   listLlmCredentials,
 } from "../storage/credentials.js";
 import { getPrefs, updatePrefs } from "../storage/prefs.js";
-import { PRIMARY_BY_CARRIER, reconcileAgentModels } from "../storage/reconcile-models.js";
+import { PRIMARY_BY_CARRIER, activeCarrier, reconcileAgentModels } from "../storage/reconcile-models.js";
 
 interface CredentialPayload {
   id: string;
@@ -99,6 +99,12 @@ export function credentialsRouter(): Hono {
     } else {
       return c.json({ error: "id must be a string or null" }, 400);
     }
+    // SIM-swap memory · capture the prior active carrier BEFORE
+    // flipping prefs so reconcile can snapshot every agent's current
+    // modelV into bucket[priorCarrier] before overwriting it. Without
+    // this read, the snapshot phase would see the new carrier and
+    // skip (priorCarrier === carrier guard).
+    const priorCarrier = activeCarrier();
     if (nextId) {
       const meta = getLlmCredentialMeta(nextId);
       if (!meta) return c.json({ error: "credential not found" }, 404);
@@ -108,7 +114,7 @@ export function credentialsRouter(): Hono {
     } else {
       updatePrefs({ activeLlmCredentialId: null });
     }
-    try { reconcileAgentModels({ forcePrimary: true }); }
+    try { reconcileAgentModels({ forcePrimary: true, priorCarrier }); }
     catch (e) { process.stderr.write(`[credentials.active] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`); }
     return c.json({ activeId: nextId });
   });
@@ -140,7 +146,11 @@ export function credentialsRouter(): Hono {
       updatePrefs({ activeLlmCredentialId: meta.id });
       const flagship = PRIMARY_BY_CARRIER[provider];
       if (flagship) updatePrefs({ defaultModelV: flagship });
-      try { reconcileAgentModels({ forcePrimary: true }); }
+      // First-credential auto-activate · no prior active carrier
+      // existed by definition, so priorCarrier is null (no snapshot).
+      // The reconcile still runs to seed every agent into the new
+      // carrier's bucket so a subsequent switch round-trip works.
+      try { reconcileAgentModels({ forcePrimary: true, priorCarrier: null }); }
       catch (e) { process.stderr.write(`[credentials.post] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`); }
     }
     const activeId = getPrefs().activeLlmCredentialId;
@@ -153,6 +163,12 @@ export function credentialsRouter(): Hono {
     if (!meta) return c.json({ error: "credential not found" }, 404);
     const prefs = getPrefs();
     const wasActive = prefs.activeLlmCredentialId === id;
+    // SIM-swap memory · snapshot the prior active carrier BEFORE the
+    // delete + rotation, since once the row is gone activeCarrier()
+    // would return the rotated-to provider. Null when the deleted
+    // credential wasn't active (nothing to snapshot · reconcile is a
+    // no-op anyway).
+    const priorCarrier = wasActive ? activeCarrier() : null;
     const removedProvider = deleteLlmCredential(id);
     if (wasActive) {
       const nextId = pickNextActiveId(removedProvider);
@@ -167,7 +183,7 @@ export function credentialsRouter(): Hono {
         updatePrefs({ defaultModelV: null });
       }
     }
-    try { reconcileAgentModels(wasActive ? { forcePrimary: true } : undefined); }
+    try { reconcileAgentModels(wasActive ? { forcePrimary: true, priorCarrier } : undefined); }
     catch (e) { process.stderr.write(`[credentials.delete] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`); }
     return c.json({ id, deleted: true, activeId: getPrefs().activeLlmCredentialId });
   });

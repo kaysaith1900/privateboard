@@ -26,17 +26,56 @@
   // synchronous render code below stays simple. saveUser writes through.
   let _prefsCache = { name: "You", intro: "", avatarSeed: null, webSearchProvider: "brave", minimaxRegion: "cn" };
 
-  // ── Voice + skill providers (LLM rows moved to the active-provider
-  // card grid above the legacy renderKeyRow loop; see
-  // activeLlmSectionHTML below). Voice / skill keys remain multi-key
-  // by design — independent storage rows, no swap behaviour. ──
-  const PROVIDERS = [
-    { id: "minimax",    label: "MiniMax",     hint: "speech · T2A voices, cloning, streaming audio",   placeholder: "mm-…",         group: "voice" },
-    { id: "elevenlabs", label: "ElevenLabs",  hint: "text-to-speech · pricing & docs at elevenlabs.io",  placeholder: "xi-…",         group: "voice" },
-    { id: "brave",      label: "Brave Search", hint: "powers the Web Search system skill · ≈ $5 / 1000 queries · privacy-respecting",
-      placeholder: "BSA…",         group: "skill" },
-    { id: "tavily",     label: "Tavily Search", hint: "alternate Web Search backend · billed per Tavily credits · LLM-focused results",
-      placeholder: "tvly-…",        group: "skill" },
+  // ── Skill providers · empty after migration 051. LLM, voice
+  // (MiniMax / ElevenLabs), and search (Brave / Tavily) all moved
+  // to the active-provider / multi-credential pattern (see the
+  // activeLlmSectionHTML / activeVoiceSectionHTML / activeSearch
+  // SectionHTML trios). `provider_keys` is fully drained ·
+  // PROVIDERS exists for shape compatibility but never renders. ──
+  const PROVIDERS = [];
+
+  // Search provider card catalog · same shape as VOICE_CARDS, used
+  // by the "Choose a search provider" picker step inside the
+  // activeSearchSectionHTML trio.
+  const SEARCH_CARDS = [
+    {
+      id: "brave",
+      label: "Brave Search",
+      tagline: "≈ $5 / 1000 queries · privacy-respecting · independent index",
+      placeholder: "BSA…",
+      helpUrl: "https://brave.com/search/api/",
+      helpLabel: "brave.com/search/api",
+    },
+    {
+      id: "tavily",
+      label: "Tavily Search",
+      tagline: "billed per credit · LLM-focused result distillation",
+      placeholder: "tvly-…",
+      helpUrl: "https://tavily.com/",
+      helpLabel: "tavily.com",
+    },
+  ];
+
+  // Voice provider card catalog · displayed by the "Choose a voice
+  // provider" picker step. Tagline / helpUrl mirror the structure of
+  // LLM_CARDS_* so the same renderer pattern can be reused.
+  const VOICE_CARDS = [
+    {
+      id: "minimax",
+      label: "MiniMax",
+      tagline: "speech · T2A voices · cloning · streaming audio",
+      placeholder: "mm-…",
+      helpUrl: "https://platform.minimaxi.com/user-center/basic-information",
+      helpLabel: "platform.minimaxi.com",
+    },
+    {
+      id: "elevenlabs",
+      label: "ElevenLabs",
+      tagline: "text-to-speech · large public voice library",
+      placeholder: "xi-…",
+      helpUrl: "https://elevenlabs.io/app/settings/api-keys",
+      helpLabel: "elevenlabs.io",
+    },
   ];
 
   // Single source of truth for the LLM card grid — mirrors the
@@ -75,6 +114,8 @@
     { id: "openai",    label: "ChatGPT", tagline: "OpenAI direct",        placeholder: "sk-…",     helpUrl: "https://platform.openai.com/api-keys",        helpLabel: "platform.openai.com" },
     { id: "google",    label: "Gemini",  tagline: "Google AI Studio",     placeholder: "AIza…",    helpUrl: "https://aistudio.google.com/apikey",          helpLabel: "aistudio.google.com" },
     { id: "xai",       label: "Grok",    tagline: "xAI direct",           placeholder: "xai-…",    helpUrl: "https://console.x.ai/team",                   helpLabel: "console.x.ai" },
+    { id: "moonshot",  label: "Kimi",    tagline: "Moonshot direct",      placeholder: "sk-…",     helpUrl: "https://platform.moonshot.cn/console/api-keys", helpLabel: "platform.moonshot.cn" },
+    { id: "zhipu",     label: "GLM",     tagline: "Zhipu direct",         placeholder: "key.secret", helpUrl: "https://open.bigmodel.cn/usercenter/apikeys",   helpLabel: "open.bigmodel.cn" },
   ];
   const ALL_LLM_CARDS = [...LLM_CARDS_MULTI, ...LLM_CARDS_SINGLE];
 
@@ -179,6 +220,44 @@
   }
   function activeLlmCredentialId() {
     return window.keysStore ? window.keysStore.activeLlmCredentialId : null;
+  }
+
+  function fetchVoiceCredentials() {
+    return window.keysStore && typeof window.keysStore.fetchVoiceCredentials === "function"
+      ? window.keysStore.fetchVoiceCredentials()
+      : Promise.resolve();
+  }
+  function listVoiceCredentials() {
+    return window.keysStore ? (window.keysStore.voiceCredentials || []) : [];
+  }
+  function activeVoiceCredentialId() {
+    return window.keysStore ? window.keysStore.activeVoiceCredentialId : null;
+  }
+  function activeVoiceCredential() {
+    const id = activeVoiceCredentialId();
+    if (!id) return null;
+    return listVoiceCredentials().find((c) => c.id === id) || null;
+  }
+  function activeVoiceProvider() {
+    const c = activeVoiceCredential();
+    return c ? c.provider : null;
+  }
+
+  function fetchSearchCredentials() {
+    return window.keysStore && typeof window.keysStore.fetchSearchCredentials === "function"
+      ? window.keysStore.fetchSearchCredentials()
+      : Promise.resolve();
+  }
+  function listSearchCredentials() {
+    return window.keysStore ? (window.keysStore.searchCredentials || []) : [];
+  }
+  function activeSearchCredentialId() {
+    return window.keysStore ? window.keysStore.activeSearchCredentialId : null;
+  }
+  function activeSearchCredential() {
+    const id = activeSearchCredentialId();
+    if (!id) return null;
+    return listSearchCredentials().find((c) => c.id === id) || null;
   }
 
   // Sync read used by new-agent.js: returns a map { provider: truthy } where
@@ -1133,37 +1212,394 @@
     `;
   }
 
-  /** Shown only when BOTH Brave Search and Tavily keys are configured. */
-  function webSearchBackendPrefHTML() {
-    const braveOk = !!(_keysMeta.brave && _keysMeta.brave.configured);
-    const tavilyOk = !!(_keysMeta.tavily && _keysMeta.tavily.configured);
-    const visible = braveOk && tavilyOk;
-    const pref = _prefsCache.webSearchProvider === "tavily" ? "tavily" : "brave";
-    return `
-        <div class="us-key-group us-key-group-ws-backend" data-us-ws-backend-wrap ${visible ? "" : "hidden"}>
-          <div class="us-key-group-tag">${tr("us_ws_backend_tag")}</div>
-          <div class="us-key-group-deck">${tr("us_ws_backend_deck")}</div>
-          <div class="us-ws-backend-radios">
-            <label class="us-ws-backend-label">
-              <input type="radio" name="us-ws-backend" value="brave" ${pref === "brave" ? "checked" : ""}>
-              <span>${tr("us_ws_backend_brave")}</span>
-            </label>
-            <label class="us-ws-backend-label">
-              <input type="radio" name="us-ws-backend" value="tavily" ${pref === "tavily" ? "checked" : ""}>
-              <span>${tr("us_ws_backend_tavily")}</span>
-            </label>
+  /* ── Active voice provider section · same shape as the LLM trio ──
+     Voice TTS credentials follow the single-active / multi-instance
+     pattern: hero (active label / provider / preview), added list
+     with tap-to-switch + ✕-to-remove rows, add-provider block with
+     a two-step picker (provider → label + key). All three downstream
+     surfaces (User Settings, agent-profile voice block, in-room
+     director overlay) pull from the active credential's catalog
+     only. */
+
+  /** Transient add-voice state · mirrors `_addState` for LLM. */
+  let _addVoiceState = null;
+
+  function voiceCardByProvider(id) {
+    return VOICE_CARDS.find((c) => c.id === id) || null;
+  }
+
+  function activeVoiceHeroHTML() {
+    const cred = activeVoiceCredential();
+    if (!cred) {
+      return `
+        <div class="us-llm-hero is-empty">
+          <div class="us-llm-hero-head">
+            <div class="us-llm-hero-title">${escape(tr("voice_cred_empty_hero_title") || "No active voice provider")}</div>
+            <div class="us-llm-hero-pill is-empty">○ ${escape(tr("voice_cred_empty_hero_pill") || "no provider")}</div>
           </div>
+          <div class="us-llm-hero-deck">${escape(tr("voice_cred_empty_active") || "No voice provider configured · add one to enable spoken meetings.")}</div>
         </div>
+      `;
+    }
+    const card = voiceCardByProvider(cred.provider);
+    const providerName = card ? card.label : cred.provider;
+    const pitch = card ? card.tagline : "";
+    return `
+      <div class="us-llm-hero is-active" data-voice-hero data-credential-id="${escape(cred.id)}">
+        <div class="us-llm-hero-head">
+          <div class="us-llm-hero-titleblock">
+            <div class="us-llm-hero-title">${escape(cred.label)}</div>
+            <div class="us-llm-hero-provider">${escape(providerName)}</div>
+          </div>
+          <div class="us-llm-hero-pill">● ${escape(tr("us_active_llm_hero_pill") || "ACTIVE")}</div>
+        </div>
+        <div class="us-llm-hero-deck">${escape(pitch)}</div>
+        ${cred.preview ? `<div class="us-llm-hero-preview">${escape(compactMask(cred.preview))}</div>` : ""}
+      </div>
     `;
   }
 
-  /** MiniMax region picker · rendered INSIDE the minimax row so it
-   *  sits next to the API key it modifies. Returns "" when no minimax
-   *  key is configured (row is still rendered, just without this
-   *  sub-control). */
+  function addedVoiceListHTML() {
+    const creds = listVoiceCredentials();
+    if (creds.length === 0) return "";
+    const activeId = activeVoiceCredentialId();
+    const tapHint = tr("us_active_llm_tap_to_switch") || "tap to switch";
+    const rows = creds.map((c) => {
+      const isActive = c.id === activeId;
+      const card = voiceCardByProvider(c.provider);
+      const providerName = card ? card.label : c.provider;
+      // MiniMax region picker · only inside the ACTIVE MiniMax row.
+      // Region is a single global pref · the active credential is the
+      // only one actually hitting the upstream API, so the picker
+      // belongs to that row. Non-active MiniMax rows wait their turn
+      // (clicking them activates first, then the picker shows).
+      const showRegionPicker = isActive && c.provider === "minimax";
+      return `
+        <div class="us-llm-row${isActive ? " is-active" : ""}" data-voice-row data-credential-id="${escape(c.id)}" tabindex="0" role="button" aria-label="${escape(c.label)}">
+          <div class="us-llm-row-head">
+            <div class="us-llm-row-titleblock">
+              <span class="us-llm-row-label">${escape(c.label)}</span>
+              <span class="us-llm-row-provider">${escape(providerName)}</span>
+            </div>
+            <div class="us-llm-row-trailing">
+              ${isActive
+                ? `<span class="us-llm-row-mark">✓</span>`
+                : `<span class="us-llm-row-hint">${escape(tapHint)}</span>`}
+              <button type="button" class="us-key-remove" data-remove-voice-credential="${escape(c.id)}" title="${escape(tr("us_active_llm_remove_tip") || "Remove")}">✕</button>
+            </div>
+          </div>
+          <div class="us-input-wrap us-llm-row-keywrap">
+            <div class="us-input us-llm-row-preview">${escape(compactMask(c.preview || ""))}</div>
+          </div>
+          ${showRegionPicker ? minimaxRegionRowHTML() : ""}
+        </div>
+      `;
+    }).join("");
+    return `
+      <div class="us-llm-added">
+        <div class="us-llm-added-header">
+          <span>${escape(tr("voice_cred_list_title") || "Added voice models")}</span>
+          <span class="us-llm-added-count">${creds.length}</span>
+        </div>
+        <div class="us-llm-added-list">${rows}</div>
+      </div>
+    `;
+  }
+
+  function addVoiceProviderBlockHTML() {
+    if (!_addVoiceState) {
+      return `
+        <div class="us-llm-add">
+          <button type="button" class="us-llm-add-trigger" data-voice-add-open>
+            <span class="us-llm-add-glyph">+</span>
+            <span>${escape(tr("voice_cred_add_btn") || "Add voice provider")}</span>
+          </button>
+        </div>
+      `;
+    }
+    if (_addVoiceState.step === "pick") {
+      const renderPick = (card) => {
+        const pitch = card.tagline || "";
+        return `
+          <button type="button" class="us-llm-pick us-llm-pick-multi" data-voice-pick="${escape(card.id)}">
+            <div class="us-llm-pick-head">
+              <div class="us-llm-pick-label">${escape(card.label)}</div>
+            </div>
+            <div class="us-llm-pick-tag">${escape(pitch)}</div>
+          </button>
+        `;
+      };
+      return `
+        <div class="us-llm-add is-open" data-voice-add-block>
+          <div class="us-llm-add-head">
+            <div class="us-llm-add-title">${escape(tr("voice_cred_picker_title") || "Choose a voice provider")}</div>
+            <button type="button" class="us-llm-add-close" data-voice-add-cancel aria-label="Cancel">✕</button>
+          </div>
+          <div class="us-llm-add-body">
+            <div class="us-llm-picks-row us-llm-picks-multi">
+              ${VOICE_CARDS.map(renderPick).join("")}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    const card = voiceCardByProvider(_addVoiceState.provider);
+    if (!card) {
+      _addVoiceState = { step: "pick" };
+      return addVoiceProviderBlockHTML();
+    }
+    return `
+      <div class="us-llm-add is-open" data-voice-add-block>
+        <div class="us-llm-add-head">
+          <button type="button" class="us-llm-add-back" data-voice-add-back aria-label="Back">◂</button>
+          <div class="us-llm-add-title">${escape(card.label)}</div>
+          <button type="button" class="us-llm-add-close" data-voice-add-cancel aria-label="Cancel">✕</button>
+        </div>
+        <div class="us-llm-add-body" data-voice-add-form data-provider="${escape(card.id)}">
+          <div class="us-llm-add-tag">${escape(card.tagline || "")}</div>
+          <div class="us-llm-add-field">
+            <div class="us-llm-add-field-label">${escape(tr("us_active_llm_label_field_label") || "Name (optional)")}</div>
+            <input
+              type="text"
+              class="us-input"
+              data-voice-add-label
+              placeholder="${escape(card.label)}"
+              maxlength="48"
+              autocomplete="off">
+            <div class="us-llm-add-field-hint">${escape(tr("us_active_llm_label_field_hint") || "Leave blank to use the provider's name; duplicates get a numeric suffix.")}</div>
+          </div>
+          <div class="us-llm-add-field">
+            <div class="us-llm-add-field-label">${escape(tr("us_active_llm_key_field_label") || "API key")}</div>
+            <div class="us-input-wrap">
+              <input
+                type="text"
+                class="us-input us-input-masked"
+                data-voice-add-key
+                placeholder="${escape(card.placeholder)}"
+                autocomplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                spellcheck="false">
+              <button type="button" class="us-key-eye" data-key-eye title="Show / hide">◉</button>
+            </div>
+            <div class="us-key-warn" data-voice-add-key-warn hidden></div>
+            <div class="us-llm-add-field-hint">
+              <a href="${escape(card.helpUrl)}" target="_blank" rel="noopener" class="us-llm-card-help">${escape(card.helpLabel)} →</a>
+            </div>
+          </div>
+          <div class="us-llm-add-actions">
+            <button type="button" class="us-btn us-btn-ghost" data-voice-add-cancel>${escape(tr("us_active_llm_cancel_btn") || "Cancel")}</button>
+            <button type="button" class="us-btn us-btn-primary" data-voice-add-save>${escape(tr("us_active_llm_save_btn") || "Save & activate")}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function activeVoiceSectionHTML() {
+    return `
+      <div class="us-key-group us-key-group-voice-active" data-voice-section>
+        <div class="us-key-group-tag">${escape(tr("voice_cred_section_title") || "Voice provider")}</div>
+        <div class="us-key-group-deck">${escape(tr("voice_cred_section_deck") || "Powers spoken meetings · directors pull voices from the active provider's catalog.")}</div>
+        ${activeVoiceHeroHTML()}
+        ${addedVoiceListHTML()}
+        ${addVoiceProviderBlockHTML()}
+      </div>
+    `;
+  }
+
+  /* ── Active search provider section · mirrors the LLM and voice
+     trios. Search credentials follow the same single-active /
+     multi-instance pattern (migration 051 · /api/search-credentials).
+     Unlike LLM/voice, switching the active search credential needs
+     no per-agent reshuffle — web-search routing reads the active
+     credential on every call. */
+
+  let _addSearchState = null;
+
+  function searchCardByProvider(id) {
+    return SEARCH_CARDS.find((c) => c.id === id) || null;
+  }
+
+  function activeSearchHeroHTML() {
+    const cred = activeSearchCredential();
+    if (!cred) {
+      return `
+        <div class="us-llm-hero is-empty">
+          <div class="us-llm-hero-head">
+            <div class="us-llm-hero-title">${escape(tr("search_cred_empty_hero_title") || "No active search provider")}</div>
+            <div class="us-llm-hero-pill is-empty">○ ${escape(tr("search_cred_empty_hero_pill") || "no provider")}</div>
+          </div>
+          <div class="us-llm-hero-deck">${escape(tr("search_cred_empty_active") || "No search provider configured · add one to enable the Web Search skill.")}</div>
+        </div>
+      `;
+    }
+    const card = searchCardByProvider(cred.provider);
+    const providerName = card ? card.label : cred.provider;
+    const pitch = card ? card.tagline : "";
+    return `
+      <div class="us-llm-hero is-active" data-search-hero data-credential-id="${escape(cred.id)}">
+        <div class="us-llm-hero-head">
+          <div class="us-llm-hero-titleblock">
+            <div class="us-llm-hero-title">${escape(cred.label)}</div>
+            <div class="us-llm-hero-provider">${escape(providerName)}</div>
+          </div>
+          <div class="us-llm-hero-pill">● ${escape(tr("us_active_llm_hero_pill") || "ACTIVE")}</div>
+        </div>
+        <div class="us-llm-hero-deck">${escape(pitch)}</div>
+        ${cred.preview ? `<div class="us-llm-hero-preview">${escape(compactMask(cred.preview))}</div>` : ""}
+      </div>
+    `;
+  }
+
+  function addedSearchListHTML() {
+    const creds = listSearchCredentials();
+    if (creds.length === 0) return "";
+    const activeId = activeSearchCredentialId();
+    const tapHint = tr("us_active_llm_tap_to_switch") || "tap to switch";
+    const rows = creds.map((c) => {
+      const isActive = c.id === activeId;
+      const card = searchCardByProvider(c.provider);
+      const providerName = card ? card.label : c.provider;
+      return `
+        <div class="us-llm-row${isActive ? " is-active" : ""}" data-search-row data-credential-id="${escape(c.id)}" tabindex="0" role="button" aria-label="${escape(c.label)}">
+          <div class="us-llm-row-head">
+            <div class="us-llm-row-titleblock">
+              <span class="us-llm-row-label">${escape(c.label)}</span>
+              <span class="us-llm-row-provider">${escape(providerName)}</span>
+            </div>
+            <div class="us-llm-row-trailing">
+              ${isActive
+                ? `<span class="us-llm-row-mark">✓</span>`
+                : `<span class="us-llm-row-hint">${escape(tapHint)}</span>`}
+              <button type="button" class="us-key-remove" data-remove-search-credential="${escape(c.id)}" title="${escape(tr("us_active_llm_remove_tip") || "Remove")}">✕</button>
+            </div>
+          </div>
+          <div class="us-input-wrap us-llm-row-keywrap">
+            <div class="us-input us-llm-row-preview">${escape(compactMask(c.preview || ""))}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+    return `
+      <div class="us-llm-added">
+        <div class="us-llm-added-header">
+          <span>${escape(tr("search_cred_list_title") || "Added search providers")}</span>
+          <span class="us-llm-added-count">${creds.length}</span>
+        </div>
+        <div class="us-llm-added-list">${rows}</div>
+      </div>
+    `;
+  }
+
+  function addSearchProviderBlockHTML() {
+    if (!_addSearchState) {
+      return `
+        <div class="us-llm-add">
+          <button type="button" class="us-llm-add-trigger" data-search-add-open>
+            <span class="us-llm-add-glyph">+</span>
+            <span>${escape(tr("search_cred_add_btn") || "Add search provider")}</span>
+          </button>
+        </div>
+      `;
+    }
+    if (_addSearchState.step === "pick") {
+      const renderPick = (card) => `
+        <button type="button" class="us-llm-pick us-llm-pick-multi" data-search-pick="${escape(card.id)}">
+          <div class="us-llm-pick-head">
+            <div class="us-llm-pick-label">${escape(card.label)}</div>
+          </div>
+          <div class="us-llm-pick-tag">${escape(card.tagline || "")}</div>
+        </button>
+      `;
+      return `
+        <div class="us-llm-add is-open" data-search-add-block>
+          <div class="us-llm-add-head">
+            <div class="us-llm-add-title">${escape(tr("search_cred_picker_title") || "Choose a search provider")}</div>
+            <button type="button" class="us-llm-add-close" data-search-add-cancel aria-label="Cancel">✕</button>
+          </div>
+          <div class="us-llm-add-body">
+            <div class="us-llm-picks-row us-llm-picks-multi">
+              ${SEARCH_CARDS.map(renderPick).join("")}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    const card = searchCardByProvider(_addSearchState.provider);
+    if (!card) {
+      _addSearchState = { step: "pick" };
+      return addSearchProviderBlockHTML();
+    }
+    return `
+      <div class="us-llm-add is-open" data-search-add-block>
+        <div class="us-llm-add-head">
+          <button type="button" class="us-llm-add-back" data-search-add-back aria-label="Back">◂</button>
+          <div class="us-llm-add-title">${escape(card.label)}</div>
+          <button type="button" class="us-llm-add-close" data-search-add-cancel aria-label="Cancel">✕</button>
+        </div>
+        <div class="us-llm-add-body" data-search-add-form data-provider="${escape(card.id)}">
+          <div class="us-llm-add-tag">${escape(card.tagline || "")}</div>
+          <div class="us-llm-add-field">
+            <div class="us-llm-add-field-label">${escape(tr("us_active_llm_label_field_label") || "Name (optional)")}</div>
+            <input
+              type="text"
+              class="us-input"
+              data-search-add-label
+              placeholder="${escape(card.label)}"
+              maxlength="48"
+              autocomplete="off">
+            <div class="us-llm-add-field-hint">${escape(tr("us_active_llm_label_field_hint") || "Leave blank to use the provider's name; duplicates get a numeric suffix.")}</div>
+          </div>
+          <div class="us-llm-add-field">
+            <div class="us-llm-add-field-label">${escape(tr("us_active_llm_key_field_label") || "API key")}</div>
+            <div class="us-input-wrap">
+              <input
+                type="text"
+                class="us-input us-input-masked"
+                data-search-add-key
+                placeholder="${escape(card.placeholder)}"
+                autocomplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                spellcheck="false">
+              <button type="button" class="us-key-eye" data-key-eye title="Show / hide">◉</button>
+            </div>
+            <div class="us-key-warn" data-search-add-key-warn hidden></div>
+            <div class="us-llm-add-field-hint">
+              <a href="${escape(card.helpUrl)}" target="_blank" rel="noopener" class="us-llm-card-help">${escape(card.helpLabel)} →</a>
+            </div>
+          </div>
+          <div class="us-llm-add-actions">
+            <button type="button" class="us-btn us-btn-ghost" data-search-add-cancel>${escape(tr("us_active_llm_cancel_btn") || "Cancel")}</button>
+            <button type="button" class="us-btn us-btn-primary" data-search-add-save>${escape(tr("us_active_llm_save_btn") || "Save & activate")}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function activeSearchSectionHTML() {
+    return `
+      <div class="us-key-group us-key-group-search-active" data-search-section>
+        <div class="us-key-group-tag">${escape(tr("search_cred_section_title") || "Search provider")}</div>
+        <div class="us-key-group-deck">${escape(tr("search_cred_section_deck") || "Powers the Web Search system skill · directors hit the active search provider's API.")}</div>
+        ${activeSearchHeroHTML()}
+        ${addedSearchListHTML()}
+        ${addSearchProviderBlockHTML()}
+      </div>
+    `;
+  }
+
+  /** MiniMax region picker · rendered inline inside the ACTIVE
+   *  MiniMax credential row (see `addedVoiceListHTML` · the caller
+   *  gates on `isActive && provider === "minimax"`). Region is a
+   *  single global pref · the active credential is the one making
+   *  upstream calls, so it owns the picker. ElevenLabs is single-
+   *  region and never reaches this helper. */
   function minimaxRegionRowHTML() {
-    const minimaxOk = !!(_keysMeta.minimax && _keysMeta.minimax.configured);
-    if (!minimaxOk) return "";
     const region = (_prefsCache && _prefsCache.minimaxRegion) || "cn";
     return `
       <div class="us-key-subrow" data-us-minimax-region-wrap>
@@ -1183,9 +1619,6 @@
   }
 
   function keysSectionHTML() {
-    const skillProviders = PROVIDERS.filter((p) => p.group === "skill");
-    const voiceProviders = PROVIDERS.filter((p) => p.group === "voice");
-
     return `
       <div class="us-pane-head">
         <div class="us-pane-tag">${tr("us_keys_tag")}</div>
@@ -1196,23 +1629,9 @@
 
         ${activeLlmSectionHTML()}
 
-        ${skillProviders.length > 0 ? `
-          <div class="us-key-group us-key-group-skill">
-            <div class="us-key-group-tag">${tr("us_keys_group_skill")}</div>
-            <div class="us-key-group-deck">${tr("us_keys_skill_deck")}</div>
-            ${skillProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
-          </div>
-        ` : ""}
+        ${activeVoiceSectionHTML()}
 
-        ${webSearchBackendPrefHTML()}
-
-        ${voiceProviders.length > 0 ? `
-          <div class="us-key-group us-key-group-voice">
-            <div class="us-key-group-tag">Voice providers</div>
-            <div class="us-key-group-deck">Used for voice meetings and per-director speech synthesis.</div>
-            ${voiceProviders.map((p) => renderKeyRow(p, !!(_keysMeta[p.id] && _keysMeta[p.id].configured))).join("")}
-          </div>
-        ` : ""}
+        ${activeSearchSectionHTML()}
 
         <div data-models-summary>${modelsSummaryHTML()}</div>
 
@@ -1798,6 +2217,316 @@
       });
     });
 
+    /* ── Voice credential handlers · mirror LLM block above ────── */
+
+    // ✕ on voice credential rows · DELETE /api/voice-credentials/:id.
+    // Active credential gets a confirm prompt that warns the directors'
+    // voices will reshuffle.
+    paneEl.querySelectorAll(".us-key-remove[data-remove-voice-credential]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const id = btn.dataset.removeVoiceCredential;
+        if (!id) return;
+        const isActive = id === activeVoiceCredentialId();
+        if (isActive) {
+          const msg = tr("voice_cred_delete_confirm_active")
+            || "Remove the active voice credential? Director voices reshuffle from the next available credential.";
+          if (!window.confirm(msg)) return;
+        }
+        const ok = window.keysStore && typeof window.keysStore.deleteVoiceCredentialRequest === "function"
+          ? await window.keysStore.deleteVoiceCredentialRequest(id)
+          : false;
+        if (!ok) return;
+        await fetchVoiceCredentials();
+        rerenderKeysSection();
+      });
+    });
+
+    // Voice credential row tap · switch active. Same-provider switches
+    // are silent (voice ids stay valid); cross-provider switches
+    // trigger the reshuffle on the server side, so we warn the user.
+    paneEl.querySelectorAll("[data-voice-row]").forEach((row) => {
+      const handler = async (e) => {
+        if (e.target && e.target.closest && e.target.closest("button")) return;
+        if (row.classList.contains("is-active")) return;
+        const id = row.dataset.credentialId;
+        if (!id) return;
+        const target = listVoiceCredentials().find((c) => c.id === id);
+        const targetLabel = target ? target.label : "";
+        const targetProvider = target ? target.provider : null;
+        const priorProvider = activeVoiceProvider();
+        // Only show the reshuffle warning when the providers differ ·
+        // a same-provider switch is non-destructive.
+        if (priorProvider && targetProvider && priorProvider !== targetProvider) {
+          const tmpl = tr("voice_cred_switch_confirm")
+            || "Switch active voice provider to {label}? Each director's voice will be reshuffled from the new provider's catalog.";
+          const msg = tmpl.replace("{label}", targetLabel);
+          if (!window.confirm(msg)) return;
+        }
+        const ok = window.keysStore && typeof window.keysStore.setActiveVoiceCredentialRequest === "function"
+          ? await window.keysStore.setActiveVoiceCredentialRequest(id)
+          : false;
+        if (!ok) return;
+        await fetchVoiceCredentials();
+        rerenderKeysSection();
+      };
+      row.addEventListener("click", handler);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handler(e);
+        }
+      });
+    });
+
+    // Add-voice-provider · "+ Add" trigger.
+    paneEl.querySelectorAll("[data-voice-add-open]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addVoiceState = { step: "pick" };
+        rerenderKeysSection();
+      });
+    });
+
+    // Voice picker → key step.
+    paneEl.querySelectorAll("[data-voice-pick]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const provider = btn.dataset.voicePick;
+        if (!provider) return;
+        _addVoiceState = { step: "key", provider };
+        rerenderKeysSection();
+        setTimeout(() => {
+          const input = paneEl.querySelector("[data-voice-add-key]");
+          if (input) input.focus();
+        }, 0);
+      });
+    });
+
+    paneEl.querySelectorAll("[data-voice-add-back]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addVoiceState = { step: "pick" };
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-voice-add-cancel]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addVoiceState = null;
+        rerenderKeysSection();
+      });
+    });
+
+    // Save · POST /api/voice-credentials. Server auto-activates if no
+    // active voice credential existed yet; cross-provider activation
+    // additionally triggers `reconcileAgentVoices({reason:"first-key"})`
+    // so every director ends up with a voice from the new provider.
+    paneEl.querySelectorAll("[data-voice-add-save]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const form = paneEl.querySelector("[data-voice-add-form]");
+        if (!form) return;
+        const provider = form.dataset.provider;
+        const labelInput = form.querySelector("[data-voice-add-label]");
+        const keyInput = form.querySelector("[data-voice-add-key]");
+        const warnEl = form.querySelector("[data-voice-add-key-warn]");
+        const label = labelInput ? labelInput.value.trim() : "";
+        const key = keyInput ? keyInput.value.trim() : "";
+        if (!provider || !key) {
+          if (keyInput) keyInput.focus();
+          return;
+        }
+        const validator = window.boardroomKeyValidator;
+        if (validator) {
+          const result = validator.validate(provider, key);
+          if (!result.ok) {
+            if (warnEl) {
+              warnEl.hidden = false;
+              warnEl.textContent = validator.describe(result);
+            }
+            if (keyInput) {
+              keyInput.classList.add("us-input-invalid");
+              keyInput.focus();
+            }
+            return;
+          }
+          if (warnEl) { warnEl.hidden = true; warnEl.textContent = ""; }
+          if (keyInput) keyInput.classList.remove("us-input-invalid");
+        }
+        btn.disabled = true;
+        const created = window.keysStore && typeof window.keysStore.createVoiceCredentialRequest === "function"
+          ? await window.keysStore.createVoiceCredentialRequest(provider, label, key)
+          : null;
+        btn.disabled = false;
+        if (!created) {
+          alert(tr("voice_cred_save_failed") || "Could not save the voice credential — check the key and try again.");
+          return;
+        }
+        _addVoiceState = null;
+        await fetchVoiceCredentials();
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-voice-add-key]").forEach((input) => {
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const saveBtn = paneEl.querySelector("[data-voice-add-save]");
+        if (saveBtn) saveBtn.click();
+      });
+    });
+
+    /* ── Search credential handlers · mirror voice block ─────── */
+
+    paneEl.querySelectorAll(".us-key-remove[data-remove-search-credential]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const id = btn.dataset.removeSearchCredential;
+        if (!id) return;
+        const isActive = id === activeSearchCredentialId();
+        if (isActive) {
+          const msg = tr("search_cred_delete_confirm_active")
+            || "Remove the active search credential? Web Search will rotate to the next available credential, or stop working until you add one.";
+          if (!window.confirm(msg)) return;
+        }
+        const ok = window.keysStore && typeof window.keysStore.deleteSearchCredentialRequest === "function"
+          ? await window.keysStore.deleteSearchCredentialRequest(id)
+          : false;
+        if (!ok) return;
+        await fetchSearchCredentials();
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-row]").forEach((row) => {
+      const handler = async (e) => {
+        if (e.target && e.target.closest && e.target.closest("button")) return;
+        if (row.classList.contains("is-active")) return;
+        const id = row.dataset.credentialId;
+        if (!id) return;
+        const target = listSearchCredentials().find((c) => c.id === id);
+        const targetLabel = target ? target.label : "";
+        const tmpl = tr("search_cred_switch_confirm")
+          || "Switch active search provider to {label}? Web Search routes through this credential from now on.";
+        const msg = tmpl.replace("{label}", targetLabel);
+        if (!window.confirm(msg)) return;
+        const ok = window.keysStore && typeof window.keysStore.setActiveSearchCredentialRequest === "function"
+          ? await window.keysStore.setActiveSearchCredentialRequest(id)
+          : false;
+        if (!ok) return;
+        await fetchSearchCredentials();
+        rerenderKeysSection();
+      };
+      row.addEventListener("click", handler);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handler(e);
+        }
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-add-open]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addSearchState = { step: "pick" };
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-pick]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const provider = btn.dataset.searchPick;
+        if (!provider) return;
+        _addSearchState = { step: "key", provider };
+        rerenderKeysSection();
+        setTimeout(() => {
+          const input = paneEl.querySelector("[data-search-add-key]");
+          if (input) input.focus();
+        }, 0);
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-add-back]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addSearchState = { step: "pick" };
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-add-cancel]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _addSearchState = null;
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-add-save]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const form = paneEl.querySelector("[data-search-add-form]");
+        if (!form) return;
+        const provider = form.dataset.provider;
+        const labelInput = form.querySelector("[data-search-add-label]");
+        const keyInput = form.querySelector("[data-search-add-key]");
+        const warnEl = form.querySelector("[data-search-add-key-warn]");
+        const label = labelInput ? labelInput.value.trim() : "";
+        const key = keyInput ? keyInput.value.trim() : "";
+        if (!provider || !key) {
+          if (keyInput) keyInput.focus();
+          return;
+        }
+        const validator = window.boardroomKeyValidator;
+        if (validator) {
+          const result = validator.validate(provider, key);
+          if (!result.ok) {
+            if (warnEl) {
+              warnEl.hidden = false;
+              warnEl.textContent = validator.describe(result);
+            }
+            if (keyInput) {
+              keyInput.classList.add("us-input-invalid");
+              keyInput.focus();
+            }
+            return;
+          }
+          if (warnEl) { warnEl.hidden = true; warnEl.textContent = ""; }
+          if (keyInput) keyInput.classList.remove("us-input-invalid");
+        }
+        btn.disabled = true;
+        const created = window.keysStore && typeof window.keysStore.createSearchCredentialRequest === "function"
+          ? await window.keysStore.createSearchCredentialRequest(provider, label, key)
+          : null;
+        btn.disabled = false;
+        if (!created) {
+          alert(tr("search_cred_save_failed") || "Could not save the search credential — check the key and try again.");
+          return;
+        }
+        _addSearchState = null;
+        await fetchSearchCredentials();
+        rerenderKeysSection();
+      });
+    });
+
+    paneEl.querySelectorAll("[data-search-add-key]").forEach((input) => {
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const saveBtn = paneEl.querySelector("[data-search-add-save]");
+        if (saveBtn) saveBtn.click();
+      });
+    });
+
     // Default-model controls live in the sidebar's "Default Model"
     // pane only · the previous in-row "set as default" button and
     // the bottom-of-pane Default Model picker were removed because
@@ -1948,15 +2677,21 @@
     // Fetch both surfaces in parallel · keysMeta covers voice / skill,
     // llmCredentials covers the multi-instance LLM list. Either being
     // stale after onboarding causes the same "no row shown" symptom.
-    Promise.all([fetchKeyMeta(), fetchLlmCredentials()]).then(() => {
+    Promise.all([fetchKeyMeta(), fetchLlmCredentials(), fetchVoiceCredentials(), fetchSearchCredentials()]).then(() => {
       if (currentSection !== "keys") return;
 
-      // After-onboarding sync · if the credential set has shifted
+      // After-onboarding sync · if ANY credential set has shifted
       // since render time, rebuild the section so the hero +
       // added-list reflect the truth.
       const heroEl = paneEl.querySelector("[data-llm-hero]");
       const renderedCredId = heroEl ? heroEl.dataset.credentialId : null;
-      if (renderedCredId !== activeLlmCredentialId()) {
+      const voiceHeroEl = paneEl.querySelector("[data-voice-hero]");
+      const renderedVoiceCredId = voiceHeroEl ? voiceHeroEl.dataset.credentialId : null;
+      const searchHeroEl = paneEl.querySelector("[data-search-hero]");
+      const renderedSearchCredId = searchHeroEl ? searchHeroEl.dataset.credentialId : null;
+      if (renderedCredId !== activeLlmCredentialId()
+          || renderedVoiceCredId !== activeVoiceCredentialId()
+          || renderedSearchCredId !== activeSearchCredentialId()) {
         rerenderKeysSection();
         return;
       }
@@ -2154,7 +2889,7 @@
   // Bootstrap: prefetch prefs and key meta so the first render has real
   // values, then init.
   async function bootstrap() {
-    await Promise.all([fetchPrefs(), fetchKeyMeta()]);
+    await Promise.all([fetchPrefs(), fetchKeyMeta(), fetchLlmCredentials(), fetchVoiceCredentials(), fetchSearchCredentials()]);
     init();
     // Mirror name into sidebar foot once we know it.
     document.querySelectorAll(".sidebar-foot .user-name").forEach((el) => {

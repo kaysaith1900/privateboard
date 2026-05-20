@@ -70,7 +70,14 @@ function ttsCacheSet(key: string, val: { audioBase64: string; mimeType: string; 
 export function voicesRouter(): Hono {
   const r = new Hono();
 
-  r.get("/", async (c) => c.json({ voices: await listAvailableVoices() }));
+  r.get("/", async (c) => {
+    const catalog = await listAvailableVoices();
+    return c.json({
+      voices: catalog.voices,
+      provider: catalog.provider,
+      configured: catalog.configured,
+    });
+  });
 
   /**
    * Raw MP3 bytes for a message whose live voice stream was persisted

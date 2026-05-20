@@ -28,6 +28,18 @@ export interface Prefs {
    *  column; the credential rows themselves stay on file so the user
    *  can flip back without re-pasting. */
   activeLlmCredentialId: string | null;
+  /** Active credential id from `voice_credentials`. Mirrors the LLM
+   *  field above for TTS providers (MiniMax / ElevenLabs / …). NULL
+   *  when no voice credential is configured · downstream UI shows
+   *  the "no active voice provider" empty state. */
+  activeVoiceCredentialId: string | null;
+  /** Active credential id from `search_credentials`. Mirrors the LLM
+   *  and voice fields for web-search providers (Brave / Tavily). NULL
+   *  when no search credential is configured · the Web Search system
+   *  skill silently no-ops in that case. Replaces the legacy
+   *  `webSearchProvider` preference, which only resolved which key to
+   *  use when BOTH brave and tavily were configured. */
+  activeSearchCredentialId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -41,6 +53,8 @@ interface Row {
   minimax_region: string;
   active_llm_provider: string | null;
   active_llm_credential_id: string | null;
+  active_voice_credential_id: string | null;
+  active_search_credential_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -64,6 +78,8 @@ function mapRow(row: Row): Prefs {
     minimaxRegion: normalizeMinimaxRegion(row.minimax_region),
     activeLlmProvider: raw && isLlmProvider(raw) ? raw : null,
     activeLlmCredentialId: row.active_llm_credential_id,
+    activeVoiceCredentialId: row.active_voice_credential_id,
+    activeSearchCredentialId: row.active_search_credential_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -77,6 +93,8 @@ export function getPrefs(): Prefs {
               COALESCE(minimax_region, 'cn') AS minimax_region,
               active_llm_provider,
               active_llm_credential_id,
+              active_voice_credential_id,
+              active_search_credential_id,
               created_at, updated_at FROM prefs WHERE id = 1`,
     )
     .get() as Row | undefined;
@@ -96,6 +114,8 @@ export interface PrefsPatch {
   minimaxRegion?: MinimaxRegion;
   activeLlmProvider?: LlmProvider | null;
   activeLlmCredentialId?: string | null;
+  activeVoiceCredentialId?: string | null;
+  activeSearchCredentialId?: string | null;
 }
 
 export function updatePrefs(patch: PrefsPatch): Prefs {
@@ -120,6 +140,14 @@ export function updatePrefs(patch: PrefsPatch): Prefs {
   if (patch.activeLlmCredentialId !== undefined) {
     fields.push("active_llm_credential_id = ?");
     values.push(patch.activeLlmCredentialId);
+  }
+  if (patch.activeVoiceCredentialId !== undefined) {
+    fields.push("active_voice_credential_id = ?");
+    values.push(patch.activeVoiceCredentialId);
+  }
+  if (patch.activeSearchCredentialId !== undefined) {
+    fields.push("active_search_credential_id = ?");
+    values.push(patch.activeSearchCredentialId);
   }
 
   if (fields.length === 0) return getPrefs();

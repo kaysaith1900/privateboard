@@ -1,5 +1,10 @@
 import { getKey } from "../storage/keys.js";
 import { getPrefs } from "../storage/prefs.js";
+import {
+  getActiveVoiceKeyPlaintext,
+  getActiveVoiceProvider,
+  type VoiceProvider,
+} from "../storage/voice-credentials.js";
 
 export interface VoiceOption {
   provider: "openai" | "minimax" | "elevenlabs" | "browser";
@@ -7,6 +12,19 @@ export interface VoiceOption {
   voiceId: string;
   label: string;
   language?: string;
+  configured: boolean;
+}
+
+/** The shape `listAvailableVoices` returns · adds the active provider
+ *  + configured flag so the frontend can render the right empty-state
+ *  copy ("no active voice provider · open Settings") without making
+ *  a second call to /api/prefs. */
+export interface VoiceCatalog {
+  voices: VoiceOption[];
+  /** Active voice provider · null when no voice credential is configured. */
+  provider: VoiceProvider | null;
+  /** True when a usable voice key is on file (active credential decryptable).
+   *  False means the picker should show "no voice provider configured". */
   configured: boolean;
 }
 
@@ -64,14 +82,24 @@ const MINIMAX_SYSTEM_VOICES: VoiceOption[] = [
   { provider: "minimax", model: "speech-2.8-hd", voiceId: "female-tianmei", label: "甜美女性", language: "zh", configured: false },
 ];
 
+/** Synchronous seed list · routes through the ACTIVE voice credential
+ *  only, so MiniMax + ElevenLabs voices never coexist in the same
+ *  picker. OpenAI (still keyed via `provider_keys`) is included when
+ *  configured · it lives in `provider_keys` because each user has at
+ *  most one OpenAI account, so it never needed the multi-instance
+ *  upgrade. Browser fallback is always last. */
 export function listConfiguredVoices(): VoiceOption[] {
   const out: VoiceOption[] = [];
   const openaiReady = !!getKey("openai");
   if (openaiReady) out.push(...OPENAI_VOICES.map((v) => ({ ...v, configured: true })));
-  const minimaxReady = !!getKey("minimax");
-  if (minimaxReady) out.push(...MINIMAX_SYSTEM_VOICES.map((v) => ({ ...v, configured: true })));
-  const elevenReady = !!getKey("elevenlabs");
-  if (elevenReady) out.push(...ELEVENLABS_DEFAULT_VOICES.map((v) => ({ ...v, configured: true })));
+
+  const activeProvider = getActiveVoiceProvider();
+  if (activeProvider === "minimax") {
+    out.push(...MINIMAX_SYSTEM_VOICES.map((v) => ({ ...v, configured: true })));
+  } else if (activeProvider === "elevenlabs") {
+    out.push(...ELEVENLABS_DEFAULT_VOICES.map((v) => ({ ...v, configured: true })));
+  }
+
   out.push({
     provider: "browser",
     model: "speechSynthesis",
@@ -82,15 +110,36 @@ export function listConfiguredVoices(): VoiceOption[] {
   return out;
 }
 
-export async function listAvailableVoices(): Promise<VoiceOption[]> {
+/** Live catalogue · seeds + a network fetch from the ACTIVE provider's
+ *  API. Same wire shape as before (a list of `VoiceOption`), wrapped in
+ *  `{ voices, provider, configured }` so the route layer can surface
+ *  the "no active voice provider" empty state without a second call. */
+export async function listAvailableVoices(): Promise<VoiceCatalog> {
+  const activeProvider = getActiveVoiceProvider();
   let voices = listConfiguredVoices();
-  const mmKey = getKey("minimax");
-  if (mmKey) {
+
+  // No active voice provider · only OpenAI (when configured) + browser
+  // fallback remain in `voices`. The frontend filters / messages off
+  // `configured` and `provider` so it can render the "open Settings to
+  // add one" empty state in the per-agent voice picker.
+  if (!activeProvider) {
+    return { voices, provider: null, configured: false };
+  }
+
+  const activeKey = getActiveVoiceKeyPlaintext();
+  if (!activeKey) {
+    // Provider pointed to but decryption failed (corrupted blob or
+    // a Mac-username change broke the scrypt-derived key). Surface as
+    // unconfigured so the UI prompts the user to re-add the credential.
+    return { voices, provider: activeProvider, configured: false };
+  }
+
+  if (activeProvider === "minimax") {
     try {
       const res = await fetch(`${minimaxBaseUrl()}/v1/get_voice`, {
         method: "POST",
         headers: {
-          "authorization": `Bearer ${mmKey}`,
+          "authorization": `Bearer ${activeKey}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ voice_type: "all" }),
@@ -117,11 +166,11 @@ export async function listAvailableVoices(): Promise<VoiceOption[]> {
           ];
         }
       }
-    } catch { /* keep voices */ }
+    } catch { /* keep seed voices */ }
+    return { voices, provider: "minimax", configured: true };
   }
 
-  const elKey = getKey("elevenlabs");
-  if (elKey) {
+  if (activeProvider === "elevenlabs") {
     // Pull TWO sources in parallel so a paid user gets the full picture:
     //   (a) /v1/voices  — voices in their personal library (clones,
     //       premade defaults, voices they've previously added). For a
@@ -145,7 +194,7 @@ export async function listAvailableVoices(): Promise<VoiceOption[]> {
         try {
           const res = await fetch(
             "https://api.elevenlabs.io/v1/voices?show_legacy=true&include_total_count=true",
-            { headers: { "xi-api-key": elKey } },
+            { headers: { "xi-api-key": activeKey } },
           );
           if (!res.ok) {
             const errText = await res.text();
@@ -173,7 +222,7 @@ export async function listAvailableVoices(): Promise<VoiceOption[]> {
           // (default) so the most popular voices surface first.
           const res = await fetch(
             "https://api.elevenlabs.io/v1/shared-voices?page_size=100",
-            { headers: { "xi-api-key": elKey } },
+            { headers: { "xi-api-key": activeKey } },
           );
           if (!res.ok) {
             const errText = await res.text();
@@ -227,9 +276,10 @@ export async function listAvailableVoices(): Promise<VoiceOption[]> {
       }));
       voices = [...nonEl, ...personalMapped, ...sharedMapped];
     }
+    return { voices, provider: "elevenlabs", configured: true };
   }
 
-  return voices;
+  return { voices, provider: activeProvider, configured: true };
 }
 
 /** Parse one voice row from the ElevenLabs /v1/shared-voices response.

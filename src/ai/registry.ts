@@ -252,10 +252,11 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     deck: "V4 Flash · fast · 1M ctx",
     viaUniversalOnly: true,
   },
-  // ── Zhipu (Z.AI) · GLM family · OR + B.AI only ──
-  // OpenRouter catalog convention: `z-ai/glm-X.Y`. B.AI uses
-  // hyphenated lowercase: `glm-5-1`. No direct @ai-sdk client ·
-  // viaUniversalOnly skips the direct path.
+  // ── Zhipu (Z.AI) · GLM family · direct + OR + B.AI ──
+  // Direct route uses Zhipu's OpenAI-compatible chat-completions API
+  // at https://open.bigmodel.cn/api/paas/v4/ (see adapter.ts
+  // case "zhipu"). OpenRouter catalog convention: `z-ai/glm-X.Y`.
+  // B.AI uses dotted lowercase: `glm-5.1`.
   "glm-5-1": {
     v: "glm-5-1",
     provider: "zhipu",
@@ -265,15 +266,15 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "GLM 5.1",
     contextBudget: 200_000,
     deck: "Zhipu flagship · 200k ctx",
-    viaUniversalOnly: true,
   },
-  // ── Moonshot · Kimi family · OR + B.AI ──
+  // ── Moonshot · Kimi family · direct + OR + B.AI ──
+  // Direct route uses Moonshot's OpenAI-compatible chat-completions
+  // API at https://api.moonshot.cn/v1 (see adapter.ts case "moonshot").
   // OpenRouter catalog convention: `moonshotai/kimi-k2.6` (the leading
   // `k` is part of the slug — `moonshotai/kimi-2.6` 404s). B.AI's
   // siliconflow distributor still ships the older `kimi-k2.5` channel
   // (per 2026-05-17 catalog snapshot), so the B.AI route serves K2.5
-  // until B.AI picks up the newer build. No direct @ai-sdk client ·
-  // viaUniversalOnly skips the direct path.
+  // until B.AI picks up the newer build.
   "kimi-k2-6": {
     v: "kimi-k2-6",
     provider: "moonshot",
@@ -283,7 +284,6 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Kimi K2.6",
     contextBudget: 256_000,
     deck: "Moonshot · long-context",
-    viaUniversalOnly: true,
   },
   // ── MiniMax · M-series · OR + B.AI ──
   // No direct @ai-sdk client · viaUniversalOnly skips the direct path.

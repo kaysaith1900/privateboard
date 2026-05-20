@@ -469,14 +469,75 @@
   text-transform: uppercase;
   color: var(--text-soft, rgba(255, 255, 255, 0.55));
 }
-.adjourn-render-select {
+/* Spine + house-style dropdowns · unified visual register that
+   matches the rest of the app's custom-dropdown vocabulary
+   (`.ap-model-trigger` in agent-profile, the `us-models-default`
+   row in user-settings). The wrapper provides the ▾ caret on the
+   right and a consistent dark surface; the native <select>
+   inside is `appearance: none` and inherits its frame from the
+   wrapper. Both spine and house-style dropdowns render
+   identically when closed — when open, the native option menu
+   takes over (browser-level chrome we can't easily restyle), but
+   the closed-state register matches everything else. */
+.adjourn-render-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
   width: 100%;
-  font-family: var(--mono);
+  background: var(--bg);
+  border: 0.5px solid var(--line-bright, rgba(255, 255, 255, 0.18));
+  transition: border-color 0.12s, background 0.12s;
+}
+.adjourn-render-select-wrap:hover {
+  background: var(--panel);
+  border-color: var(--line-strong, rgba(255, 255, 255, 0.32));
+}
+.adjourn-render-select-wrap:focus-within {
+  border-color: var(--lime);
+}
+/* ▾ caret · same glyph + colour token as `.us-models-default-wrap`
+   so the visual matches across the app. `pointer-events: none`
+   lets clicks fall through to the <select> behind it. */
+.adjourn-render-select-wrap::after {
+  content: "▾";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+}
+.adjourn-render-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
   font-size: 11px;
-  padding: 6px 8px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  /* Right padding leaves room for the wrapper's ▾ caret. */
+  padding: 7px 26px 7px 10px;
   background: transparent;
   color: var(--text);
-  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.2));
+  border: 0;
+  outline: none;
+  cursor: pointer;
+}
+.adjourn-render-select::-ms-expand { display: none; }
+/* Option styling · most browsers ignore most rules here (the open
+   menu is OS-rendered), but Firefox + Safari respect a few — set
+   what we can so the menu reads as panel-surface dark when the
+   browser permits it. */
+.adjourn-render-select option {
+  background: var(--panel);
+  color: var(--text);
+}
+.adjourn-render-select option:checked {
+  background: var(--panel-2);
+  color: var(--lime);
 }
 .adjourn-render-hint {
   font-size: 11px;

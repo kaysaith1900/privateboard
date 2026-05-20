@@ -2,6 +2,7 @@
 import { agentHandleLookupCandidates } from "../utils/agent-handle.js";
 import { getDb } from "./db.js";
 import type { BuildEvent } from "../orchestrator/persona-stream.js";
+import type { VoiceProvider } from "./voice-credentials.js";
 
 export type AgentRoleKind = "director" | "moderator";
 
@@ -10,9 +11,9 @@ export type AgentRoleKind = "director" | "moderator";
  *  GPT-5.5 via OpenRouter or via OpenAI direct). The adapter's default
  *  precedence rules pick one; this lets each agent pin a specific carrier.
  *  NULL = "use default precedence". */
-export type AgentCarrierPref = "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai";
+export type AgentCarrierPref = "openrouter" | "bai" | "anthropic" | "openai" | "google" | "xai" | "moonshot" | "zhipu";
 const VALID_CARRIER_PREFS: ReadonlySet<AgentCarrierPref> = new Set([
-  "openrouter", "bai", "anthropic", "openai", "google", "xai",
+  "openrouter", "bai", "anthropic", "openai", "google", "xai", "moonshot", "zhipu",
 ]);
 function parseCarrierPref(raw: string | null): AgentCarrierPref | null {
   if (!raw) return null;
@@ -232,9 +233,35 @@ interface Row {
   web_search_enabled: number;
   voice_json: string | null;
   persona_spec_json: string | null;
+  model_by_provider_json: string | null;
+  voice_by_provider_json: string | null;
   created_at: number;
   updated_at: number;
 }
+
+/** SIM-swap memory · the user's most-recent manual pick for this
+ *  agent, indexed by LLM carrier. Lives ALONGSIDE the row's main
+ *  `model_v` value, not in place of it. Whenever the user PATCHes
+ *  modelV, the value is also stored here under the currently-active
+ *  carrier. Whenever the active carrier changes, the reconcile pass
+ *  snapshots the OLD `model_v` into this bucket under the prior
+ *  carrier (so it survives the switch) and then restores the NEW
+ *  carrier's bucketed value (if any) into `model_v`. Keys absent
+ *  from the bucket mean "user never picked anything custom on that
+ *  carrier" — the reconcile falls through to the default carrier
+ *  primary / random fast-pool pick. */
+export type ModelByProvider = Partial<Record<AgentCarrierPref, string>>;
+
+/** SIM-swap memory · the user's most-recent voice profile for this
+ *  agent, indexed by VOICE provider (credentialed only · "minimax" |
+ *  "elevenlabs"). Mirror of `ModelByProvider` for the TTS side. Voice
+ *  bucket entries are always reachable by construction (key === the
+ *  profile's provider), so no reachability check on restore — only
+ *  the snapshot-and-swap dance. Other provider profiles (browser /
+ *  openai / azure / custom) flow through `PATCH` unchanged but
+ *  intentionally do NOT seed the bucket — those are fallbacks, not
+ *  SIM cards. */
+export type VoiceByProvider = Partial<Record<VoiceProvider, AgentVoiceProfile>>;
 
 function parseAbility(raw: string | null): Record<string, number> | null {
   if (!raw) return null;
@@ -486,6 +513,75 @@ function parseBuildLog(raw: unknown): PersonaBuildLog | null {
   };
 }
 
+/** SIM-swap bucket parser · drops any key not in VALID_CARRIER_PREFS
+ *  and any value not a string. Returns an empty object (not null) so
+ *  callers can index without a guard. */
+function parseModelByProvider(raw: string | null): ModelByProvider {
+  if (!raw) return {};
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return {};
+    const out: ModelByProvider = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (VALID_CARRIER_PREFS.has(k as AgentCarrierPref)
+          && typeof v === "string"
+          && v.trim().length > 0) {
+        out[k as AgentCarrierPref] = v.trim();
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** SIM-swap voice-bucket parser · same shape contract as the model
+ *  bucket. Only `"minimax"` / `"elevenlabs"` keys are kept; each
+ *  value runs through `parseVoice` (by re-stringifying) so malformed
+ *  profiles drop silently · the bucket can NEVER produce a profile
+ *  the rest of the codebase can't synth against. */
+function parseVoiceByProvider(raw: string | null): VoiceByProvider {
+  if (!raw) return {};
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return {};
+    const out: VoiceByProvider = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (k !== "minimax" && k !== "elevenlabs") continue;
+      // Compose parseVoice for consistency · profile fields normalise
+      // identically to the main `voice_json` blob. parseVoice expects
+      // a string, so we re-stringify the sub-object first.
+      const profile = parseVoice(JSON.stringify(v));
+      if (profile) out[k as VoiceProvider] = profile;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function serializeModelByProvider(b: ModelByProvider): string | null {
+  if (!b || Object.keys(b).length === 0) return null;
+  return JSON.stringify(b);
+}
+
+function serializeVoiceByProvider(b: VoiceByProvider): string | null {
+  if (!b || Object.keys(b).length === 0) return null;
+  // Each value goes through serializeVoice so the on-disk shape is
+  // identical to the main voice_json blob's normalised form. Strip
+  // entries that fail serialisation (defensive · should never happen
+  // because parse rejects them, but cheap).
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(b)) {
+    if (!v) continue;
+    const json = serializeVoice(v);
+    if (!json) continue;
+    out[k] = JSON.parse(json);
+  }
+  if (Object.keys(out).length === 0) return null;
+  return JSON.stringify(out);
+}
+
 function serializeVoice(v: AgentVoiceProfile | null): string | null {
   if (!v) return null;
   const provider = VALID_VOICE_PROVIDERS.has(v.provider) ? v.provider : null;
@@ -541,7 +637,7 @@ function mapRow(row: Row): Agent {
 const SELECT_COLS =
   "id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref, " +
   "avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, " +
-  "persona_spec_json, created_at, updated_at";
+  "persona_spec_json, model_by_provider_json, voice_by_provider_json, created_at, updated_at";
 
 /** Directors only — the moderator (chair) is hidden from generic listings. */
 export function listAgents(): Agent[] {
@@ -1115,4 +1211,99 @@ export function updateAgent(
     .run(...values);
   if (r.changes === 0) return null;
   return getAgent(id);
+}
+
+/* ── SIM-swap memory · per-provider bucket CRUD ────────────────────
+   These helpers are the ONLY way the bucket is touched. We intentionally
+   do not extend `updateAgent` to accept bucket patches · bucket writes
+   are owned by two specific callers:
+
+     1. `reconcileAgentModels` / `reconcileAgentVoices` · snapshot the
+        prior provider's value before overwriting `model_v` /
+        `voice_json`, then seed the new provider's bucket entry after
+        choosing a target.
+     2. `PATCH /api/agents/:id` · whenever the user manually picks a
+        model or voice, mirror the pick into the bucket under the
+        currently-active LLM carrier (for modelV) or the voice's own
+        provider (for voice).
+
+   No downstream caller needs to know the bucket exists. Each helper
+   reads its column, parses, mutates, and writes back atomically. The
+   `updated_at` bump lets the front-end's last-write-wins refresh
+   detect changes if it ever surfaces buckets in the UI (today: never). */
+
+export function getModelBucket(id: string): ModelByProvider {
+  const row = getDb()
+    .prepare("SELECT model_by_provider_json FROM agents WHERE id = ?")
+    .get(id) as { model_by_provider_json: string | null } | undefined;
+  if (!row) return {};
+  return parseModelByProvider(row.model_by_provider_json);
+}
+
+export function getVoiceBucket(id: string): VoiceByProvider {
+  const row = getDb()
+    .prepare("SELECT voice_by_provider_json FROM agents WHERE id = ?")
+    .get(id) as { voice_by_provider_json: string | null } | undefined;
+  if (!row) return {};
+  return parseVoiceByProvider(row.voice_by_provider_json);
+}
+
+export function writeModelBucketEntry(
+  id: string,
+  carrier: AgentCarrierPref,
+  modelV: string,
+): void {
+  if (!modelV) return;
+  const bucket = getModelBucket(id);
+  if (bucket[carrier] === modelV) return; // idempotent · skip self-write
+  bucket[carrier] = modelV;
+  const serialized = serializeModelByProvider(bucket);
+  getDb()
+    .prepare("UPDATE agents SET model_by_provider_json = ?, updated_at = ? WHERE id = ?")
+    .run(serialized, Date.now(), id);
+}
+
+export function writeVoiceBucketEntry(
+  id: string,
+  provider: VoiceProvider,
+  voice: AgentVoiceProfile,
+): void {
+  // Re-parse through the serializer round-trip so the on-disk shape
+  // is normalised identically to the main voice_json blob. Drops
+  // anything malformed silently.
+  const normalized = parseVoice(serializeVoice(voice));
+  if (!normalized || (normalized.provider !== "minimax" && normalized.provider !== "elevenlabs")) return;
+  if (normalized.provider !== provider) return;
+  const bucket = getVoiceBucket(id);
+  bucket[provider] = normalized;
+  const serialized = serializeVoiceByProvider(bucket);
+  getDb()
+    .prepare("UPDATE agents SET voice_by_provider_json = ?, updated_at = ? WHERE id = ?")
+    .run(serialized, Date.now(), id);
+}
+
+export function deleteModelBucketEntry(
+  id: string,
+  carrier: AgentCarrierPref,
+): void {
+  const bucket = getModelBucket(id);
+  if (!(carrier in bucket)) return;
+  delete bucket[carrier];
+  const serialized = serializeModelByProvider(bucket);
+  getDb()
+    .prepare("UPDATE agents SET model_by_provider_json = ?, updated_at = ? WHERE id = ?")
+    .run(serialized, Date.now(), id);
+}
+
+export function deleteVoiceBucketEntry(
+  id: string,
+  provider: VoiceProvider,
+): void {
+  const bucket = getVoiceBucket(id);
+  if (!(provider in bucket)) return;
+  delete bucket[provider];
+  const serialized = serializeVoiceByProvider(bucket);
+  getDb()
+    .prepare("UPDATE agents SET voice_by_provider_json = ?, updated_at = ? WHERE id = ?")
+    .run(serialized, Date.now(), id);
 }

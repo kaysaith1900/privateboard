@@ -47,6 +47,12 @@
   let _hadGesture = false;
   let _enabled = readEnabled();
   let _lastTickAt = 0;
+  // Output fan-out node · every SFX `.connect(_outputNode)` instead
+  // of `.connect(_outputNode || ctx.destination)`. We pre-connect _outputNode to
+  // ctx.destination so audio still reaches the speakers; the meeting
+  // recorder taps a second connection to its MediaStreamDestination
+  // via `connectRecorderDestination()`. Lazy-created in ensureContext.
+  let _outputNode = null;
 
   function readEnabled() {
     try {
@@ -95,6 +101,15 @@
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) { _ctxFailed = true; return null; }
       _ctx = new Ctx();
+      _outputNode = _ctx.createGain();
+      _outputNode.connect(_ctx.destination);
+      // Apply any recorder destination that was registered before
+      // the context existed (recorder start happened before any SFX
+      // played) · single-shot drain.
+      if (_pendingRecorderDest) {
+        try { _outputNode.connect(_pendingRecorderDest); } catch (_) {}
+        _pendingRecorderDest = null;
+      }
       // If autoplay policy left it suspended even after gesture,
       // resume explicitly · safe to call multiple times.
       if (_ctx.state === "suspended") {
@@ -104,6 +119,23 @@
     } catch {
       _ctxFailed = true;
       return null;
+    }
+  }
+
+  /** Recorder integration · `voice-recorder.js` calls this with its
+   *  MediaStreamAudioDestinationNode so SFX (typing tick, thinking
+   *  blips, gavel, countdown beeps) all flow into the meeting
+   *  recording's audio mix alongside director TTS. Safe to call
+   *  before ensureContext fires — we connect now if possible and
+   *  also stash so a later ensureContext call wires it up. */
+  let _pendingRecorderDest = null;
+  function connectRecorderDestination(dest) {
+    if (!dest) return;
+    if (_outputNode) {
+      try { _outputNode.connect(dest); }
+      catch (e) { /* dest already connected or context mismatch · ignore */ }
+    } else {
+      _pendingRecorderDest = dest;
     }
   }
 
@@ -174,7 +206,7 @@
     gain.gain.exponentialRampToValueAtTime(0.06, t0 + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
 
-    noise.connect(bp).connect(gain).connect(ctx.destination);
+    noise.connect(bp).connect(gain).connect(_outputNode || ctx.destination);
     noise.start(t0);
     noise.stop(t0 + 0.06);
   }
@@ -203,7 +235,7 @@
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(0.085, t0 + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain).connect(ctx.destination);
+    osc.connect(gain).connect(_outputNode || ctx.destination);
     osc.start(t0);
     osc.stop(t0 + dur);
   }
@@ -253,7 +285,7 @@
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(0.05, t + 0.005);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-      osc.connect(lpf).connect(gain).connect(ctx.destination);
+      osc.connect(lpf).connect(gain).connect(_outputNode || ctx.destination);
       osc.start(t);
       const stopAt = t + 0.08;
       osc.stop(stopAt);
@@ -321,7 +353,7 @@
       bodyGain.gain.setValueAtTime(0.0001, t);
       bodyGain.gain.exponentialRampToValueAtTime(0.18, t + 0.005);
       bodyGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      body.connect(bodyGain).connect(ctx.destination);
+      body.connect(bodyGain).connect(_outputNode || ctx.destination);
       body.start(t);
       body.stop(t + 0.25);
       // Transient click · 30ms filtered noise burst.
@@ -344,7 +376,7 @@
       noiseGain.gain.setValueAtTime(0.0001, t);
       noiseGain.gain.exponentialRampToValueAtTime(0.10, t + 0.003);
       noiseGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
-      noise.connect(bp).connect(noiseGain).connect(ctx.destination);
+      noise.connect(bp).connect(noiseGain).connect(_outputNode || ctx.destination);
       noise.start(t);
       noise.stop(t + 0.05);
     }
@@ -385,7 +417,7 @@
     gain.gain.setValueAtTime(0.0001, t0);
     gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.005);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(lpf).connect(gain).connect(ctx.destination);
+    osc.connect(lpf).connect(gain).connect(_outputNode || ctx.destination);
     osc.start(t0);
     osc.stop(t0 + dur + 0.02);
     osc.onended = () => {
@@ -413,5 +445,5 @@
 
   // Public surface · attached to window so app.js (and the
   // user-settings toggle) can reach it without an import.
-  window.boardroomTypingSfx = { tick, speakerChange, setThinking, gavel, countdownTick, setEnabled, isEnabled };
+  window.boardroomTypingSfx = { tick, speakerChange, setThinking, gavel, countdownTick, setEnabled, isEnabled, connectRecorderDestination };
 })();

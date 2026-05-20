@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { deleteKey, getKey, listKeyMeta, setKey, hasWebSearchKey, getActiveWebSearchCredentials } from "../src/storage/keys.js";
+import {
+  createSearchCredential,
+  deleteSearchCredential,
+  listSearchCredentials,
+} from "../src/storage/search-credentials.js";
 import { updatePrefs } from "../src/storage/prefs.js";
 
 describe("provider keys", () => {
@@ -32,46 +37,52 @@ describe("provider keys", () => {
     expect(getKey("xai")).toBeNull();
   });
 
-  it("stores ElevenLabs as a voice provider key", () => {
-    setKey("elevenlabs", "xi-test-key");
-    expect(getKey("elevenlabs")).toBe("xi-test-key");
-    const el = listKeyMeta().find((m) => m.provider === "elevenlabs");
-    expect(el?.configured).toBe(true);
-    expect(JSON.stringify(el)).not.toContain("xi-test-key");
-  });
+  // Voice (minimax / elevenlabs) and search (brave / tavily) keys
+  // moved out of `provider_keys` into their typed credential tables
+  // in migrations 049 + 051. The Provider union still includes those
+  // slugs (`setKey("minimax", …)` still writes to provider_keys for
+  // legacy callers), but the active-credential helpers ignore them.
+  // Voice / search storage is exercised in `voice-registry.test.ts` /
+  // `reconcile-bucket-restore.test.ts`.
 
-  it("stores MiniMax as a voice provider key", () => {
-    setKey("minimax", "mm-test-key");
-    expect(getKey("minimax")).toBe("mm-test-key");
-    const minimax = listKeyMeta().find((m) => m.provider === "minimax");
-    expect(minimax?.configured).toBe(true);
-    expect(JSON.stringify(minimax)).not.toContain("mm-test-key");
-  });
-
-  it("hasWebSearchKey is true when either brave or tavily is set", () => {
-    deleteKey("brave");
-    deleteKey("tavily");
+  it("hasWebSearchKey reflects the active search credential", () => {
     expect(hasWebSearchKey()).toBe(false);
-    setKey("tavily", "tvly-demo");
+    const brave = createSearchCredential("brave", null, "b-demo");
+    if (!brave) throw new Error("brave credential not created");
+    updatePrefs({ activeSearchCredentialId: brave.id });
     expect(hasWebSearchKey()).toBe(true);
-    setKey("brave", "b-demo");
+
+    // Adding a Tavily credential alone is NOT activated automatically
+    // (auto-activate only fires on the FIRST credential). hasWebSearchKey
+    // still reports true because Brave remains active.
+    createSearchCredential("tavily", null, "tvly-demo");
     expect(hasWebSearchKey()).toBe(true);
-    deleteKey("tavily");
-    expect(hasWebSearchKey()).toBe(true);
-    deleteKey("brave");
+
+    // Clear active → false even though credential rows still exist.
+    updatePrefs({ activeSearchCredentialId: null });
     expect(hasWebSearchKey()).toBe(false);
   });
 
-  it("getActiveWebSearchCredentials follows prefs when both search keys exist", () => {
-    setKey("brave", "b-key");
-    setKey("tavily", "t-key");
-    updatePrefs({ webSearchProvider: "brave" });
+  it("getActiveWebSearchCredentials follows the active credential pointer", () => {
+    const brave = createSearchCredential("brave", null, "b-key");
+    const tavily = createSearchCredential("tavily", null, "t-key");
+    if (!brave || !tavily) throw new Error("credentials not created");
+
+    updatePrefs({ activeSearchCredentialId: brave.id });
     expect(getActiveWebSearchCredentials()?.backend).toBe("brave");
-    updatePrefs({ webSearchProvider: "tavily" });
+    expect(getActiveWebSearchCredentials()?.apiKey).toBe("b-key");
+
+    updatePrefs({ activeSearchCredentialId: tavily.id });
     expect(getActiveWebSearchCredentials()?.backend).toBe("tavily");
-    deleteKey("brave");
-    expect(getActiveWebSearchCredentials()?.backend).toBe("tavily");
-    deleteKey("tavily");
+    expect(getActiveWebSearchCredentials()?.apiKey).toBe("t-key");
+
+    // Deleting the active credential's ROW (without rotating the
+    // pointer) makes the resolver return null · stale-pointer guard.
+    deleteSearchCredential(tavily.id);
+    expect(getActiveWebSearchCredentials()).toBeNull();
+    expect(listSearchCredentials().length).toBe(1);
+
+    updatePrefs({ activeSearchCredentialId: null });
     expect(getActiveWebSearchCredentials()).toBeNull();
   });
 

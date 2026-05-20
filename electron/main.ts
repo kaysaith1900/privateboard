@@ -15,7 +15,7 @@
  *     the "data appears to vanish after restart" failure mode the CLI
  *     already hardened against in `src/cli.ts`.
  */
-import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, desktopCapturer, ipcMain, nativeImage, nativeTheme, session, shell } from "electron";
 // `electron-updater` ships as CommonJS · Node's strict ESM loader can't
 // extract named exports from its `module.exports = { ... }` shape, so
 // import the default and destructure at runtime. The TS types still
@@ -182,6 +182,42 @@ if (!app.requestSingleInstanceLock()) {
       return { action: "deny" };
     });
 
+    // Meeting recording · Electron 30+ removed the legacy
+    // `getUserMedia({chromeMediaSource:"desktop"})` constraint
+    // (Chromium 124+ drops it), so the renderer now calls
+    // `getDisplayMedia()` and this handler silently picks our own
+    // BrowserWindow as the source · no OS picker, no extra
+    // permission step beyond the one-time macOS "Screen Recording"
+    // grant. Without this handler installed, getDisplayMedia would
+    // either pop the native picker (web fallback) or reject. Safe
+    // to register per window; defaultSession dedupes.
+    try {
+      // Defer entirely to macOS Sequoia's ScreenCaptureKit picker via
+      // `useSystemPicker: true`. The silent auto-pick path via
+      // `desktopCapturer.getSources` is unreliable on macOS 14+ /
+      // Electron 41 even with Screen Recording granted (intermittent
+      // "Failed to get sources" from a TCC/ScreenCaptureKit race).
+      // The system picker is invoked by the OS itself, has no such
+      // race, and lets the user pick the PrivateBoard window in one
+      // click. Trade-off accepted: +1 click vs. unreliable recording.
+      session.defaultSession.setDisplayMediaRequestHandler(
+        (request, callback) => {
+          process.stderr.write(
+            `[electron] displayMedia request · video=${request.videoRequested}` +
+            ` audio=${request.audioRequested} gesture=${request.userGesture} ·` +
+            ` deferring to system picker\n`,
+          );
+          // Empty callback · with useSystemPicker:true Electron
+          // shows the macOS native picker regardless of what we
+          // return. Pass {} to signal "let the OS decide."
+          callback({});
+        },
+        { useSystemPicker: true },
+      );
+    } catch (e) {
+      process.stderr.write(`[electron] setDisplayMediaRequestHandler failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+
     await win.loadURL(url);
   }
 
@@ -206,10 +242,51 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
+  // Recording-aware quit guard · the renderer's BoardroomRecorder pushes
+  // a state flag through `recorder:set-state` so the main process knows
+  // whether a meeting capture is in progress. On `before-quit` while a
+  // recording is running, we preventDefault + ping the renderer to show
+  // its modal · the user confirms via `app:confirm-quit`, which clears
+  // the flag and re-triggers `app.quit()`. The graceful shutdown path
+  // below runs on the second `before-quit` pass once recordingActive is
+  // false (or was never set).
+  let recordingActive = false;
+  let recordingQuitConfirmed = false;
+  ipcMain.handle("recorder:set-state", (_e, active: unknown) => {
+    recordingActive = !!active;
+  });
+  // Returns the BrowserWindow's media source id for the renderer's
+  // `getUserMedia({video:{mandatory:{chromeMediaSource:"desktop",
+  // chromeMediaSourceId}}})` call · the renderer captures only this
+  // window's pixels (no picker, no other windows leak in).
+  ipcMain.handle("recorder:get-source-id", (event) => {
+    if (!win || win.isDestroyed()) return null;
+    try { return win.webContents.getMediaSourceId(event.sender); }
+    catch (e) {
+      process.stderr.write(`[electron] getMediaSourceId failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      return null;
+    }
+  });
+  // Renderer-initiated quit (after the recording-exit modal's "Stop
+  // & quit" choice). Clears the recording guard so the next quit pass
+  // proceeds to graceful shutdown.
+  ipcMain.handle("app:confirm-quit", () => {
+    recordingActive = false;
+    recordingQuitConfirmed = true;
+    app.quit();
+  });
+
   // Graceful quit · intercept once, run async shutdown, then re-quit.
   // shutdownApp drains the server and forces a WAL checkpoint via closeDb.
   let quitting = false;
   app.on("before-quit", (e) => {
+    // First pass · recording in progress and user hasn't confirmed.
+    // Defer to the renderer's modal flow.
+    if (recordingActive && !recordingQuitConfirmed && win && !win.isDestroyed()) {
+      e.preventDefault();
+      win.webContents.send("recorder:quit-requested");
+      return;
+    }
     if (quitting || !server) return;
     e.preventDefault();
     quitting = true;

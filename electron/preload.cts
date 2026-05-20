@@ -81,3 +81,12 @@ ipcRenderer.on("menu:new-room", () => {
 ipcRenderer.on("menu:toggle-sidebar", () => {
   window.dispatchEvent(new CustomEvent("boardroom:menu-toggle-sidebar"));
 });
+
+// Recording-aware quit · main process pings the renderer when the
+// user requests a quit while a meeting recording is active. Renderer
+// shows its modal and either calls `privateboard.invoke("app:confirm-
+// quit")` (Stop & quit) or stays put (Cancel). Rebroadcast as a DOM
+// event so the renderer doesn't import ipcRenderer directly.
+ipcRenderer.on("recorder:quit-requested", () => {
+  window.dispatchEvent(new CustomEvent("boardroom:recorder-quit-requested"));
+});
