@@ -164,7 +164,21 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     url: `http://${host}:${opts.port}`,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        // Node's `http.Server.close()` waits for every existing
+        // connection to drain before invoking the callback. This app
+        // streams SSE on rooms / persona-jobs / briefs — those long
+        // connections never close on their own (the renderer's
+        // EventSources are only torn down when the BrowserWindow is
+        // destroyed), so without forcing them shut here the Electron
+        // ⌘Q path hangs in `shutdownApp` forever: the dock icon shows
+        // an active dot, the window seems gone, and the user has to
+        // right-click → Quit to kill it.
         server.close((err?: Error) => (err ? reject(err) : resolve()));
+        const maybeForceClose = (server as { closeAllConnections?: () => void })
+          .closeAllConnections;
+        if (typeof maybeForceClose === "function") {
+          maybeForceClose.call(server);
+        }
       }),
   };
 }

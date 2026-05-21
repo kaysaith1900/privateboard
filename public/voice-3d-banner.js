@@ -78,6 +78,27 @@
       // VS3D.mount returns false on WebGL init failure. Bail to
       // the poster fallback if so.
       if (!VS3D.mount(host, { camera: CAMERA_OPTS })) return null;
+
+      // Pre-paint the floor and wall tone synchronously · without
+      // this, the scene starts as walls + table on a transparent
+      // background and the user sees a near-black canvas while
+      // home-3d-mock.js network-fetches on first visit (~100-500 ms).
+      // Second visit it's cached so the scene comes up fast, hence the
+      // "first time black, works on retry" symptom. Calling update()
+      // with an empty seat list is cheap and idempotent — the mock
+      // driver below issues another update() with the full cast, which
+      // populates seats over the already-built floor.
+      try {
+        VS3D.update({
+          mode: "brainstorm",
+          positions: [],
+          speakerId: null,
+          speakerState: null,
+          userWait: false,
+          labels: { speaking: "speaking", thinking: "thinking" },
+          votePop: "",
+        });
+      } catch (_) { /* update is best-effort · mount already succeeded */ }
     } catch (_) {
       return null;
     }

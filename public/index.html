@@ -713,6 +713,7 @@
     padding: 0;
     background: transparent;
     border: none;
+    opacity: 0;
     pointer-events: none;
     -webkit-app-region: drag;
     z-index: 50;
@@ -1031,7 +1032,6 @@
     padding: 6px 6px 8px;
     flex-shrink: 0;
     background: var(--panel);
-    border-bottom: 0.5px solid var(--line);
   }
   .sidebar-tab {
     flex: 1;
@@ -1067,13 +1067,6 @@
     font-weight: 600;
   }
   .sidebar-tab.active .ico { opacity: 1; }
-  .sidebar-tab .count {
-    font-size: 10px;
-    color: var(--text-faint);
-    font-weight: 400;
-    margin-left: 1px;
-  }
-  .sidebar-tab.active .count { color: var(--text-dim); }
 
   /* Sidebar tab panels */
   .sidebar-panel {
@@ -1115,13 +1108,6 @@
     height: 1px;
     background: var(--line-bright);
   }
-  .agents-section-header .badge {
-    background: var(--bg);
-    border: 0.5px solid var(--line-bright);
-    padding: 0 5px;
-    font-size: 8px;
-    color: var(--text-dim);
-  }
 
   /* Shell wraps the agent-row link + delete button as siblings — same
      pattern as session-row-shell · the X click never gets absorbed by
@@ -1150,7 +1136,6 @@
   }
   .agent-row:hover { background: var(--panel-2); }
   .agent-row.active { background: var(--panel-3); }
-  .agent-row.active .agent-row-title { color: var(--lime); }
 
   /* The inline X delete button on custom agent rows is gone · Delete
      now lives in the agent profile's ⋯ overflow menu (see
@@ -1159,18 +1144,16 @@
   .agent-row .agent-row-av {
     width: 32px;
     height: 32px;
-    background: var(--bg);
-    border: 0.5px solid var(--line-bright);
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     flex-shrink: 0;
   }
   .agent-row .agent-row-content { min-width: 0; }
-  /* Top-line · matches `.row-top-line` in the rooms list so the
-     agent's name + time read with the same baseline/gap rhythm. The
-     trailing pin button sits AFTER the time and is hover-revealed,
-     so we don't need `space-between` to push it right — `flex: 1` on
-     the title handles that. */
+  /* Top-line · flex container so the agent name + trailing
+     hover-revealed pin button (and chair-badge / pb-row tag in
+     their variants) share one baseline. `flex: 1` on the title
+     pushes the trailing button to the right edge without needing
+     `space-between`. */
   .agent-row .agent-row-top-line {
     display: flex;
     align-items: baseline;
@@ -1256,7 +1239,6 @@
   .agent-row.is-chair:hover { background: var(--panel-2); }
   .agent-row.is-chair.active { background: var(--panel-3); }
   .agent-row.is-chair .agent-row-av.chair-av {
-    border: 0.5px solid var(--line-bright);
     position: relative;
   }
   .agent-row.is-chair .agent-row-av.chair-av::after {
@@ -1323,8 +1305,6 @@
   }
   .agent-row .agent-row-chair-role { color: var(--text-soft); font-weight: 600; }
   .agent-row .agent-row-chair-note { color: var(--text-faint); }
-  /* Hide the Chair section's count badge — there's only ever one. */
-  .agents-section-header.chair .badge { display: none; }
 
   /* "Building" section · in-flight Full persona build placeholder.
      Lime accent on the header to distinguish from inert pinned /
@@ -1335,10 +1315,6 @@
   .agents-section-header.building .line {
     background: var(--lime-dim, var(--line));
     opacity: 0.4;
-  }
-  .agents-section-header.building .badge {
-    color: var(--lime);
-    border-color: var(--lime-dim, var(--line));
   }
   /* Building row · same dimensions as a normal agent row but the
      avatar slot is a pulsing CRT-style frame instead of a face,
@@ -1428,8 +1404,12 @@
 
   /* Refined "+ New" — list-item style, sentence case, subtle */
   .new-btn {
-    margin: 4px 6px 2px;
-    padding: 7px 10px;
+    /* Horizontal margin = 6 (session-row-shell margin) + 4
+       (sessions-scroll padding) so the hover background spans the
+       exact same width as the room rows below — without it, the
+       nav buttons hovered 8px wider than the list rows. */
+    margin: 4px 10px 2px;
+    padding: 5px 10px;
     background: transparent;
     color: var(--text);
     border: none;
@@ -1506,10 +1486,7 @@
   .new-btn.nav-search::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>");
   }
-  /* All Reports / All Notes / Search nav-button shape · the count
-     badge floats to the right of the label, so the link's flex
-     layout grows to fill the row. `.nav-label` flex-grows,
-     `.nav-count` is auto-sized and hugs the trailing edge. */
+  /* All Reports / All Notes / Search nav-button shape · label-only. */
   .new-btn.nav-notes,
   .new-btn.nav-reports,
   .new-btn.nav-search {
@@ -1521,49 +1498,20 @@
     flex: 1;
     min-width: 0;
   }
-  /* Count badge · subtle mono micro-tag. Uses --text-faint on its own
-     and inherits the link's color cascade on hover/active so the badge
-     tracks the label's lime shift. Hidden until at least one item
-     exists (the `hidden` attr is removed once count > 0). Same visual
-     vocabulary as the section-header .badge below — both render as
-     mono pills so the sidebar reads as one consistent counting
-     system. */
-  .new-btn.nav-notes .nav-count,
-  .new-btn.nav-reports .nav-count,
-  .new-btn.nav-search .nav-count {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-    padding: 1px 6px;
-    background: var(--panel-3);
-    border-radius: 3px;
-    flex-shrink: 0;
-    transition: color 0.12s, background 0.12s;
-  }
-  .new-btn.nav-notes:hover .nav-count,
-  .new-btn.nav-notes.active .nav-count,
-  .new-btn.nav-reports:hover .nav-count,
-  .new-btn.nav-reports.active .nav-count,
-  .new-btn.nav-search:hover .nav-count,
-  .new-btn.nav-search.active .nav-count {
-    color: var(--lime);
-    background: rgba(190, 242, 100, 0.08);
-  }
   .new-btn:hover {
     background: var(--panel-2);
-    color: var(--lime);
+    color: var(--text);
   }
   /* The ::before icon inherits via currentColor — no explicit
      hover override needed; setting the parent's color cascades. */
-  /* Active state · matches session-row-shell.active treatment so the
-     sidebar reads consistently when the composer is the current view. */
+  /* Active state · same panel as session-row-shell.active, but text
+     stays at the default `--text` (no accent shift) — selection
+     reads as a settled state via the background alone. */
   .new-btn.active {
     background: var(--panel-3);
-    color: var(--lime);
+    color: var(--text);
   }
-  .new-btn.active::before { color: var(--lime); }
+  .new-btn.active::before { color: var(--text); }
 
   .sessions-scroll {
     flex: 1;
@@ -1596,11 +1544,11 @@
        set this to 16px and made the section badges drift 4px
        further left than the nav badges. */
     padding: 8px 12px 4px 10px;
-    font-size: 9px;
+    font-size: 10px;
     color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    font-weight: 700;
+    font-weight: 600;
     /* Sticky · the LIVE / PAUSED / ADJOURNED dividers stay pinned
        to the top of the scroll viewport as the user scrolls down
        a long room list. Parent `.sessions-scroll` is the scroll
@@ -1624,7 +1572,6 @@
   }
   .section-header.live { color: var(--lime); }
   .section-header.draft { color: var(--amber); }
-  .section-header.paused { color: var(--amber); }
   .section-header.adjourned { color: var(--text-dim); }
   .section-header.pinned { color: var(--text-soft); }
   .row-status {
@@ -1636,33 +1583,7 @@
     margin-right: 6px;
   }
   .row-status.paused { color: var(--amber); }
-  .section-header .line { flex: 1; border-top: 0.5px dashed var(--line-bright); }
-  /* Section badge · same visual vocabulary as .new-btn.nav-* .nav-count
-     above so the sidebar reads as one consistent counting system.
-     Mono pill, panel-3 bg, faint text, rounded — overrides the
-     .section-header parent's sans uppercase letter-spacing because a
-     count is a number, not a label. The .live variant still takes its
-     pulsing dot via ::before. */
-  .section-header .badge {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: none;
-    color: var(--text-faint);
-    padding: 1px 6px;
-    background: var(--panel-3);
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-  .section-header.live .badge {
-    color: var(--lime);
-    background: rgba(190, 242, 100, 0.08);
-  }
-  .section-header.live .badge::before {
-    content: "● ";
-    animation: pulse 1.5s infinite;
-  }
+  .section-header .line { flex: 1; }
   .pin-glyph {
     width: 10px;
     height: 10px;
@@ -1677,7 +1598,6 @@
      reserve 22px and shrink the title). The row-shell ancestor
      needs `position: relative` for this to anchor correctly. */
   .agent-row-shell, .session-row-shell { position: relative; }
-  .row-top-line .pin-toggle,
   .agent-row-top-line .pin-toggle {
     position: absolute;
     top: 8px;
@@ -1695,16 +1615,13 @@
     opacity: 0;
     transition: opacity 0.12s, color 0.12s;
   }
-  .row-top-line .pin-toggle svg,
   .agent-row-top-line .pin-toggle svg {
     width: 11px;
     height: 11px;
     fill: currentColor;
   }
-  .session-row:hover .pin-toggle,
   .agent-row:hover .pin-toggle { opacity: 0.55; }
   .pin-toggle:hover { opacity: 1 !important; color: var(--lime); }
-  .session-row.pinned .pin-toggle,
   .agent-row.pinned .pin-toggle {
     opacity: 1;
     color: var(--lime);
@@ -1718,21 +1635,20 @@
      X button all clip cleanly to rounded corners. */
   .session-row-shell {
     position: relative;
-    margin: 1px 6px;
+    margin: 2px 6px;
     border-radius: 4px;
     overflow: hidden;
   }
   .session-row-shell.active .session-row { background: var(--panel-3); }
-  .session-row-shell.active .row-title { color: var(--lime); }
 
   .session-row {
     display: block;
-    /* Padding kept in sync with .agent-row so the agents-tab and
-       rooms-tab lists share the same horizontal rhythm in the sidebar.
-       The empty `.row-cast` placeholder slot was removed — the title
-       now starts at the row's left padding, matching where the agent
-       avatar starts in the agents tab. */
-    padding: 8px 10px;
+    /* Horizontal padding kept in sync with .agent-row so the agents-tab
+       and rooms-tab lists share the same horizontal rhythm in the
+       sidebar. Vertical padding 5px — single-line title with the
+       subtitle row removed; tight hitbox matching the .new-btn nav
+       buttons above. */
+    padding: 5px 10px;
     text-decoration: none;
     color: var(--text);
     cursor: pointer;
@@ -1741,35 +1657,42 @@
   .session-row:hover { background: var(--panel-2); }
 
   /* Per-row delete button · sibling of the anchor, so its click never
-     gets routed to the link. Hover-revealed in the top-right band. */
+     gets routed to the link. Hover-revealed in the top-right band.
+     Icon-only Lucide X painted via `mask-image + currentColor` —
+     same recipe as the `.new-btn::before` nav glyphs, no border or
+     chip chrome. Vertical centring via the symmetric top/bottom +
+     auto margin trick so the glyph stays mid-row regardless of row
+     padding. */
   .row-delete {
     position: absolute;
-    top: 8px;
+    top: 0;
+    bottom: 0;
     right: 10px;
-    width: 20px; height: 20px;
-    background: var(--panel-2);
-    border: 0.5px solid var(--line-bright);
+    margin: auto 0;
+    width: 16px;
+    height: 16px;
+    border: 0;
+    padding: 0;
+    background-color: currentColor;
     color: var(--text-faint);
-    font-family: var(--mono);
-    font-size: 10px;
-    line-height: 1;
     cursor: pointer;
     display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    transition: all 0.12s;
+    transition: color 0.12s;
     z-index: 2;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>");
+    -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+            mask-position: center;
+    -webkit-mask-size: 16px 16px;
+            mask-size: 16px 16px;
   }
-  .session-row-shell:hover .row-delete { display: flex; }
-  /* Subtitle reserves right padding so its ellipsis stops before
+  .session-row-shell:hover .row-delete { display: block; }
+  /* Row title reserves right padding so its ellipsis stops before
      the absolutely-positioned X delete button on hover. */
-  .session-row-shell .row-subtitle { padding-right: 26px; }
-  .row-delete:hover {
-    border-color: var(--red);
-    color: var(--red);
-    background: var(--bg);
-  }
+  .session-row-shell:hover .row-title { padding-right: 26px; }
+  .row-delete:hover { color: var(--red); }
   .session-row-shell.removing { opacity: 0; transition: opacity 0.16s; }
 
   /* Empty state for the Adjourned section */
@@ -1833,40 +1756,17 @@
     flex-shrink: 0;
   }
 
-  .row-content { min-width: 0; overflow: hidden; }
-  .row-top-line {
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    margin-bottom: 1px;
-  }
   .row-title {
+    display: block;
     font-size: 14px;
     font-weight: 400;
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    min-width: 0;
     font-family: var(--sans);
     letter-spacing: -0.005em;
   }
-  .row-subtitle {
-    font-size: 12px;
-    color: var(--text-dim);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--sans);
-    letter-spacing: -0.003em;
-  }
-  .row-subtitle .report-style {
-    color: var(--lime);
-    font-weight: 700;
-    margin-right: 3px;
-  }
-  .row-subtitle .sep { color: var(--text-faint); margin: 0 3px; }
 
   /* Bottom-of-list pagination hint (Slack-style) — appears
      briefly when the user scrolls to the bottom of the list. */
@@ -10719,7 +10619,15 @@
     margin: 0 auto;
     border: 0.5px solid var(--line-strong);
     border-radius: 12px;
-    background: var(--panel-2);
+    /* Frosted glass · same recipe as `.input-bar` directly below so the
+       two conjoined cards share one continuous surface treatment. The
+       chat stream behind softens through the haze; the queue chrome
+       stays legible. `.queue-head` / `.queue-list` rows below are
+       `background: transparent` already, so the outer glass dominates. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
     position: relative;
     /* `overflow: visible` (was `hidden`) so hover tooltips on header
@@ -10771,7 +10679,14 @@
     border-bottom: none;
     border-top-left-radius: 12px;
     border-top-right-radius: 12px;
-    background: var(--panel-2);
+    /* Frosted glass · mirror `.speaking-queue` so the paused-state
+       chrome reads identically to the live queue strip — same haze,
+       same conjoin with `.input-bar` underneath. Without this the
+       strip pops as a solid card the moment the user hits Pause. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
     overflow: hidden;
   }
@@ -10836,7 +10751,15 @@
     border-bottom: none;
     border-top-left-radius: 12px;
     border-top-right-radius: 12px;
-    background: var(--panel-2);
+    /* Frosted glass · third sibling in the queue/paused/adjourned trio
+       that shares this slot above the input-bar. Same recipe as
+       `.speaking-queue` / `.paused-strip` so the live → paused →
+       adjourned chrome transitions read as a state-of-the-same-surface
+       rather than three different cards. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     box-shadow: 0 6px 18px -16px rgba(0, 0, 0, 0.45);
     /* `overflow: visible` (was `hidden`) so hover tooltips on header
        controls — the mirrored `.rt-sub-restore::after` for the
@@ -16107,7 +16030,10 @@
 <!-- voice-recorder · meeting capture. Lazy module · only allocates
      anything on first start(). Loaded BEFORE app.js so the global
      `window.BoardroomRecorder` exists by the time app.js init() wires
-     up the onStateChange subscription. -->
+     up the onStateChange subscription. mp4-muxer vendored in
+     /vendor/ provides the H.264+AAC mp4 container · classic-script
+     wrapper emits `window.Mp4Muxer`. Must load before voice-recorder. -->
+<script src="vendor/mp4-muxer.min.js" defer></script>
 <script src="voice-recorder.js" defer></script>
 <script src="app.js" defer></script>
 <script>
@@ -16271,12 +16197,10 @@
         <a href="#" class="sidebar-tab active" data-sidebar-tab="rooms" role="tab" aria-selected="true">
           <i class="ic ic-rooms ico"></i>
           <span data-i18n="sidebar_tab_rooms">Rooms</span>
-          <span class="count" data-sidebar-tab-count="rooms">0</span>
         </a>
         <a href="#" class="sidebar-tab" data-sidebar-tab="agents" role="tab" aria-selected="false">
           <i class="ic ic-agents ico"></i>
           <span data-i18n="sidebar_tab_agents">Agents</span>
-          <span class="count" data-sidebar-tab-count="agents">0</span>
         </a>
       </div>
 
@@ -16289,7 +16213,6 @@
            did <X> come up?"). Same .new-btn chrome as siblings. -->
       <a href="#" class="new-btn nav-search" data-search-trigger>
         <span class="nav-label">Search</span>
-        <span class="nav-count" data-search-count hidden></span>
       </a>
       <!-- "All Reports" cross-room index · opens a Perplexity-Discover-
            style grid of every brief any room has produced. Sits below
@@ -16298,17 +16221,14 @@
            elsewhere in the sidebar. -->
       <a href="#" class="new-btn nav-reports" data-reports-trigger>
         <span class="nav-label" data-i18n="sidebar_all_reports">All Reports</span>
-        <span class="nav-count" data-reports-count hidden></span>
       </a>
       <!-- "All Notes" · chairman's-notes index. Sits directly below
            All Reports because both are cross-cutting aggregation views
            (read-only collections that span every room), distinct from
            the room list below. Bookmark glyph differentiates from
-           Reports' FileText glyph. The data-notes-count badge updates
-           live as new notes are saved or deleted. -->
+           Reports' FileText glyph. -->
       <a href="#" class="new-btn nav-notes" data-notes-trigger>
         <span class="nav-label" data-i18n="sidebar_all_notes">All Notes</span>
-        <span class="nav-count" data-notes-count hidden></span>
       </a>
 
       <div class="sessions-scroll">

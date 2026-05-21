@@ -71,6 +71,19 @@
   /* --sans defaults to the human face — chat input, topic question,
      replies, and live notes use it unless an agent override applies. */
   --sans: var(--font-human);
+
+  /* ─── Radius scale ───
+     One axis-of-truth for corner softness. The earlier codebase had
+     border-radius values inlined as 4 / 6 / 8 / 12 — bumping the look
+     meant find-and-replacing per call-site. These tokens are the new
+     single dial: turn one knob, the whole product rounds in lockstep.
+     Theme-agnostic (radius doesn't change between dark / light), so
+     they live on plain `:root` rather than per-theme. */
+  --radius-sm:   6px;     /* small chrome · sidebar rows, hover pills */
+  --radius-md:   8px;     /* buttons, inputs, badges with text */
+  --radius-lg:   12px;    /* cards, modal panels, search card */
+  --radius-xl:   16px;    /* large surfaces (main raised panel) */
+  --radius-pill: 9999px;  /* pure pill / circle */
 }
 
 /* ─── DARK · regent · warm gold on near-black ───
@@ -79,13 +92,25 @@
        primary keeps working — the actual hue is gold (#C9A46B).
        See `docs/theme-system.md` for the full token reference. */
 :root[data-theme="dark"] {
+  /* ─── Surface ladder · structural panels ───
+     Used for solid raised cards, sub-cards, and the chrome shell.
+     For *transient* states (hover / active / pressed) prefer the
+     alpha overlay tokens below — they layer cleanly over vibrancy
+     and stay theme-agnostic at the call site. */
   --bg: #0A0A0A;
   --panel: #131312;
-  --panel-2: #1A1A18;
-  --panel-3: #21211E;
-  --hi: #2A2A26;
+  --panel-2: #21211F;
+  --panel-3: #2A2A27;
   --strip-bg: color-mix(in srgb, var(--lime) 6%, var(--bg));     /* topbar / bottombar — very subtle brand tint */
   --accent-line: color-mix(in srgb, var(--lime) 22%, var(--bg)); /* brand-tinted hairlines for composer chrome */
+
+  /* ─── Alpha overlay system · macOS / Linear-style ───
+     Semantic interaction layers. The values resolve to white-alpha
+     on dark themes and black-alpha on light, so a single rule
+     (`background: var(--surface-hover)`) reads correctly in both. */
+  --surface-hover:  rgba(255, 255, 255, 0.10);
+  --surface-active: rgba(255, 255, 255, 0.15);
+  --surface-strong: rgba(255, 255, 255, 0.20);
 
   --line: #26241F;
   --line-bright: #3A3934;
@@ -95,6 +120,7 @@
   --text-soft: #8E8B83;
   --text-dim: #7E7B70;        /* was #5C5A52; raised to ~4.3:1 vs bg, near WCAG AA */
   --text-faint: #5A5848;      /* was #5C5A4D; clearly fainter than dim, OK for hints */
+  --text-muted: rgba(255, 255, 255, 0.60);  /* alpha-derived · pairs with surface overlays */
 
   --lime: #C9A46B;
   --lime-deep: #9A7B40;
@@ -102,7 +128,6 @@
   --amber: #A57843;
   --amber-dim: #5E441F;
   --red: #B5706A;
-  --red-dim: #6B4540;
   --cyan: #6A9B97;
   --magenta: #8E7A8E;
 }
@@ -127,9 +152,15 @@
   --panel: #FAFAFA;           /* was #F9F9F9 — micro-adjust for ladder spacing  */
   --panel-2: #EEEEEE;         /* was #F1F1F1 — clearer 1-step pop vs panel      */
   --panel-3: #E4E4E4;         /* was #ECECEC — clearer 2-step                   */
-  --hi: #D4D4D4;              /* was #E5E5E5 — visible hover surface            */
   --strip-bg: color-mix(in srgb, var(--lime) 6%, var(--bg));     /* topbar / bottombar — very subtle brand tint */
   --accent-line: color-mix(in srgb, var(--lime) 22%, var(--bg)); /* brand-tinted hairlines for composer chrome */
+
+  /* ─── Alpha overlay system (light theme · black-on-white) ───
+     Mirrors the dark-theme set but inverted polarity, so the same
+     `var(--surface-hover)` rule looks correct in both modes. */
+  --surface-hover:  rgba(0, 0, 0, 0.05);
+  --surface-active: rgba(0, 0, 0, 0.08);
+  --surface-strong: rgba(0, 0, 0, 0.12);
 
   --line: #E5E5E5;            /* was #ECECEC — actually visible on white (1.10:1) */
   --line-bright: #C8C8CD;     /* was #D4D4D8 — clearer everyday border          */
@@ -139,6 +170,7 @@
   --text-soft: #5D5D5D;       /* secondary — 7.0:1 (AAA for text > 18pt)        */
   --text-dim: #717181;        /* was #8E8EA0; lifted to 4.7:1 (AA) for readable */
   --text-faint: #9A9A9A;      /* hint level ~2.8:1 — for disabled/decoration   */
+  --text-muted: rgba(0, 0, 0, 0.55);  /* alpha-derived · pairs with surface overlays */
 
   --lime: #10A37F;            /* OpenAI green — primary accent                  */
   --lime-deep: #0D8868;       /* deeper green — hover / active depth            */
@@ -147,7 +179,6 @@
   --amber: #C2410C;
   --amber-dim: #FED7AA;
   --red: #DC2626;
-  --red-dim: #FEE2E2;
   --cyan: #0891B2;
   --magenta: #BE185D;
 }

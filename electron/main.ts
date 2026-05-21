@@ -69,7 +69,7 @@ if (!app.requestSingleInstanceLock()) {
   //     is called, and does NOT re-apply `trafficLightPosition` on the
   //     subsequent `(true)`. So we re-apply via `setWindowButtonPosition`
   //     every time we show the cluster.
-  const TRAFFIC_LIGHT_POSITION = { x: 21, y: 22 };
+  const TRAFFIC_LIGHT_POSITION = { x: 21, y: 23 };
 
   // Renderer toggles the native traffic lights when the sidebar collapses /
   // peeks back out — see public/index.html `syncElectronTrafficLights`.

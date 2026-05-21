@@ -127,7 +127,13 @@
    *  blips, gavel, countdown beeps) all flow into the meeting
    *  recording's audio mix alongside director TTS. Safe to call
    *  before ensureContext fires — we connect now if possible and
-   *  also stash so a later ensureContext call wires it up. */
+   *  also stash so a later ensureContext call wires it up.
+   *
+   *  NOTE · this only works when `dest` is a node in the SAME
+   *  AudioContext as typing-sfx. The recorder runs in its own
+   *  context so this path is a silent no-op for it; the recorder
+   *  uses `getRecorderStream()` below to bridge across contexts
+   *  via a MediaStream. Kept for any future intra-context callers. */
   let _pendingRecorderDest = null;
   function connectRecorderDestination(dest) {
     if (!dest) return;
@@ -137,6 +143,30 @@
     } else {
       _pendingRecorderDest = dest;
     }
+  }
+
+  /** Cross-context recorder bridge · creates a MediaStreamDestination
+   *  in OUR AudioContext and returns its `.stream` so the recorder's
+   *  separate AudioContext can pull our SFX output in via
+   *  `recorderCtx.createMediaStreamSource(stream)`. AudioNodes cannot
+   *  connect across AudioContexts directly · MediaStream is the only
+   *  Web Audio bridge between two graphs. The destination node is
+   *  cached so repeated calls return the same stream. */
+  let _recorderStreamDest = null;
+  function getRecorderStream() {
+    const ctx = ensureContext();
+    if (!ctx) return null;
+    if (!_recorderStreamDest) {
+      try {
+        _recorderStreamDest = ctx.createMediaStreamDestination();
+        if (_outputNode) _outputNode.connect(_recorderStreamDest);
+      } catch (e) {
+        console.warn("[typing-sfx] getRecorderStream failed", e && e.message);
+        _recorderStreamDest = null;
+        return null;
+      }
+    }
+    return _recorderStreamDest.stream;
   }
 
   /** Suspend the AudioContext shortly after `setThinking(false)` so
@@ -445,5 +475,5 @@
 
   // Public surface · attached to window so app.js (and the
   // user-settings toggle) can reach it without an import.
-  window.boardroomTypingSfx = { tick, speakerChange, setThinking, gavel, countdownTick, setEnabled, isEnabled, connectRecorderDestination };
+  window.boardroomTypingSfx = { tick, speakerChange, setThinking, gavel, countdownTick, setEnabled, isEnabled, connectRecorderDestination, getRecorderStream };
 })();

@@ -362,7 +362,6 @@
       document.addEventListener("boardroom:locale", () => {
         this.renderSidebarRooms();
         this.renderSidebarAgents();
-        this.renderSidebarCounts();
         this.renderUserBlock();
         if (this.currentRoomId) this.renderRoom();
         else this.renderEmptyState();
@@ -546,14 +545,7 @@
         document.querySelector("[data-sidebar-collapse]")?.click();
       });
 
-      // Sidebar count badges · refresh on boot.
-      // Notes: also refreshed on every note:created / note:deleted
-      // (handlers below). Reports: refreshed when a brief lands or
-      // is deleted (see SSE brief-final / brief-deleted handlers).
-      this.refreshNotesCount();
-      this.refreshReportsCount();
       document.addEventListener("note:created", (e) => {
-        this.refreshNotesCount();
         // Live-update currentNotes for the active room so the new
         // span gets its highlight without waiting for a navigation.
         const note = e && e.detail && e.detail.note;
@@ -566,7 +558,6 @@
         }
       });
       document.addEventListener("note:deleted", (e) => {
-        this.refreshNotesCount();
         const detail = e && e.detail;
         if (detail && detail.noteId && this.currentNotes) {
           for (const [mid, arr] of this.currentNotes) {
@@ -755,7 +746,6 @@
         if (j.chair) this.currentChair = j.chair;
         if (this.currentChair) this.agentsById[this.currentChair.id] = this.currentChair;
         this.renderSidebarAgents();
-        this.renderSidebarCounts();
       } catch (e) { /* ignore */ }
     },
 
@@ -2337,8 +2327,6 @@
             this.renderBrief();
           }
           this.renderHeader();
-          // A new brief just landed → bump the All Reports badge.
-          this.refreshReportsCount();
           // Refresh the FULL brief list so the tab strip picks up the
           // newly filed brief (including any "add a perspective"
           // regenerations). Active brief = the just-finalised one.
@@ -5134,7 +5122,6 @@
         this.currentBrief = this.currentBriefs[0] || null;
       }
       this.renderBrief();
-      this.refreshReportsCount();
     },
 
     /** Retry handler for the orphaned-brief recovery UI. Drops the
@@ -6606,7 +6593,6 @@
 
     // ── Rendering · sidebar rooms ─────────────────────────────
     renderSidebarRooms() {
-      this.renderSidebarCounts();
       const list = document.querySelector("[data-rooms-list]");
       if (!list) return;
       const live   = this.rooms.filter((r) => r.status === "live");
@@ -6614,38 +6600,17 @@
       const adj    = this.rooms.filter((r) => r.status === "adjourned");
 
       const renderRow = (r) => {
-        const pausedLbl = this._t("sidebar_paused");
-        const status =
-          r.status === "paused"
-            ? `<span class="row-status paused">❚❚ ${this.escape(pausedLbl)}</span>`
-            : "";
-        const time =
-          r.status === "paused"
-            ? this.relTime(r.pausedAt || r.createdAt)
-            : r.status === "adjourned"
-              ? this.relTime(r.adjournedAt || r.createdAt)
-              : this.relTime(r.createdAt);
         const fullTitle = r.name || r.subject || "";
         // Layout: a wrapper holds the anchor + the delete button as
         // siblings. Putting the <button> inside the <a> is invalid HTML
         // and some browsers route the click to the link, swallowing the
         // delete action — moving it out fixes that.
-        // No `title` attr · the native browser tooltip popping the full
-        // subject on hover competes with the row's own subtitle line
-        // and felt redundant. The subtitle already shows the subject;
-        // truncated names are rare and the user can click in to see
-        // the full thing if needed.
         return `
           <div class="session-row-shell" data-room-id="${this.escape(r.id)}" data-status="${this.escape(r.status)}">
             <a href="#/r/${this.escape(r.id)}" class="session-row">
-              <div class="row-content">
-                <div class="row-top-line">
-                  <span class="row-title">${this.escape(fullTitle)}</span>
-                </div>
-                <div class="row-subtitle">${status}${this.escape(r.subject || "")}</div>
-              </div>
+              <span class="row-title">${this.escape(fullTitle)}</span>
             </a>
-            <button type="button" class="row-delete" data-room-delete title="${this.escape(this._t("sidebar_delete_room"))}">✕</button>
+            <button type="button" class="row-delete" data-room-delete title="${this.escape(this._t("sidebar_delete_room"))}" aria-label="${this.escape(this._t("sidebar_delete_room"))}"></button>
           </div>
         `;
       };
@@ -6655,7 +6620,6 @@
           <div class="section-header live">
             <span>${this.escape(this._t("sidebar_section_live"))}</span>
             <span class="line"></span>
-            <span class="badge">${live.length}</span>
           </div>
           ${live.map(renderRow).join("")}
         ` : ""}
@@ -6664,7 +6628,6 @@
           <div class="section-header paused">
             <span>${this.escape(this._t("sidebar_section_paused"))}</span>
             <span class="line"></span>
-            <span class="badge">${paused.length}</span>
           </div>
           ${paused.map(renderRow).join("")}
         ` : ""}
@@ -6672,7 +6635,6 @@
         <div class="section-header adjourned">
           <span>${this.escape(this._t("sidebar_section_adjourned"))}</span>
           <span class="line"></span>
-          <span class="badge" data-adjourned-count>${adj.length}</span>
         </div>
         <div class="adjourned-list" data-adjourned-list>
           ${adj.map(renderRow).join("")}
@@ -6898,7 +6860,7 @@
         </a>
       `;
 
-      const sectionHeader = (label, count, kind) => {
+      const sectionHeader = (label, kind) => {
         const pinned = kind === "pinned";
         const chair = kind === "chair";
         const glyph = pinned
@@ -6910,7 +6872,6 @@
             ${glyph}
             <span>${this.escape(label)}</span>
             <span class="line"></span>
-            <span class="badge">${count}</span>
           </div>
         `;
       };
@@ -6921,7 +6882,7 @@
       // user immediately sees the orchestrator, and so it can't get
       // grouped with directors they pin or create.
       if (this.currentChair) {
-        parts.push(sectionHeader(this._t("sidebar_sec_chair"), 1, "chair"));
+        parts.push(sectionHeader(this._t("sidebar_sec_chair"), "chair"));
         parts.push(renderChairRow(this.currentChair));
       }
       // Building section · placeholder row for the in-flight Full
@@ -6940,19 +6901,19 @@
         // right now". The earlier i18n key fallback to "Building"
         // tested as confusing.
         const headerLabel = job.status === "done" ? "Ready to save" : "Generating";
-        parts.push(`<div class="agents-section-header building"><span>${this.escape(headerLabel)}</span><span class="line"></span><span class="badge">1</span></div>`);
+        parts.push(`<div class="agents-section-header building"><span>${this.escape(headerLabel)}</span><span class="line"></span></div>`);
         parts.push(this._renderPersonaBuildingRow(job));
       }
       if (pinned.length) {
-        parts.push(sectionHeader(this._t("sidebar_sec_pinned"), pinned.length, "pinned"));
+        parts.push(sectionHeader(this._t("sidebar_sec_pinned"), "pinned"));
         parts.push(pinned.map((a) => renderRow(a)).join(""));
       }
       if (custom.length) {
-        parts.push(sectionHeader(this._t("sidebar_sec_custom"), custom.length));
+        parts.push(sectionHeader(this._t("sidebar_sec_custom")));
         parts.push(custom.map((a) => renderRow(a)).join(""));
       }
       if (core.length) {
-        parts.push(sectionHeader(this._t("sidebar_sec_core"), core.length));
+        parts.push(sectionHeader(this._t("sidebar_sec_core")));
         parts.push(core.map((a) => renderRow(a)).join(""));
       }
       // Same idempotency guard as renderSidebarRooms · skip the
@@ -7056,16 +7017,6 @@
       if (nm) nm.textContent = name;
       const mt = document.querySelector("[data-user-meta]");
       if (mt) mt.textContent = meta;
-    },
-
-    renderSidebarCounts() {
-      const roomsCount = this.rooms.length;
-      const agentsCount = this.agents.length;
-
-      const r = document.querySelector('[data-sidebar-tab-count="rooms"]');
-      if (r) r.textContent = String(roomsCount);
-      const a = document.querySelector('[data-sidebar-tab-count="agents"]');
-      if (a) a.textContent = String(agentsCount);
     },
 
     // ── Rendering · main view ─────────────────────────────────
@@ -9665,61 +9616,11 @@
         return;
       }
       // Patch local cache so the immediate re-render reflects the
-      // delete without a refetch round-trip. The sidebar count badge
-      // re-fetches via the /count endpoint.
+      // delete without a refetch round-trip.
       if (Array.isArray(this._notesCache)) {
         this._notesCache = this._notesCache.filter((n) => n && n.id !== id);
         this.renderNotesPage(this._notesCache);
       }
-      this.refreshNotesCount();
-    },
-
-    /** Refresh the sidebar count badge · called on boot, after
-     *  every successful save (note:created event), and after a
-     *  delete. Hits /api/notes/count which is cheap (one COUNT query),
-     *  so we don't need to debounce.
-     *
-     *  When count is 0 the badge is hidden (the `hidden` attr stays
-     *  on); otherwise the count renders. The CSS bumps the colour to
-     *  lime on hover/active so the badge tracks the link's cascade. */
-    async refreshNotesCount() {
-      try {
-        const r = await fetch("/api/notes/count");
-        if (!r.ok) return;
-        const j = await r.json();
-        const total = typeof j.total === "number" ? j.total : 0;
-        const badge = document.querySelector("[data-notes-count]");
-        if (!badge) return;
-        if (total > 0) {
-          badge.textContent = String(total);
-          badge.removeAttribute("hidden");
-        } else {
-          badge.textContent = "";
-          badge.setAttribute("hidden", "");
-        }
-      } catch { /* fail closed — leave badge as-is */ }
-    },
-
-    /** Mirror of refreshNotesCount for the All Reports sidebar badge.
-     *  Hits /api/briefs/count (cheap COUNT, excludes empty placeholder
-     *  rows). Called on boot and whenever a brief is filed / deleted
-     *  so the badge stays in sync with the All Reports list. */
-    async refreshReportsCount() {
-      try {
-        const r = await fetch("/api/briefs/count");
-        if (!r.ok) return;
-        const j = await r.json();
-        const total = typeof j.total === "number" ? j.total : 0;
-        const badge = document.querySelector("[data-reports-count]");
-        if (!badge) return;
-        if (total > 0) {
-          badge.textContent = String(total);
-          badge.removeAttribute("hidden");
-        } else {
-          badge.textContent = "";
-          badge.setAttribute("hidden", "");
-        }
-      } catch { /* fail closed */ }
     },
 
     // ── In-room note highlight overlay ────────────────────────
