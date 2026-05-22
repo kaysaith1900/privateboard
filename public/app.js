@@ -391,6 +391,31 @@
       // page-reload shortcut (it's not a reserved keystroke).
       // Menu reload / URL-bar reload still get caught by the
       // `beforeunload` handler below.
+      // Search overlay keyboard · Cmd+K / Ctrl+K toggles the
+      // floating search palette; Esc closes it when open. Both
+      // pre-empt other handlers — registered with capture so the
+      // overlay reliably opens / closes regardless of where focus
+      // sits in the document.
+      document.addEventListener("keydown", (e) => {
+        const isCmdK = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey
+          && (e.key === "k" || e.key === "K" || e.code === "KeyK");
+        if (isCmdK) {
+          e.preventDefault();
+          const overlay = document.querySelector("[data-search-overlay]");
+          if (!overlay) return;
+          if (overlay.hasAttribute("hidden")) this.openSearch();
+          else this.closeSearchOverlay();
+          return;
+        }
+        if (e.key === "Escape") {
+          const overlay = document.querySelector("[data-search-overlay]");
+          if (overlay && !overlay.hasAttribute("hidden")) {
+            e.preventDefault();
+            this.closeSearchOverlay();
+          }
+        }
+      }, true);
+
       document.addEventListener("keydown", (e) => {
         const isReload = (e.ctrlKey || e.metaKey)
           && !e.altKey
@@ -8387,367 +8412,58 @@
       this.renderNotesPage(notesList);
     },
 
-    // ── Search view · cross-room keyword search ────────────────
-    /** Open the Search page · same main-view-replacement pattern as
-     *  openAllReports / openAllNotes. Mounts a search input + an
-     *  empty results panel; user-typed input triggers debounced
-     *  /api/search calls (see runSearch). Result rows route back
-     *  into rooms with `?q=<term>&m=<msgId>` so the message gets
-     *  scrolled into view + flashed on arrival. */
+    // ── Search overlay · cross-room keyword search ─────────────
+    /** Open the floating search overlay. Layers above whatever
+     *  view is mounted (room / agent / reports / notes stay
+     *  underneath). Esc / scrim-click / X close — see
+     *  closeSearchOverlay + the doc-level handlers in
+     *  index.html. Restores the last query on re-open so the
+     *  user sees their prior results without retyping. */
     openSearch() {
-      document.documentElement.classList.add("no-room");
-      if (this.currentRoomId) {
-        this.disconnectSSE?.();
-        this.currentRoomId = null;
-        this.currentRoom = null;
-        this.currentMessages = [];
-        this.currentMembers = [];
-        this.currentHistoricalMembers = [];
-        this.currentQueue = [];
-        this.currentBrief = null;
-        if (/^#\/r\//.test(location.hash)) {
-          history.replaceState(null, "", location.pathname + location.search);
-        }
-      }
-      if (typeof window.closeAgentProfile === "function") {
-        try { window.closeAgentProfile(); } catch { /* ignore */ }
-      }
-      const room = document.querySelector('[data-main-view="room"]');
-      const agent = document.querySelector('[data-main-view="agent"]');
-      const reports = document.querySelector('[data-main-view="reports"]');
-      const notes = document.querySelector('[data-main-view="notes"]');
-      const search = document.querySelector('[data-main-view="search"]');
-      if (room) room.setAttribute("hidden", "");
-      if (agent) agent.setAttribute("hidden", "");
-      if (reports) reports.setAttribute("hidden", "");
-      if (notes) notes.setAttribute("hidden", "");
-      if (search) search.removeAttribute("hidden");
-
-      this.composerMode = "room";
-      document.querySelectorAll("[data-convene-trigger], [data-agent-composer-trigger]").forEach((el) => el.classList.remove("active"));
-      document.querySelectorAll(".session-row-shell.active, .agent-row.active").forEach((el) => el.classList.remove("active"));
-      document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
-      document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
+      const overlay = document.querySelector("[data-search-overlay]");
+      if (!overlay) return;
+      overlay.removeAttribute("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+      document.documentElement.classList.add("has-search-overlay");
       document.querySelectorAll("[data-search-trigger]").forEach((el) => el.classList.add("active"));
-
-      if (location.hash !== "#/search") {
-        try { history.replaceState(null, "", "#/search"); } catch { /* ignore */ }
-      }
-
-      const page = document.querySelector("[data-search-page]");
-      if (!page) return;
-      // Initial paint · Google-style two-state markup. Both the
-      // hero (kicker / wordmark / caption) and the head row (input
-      // + result-count meta) live in the DOM together so the
-      // `.is-initial` ↔ `.has-results` flip is purely a CSS class
-      // change — the input element stays put so its value / focus
-      // / cursor survive the swap. The doc-level `[data-search-
-      // input]` listener (~line 15486) calls `runSearch(value)` on
-      // every input event; the clear button (~line 14577) routes
-      // back through `runSearch("")`.
-      const lastQuery = this._searchLastQuery || "";
-      const startsInResults = lastQuery.length > 0;
-      page.className = "search-page " + (startsInResults ? "has-results" : "is-initial");
-      // Perplexity-style hero · calm conversational tagline above
-      // a substantial card-style input with an internal footer
-      // toolbar (mono hint left, lime send button right). Starter
-      // chips below give one-click into common queries. The same
-      // input element serves both states; `.is-initial` styles
-      // make the wrapping `.search-card` look like a standalone
-      // card, while `.has-results` strips the card chrome and
-      // collapses input + meta into a compact head row.
-      // 8-bit ambient deco · scattered pixel constellation that
-      // gives the page texture without competing with the hero.
-      // All coordinates picked by hand to avoid the "regular
-      // grid" feel · varied densities + 3 lime accents land
-      // the eye softly. CSS masks the bottom edge to a fade so
-      // it never crowds the card. Static · no animation,
-      // pointer-events: none, aria-hidden.
-      const BG_DECO_SVG = `
-        <svg viewBox="0 0 800 280" preserveAspectRatio="xMidYMin slice"
-             shape-rendering="crispEdges" aria-hidden="true">
-          <!-- Faint pixel dots · scattered, mostly 2×2. -->
-          <g fill="var(--line-bright, #2A2A26)">
-            <rect x="32"  y="38"  width="2" height="2"/>
-            <rect x="78"  y="22"  width="2" height="2"/>
-            <rect x="118" y="62"  width="2" height="2"/>
-            <rect x="156" y="30"  width="2" height="2"/>
-            <rect x="206" y="78"  width="2" height="2"/>
-            <rect x="254" y="44"  width="2" height="2"/>
-            <rect x="298" y="92"  width="2" height="2"/>
-            <rect x="342" y="26"  width="2" height="2"/>
-            <rect x="388" y="68"  width="2" height="2"/>
-            <rect x="436" y="38"  width="2" height="2"/>
-            <rect x="486" y="86"  width="2" height="2"/>
-            <rect x="528" y="50"  width="2" height="2"/>
-            <rect x="572" y="22"  width="2" height="2"/>
-            <rect x="618" y="74"  width="2" height="2"/>
-            <rect x="664" y="42"  width="2" height="2"/>
-            <rect x="708" y="88"  width="2" height="2"/>
-            <rect x="752" y="32"  width="2" height="2"/>
-            <rect x="60"  y="118" width="2" height="2"/>
-            <rect x="146" y="142" width="2" height="2"/>
-            <rect x="222" y="116" width="2" height="2"/>
-            <rect x="316" y="148" width="2" height="2"/>
-            <rect x="402" y="124" width="2" height="2"/>
-            <rect x="488" y="158" width="2" height="2"/>
-            <rect x="572" y="118" width="2" height="2"/>
-            <rect x="654" y="146" width="2" height="2"/>
-            <rect x="734" y="124" width="2" height="2"/>
-            <rect x="92"  y="180" width="2" height="2"/>
-            <rect x="186" y="206" width="2" height="2"/>
-            <rect x="278" y="186" width="2" height="2"/>
-            <rect x="370" y="216" width="2" height="2"/>
-            <rect x="462" y="194" width="2" height="2"/>
-            <rect x="554" y="222" width="2" height="2"/>
-            <rect x="646" y="198" width="2" height="2"/>
-            <rect x="724" y="226" width="2" height="2"/>
-          </g>
-          <!-- Mid accents · 4×4 squares, lime-dim. -->
-          <g fill="var(--lime-dim, #2D5532)">
-            <rect x="226" y="46"  width="4" height="4"/>
-            <rect x="514" y="100" width="4" height="4"/>
-            <rect x="694" y="170" width="4" height="4"/>
-          </g>
-          <!-- Pixel "plus" accents · evoke the 8-bit
-               star/sparkle vocabulary. Lime-dim. -->
-          <g fill="var(--lime-dim, #2D5532)">
-            <!-- top-left plus -->
-            <rect x="98"  y="78"  width="6" height="2"/>
-            <rect x="100" y="76"  width="2" height="6"/>
-            <!-- mid-right plus -->
-            <rect x="640" y="62"  width="6" height="2"/>
-            <rect x="642" y="60"  width="2" height="6"/>
-            <!-- lower-left plus -->
-            <rect x="354" y="178" width="6" height="2"/>
-            <rect x="356" y="176" width="2" height="6"/>
-          </g>
-          <!-- Bright accents · sparse, lime. Catch-the-eye
-               points scattered at the visual rule-of-thirds. -->
-          <g fill="var(--lime, #6FB572)">
-            <rect x="170" y="98"  width="3" height="3"/>
-            <rect x="540" y="38"  width="3" height="3"/>
-            <rect x="416" y="170" width="3" height="3"/>
-          </g>
-          <!-- Pixel "frame" segments · short hairline brackets at
-               the very top corners · evoke a CRT scanlines feel
-               without a full grid. -->
-          <g fill="var(--line-bright, #2A2A26)">
-            <rect x="14"  y="14"  width="20" height="2"/>
-            <rect x="14"  y="14"  width="2"  height="20"/>
-            <rect x="766" y="14"  width="20" height="2"/>
-            <rect x="784" y="14"  width="2"  height="20"/>
-          </g>
-        </svg>
-      `;
-      // Results-only deco · second 8-bit layer that mounts on
-      // top of the constellation when .has-results is active.
-      // Adds proper "search station" character: pixel antennas
-      // anchoring the corners, scattered "+" sparkles between
-      // them, denser dot field, and a horizon-tick floor at
-      // the bottom of the band. CSS scanlines (declared in
-      // index.html) sit underneath via background-image.
-      const RESULTS_DECO_SVG = `
-        <svg viewBox="0 0 800 130" preserveAspectRatio="xMidYMin slice"
-             shape-rendering="crispEdges" aria-hidden="true">
-          <!-- Left antenna · vertical mast + 2 crossbars +
-               base tile. Reads as a pixel radio tower. -->
-          <g fill="var(--line-bright, #2A2A26)">
-            <rect x="22"  y="40"  width="2"  height="74"/>
-            <rect x="18"  y="56"  width="10" height="2"/>
-            <rect x="20"  y="74"  width="6"  height="2"/>
-            <rect x="14"  y="114" width="18" height="3"/>
-          </g>
-          <!-- Left antenna blink tip · static lime accent. -->
-          <rect x="22"  y="36"  width="2" height="2" fill="var(--lime, #6FB572)"/>
-          <!-- Right antenna · mirror of the left. -->
-          <g fill="var(--line-bright, #2A2A26)">
-            <rect x="776" y="44"  width="2"  height="70"/>
-            <rect x="772" y="60"  width="10" height="2"/>
-            <rect x="774" y="78"  width="6"  height="2"/>
-            <rect x="768" y="114" width="18" height="3"/>
-          </g>
-          <rect x="776" y="40"  width="2" height="2" fill="var(--lime, #6FB572)"/>
-          <!-- Pixel "+" sparkles · scattered in the central
-               band between the antennas. Reads as scanner
-               pings. -->
-          <g fill="var(--lime-dim, #2D5532)">
-            <rect x="138" y="44"  width="6" height="2"/>
-            <rect x="140" y="42"  width="2" height="6"/>
-            <rect x="324" y="68"  width="6" height="2"/>
-            <rect x="326" y="66"  width="2" height="6"/>
-            <rect x="498" y="34"  width="6" height="2"/>
-            <rect x="500" y="32"  width="2" height="6"/>
-            <rect x="612" y="86"  width="6" height="2"/>
-            <rect x="614" y="84"  width="2" height="6"/>
-            <rect x="220" y="92"  width="6" height="2"/>
-            <rect x="222" y="90"  width="2" height="6"/>
-            <rect x="700" y="50"  width="6" height="2"/>
-            <rect x="702" y="48"  width="2" height="6"/>
-          </g>
-          <!-- Dense pixel-dot field · layered on top of the
-               existing constellation to thicken the header. -->
-          <g fill="var(--line-bright, #2A2A26)">
-            <rect x="62"  y="28"  width="2" height="2"/>
-            <rect x="106" y="78"  width="2" height="2"/>
-            <rect x="170" y="34"  width="2" height="2"/>
-            <rect x="248" y="56"  width="2" height="2"/>
-            <rect x="288" y="22"  width="2" height="2"/>
-            <rect x="370" y="50"  width="2" height="2"/>
-            <rect x="412" y="92"  width="2" height="2"/>
-            <rect x="468" y="68"  width="2" height="2"/>
-            <rect x="544" y="84"  width="2" height="2"/>
-            <rect x="588" y="44"  width="2" height="2"/>
-            <rect x="668" y="76"  width="2" height="2"/>
-            <rect x="722" y="32"  width="2" height="2"/>
-            <rect x="84"  y="98"  width="2" height="2"/>
-            <rect x="262" y="100" width="2" height="2"/>
-          </g>
-          <!-- Bright lime accent dots · 2 only, at rule-of-
-               thirds positions. Catches the eye. -->
-          <g fill="var(--lime, #6FB572)">
-            <rect x="266" y="40"  width="3" height="3"/>
-            <rect x="566" y="74"  width="3" height="3"/>
-          </g>
-          <!-- Horizon ticks · faint dashed pixel line near
-               the bottom edge of the band. Acts as visual
-               "floor" the antennas plant on. -->
-          <g fill="var(--line, #1A1A18)">
-            <rect x="40"  y="122" width="6" height="1"/>
-            <rect x="60"  y="122" width="2" height="1"/>
-            <rect x="76"  y="122" width="6" height="1"/>
-            <rect x="96"  y="122" width="2" height="1"/>
-            <rect x="112" y="122" width="6" height="1"/>
-            <rect x="132" y="122" width="2" height="1"/>
-            <rect x="148" y="122" width="6" height="1"/>
-            <rect x="168" y="122" width="2" height="1"/>
-            <rect x="184" y="122" width="6" height="1"/>
-            <rect x="204" y="122" width="2" height="1"/>
-            <rect x="220" y="122" width="6" height="1"/>
-            <rect x="240" y="122" width="2" height="1"/>
-            <rect x="256" y="122" width="6" height="1"/>
-            <rect x="276" y="122" width="2" height="1"/>
-            <rect x="292" y="122" width="6" height="1"/>
-            <rect x="312" y="122" width="2" height="1"/>
-            <rect x="328" y="122" width="6" height="1"/>
-            <rect x="348" y="122" width="2" height="1"/>
-            <rect x="364" y="122" width="6" height="1"/>
-            <rect x="384" y="122" width="2" height="1"/>
-            <rect x="400" y="122" width="6" height="1"/>
-            <rect x="420" y="122" width="2" height="1"/>
-            <rect x="436" y="122" width="6" height="1"/>
-            <rect x="456" y="122" width="2" height="1"/>
-            <rect x="472" y="122" width="6" height="1"/>
-            <rect x="492" y="122" width="2" height="1"/>
-            <rect x="508" y="122" width="6" height="1"/>
-            <rect x="528" y="122" width="2" height="1"/>
-            <rect x="544" y="122" width="6" height="1"/>
-            <rect x="564" y="122" width="2" height="1"/>
-            <rect x="580" y="122" width="6" height="1"/>
-            <rect x="600" y="122" width="2" height="1"/>
-            <rect x="616" y="122" width="6" height="1"/>
-            <rect x="636" y="122" width="2" height="1"/>
-            <rect x="652" y="122" width="6" height="1"/>
-            <rect x="672" y="122" width="2" height="1"/>
-            <rect x="688" y="122" width="6" height="1"/>
-            <rect x="708" y="122" width="2" height="1"/>
-            <rect x="724" y="122" width="6" height="1"/>
-            <rect x="744" y="122" width="2" height="1"/>
-            <rect x="760" y="122" width="6" height="1"/>
-          </g>
-        </svg>
-      `;
-      page.innerHTML = `
-        <!-- 8-bit ambient deco · top-of-page background overlay
-             for the is-initial state. Stays visible (dimmer)
-             in has-results as the base atmosphere layer. -->
-        <div class="search-bg-deco">${BG_DECO_SVG}</div>
-        <!-- Results-only deco · second layer with antennas +
-             sparkles + horizon ticks + CSS scanlines (in CSS).
-             Hidden in is-initial via opacity. -->
-        <div class="search-results-deco">${RESULTS_DECO_SVG}</div>
-        <!-- Hero · matches the new-room composer's two-row header ·
-             a mono caps greeting (cmp-greet · "Good afternoon, Kay")
-             above the headline. The old "across every room ..." sub-
-             line moved INSIDE the search-card's topbar so the card
-             itself surfaces its scope, matching .cmp-input-frame. -->
-        <div class="search-hero">
-          <div class="cmp-greet">${this.escape(this.composerGreeting(this.composerLanguage(), (this.prefs?.name || "you").trim() || "you"))}</div>
-          <h1 class="search-hero-title">Search every conversation</h1>
-        </div>
-        <!-- Card · is-initial = framed input with a brand-tinted
-             topbar hosting the scope hint, then the input below;
-             has-results = flex row with the meta beside it, topbar
-             collapsed via CSS. Mirrors new-room .cmp-input-frame. -->
-        <div class="search-card${lastQuery ? "" : " is-empty"}" data-search-card>
-          <div class="search-topbar">
-            <span class="search-topbar-hint">across every room · keyword · message body · room name</span>
-          </div>
-          <div class="search-input-wrap">
-            <span class="search-input-icon" aria-hidden="true">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-                <circle cx="7" cy="7" r="4.5"/>
-                <line x1="10.3" y1="10.3" x2="13.5" y2="13.5"/>
-              </svg>
-            </span>
-            <input type="text" class="search-input" data-search-input
-                   placeholder="Find a keyword, decision, or name across rooms"
-                   value="${this.escape(lastQuery)}"
-                   spellcheck="false"
-                   autocomplete="off">
-            <button type="button" class="search-input-clear" data-search-clear aria-label="Clear" title="Clear">✕</button>
-          </div>
-          <!-- Sort filter · only visible in .has-results. Toggle
-               between newest-first (default) and oldest-first.
-               Click handler in the doc-level delegate updates
-               app._searchSort and re-renders from the cached
-               result list (no re-fetch). -->
-          <div class="search-results-sort" data-search-sort>
-            <span class="srs-label">sort</span>
-            <button type="button" data-search-sort-by="newest" class="active">Newest</button>
-            <button type="button" data-search-sort-by="oldest">Oldest</button>
-          </div>
-          <span class="search-results-meta" data-search-results-meta></span>
-        </div>
-        <!-- Static starter chips · one click pre-fills the input
-             and triggers the search. Hidden once the user types
-             anything (.has-results). System UI English-only. -->
-        <div class="search-starters" data-search-starters>
-          <span class="search-starters-label">try</span>
-          <button type="button" class="search-starter" data-search-starter="decision">decision</button>
-          <button type="button" class="search-starter" data-search-starter="next step">next step</button>
-          <button type="button" class="search-starter" data-search-starter="risk">risk</button>
-          <button type="button" class="search-starter" data-search-starter="ship">ship</button>
-        </div>
-        <div class="search-results" data-search-results></div>
-      `;
-      // Initialise the sort default · defaults to "newest"
-      // (most recent matches first). The chip group reads from
-      // this on every render to set the active state.
-      if (this._searchSort !== "oldest") this._searchSort = "newest";
-      this._refreshSortChips();
-      const inputEl = page.querySelector("[data-search-input]");
-      if (inputEl) {
-        // Defer focus so the layout settles + view is visible.
-        setTimeout(() => inputEl.focus(), 50);
-        if (lastQuery) {
-          // Re-run last search on re-open so the user sees their
-          // prior results without retyping.
-          this.runSearch(lastQuery);
-        }
+      const input = overlay.querySelector("[data-search-input]");
+      if (input) {
+        const last = this._searchLastQuery || "";
+        if (input.value !== last) input.value = last;
+        setTimeout(() => { input.focus(); input.select(); }, 30);
+        if (last) this.runSearch(last);
       }
     },
 
-    /** Flip the page-level state class. `is-initial` mounts the
-     *  vertical-centre hero; `has-results` collapses the hero and
-     *  shrinks the input into a head row beside the meta. Called
-     *  from runSearch whenever the query crosses the empty
-     *  threshold (and on cold mount in renderSearchPage). */
-    _setSearchPageState(state) {
-      const page = document.querySelector("[data-search-page]");
-      if (!page) return;
-      page.classList.toggle("is-initial", state === "initial");
-      page.classList.toggle("has-results", state !== "initial");
+    /** Close the floating search overlay. Leaves the underlying
+     *  view exactly as it was. Doesn't clear the input or cached
+     *  query — re-open restores them via openSearch. */
+    closeSearchOverlay() {
+      const overlay = document.querySelector("[data-search-overlay]");
+      if (!overlay) return;
+      overlay.setAttribute("hidden", "");
+      overlay.setAttribute("aria-hidden", "true");
+      document.documentElement.classList.remove("has-search-overlay");
+      document.querySelectorAll("[data-search-trigger]").forEach((el) => el.classList.remove("active"));
+    },
+
+    /** Static HTML for the empty-state placeholder · captured
+     *  here so runSearch("") can restore the same markup that
+     *  index.html mounts initially. */
+    _searchOverlayEmptyHtml() {
+      const title = (this._t && this._t("search_overlay_empty_title")) || "Search across rooms and messages";
+      const hint = (this._t && this._t("search_overlay_empty_hint")) || "Type to filter live · click a result to jump";
+      return `<div class="search-overlay-empty">
+        <svg class="search-overlay-empty-icon" viewBox="0 0 64 64" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <circle cx="27" cy="27" r="17"/>
+          <line x1="50" y1="50" x2="39" y2="39"/>
+          <line x1="21" y1="27" x2="33" y2="27" opacity="0.45"/>
+          <line x1="21" y1="22" x2="28" y2="22" opacity="0.3"/>
+          <line x1="21" y1="32" x2="30" y2="32" opacity="0.3"/>
+        </svg>
+        <div class="search-overlay-empty-text">${this.escape(title)}</div>
+        <div class="search-overlay-empty-hint">${this.escape(hint)}</div>
+      </div>`;
     },
 
     /** Debounced search · 200ms after last keystroke we hit
@@ -8763,118 +8479,55 @@
       }
       const seq = (this._searchSeq = (this._searchSeq || 0) + 1);
       const target = document.querySelector("[data-search-results]");
-      const metaEl = document.querySelector("[data-search-results-meta]");
-      // Keep the card's empty-state class in sync with the live
-      // query · the CSS class hides the trailing ✕ when the
-      // input is genuinely empty so the hero's right edge stays
-      // clean before the user has typed anything.
-      const card = document.querySelector("[data-search-card]");
-      if (card) card.classList.toggle("is-empty", q.length === 0);
       if (!target) return;
       if (q.length === 0) {
-        // Empty query · snap back to the hero (initial state),
-        // clear the results list + meta. The CSS hides both via
-        // `.is-initial`; we still wipe innerHTML so a later
-        // .has-results flip doesn't briefly show stale rows.
-        this._setSearchPageState("initial");
-        target.innerHTML = "";
-        if (metaEl) metaEl.textContent = "";
+        target.innerHTML = this._searchOverlayEmptyHtml();
         return;
       }
-      // Non-empty query · flip to results state (CSS fades the
-      // hero out, shrinks the input into the head row) and show
-      // a small "searching…" placeholder while the fetch is in
-      // flight. The meta line takes a beat to populate.
-      this._setSearchPageState("results");
-      target.innerHTML = `<div class="search-empty"><span class="search-empty-kicker">// searching</span><div class="search-empty-msg">…</div></div>`;
-      if (metaEl) metaEl.textContent = "";
+      target.innerHTML = `<div class="search-overlay-status"><span class="search-overlay-status-kicker">// searching</span><div class="search-overlay-status-msg">…</div></div>`;
       this._searchDebounceTimer = setTimeout(async () => {
         try {
           const r = await fetch("/api/search?q=" + encodeURIComponent(q));
           if (!r.ok) throw new Error("HTTP " + r.status);
           const j = await r.json();
-          if (seq !== this._searchSeq) return; // stale
+          if (seq !== this._searchSeq) return;
           this.renderSearchResults(j.results || [], q);
         } catch (e) {
           if (seq !== this._searchSeq) return;
-          target.innerHTML = `<div class="search-empty"><span class="search-empty-kicker">// error</span><div class="search-empty-msg">${this.escape(String(e && e.message ? e.message : e))}</div></div>`;
+          target.innerHTML = `<div class="search-overlay-status"><span class="search-overlay-status-kicker">// error</span><div class="search-overlay-status-msg">${this.escape(String(e && e.message ? e.message : e))}</div></div>`;
         }
       }, 200);
     },
 
-    /** Render the search results list · flat ordered list with
-     *  Google-style 3-line rows (mono source breadcrumb → sans
-     *  link title → sans snippet body). Per-row chrome is defined
-     *  in `renderSearchResultRow`. The sort order ("newest" /
-     *  "oldest") is read from `app._searchSort` (default
-     *  "newest") and re-applied client-side by `_applySearchSort`
-     *  whenever the user clicks a sort chip — no re-fetch. */
+    /** Render the result list · flat `<ul.search-overlay-list>` of
+     *  `.so-row` rows, sorted newest-first by createdAt. 0-match
+     *  shows a status block in place of the list. */
     renderSearchResults(results, query) {
       const target = document.querySelector("[data-search-results]");
-      const metaEl = document.querySelector("[data-search-results-meta]");
       if (!target) return;
-      // Cache the raw response so the sort chip click can re-
-      // render without hitting the server again. Also store the
-      // query so the row builder knows what to highlight.
       this._searchLastResults = Array.isArray(results) ? results.slice() : [];
       this._searchLastQueryRendered = query || "";
       if (!results || results.length === 0) {
-        if (metaEl) metaEl.textContent = `0 matches`;
-        target.innerHTML = `<div class="search-empty"><span class="search-empty-kicker">// no matches</span><div class="search-empty-msg">No messages match "${this.escape(query)}". Try a shorter or different term.</div></div>`;
+        target.innerHTML = `<div class="search-overlay-status"><span class="search-overlay-status-kicker">// no matches</span><div class="search-overlay-status-msg">No messages match "${this.escape(query)}". Try a shorter or different term.</div></div>`;
         return;
       }
-      const sorted = this._applySearchSort(results);
-      const roomSet = new Set(sorted.map((r) => r.roomId));
-      if (metaEl) {
-        metaEl.textContent =
-          `${sorted.length} match${sorted.length === 1 ? "" : "es"} · ` +
-          `${roomSet.size} room${roomSet.size === 1 ? "" : "s"}`;
-      }
+      const sorted = results.slice().sort((a, b) => ((b && b.createdAt) || 0) - ((a && a.createdAt) || 0));
       const rows = sorted.map((hit) => this.renderSearchResultRow(hit, query)).join("");
-      target.innerHTML = `<ul class="search-results-list">${rows}</ul>`;
+      target.innerHTML = `<ul class="search-overlay-list">${rows}</ul>`;
     },
 
-    /** Sort a results array by createdAt according to the current
-     *  `app._searchSort` setting. Returns a NEW array so the
-     *  cached `_searchLastResults` stays in original order. */
-    _applySearchSort(results) {
-      const order = this._searchSort === "oldest" ? "oldest" : "newest";
-      const sorted = (results || []).slice();
-      sorted.sort((a, b) => {
-        const aT = (a && a.createdAt) || 0;
-        const bT = (b && b.createdAt) || 0;
-        return order === "oldest" ? aT - bT : bT - aT;
-      });
-      return sorted;
-    },
-
-    /** Sync the active state on the sort chips so the lit button
-     *  reflects `app._searchSort`. Called from the chip click
-     *  handler + on initial mount. */
-    _refreshSortChips() {
-      const order = this._searchSort === "oldest" ? "oldest" : "newest";
-      document.querySelectorAll("[data-search-sort-by]").forEach((btn) => {
-        btn.classList.toggle("active", btn.getAttribute("data-search-sort-by") === order);
-      });
-    },
-
-    /** Build one Google-style result row · three stacked text
-     *  lines:
-     *    1. Source breadcrumb (mono caption, faint) · author name
-     *       + time-ago — the "URL row" equivalent.
-     *    2. Title (sans link, lime on hover) · the room subject
-     *       (truncated). Clicking jumps to `#/r/<id>?m=<mid>&q=
-     *       <q>` exactly like the previous flat-list row.
-     *    3. Snippet (sans body, soft tone) · 2-line clamp of the
-     *       message context with `<mark>` highlight on the
-     *       matched keyword.
-     *  Snippet window (~110 lead, ~180 trail) is unchanged from
-     *  the prior implementation — the change is purely visual. */
+    /** Build one overlay result row · grid layout (icon | title |
+     *  meta · snippet spans cols 2-3). `<mark>` wraps the matched
+     *  fragment inside the snippet so the keyword stays visible
+     *  inside the truncated context. Click → `#/r/{roomId}?m=
+     *  {msgId}&q={q}` — same hash-router path the prior page used,
+     *  so message-jump + keyword-flash on the destination is
+     *  unchanged. */
     renderSearchResultRow(hit, query) {
       const body = hit.body || "";
       const offset = Math.max(0, hit.matchOffset || 0);
       const ql = (query || "").length;
-      const LEAD = 110, TRAIL = 180;
+      const LEAD = 60, TRAIL = 120;
       const start = Math.max(0, offset - LEAD);
       const end = Math.min(body.length, offset + ql + TRAIL);
       const prefix = start > 0 ? "…" : "";
@@ -8888,31 +8541,12 @@
         `<mark>${this.escape(flat(matched))}</mark>` +
         this.escape(flat(after) + suffix);
       const roomTitle = (hit.roomTitle || "Untitled room").trim() || "Untitled room";
-      const author = (hit.authorName || "").trim() || "Director";
       const timeAgo = hit.createdAt ? this.relTime(hit.createdAt) : "";
       const qParam = query ? `&q=${encodeURIComponent(query)}` : "";
-      // Source breadcrumb · author + relative time. No "from"
-      // label · room title is now the prominent title line (where
-      // the user navigates to), so the breadcrumb only needs to
-      // identify the speaker + when.
-      const sourceLine =
-        `<span class="sr-source-author">${this.escape(author)}</span>` +
-        (timeAgo
-          ? `<span class="sr-source-sep">·</span><span class="sr-source-time">${this.escape(timeAgo)}</span>`
-          : "");
-      return `
-        <li>
-          <a href="#/r/${this.escape(hit.roomId)}?m=${this.escape(hit.messageId)}${qParam}"
-             class="sr-row"
-             data-search-jump-room="${this.escape(hit.roomId)}"
-             data-search-jump-msg="${this.escape(hit.messageId)}"
-             data-search-jump-q="${this.escape(query || "")}">
-            <div class="sr-source">${sourceLine}</div>
-            <div class="sr-title">${this.escape(roomTitle)}</div>
-            <div class="sr-snippet">${snippet}</div>
-          </a>
-        </li>
-      `;
+      // Lucide MessageSquare · chat-bubble icon matching the
+      // Claude search.png reference. Inherit currentColor.
+      const icon = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
+      return `<li><a href="#/r/${this.escape(hit.roomId)}?m=${this.escape(hit.messageId)}${qParam}" class="so-row" data-search-jump-room="${this.escape(hit.roomId)}" data-search-jump-msg="${this.escape(hit.messageId)}" data-search-jump-q="${this.escape(query || "")}"><span class="so-row-icon">${icon}</span><span class="so-row-title">${this.escape(roomTitle)}</span><span class="so-row-meta">${this.escape(timeAgo)}</span><span class="so-row-snippet">${snippet}</span></a></li>`;
     },
 
     /** Render the All Notes timeline · same filter-strip + date-
@@ -10241,182 +9875,6 @@
      *  tune live as a slim toolbar inside its bottom edge so the page
      *  has one clear gravitational centre, not three competing form
      *  fields. */
-    /** 8-bit ambient backdrop · same vocabulary as the Search page's
-     *  `.search-bg-deco` (crispEdges pixel motifs, lime accents) but
-     *  scene-tuned for each composer:
-     *    · room  → mini boardroom (pixel table + 4 chair silhouettes)
-     *    · agent → row of pixel character heads w/ speech bubbles
-     *  Constellation dots + corner brackets are shared. Returns plain
-     *  SVG markup ready to drop into `.cmp-bg-deco`. */
-    composerBgDecoSvg(scene) {
-      // Helper · stagger animation-delays so siblings don't pulse in
-      // lockstep. Returns a string like `style="animation-delay: 1.2s"`.
-      // The pseudo-random offset is index-based so it's deterministic
-      // (no flicker between renders).
-      const _delay = (i, base) => `style="animation-delay: ${(((i * 137) % 100) / 100 * base).toFixed(2)}s"`;
-      // Constellation dots + lime accents + corner brackets · shared
-      // ambient "8-bit sky" the user singled out as the visual goal.
-      // Each dot animates with `deco-twinkle` keyframes for a slow
-      // opacity blink, staggered by index so the field shimmers
-      // organically instead of pulsing as a single beat.
-      const scatterDots = [
-        [32, 38], [78, 22], [118, 62], [156, 30], [206, 78], [254, 44],
-        [298, 92], [342, 26], [388, 68], [436, 38], [486, 86], [528, 50],
-        [572, 22], [618, 74], [664, 42], [708, 88], [752, 32], [60, 200],
-        [186, 216], [278, 196], [554, 222], [646, 198], [734, 226],
-      ];
-      const limeAccents = [
-        // Dropped the centre-lower lime dot (416, 170) — it sat
-        // directly behind the H1 prompt and read as a typo.
-        [170, 98], [540, 38],
-      ];
-      const scatter = `
-        <g fill="var(--line-bright, #2A2A26)">
-          ${scatterDots.map(([x, y], i) =>
-            `<rect class="deco-twinkle" ${_delay(i, 4.5)} x="${x}" y="${y}" width="2" height="2"/>`
-          ).join("")}
-        </g>
-        <g fill="var(--lime, #6FB572)">
-          ${limeAccents.map(([x, y], i) =>
-            `<rect class="deco-shine" ${_delay(i + 7, 2.8)} x="${x}" y="${y}" width="3" height="3"/>`
-          ).join("")}
-        </g>
-        <g fill="var(--line-bright, #2A2A26)">
-          <rect x="14"  y="14"  width="20" height="2"/>
-          <rect x="14"  y="14"  width="2"  height="20"/>
-          <rect x="766" y="14"  width="20" height="2"/>
-          <rect x="784" y="14"  width="2"  height="20"/>
-        </g>
-      `;
-      // Scene-specific MINI motifs · small scattered 8-bit glyphs that
-      // theme the constellation without occupying the centre stage.
-      // Replaces the previous big centred tableau (table + chairs /
-      // row of character heads) — the user wanted ambient dots /
-      // sparkles tinted with each composer's flavour, not a literal
-      // scene in the hero band. Each motif is ≤ 14×14 px so the band
-      // still reads as scatter, not a feature illustration.
-      let motif = "";
-      if (scene === "room") {
-        // Room scene · tiny pixel chairs + mics + plus-sparkles + a
-        // few pixel "speech-mark" pairs (boardroom vocabulary). All
-        // in the warm wood / cyan moderator palette so the scatter
-        // tints toward "meeting" without ever forming a tableau.
-        // Each group carries an animation class · `deco-bob` for
-        // chairs, `deco-spark` for "+" glyphs, `deco-twinkle` for
-        // quote dots. Inline animation-delays stagger across siblings
-        // so the field never pulses in lockstep.
-        // Center-lower zone (roughly x ∈ [280, 520], y > 140) is
-        // where the H1 "What's on your mind today?" prompt lands.
-        // Cleared of motif elements so the chairs / mics / sparks /
-        // quote dots never collide with the title text · the deco
-        // stays visible only at the periphery + along the top band.
-        // Same hygiene pass as the agent composer's motif.
-        // All motif fills below pull from theme tokens (`--accent-line`
-        // is the brand-tinted hairline = very subtle in both themes)
-        // so the backdrop adopts the page's palette instead of staying
-        // a fixed wood-brown patch that looks "dirty" on a light bg.
-        const chairs = [
-          { x: 108, y: 138 },
-          { x: 372, y: 46 },
-          { x: 678, y: 148 },
-        ];
-        const sparks = [
-          [98, 78], [640, 62], [588, 156],
-        ];
-        const quotes = [
-          [148, 110], [152, 110], [716, 98], [720, 98],
-        ];
-        motif = `
-          <g shape-rendering="crispEdges">
-            <!-- Mini chair silhouettes — fill pulled from theme token -->
-            ${chairs.map((c, i) => `
-              <g class="deco-bob" ${_delay(i + 3, 3.2)} fill="var(--accent-line)">
-                <rect x="${c.x}" y="${c.y + 10}" width="6" height="2"/>
-                <rect x="${c.x}" y="${c.y}"      width="2" height="10"/>
-                <rect x="${c.x + 6}" y="${c.y}"  width="2" height="10"/>
-              </g>
-            `).join("")}
-            <!-- Tiny microphones · static (small, would feel busy). -->
-            <g fill="var(--accent-line)">
-              <rect x="226" y="46"  width="3" height="2"/>
-              <rect x="227" y="42"  width="1" height="4"/>
-              <rect x="514" y="100" width="3" height="2"/>
-              <rect x="515" y="96"  width="1" height="4"/>
-            </g>
-            <!-- Wood-tone "+" sparkles · scale-pulse animation -->
-            ${sparks.map(([x, y], i) => `
-              <g class="deco-spark" ${_delay(i + 11, 2.4)} fill="var(--amber-dim, #5C3A1F)">
-                <rect x="${x}"     y="${y + 2}" width="6" height="2"/>
-                <rect x="${x + 2}" y="${y}"     width="2" height="6"/>
-              </g>
-            `).join("")}
-            <!-- Pixel "quote marks" · 2-dot pairs, twinkle in sync -->
-            ${quotes.map(([x, y], i) =>
-              `<rect class="deco-twinkle" ${_delay(i + 17, 3.5)} x="${x}" y="${y}" width="2" height="2" fill="var(--lime-dim, #2D5532)"/>`
-            ).join("")}
-          </g>
-        `;
-      } else if (scene === "agent") {
-        // Agent scene · tiny pixel character heads (4×4) + mini
-        // speech bubbles (5×3) + lime sparkles · evokes "cast / new
-        // persona" without ever forming a centre tableau. Heads are
-        // small enough to read as constellation, not as portraits.
-        // Heads bob, bubbles blink in / out, sparkles pulse.
-        // Center-lower zone (roughly x ∈ [280, 520], y > 140) is
-        // where the H1 "What do you want to build?" prompt lands.
-        // Cleared of motif elements so the heads / bubbles / sparks
-        // never collide with the title text · the deco stays
-        // visible only at the periphery + along the top band.
-        const heads = [
-          [124, 48], [498, 64], [676, 178], [218, 200],
-        ];
-        const bubbles = [
-          [170, 68], [362, 92], [552, 46], [612, 206],
-        ];
-        const ideaSparks = [
-          [68, 118], [724, 138], [84, 186],
-        ];
-        motif = `
-          <g shape-rendering="crispEdges">
-            <!-- Mini character heads · fills pulled from theme tokens
-                 so the heads stop reading as out-of-place skin-tan +
-                 dark-brown patches against a white bg. -->
-            ${heads.map(([x, y], i) => `
-              <g class="deco-bob" ${_delay(i + 21, 3.0)}>
-                <rect x="${x}" y="${y}" width="4" height="4" fill="var(--accent-line)"/>
-                <rect x="${x}" y="${y}" width="4" height="1" fill="var(--lime-dim)"/>
-              </g>
-            `).join("")}
-            <!-- Tiny speech bubbles · 10×6 pill with 1-pixel tail · blink -->
-            ${bubbles.map(([x, y], i) => `
-              <g class="deco-blink" ${_delay(i + 27, 4.0)}>
-                <rect x="${x}"     y="${y}"     width="10" height="6" fill="var(--panel-3, #1A1A18)"/>
-                <rect x="${x}"     y="${y}"     width="10" height="1" fill="var(--lime-dim, #2D5532)"/>
-                <rect x="${x}"     y="${y + 5}" width="10" height="1" fill="var(--lime-dim, #2D5532)"/>
-                <rect x="${x}"     y="${y}"     width="1"  height="6" fill="var(--lime-dim, #2D5532)"/>
-                <rect x="${x + 9}" y="${y}"     width="1"  height="6" fill="var(--lime-dim, #2D5532)"/>
-                <rect x="${x + 2}" y="${y + 6}" width="2"  height="1" fill="var(--lime-dim, #2D5532)"/>
-              </g>
-            `).join("")}
-            <!-- Idea sparkles · "+" glyphs in lime-dim · scale pulse -->
-            ${ideaSparks.map(([x, y], i) => `
-              <g class="deco-spark" ${_delay(i + 33, 2.6)} fill="var(--lime-dim, #2D5532)">
-                <rect x="${x}"     y="${y + 2}" width="6" height="2"/>
-                <rect x="${x + 2}" y="${y}"     width="2" height="6"/>
-              </g>
-            `).join("")}
-          </g>
-        `;
-      }
-      return `
-        <svg viewBox="0 0 800 280" preserveAspectRatio="xMidYMin slice"
-             shape-rendering="crispEdges" aria-hidden="true">
-          ${scatter}
-          ${motif}
-        </svg>
-      `;
-    },
-
     renderComposerHtml(state) {
       const userName = (this.prefs?.name || "you").trim() || "you";
       const lang = this.composerLanguage();
@@ -10508,7 +9966,6 @@
 
       return `
         <section class="cmp">
-          <div class="cmp-bg-deco" aria-hidden="true">${this.composerBgDecoSvg("room")}</div>
           <header class="cmp-hero">
             <div class="cmp-greet">${this.escape(t.greet)}</div>
             <h1 class="cmp-prompt">${this.escape(t.prompt)}</h1>
@@ -11406,15 +10863,14 @@
       const ctaHint = builderMode === "full"
         ? "5–10 min · ReAct research + 7-phase build"
         : t.ctaHint;
-      // Celebrity seed cards · 6 random portraits from the pool of
+      // Celebrity seed cards · 4 random portraits from the pool of
       // (CELEBRITY_SEEDS_V1 ∪ generated) − consumed. New random
       // pick on every render so users browse a rotating set.
-      const celebrityCards = this._pickRandomCelebrities(6)
+      const celebrityCards = this._pickRandomCelebrities(4)
         .map((seed) => this.celebrityCardHtml(seed))
         .join("");
       return `
         <section class="cmp ag-cmp">
-          <div class="cmp-bg-deco" aria-hidden="true">${this.composerBgDecoSvg("agent")}</div>
           <header class="cmp-hero">
             <div class="cmp-greet">${this.escape(t.greet)}</div>
             <h1 class="cmp-prompt">${this.escape(t.prompt)}</h1>
@@ -13787,13 +13243,13 @@
       return pool.slice(0, take);
     },
 
-    /** Build the markup for the 4 visible scenario cards. Compact
+    /** Build the markup for the 2 visible scenario cards. Compact
      *  2-col grid layout — matches the celebrity seed cards on the
      *  new-agent page (mono kicker → serif italic headline → italic
      *  intro). No pills, no avatars, no CTA arrow — the entire card
      *  is one click target. */
     scenarioAdCardsHtml() {
-      return this._pickRandomScenarios(4)
+      return this._pickRandomScenarios(2)
         .map((c) => this.scenarioCardHtml(c))
         .join("");
     },
@@ -20115,67 +19571,27 @@
       app.downloadRoomVoiceMp3s().catch((err) => alert(String(err && err.message ? err.message : err)));
       return;
     }
-    // Search view · clear-input button (X) inside the input wrap.
-    if (e.target.closest("[data-search-clear]")) {
+    // Search overlay · close button (X) or scrim click. Either
+    // element carries `[data-search-overlay-close]`. Closes the
+    // overlay without touching the underlying view.
+    if (e.target.closest("[data-search-overlay-close]")) {
       e.preventDefault();
-      const input = document.querySelector("[data-search-input]");
-      if (input) {
-        input.value = "";
-        input.focus();
-        app.runSearch("");
-      }
+      if (typeof app.closeSearchOverlay === "function") app.closeSearchOverlay();
       return;
     }
-    // Search view · starter chip click. Pre-fills the input with
-    // the chip's keyword and triggers a search. Dispatching an
-    // input event ensures the existing doc-level input listener
-    // (which calls runSearch) fires too, so the debounced fetch
-    // path stays canonical.
-    const starter = e.target.closest("[data-search-starter]");
-    if (starter) {
-      e.preventDefault();
-      const term = starter.getAttribute("data-search-starter") || "";
-      const input = document.querySelector("[data-search-input]");
-      if (input && term) {
-        input.value = term;
-        input.focus();
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      return;
-    }
-    // Search view · sort chip ("Newest" / "Oldest"). Updates the
-    // sort key + re-renders the cached result list client-side.
-    // No re-fetch · the API doesn't expose a sort param and the
-    // dataset is small (≤ 200 hits per query) so an in-memory
-    // sort is the right call.
-    const sortChip = e.target.closest("[data-search-sort-by]");
-    if (sortChip) {
-      e.preventDefault();
-      const next = sortChip.getAttribute("data-search-sort-by") === "oldest" ? "oldest" : "newest";
-      if (app._searchSort === next) return; // already active
-      app._searchSort = next;
-      app._refreshSortChips();
-      // Re-render from the cached results · skip the no-cache
-      // path (search not yet run) since the chip group is hidden
-      // in is-initial.
-      const cached = Array.isArray(app._searchLastResults) ? app._searchLastResults : null;
-      const cachedQuery = app._searchLastQueryRendered || app._searchLastQuery || "";
-      if (cached && cached.length > 0) {
-        app.renderSearchResults(cached, cachedQuery);
-      }
-      return;
-    }
-    // Search view · result row click. Anchor's href is
+    // Search overlay · result row click. Anchor's href is
     // `#/r/<id>?m=<mid>&q=<query>`, which the hashchange route
     // handler picks up. We stash the pending message id + query
     // here too as a belt-and-braces in case the hash is consumed
-    // by another listener before handleRoute runs.
+    // by another listener before handleRoute runs. Also closes
+    // the overlay so the destination room is visible immediately.
     const searchJumpMsg = e.target.closest("[data-search-jump-msg]");
     if (searchJumpMsg) {
       const mid = searchJumpMsg.getAttribute("data-search-jump-msg");
       const qry = searchJumpMsg.getAttribute("data-search-jump-q") || "";
       if (mid) app._pendingMessageScroll = mid;
       app._pendingMessageQuery = qry;
+      if (typeof app.closeSearchOverlay === "function") app.closeSearchOverlay();
       // Let the anchor navigate naturally (hash change → handleRoute
       // → openRoom). No `return` since the link's default action
       // does the navigation.

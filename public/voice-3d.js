@@ -118,14 +118,29 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *    · brainstorm   · sky-blue garden walls (open / outdoor)
    *    · constructive · graphite glass partitions (modern corporate)
    *    · research     · light-oak library walls
-   *    · debate       · dark-oak wainscot (forum / chamber)
+   *    · debate       · warm oak wainscot (forum / chamber)
    *    · critique     · mahogany executive panel
-   *  Each entry: { wall, trim (baseboard), rail (chair-rail accent) }. */
+   *  Each entry: { wall, trim (baseboard), rail (chair-rail accent) }.
+   *  NOTE · brainstorm / constructive / critique entries are LEGACY
+   *  fallbacks · refreshWallColors swaps in procedural textures
+   *  (red brick / mossy stone / sandstone) for those tones. The
+   *  palette stays around so any client that hits the painted-
+   *  material branch (texture build failure, future reduced-detail
+   *  mode) still gets a coherent fallback colour. debate uses the
+   *  flat painted-wall path · the bright warm-oak tone reads as a
+   *  lit forum panel without needing a procedural texture. */
   const WALL_PALETTE_BY_TONE = {
     brainstorm:   { wall: 0xA3B8C4, trim: 0x5F7A8A, rail: 0x7B97A8 },
     constructive: { wall: 0x6E7480, trim: 0x42454D, rail: 0x575C66 },
     research:     { wall: 0xD9CBAD, trim: 0x8B7355, rail: 0xB29874 },
-    debate:       { wall: 0x4E3A2A, trim: 0x231811, rail: 0x382821 },
+    // Bumped from 0x4E3A2A · the prior tone read as nearly black under
+    // the scene's ambient + key lighting, making the debate room feel
+    // closed and lightless. 0x856444 is a clear step up the warm-oak
+    // ladder: still distinctly darker than research's light oak, but
+    // bright enough that walls + trim + rail all register as wood
+    // colour rather than silhouette. Trim and rail nudged in
+    // proportion so the contrast ratio between layers stays consistent.
+    debate:       { wall: 0x856444, trim: 0x4A3422, rail: 0x6B4F36 },
     critique:     { wall: 0x6B3F2F, trim: 0x2A1612, rail: 0x4A2A20 },
   };
 

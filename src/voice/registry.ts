@@ -28,6 +28,42 @@ export interface VoiceCatalog {
   configured: boolean;
 }
 
+/** Paginated catalogue · returned by `listVoicesPage`. Adds `nextCursor`
+ *  + `hasMore` so the dropdown can fetch one chunk at a time and
+ *  append on scroll-to-bottom. The cursor is opaque (base64-JSON
+ *  encoded server-side); the client just round-trips it without
+ *  parsing. */
+export interface VoicePage {
+  voices: VoiceOption[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  provider: VoiceProvider | null;
+  configured: boolean;
+  /** Structured upstream error · present when the provider's catalogue
+   *  fetch failed in a way the user can act on (missing API-key scope,
+   *  invalid key, rate limit). The frontend surfaces a clear hint
+   *  instead of an empty-picker state. */
+  error?: VoiceFetchError;
+}
+
+export interface VoiceFetchError {
+  /** Stable code the frontend keys off (e.g. for an upgrade-overlay
+   *  branch). `missing_permissions` is the headline case · ElevenLabs
+   *  v2/voices requires the `voices_read` API-key scope and a key
+   *  generated without it 401s with `status: missing_permissions`. */
+  code: "missing_permissions" | "auth_failed" | "rate_limited" | "fetch_failed";
+  /** Human-readable summary in English · the frontend i18n's the
+   *  outer label via `code` and uses this string for the detail
+   *  line, so non-English locales still get useful upstream text. */
+  message: string;
+  /** Optional URL the user can open to fix the issue · for
+   *  missing-scope this is the ElevenLabs API-key management page. */
+  fixUrl?: string;
+  /** Provider that produced the error · so the frontend can label
+   *  the CTA ("Update ElevenLabs API key permissions"). */
+  provider: VoiceProvider;
+}
+
 function minimaxBaseUrl(): string {
   const region = getPrefs().minimaxRegion;
   return region === "intl"
@@ -46,13 +82,13 @@ const OPENAI_VOICES: VoiceOption[] = [
 
 // Built-in library voices · seed defaults so the picker has something
 // the moment the user adds an ElevenLabs key, before the dynamic
-// GET /v1/voices fetch round-trips (or when it fails / is blocked by
-// the network). These are "premade" voices in ElevenLabs's catalogue
-// — paid plans synthesize them fine; free-tier API hits return 402
+// /v2/voices fetch round-trips (or when it fails / is blocked by the
+// network). These are "premade" voices in ElevenLabs's catalogue —
+// paid plans synthesize them fine; free-tier API hits return 402
 // `paid_plan_required` which synthesizeElevenLabs translates into a
-// human-readable "library voices need a paid plan" message. So the
-// picker stays populated regardless of plan tier; the failure surface
-// is at preview/play time, where the error message is actionable.
+// human-readable "library voices need a paid plan" message. The picker
+// stays populated regardless of plan tier; the failure surface is at
+// preview/play time, where the error message is actionable.
 const ELEVENLABS_DEFAULT_VOICES: VoiceOption[] = [
   {
     provider: "elevenlabs",
@@ -110,207 +146,165 @@ export function listConfiguredVoices(): VoiceOption[] {
   return out;
 }
 
-/** Live catalogue · seeds + a network fetch from the ACTIVE provider's
- *  API. Same wire shape as before (a list of `VoiceOption`), wrapped in
- *  `{ voices, provider, configured }` so the route layer can surface
- *  the "no active voice provider" empty state without a second call. */
-export async function listAvailableVoices(): Promise<VoiceCatalog> {
-  const activeProvider = getActiveVoiceProvider();
-  let voices = listConfiguredVoices();
+/* ───── Pagination cursor encoding ─────
+ *
+ * Opaque to the frontend · base64-JSON internally so the server can
+ * carry either an ElevenLabs `next_page_token` (true API pagination)
+ * or a MiniMax slice `offset` (cache + slice, since MiniMax's API is
+ * single-shot) in the same field. */
+interface ParsedCursor {
+  /** "el" → ElevenLabs slice offset · "mm" → MiniMax slice offset.
+   *  Both providers now use cache-and-slice rather than passing raw
+   *  upstream tokens through · for ElevenLabs the cache merges three
+   *  sources (v2 + /v1/shared-voices + seed floor) so a single
+   *  upstream token can't represent the full position anyway. */
+  src: "el" | "mm";
+  offset?: number;
+}
 
-  // No active voice provider · only OpenAI (when configured) + browser
-  // fallback remain in `voices`. The frontend filters / messages off
-  // `configured` and `provider` so it can render the "open Settings to
-  // add one" empty state in the per-agent voice picker.
-  if (!activeProvider) {
-    return { voices, provider: null, configured: false };
+function encodeCursor(c: ParsedCursor): string {
+  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+}
+
+function decodeCursor(s: string | null | undefined): ParsedCursor | null {
+  if (!s) return null;
+  try {
+    const obj = JSON.parse(Buffer.from(s, "base64url").toString("utf8")) as ParsedCursor;
+    if (obj && (obj.src === "el" || obj.src === "mm")) return obj;
+  } catch { /* fall through */ }
+  return null;
+}
+
+/* ───── ElevenLabs v2 paged fetch ─────
+ *
+ * Walks every page of /v2/voices, accumulating into a flat list. The
+ * endpoint replaces the legacy /v1/voices personal-library call, and
+ * the v2 response shape (`voices`, `has_more`, `next_page_token`)
+ * matches what we need for pagination. Used by `fetchAllElevenLabsVoices`
+ * below as one of the three input sources (v2 + v1/shared + seeds). */
+interface ElevenLabsFetchResult {
+  voices: VoiceOption[];
+  /** Structured error · null on success or when the network error
+   *  isn't actionable (e.g. timeout · we just return the partial
+   *  voices we got). */
+  error: VoiceFetchError | null;
+}
+
+/** Inspect a non-2xx response body for ElevenLabs's structured error
+ *  shape and translate to a `VoiceFetchError`. The 401 `missing_permissions`
+ *  case is the headline one (API key was created without `voices_read`
+ *  scope); other auth / rate-limit responses get coarser codes so the
+ *  frontend can still render a useful hint. */
+function classifyElevenLabsError(status: number, body: string): VoiceFetchError {
+  let parsed: { detail?: { status?: string; message?: string } } | null = null;
+  try { parsed = JSON.parse(body); } catch { /* body wasn't JSON */ }
+  const detail = parsed?.detail;
+  const upstreamStatus = typeof detail?.status === "string" ? detail.status : "";
+  const upstreamMessage = typeof detail?.message === "string"
+    ? detail.message
+    : body.slice(0, 200);
+
+  if (status === 401 && upstreamStatus === "missing_permissions") {
+    return {
+      code: "missing_permissions",
+      provider: "elevenlabs",
+      message: upstreamMessage,
+      // Direct link to the API-key management page · "Update key
+      // permissions" is what the user needs to do, and ElevenLabs's
+      // settings page surfaces the scope checkboxes prominently.
+      fixUrl: "https://elevenlabs.io/app/settings/api-keys",
+    };
   }
-
-  const activeKey = getActiveVoiceKeyPlaintext();
-  if (!activeKey) {
-    // Provider pointed to but decryption failed (corrupted blob or
-    // a Mac-username change broke the scrypt-derived key). Surface as
-    // unconfigured so the UI prompts the user to re-add the credential.
-    return { voices, provider: activeProvider, configured: false };
+  if (status === 401 || status === 403) {
+    return {
+      code: "auth_failed",
+      provider: "elevenlabs",
+      message: upstreamMessage,
+      fixUrl: "https://elevenlabs.io/app/settings/api-keys",
+    };
   }
+  if (status === 429) {
+    return {
+      code: "rate_limited",
+      provider: "elevenlabs",
+      message: upstreamMessage,
+    };
+  }
+  return {
+    code: "fetch_failed",
+    provider: "elevenlabs",
+    message: `HTTP ${status}: ${upstreamMessage}`,
+  };
+}
 
-  if (activeProvider === "minimax") {
+async function fetchAllElevenLabsV2Voices(apiKey: string): Promise<ElevenLabsFetchResult> {
+  const out: VoiceOption[] = [];
+  let token: string | null = null;
+  let lastError: VoiceFetchError | null = null;
+  // Cap at 20 pages × 100 = 2000 voices · plenty for any realistic
+  // account, and the cap exists only as a runaway guard in case the
+  // upstream API ever loops on tokens.
+  for (let i = 0; i < 20; i++) {
+    const url = new URL("https://api.elevenlabs.io/v2/voices");
+    url.searchParams.set("page_size", "100");
+    if (token) url.searchParams.set("next_page_token", token);
     try {
-      const res = await fetch(`${minimaxBaseUrl()}/v1/get_voice`, {
-        method: "POST",
-        headers: {
-          "authorization": `Bearer ${activeKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ voice_type: "all" }),
+      const res = await fetch(url.toString(), {
+        headers: { "xi-api-key": apiKey },
       });
-      if (res.ok) {
-        const json = await res.json() as Record<string, unknown>;
-        const rows = [
-          ...voiceRows(json.system_voice, "system"),
-          ...voiceRows(json.voice_cloning, "clone"),
-          ...voiceRows(json.voice_generation, "generated"),
-        ];
-        if (rows.length > 0) {
-          const nonMiniMax = voices.filter((v) => v.provider !== "minimax");
-          voices = [
-            ...nonMiniMax,
-            ...rows.map((r) => ({
-              provider: "minimax" as const,
-              model: "speech-2.8-hd",
-              voiceId: r.voiceId,
-              label: r.label,
-              language: r.kind,
-              configured: true,
-            })),
-          ];
-        }
+      if (!res.ok) {
+        const errText = await res.text();
+        process.stderr.write(
+          `[voice-registry] elevenlabs /v2/voices HTTP ${res.status}: ${errText.slice(0, 300)}\n`,
+        );
+        lastError = classifyElevenLabsError(res.status, errText);
+        break;
       }
-    } catch { /* keep seed voices */ }
-    return { voices, provider: "minimax", configured: true };
-  }
-
-  if (activeProvider === "elevenlabs") {
-    // Pull TWO sources in parallel so a paid user gets the full picture:
-    //   (a) /v1/voices  — voices in their personal library (clones,
-    //       premade defaults, voices they've previously added). For a
-    //       fresh paid account this is typically ~10 voices.
-    //   (b) /v1/shared-voices  — the public ElevenLabs Voice Library
-    //       (community + featured voices). Paid users can synthesize
-    //       these directly via /text-to-speech/{voice_id}. We pull the
-    //       most popular first page (100 voices) so the picker has a
-    //       useful catalogue without forcing the user to "add to library"
-    //       first.
-    //
-    // Errors on either fetch are logged to stderr (no longer silently
-    // swallowed) so when the picker shows the bare 2 defaults it's clear
-    // from server logs why. `show_legacy=true` keeps the picker compatible
-    // with users whose accounts still carry legacy voice IDs.
-    const personal: Array<{ voiceId: string; label: string; category: string }> = [];
-    const shared: Array<{ voiceId: string; label: string; category: string; language?: string }> = [];
-
-    await Promise.all([
-      (async () => {
-        try {
-          const res = await fetch(
-            "https://api.elevenlabs.io/v1/voices?show_legacy=true&include_total_count=true",
-            { headers: { "xi-api-key": activeKey } },
-          );
-          if (!res.ok) {
-            const errText = await res.text();
-            process.stderr.write(
-              `[voice-registry] elevenlabs /v1/voices HTTP ${res.status}: ${errText.slice(0, 300)}\n`,
-            );
-            return;
-          }
-          const json = await res.json() as { voices?: unknown };
-          const rows = elevenLabsVoiceRows(json.voices);
-          process.stderr.write(`[voice-registry] elevenlabs /v1/voices · ${rows.length} voices in personal library\n`);
-          personal.push(...rows);
-        } catch (e) {
-          const cause = e instanceof Error ? (e as { cause?: { message?: string } }).cause : null;
-          const detail = cause?.message ? `: ${cause.message}` : "";
-          process.stderr.write(
-            `[voice-registry] elevenlabs /v1/voices fetch failed${detail} · ${e instanceof Error ? e.message : String(e)}\n`,
-          );
-        }
-      })(),
-      (async () => {
-        try {
-          // page_size capped at 100 by ElevenLabs; that's enough for the
-          // picker without paginating. Sorted by `usage_character_count`
-          // (default) so the most popular voices surface first.
-          const res = await fetch(
-            "https://api.elevenlabs.io/v1/shared-voices?page_size=100",
-            { headers: { "xi-api-key": activeKey } },
-          );
-          if (!res.ok) {
-            const errText = await res.text();
-            process.stderr.write(
-              `[voice-registry] elevenlabs /v1/shared-voices HTTP ${res.status}: ${errText.slice(0, 300)}\n`,
-            );
-            return;
-          }
-          const json = await res.json() as { voices?: unknown };
-          const rows = elevenLabsSharedVoiceRows(json.voices);
-          process.stderr.write(`[voice-registry] elevenlabs /v1/shared-voices · ${rows.length} voices from public library\n`);
-          shared.push(...rows);
-        } catch (e) {
-          const cause = e instanceof Error ? (e as { cause?: { message?: string } }).cause : null;
-          const detail = cause?.message ? `: ${cause.message}` : "";
-          process.stderr.write(
-            `[voice-registry] elevenlabs /v1/shared-voices fetch failed${detail} · ${e instanceof Error ? e.message : String(e)}\n`,
-          );
-        }
-      })(),
-    ]);
-
-    if (personal.length > 0 || shared.length > 0) {
-      const nonEl = voices.filter((v) => v.provider !== "elevenlabs");
-      const personalIds = new Set(personal.map((r) => r.voiceId));
-      // Dedupe · a voice the user has already added from the library
-      // shows up in BOTH /v1/voices (as "owned") and /v1/shared-voices.
-      // Prefer the personal-library row so its category label is honest.
-      const sharedDeduped = shared.filter((r) => !personalIds.has(r.voiceId));
-      const personalMapped = personal.map((r) => ({
-        provider: "elevenlabs" as const,
-        model: "eleven_multilingual_v2",
-        voiceId: r.voiceId,
-        label: r.label,
-        // Personal-library rows keep their actual category
-        // ("premade", "cloned", "professional", "generated").
-        language: r.category,
-        configured: true,
-      }));
-      const sharedMapped = sharedDeduped.map((r) => ({
-        provider: "elevenlabs" as const,
-        model: "eleven_multilingual_v2",
-        voiceId: r.voiceId,
-        // Prefix shared-library voices so users can tell at a glance
-        // which set they're picking from. The dropdown's group header
-        // already says "elevenlabs", so the per-row prefix is the
-        // tightest signal we have for personal-vs-shared.
-        label: `${r.label} · shared`,
-        language: r.language || r.category,
-        configured: true,
-      }));
-      voices = [...nonEl, ...personalMapped, ...sharedMapped];
+      const json = (await res.json()) as {
+        voices?: unknown;
+        has_more?: unknown;
+        next_page_token?: unknown;
+      };
+      const rows = elevenLabsV2VoiceRows(json.voices);
+      for (const r of rows) {
+        out.push({
+          provider: "elevenlabs",
+          model: "eleven_multilingual_v2",
+          voiceId: r.voiceId,
+          label: r.label,
+          language: r.category,
+          configured: true,
+        });
+      }
+      const nextToken =
+        json.has_more === true && typeof json.next_page_token === "string"
+          ? json.next_page_token
+          : null;
+      if (!nextToken) break;
+      token = nextToken;
+    } catch (e) {
+      const cause = e instanceof Error ? (e as { cause?: { message?: string } }).cause : null;
+      const detail = cause?.message ? `: ${cause.message}` : "";
+      process.stderr.write(
+        `[voice-registry] elevenlabs /v2/voices fetch failed${detail} · ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      lastError = {
+        code: "fetch_failed",
+        provider: "elevenlabs",
+        message: e instanceof Error ? e.message : String(e),
+      };
+      break;
     }
-    return { voices, provider: "elevenlabs", configured: true };
   }
-
-  return { voices, provider: activeProvider, configured: true };
+  process.stderr.write(
+    `[voice-registry] elevenlabs /v2/voices · ${out.length} voices total across all pages\n`,
+  );
+  return { voices: out, error: lastError };
 }
 
-/** Parse one voice row from the ElevenLabs /v1/shared-voices response.
- *  Schema differs from /v1/voices: shared rows use `name` for the
- *  display label, `category` carries "professional" / "high_quality",
- *  and there's a `language` field that's nice to surface to the user. */
-function elevenLabsSharedVoiceRows(
+function elevenLabsV2VoiceRows(
   raw: unknown,
-): Array<{ voiceId: string; label: string; category: string; language?: string }> {
-  if (!Array.isArray(raw)) return [];
-  const out: Array<{ voiceId: string; label: string; category: string; language?: string }> = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const obj = item as Record<string, unknown>;
-    const voiceId = typeof obj.voice_id === "string" ? obj.voice_id : "";
-    if (!voiceId) continue;
-    const label = typeof obj.name === "string" && obj.name.trim()
-      ? obj.name.trim()
-      : voiceId;
-    const category = typeof obj.category === "string" && obj.category.trim()
-      ? obj.category.trim()
-      : "shared";
-    const language = typeof obj.language === "string" && obj.language.trim()
-      ? obj.language.trim()
-      : undefined;
-    out.push({ voiceId, label, category, language });
-  }
-  return out;
-}
-
-function elevenLabsVoiceRows(raw: unknown): Array<{ voiceId: string; label: string; category: string }> {
+): Array<{ voiceId: string; label: string; category: string }> {
   if (!Array.isArray(raw)) return [];
   const out: Array<{ voiceId: string; label: string; category: string }> = [];
   for (const item of raw) {
@@ -327,6 +321,248 @@ function elevenLabsVoiceRows(raw: unknown): Array<{ voiceId: string; label: stri
     out.push({ voiceId, label, category });
   }
   return out;
+}
+
+/* ───── ElevenLabs cache · the canonical voice list comes solely from
+ * /v2/voices. Older sources have known problems on current accounts:
+ *   · /v1/shared-voices · Voice Library voices are NOT available to
+ *     free tier accounts via the API (per ElevenLabs docs). Free-tier
+ *     users were the dominant case where this returned empty, leaving
+ *     only the seed floor on screen.
+ *   · Hardcoded "Default voices" (Rachel / George) · ElevenLabs is
+ *     phasing out the legacy Default voices on 2026-12-31. Default
+ *     voices are only accessible to accounts created BEFORE 2026-03,
+ *     so a brand-new account would see "Rachel / George" in the
+ *     picker but synthesis would 404. We drop the seed mix-in so the
+ *     picker reflects truth · empty when the account genuinely has
+ *     no voices, populated when it does.
+ * Cache is 5 minutes. Pagination at the route layer slices the cached
+ * list. ELEVENLABS_DEFAULT_VOICES is still referenced by the synchronous
+ * `listConfiguredVoices` path (used as a placeholder voiceId for agent
+ * voice assignment); replacing those with newer IDs is a separate
+ * upgrade. */
+const ELEVENLABS_CACHE_TTL_MS = 5 * 60 * 1000;
+interface ElevenLabsCacheEntry {
+  voices: VoiceOption[];
+  expiresAt: number;
+}
+const elevenLabsCache = new Map<string, ElevenLabsCacheEntry>();
+
+function elevenLabsCacheKey(apiKey: string): string {
+  return apiKey.slice(0, 8);
+}
+
+async function getElevenLabsVoicesCached(apiKey: string): Promise<ElevenLabsFetchResult> {
+  const key = elevenLabsCacheKey(apiKey);
+  const cached = elevenLabsCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { voices: cached.voices, error: null };
+  }
+  const result = await fetchAllElevenLabsV2Voices(apiKey);
+  process.stderr.write(
+    `[voice-registry] elevenlabs catalogue · ${result.voices.length} voices from /v2/voices${result.error ? ` (error: ${result.error.code})` : ""}\n`,
+  );
+  // Only cache when the fetch succeeded · caching an error result
+  // would force the user to wait the full TTL after they fix their
+  // API-key permissions before the picker re-tries.
+  if (!result.error) {
+    elevenLabsCache.set(key, { voices: result.voices, expiresAt: Date.now() + ELEVENLABS_CACHE_TTL_MS });
+  }
+  return result;
+}
+
+/* ───── MiniMax cache · the /v1/get_voice endpoint is single-shot
+ * (returns the full catalogue in one response), so we cache the
+ * normalised list for 5 minutes and serve paged slices from memory.
+ * Subsequent picker opens within the TTL window pay zero network.
+ * Cache key is the first 8 chars of the API key so a credential
+ * swap invalidates naturally without holding plaintext in memory. */
+const MINIMAX_CACHE_TTL_MS = 5 * 60 * 1000;
+interface MiniMaxCacheEntry {
+  voices: VoiceOption[];
+  expiresAt: number;
+}
+const miniMaxCache = new Map<string, MiniMaxCacheEntry>();
+
+function miniMaxCacheKey(apiKey: string): string {
+  return apiKey.slice(0, 8);
+}
+
+async function fetchAllMiniMaxVoices(apiKey: string): Promise<VoiceOption[]> {
+  try {
+    const res = await fetch(`${minimaxBaseUrl()}/v1/get_voice`, {
+      method: "POST",
+      headers: {
+        "authorization": `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ voice_type: "all" }),
+    });
+    if (!res.ok) {
+      return MINIMAX_SYSTEM_VOICES.map((v) => ({ ...v, configured: true }));
+    }
+    const json = (await res.json()) as Record<string, unknown>;
+    const rows = [
+      ...voiceRows(json.system_voice, "system"),
+      ...voiceRows(json.voice_cloning, "clone"),
+      ...voiceRows(json.voice_generation, "generated"),
+    ];
+    if (rows.length === 0) {
+      return MINIMAX_SYSTEM_VOICES.map((v) => ({ ...v, configured: true }));
+    }
+    return rows.map((r) => ({
+      provider: "minimax" as const,
+      model: "speech-2.8-hd",
+      voiceId: r.voiceId,
+      label: r.label,
+      language: r.kind,
+      configured: true,
+    }));
+  } catch {
+    return MINIMAX_SYSTEM_VOICES.map((v) => ({ ...v, configured: true }));
+  }
+}
+
+async function getMiniMaxVoicesCached(apiKey: string): Promise<VoiceOption[]> {
+  const key = miniMaxCacheKey(apiKey);
+  const cached = miniMaxCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.voices;
+  const voices = await fetchAllMiniMaxVoices(apiKey);
+  miniMaxCache.set(key, { voices, expiresAt: Date.now() + MINIMAX_CACHE_TTL_MS });
+  return voices;
+}
+
+const BROWSER_FALLBACK: VoiceOption = {
+  provider: "browser",
+  model: "speechSynthesis",
+  voiceId: "system-default",
+  label: "Browser default",
+  configured: true,
+};
+
+/* ───── Paged catalogue ─────
+ *
+ * Returns one chunk of the catalogue plus a cursor for the next.
+ * The FIRST page (cursor === null) leads with the static OpenAI
+ * voices (if configured) so the user always has fast, cheap defaults
+ * even before the network round-trip for ElevenLabs / MiniMax. The
+ * browser fallback is appended on the LAST page so it sits at the
+ * very bottom of the list regardless of provider pagination depth. */
+export async function listVoicesPage(
+  cursorStr: string | null,
+  pageSize: number,
+): Promise<VoicePage> {
+  const size = Math.min(Math.max(pageSize | 0 || 30, 5), 100);
+  const cursor = decodeCursor(cursorStr);
+  const isFirstPage = cursor === null;
+
+  const activeProvider = getActiveVoiceProvider();
+  const fixed: VoiceOption[] = [];
+  if (isFirstPage && getKey("openai")) {
+    fixed.push(...OPENAI_VOICES.map((v) => ({ ...v, configured: true })));
+  }
+
+  // No active provider · only fixed + browser, one page total.
+  if (!activeProvider) {
+    return {
+      voices: [...fixed, BROWSER_FALLBACK],
+      nextCursor: null,
+      hasMore: false,
+      provider: null,
+      configured: false,
+    };
+  }
+
+  const activeKey = getActiveVoiceKeyPlaintext();
+  if (!activeKey) {
+    // Provider configured but key undecryptable · single fast page.
+    return {
+      voices: [...fixed, BROWSER_FALLBACK],
+      nextCursor: null,
+      hasMore: false,
+      provider: activeProvider,
+      configured: false,
+    };
+  }
+
+  if (activeProvider === "elevenlabs") {
+    const { voices: all, error } = await getElevenLabsVoicesCached(activeKey);
+    const offset = cursor && cursor.src === "el" ? (cursor.offset ?? 0) : 0;
+    const slice = all.slice(offset, offset + size);
+    const next = offset + slice.length;
+    const hasMore = next < all.length;
+    const nextCursor = hasMore ? encodeCursor({ src: "el", offset: next }) : null;
+    const voices = [...fixed, ...slice];
+    if (!hasMore) voices.push(BROWSER_FALLBACK);
+    return {
+      voices,
+      nextCursor,
+      hasMore,
+      provider: "elevenlabs",
+      configured: true,
+      // Only attach the error to the FIRST page response · subsequent
+      // pages (offset > 0) won't fire if the first page errored
+      // (voices is empty so hasMore is false), but defensive.
+      ...(error && offset === 0 ? { error } : {}),
+    };
+  }
+
+  if (activeProvider === "minimax") {
+    const all = await getMiniMaxVoicesCached(activeKey);
+    const offset = cursor && cursor.src === "mm" ? (cursor.offset ?? 0) : 0;
+    const slice = all.slice(offset, offset + size);
+    const next = offset + slice.length;
+    const hasMore = next < all.length;
+    const nextCursor = hasMore ? encodeCursor({ src: "mm", offset: next }) : null;
+    const voices = [...fixed, ...slice];
+    if (!hasMore) voices.push(BROWSER_FALLBACK);
+    return { voices, nextCursor, hasMore, provider: "minimax", configured: true };
+  }
+
+  // Unknown provider (future addition) · degrade gracefully.
+  return {
+    voices: [...fixed, BROWSER_FALLBACK],
+    nextCursor: null,
+    hasMore: false,
+    provider: activeProvider,
+    configured: true,
+  };
+}
+
+/** Manually drop cached voice catalogues · called when a credential is
+ *  added / swapped / removed so the next picker open re-fetches. Clears
+ *  both ElevenLabs and MiniMax caches; harmless if either is already
+ *  empty. */
+export function invalidateVoicesCache(): void {
+  miniMaxCache.clear();
+  elevenLabsCache.clear();
+}
+
+/* ───── Full-list catalogue (legacy / non-paged callers) ─────
+ *
+ * `voice-replay.js` + `app.js _prefetchVoiceLabels` both want a
+ * complete snapshot for label-resolution / availability gating, not
+ * paginated UI. Walk every page until `nextCursor === null` and
+ * concatenate. The page size is 100 to minimise round-trips on
+ * accounts with many voices · with MiniMax's cache + ElevenLabs v2
+ * paging, this completes in one or a few HTTP calls. */
+export async function listAvailableVoices(): Promise<VoiceCatalog> {
+  const voices: VoiceOption[] = [];
+  let cursor: string | null = null;
+  let provider: VoiceProvider | null = null;
+  let configured = false;
+  // Hard cap · 50 pages × 100 = 5000 voices ceiling. Far above any
+  // realistic ElevenLabs / MiniMax account; the cap exists only as
+  // a runaway guard in case the upstream API ever loops on tokens.
+  for (let i = 0; i < 50; i++) {
+    const page: VoicePage = await listVoicesPage(cursor, 100);
+    voices.push(...page.voices);
+    provider = page.provider;
+    configured = page.configured;
+    if (!page.hasMore || !page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return { voices, provider, configured };
 }
 
 function voiceRows(raw: unknown, kind: string): Array<{ voiceId: string; label: string; kind: string }> {

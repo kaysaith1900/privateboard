@@ -2895,17 +2895,109 @@
   /** API emotion slugs mirrored in PATCH body `voice.emotion`. */
   const VOICE_EMOTION_VALUES = ["", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"];
 
-  let voiceOptionsCache = null;
-  async function ensureVoiceOptions() {
-    if (voiceOptionsCache) return voiceOptionsCache;
-    try {
-      const r = await fetch("/api/voices");
-      const j = r.ok ? await r.json() : {};
-      voiceOptionsCache = Array.isArray(j.voices) ? j.voices : [];
-    } catch {
-      voiceOptionsCache = [];
+  /** Voice-picker pager state · drives infinite-scroll loading inside
+   *  the dropdown. ElevenLabs accounts can carry hundreds of voices
+   *  and MiniMax has dozens; rendering them all at once was visibly
+   *  slow on first picker open. Now we fetch one page at a time and
+   *  append on scroll-to-bottom. State persists across picker
+   *  opens/closes within a session · `invalidateVoicePager()` resets
+   *  it on key changes (called from `refreshAgentProfileSkills`). */
+  let voicePagerState = null;
+  function invalidateVoicePager() {
+    voicePagerState = null;
+    // Drop the in-flight reference too · the old fetch is still running
+    // but it'll write into the (now orphaned) old state object and the
+    // result is silently discarded. Clearing the reference lets the
+    // next caller start a fresh fetch against the new state instead of
+    // awaiting a promise that will populate the wrong object.
+    voicePageInFlight = null;
+  }
+  function getVoicePagerState() {
+    if (!voicePagerState) {
+      voicePagerState = {
+        voices: [],
+        cursor: null,
+        hasMore: true,
+        loading: false,
+        initialised: false,
+        provider: null,
+        configured: false,
+        // Structured upstream error from the catalogue fetch · null
+        // on success / before first call. When present, the picker
+        // renders a banner with the title/body keys and an optional
+        // CTA link instead of (or above) the voice rows.
+        error: null,
+      };
     }
-    return voiceOptionsCache;
+    return voicePagerState;
+  }
+  /** Fetch the next page of voices and append to the pager. Idempotent
+   *  · concurrent callers SHARE the in-flight promise so the second
+   *  call resolves with the same result instead of short-circuiting
+   *  to `false`. That sharing was the missing piece: previously the
+   *  prefetch fired by `renderVoiceBlock` could be in-flight when the
+   *  user clicked the picker; the second `fetchNextVoicePage` saw
+   *  `state.loading` and returned immediately, so the picker rendered
+   *  an empty list with a loading sentinel and never refreshed once
+   *  the prefetch landed. Returns true when new voices were appended. */
+  let voicePageInFlight = null;
+  async function fetchNextVoicePage(pageSize) {
+    if (voicePageInFlight) return voicePageInFlight;
+    const state = getVoicePagerState();
+    if (state.initialised && !state.hasMore) return false;
+    state.loading = true;
+    voicePageInFlight = (async () => {
+      try {
+        const url = new URL("/api/voices", window.location.origin);
+        url.searchParams.set("pageSize", String(pageSize || 30));
+        if (state.cursor) url.searchParams.set("cursor", state.cursor);
+        const r = await fetch(url.toString());
+        const j = r.ok ? await r.json() : {};
+        const newVoices = Array.isArray(j.voices) ? j.voices : [];
+        // De-dupe by (provider | model | voiceId) in case the cursor
+        // round-trip races with a key swap that triggered a reset
+        // mid-fetch. Without this a re-emitted first page would land
+        // on top of an already-rendered first page.
+        const seen = new Set(
+          state.voices.map((v) => `${v.provider}|${v.model || ""}|${v.voiceId || ""}`),
+        );
+        for (const v of newVoices) {
+          const id = `${v.provider}|${v.model || ""}|${v.voiceId || ""}`;
+          if (!seen.has(id)) {
+            state.voices.push(v);
+            seen.add(id);
+          }
+        }
+        state.cursor = typeof j.nextCursor === "string" ? j.nextCursor : null;
+        state.hasMore = !!j.hasMore;
+        state.provider = typeof j.provider === "string" ? j.provider : null;
+        state.configured = !!j.configured;
+        // Structured upstream error · forwarded as-is from the server.
+        // null / undefined means the fetch succeeded (even if 0 voices
+        // returned · empty + no error is a real "you have no voices"
+        // state, distinct from "fetch failed").
+        state.error = (j.error && typeof j.error === "object") ? j.error : null;
+        state.initialised = true;
+        return newVoices.length > 0;
+      } catch {
+        state.hasMore = false;
+        state.initialised = true;
+        return false;
+      } finally {
+        state.loading = false;
+        voicePageInFlight = null;
+      }
+    })();
+    return voicePageInFlight;
+  }
+  /** Convenience · matches the old `ensureVoiceOptions()` shape so
+   *  the renderVoiceBlock prefetch can stay a single-line call. Just
+   *  primes the first page. */
+  async function ensureVoiceOptions() {
+    const state = getVoicePagerState();
+    if (state.initialised) return state.voices;
+    await fetchNextVoicePage(30);
+    return state.voices;
   }
   function voiceForAgent(slug) {
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
@@ -3073,44 +3165,71 @@
     }
   }
 
-  async function openVoicePicker(triggerEl) {
-    closeVoicePicker();
-    closeEmotionPicker();
-    const row = triggerEl.closest("[data-ap-voice-row]");
-    const slug = row?.getAttribute("data-slug");
-    if (!slug) return;
-    const current = voiceForAgent(slug);
-
-    // Mount the popover shell IMMEDIATELY · the user gets visual
-    // confirmation of their click in the same frame. If the cache
-    // is cold, the skeleton holds the place while /api/voices
-    // round-trips; once it lands we swap content in. Without this,
-    // a cold cache produced "click → nothing → eventually picker"
-    // which felt unresponsive on the first open of every session.
-    const pop = document.createElement("div");
-    pop.id = "ap-voice-picker";
-    pop.className = "ap-model-picker";
-    pop.dataset.slug = slug;
-    // Loading row · animated dot trio + label. Visible feedback so
-    // users don't read a static "loading" line as a frozen popover.
-    pop.innerHTML = `
-      <div class="ap-model-picker-loading">
-        <span class="ap-loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>${escape(uiT("ap_voice_loading"))}</span>
+  /** Build the upstream-error banner shown inside the voice picker
+   *  when the catalogue fetch failed in an actionable way (e.g. the
+   *  ElevenLabs API key is missing the `voices_read` scope). Returns
+   *  empty string when there's no error · callers can skip the
+   *  banner. Includes a CTA link to the provider's settings page
+   *  when the structured error carries a `fixUrl`. */
+  function voicePickerErrorHtml(error) {
+    if (!error || typeof error !== "object" || typeof error.code !== "string") return "";
+    // i18n keys per error code · falls back to the generic
+    // fetch-failed copy when an unknown code lands so a future
+    // server-side addition still renders something sensible.
+    const titleKey = `ap_voice_err_${error.code}_title`;
+    const bodyKey = `ap_voice_err_${error.code}_body`;
+    const title = uiT(titleKey) === titleKey ? uiT("ap_voice_err_fetch_failed_title") : uiT(titleKey);
+    const body = uiT(bodyKey) === bodyKey ? uiT("ap_voice_err_fetch_failed_body") : uiT(bodyKey);
+    const upstream = typeof error.message === "string" && error.message.trim()
+      ? error.message.trim().slice(0, 200)
+      : "";
+    const cta = typeof error.fixUrl === "string" && error.fixUrl.startsWith("https://")
+      ? `<a href="${escape(error.fixUrl)}" target="_blank" rel="noopener" class="ap-voice-picker-err-cta">${escape(uiT("ap_voice_err_fix_cta"))}</a>`
+      : "";
+    return `
+      <div class="ap-voice-picker-err" role="alert">
+        <div class="ap-voice-picker-err-title">${escape(title)}</div>
+        <div class="ap-voice-picker-err-body">${escape(body)}</div>
+        ${upstream ? `<div class="ap-voice-picker-err-upstream">${escape(upstream)}</div>` : ""}
+        ${cta}
       </div>`;
-    document.body.appendChild(pop);
-    placePickerNearTrigger(pop, triggerEl, 280);
+  }
 
-    const voices = await ensureVoiceOptions();
-    // The user (or a sibling open) may have closed this picker
-    // during the await · don't write into a detached node.
-    if (!document.body.contains(pop)) return;
+  /** Render the picker's body from the current pager state · used by
+   *  both the initial open and every infinite-scroll append. Idempotent
+   *  rebuild (full innerHTML rewrite) so we don't have to track which
+   *  rows we've already mounted; the popover is small enough that
+   *  repaint cost is negligible compared to a scroll-position-preserving
+   *  partial update. Returns the trailing sentinel element (loading
+   *  indicator or end marker) so the scroll handler can keep its
+   *  reference stable across repaints. */
+  function renderVoicePickerBody(pop, slug) {
+    const state = getVoicePagerState();
+    const current = voiceForAgent(slug);
+    const voices = state.voices;
 
-    if (voices.length === 0) {
+    if (voices.length === 0 && state.initialised) {
+      // Structured upstream error · most common case is the
+      // ElevenLabs `voices_read` permission being missing on the API
+      // key. Render a clear banner with the fix CTA instead of the
+      // generic "no provider configured" fallback so the user knows
+      // exactly what to do.
+      const errHtml = voicePickerErrorHtml(state.error);
+      if (errHtml) {
+        pop.innerHTML = errHtml;
+        return;
+      }
       pop.innerHTML = `<div class="ap-model-group">${escape(uiT("ap_voice_no_provider"))}</div>`;
       return;
     }
+
     const groups = [];
+    // Error banner above the voice rows · fires when the catalogue
+    // fetch errored but the picker still has at least one fallback
+    // voice (e.g. browser default) so we don't take over the whole
+    // popover. Same treatment as the empty-state error.
+    const errBannerHtml = voicePickerErrorHtml(state.error);
+    if (errBannerHtml) groups.push(errBannerHtml);
     let last = null;
     for (const v of voices) {
       const provider = String(v.provider || "browser");
@@ -3127,7 +3246,81 @@
         </button>
       `);
     }
+    // Trailing sentinel · either a "loading more" pulse (when we're
+    // mid-fetch or there's known-more to load and the user just
+    // scrolled into range) or nothing when the catalogue is fully
+    // loaded. The scroll handler reads `data-voice-pager-sentinel`
+    // to decide whether to trigger another fetch.
+    if (state.hasMore) {
+      groups.push(`
+        <div class="ap-model-picker-loading" data-voice-pager-sentinel="loading">
+          <span class="ap-loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>${escape(uiT("ap_voice_loading"))}</span>
+        </div>`);
+    }
     pop.innerHTML = groups.join("");
+  }
+
+  async function openVoicePicker(triggerEl) {
+    closeVoicePicker();
+    closeEmotionPicker();
+    const row = triggerEl.closest("[data-ap-voice-row]");
+    const slug = row?.getAttribute("data-slug");
+    if (!slug) return;
+
+    // Mount the popover shell IMMEDIATELY · the user gets visual
+    // confirmation of their click in the same frame. If the pager is
+    // cold, the skeleton holds the place while /api/voices?pageSize=N
+    // round-trips; once it lands we render the rows in. Without this,
+    // a cold pager produced "click → nothing → eventually picker"
+    // which felt unresponsive on the first open of every session.
+    const pop = document.createElement("div");
+    pop.id = "ap-voice-picker";
+    pop.className = "ap-model-picker";
+    pop.dataset.slug = slug;
+    pop.innerHTML = `
+      <div class="ap-model-picker-loading">
+        <span class="ap-loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>${escape(uiT("ap_voice_loading"))}</span>
+      </div>`;
+    document.body.appendChild(pop);
+    placePickerNearTrigger(pop, triggerEl, 280);
+
+    // Prime the pager if cold. Returning state is cached across
+    // re-opens within the session so a user who pages, closes, then
+    // reopens the picker sees the same rendered list instantly.
+    if (!getVoicePagerState().initialised) {
+      await fetchNextVoicePage(30);
+    }
+    // The user (or a sibling open) may have closed this picker
+    // during the await · don't write into a detached node.
+    if (!document.body.contains(pop)) return;
+
+    renderVoicePickerBody(pop, slug);
+
+    // Infinite-scroll · when the user scrolls within 80 px of the
+    // bottom AND there's more to fetch AND nothing's in flight, load
+    // the next page. 80 px is one row height plus padding; firing
+    // before the sentinel hits the fold means the next page is
+    // landing while the user is still reading the current bottom row.
+    pop.addEventListener("scroll", async () => {
+      const state = getVoicePagerState();
+      if (state.loading || !state.hasMore) return;
+      const distanceFromBottom = pop.scrollHeight - pop.scrollTop - pop.clientHeight;
+      if (distanceFromBottom > 80) return;
+      const grew = await fetchNextVoicePage(30);
+      // Re-render only after a successful fetch · a fetch that
+      // returned no new rows (network error, race) shouldn't
+      // discard the existing list. The detached-node guard means a
+      // user who closed the picker mid-fetch sees no surprise repaint.
+      if (!grew) return;
+      if (!document.body.contains(pop)) return;
+      // Preserve scroll position across the innerHTML rewrite so the
+      // user's reading flow isn't yanked to the top.
+      const savedScroll = pop.scrollTop;
+      renderVoicePickerBody(pop, slug);
+      pop.scrollTop = savedScroll;
+    }, { passive: true });
   }
   function closeVoicePicker() {
     const el = document.getElementById("ap-voice-picker");
@@ -3214,6 +3407,12 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          // Localised sample line · the server falls back to a
+          // hardcoded Chinese default when `text` is omitted, which
+          // surfaced in English / Japanese / Spanish locales as a
+          // Chinese phrase being read out of the voice. Sending the
+          // i18n key value matches the user's active UI locale.
+          text: uiT("ap_voice_preview_sample"),
           provider: v.provider,
           model: v.model,
           voiceId: v.voiceId,
@@ -4993,14 +5192,14 @@
   window.refreshAgentProfileSkills = function () {
     // Voices list is keyed off the user's configured providers · when
     // keys change (added / deleted / swapped between minimax ↔
-    // elevenlabs), the cached `/api/voices` payload is stale and the
-    // picker would still show the prior provider's voices until a hard
-    // refresh. Invalidate here so the next ensureVoiceOptions()
-    // re-fetches; also closes any open picker that's painting from
-    // the stale cache so the user doesn't see the wrong list flash
-    // before it reopens. This function is the canonical "keys may
-    // have changed" hook called by user-settings on modal close.
-    voiceOptionsCache = null;
+    // elevenlabs), the cached pager state is stale and the picker
+    // would still show the prior provider's voices until a hard
+    // refresh. Invalidate here so the next openVoicePicker() refetches
+    // the first page; also closes any open picker that's painting
+    // from the stale cache so the user doesn't see the wrong list
+    // flash before it reopens. This function is the canonical "keys
+    // may have changed" hook called by user-settings on modal close.
+    invalidateVoicePager();
     closeVoicePicker();
     closeEmotionPicker();
     if (!currentlyOpenSlug) return;

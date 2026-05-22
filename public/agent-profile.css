@@ -2507,6 +2507,52 @@
 .ap-model-picker-loading .ap-loading-dots i:nth-child(2) { animation-delay: 0.15s; }
 .ap-model-picker-loading .ap-loading-dots i:nth-child(3) { animation-delay: 0.30s; }
 
+/* Upstream-error banner inside the voice picker · fires when the
+   catalogue fetch failed in an actionable way (missing scope on
+   the API key, auth rejected, etc.). Sits at the top of the
+   popover above any voice rows; the `fixUrl` CTA opens the
+   provider's API key settings page in a new tab. */
+.ap-voice-picker-err {
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--line-bright);
+  font-family: var(--sans);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ap-voice-picker-err-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.ap-voice-picker-err-body {
+  font-size: 11px;
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+.ap-voice-picker-err-upstream {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0;
+  line-height: 1.4;
+  margin-top: 2px;
+  /* Long upstream messages (200 char cap) wrap rather than overflow. */
+  word-break: break-word;
+}
+.ap-voice-picker-err-cta {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--lime);
+  text-decoration: none;
+  align-self: flex-start;
+}
+.ap-voice-picker-err-cta:hover { color: var(--text); }
+
 /* Provider section header · matches .cmp-dd-group · mono / faint /
    uppercase, hairline divider above (suppressed on the first one). */
 .ap-model-group {

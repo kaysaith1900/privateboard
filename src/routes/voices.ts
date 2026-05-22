@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 
-import { listAvailableVoices } from "../voice/registry.js";
+import { listAvailableVoices, listVoicesPage } from "../voice/registry.js";
 import { cleanForSpeech, synthesizeSpeech, voiceProfileForAgent } from "../voice/tts.js";
 import { getAgent, getChairAgent } from "../storage/agents.js";
 import { getMessage } from "../storage/messages.js";
@@ -71,6 +71,40 @@ export function voicesRouter(): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
+    // Two response modes share this route:
+    //   (A) PAGED · client passes `cursor` and/or `pageSize`. Returns
+    //       one chunk of the catalogue + an opaque next-cursor for
+    //       infinite-scroll dropdowns. This is what the voice picker
+    //       in agent-profile.js uses now (ElevenLabs accounts can
+    //       have hundreds of voices · rendering all at once stutters
+    //       the UI and serializing a 200-voice JSON inflates the
+    //       round-trip).
+    //   (B) FULL · client passes neither param. Returns the entire
+    //       catalogue in one response · used by voice-replay.js's
+    //       availability gate and app.js's voice-label prefetch,
+    //       which need a complete map to resolve any voiceId →
+    //       friendly label. The 5-minute MiniMax cache absorbs the
+    //       repeated full-fetch cost; ElevenLabs walks v2 pages
+    //       internally.
+    const url = new URL(c.req.url);
+    const cursor = url.searchParams.get("cursor");
+    const pageSizeRaw = url.searchParams.get("pageSize");
+    if (cursor !== null || pageSizeRaw !== null) {
+      const pageSize = pageSizeRaw ? Math.max(1, Number.parseInt(pageSizeRaw, 10) || 30) : 30;
+      const page = await listVoicesPage(cursor, pageSize);
+      return c.json({
+        voices: page.voices,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        provider: page.provider,
+        configured: page.configured,
+        // Structured upstream error · the picker uses this to render
+        // a clear "your API key is missing voices_read permission"
+        // banner + a link to the ElevenLabs API-key settings page
+        // instead of a silently empty dropdown.
+        ...(page.error ? { error: page.error } : {}),
+      });
+    }
     const catalog = await listAvailableVoices();
     return c.json({
       voices: catalog.voices,
