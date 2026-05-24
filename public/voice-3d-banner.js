@@ -16,10 +16,18 @@
    same "convene around the table" weight as the actual voice room.
 
    `voice-3d.js` is already loaded by index.html as an ES module
-   (line ~15965) so `window.VoiceStage3D` is available by the time
-   onboarding renders. The mock driver (`home-3d-mock.js`) is
-   imported dynamically here — small (~3 KB), lazy-loads only when
-   the banner actually mounts.
+   (line ~16100) so `window.VoiceStage3D` is available by the time
+   onboarding renders.
+
+   The full cast + seat math is INLINED below (copied from
+   `home-3d-mock.js`) so the banner paints a complete, populated
+   scene SYNCHRONOUSLY after `VS3D.mount` returns. Earlier versions
+   deferred this to a dynamic `import("/home-3d-mock.js")` and the
+   ~100-500 ms network/resolution gap on first visit made the canvas
+   read as empty / black until the mock driver landed. Inlining the
+   data removes the gap entirely — first visit is identical to
+   second visit. The marketing homepage keeps using
+   `home-3d-mock.js` independently (it's still that page's driver).
 
    Public surface:
      `window.mountVoice3dBanner(host)` → `() => void` | `null`
@@ -47,6 +55,71 @@
     elevationDeg: 24,
     lookAtY: 0.75,
   };
+
+  /* Cast · chair + 6 directors. Mirrors `home-3d-mock.js`'s CAST
+     array exactly so the banner's roster matches the marketing
+     homepage. Inlined (vs dynamic-imported) so the first paint
+     after mount is fully populated · the prior version waited for
+     /home-3d-mock.js to resolve, leaving the scene visibly empty
+     for ~100-500 ms on first visit. */
+  const CAST = [
+    { id: "chair",            name: "Chair",            avatarPath: "/avatars/chair.svg",             roleKind: "chair" },
+    { id: "socrates",         name: "Socrates",         avatarPath: "/avatars/socrates.svg",          roleKind: "director" },
+    { id: "first-principles", name: "First Principles", avatarPath: "/avatars/first-principles.svg",  roleKind: "director" },
+    { id: "value-investor",   name: "Value Investor",   avatarPath: "/avatars/value-investor.svg",    roleKind: "director" },
+    { id: "user-empathy",     name: "User-Empathy",     avatarPath: "/avatars/user-empathy.svg",      roleKind: "director" },
+    { id: "long-horizon",     name: "Long Horizon",     avatarPath: "/avatars/long-horizon.svg",      roleKind: "director" },
+    { id: "phenomenologist",  name: "Phenomenologist",  avatarPath: "/avatars/phenomenologist.svg",   roleKind: "director" },
+  ];
+  const DEFAULT_MODE = "brainstorm";
+  /* Director rotation cadence · matches home-3d-mock.js. Long enough
+     for the eye to register the speaker pulse + name plate change
+     without feeling busy. */
+  const SPEAKER_ROTATION_MS = 4000;
+
+  /** Pure seat-position calculator · matches `home-3d-mock.js`'s
+   *  `computeSeatPositions` exactly so the banner's ring reads
+   *  identical to the marketing homepage. */
+  function computeSeatPositions(members) {
+    const n = members.length;
+    if (n === 0) return [];
+    const cx = 50, cy = 50;
+    const rx = 42, ry = 23;
+    const chairRy = 15;
+    const SEAT_SCALE = 1.10;
+    const out = [];
+
+    // Chair · bottom-centre of the ellipse.
+    out.push({
+      member: members[0],
+      x: cx + rx * Math.cos(Math.PI / 2),
+      y: cy + chairRy * Math.sin(Math.PI / 2),
+      scaleHint: SEAT_SCALE,
+      kind: "chair",
+      thetaDeg: 90,
+    });
+
+    // Directors fan across the top arc (180° → 360°).
+    const directorCount = n - 1;
+    if (directorCount > 0) {
+      const arcDeg   = directorCount === 2 ? 60  : 180;
+      const arcStart = directorCount === 2 ? 240 : 180;
+      const stepDeg = directorCount === 1 ? 0 : arcDeg / directorCount;
+      for (let i = 0; i < directorCount; i++) {
+        const t = directorCount === 1 ? 270 : arcStart + (i + 0.5) * stepDeg;
+        const theta = (t * Math.PI) / 180;
+        out.push({
+          member: members[1 + i],
+          x: cx + rx * Math.cos(theta),
+          y: cy + ry * Math.sin(theta),
+          scaleHint: SEAT_SCALE,
+          kind: "director",
+          thetaDeg: t,
+        });
+      }
+    }
+    return out;
+  }
 
   /** Mount the brainstorm round-table scene into `host`. Returns
    *  a cleanup function on success, `null` on failure. Caller
@@ -78,48 +151,49 @@
       // VS3D.mount returns false on WebGL init failure. Bail to
       // the poster fallback if so.
       if (!VS3D.mount(host, { camera: CAMERA_OPTS })) return null;
-
-      // Pre-paint the floor and wall tone synchronously · without
-      // this, the scene starts as walls + table on a transparent
-      // background and the user sees a near-black canvas while
-      // home-3d-mock.js network-fetches on first visit (~100-500 ms).
-      // Second visit it's cached so the scene comes up fast, hence the
-      // "first time black, works on retry" symptom. Calling update()
-      // with an empty seat list is cheap and idempotent — the mock
-      // driver below issues another update() with the full cast, which
-      // populates seats over the already-built floor.
-      try {
-        VS3D.update({
-          mode: "brainstorm",
-          positions: [],
-          speakerId: null,
-          speakerState: null,
-          userWait: false,
-          labels: { speaking: "speaking", thinking: "thinking" },
-          votePop: "",
-        });
-      } catch (_) { /* update is best-effort · mount already succeeded */ }
     } catch (_) {
       return null;
     }
 
-    // Mock driver · provides the 6-director cast + rotates the
-    // speaking seat every 4 s so the scene visibly breathes.
-    // Imported lazily because home-3d-mock.js is an ES module and
-    // we want it parse-deferred until a banner actually opens.
-    let stopMockDriver = null;
-    import("/home-3d-mock.js")
-      .then((mod) => {
-        if (mod && typeof mod.startMockDriver === "function") {
-          stopMockDriver = mod.startMockDriver();
-        }
-      })
-      .catch((e) => {
-        try { console.warn("[voice-3d-banner] mock driver import failed:", e); } catch (_) {}
-      });
+    // Paint the complete scene SYNCHRONOUSLY · floor + walls +
+    // chair + 6 directors + first speaker highlight. No await on a
+    // dynamic import means the first frame after mount already shows
+    // a populated room. Inline data is the deliberate cost · the
+    // marketing-homepage driver (home-3d-mock.js) stays its own copy
+    // because it's loaded by a different surface, but this banner
+    // can't afford the load-then-paint gap on first visit.
+    const positions = computeSeatPositions(CAST);
+    const directorIds = CAST
+      .filter((m) => m.roleKind === "director")
+      .map((m) => m.id);
+    let speakerCursor = 0;
+    const paint = () => {
+      try {
+        VS3D.update({
+          mode: DEFAULT_MODE,
+          positions,
+          speakerId: directorIds[speakerCursor % directorIds.length],
+          speakerState: "speaking",
+          userWait: false,
+          labels: { speaking: "speaking", thinking: "thinking" },
+          votePop: "",
+        });
+      } catch (e) {
+        try { console.warn("[voice-3d-banner] VS3D.update failed:", e); } catch (_) {}
+      }
+    };
+    paint();
+
+    // Rotate the speaking director every 4 s so the scene visibly
+    // breathes (matches home-3d-mock.js's cadence). Cleared by the
+    // unmount fn below.
+    const rotationTimer = setInterval(() => {
+      speakerCursor = (speakerCursor + 1) % directorIds.length;
+      paint();
+    }, SPEAKER_ROTATION_MS);
 
     return function unmount() {
-      if (stopMockDriver) { try { stopMockDriver(); } catch (_) {} stopMockDriver = null; }
+      clearInterval(rotationTimer);
       try { VS3D.unmount(); } catch (_) {}
       try {
         host.style.removeProperty("--floor-bg");

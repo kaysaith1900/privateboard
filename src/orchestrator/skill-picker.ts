@@ -97,10 +97,17 @@ export interface ChairClarifyDecision {
 export async function pickChairClarifyDecision(opts: {
   history: Message[];
   signal?: AbortSignal;
+  /** Room mode (e.g. "brainstorm", "research"). Brainstorm tilts the
+   *  gate hard toward RELEASE — fuzzy seeds are a feature there, the
+   *  directors fill the gap with explicit assumptions instead of the
+   *  chair stopping to interrogate the user. */
+  mode?: string;
 }): Promise<ChairClarifyDecision> {
   const prompt = latestUserPrompt(opts.history);
   // No user prompt yet → don't gate; the clarify call won't fire anyway.
   if (!prompt) return { shouldAsk: true, rationale: "no user prompt yet" };
+
+  const isBrainstorm = (opts.mode || "").toLowerCase() === "brainstorm";
 
   const sys: LLMMessage = {
     role: "system",
@@ -123,6 +130,16 @@ export async function pickChairClarifyDecision(opts: {
       "Bias toward RELEASE. A slightly-fuzzy framing is fine — directors",
       "can sharpen it themselves. Asking when you don't need to kills",
       "momentum.",
+      ...(isBrainstorm
+        ? [
+            "",
+            "BRAINSTORM MODE OVERRIDE · this room is in brainstorm mode. RELEASE",
+            "unless the subject is literally unparseable (empty, gibberish, single",
+            "character). Fuzzy / abstract / under-specified seeds are a FEATURE",
+            "here — directors fill the gap with explicit assumptions, not by",
+            "asking the user. Default ask=false in brainstorm.",
+          ]
+        : []),
       "",
       "Reply with STRICT JSON ONLY (no prose, no fences):",
       "{ \"ask\": true,  \"rationale\": \"≤120 chars · what's load-bearingly missing\" }",

@@ -112,6 +112,24 @@ export function tryExtractTtsBillingError(err: unknown): TtsBillingError | null 
 }
 
 /**
+ * Strip 【label】 section headers (brainstorm's 5-slot template
+ * 【我看到的价值】/【我会怎么放大】/etc., and analogous bracketed
+ * cues in other modes) before TTS. They are visual prefixes for the
+ * eye — reading them aloud makes every director turn open with the
+ * same five labels and destroys the speech cadence. Bounded to short
+ * inner content (≤40 chars, no newlines) so a director quoting a
+ * 【...】 phrase mid-sentence doesn't swallow the surrounding prose.
+ */
+export function stripSpokenLabels(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/【[^】\n]{1,40}】[ \t]*/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Strip markdown / code / urls / table syntax from a message body so
  * TTS doesn't read the formatting characters out loud. Used by both
  * the live voice flow (sentence-by-sentence streaming) and the
@@ -129,6 +147,9 @@ export function cleanForSpeech(md: string): string {
   let out = md;
   // Fenced code blocks · drop entirely (TTS shouldn't read code aloud).
   out = out.replace(/```[\s\S]*?```/g, " ");
+  // 【label】 section headers · drop (same rationale as stripSpokenLabels;
+  // this is the replay path's pre-buffered equivalent).
+  out = out.replace(/【[^】\n]{1,40}】[ \t]*/g, " ");
   // Inline code · strip ticks, keep content.
   out = out.replace(/`([^`\n]+)`/g, "$1");
   // Images · drop entirely (alt text is rarely useful aurally).

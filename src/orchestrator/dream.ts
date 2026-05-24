@@ -165,11 +165,29 @@ const PROMOTE_MIN_CONFIDENCE = 0.6;
 
 /** Step-6 harvest gate · only fire the chair-only user_long_memory
  *  harvest pass when there's enough signal to be worth an LLM call.
- *  Either the chair already has a substantial long-tier pool (>=5
- *  entries) OR this dream just promoted enough new memories
- *  (>=3) for fresh patterns to be worth lifting. */
-const USER_LONG_HARVEST_MIN_LONG = 5;
-const USER_LONG_HARVEST_MIN_NEW_PROMOTED = 3;
+ *  Three paths can open the gate:
+ *    (1) chair already has a few long-tier memories (the original
+ *        steady-state path)
+ *    (2) this dream just promoted at least one memory (something
+ *        crystallised this round)
+ *    (3) chair has accumulated enough high-confidence SHORT-tier
+ *        observations to be worth lifting · this is the cold-start
+ *        path so the user sees user_long entries within the first
+ *        week of use instead of waiting for the 7-day promotion age
+ *        gate to clear. Without (3) the harvest never runs for
+ *        fresh installs · long-tier memories require promotion
+ *        which requires age >= 7d. */
+const USER_LONG_HARVEST_MIN_LONG = 2;
+const USER_LONG_HARVEST_MIN_NEW_PROMOTED = 1;
+const USER_LONG_HARVEST_MIN_SHORT_HIGH = 6;
+/** Confidence floor for the short-tier fallback pool. Mirrors the
+ *  promotion confidence threshold so the harvest input quality
+ *  doesn't drop below what would have been promoted anyway. */
+const USER_LONG_SHORT_CONF_FLOOR = 0.6;
+/** Cap on how many memories we send to the harvest LLM. The prompt
+ *  budget is generous (1200 output tokens) but a huge chair pool
+ *  would still bloat the input · keep the call cheap. */
+const USER_LONG_HARVEST_INPUT_CAP = 40;
 /** Soft cap on active user_long_memory rows · keeps the chair
  *  prompt block + chair-profile UI bounded. Cap is "active" rows
  *  only (superseded rows live forever as audit trail). */
@@ -350,14 +368,29 @@ export async function runDreamCycle(agentId: string, config: DreamConfig = {}): 
   ) {
     try {
       const chairLong = listTierForAgent(agentId, "long");
+      // Cold-start fallback pool · high-confidence short-tier chair
+      // memories. Lets the harvest run on a fresh install before the
+      // promotion path has had time to mature (7-day age gate).
+      const chairShortHigh = listTierForAgent(agentId, "short")
+        .filter((m) => m.confidence >= USER_LONG_SHORT_CONF_FLOOR && !m.pinned);
       const eligible = chairLong.length >= USER_LONG_HARVEST_MIN_LONG
-        || promoted >= USER_LONG_HARVEST_MIN_NEW_PROMOTED;
+        || promoted >= USER_LONG_HARVEST_MIN_NEW_PROMOTED
+        || chairShortHigh.length >= USER_LONG_HARVEST_MIN_SHORT_HIGH;
       if (eligible) {
         const existing = listActiveUserLongMemory();
+        // Combine pools, prefer long-tier first (highest provenance),
+        // then short-tier sorted by confidence descending. Cap to
+        // INPUT_CAP so the prompt stays bounded on noisy installs.
+        const pool: AgentMemory[] = [
+          ...chairLong,
+          ...chairShortHigh
+            .slice()
+            .sort((a, b) => b.confidence - a.confidence),
+        ].slice(0, USER_LONG_HARVEST_INPUT_CAP);
         const harvest = await harvestUserLongMemory({
           modelV: utility,
           userName,
-          chairLong,
+          chairLong: pool,
           existing,
         });
         for (const t of harvest.newTags) {
@@ -495,17 +528,17 @@ function buildHarvestPrompt(opts: {
         .map((t) => `[${t.id}] ${t.label} · ${t.claim} · provenance=${t.provenanceRooms}`)
         .join("\n");
   const chairBlock = opts.chairLong.length === 0
-    ? "(no long-tier chair memories yet)"
+    ? "(no chair memories yet)"
     : opts.chairLong
-        .map((m) => `· (${m.kind}, conf=${m.confidence.toFixed(2)}, rooms=${m.provenanceRooms}) ${m.content}`)
+        .map((m) => `· (${m.kind}, conf=${m.confidence.toFixed(2)}, rooms=${m.provenanceRooms}, tier=${m.tier}) ${m.content}`)
         .join("\n");
   return [
-    `You are reviewing the chair's long-term memories about ${opts.userName} to extract durable, tag-shaped abstractions that should live in a separate sanctuary table (never decayed, only displaced on direct contradiction).`,
+    `You are reviewing the chair's high-conviction memories about ${opts.userName} to extract durable, tag-shaped abstractions that should live in a separate sanctuary table (never decayed, only displaced on direct contradiction).`,
     ``,
     `## Existing user-long-memory tags`,
     existingBlock,
     ``,
-    `## Chair's long-tier memories about ${opts.userName}`,
+    `## Chair memories about ${opts.userName} (mixed pool · prefer long-tier or high-confidence short-tier entries when proposing tags)`,
     chairBlock,
     ``,
     `## Output`,

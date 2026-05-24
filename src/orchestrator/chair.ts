@@ -1039,8 +1039,9 @@ export async function runChairClarify(roomId: string): Promise<ClarifyResult> {
     emitChairPending(roomId, "clarify-deciding");
     let decision: { shouldAsk: boolean; rationale?: string } | null = null;
     try {
+      const roomForMode = getRoom(roomId);
       decision = await withTimeout(
-        pickChairClarifyDecision({ history }),
+        pickChairClarifyDecision({ history, mode: roomForMode?.mode }),
         15_000,
         "chair-clarify-decision",
       );

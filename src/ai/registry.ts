@@ -84,6 +84,14 @@ export interface ModelMeta {
    *  key configured · the flag is purely about *disabling the direct
    *  path*, not "OpenRouter exclusively". */
   viaUniversalOnly?: boolean;
+  /** When true, this model rejects the `temperature` request parameter
+   *  (HTTP 400 · "temperature is deprecated for this model"). The
+   *  adapter strips temperature from outgoing requests for these
+   *  models regardless of carrier · Anthropic direct, OpenRouter and
+   *  B.AI all surface the same rejection because the upstream Anthropic
+   *  API is what enforces it. Anthropic's Claude 4.7 family
+   *  (extended-reasoning successor to 4.6) is the first to drop it. */
+  noTemperature?: boolean;
 }
 
 export const MODELS: Record<ModelV, ModelMeta> = {
@@ -109,6 +117,12 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Opus 4.7",
     contextBudget: 200_000,
     deck: "deep reasoning",
+    // Anthropic dropped `temperature` for the 4.7 family · sending it
+    // returns HTTP 400 "temperature is deprecated for this model"
+    // across every carrier (direct / OR / B.AI all proxy to the same
+    // upstream). The adapter omits temperature for any model with
+    // this flag.
+    noTemperature: true,
   },
   "opus-4-6-fast": {
     v: "opus-4-6-fast",

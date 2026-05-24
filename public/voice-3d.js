@@ -585,6 +585,27 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       try { unmount(); } catch (_) {}
     });
 
+    // Pre-warm the WebGL pipeline · the first WebGLRenderer created
+    // after an Electron / browser restart pays a one-time cost to
+    // initialise the GL context, compile shaders, and upload mesh /
+    // material buffers to the GPU. If the first rAF tick fires while
+    // any of that is still happening, `renderer.render()` silently
+    // produces an empty (pure black) frame and the user sees nothing
+    // until something nudges another render — which in practice means
+    // the user closes the overlay and reopens it. Forcing a synchronous
+    // `compile()` + `render()` here means the warm-up cost is paid
+    // BEFORE startRaf, and the very first rAF tick produces a real
+    // frame. Wrapped in try/catch so a WebGL hiccup doesn't abort
+    // mount · the rAF tick would retry the render anyway. The follow-
+    // up render produces output even when the scene has only the
+    // static chrome (walls / table / plants) because no chairs /
+    // avatars have been added yet · those land via the first
+    // VS3D.update() call after mount returns. */
+    try {
+      renderer.compile(scene, camera);
+      renderer.render(scene, camera);
+    } catch (_) { /* warm-up best-effort */ }
+
     // RAF loop · animations + render each frame.
     startRaf();
 

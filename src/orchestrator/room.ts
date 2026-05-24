@@ -70,7 +70,7 @@ import { emitAutoSkipped } from "./auto-skip.js";
 import { finalizeStreamingMessage } from "../storage/messages.js";
 import { listSkillsForAgent } from "../storage/skills.js";
 import { SentenceChunker } from "../voice/sentence-splitter.js";
-import { synthesizeSpeechStream, tryExtractTtsBillingError, voiceProfileForAgent } from "../voice/tts.js";
+import { stripSpokenLabels, synthesizeSpeechStream, tryExtractTtsBillingError, voiceProfileForAgent } from "../voice/tts.js";
 import type { AgentVoiceProfile } from "../storage/agents.js";
 
 type QueueStatus = "queued" | "speaking";
@@ -1540,12 +1540,34 @@ async function pumpQueue(roomId: string): Promise<void> {
         room.status === "live" &&
         !room.awaitingContinue &&
         !room.awaitingClarify &&
-        // Manual vote-trigger · skip the auto round-prompt; the
-        // user fires it via the bottom-bar "End round & vote"
-        // button which posts to /api/rooms/:id/round-end (the
-        // same path the chat round-prompt button takes).
-        room.voteTrigger !== "manual"
+        room.voteTrigger === "manual"
       ) {
+        // Manual vote-trigger · the chair is suppressed between
+        // rounds (the user explicitly opted out of "what next"
+        // gavels). Without auto-continue here, the room would
+        // freeze at end-of-round with no chair turn and no next
+        // round — the user reported this as "playback completely
+        // stops when chair's turn comes up." Fix: tick a fresh
+        // round so the directors keep speaking until the user
+        // clicks the bottom-bar vote button.
+        //
+        // tickRoom is sync · it fires `void pumpQueue(roomId)`
+        // after `state.processing` was already cleared above, so
+        // pumpQueue safely re-enters for the next round.
+        const nextRound = nextUserRoundNum(roomId);
+        rlog(roomId, "manual-auto-continue", {
+          fromRound: state.roundNum,
+          toRound: nextRound,
+        });
+        tickRoom(roomId, { roundNum: nextRound, kind: "continue" });
+      } else if (
+        room &&
+        room.status === "live" &&
+        !room.awaitingContinue &&
+        !room.awaitingClarify
+      ) {
+        // Auto vote-trigger · chair posts the round-prompt; the user
+        // picks End-round (vote) or Continue from inline buttons.
         const wrappedRound = state.roundNum;
         // Bridge the silent gap · pickRoundWrap is a haiku (1-3s
         // typical, slow path 10s+ on network blips). Without a
@@ -1979,9 +2001,15 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
    */
   async function emitVoiceText(text: string): Promise<void> {
     if (!voiceMode || !text.trim()) return;
+    // Strip 【label】 section headers (brainstorm template etc.) so the
+    // TTS doesn't read "我看到的价值" / "我会怎么放大" as prefixes on
+    // every utterance. The on-screen body keeps them — only the
+    // synthesizer input loses them.
+    const spoken = stripSpokenLabels(text);
+    if (!spoken) return;
     const voiceProfile = currentVoiceProfile();
     if (!voiceProfile) return;
-    process.stderr.write(`[tts] emitVoiceText called: provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} textLen=${text.length} text="${text.slice(0, 50)}"\n`);
+    process.stderr.write(`[tts] emitVoiceText called: provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} textLen=${spoken.length} text="${spoken.slice(0, 50)}"\n`);
 
     // Per-attempt timeout · MiniMax / ElevenLabs occasionally accept
     // the HTTP request then never push the streaming body. Without a
@@ -2012,7 +2040,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       let chunkCount = 0;
       let failure: Error | null = null;
       try {
-        for await (const chunk of synthesizeSpeechStream(text, voiceProfile, timeoutCtrl.signal)) {
+        for await (const chunk of synthesizeSpeechStream(spoken, voiceProfile, timeoutCtrl.signal)) {
           if (signal.aborted) break;
           chunkCount++;
           roomBus.emit(roomId, {
@@ -2321,6 +2349,19 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
       if (tail) await emitVoiceText(tail);
       roomBus.emit(roomId, { type: "voice-final", messageId: placeholder.id });
     }
+    // TTS produced zero audio chunks · short-circuit the pump's
+    // `waitForVoicePlayback(messageId)` so it doesn't sit on the 60s
+    // no-heartbeat fallback. Without this, a provider-side TTS outage
+    // (auth drop, region block, empty stream) leaves the room visibly
+    // frozen for a full minute after each silent turn before the next
+    // speaker fires · users read that as "the room ended". Pre-marking
+    // the messageId as done means the wait resolves immediately.
+    if (voiceMode && voiceSeq === 0) {
+      process.stderr.write(
+        `[tts] zero-chunks for msg=${placeholder.id.slice(0, 8)} agent=${speaker.name} · short-circuiting voice wait\n`,
+      );
+      markVoicePlaybackDone(roomId, placeholder.id);
+    }
     updateMessageBody(placeholder.id, buf, {
       ...placeholderMeta,
       speakerStatus: "final",
@@ -2381,6 +2422,13 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     // streaming / voice state without relying on a follow-up poll.
     if (voiceChunker) {
       roomBus.emit(roomId, { type: "voice-final", messageId: placeholder.id });
+    }
+    // Errored turn · pump must not sit on the 60s voice-wait. If any
+    // chunks did land, the client will fire its own /voice-done after
+    // playback ends; this pre-done covers the chunks=0 case (the
+    // common one — error happens before the first TTS chunk).
+    if (voiceMode && voiceSeq === 0) {
+      markVoicePlaybackDone(roomId, placeholder.id);
     }
     roomBus.emit(roomId, {
       type: "message-final",

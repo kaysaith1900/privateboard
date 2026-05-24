@@ -629,6 +629,12 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
     return;
   }
 
+  // Strip temperature for models that have dropped support (Anthropic
+  // Claude 4.7 family · HTTP 400 "temperature is deprecated for this
+  // model"). The flag lives on ModelMeta so adding future models is a
+  // one-line registry change.
+  const temperature = getModel(req.modelV).noTemperature ? undefined : req.temperature;
+
   let attempt = 0;
   let lastTransientMessage = "";
   let yieldedText = false;
@@ -661,7 +667,7 @@ export async function* callLLMStream(req: LLMRequest): AsyncGenerator<LLMStreamC
       model: resolved.model,
       providerOptions: resolved.providerOptions,
       messages: req.messages,
-      temperature: req.temperature,
+      temperature,
       // Vercel SDK names this maxOutputTokens in v4+; tolerate both.
       maxTokens: req.maxTokens,
       abortSignal: req.signal,

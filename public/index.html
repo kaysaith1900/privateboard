@@ -28,6 +28,11 @@
     --panel-2: #1A1A18;
     --panel-3: #21211E;
     --hi: #2A2A26;
+    /* Sidebar chrome surface · used by `.sidebar`, `.sessions-scroll`,
+       `.agents-scroll`, the sticky `.section-header`, and the
+       `.sidebar-foot::before` scroll-fade. One token so the whole
+       sidebar column moves together. */
+    --sidebar-bg: #191918;
 
     --line: #26241F;
     --line-bright: #3A3934;
@@ -484,13 +489,12 @@
      SIDEBAR
      ═══════════════════════════════════════════ */
   .sidebar {
-    /* Sidebar = `--panel` #13, content (`.chat-col` / `.chat`) =
-       `--panel-2` #1A. One-step warmer split (sidebar at the base
-       chrome surface, content lifted one tier). #07 gray-step is
-       intentionally subtle — sidebar at `--bg` read too "hard
-       black" against the warmer content; content at `--panel-3`
-       read too pale. This is the dialed-in middle. */
-    background: var(--panel);
+    /* Sidebar runs on its own token `--sidebar-bg` (#191918) so the
+       column can be tuned independently of `--panel` / `--panel-2`.
+       Every inner surface that needs to match (`.sessions-scroll`,
+       `.agents-scroll`, sticky `.section-header`, `.sidebar-foot`
+       fade) reads the same token. */
+    background: var(--sidebar-bg);
     /* Right edge owns the region divider · brighter than the other
        three sides (--line-bright vs --line) so the sidebar reads as
        visually distinct from the main column. Pairs with
@@ -797,6 +801,22 @@
      `enter-full-screen` / `leave-full-screen` events. */
   html.is-fullscreen .control { padding: 0; }
   html.is-fullscreen .body-grid { border-radius: 0; }
+  /* macOS fullscreen safe-area · the system menu bar (incl. the
+     traffic-light cluster + the macOS screen-recording indicator)
+     slides down over the top ~28 px of the window when the cursor
+     enters that zone. In normal windowed mode the menu bar lives
+     above the window and isn't a concern, but in fullscreen our
+     content extends edge-to-edge so anything we paint in the top
+     28 px gets obscured the moment the user hovers up to access
+     traffic lights — and the things they're trying to access
+     (window close / minimize, the head-record button at the
+     right) sit precisely there. Push the .room-head contents
+     down by 28 px in fullscreen so the action buttons clear the
+     reveal zone. The .room-head itself still starts at top: 0
+     (drag region for window-drag), only its inner content shifts. */
+  html.is-fullscreen.is-electron-mac .room-head {
+    padding-top: 28px;
+  }
   /* macOS Electron · let the BrowserWindow's `vibrancy: "under-window"`
      layer show through. The vibrancy lives behind the renderer, so
      anything painted with a fully opaque background covers it. We
@@ -1101,28 +1121,41 @@
        pins flush to the scroll-viewport edge. Any padding-top here
        creates a sliver between the static nav buttons above and the
        pinned header which can briefly expose the body --bg through
-       sub-pixel render races during fast scroll. Explicit panel bg
-       belt-and-braces the inheritance chain. */
+       sub-pixel render races during fast scroll. Explicit sidebar
+       bg belts-and-braces the inheritance chain. Shares
+       `--sidebar-bg` with the rest of the sidebar column. */
     padding: 0 4px 2px;
-    background: var(--panel);
+    background: var(--sidebar-bg);
   }
+  /* Unified with `.section-header` (rooms list dividers) · same
+     padding, type scale, sticky pin behavior, and sidebar-bg
+     box-shadow chrome that masks the parent's lateral padding +
+     absorbs the sub-pixel sliver during fast scroll. */
   .agents-section-header {
-    padding: 8px 8px 6px;
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--text-soft);
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 4px;
+    padding: 8px 12px 4px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 400;
+    color: var(--text-dim);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--sidebar-bg);
+    box-shadow:
+      -4px 0 0 var(--sidebar-bg),
+       4px 0 0 var(--sidebar-bg),
+       0 -2px 0 var(--sidebar-bg);
   }
-  .agents-section-header .line {
-    flex: 1;
-    height: 1px;
-    background: var(--line-bright);
-  }
+  /* Right-side divider line is no longer drawn (mirrors `.section-
+     header` which leaves the trailing space for an optional badge);
+     the markup still emits an empty <span class="line"> so existing
+     JS isn't touched. */
+  .agents-section-header .line { display: none; }
 
   /* Shell wraps the agent-row link + delete button as siblings — same
      pattern as session-row-shell · the X click never gets absorbed by
@@ -1323,13 +1356,9 @@
 
   /* "Building" section · in-flight Full persona build placeholder.
      Lime accent on the header to distinguish from inert pinned /
-     custom / core sections. */
+     custom / core sections · mirrors `.section-header.live`. */
   .agents-section-header.building {
     color: var(--lime);
-  }
-  .agents-section-header.building .line {
-    background: var(--lime-dim, var(--line));
-    opacity: 0.4;
   }
   /* Building row · same dimensions as a normal agent row but the
      avatar slot is a pulsing CRT-style frame instead of a face,
@@ -1537,12 +1566,12 @@
        header that can briefly expose the body --bg through sub-pixel
        render races during fast scroll (visible as a thin "see-through"
        seam right above the ADJOURNED / LIVE / PAUSED divider).
-       Explicit panel bg belts-and-braces the inheritance chain so
-       the region is unambiguously --panel even if a child's bg
-       falls through. Tracks `.sidebar`'s `--panel` — change both
-       together. */
+       Explicit sidebar bg belts-and-braces the inheritance chain so
+       the region is unambiguously `--sidebar-bg` even if a child's
+       bg falls through. Tracks `.sidebar`'s surface — change via
+       the shared `--sidebar-bg` token. */
     padding: 0 4px 2px;
-    background: var(--panel);
+    background: var(--sidebar-bg);
   }
 
   .section-header {
@@ -1564,7 +1593,7 @@
     color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    font-weight: 600;
+    font-weight: 400;
     /* Sticky · the LIVE / PAUSED / ADJOURNED dividers stay pinned
        to the top of the scroll viewport as the user scrolls down
        a long room list. Parent `.sessions-scroll` is the scroll
@@ -1574,16 +1603,16 @@
        lateral 4px padding) and 2px upward (absorb sub-pixel sliver
        between the scroll-viewport edge and the pinned header
        during fast scroll). z-index keeps the header above the rows
-       during the scroll transition. Tracks `.sidebar`'s surface —
-       change both together. */
+       during the scroll transition. Tracks `.sidebar`'s surface
+       via the shared `--sidebar-bg` token. */
     position: sticky;
     top: 0;
     z-index: 2;
-    background: var(--panel);
+    background: var(--sidebar-bg);
     box-shadow:
-      -4px 0 0 var(--panel),
-       4px 0 0 var(--panel),
-       0 -2px 0 var(--panel);
+      -4px 0 0 var(--sidebar-bg),
+       4px 0 0 var(--sidebar-bg),
+       0 -2px 0 var(--sidebar-bg);
   }
   .section-header.live { color: var(--lime); }
   .section-header.draft { color: var(--amber); }
@@ -1599,13 +1628,6 @@
   }
   .row-status.paused { color: var(--amber); }
   .section-header .line { flex: 1; }
-  .pin-glyph {
-    width: 10px;
-    height: 10px;
-    fill: currentColor;
-    flex-shrink: 0;
-  }
-  .agents-section-header.pinned { color: var(--text-soft); }
 
   /* ─── Pin toggle (per-row · hover-revealed for non-pinned) ───
      Positioned absolutely so it overlays the right edge of the row
@@ -1826,9 +1848,10 @@
   /* Scroll fade · the rooms / agents list above .sidebar-foot can
      scroll behind it (foot is now transparent, no border-top). This
      ::before sits just above the foot and fades content from fully
-     transparent to the sidebar's panel colour, so list items dissolve
-     instead of clipping hard against the foot. pointer-events: none
-     keeps clicks reaching whatever's behind. */
+     transparent to the sidebar's surface colour, so list items
+     dissolve instead of clipping hard against the foot.
+     pointer-events: none keeps clicks reaching whatever's behind.
+     End-stop matches `--sidebar-bg` so the fade lands seamlessly. */
   .sidebar-foot::before {
     content: "";
     position: absolute;
@@ -1836,7 +1859,7 @@
     right: 0;
     bottom: 100%;
     height: 24px;
-    background: linear-gradient(to bottom, transparent 0%, var(--panel) 100%);
+    background: linear-gradient(to bottom, transparent 0%, var(--sidebar-bg) 100%);
     pointer-events: none;
   }
   .user-block {
@@ -2512,7 +2535,7 @@
     max-height: calc(100vh - 112px);
     display: flex;
     flex-direction: column;
-    background: color-mix(in srgb, var(--panel) 86%, transparent);
+    background: var(--panel-2);
     -webkit-backdrop-filter: blur(20px) saturate(160%);
             backdrop-filter: blur(20px) saturate(160%);
     border: 0.5px solid var(--line-bright);
@@ -2528,10 +2551,10 @@
     align-items: center;
     gap: 10px;
     padding: 12px 12px 12px 16px;
-    border-bottom: 0.5px solid var(--line);
+    border-bottom: 1px solid var(--line-bright);
     flex-shrink: 0;
   }
-  .search-overlay-icon { color: var(--text-faint); flex-shrink: 0; }
+  .search-overlay-icon { color: var(--text-dim); flex-shrink: 0; }
   .search-overlay-input {
     flex: 1;
     min-width: 0;
@@ -2545,10 +2568,10 @@
     letter-spacing: -0.005em;
     padding: 4px 0;
   }
-  .search-overlay-input::placeholder { color: var(--text-faint); font-weight: 400; }
+  .search-overlay-input::placeholder { color: var(--text-dim); font-weight: 400; }
   .search-overlay-input:-webkit-autofill,
   .search-overlay-input:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0 1000px var(--panel) inset !important;
+    -webkit-box-shadow: 0 0 0 1000px var(--panel-2) inset !important;
     -webkit-text-fill-color: var(--text) !important;
     caret-color: var(--text);
     transition: background-color 5000s ease-in-out 0s;
@@ -2556,7 +2579,7 @@
   .search-overlay-close-btn {
     background: transparent;
     border: none;
-    color: var(--text-faint);
+    color: var(--text-dim);
     cursor: pointer;
     width: 28px;
     height: 28px;
@@ -2587,9 +2610,9 @@
     flex-direction: column;
     align-items: center;
     text-align: center;
-    color: var(--text-faint);
+    color: var(--text-dim);
   }
-  .search-overlay-empty-icon { color: var(--text-faint); opacity: 0.55; margin-bottom: 18px; }
+  .search-overlay-empty-icon { color: var(--text-dim); margin-bottom: 18px; }
   .search-overlay-empty-text {
     font-family: var(--font-human);
     font-size: 14px;
@@ -2602,7 +2625,7 @@
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    color: var(--text-dim);
   }
   .search-overlay-list { list-style: none; margin: 0; padding: 6px 0; }
   .search-overlay-list > li { margin: 0; }
@@ -2626,7 +2649,7 @@
   .so-row-icon {
     grid-column: 1;
     grid-row: 1 / 3;
-    color: var(--text-faint);
+    color: var(--text-dim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2653,7 +2676,7 @@
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    color: var(--text-dim);
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -2675,7 +2698,7 @@
     padding: 0;
     border-radius: 0;
   }
-  .search-overlay-status { padding: 40px 16px; text-align: center; color: var(--text-faint); }
+  .search-overlay-status { padding: 40px 16px; text-align: center; color: var(--text-dim); }
   .search-overlay-status-kicker {
     display: block;
     font-family: var(--mono);
@@ -5726,15 +5749,15 @@
 
   .followup-children {
     /* Width-match the brief card (.ending-block: max-width 760px,
-       margin auto). The follow-ups list slots in directly below the
-       brief, so they need to share the same gutter — otherwise the
-       follow-ups span full chat width and the alignment breaks. */
+       margin auto) AND mirror `.session-analytics` chrome · same
+       panel-2 surface, same --line-bright hairline, same banner-body
+       split (head = panel-3 strip with mono kicker, list = body
+       block with its own padding). No container-level padding ·
+       inner elements own it. */
     max-width: 760px;
     margin: 24px auto 0;
-    padding: 14px 16px;
     background: var(--panel-2);
-    border: 0.5px solid var(--line);
-    font-family: var(--mono);
+    border: 0.5px solid var(--line-bright);
   }
 
   /* ─── Session analytics card · post-adjourn summary ───
@@ -5996,15 +6019,26 @@
     color: var(--text-faint);
     letter-spacing: 0.04em;
   }
+  /* Banner head · matches `.sa-banner` shape (panel-3 strip with mono
+     kicker, hairline divider beneath). The text-only label slots in
+     where `.sa-banner-tag` would sit in the analytics card. */
   .followup-children-head {
+    padding: 5px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--mono);
     font-size: 10px;
-    color: var(--text-soft);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
     font-weight: 700;
-    margin-bottom: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--lime);
+    background: var(--panel-3);
+    border-bottom: 0.5px solid var(--line);
   }
+  /* Body block · matches `.sa-body` padding. */
   .followup-children-list {
+    padding: 12px 14px 14px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -7365,6 +7399,42 @@
   .msg-bubble p:last-child { margin-bottom: 0; }
   .msg-bubble strong { color: var(--text); font-weight: 600; }
   .msg-bubble em { font-style: normal; color: var(--lime); font-weight: 500; }
+  /* Karaoke-style TTS sentence highlight · when voice replay reads a
+     message aloud, app.js wraps each sentence in a `.tts-sentence`
+     span and adds `.is-current` to whichever one matches the audio
+     cursor (currentTime / duration → character offset → sentence
+     index). The wrap survives across messages and is harmless without
+     `.is-current`. Highlight uses the theme accent so the user can
+     scan back to "where it's reading" without re-reading the whole
+     bubble. Smooth color transition · feels like a soft sweep
+     instead of a strobing chip when the cursor advances. */
+  .msg-bubble .tts-sentence,
+  .cd-body .tts-sentence,
+  .ci-body .tts-sentence {
+    transition: color 0.18s ease, background 0.18s ease;
+    border-radius: 2px;
+  }
+  .msg-bubble .tts-sentence.is-current,
+  .cd-body .tts-sentence.is-current,
+  .ci-body .tts-sentence.is-current {
+    color: var(--lime);
+    background: color-mix(in srgb, var(--lime) 12%, transparent);
+    /* Keep the highlight readable when the sentence wraps across
+       multiple lines · `box-decoration-break: clone` paints the
+       background on each line fragment instead of one giant box. */
+    -webkit-box-decoration-break: clone;
+            box-decoration-break: clone;
+  }
+  /* Keep <em> inside the current sentence visually consistent with
+     the surrounding highlight (otherwise the `em { color: var(--lime) }`
+     above + the wrapper's lime tint blend into one undifferentiated
+     accent and the italic emphasis loses signal). Subtle weight bump
+     instead. */
+  .msg-bubble .tts-sentence.is-current em,
+  .cd-body .tts-sentence.is-current em,
+  .ci-body .tts-sentence.is-current em {
+    font-weight: 600;
+  }
   /* Markdown blockquote · designed inset card, not a raw `>` line.
      Per the no-coloured-left-borders rule, the callout treatment
      uses a top mono kicker + panel-2 surface + indent (NOT a left
@@ -14114,6 +14184,70 @@
     font-size: 10px;
     color: var(--text-faint);
   }
+  /* ─── Cast-edit popover (room header "Add director" button) ───
+     Extends `.composer-pick-pop` with an explicit footer carrying
+     Cancel / Confirm so the membership change is intentional. The
+     list rows reuse `.composer-pick-row` styling — identical visual
+     register to the new-room composer's director picker so the user
+     reads it as the same primitive. */
+  .cast-edit-pop {
+    position: fixed;
+    z-index: 9001;
+    width: 340px;
+    max-width: calc(100vw - 32px);
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 0.5px solid var(--line-strong);
+  }
+  .cast-edit-pop .composer-pick-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .cast-edit-foot {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-top: 0.5px solid var(--line);
+    background: var(--panel-2);
+  }
+  .cast-edit-floor-msg {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    color: var(--amber, #B59560);
+    visibility: hidden;
+  }
+  .cast-edit-floor-msg.is-visible { visibility: visible; }
+  .cast-edit-btn {
+    appearance: none;
+    background: transparent;
+    border: 0.5px solid var(--line-bright);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .cast-edit-btn:hover { color: var(--lime); border-color: var(--lime); }
+  .cast-edit-btn.is-primary {
+    color: var(--lime);
+    border-color: var(--lime);
+  }
+  .cast-edit-btn.is-primary:hover { background: var(--lime-dim, transparent); }
+  .cast-edit-btn:disabled {
+    color: var(--text-dim);
+    border-color: var(--line);
+    cursor: not-allowed;
+  }
+  .cast-edit-btn:disabled:hover { background: transparent; }
   /* ─── Brief picker popover · the [View Report] click target on
      multi-brief rooms. Anchored under the room-head's button via
      position: fixed and right-aligned so it visually drops out of

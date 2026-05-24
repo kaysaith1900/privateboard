@@ -553,6 +553,19 @@
         this.refreshMiniPlayer();
         if (!this.currentRoomId) return;
         this.renderRtSubtitle();
+        // Karaoke-style sentence highlight inside the chat bubble of
+        // the currently-playing message · long agent replies are easy
+        // to lose your place in when TTS reads them aloud, so the
+        // sentence at the audio cursor gets a theme-color tint.
+        this.updateTtsSentenceHighlight();
+      });
+      // Replay state transitions · when playback stops (manual close,
+      // playlist exhausted), clear any lingering sentence highlight
+      // so the chat doesn't keep glowing the last-read line.
+      document.addEventListener("boardroom:replay-active", () => {
+        const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+        const active = (vr && typeof vr.getActive === "function") ? vr.getActive() : null;
+        if (!active) this._clearTtsSentenceHighlights();
       });
       window.addEventListener("hashchange", () => this.handleRoute());
       this.handleRoute();
@@ -3770,6 +3783,14 @@
       if (choice === "cancel" || !text.trim()) return;
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
         input.value = "";
+        // Shrink the room input-bar textarea back to baseline · the
+        // user grew it by typing the message we're now sending, so
+        // the post-clear field would otherwise stay at the prior
+        // tall height. Mirrors the same call submitFromComposer
+        // makes on the direct (no-modal) send path.
+        if (input.matches?.(".ib-textarea[data-send-input]")) {
+          this.autosizeRoomInputTextarea();
+        }
       }
       if (choice === "interrupt") {
         this.sendMessage(text, mentions).catch((err) => alert("Send failed: " + err.message));
@@ -4821,6 +4842,217 @@
         row.classList.toggle("on", on);
       }
       this.refreshFollowUpCastButton();
+    },
+
+    /* ─── Cast-edit popover · room-head "Add director" button ───
+       Anchored under the head icon. Lists every director with
+       checkboxes pre-checked for current cast members. Diffs against
+       initial state on confirm; PATCH /api/rooms/:id/members applies
+       adds + removes atomically. The orchestrator's announceMember-
+       Change posts a chair welcome / farewell in chat, and any newly-
+       added director gets injected into the live speaker queue. */
+    openCastEditOverlay(anchorBtn) {
+      this.closeCastEditOverlay();
+      if (!anchorBtn || !this.currentRoomId || !this.currentRoom) return;
+      if (this.currentRoom.status === "adjourned") return;
+
+      const dirs = (this.agents || [])
+        .filter((a) => a.roleKind !== "moderator")
+        .slice()
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      const currentIds = new Set(
+        (this.currentMembers || [])
+          .filter((m) => (m.roleKind || "director") !== "moderator")
+          .map((m) => m.id),
+      );
+      // State carries the INITIAL set (for diff on confirm) + the
+      // user's working selection (mutated by toggleCastEditDirector).
+      this._castEditState = {
+        initialIds: new Set(currentIds),
+        currentIds: new Set(currentIds),
+        saving: false,
+      };
+
+      const rows = dirs.map((a) => {
+        const checked = currentIds.has(a.id);
+        return `
+          <label class="composer-pick-row${checked ? " on" : ""}" data-cast-edit-pick-id="${this.escape(a.id)}">
+            <input type="checkbox" ${checked ? "checked" : ""}>
+            <img class="composer-pick-av" src="${this.escape(a.avatarPath || "")}" alt="${this.escape(a.name || "")}">
+            <span class="composer-pick-main">
+              <span class="composer-pick-name">${this.escape(a.name || "")}</span>
+              <span class="composer-pick-tag">${this.escape(a.roleTag || "")}</span>
+            </span>
+          </label>
+        `;
+      }).join("");
+
+      const pop = document.createElement("div");
+      pop.id = "cast-edit-pop";
+      pop.className = "cast-edit-pop";
+      pop.innerHTML = `
+        <div class="composer-pick-head">
+          <span class="composer-pick-title">${this.escape(this._t("cast_edit_title"))}</span>
+        </div>
+        <div class="composer-pick-list">${rows || `<div class="composer-pick-empty">${this.escape(this._t("cast_edit_empty"))}</div>`}</div>
+        <div class="cast-edit-foot">
+          <span class="cast-edit-floor-msg" data-cast-edit-floor>${this.escape(this._t("cast_edit_min_floor"))}</span>
+          <button type="button" class="cast-edit-btn" data-cast-edit-close>${this.escape(this._t("cast_edit_cancel"))}</button>
+          <button type="button" class="cast-edit-btn is-primary" data-cast-edit-confirm disabled>${this.escape(this._t("cast_edit_confirm"))}</button>
+        </div>
+      `;
+      document.body.appendChild(pop);
+
+      // Position · mirrors openFollowUpCastPicker · pick the side with
+      // more room (the head icon sits near the top so "below" usually
+      // wins). Cap max-height to the available space so the row list
+      // scrolls within view instead of overflowing.
+      const r = anchorBtn.getBoundingClientRect();
+      const MARGIN = 8;
+      const GAP = 6;
+      const popW = Math.min(340, window.innerWidth - MARGIN * 2);
+      const spaceBelow = window.innerHeight - r.bottom - GAP - MARGIN;
+      const spaceAbove = r.top - GAP - MARGIN;
+      const openAbove = spaceAbove > spaceBelow;
+      // Cap the popover height · without this the list stretches to
+      // every available pixel of `spaceBelow` and visually anchors to
+      // the window's bottom edge (~750px on a 13" laptop). The cap
+      // is `min(420px, 55vh)` — enough rows to scan ~6-7 directors
+      // without scrolling, short enough to read as a compact menu
+      // instead of a full-height panel.
+      const HEIGHT_CAP = Math.min(420, Math.round(window.innerHeight * 0.55));
+      const available = openAbove ? spaceAbove : spaceBelow;
+      const maxHeight = Math.max(180, Math.min(HEIGHT_CAP, available));
+      pop.style.width = popW + "px";
+      // Right-align to the anchor so the popover doesn't jut past the
+      // right edge of the window (head-actions sits flush right).
+      const left = Math.min(
+        Math.max(MARGIN, r.right - popW),
+        window.innerWidth - popW - MARGIN,
+      );
+      pop.style.left = left + "px";
+      pop.style.maxHeight = maxHeight + "px";
+      pop.style.top = openAbove
+        ? (r.top - GAP - Math.min(pop.scrollHeight || maxHeight, maxHeight)) + "px"
+        : (r.bottom + GAP) + "px";
+
+      // Outside-click + Esc dismiss · same dismiss vocabulary as the
+      // follow-up cast picker. We bind the outside-click on the NEXT
+      // tick so this open click doesn't immediately close.
+      this._castEditEsc = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopImmediatePropagation();
+          this.closeCastEditOverlay();
+        }
+      };
+      this._castEditOutside = (ev) => {
+        if (
+          !pop.contains(ev.target)
+          && !ev.target.closest("[data-cast-edit-trigger]")
+        ) {
+          this.closeCastEditOverlay();
+        }
+      };
+      document.addEventListener("keydown", this._castEditEsc, true);
+      setTimeout(() => document.addEventListener("click", this._castEditOutside, true), 0);
+
+      // Single source of truth for row toggling · listens at the
+      // popover root so both label-click (browser flips the input)
+      // and direct-checkbox-click reach us as one `change` event.
+      pop.addEventListener("change", (ev) => {
+        const cb = ev.target;
+        if (!cb || cb.type !== "checkbox") return;
+        const row = cb.closest("[data-cast-edit-pick-id]");
+        if (!row) return;
+        const id = row.getAttribute("data-cast-edit-pick-id");
+        this.setCastEditDirector(id, !!cb.checked);
+      });
+
+      this.refreshCastEditConfirm();
+    },
+
+    closeCastEditOverlay() {
+      const el = document.getElementById("cast-edit-pop");
+      if (el) el.remove();
+      if (this._castEditEsc) {
+        document.removeEventListener("keydown", this._castEditEsc, true);
+        this._castEditEsc = null;
+      }
+      if (this._castEditOutside) {
+        document.removeEventListener("click", this._castEditOutside, true);
+        this._castEditOutside = null;
+      }
+      this._castEditState = null;
+    },
+
+    /** Mirror the row's checkbox state into _castEditState · driven
+     *  by the `change` event in openCastEditOverlay. `on` reflects
+     *  the input.checked value AFTER the native flip, so this is
+     *  always a set/clear (never a flip) and is idempotent under
+     *  duplicate fires. */
+    setCastEditDirector(id, on) {
+      const state = this._castEditState;
+      if (!state || state.saving) return;
+      if (on) state.currentIds.add(id);
+      else state.currentIds.delete(id);
+      const row = document.querySelector(`[data-cast-edit-pick-id="${CSS.escape(id)}"]`);
+      if (row) row.classList.toggle("on", on);
+      this.refreshCastEditConfirm();
+    },
+
+    /** Recompute the confirm-button enabled state · enabled when the
+     *  selection differs from the initial AND keeps at least one
+     *  director (the server enforces the same floor; we mirror it
+     *  here so the button reflects validity). Also flips the floor-
+     *  message visibility. */
+    refreshCastEditConfirm() {
+      const state = this._castEditState;
+      const pop = document.getElementById("cast-edit-pop");
+      if (!state || !pop) return;
+      const confirmBtn = pop.querySelector("[data-cast-edit-confirm]");
+      const floorMsg = pop.querySelector("[data-cast-edit-floor]");
+      const sizeOk = state.currentIds.size >= 1;
+      const changed =
+        state.currentIds.size !== state.initialIds.size
+        || [...state.currentIds].some((id) => !state.initialIds.has(id));
+      if (confirmBtn) confirmBtn.disabled = state.saving || !changed || !sizeOk;
+      if (floorMsg) floorMsg.classList.toggle("is-visible", !sizeOk);
+    },
+
+    async submitCastEdit() {
+      const state = this._castEditState;
+      if (!state || state.saving || !this.currentRoomId) return;
+      if (state.currentIds.size < 1) return;
+      state.saving = true;
+      this.refreshCastEditConfirm();
+      const pop = document.getElementById("cast-edit-pop");
+      const confirmBtn = pop ? pop.querySelector("[data-cast-edit-confirm]") : null;
+      const origLabel = confirmBtn ? confirmBtn.textContent : "";
+      if (confirmBtn) confirmBtn.textContent = this._t("cast_edit_saving");
+      try {
+        const res = await fetch(
+          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/members",
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ agentIds: [...state.currentIds] }),
+          },
+        );
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || "Failed to update cast");
+        }
+        // SSE `members-changed` config-event arrives moments later
+        // and triggers a member re-fetch in the openRoom path's
+        // handler. Close the popover immediately so the user sees the
+        // chair's join/leave announcement land in chat.
+        this.closeCastEditOverlay();
+      } catch (e) {
+        if (confirmBtn) confirmBtn.textContent = origLabel;
+        state.saving = false;
+        this.refreshCastEditConfirm();
+        alert((e && e.message) || "Failed to update cast");
+      }
     },
 
     async submitFollowUp() {
@@ -6888,13 +7120,9 @@
       const sectionHeader = (label, kind) => {
         const pinned = kind === "pinned";
         const chair = kind === "chair";
-        const glyph = pinned
-          ? `<svg class="pin-glyph" viewBox="0 0 24 24"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6h2v-6h5v-2l-2-2z"/></svg>`
-          : "";
         const cls = "agents-section-header" + (pinned ? " pinned" : "") + (chair ? " chair" : "");
         return `
           <div class="${cls}">
-            ${glyph}
             <span>${this.escape(label)}</span>
             <span class="line"></span>
           </div>
@@ -7098,7 +7326,10 @@
       const kids = Array.isArray(this.currentFollowUps) ? this.currentFollowUps : [];
       if (briefCard && kids.length > 0) {
         // System UI · always English (sidebar / brief-card chrome head).
-        const headLabel = `Follow-up rooms · ${kids.length}`;
+        // `// ` prefix matches the `.sa-banner-tag` kicker convention
+        // (`// session analytics`) so both post-adjourn cards read as
+        // the same component family.
+        const headLabel = `// Follow-up rooms · ${kids.length}`;
         const block = document.createElement("div");
         block.className = "followup-children";
         block.innerHTML = [
@@ -10136,6 +10367,18 @@
       if (!ta) return;
       const MIN = 24;
       const MAX = 200;
+      // Empty value · clear the inline `height` entirely so CSS
+      // `min-height: 24px` reasserts the single-line baseline.
+      // Without this, a `style.height = "auto"` + scrollHeight cycle
+      // can leave the field at the prior tall value · Chromium
+      // sometimes returns the OLD scrollHeight when value was just
+      // cleared synchronously (layout invalidation doesn't always
+      // flush by the next read), so the post-send "shrink back"
+      // visually fails. Explicit unset bypasses the read entirely.
+      if (!ta.value) {
+        ta.style.removeProperty("height");
+        return;
+      }
       ta.style.height = "auto";
       const h = Math.min(MAX, Math.max(MIN, ta.scrollHeight));
       ta.style.height = h + "px";
@@ -13431,6 +13674,7 @@
         </div>
         <div class="head-actions">
           <div class="head-cast">${castHtml}</div>
+          <a href="#" class="head-icon-btn head-add-cast" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"></a>
           <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
           <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
           <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
@@ -17625,6 +17869,184 @@
      *  `.roundtable-stage`, so it's automatically hidden by the
      *  stage's `[hidden]` attribute when in chat view — no separate
      *  visibility gate needed. */
+    /** TTS sentence-highlight regex · matches one sentence including
+     *  the trailing punctuation. CJK punctuation (。！？；) + English
+     *  punctuation (.!?;) + newline boundaries. Mirrors the same regex
+     *  the subtitle picker uses in `renderRtSubtitle` so the chat
+     *  highlight and the stage subtitle agree on sentence boundaries. */
+    _TTS_SENT_RE: /[^。！？.!?；;\n]+[。！？.!?；;\n]?/g,
+
+    /** Wrap each sentence inside a message's bubble in a `.tts-sentence`
+     *  span so the replay-tick listener can light up one at a time. No-op
+     *  when already wrapped, when there's no recognisable bubble, or
+     *  when the message only contains one sentence (no benefit to
+     *  wrapping a single-sentence body). Idempotent · safe to call
+     *  on every tick. */
+    _wrapMessageSentencesForTts(article) {
+      if (!article) return false;
+      if (article.dataset.ttsWrapped === "1") return true;
+      // Mid-stream bodies change as tokens arrive · wrapping now would
+      // be torn down by the next innerHTML rewrite. Skip until the
+      // streaming flag clears.
+      if (article.classList.contains("streaming") || article.classList.contains("is-streaming")) {
+        return false;
+      }
+      const bubble =
+        article.querySelector(".cd-body") ||
+        article.querySelector(".ci-body") ||
+        article.querySelector(".msg-bubble");
+      if (!bubble) return false;
+      // Walk text nodes IN ORDER · sentence boundaries cut across
+      // inline formatting (a sentence can include <strong>, <em>,
+      // <a>...) so we have to operate on the concatenated plain text.
+      const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let n;
+      while ((n = walker.nextNode())) textNodes.push(n);
+      if (textNodes.length === 0) return false;
+      let combined = "";
+      const nodeRanges = [];
+      for (const tn of textNodes) {
+        const start = combined.length;
+        combined += tn.textContent;
+        nodeRanges.push({ node: tn, start, end: combined.length });
+      }
+      // Find sentence boundaries in the combined text.
+      const sentences = [];
+      const re = new RegExp(this._TTS_SENT_RE.source, "g");
+      let mtch;
+      while ((mtch = re.exec(combined)) !== null) {
+        const sStart = mtch.index;
+        const sEnd = mtch.index + mtch[0].length;
+        if (mtch[0].trim()) sentences.push({ start: sStart, end: sEnd });
+      }
+      if (sentences.length <= 1) return false;
+      // Bucket per-node ranges by which sentence each character belongs
+      // to · one text node may carry pieces of multiple sentences,
+      // one sentence may span multiple text nodes.
+      const nodeSplits = new Map();
+      for (let sIdx = 0; sIdx < sentences.length; sIdx++) {
+        const { start, end } = sentences[sIdx];
+        for (const nr of nodeRanges) {
+          const overlapStart = Math.max(start, nr.start);
+          const overlapEnd = Math.min(end, nr.end);
+          if (overlapStart >= overlapEnd) continue;
+          if (!nodeSplits.has(nr.node)) nodeSplits.set(nr.node, []);
+          nodeSplits.get(nr.node).push({
+            idx: sIdx,
+            ls: overlapStart - nr.start,
+            le: overlapEnd - nr.start,
+          });
+        }
+      }
+      // Replace each text node with a fragment of (raw text gaps +
+      // sentence spans). Gaps cover whitespace/leading characters
+      // that fell between matched sentences.
+      for (const [tn, splits] of nodeSplits) {
+        const text = tn.textContent;
+        const frag = document.createDocumentFragment();
+        splits.sort((a, b) => a.ls - b.ls);
+        let cursor = 0;
+        for (const s of splits) {
+          if (s.ls > cursor) {
+            frag.appendChild(document.createTextNode(text.slice(cursor, s.ls)));
+          }
+          const span = document.createElement("span");
+          span.className = "tts-sentence";
+          span.dataset.ttsIdx = String(s.idx);
+          span.textContent = text.slice(s.ls, s.le);
+          frag.appendChild(span);
+          cursor = s.le;
+        }
+        if (cursor < text.length) {
+          frag.appendChild(document.createTextNode(text.slice(cursor)));
+        }
+        tn.parentNode.replaceChild(frag, tn);
+      }
+      bubble.dataset.ttsSentenceCount = String(sentences.length);
+      // Store per-sentence character bounds so the tick picker can do
+      // character-cursor-based matching (more accurate than even-split
+      // sentence count division because sentences vary in length).
+      bubble.dataset.ttsSentenceEnds = sentences.map((s) => s.end).join(",");
+      bubble.dataset.ttsTotalChars = String(combined.length);
+      article.dataset.ttsWrapped = "1";
+      return true;
+    },
+
+    _clearTtsSentenceHighlights() {
+      const prior = document.querySelectorAll(".tts-sentence.is-current");
+      prior.forEach((el) => el.classList.remove("is-current"));
+    },
+
+    /** Drive the karaoke-style highlight · reads the live replay
+     *  cursor (currentTime / duration) and turns it into the matching
+     *  sentence index, then toggles `.is-current` on the right span.
+     *  Called from the `boardroom:replay-tick` event listener; no-op
+     *  when replay isn't active or the message isn't in the visible
+     *  chat (e.g. user scrolled it off, or the room is in stage view). */
+    updateTtsSentenceHighlight() {
+      const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+      if (!vr || typeof vr.getActive !== "function") return;
+      const active = vr.getActive();
+      if (!active || !active.messageId) {
+        this._clearTtsSentenceHighlights();
+        return;
+      }
+      const audio = (typeof vr.getActiveAudio === "function") ? vr.getActiveAudio() : null;
+      if (!audio || !isFinite(audio.duration) || audio.duration <= 0) return;
+      const article = document.querySelector(`[data-message-id="${active.messageId}"]`);
+      if (!article) return;
+      if (!this._wrapMessageSentencesForTts(article)) {
+        // Single-sentence message · no per-sentence highlight needed.
+        return;
+      }
+      const bubble =
+        article.querySelector(".cd-body") ||
+        article.querySelector(".ci-body") ||
+        article.querySelector(".msg-bubble");
+      if (!bubble) return;
+      const totalChars = parseInt(bubble.dataset.ttsTotalChars || "0", 10);
+      const endsRaw = bubble.dataset.ttsSentenceEnds || "";
+      if (!totalChars || !endsRaw) return;
+      const ends = endsRaw.split(",").map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n));
+      if (ends.length === 0) return;
+      // Same picker as the subtitle's replay branch · character-cursor
+      // based, so a long sentence holds the highlight for the right
+      // proportion of audio time even when sentence lengths vary.
+      const progress = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+      const cursor = Math.floor(totalChars * progress);
+      let pickIdx = ends.length - 1;
+      for (let i = 0; i < ends.length; i++) {
+        if (ends[i] >= cursor) { pickIdx = i; break; }
+      }
+      // Diff-apply · only update DOM when the picked sentence
+      // changed since the last tick (avoids reflows ~4×/sec).
+      if (article.dataset.ttsCurrentIdx === String(pickIdx)) return;
+      article.dataset.ttsCurrentIdx = String(pickIdx);
+      // Clear any prior current spans inside THIS article first; spans
+      // in other articles are dropped via the `getActive` change path.
+      const prior = article.querySelectorAll(".tts-sentence.is-current");
+      prior.forEach((el) => el.classList.remove("is-current"));
+      // Also clear highlights in any other articles · the active
+      // message changed (handled below).
+      const stale = document.querySelectorAll(`.tts-sentence.is-current`);
+      stale.forEach((el) => {
+        if (!article.contains(el)) el.classList.remove("is-current");
+      });
+      const spans = article.querySelectorAll(`.tts-sentence[data-tts-idx="${pickIdx}"]`);
+      spans.forEach((el) => el.classList.add("is-current"));
+      // Auto-scroll the current sentence into view · long messages
+      // are the whole reason for this feature, so we shouldn't make
+      // the user scroll manually to follow the cursor. `block: "nearest"`
+      // only scrolls when the sentence is outside the visible area;
+      // no-op when it's already on screen.
+      if (spans.length > 0) {
+        try {
+          spans[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } catch (_) { /* old browsers · noop */ }
+      }
+    },
+
     /** Live subtitle · paints the speaker's name + the tail of their
      *  body text into the `[data-rt-subtitle]` panel pinned to the
      *  bottom of the round-table stage. Cheap DOM update only — no
@@ -19192,15 +19614,55 @@
     CHAT_STICK_THRESHOLD: 96,
 
     /** Bind a scroll listener once · the listener flips chatStuckToBottom
-     *  based on how far from the bottom the user has scrolled. Idempotent —
-     *  re-bind is fine since we tag the element. */
+     *  based on direction-aware reasoning (scroll-up = unstick, near-
+     *  bottom = stick). Idempotent — re-bind is fine since we tag the
+     *  element.
+     *
+     *  Earlier implementation used pure distance-from-bottom: any time
+     *  `scrollHeight - clientHeight - scrollTop > 96 px` the user was
+     *  treated as "reading history" and auto-scroll stopped. That
+     *  broke during fast director token streams · content grew faster
+     *  than the rAF-batched scroll could catch up, dist temporarily
+     *  exceeded the threshold (sometimes by hundreds of pixels mid-
+     *  paragraph), the watcher unstuck the user, and from that moment
+     *  on no further auto-scroll fired even though the user hadn't
+     *  touched the wheel. Net effect: director content rolled off the
+     *  bottom and the user had to scroll manually.
+     *
+     *  Direction-aware logic instead:
+     *    · User scrolled UP (scrollTop decreased ≥ 4 px) → unstick.
+     *      The 4 px hysteresis tolerates browser-level micro-jitter so
+     *      a smooth-scroll animation overshooting by 1-2 px doesn't
+     *      look like a user scroll-up.
+     *    · scrollTop landed within CHAT_STICK_THRESHOLD of the bottom
+     *      → stick. Restores the bottom-feed after a manual scroll
+     *      back to the tail.
+     *    · Neither (scroll-down but not at bottom, or content-growth
+     *      pushed dist > threshold without user action) → keep current
+     *      state. This is the critical clause that fixes the bug —
+     *      auto-content-growth alone never unsticks. */
     bindChatScrollWatch() {
       const chat = document.querySelector(".chat");
       if (!chat || chat.dataset.scrollWatch === "1") return;
       chat.dataset.scrollWatch = "1";
+      let prevScrollTop = chat.scrollTop;
       const update = () => {
-        const dist = chat.scrollHeight - chat.clientHeight - chat.scrollTop;
-        this.chatStuckToBottom = dist <= this.CHAT_STICK_THRESHOLD;
+        const cur = chat.scrollTop;
+        const dist = chat.scrollHeight - chat.clientHeight - cur;
+        if (cur < prevScrollTop - 4) {
+          // User-initiated scroll-up · leave the stick now so token
+          // streaming doesn't keep snapping them back down.
+          this.chatStuckToBottom = false;
+        } else if (dist <= this.CHAT_STICK_THRESHOLD) {
+          // Near the bottom (auto-scroll just landed there, or the
+          // user scrolled back down to the tail) · re-engage stick.
+          this.chatStuckToBottom = true;
+        }
+        // The "else" branch · scroll-down but not yet at bottom, OR
+        // content-growth pushed dist > threshold without the user
+        // touching anything · DO NOTHING. Keeps the prior state
+        // intact so a stuck user stays stuck through fast streams.
+        prevScrollTop = cur;
       };
       chat.addEventListener("scroll", update, { passive: true });
       update();
@@ -19481,6 +19943,30 @@
     if (e.target.closest("[data-divergence-open]")) {
       e.preventDefault();
       app.openDivergenceOverlay();
+      return;
+    }
+    // Cast-edit · header "Add director" icon → popover with
+    // checkboxes + explicit Confirm. Anchor is the icon button.
+    const castEditTrigger = e.target.closest("[data-cast-edit-trigger]");
+    if (castEditTrigger) {
+      e.preventDefault();
+      app.openCastEditOverlay(castEditTrigger);
+      return;
+    }
+    // Row toggle is wired via a `change` listener inside
+    // openCastEditOverlay · not the global click delegation. Reason:
+    // <label> wraps the <input>, so a single click fires both a label
+    // click AND a synthetic input click — both bubble through any
+    // `[data-cast-edit-pick-id]` `closest()` match → double toggle.
+    // The `change` event fires exactly once per state flip.
+    if (e.target.closest("[data-cast-edit-confirm]")) {
+      e.preventDefault();
+      app.submitCastEdit();
+      return;
+    }
+    if (e.target.closest("[data-cast-edit-close]")) {
+      e.preventDefault();
+      app.closeCastEditOverlay();
       return;
     }
     // Jump-to-opener · scroll the chat back to the room's first
@@ -20556,7 +21042,15 @@
     // Restore the text into the composer so the user can edit/resend.
     const input = document.querySelector('.input-bar input, [data-send-input]');
     if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
-      if (!input.value.trim()) input.value = app.pendingUserMessage;
+      if (!input.value.trim()) {
+        input.value = app.pendingUserMessage;
+        // Re-grow the textarea to fit the restored body · without
+        // this a multi-line queued message reappears clipped to
+        // the single-line baseline.
+        if (input.matches?.(".ib-textarea[data-send-input]")) {
+          app.autosizeRoomInputTextarea();
+        }
+      }
     }
     app.pendingUserMessage = null;
     app.pendingForSpeakerId = null;
