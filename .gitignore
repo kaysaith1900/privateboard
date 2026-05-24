@@ -16,6 +16,7 @@ coverage
 .vscode
 *.swp
 .claude/
+.claw/
 
 # local user state (never commit)
 .boardroom-local
