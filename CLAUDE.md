@@ -272,6 +272,47 @@ indefinitely and refresh doesn't help. The boot-time recovery in
 `cleanupOrphanedStreams` cleans up after crashes, but it's the safety
 net — the source of truth is the streaming function itself.
 
+## Release
+
+### macOS DMG signing is auto-finalized — don't hand-sign
+
+`electron-builder` 26.x signs + notarizes the `.app` but NOT the
+`.dmg` container. A freshly built DMG is `spctl: no usable signature`,
+so users who download the DMG from the browser hit Gatekeeper
+("damaged / unverified developer"). The zip is fine — its inner `.app`
+is stapled — only the DMG container needs the extra pass.
+
+`npm run electron:dist` now ends with `npm run release:mac:finalize`
+(`scripts/finalize-mac-release.mjs`), which does the three steps
+electron-builder skips:
+
+1. `codesign --timestamp` the DMG
+2. `xcrun notarytool submit --wait` the DMG
+3. `xcrun stapler staple` the DMG
+
+then recomputes the **dmg** row of `release/latest-mac.yml` — stapling
+appends ~11 KB of ticket so the build-time sha512/size go stale and
+electron-updater would reject the download. The **zip** row and
+top-level `path:` are left untouched (the zip is unchanged; macOS
+auto-update downloads the zip, not the dmg). Finally it
+`gh release upload v<ver> <dmg> <yml> --clobber`.
+
+The script is idempotent: if `spctl` already accepts the DMG it skips
+the signing dance and only re-syncs the yml. Re-runnable standalone via
+`npm run release:mac:finalize` when a build succeeded but finalize was
+interrupted.
+
+**Env required** before the build (same as the signed `.app`):
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, plus
+`GH_TOKEN` (for electron-builder's own publish step). Full notes —
+keychain identity hash, the Surge/Clash fake-ip proxy gotcha that
+breaks `timestamp.apple.com`, the empty-shell-DMG fallback — are in the
+`macos-codesign-notarize` memory.
+
+**Do NOT** re-add a manual codesign / notarytool / staple sequence to
+the release flow — it lives in the script now. If the DMG step needs
+changing, edit `scripts/finalize-mac-release.mjs`.
+
 ## Frontend
 
 ### Composer drafts must persist across view switches

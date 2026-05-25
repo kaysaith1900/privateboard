@@ -30,7 +30,8 @@
     "electron:build-ts": "tsup && tsc -p electron/tsconfig.json",
     "electron:build-icon": "node scripts/build-app-icon.mjs",
     "electron:dev": "npm run electron:rebuild && npm run electron:build-ts && electron .",
-    "electron:dist": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish always",
+    "electron:dist": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish always && npm run release:mac:finalize",
+    "release:mac:finalize": "node scripts/finalize-mac-release.mjs",
     "electron:dist:local": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish never",
     "electron:dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never --config.mac.hardenedRuntime=false --config.mac.notarize=false"
   },
