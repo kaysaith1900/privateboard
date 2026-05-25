@@ -58,10 +58,13 @@ function makeMiniMaxBalanceError(): TtsBillingError {
   err.code = "paid-plan-required";
   err.provider = "minimax";
   // Pick the right console URL by region · CN keys can't sign in on
-  // the .io console and vice-versa.
+  // the .io console and vice-versa. The two consoles also expose the
+  // balance page under different paths (the .io console has no
+  // payment/balance route — it 404s — so intl lands on the account's
+  // basic-information page instead).
   err.upgradeUrl = getPrefs().minimaxRegion === "intl"
-    ? "https://platform.minimax.io/user-center/billing/overview"
-    : "https://platform.minimaxi.com/user-center/payment";
+    ? "https://platform.minimax.io/user-center/basic-information"
+    : "https://platform.minimaxi.com/user-center/payment/balance";
   return err;
 }
 

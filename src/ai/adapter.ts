@@ -16,7 +16,7 @@ import { APICallError, streamText, type LanguageModel, type ProviderMetadata } f
 import { getLlmCredentialKey, getLlmCredentialMeta } from "../storage/credentials.js";
 import { getPrefs } from "../storage/prefs.js";
 
-import { getModel, type ModelMeta, type ModelV, type Provider } from "./registry.js";
+import { getModel, noTemperatureModelIds, type ModelMeta, type ModelV, type Provider } from "./registry.js";
 
 /** Carrier identity used by ResolvedModel and the fallback-retry logic.
  *  The narrow `Provider` from registry covers only model-creators
@@ -106,11 +106,54 @@ function redactHeaderValue(name: string, value: string): string {
  * bodies are tee'd into stderr as they arrive — every chunk gets
  * forwarded through unchanged.
  */
+/** Lazily-built set of model ids (across direct / OR / B.AI carriers)
+ *  whose upstream rejects the `temperature` parameter. Built once on
+ *  first use · the registry is static, so caching is safe. */
+let NO_TEMP_IDS_CACHE: Set<string> | null = null;
+function noTempIds(): Set<string> {
+  if (!NO_TEMP_IDS_CACHE) NO_TEMP_IDS_CACHE = noTemperatureModelIds();
+  return NO_TEMP_IDS_CACHE;
+}
+
+/** Strip `temperature` from a JSON request body when the body's `model`
+ *  field belongs to a noTemperature model. Returns the (possibly
+ *  rewritten) body string and a flag indicating whether a rewrite
+ *  happened. Falls back to the original body on any parse / shape
+ *  mismatch · the logger then prints what actually went on the wire. */
+function stripTemperatureForNoTempModels(rawBody: string): { body: string; stripped: boolean } {
+  try {
+    const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+    const modelId = typeof parsed.model === "string" ? parsed.model : null;
+    if (modelId && noTempIds().has(modelId) && "temperature" in parsed) {
+      delete parsed.temperature;
+      return { body: JSON.stringify(parsed), stripped: true };
+    }
+  } catch {
+    /* not JSON · pass through */
+  }
+  return { body: rawBody, stripped: false };
+}
+
 function makeLoggedFetch(tag: string): typeof fetch {
   return function loggedFetch(input, init) {
+    // Body rewrite must happen BEFORE we capture `init` for fetch · the
+    // Vercel AI SDK v4 fills `temperature: 0` even when we pass
+    // undefined, and Anthropic Claude 4.7 rejects ANY temperature with
+    // HTTP 400. Rewriting at the fetch seam is the only carrier-
+    // agnostic place we can guarantee the field is gone on the wire.
+    let effectiveInit: RequestInit | undefined = init;
+    let stripNote = "";
+    if (init?.body && typeof init.body === "string") {
+      const r = stripTemperatureForNoTempModels(init.body);
+      if (r.stripped) {
+        effectiveInit = { ...init, body: r.body };
+        stripNote = ` · stripped temperature (noTemperature model)`;
+      }
+    }
+
     const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
-    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
-    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const method = (effectiveInit?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+    const headers = new Headers(effectiveInit?.headers ?? (input instanceof Request ? input.headers : undefined));
 
     const headerLines: string[] = [];
     headers.forEach((v, k) => {
@@ -118,11 +161,11 @@ function makeLoggedFetch(tag: string): typeof fetch {
     });
 
     let bodyPretty = "";
-    if (init?.body && typeof init.body === "string") {
+    if (effectiveInit?.body && typeof effectiveInit.body === "string") {
       try {
-        bodyPretty = JSON.stringify(JSON.parse(init.body), null, 2);
+        bodyPretty = JSON.stringify(JSON.parse(effectiveInit.body), null, 2);
       } catch {
-        bodyPretty = init.body.length > 2000 ? init.body.slice(0, 2000) + "…" : init.body;
+        bodyPretty = effectiveInit.body.length > 2000 ? effectiveInit.body.slice(0, 2000) + "…" : effectiveInit.body;
       }
     }
 
@@ -138,7 +181,7 @@ function makeLoggedFetch(tag: string): typeof fetch {
       ? `│\n│   body:\n` + bodyPretty.split("\n").map((l) => `│   ${l}`).join("\n")
       : `│\n│   body: (empty)`;
     process.stderr.write(
-      `\n┌${sep}\n│ [${tag} →] ${method} ${url}\n` +
+      `\n┌${sep}\n│ [${tag} →] ${method} ${url}${stripNote}\n` +
         headerBlock +
         `\n` +
         bodyBlock +
@@ -146,7 +189,7 @@ function makeLoggedFetch(tag: string): typeof fetch {
     );
 
     const t0 = Date.now();
-    return fetch(input, init).then(async (res) => {
+    return fetch(input, effectiveInit).then(async (res) => {
       const ms = Date.now() - t0;
       const resHeaderLines: string[] = [];
       res.headers.forEach((v, k) => resHeaderLines.push(`  ${k}: ${v}`));

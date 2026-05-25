@@ -1,6 +1,6 @@
 {
   "name": "privateboard",
-  "version": "0.1.35",
+  "version": "0.1.36",
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
   "main": "electron-entry.cjs",

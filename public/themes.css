@@ -101,6 +101,11 @@
   --panel: #131312;
   --panel-2: #21211F;
   --panel-3: #2A2A27;
+  /* Sidebar chrome surface · slightly elevated above --bg so the
+     nav column reads as its own region. Must live in BOTH theme
+     blocks — when only the base :root carries it, light mode falls
+     back to this dark value and the sidebar stays black. */
+  --sidebar-bg: #191918;
   --strip-bg: color-mix(in srgb, var(--lime) 6%, var(--bg));     /* topbar / bottombar — very subtle brand tint */
   --accent-line: color-mix(in srgb, var(--lime) 22%, var(--bg)); /* brand-tinted hairlines for composer chrome */
 
@@ -152,6 +157,12 @@
   --panel: #FAFAFA;           /* was #F9F9F9 — micro-adjust for ladder spacing  */
   --panel-2: #EEEEEE;         /* was #F1F1F1 — clearer 1-step pop vs panel      */
   --panel-3: #E4E4E4;         /* was #ECECEC — clearer 2-step                   */
+  /* Very-light-grey sidebar against the pure-white (#FFF) main area,
+     ChatGPT-style. Sits between --panel and --panel-2 in the ladder
+     so the nav column is visibly its own chrome region without going
+     dark. (Inverse polarity of the dark theme, where the sidebar is
+     LIGHTER than --bg.) */
+  --sidebar-bg: #F4F4F4;
   --strip-bg: color-mix(in srgb, var(--lime) 6%, var(--bg));     /* topbar / bottombar — very subtle brand tint */
   --accent-line: color-mix(in srgb, var(--lime) 22%, var(--bg)); /* brand-tinted hairlines for composer chrome */
 

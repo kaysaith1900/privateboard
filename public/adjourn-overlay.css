@@ -569,6 +569,14 @@
   accent-color: var(--lime);
 }
 
+/* Custom dropdown popover (spine / house-style) · `_openRenderDropdown`
+   appends it to <body> with class `ap-model-picker adjourn-render-pop`.
+   `.ap-model-picker` defaults to z-index 9100 (agent-profile chrome),
+   but the adjourn / supplement modals sit at 9400 / 9500 — without
+   this lift, the popover renders BEHIND the modal and the user sees
+   the trigger open but no menu content. Pinned above both modals. */
+.ap-model-picker.adjourn-render-pop { z-index: 9900; }
+
 /* Narrow viewport · summary rows tighten. The modal width itself
    already collapses gracefully below ~592px via the
    `min(560px, calc(100vw - 32px))` rule on .adjourn-modal. */

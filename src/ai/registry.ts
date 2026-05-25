@@ -340,3 +340,23 @@ export function isModelV(v: string): v is ModelV {
 export function listModels(): ModelMeta[] {
   return Object.values(MODELS);
 }
+
+/** All carrier-level model id strings that belong to a noTemperature
+ *  model · used by the adapter's fetch wrapper to strip `temperature`
+ *  from outbound JSON bodies. The Vercel AI SDK v4 forces a default
+ *  `temperature: 0` on the wire when the caller passes undefined
+ *  (`prepareCallSettings` line: "TODO v5 remove default 0 for
+ *  temperature"), so the at-streamText strip is a no-op. The body-
+ *  layer strip is what actually keeps Anthropic from rejecting
+ *  Claude 4.7 with HTTP 400 "temperature is deprecated for this model."
+ */
+export function noTemperatureModelIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const m of Object.values(MODELS)) {
+    if (!m.noTemperature) continue;
+    if (m.directApiId) ids.add(m.directApiId);
+    if (m.openrouterId) ids.add(m.openrouterId);
+    if (m.baiId) ids.add(m.baiId);
+  }
+  return ids;
+}

@@ -13673,10 +13673,10 @@
           <h1 class="room-subject" title="${this.escape(r.subject)}">${this.escape(this._truncateRoomSubject(r.name || r.subject, 60))}</h1>
         </div>
         <div class="head-actions">
+          <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
           <div class="head-cast">${castHtml}</div>
           <a href="#" class="head-icon-btn head-add-cast" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"></a>
           <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
-          <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
           <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
           ${this.currentBrief
             ? (() => {
