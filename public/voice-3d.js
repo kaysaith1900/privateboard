@@ -62,6 +62,20 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
                                // burn on low-end machines.
   let intersectionObserver = null;
 
+  /* ── Loading overlay state ──────────────────────────────────
+     Shown synchronously inside mount() BEFORE WebGL init so the
+     user sees a "something is loading" cue instead of a black
+     box during the ~200-800 ms gap until the first frame paints
+     with avatar textures. Three surfaces benefit: marketing home
+     hero, in-app round-table on room open (mobile + desktop),
+     and the onboarding voice banner. Hidden on the first
+     `update()` call (which is when the populated scene is about
+     to paint) with a safety-net timeout in case `update()` is
+     never reached. */
+  let loadingEl = null;
+  let loadingHideTimer = 0;
+  let loadingFirstUpdateSeen = false;
+
   /** Voxel pixel resolution · how many world units per "voxel cell".
    *  Drives the visual chunkiness — bigger value = chunkier blocks. */
   const VOXEL = 0.18;
@@ -227,6 +241,12 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *  the billboard / position-update loop. */
   const projVec = (typeof THREE !== "undefined") ? new THREE.Vector3() : null;
 
+  /** Reduced-motion · honour the OS setting by holding the figure at
+   *  full height (no squash-blink). Read once at load; matches the 2D
+   *  path's `@media (prefers-reduced-motion: reduce)` blink opt-out. */
+  const prefersReducedMotion = (typeof matchMedia === "function")
+    && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   /** Picking · click anywhere on a director sprite to open the
    *  agent overlay (same modal the 2D head-cast avatar opens via
    *  document delegation). One Raycaster + one Vector2 reused across
@@ -289,6 +309,87 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *  features toward the camera. Sprite-head era needed this so the
    *  texture stayed visible; voxel head doesn't. */
 
+  /* ── Loading overlay ───────────────────────────────────────────
+     Painted into `host` synchronously from mount() so the user
+     sees a pulsing indicator instead of a black box while WebGL
+     warms up and avatar SVGs decode. Hidden when the first
+     `update()` call lands (scene is about to populate) with a
+     safety-net auto-hide at 2.5 s in case update() never fires
+     (e.g. caller mounts then immediately unmounts). */
+  function ensureLoadingStyle() {
+    if (document.getElementById("voice-3d-loading-style")) return;
+    const st = document.createElement("style");
+    st.id = "voice-3d-loading-style";
+    st.textContent = `
+      [data-rt-3d-loading] {
+        position: absolute; inset: 0; z-index: 3;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(0, 0, 0, 0.42);
+        pointer-events: none;
+        opacity: 1; transition: opacity 320ms ease;
+        font-family: ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace;
+      }
+      [data-rt-3d-loading].is-hiding { opacity: 0; }
+      [data-rt-3d-loading-inner] {
+        display: inline-flex; flex-direction: column; align-items: center; gap: 12px;
+      }
+      [data-rt-3d-loading-bar] {
+        display: inline-flex; gap: 5px; image-rendering: pixelated;
+      }
+      [data-rt-3d-loading-bar] i {
+        width: 8px; height: 8px;
+        background: rgba(255, 255, 255, 0.92);
+        display: inline-block;
+        animation: rt3d-load-pulse 1.05s ease-in-out infinite;
+      }
+      [data-rt-3d-loading-bar] i:nth-child(2) { animation-delay: 0.14s; }
+      [data-rt-3d-loading-bar] i:nth-child(3) { animation-delay: 0.28s; }
+      [data-rt-3d-loading-label] {
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.78);
+      }
+      @keyframes rt3d-load-pulse {
+        0%, 70%, 100% { opacity: 0.22; transform: translateY(0); }
+        35%          { opacity: 1;    transform: translateY(-4px); }
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function showLoadingOverlay(host, label) {
+    ensureLoadingStyle();
+    const el = document.createElement("div");
+    el.setAttribute("data-rt-3d-loading", "");
+    // Use textContent for the label · caller-supplied string, must
+    // not interpolate as HTML. The 8-bit dot trio is fixed markup.
+    const inner = document.createElement("span");
+    inner.setAttribute("data-rt-3d-loading-inner", "");
+    inner.innerHTML = `<span data-rt-3d-loading-bar><i></i><i></i><i></i></span>`;
+    if (label) {
+      const cap = document.createElement("span");
+      cap.setAttribute("data-rt-3d-loading-label", "");
+      cap.textContent = String(label);
+      inner.appendChild(cap);
+    }
+    el.appendChild(inner);
+    host.appendChild(el);
+    return el;
+  }
+
+  function hideLoadingOverlay() {
+    if (loadingHideTimer) {
+      clearTimeout(loadingHideTimer);
+      loadingHideTimer = 0;
+    }
+    const el = loadingEl;
+    loadingEl = null;
+    if (!el) return;
+    el.classList.add("is-hiding");
+    setTimeout(() => { try { el.remove(); } catch (_) {} }, 380);
+  }
+
   /* ── Public API ─────────────────────────────────────────────── */
   /** WebGL availability cache · the test creates a throw-away canvas
    *  + GL context, both of which count against Chrome's per-tab WebGL
@@ -335,6 +436,24 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // removing them from the DOM — keeping them around means the
     // 2D fallback path can take over instantly if we ever unmount.
     stageEl.classList.add("is-3d");
+
+    // Loading overlay · drop in BEFORE we touch WebGL so the user
+    // never sees a black void during the shader-compile + avatar-
+    // fetch gap. Optional `opts.loadingLabel` lets callers stamp a
+    // context-appropriate caption (e.g. "Convening" on onboarding).
+    // Set `opts.loading: false` to suppress entirely · the marketing
+    // home uses this because the poster img already covers the gap
+    // (overlaying a darkening veil on the poster would just dim it).
+    loadingFirstUpdateSeen = false;
+    const wantsLoading = !(opts && opts.loading === false);
+    if (wantsLoading) {
+      const loadingLabel = (opts && typeof opts.loadingLabel === "string") ? opts.loadingLabel : "";
+      loadingEl = showLoadingOverlay(stageEl, loadingLabel);
+      // Safety net · if the caller mounts but never calls update()
+      // (e.g. they unmount in the same tick due to a race), the
+      // overlay would linger forever. Auto-hide after 2.5 s.
+      loadingHideTimer = setTimeout(() => hideLoadingOverlay(), 2500);
+    }
 
     // DOM overlay layer · created BEFORE the canvas so the canvas
     // ends up the first child of the stage (background). The overlay
@@ -669,6 +788,20 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   }
 
   function unmount() {
+    // Loading overlay cleanup · if we're unmounting before the
+    // overlay had a chance to fade, yank it now so it doesn't
+    // outlive the stage (the host's child list survives unmount
+    // for the 2D fallback path; a stranded overlay would sit on
+    // top of the 2D pixel art).
+    if (loadingHideTimer) {
+      clearTimeout(loadingHideTimer);
+      loadingHideTimer = 0;
+    }
+    if (loadingEl && loadingEl.parentNode) {
+      try { loadingEl.parentNode.removeChild(loadingEl); } catch (_) {}
+    }
+    loadingEl = null;
+    loadingFirstUpdateSeen = false;
     stopRaf();
     if (resizeObserver) {
       try { resizeObserver.disconnect(); } catch (_) {}
@@ -780,6 +913,16 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *  }} state */
   function update(state) {
     if (!scene) return;
+    // First update after mount = scene is about to populate (seats,
+    // avatars, speaker indicator). Schedule the loading overlay to
+    // fade out shortly after so the first populated frame has a
+    // chance to paint underneath. 320 ms covers the CSS transition
+    // duration; the overlay sits on z-index 3 (above the canvas /
+    // DOM overlay) so it veils the scene crisply during the gap.
+    if (loadingEl && !loadingFirstUpdateSeen) {
+      loadingFirstUpdateSeen = true;
+      setTimeout(() => hideLoadingOverlay(), 320);
+    }
     const mode = (state && state.mode) || "constructive";
     rebuildFloor(mode);
     refreshWallColors(mode);
@@ -2755,10 +2898,20 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
 
   /** Per-frame animation tick for seats:
    *   · Non-speaker figures · gentle y-bob to look alive.
-   *   · Active speaker · figure pinned at base y (no bob); the floor
-   *     glow ring's opacity pulses instead, so the user's eye gets
-   *     drawn to the right seat.
+   *   · Active speaker · figure pinned at base y (no bob), with an
+   *     occasional quick scaleY squash that reads as a blink (the
+   *     billboard's eyes are baked into the texture, so a vertical
+   *     squash is the cheapest "alive while talking" cue); the floor
+   *     glow ring's opacity pulses too so the eye gets drawn to the
+   *     right seat.
    *  Cheap: one sin + a couple of property writes per seat. */
+  // Squash-blink envelope · most of the period the figure is full
+  // height; a short dip near the start of each period reads as a
+  // blink. Per-seat phase offset (bobPhase) desyncs the cast so they
+  // never blink in unison.
+  const BLINK_PERIOD = 4.2; // seconds between blinks
+  const BLINK_DUR    = 0.18; // seconds the close+open takes
+  const BLINK_DEPTH  = 0.12; // peak scaleY reduction (1 → 0.88)
   function tickSeatAnimations() {
     if (!overlaySeats.length) return;
     const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) * 0.001;
@@ -2769,6 +2922,17 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
         seat.fig.position.y = isSpeaking
           ? 0
           : Math.sin(t * 2.6 + seat.bobPhase) * 0.025;
+        // Speaking squash-blink · scale the figure group's height
+        // down briefly (anchored at the chair seat, so it compresses
+        // toward the body). Non-speakers and reduced-motion hold at 1.
+        let sy = 1;
+        if (isSpeaking && !prefersReducedMotion) {
+          const phase = (t + seat.bobPhase) % BLINK_PERIOD;
+          if (phase < BLINK_DUR) {
+            sy = 1 - BLINK_DEPTH * Math.sin((phase / BLINK_DUR) * Math.PI);
+          }
+        }
+        if (seat.fig.scale.y !== sy) seat.fig.scale.y = sy;
       }
       // Speaker halo pulse · 0.35 ↔ 0.75 at ~0.8 Hz (matches the
       // 2D `.rt-seat-speaking::before` glow rhythm).

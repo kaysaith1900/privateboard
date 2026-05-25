@@ -148,6 +148,15 @@
      *  appendMessageDom, drained in _revealPrewarmedBubble, baked into
      *  messageHtml so every render preserves the hidden state. */
     _prewarmedHidden: new Set(),
+    /** Server-authoritative "currently-visible speaker" messageId.
+     *  Pushed via queue-update SSE (orchestrator/room.ts pumpQueue).
+     *  Drives the .streaming class gate in `updateMessageBodyDom` so
+     *  only the one director the server marks as the active turn
+     *  shows the typing-dots / pulse animation, even in the brief
+     *  same-frame window where A's finalize and B's appended SSE
+     *  events both reach the DOM. Null between turns / before first
+     *  turn. */
+    currentActiveMessageId: null,
     /** Mini-player anchor · when set, the cross-room bar persists
      *  for this voice room throughout its whole live/paused life
      *  (between speakers, during votes / clarify, idle phases) —
@@ -1164,6 +1173,12 @@
         : (data.members || []).map((m) => ({ ...m, removedAt: null }));
       this.currentChair = data.chair || null;
       this.currentQueue = data.queue || [];
+      // Reset to null on room open · the queue-update SSE will push
+      // the real value if a director is currently speaking. The
+      // initial GET /api/rooms/:id snapshot doesn't carry this field
+      // (it's a transient pump state, not persisted to messages), so
+      // we wait for the first SSE tick.
+      this.currentActiveMessageId = null;
       this.currentRound = data.round || { spoken: 0, total: 0 };
       this.currentKeyPoints = data.keyPoints || [];
       // Reset the round-table HUD log when (re)opening a room. Past
@@ -1402,6 +1417,7 @@
       // re-opened (since `openRoom` re-sets it from data.chair),
       // but the empty + composer states looked broken.
       this.currentQueue = [];
+      this.currentActiveMessageId = null;
       this.currentRound = { spoken: 0, total: 0 };
       this.currentKeyPoints = [];
       this.rtChairLog = [];
@@ -1978,6 +1994,15 @@
           msg.body = data.body;
           msg.meta = data.meta || {};
         }
+        // Server cleared meta.preWarmed (pump just consumed this
+        // speaker · it is now the visible active turn). Drain from
+        // the hidden set BEFORE renderChat so the article re-paints
+        // without `data-prewarmed`. Otherwise the CSS `display:none`
+        // would persist across this re-render until the next event.
+        if (data.meta && data.meta.preWarmed === false
+            && this._prewarmedHidden && this._prewarmedHidden.has(data.messageId)) {
+          this._revealPrewarmedBubble(data.messageId);
+        }
         // Re-render via a chat repaint · the tool-use renderer is
         // selected by meta.kind so it rebuilds with the new status.
         this.renderChat();
@@ -1987,6 +2012,32 @@
         const data = JSON.parse(e.data);
         this.currentQueue = data.queue || [];
         if (data.round) this.currentRound = data.round;
+        // activeMessageId · server tells us which director's bubble
+        // is the currently-visible "speaking" turn. Two consumers:
+        // (1) `updateMessageBodyDom` gates the streaming animation
+        // on this id (suppresses the brief text-mode flash where
+        // A's finalize and B's append cross paths in the same rAF),
+        // (2) a hidden pre-warmed bubble whose id matches gets
+        // revealed here (defense in depth alongside the message-
+        // updated meta.preWarmed:false signal — whichever arrives
+        // first wins).
+        const prevActive = this.currentActiveMessageId || null;
+        this.currentActiveMessageId = (data && typeof data.activeMessageId === "string")
+          ? data.activeMessageId
+          : (data && data.activeMessageId === null ? null : prevActive);
+        if (this.currentActiveMessageId
+            && this._prewarmedHidden
+            && this._prewarmedHidden.has(this.currentActiveMessageId)) {
+          this._revealPrewarmedBubble(this.currentActiveMessageId);
+        }
+        // If the active id changed AND the streaming class is now on
+        // the wrong bubble, refresh both. Only affects bubbles that
+        // are still in streaming state; finalized bubbles never carry
+        // .streaming so they're not re-touched.
+        if (prevActive !== this.currentActiveMessageId) {
+          this._refreshStreamingClassForId(prevActive);
+          this._refreshStreamingClassForId(this.currentActiveMessageId);
+        }
         this.renderQueue();
       });
 
@@ -3542,12 +3593,53 @@
         `;
       }).join("");
       document.body.appendChild(pop);
-      // Anchor under the wrapper · `.ap-model-picker` is
-      // `position: fixed` so we set top/left relative to viewport.
+      // Anchor relative to the wrapper · `.ap-model-picker` is
+      // `position: fixed` so we set top/left in viewport coords.
+      // Flip-above logic · the house-style dropdown sits in the
+      // SECOND row of the modal and the modal is centred in the
+      // viewport, so the trigger often lands close to the lower
+      // half of the screen. A naive "always below" placement gets
+      // clipped at the viewport bottom (visually: half the list
+      // hidden under the chrome). We measure the rendered popover
+      // height and choose the side with more room — preferring
+      // below by default, flipping above when below is tight and
+      // above has more space. The base `.ap-model-picker` rule
+      // caps height at 60vh + scrolls inside, so a long menu still
+      // fits even after flip.
       const r = wrap.getBoundingClientRect();
-      pop.style.top = `${Math.round(r.bottom + 4)}px`;
       pop.style.left = `${Math.round(r.left)}px`;
       pop.style.width = `${Math.round(r.width)}px`;
+      // First paint to measure; the visible top is intentionally
+      // off-screen until the position decision lands (avoids a
+      // one-frame flash at the wrong location).
+      pop.style.top = "-9999px";
+      pop.style.visibility = "hidden";
+      const PAD = 8;
+      const GAP = 4;
+      const popH = pop.getBoundingClientRect().height;
+      const spaceBelow = Math.max(0, window.innerHeight - r.bottom - PAD);
+      const spaceAbove = Math.max(0, r.top - PAD);
+      let topPx;
+      if (popH + GAP <= spaceBelow) {
+        // Fits below comfortably.
+        topPx = Math.round(r.bottom + GAP);
+      } else if (popH + GAP <= spaceAbove) {
+        // Fits above comfortably · flip.
+        topPx = Math.round(r.top - popH - GAP);
+      } else if (spaceAbove > spaceBelow) {
+        // Neither side fits the full list — pick the bigger side
+        // (above) and cap max-height so the popover's own internal
+        // scroll (`.ap-model-picker { overflow-y: auto }`) handles
+        // the overflow rather than the viewport edge clipping us.
+        topPx = PAD;
+        pop.style.maxHeight = `${spaceAbove}px`;
+      } else {
+        // Stay below · same cap-and-scroll trick.
+        topPx = Math.round(r.bottom + GAP);
+        pop.style.maxHeight = `${spaceBelow}px`;
+      }
+      pop.style.top = `${topPx}px`;
+      pop.style.visibility = "";
       // Dismiss handlers · attached synchronously, but the trigger's
       // own wrap is whitelisted so the click that OPENED the popover
       // (which fires AFTER mousedown · same user gesture) doesn't
@@ -6964,6 +7056,25 @@
         // when the agent profile takes focus, and otherwise the agent
         // rows shouldn't be highlighted at all.
       }
+      // Collapsed mini-rail · light the "rooms" icon when an actual
+      // room is the main view; clear it for composers (the new-room /
+      // new-agent mini icon carries the highlight there instead).
+      this.setMiniRailContext(roomId !== null ? "rooms" : null);
+    },
+
+    /** Highlight the rooms / agents switcher in the collapsed mini
+     *  rail. Mutually exclusive · passing `null` clears both (used by
+     *  the reports / notes / composer destinations, which light their
+     *  own mini icon via the shared trigger attributes). Mirrors the
+     *  full sidebar's tab selection but scoped to the icon rail so the
+     *  collapsed sidebar still shows "where you are". */
+    setMiniRailContext(ctx) {
+      document.querySelectorAll('.mini-tab[data-mini-tab="rooms"]').forEach((el) => {
+        el.classList.toggle("active", ctx === "rooms");
+      });
+      document.querySelectorAll('.mini-tab[data-mini-tab="agents"]').forEach((el) => {
+        el.classList.toggle("active", ctx === "agents");
+      });
     },
 
     /** Sidebar focus when an agent profile takes the main view. The
@@ -6993,6 +7104,9 @@
       document.querySelectorAll(".agent-row").forEach((r) => {
         r.classList.toggle("active", r.dataset.agentProfile === slug);
       });
+      // Collapsed mini-rail · an agent profile is the main view → light
+      // the agents switcher icon.
+      this.setMiniRailContext("agents");
       // Reset composer mode so subsequent transitions are clean — the
       // user is no longer "creating" anything.
       this.composerMode = "room";
@@ -7255,17 +7369,23 @@
       // matches what the user picked in settings; otherwise fall back
       // to the initial-letter chip we shipped before AvatarSkill
       // existed.
-      const av = document.querySelector("[data-user-avatar]");
-      if (av) {
-        const seed = this.prefs?.avatarSeed;
-        if (seed && window.AvatarSkill && typeof window.AvatarSkill.generate === "function") {
+      // Sync every avatar slot · the full sidebar foot AND the
+      // collapsed mini-rail foot both carry [data-user-avatar], so
+      // querySelectorAll keeps them identical regardless of which is
+      // currently visible.
+      const seed = this.prefs?.avatarSeed;
+      const avHtml = (seed && window.AvatarSkill && typeof window.AvatarSkill.generate === "function")
+        ? window.AvatarSkill.generate(seed)
+        : null;
+      document.querySelectorAll("[data-user-avatar]").forEach((av) => {
+        if (avHtml) {
           av.classList.add("has-pixel-av");
-          av.innerHTML = window.AvatarSkill.generate(seed);
+          av.innerHTML = avHtml;
         } else {
           av.classList.remove("has-pixel-av");
           av.textContent = initial;
         }
-      }
+      });
       const nm = document.querySelector("[data-user-name]");
       if (nm) nm.textContent = name;
       const mt = document.querySelector("[data-user-meta]");
@@ -8124,6 +8244,9 @@
       document.querySelectorAll("[data-notes-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-search-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-reports-trigger]").forEach((el) => el.classList.add("active"));
+      // Reports is its own destination · clear the mini-rail rooms /
+      // agents switchers so only the reports mini icon reads active.
+      this.setMiniRailContext(null);
 
       // Persist the view via URL hash so refresh / back-button restore
       // both the page content AND the sidebar highlight. replaceState
@@ -8610,6 +8733,9 @@
       document.querySelectorAll("[data-reports-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-search-trigger].active").forEach((el) => el.classList.remove("active"));
       document.querySelectorAll("[data-notes-trigger]").forEach((el) => el.classList.add("active"));
+      // Notes is its own destination · clear the mini-rail rooms /
+      // agents switchers so only the notes mini icon reads active.
+      this.setMiniRailContext(null);
 
       if (location.hash !== "#/notes") {
         try { history.replaceState(null, "", "#/notes"); } catch { /* ignore */ }
@@ -13660,7 +13786,6 @@
       // tokens are not routed through `_t()`.
       const statusWord = r.status !== "live" ? String(r.status).toUpperCase() : "";
       head.innerHTML = `
-        <button type="button" class="room-head-expand" data-sidebar-expand title="${this.escape(this._t("sidebar_expand"))}" aria-label="${this.escape(this._t("sidebar_expand"))}" data-tip="${this.escape(this._t("sidebar_expand"))}"></button>
         <div class="room-info">
           <div class="room-kicker">
             <span class="kicker-num">// ROOM #${r.number}</span>
@@ -15530,14 +15655,36 @@
       const isChairCard =
         article.classList.contains("chair-direct") ||
         article.classList.contains("chair-intervention");
-      if (empty && streaming) {
+      // Single-active-speaker gate · the streaming animation belongs
+      // only to the director whose turn is currently visible per the
+      // server's queue-update activeMessageId field. In text mode this
+      // erases the brief same-frame flash where A's finalize and B's
+      // appended SSE events both run their DOM mutations in the same
+      // rAF — without the gate, both bubbles render `.streaming` and
+      // the user reads "two directors speaking at once." Chair cards
+      // and non-agent messages (user, system) keep their own
+      // streaming semantics; the gate only applies to director
+      // (agent.roleKind === "director") bubbles. We can't read
+      // roleKind here without a getter, so use the same heuristic
+      // updateMessageBodyDom already trusts: a regular .msg article
+      // that is NOT a chair-card is a director or user; user
+      // messages don't carry the streaming class anyway, so this
+      // narrows safely.
+      const isAgentArticle =
+        article.classList.contains("msg") &&
+        !article.classList.contains("user") &&
+        !isChairCard;
+      const activeId = this.currentActiveMessageId || null;
+      const speakingGate = !isAgentArticle || !activeId || messageId === activeId;
+      const wantStreaming = !!streaming && speakingGate;
+      if (empty && wantStreaming) {
         bubble.innerHTML = this.thinkingHtml();
         article.classList.add("thinking");
         article.classList.add(isChairCard ? "is-streaming" : "streaming");
       } else {
         bubble.innerHTML = this.renderBody(display);
         article.classList.toggle("thinking", false);
-        article.classList.toggle(isChairCard ? "is-streaming" : "streaming", !!streaming);
+        article.classList.toggle(isChairCard ? "is-streaming" : "streaming", wantStreaming);
         // Re-apply chairman's-notes highlights · the bubble's
         // innerHTML rewrite above wipes any previously-injected
         // .note-highlight spans. Skip mid-stream (offsets won't match
@@ -15546,6 +15693,21 @@
           this.applyNoteHighlightsForMessage(messageId);
         }
       }
+    },
+
+    /** Re-evaluate the streaming class on a single bubble using its
+     *  current `meta.streaming` and the current activeMessageId. Used
+     *  by the queue-update SSE handler to flip the speaking animation
+     *  between A (finalized) and B (newly active) without waiting
+     *  for a token tick. No-op when the message isn't streaming or
+     *  the article isn't in the DOM yet. */
+    _refreshStreamingClassForId(messageId) {
+      if (!messageId) return;
+      const msg = this.currentMessages.find((m) => m.id === messageId);
+      if (!msg) return;
+      const streaming = !!(msg.meta && msg.meta.streaming);
+      if (!streaming) return;
+      this.updateMessageBodyDom(messageId, msg.body || "", true);
     },
 
     /** Count of prior non-empty messages this speaker would see as context. */
@@ -16212,12 +16374,22 @@
 
       const empty = !displayBody;
       const streaming = m.meta && m.meta.streaming === true;
+      // Single-active-speaker gate · mirrors `updateMessageBodyDom`.
+      // For director (non-chair, non-user, agent) messages, only the
+      // bubble whose id matches the server's activeMessageId may
+      // wear the .streaming + .thinking classes. This keeps the
+      // first-paint and the live-update class state consistent so
+      // the text-mode "two directors flashing" race vanishes.
+      const isDirectorMsg = !isUser && !isChair;
+      const activeId = this.currentActiveMessageId || null;
+      const speakingGate = !isDirectorMsg || !activeId || m.id === activeId;
+      const wantStreaming = !!streaming && speakingGate;
       const stateCls = [];
-      if (streaming) stateCls.push("streaming");
-      if (empty && streaming && !isUser) stateCls.push("thinking");
+      if (wantStreaming) stateCls.push("streaming");
+      if (empty && wantStreaming) stateCls.push("thinking");
       if (metaKind) stateCls.push(`kind-${metaKind}`);
 
-      const bubbleHtml = (empty && streaming && !isUser)
+      const bubbleHtml = (empty && wantStreaming)
         ? this.thinkingHtml()
         : this.renderBody(displayBody);
 

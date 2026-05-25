@@ -5041,19 +5041,20 @@
     const intro = typeof parsed.intro === "string" ? parsed.intro.trim() : "";
     const chairSynthesis = typeof parsed.chairSynthesis === "string" ? parsed.chairSynthesis.trim() : "";
 
-    // Resolve director id → display name from the rendered member
-    // list above (the brief renderer attaches `data-director-id` to
-    // each cover-byline author chip; fall back to the id when no
-    // mapping is found).
+    // Resolve director id → display name from the global stash that
+    // `load()` populates from state.members + historicalMembers +
+    // chair. Falls back to scanning `[data-director-id]` chips for
+    // legacy / forward-compat (none currently rendered, but cheap),
+    // and finally to the id itself when nothing matches.
     const directorNameById = (() => {
-      const out = {};
+      const out = Object.assign({}, window.__reportAgentNames || {});
       try {
         const chips = document.querySelectorAll("[data-director-id]");
         chips.forEach((el) => {
           const id = el.getAttribute("data-director-id");
-          if (id && el.textContent) out[id] = el.textContent.trim();
+          if (id && el.textContent && !out[id]) out[id] = el.textContent.trim();
         });
-      } catch (_) { /* during pre-paint, no chips yet — fall through */ }
+      } catch (_) { /* defensive · DOM may not be ready */ }
       return out;
     })();
     const dn = (id) => directorNameById[id] || id || "—";
@@ -6420,6 +6421,25 @@
         const j = await stateRes.json();
         room = j.room;
         members = j.members || [];
+        // Author-id → display-name map · drives `renderViewsCompared`'s
+        // director chips ("Every director on the table", alignment
+        // cards, divergence sides). Earlier the helper scraped
+        // `[data-director-id]` chips off the rendered DOM, but no
+        // chip ever carried that attribute — the lookup always fell
+        // through and the chips printed raw agent ids like
+        // `1khezh9da65g`. Stash a real lookup on window from BOTH
+        // active members and historicalMembers (excused directors
+        // still appear in views-compared if they participated) plus
+        // the chair (occasionally referenced too).
+        const nameMap = {};
+        for (const m of (j.members || [])) {
+          if (m && m.id && m.name) nameMap[m.id] = m.name;
+        }
+        for (const m of (j.historicalMembers || [])) {
+          if (m && m.id && m.name && !nameMap[m.id]) nameMap[m.id] = m.name;
+        }
+        if (j.chair && j.chair.id && j.chair.name) nameMap[j.chair.id] = j.chair.name;
+        window.__reportAgentNames = nameMap;
       } else {
         members = [];
       }

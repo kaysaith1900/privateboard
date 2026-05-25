@@ -24,6 +24,7 @@ import { insertConfigEvent } from "../storage/config-events.js";
 import { listKeyPointsForRoom } from "../storage/key_points.js";
 import {
   deleteMessage,
+  getMessage,
   insertMessage,
   listRecentMessages,
   nextUserRoundNum,
@@ -195,6 +196,16 @@ interface RoomState {
    *  waitForVoicePlayback checks this set first and resolves
    *  immediately if pre-marked, then deletes the entry. */
   voicePredone: Set<string>;
+  /** Currently-visible speaker's messageId · gates the chat bubble's
+   *  "speaking" animation on the client AND the visibility of
+   *  pre-warmed placeholders (which sit hidden until consume time).
+   *  Maintained by pumpQueue: set when a speaker becomes the visible
+   *  turn (pre-warmed consume OR fresh-path placeholder insert);
+   *  cleared on speaker-end so the brief gap between turns doesn't
+   *  leave a stale id around. Emitted via queue-update SSE so the
+   *  client can react. Null when no director is the visibly-active
+   *  speaker (chair turns, between turns, idle). */
+  activeMessageId: string | null;
 }
 
 const _state = new Map<string, RoomState>();
@@ -269,6 +280,7 @@ function ensureState(roomId: string): RoomState {
       billingHaltedThisTurn: false,
       voiceWaiters: new Map(),
       voicePredone: new Set(),
+      activeMessageId: null,
     };
     _state.set(roomId, s);
   }
@@ -505,6 +517,11 @@ export async function chairInterrupt(roomId: string): Promise<void> {
     try { state.preWarmed.abortController.abort(); } catch (_) {}
     state.preWarmed = null;
   }
+  // Chair takes the floor · no director is the visible active any more.
+  // Clear before the queue-update so the emit below carries the fresh
+  // null (otherwise the client would still see the just-interrupted
+  // speaker as active until pump's finally fires).
+  state.activeMessageId = null;
   if (interruptedAgentId) {
     // Find the most recent streaming agent message from this speaker
     // and remove it. The placeholder was inserted by streamSpeakerTurn
@@ -706,6 +723,7 @@ function emitQueueUpdate(roomId: string, s: RoomState): void {
       spoken: s.speakersThisTurn,
       total: s.maxSpeakersThisTurn,
     },
+    activeMessageId: s.activeMessageId,
   };
   roomBus.emit(roomId, update);
 }
@@ -769,6 +787,10 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
     try { state.preWarmed.abortController.abort(); } catch (_) {}
     state.preWarmed = null;
   }
+  // Replan kicks off a fresh queue · the prior visible speaker is no
+  // longer the active turn. Clear so the client doesn't keep the
+  // streaming class anchored to a now-discarded message.
+  state.activeMessageId = null;
 
   // Voice rooms · the aborted speaker streamed some text before the abort
   // → streamSpeakerTurn returns its messageId (not null) → the pump is
@@ -956,6 +978,33 @@ async function runPickerThenPrewarm(roomId: string, _currentMessageId: string): 
       if (state.inflight.has(sentinel)) {
         state.inflight.delete(sentinel);
         state.inflight.set(info.messageId, ac);
+      }
+      // Race-window activation · pumpQueue may have already consumed
+      // this pre-warm before the placeholder was inserted (skill-
+      // picker / web-search work in streamSpeakerTurn can take a few
+      // seconds; meanwhile A's TTS could finish first on a short
+      // utterance). When consumed, pumpQueue clears state.preWarmed
+      // and tries to set state.activeMessageId — but with no
+      // messageId yet, it can't. Pick up here once the placeholder
+      // exists: if we're no longer in the preWarmed slot, that means
+      // pump already moved on to "us," so activate.
+      if (state.preWarmed !== preWarmed && state.activeMessageId === null) {
+        state.activeMessageId = info.messageId;
+        // Clear the placeholder's preWarmed marker so the client
+        // reveals the bubble. Server emits message-updated; the
+        // client treats meta.preWarmed:false as "now visible."
+        const m = getMessage(info.messageId);
+        if (m) {
+          const newMeta = { ...(m.meta || {}), preWarmed: false };
+          updateMessageBody(info.messageId, m.body, newMeta);
+          roomBus.emit(roomId, {
+            type: "message-updated",
+            messageId: info.messageId,
+            body: m.body,
+            meta: newMeta,
+          });
+        }
+        emitQueueUpdate(roomId, state);
       }
     },
     // Chain trigger lives in pumpQueue's consume point, NOT here.
@@ -1312,9 +1361,33 @@ async function pumpQueue(roomId: string): Promise<void> {
         ac = state.preWarmed.abortController;
         streamPromise = state.preWarmed.promise;
         state.preWarmed = null;
+        // Activate the pre-warmed speaker · this is the moment the
+        // bubble becomes visible. Clear the message's preWarmed
+        // marker so the client reveals it (message-updated SSE),
+        // and set state.activeMessageId so the client gates the
+        // streaming animation onto this id. If the placeholder
+        // hasn't been inserted yet (race · skill-picker still
+        // running), runPickerThenPrewarm's onPlaceholder picks
+        // up the slack.
+        if (justConsumed.messageId) {
+          state.activeMessageId = justConsumed.messageId;
+          const m = getMessage(justConsumed.messageId);
+          if (m) {
+            const newMeta = { ...(m.meta || {}), preWarmed: false };
+            updateMessageBody(justConsumed.messageId, m.body, newMeta);
+            roomBus.emit(roomId, {
+              type: "message-updated",
+              messageId: justConsumed.messageId,
+              body: m.body,
+              meta: newMeta,
+            });
+          }
+          emitQueueUpdate(roomId, state);
+        }
         rlog(roomId, "speaker-prewarm-consumed", {
           agent: speaker.name,
           agentId: speaker.id,
+          messageId: justConsumed.messageId || "(pending)",
         });
         // Rolling depth-1 chain · the slot we just freed is the
         // place for the NEXT pre-warm. Without this hook the chain
@@ -1348,6 +1421,13 @@ async function pumpQueue(roomId: string): Promise<void> {
               state.inflight.delete(sentinel);
               state.inflight.set(info.messageId, ac);
             }
+            // Fresh-path speaker = the visible active turn. Set
+            // activeMessageId at placeholder insert so the client
+            // gates the streaming animation onto this id (and not
+            // onto any lingering id from the previous turn that
+            // hasn't been cleared yet by the finally below).
+            state.activeMessageId = info.messageId;
+            emitQueueUpdate(roomId, state);
           },
           onMessageFinal: (info) => {
             schedulePreWarm(roomId, info.messageId);
@@ -1398,6 +1478,17 @@ async function pumpQueue(roomId: string): Promise<void> {
           if (val === ac) keysToDel.push(key);
         }
         for (const key of keysToDel) state.inflight.delete(key);
+        // Speaker just finished · clear the active id so the gap
+        // between turns doesn't keep the streaming class anchored
+        // on a finalized message. The next iteration's onPlaceholder
+        // (or pre-warm consume) will set the new id. pumpQueue is
+        // strictly serial (one await streamPromise at a time), so
+        // there's no race with the next turn — its onPlaceholder
+        // can only fire AFTER this finally runs.
+        if (state.activeMessageId) {
+          state.activeMessageId = null;
+          emitQueueUpdate(roomId, state);
+        }
       }
 
       // Was this turn aborted by a fresh tick? If so, the queue's been

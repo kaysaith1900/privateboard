@@ -90,6 +90,12 @@
           elevationDeg: 24,    // soft top-down lean (default 30 was steep, 18 too flat)
           lookAtY: 0.75,       // target slightly above the table top so seated heads centre
         },
+        // Suppress the built-in loading veil · the marketing hero
+        // already shows a static poster (`home-3d-poster.*`) which
+        // covers the mount → first-frame gap. Layering the veil on
+        // top of the poster would just darken it before the canvas
+        // takes over.
+        loading: false,
       })) return;
 
       // Pull the cast + start the rotating-speaker driver. The mock

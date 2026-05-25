@@ -69,6 +69,9 @@
             system-ui, sans-serif;
 
     --sidebar-w: 280px;
+    /* Collapsed icon-rail width · matches the ChatGPT folded sidebar.
+       Wide enough for a centered 32px hit target with breathing room. */
+    --mini-sidebar-w: 56px;
   }
 
   /* Logo stays on Inter so the brandmark reads consistently
@@ -670,14 +673,6 @@
   html.is-electron-mac .room-head .head-cast img {
     -webkit-app-region: no-drag;
   }
-  /* The expand-btn's ::after halo paints OUTSIDE the button rect
-     (inset: -16px), so it doesn't inherit the button's no-drag and
-     gets eaten by `.room-head { drag }` above. Stamp no-drag on the
-     pseudo directly so the 48×48 hit zone keeps registering clicks.
-     (Same shape as the sidebar-collapse-btn::after override.) */
-  html.is-electron-mac .room-head .room-head-expand::after {
-    -webkit-app-region: no-drag;
-  }
   /* ─── macOS Electron · top-strip drag coverage for non-room views.
      When the room view is hidden (All Reports / All Notes / Search /
      Agent Profile) or the room view is shown with no current room (the
@@ -839,22 +834,28 @@
      room. Single column = main fills the whole body-grid cleanly.
      The user's preferred --sidebar-w stays in localStorage so
      expanding restores the same width. */
+  /* Collapsed · the full sidebar + resizer drop out and a fixed-width
+     mini icon rail takes column 1. Source order [sidebar, resizer,
+     mini, main] + both hidden siblings → grid auto-places mini in
+     col 1, main in col 2. */
   body.sidebar-collapsed .body-grid {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: var(--mini-sidebar-w) 1fr !important;
   }
   body.sidebar-collapsed .sidebar,
   body.sidebar-collapsed .col-resizer {
     display: none;
   }
+  body.sidebar-collapsed .mini-sidebar {
+    display: flex;
+  }
   /* ─── Hover peek · floating sidebar while collapsed ───
-     When the user hovers the collapsed-state trigger (the floating
-     `.sidebar-expand-btn` or the in-header `.room-head-expand`), JS
-     adds `.sidebar-peek` to body. The sidebar reappears as a floating
-     overlay anchored to the body-grid's top-left edge so it sits ABOVE
-     the chat content without re-flowing the grid. Mouseleave (with
-     short grace) drops the class and the sidebar disappears again.
-     This is purely an addition to the collapsed state — the column
-     never reclaims its grid track. */
+     When the cursor reaches the viewport's left edge (over the mini
+     rail), JS adds `.sidebar-peek` to body. The full sidebar reappears
+     as a floating overlay anchored to the body-grid's top-left edge so
+     it sits ABOVE the chat content (and the mini rail) without
+     re-flowing the grid. Mouseleave drops the class and the float
+     disappears again, leaving the mini rail. This is purely an addition
+     to the collapsed state — the column never reclaims its grid track. */
   body.sidebar-collapsed.sidebar-peek .sidebar {
     display: flex;
     position: absolute;
@@ -913,12 +914,14 @@
     appearance: none;
     padding: 0;
   }
-  /* Show floating button only when sidebar is collapsed AND we're
-     in the empty / no-room state. When a room is loaded, the
-     in-header `.room-head-expand` button takes over instead, so
-     the icon doesn't sit on top of the room title. */
+  /* Retired · the persistent mini icon rail now owns the collapsed
+     state, and its logo button expands. The old floating round chip
+     would sit on top of the rail's top icon (both pin to the body-grid
+     top-left), so it stays hidden in every state. Kept in the DOM (and
+     this rule kept as `display: none`) so the edge-peek mousemove guard
+     that references `[data-sidebar-expand]` still resolves cleanly. */
   html.no-room body.sidebar-collapsed .sidebar-expand-btn {
-    display: inline-flex;
+    display: none;
   }
   .sidebar-expand-btn:hover {
     color: var(--lime);
@@ -961,67 +964,230 @@
     -webkit-app-region: no-drag;
   }
 
-  /* ─── In-header expand button ───
-     Lives at the leading edge of `.room-head` (rendered by
-     renderHeader() in app.js). Visual twin of `.sidebar-collapse-btn`
-     so the collapse/expand pair reads as the SAME control across
-     the two places it can appear (in-sidebar when open · in-header
-     when sidebar collapsed AND a room is loaded). Icon-only · no
-     chrome · same Lucide PanelLeft mask · same hover-lime cascade.
-     Always rendered in the mirrored variant (panel folded to the
-     right edge) since this button only ever appears in the collapsed
-     state · clicking it expands the sidebar back. */
-  .room-head-expand {
-    appearance: none;
-    background: transparent;
-    border: 0;
-    color: var(--text-soft);
-    cursor: pointer;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    flex-shrink: 0;
-    transition: color 0.12s;
-    /* position: relative anchors the ::after hit-area expander so
-       the cursor doesn't have to land precisely on the 16px icon. */
-    position: relative;
+  /* ─── Mini (collapsed) sidebar · ChatGPT-style icon rail ───
+     A persistent narrow rail shown while collapsed. `display: none`
+     by default; flipped to `flex` by the collapsed-state rule above.
+     Shares the sidebar chrome surface (`--sidebar-bg`) + a hairline
+     right edge so it reads as the same column the full sidebar used. */
+  .mini-sidebar {
     display: none;
+    flex-direction: column;
+    align-items: center;
+    width: var(--mini-sidebar-w);
+    height: 100%;
+    min-height: 0;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--line);
+    padding: 10px 0;
+    /* `visible` (not `hidden`) so the per-icon hover tooltips can
+       escape the 56px rail and pop out to the right. The icon set is
+       short enough that it never overflows the rail vertically, so
+       there's nothing to clip anyway. The enclosing `.body-grid`
+       still bounds everything. */
+    overflow: visible;
   }
-  .room-head-expand::before {
+  .mini-top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+  }
+  .mini-foot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+    padding-top: 8px;
+  }
+  /* Icon button · 32×32 centered hit target. Stroke icons ride
+     currentColor (text-soft idle → text on hover) via the shared
+     mask-image vocabulary, matching the full sidebar's nav glyphs. */
+  .mini-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+    appearance: none;
+  }
+  /* Hover tooltip · CSS-only via ::after + data-tip, mirroring the
+     `.ib-action::after` pattern. Pops to the RIGHT of the icon (the
+     rail hugs the window's left edge, so above/left would clip) after
+     ~300ms dwell. data-tip is populated from data-i18n-tip by i18n.js,
+     with a static English fallback for the pre-i18n frame. */
+  .mini-btn[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%) translateX(-3px);
+    background: var(--panel-2);
+    border: 0.5px solid var(--line-strong);
+    padding: 5px 9px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.55);
+    transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.18s;
+    z-index: 250;
+  }
+  .mini-btn[data-tip]:hover::after,
+  .mini-btn[data-tip]:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(-50%) translateX(0);
+    transition: opacity 0.14s ease 0.3s, transform 0.14s ease 0.3s, visibility 0s linear 0.3s;
+  }
+  .mini-btn:hover {
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  /* Selected state · the icon for the current destination (reports /
+     notes / new-room / new-agent via shared trigger attrs, rooms /
+     agents via setMiniRailContext). Settled `--panel-3` chip + full
+     --text glyph, matching the full sidebar's `.new-btn.active`
+     language (background-only, no accent — per project CSS rules).
+     Placed after :hover so an active icon keeps its chip on hover
+     instead of dropping to the lighter hover tone. */
+  .mini-btn.active,
+  .mini-btn.active:hover {
+    background: var(--panel-3);
+    color: var(--text);
+  }
+  /* Glyph · same 18px Lucide mask the full sidebar nav buttons use.
+     `--icon` is supplied per-button by the shared rules below (data-
+     attribute scoped so both the .new-btn and .mini-btn carriers pick
+     it up from one definition). */
+  .mini-btn::before {
     content: "";
-    display: block;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
     background-color: currentColor;
-    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
-            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+    -webkit-mask-image: var(--icon, none);
+            mask-image: var(--icon, none);
     -webkit-mask-repeat: no-repeat;
             mask-repeat: no-repeat;
     -webkit-mask-position: center;
             mask-position: center;
-    -webkit-mask-size: 16px 16px;
-            mask-size: 16px 16px;
-    /* Same scaleX(-1) the sidebar-collapse-btn uses when
-       body.sidebar-collapsed · since this button is ONLY visible
-       in the collapsed state, the flip is unconditional here. */
-    transform: scaleX(-1);
+    -webkit-mask-size: 18px 18px;
+            mask-size: 18px 18px;
+    transition: color 0.12s;
   }
-  /* Invisible hit-area expander · matches `.sidebar-collapse-btn::after`
-     so the click rectangle grows to 48×48 around the 16px icon. */
-  .room-head-expand::after {
+  /* Tab + user buttons render real children (.ic / avatar), not a mask
+     glyph. Suppress the shared ::before — without an `--icon` its
+     `currentColor` fill would paint a solid square block next to the
+     real content. (The logo keeps its ::before for the hover fold-icon
+     below.) */
+  .mini-tab::before,
+  .mini-user::before { content: none; }
+  .mini-tab .ic { width: 18px; height: 18px; }
+  /* Logo → fold glyph on hover · telegraphs "click to expand" using the
+     same Lucide PanelLeft + 3-rows icon as the in-sidebar collapse
+     button. At rest the brand mark shows; on hover it fades out and the
+     fold glyph (overlaid, currentColor) fades in. The explicit fold
+     mask here also overrides the generic .mini-btn::before, which —
+     lacking an --icon — would otherwise paint a solid square. */
+  .mini-logo { position: relative; }
+  /* The chair avatar is a two-layer stack: open-eye frame always
+     visible, closed-eye frame flashed in by the blink keyframe. The
+     wrapper carries an occasional idle hop. */
+  .mini-logo-av {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    transition: opacity 0.12s;
+    animation: chair-hop 7s ease-in-out infinite;
+  }
+  .mini-logo-av img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  /* Closed-eye frame · hidden at rest, briefly opaque on the blink
+     keyframe. A different cycle length from the hop keeps the two from
+     locking into a robotic sync. */
+  .mini-logo-av .cl-blink {
+    opacity: 0;
+    animation: chair-blink 5.7s ease-in-out infinite;
+  }
+  .mini-logo:hover .mini-logo-av { opacity: 0; }
+  /* Occasional double-bounce hop · still ~85% of the cycle, then a
+     quick two-step hop so the chair reads as "alive" without being
+     busy. */
+  @keyframes chair-hop {
+    0%, 60%, 100% { transform: translateY(0); }
+    66% { transform: translateY(-4px); }
+    72% { transform: translateY(0); }
+    77% { transform: translateY(-2px); }
+    82% { transform: translateY(0); }
+  }
+  /* Single crisp blink near the end of the cycle (~170ms closed). */
+  @keyframes chair-blink {
+    0%, 93.5%, 100% { opacity: 0; }
+    94%, 96.5% { opacity: 1; }
+    97% { opacity: 0; }
+  }
+  /* Respect reduced-motion · hold the open-eye frame, no hop / blink. */
+  @media (prefers-reduced-motion: reduce) {
+    .mini-logo-av,
+    .mini-logo-av .cl-blink { animation: none; }
+  }
+  .mini-logo::before {
     content: "";
     position: absolute;
-    inset: -16px;
+    top: 50%;
+    left: 50%;
+    /* scaleX(-1) mirrors the fold so the rows flip to the right edge —
+       the same direction the in-sidebar collapse button uses in its
+       collapsed state to telegraph "the panel expands out from here". */
+    transform: translate(-50%, -50%) scaleX(-1);
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+    opacity: 0;
+    transition: opacity 0.12s;
   }
-  body.sidebar-collapsed .room-head-expand {
-    display: block;
-    /* Extra 5px breathing room between the icon and the title cluster
-       on top of the room-head's own 12px column gap · the icon sat
-       too close to the kicker / subject otherwise. Scoped to the
-       collapsed state since the button itself only exists then. */
-    margin-right: 5px;
+  .mini-logo:hover::before { opacity: 1; }
+  /* Divider between the action group and the rooms/agents switchers. */
+  .mini-sep {
+    width: 20px;
+    height: 1px;
+    background: var(--line-bright);
+    margin: 6px 0;
+    flex-shrink: 0;
   }
-  .room-head-expand:hover { color: var(--lime); }
+  .mini-user { width: 32px; height: 32px; }
+  .mini-user .mini-user-av { width: 26px; height: 26px; }
+  .mini-user:hover { background: var(--panel-2); }
+
+  /* macOS Electron · clicks must reach the rail's buttons (the window
+     drag region otherwise swallows them), and the traffic-light cluster
+     is hidden while collapsed (see syncElectronTrafficLights), so the
+     logo can sit near the top with normal padding. */
+  html.is-electron-mac .mini-sidebar {
+    -webkit-app-region: no-drag;
+  }
 
   /* ─── Sidebar tabs (Rooms / Agents) — bar-style nav ───
      Reference: `public/icons/bar.png`. Two layers:
@@ -1507,27 +1673,33 @@
   [data-convene-trigger]::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'/><path d='M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z'/></svg>");
   }
-  /* "New agent" · UserPlus (Lucide) — silhouette with a small plus
-     to its right, Claude's "add member" pattern. */
+  /* "New agent" · UserRoundPlus (Lucide) — rounder, bigger-headed
+     "add person" glyph. Replaces the thinner UserPlus, whose small
+     low-left silhouette + floating plus read a size smaller than the
+     box-filling neighbours (SquarePen / FileText) — most visible in
+     the collapsed mini rail where icons stand alone without labels. */
   [data-agent-composer-trigger]::before {
-    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='19' x2='19' y1='8' y2='14'/><line x1='22' x2='16' y1='11' y2='11'/></svg>");
+    --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2 21a8 8 0 0 1 13.292-6'/><circle cx='10' cy='8' r='5'/><path d='M19 16v6'/><path d='M22 19h-6'/></svg>");
   }
   /* "All Reports" · FileText (Lucide) — single document with three
      text lines, cleaner than the previous gradient-stack glyph. */
-  .new-btn.nav-reports::before {
+  .new-btn.nav-reports::before,
+  .mini-reports::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>");
   }
   /* "All Notes" · Bookmark (Lucide) — pennant-shaped bookmark glyph
      mirroring the qcta save-button icon. Matches the chairman's-notes
      vocabulary across the app (sidebar entry, save action, in-room
      overlay all share the bookmark register). */
-  .new-btn.nav-notes::before {
+  .new-btn.nav-notes::before,
+  .mini-notes::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'/></svg>");
   }
   /* "Search" · Search (Lucide) — circle + diagonal handle. Standard
      magnifying-glass glyph in the same Lucide line-icon vocabulary as
      the rest of the sidebar. */
-  .new-btn.nav-search::before {
+  .new-btn.nav-search::before,
+  .mini-search::before {
     --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>");
   }
   /* All Reports / All Notes / Search nav-button shape · label-only. */
@@ -1888,11 +2060,12 @@
     overflow: hidden;
   }
   /* Pixel-art variant · when prefs.avatarSeed exists, app.renderUserBlock
-     swaps the initial-letter chip for an AvatarSkill SVG. Drop the
-     lime fill (the SVG is its own surface) and use the bg color
-     instead, keep the box border-less so the SVG bleeds edge-to-edge. */
+     swaps the initial-letter chip for an AvatarSkill SVG. The pixel SVG
+     is transparent, so we drop the fill entirely (was --lime, then
+     --bg) and let it sit directly on the surface behind it — no boxed
+     square around the character. */
   .user-av.has-pixel-av {
-    background: var(--bg);
+    background: transparent;
   }
   .user-av.has-pixel-av svg {
     width: 100%;
@@ -3721,15 +3894,6 @@
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
     }
-  }
-  /* When the sidebar is collapsed the room-head gains a leading
-     auto-sized track for the in-header `.room-head-expand` button.
-     When expanded the button is display:none, so a 0-width track
-     would still leave a `gap` artifact — switching to a 3-track
-     template only in the collapsed state keeps the header visually
-     identical to before whenever the sidebar is open. */
-  body.sidebar-collapsed .room-head {
-    grid-template-columns: auto 1fr auto;
   }
   /* `overflow: visible` so the tone-tag hover tooltip (positioned via
      ::after below the tag) can escape this container. The room-subject
@@ -8633,6 +8797,25 @@
   }
   .rt-avatar[data-agent]:hover {
     filter: brightness(1.18);
+  }
+  /* Speaking squash-blink · the avatar's eyes are baked into the
+     sprite (img / inline pixel-SVG), so a quick vertical scaleY
+     squash is the cheapest "blink while talking" cue. Only the
+     speaking seat animates; the dip is brief + shallow so it reads
+     as a blink, not a bounce. transform keeps the static
+     translateX(-50%) so the sprite stays centered on the chair. */
+  .rt-seat-speaking .rt-avatar {
+    transform-origin: center 45%;
+    animation: rt-blink-squash 4.2s ease-in-out infinite;
+  }
+  @keyframes rt-blink-squash {
+    0%, 88%, 100% { transform: translateX(-50%) scaleY(1); }
+    92%           { transform: translateX(-50%) scaleY(0.88); }
+    96%           { transform: translateX(-50%) scaleY(1); }
+  }
+  /* Respect reduced-motion · hold the avatar at full height. */
+  @media (prefers-reduced-motion: reduce) {
+    .rt-seat-speaking .rt-avatar { animation: none; }
   }
 
   /* Name plate · small mono caption ABOVE the avatar (was below,
@@ -15888,6 +16071,45 @@
     <!-- Resizable handle: sidebar | main -->
     <div class="col-resizer" data-resize data-var="--sidebar-w" data-side="left" data-min="220" data-max="480" data-i18n-title="col_resize"></div>
 
+    <!-- ─── Mini (collapsed) sidebar · ChatGPT-style icon rail ───
+         Shown ONLY while body.sidebar-collapsed (the full .sidebar is
+         display:none then). Source order matters: it sits between the
+         (hidden) resizer and <main> so grid auto-placement drops it in
+         column 1 and main in column 2 when collapsed.
+         Icon order: logo (→ expand), new room, new agent, search,
+         reports, notes, divider, rooms (→ expand+tab), agents
+         (→ expand+tab). Foot: user avatar (→ settings). New room /
+         agent / search / reports / notes keep the room collapsed (they
+         reuse the same document-delegated data-* triggers the full
+         sidebar uses); only the logo + rooms + agents expand. -->
+    <aside class="mini-sidebar" aria-label="Collapsed sidebar navigation">
+      <div class="mini-top">
+        <button type="button" class="mini-btn mini-logo" data-sidebar-expand data-i18n-tip="sidebar_expand" data-tip="Expand sidebar" aria-label="Expand sidebar">
+          <span class="mini-logo-av">
+            <img class="cl-open" src="/avatars/chair.svg" alt="" aria-hidden="true">
+            <img class="cl-blink" src="/avatars/chair-blink.svg" alt="" aria-hidden="true">
+          </span>
+        </button>
+        <button type="button" class="mini-btn mini-new-room" data-convene-trigger data-i18n-tip="sidebar_new_room" data-tip="New room" aria-label="New room"></button>
+        <button type="button" class="mini-btn mini-new-agent" data-agent-composer-trigger data-i18n-tip="sidebar_new_agent" data-tip="New agent" aria-label="New agent"></button>
+        <button type="button" class="mini-btn mini-search" data-search-trigger data-tip="Search" aria-label="Search"></button>
+        <button type="button" class="mini-btn mini-reports" data-reports-trigger data-i18n-tip="sidebar_all_reports" data-tip="Reports" aria-label="All Reports"></button>
+        <button type="button" class="mini-btn mini-notes" data-notes-trigger data-i18n-tip="sidebar_all_notes" data-tip="Notes" aria-label="All Notes"></button>
+        <span class="mini-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-btn mini-tab" data-mini-tab="rooms" data-i18n-tip="sidebar_tab_rooms" data-tip="Rooms" aria-label="Rooms">
+          <i class="ic ic-rooms"></i>
+        </button>
+        <button type="button" class="mini-btn mini-tab" data-mini-tab="agents" data-i18n-tip="sidebar_tab_agents" data-tip="Agents" aria-label="Agents">
+          <i class="ic ic-agents"></i>
+        </button>
+      </div>
+      <div class="mini-foot">
+        <a href="#" class="mini-btn mini-user" data-user-settings-trigger data-i18n-tip="settings_title" data-tip="Settings" aria-label="Settings">
+          <div class="user-av mini-user-av" data-user-avatar>K</div>
+        </a>
+      </div>
+    </aside>
+
     <!-- ═══════════════ MAIN: room view + agent profile view ═══════════════ -->
     <main class="main">
 
@@ -16530,6 +16752,21 @@
         clearSidebarPeek();
         return;
       }
+      // Mini-rail rooms / agents · expand the full sidebar. The tab
+      // switch + first-room/agent default is owned by the sidebar-tab
+      // IIFE's click handler (it has ROOMS_KEY / appFirstRoomId /
+      // activate in scope — they're NOT visible here). Both handlers
+      // fire on the same click: this one expands, that one navigates.
+      // The other mini buttons (new room / agent / search / reports /
+      // notes) deliberately do NOT expand — they fire their own
+      // document-delegated triggers and the rail stays collapsed.
+      if (e.target.closest("[data-mini-tab]")) {
+        e.preventDefault();
+        applySidebarCollapsed(false);
+        writeSidebarCollapsed(false);
+        clearSidebarPeek();
+        return;
+      }
     });
 
     // ─── Sidebar edge-peek · Arc-browser style ───
@@ -16579,6 +16816,10 @@
       // miss `.sidebar` during the open animation. Immediate close on
       // exit is handled by the in→out transition branch below, which
       // bypasses this lock.
+      // The floated full sidebar is opaque (--sidebar-bg) at 280px and
+      // pins to left:0, so it cleanly covers the 56px mini rail while
+      // peeked — hovering the left edge reveals the full sidebar, and
+      // moving off it drops back to the rail.
       setPeek(true);
       peekLockedUntil = Date.now() + PEEK_OPEN_LOCK_MS;
     }
@@ -16994,6 +17235,34 @@
        tracker. These don't conflict with stopPropagation because they
        match elements that no other capture handler swallows. */
     document.addEventListener("click", (e) => {
+      // Mini-rail rooms / agents switcher · expand is handled by the
+      // collapse IIFE; here we own the tab switch + default selection.
+      // Seed the FIRST room / agent when coming from a non-room /
+      // non-agent context (reports, notes, composer, the other tab) so
+      // the icon actually lands you on content instead of restoring the
+      // last sub-state (e.g. "new" / "reports"). If you're already
+      // viewing a room / agent profile, leave it so expand keeps place.
+      const miniTab = e.target.closest("[data-mini-tab]");
+      if (miniTab) {
+        e.preventDefault();
+        const which = miniTab.getAttribute("data-mini-tab");
+        if (which === "rooms") {
+          if (!window.app || !window.app.currentRoomId) {
+            const first = appFirstRoomId();
+            if (first) lsSet(ROOMS_KEY, first);
+          }
+        } else if (which === "agents") {
+          const agentView = document.querySelector('[data-main-view="agent"]');
+          const inAgentProfile = agentView && !agentView.hasAttribute("hidden");
+          if (!inAgentProfile) {
+            const firstAgent = document.querySelector('[data-sidebar-panel="agents"] .agent-row[data-agent-profile]');
+            const id = firstAgent && firstAgent.getAttribute("data-agent-profile");
+            if (id) lsSet(AGENTS_KEY, id);
+          }
+        }
+        activate(which, { fromTabClick: true });
+        return;
+      }
       // Tab click
       const tab = e.target.closest(".sidebar-tab[data-sidebar-tab]");
       if (tab) {

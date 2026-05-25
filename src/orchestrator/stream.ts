@@ -71,6 +71,14 @@ export type RoomEvent =
       queue: Array<{ agentId: string; status: "thinking" | "speaking" | "queued" }>;
       /** Round progress so the UI knows when "all directors spoke this round". */
       round: { spoken: number; total: number };
+      /** The currently-visible speaker's messageId, or null between
+       *  speakers / before the first turn. The client uses this to
+       *  gate the streaming animation and to reveal pre-warmed
+       *  bubbles only at the moment their speaker actually takes
+       *  the visible turn. Maintained by pumpQueue · pre-warmed
+       *  consume sets it to the just-consumed messageId; fresh
+       *  path sets it from streamSpeakerTurn's onPlaceholder. */
+      activeMessageId?: string | null;
     };
 
 /** Bounded ring buffer entry · captures the event plus a monotonic

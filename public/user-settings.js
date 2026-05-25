@@ -2004,6 +2004,10 @@
     });
 
     // ✕ on voice / skill rows · server-side DELETE, then re-render.
+    // Always confirms · API keys can't be recovered from the app once
+    // removed, so accidental click on the ✕ shouldn't silently nuke
+    // a paid credential. Same guard applied to all four credential
+    // categories (provider / LLM / voice / search).
     paneEl.querySelectorAll(".us-key-remove[data-remove-provider]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -2011,15 +2015,23 @@
         if (btn.disabled) return;
         const id = btn.dataset.removeProvider;
         if (!id) return;
+        const row = btn.closest(".us-key-row");
+        const labelEl = row && row.querySelector(".us-key-label");
+        const label = (labelEl && labelEl.textContent.trim()) || id;
+        const tmpl = tr("us_provider_key_delete_confirm")
+          || "Remove this {label} API key? This can't be undone.";
+        const msg = tmpl.replace("{label}", label);
+        if (!window.confirm(msg)) return;
         await setProviderKey(id, "");
         await refreshModels();
         rerenderKeysSection();
       });
     });
 
-    // ✕ on credential rows · DELETE /api/credentials/:id. If the
-    // credential is the currently active one, pop a confirm() first
-    // (matches the user's explicit ask: "删除后将无法正常使用").
+    // ✕ on credential rows · DELETE /api/credentials/:id. Always
+    // confirms — active credential gets the strong "will fall back"
+    // warning, non-active gets a short "can't be undone" confirm.
+    // Same pattern as the voice + search blocks below.
     paneEl.querySelectorAll(".us-key-remove[data-remove-credential]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -2028,11 +2040,12 @@
         const id = btn.dataset.removeCredential;
         if (!id) return;
         const isActive = id === activeLlmCredentialId();
-        if (isActive) {
-          const msg = tr("us_active_llm_delete_active_confirm")
-            || "Removing the active provider — the boardroom will fall back to the next added provider, or stop working until you add a new one. Continue?";
-          if (!window.confirm(msg)) return;
-        }
+        const msg = isActive
+          ? (tr("us_active_llm_delete_active_confirm")
+            || "Removing the active provider — the boardroom will fall back to the next added provider, or stop working until you add a new one. Continue?")
+          : (tr("us_llm_delete_confirm")
+            || "Remove this LLM credential? This can't be undone.");
+        if (!window.confirm(msg)) return;
         const ok = window.keysStore && typeof window.keysStore.deleteLlmCredentialRequest === "function"
           ? await window.keysStore.deleteLlmCredentialRequest(id)
           : false;
@@ -2220,8 +2233,8 @@
     /* ── Voice credential handlers · mirror LLM block above ────── */
 
     // ✕ on voice credential rows · DELETE /api/voice-credentials/:id.
-    // Active credential gets a confirm prompt that warns the directors'
-    // voices will reshuffle.
+    // Always confirms — active credential warns about director-voice
+    // reshuffle, non-active gets a short "can't be undone" confirm.
     paneEl.querySelectorAll(".us-key-remove[data-remove-voice-credential]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -2230,11 +2243,12 @@
         const id = btn.dataset.removeVoiceCredential;
         if (!id) return;
         const isActive = id === activeVoiceCredentialId();
-        if (isActive) {
-          const msg = tr("voice_cred_delete_confirm_active")
-            || "Remove the active voice credential? Director voices reshuffle from the next available credential.";
-          if (!window.confirm(msg)) return;
-        }
+        const msg = isActive
+          ? (tr("voice_cred_delete_confirm_active")
+            || "Remove the active voice credential? Director voices reshuffle from the next available credential.")
+          : (tr("voice_cred_delete_confirm")
+            || "Remove this voice credential? This can't be undone.");
+        if (!window.confirm(msg)) return;
         const ok = window.keysStore && typeof window.keysStore.deleteVoiceCredentialRequest === "function"
           ? await window.keysStore.deleteVoiceCredentialRequest(id)
           : false;
@@ -2383,6 +2397,8 @@
 
     /* ── Search credential handlers · mirror voice block ─────── */
 
+    // Always confirms — active gets the rotation warning, non-active
+    // gets a short "can't be undone" confirm.
     paneEl.querySelectorAll(".us-key-remove[data-remove-search-credential]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -2391,11 +2407,12 @@
         const id = btn.dataset.removeSearchCredential;
         if (!id) return;
         const isActive = id === activeSearchCredentialId();
-        if (isActive) {
-          const msg = tr("search_cred_delete_confirm_active")
-            || "Remove the active search credential? Web Search will rotate to the next available credential, or stop working until you add one.";
-          if (!window.confirm(msg)) return;
-        }
+        const msg = isActive
+          ? (tr("search_cred_delete_confirm_active")
+            || "Remove the active search credential? Web Search will rotate to the next available credential, or stop working until you add one.")
+          : (tr("search_cred_delete_confirm")
+            || "Remove this search credential? This can't be undone.");
+        if (!window.confirm(msg)) return;
         const ok = window.keysStore && typeof window.keysStore.deleteSearchCredentialRequest === "function"
           ? await window.keysStore.deleteSearchCredentialRequest(id)
           : false;
