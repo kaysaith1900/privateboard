@@ -1723,20 +1723,64 @@ async function onBoardroomVoiceToggle() {
   updateBoardroomVoiceBanner();
 }
 
+/** Unlock HTMLAudioElement autoplay policy on iOS Safari / Chrome.
+ *  MUST be called from inside a user-gesture handler (click / touch /
+ *  keydown). Mirrors `unlockAudioPlayback` on PC (public/app.js).
+ *
+ *  Strategy adopted from PC after the previous mobile-specific
+ *  approach (reusing bd-audio + showing a blocking alert on failure)
+ *  proved unreliable: setting `audio.src` to a fresh data URI on the
+ *  existing element races with the element's load cycle, so play()
+ *  rejects more often than it should. Using a fresh Audio() instance
+ *  with volume=0 sidesteps both issues and matches what PC's been
+ *  shipping for months. */
 function unlockBoardroomAudio() {
-  const audio = document.getElementById('bd-audio');
-  if (!audio) return;
-  // play a tiny silent buffer to satisfy iOS user-gesture requirement
-  audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-  audio.play().then(() => {
+  if (appState.voiceUnlocked) return;
+  try {
+    const silence = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+    silence.volume = 0;
+    const p = silence.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => { try { silence.pause(); } catch {} }).catch(() => {});
+    }
+    // Optimistic flip · the silent ping inside the gesture is what
+    // matters for unlocking subsequent <audio>.play() calls. Don't
+    // gate `voiceUnlocked` behind the promise resolving — by the
+    // time it does, the user gesture has expired and any "retry"
+    // alert is just noise.
     appState.voiceUnlocked = true;
     const banner = document.getElementById('bd-audio-unlock');
     if (banner) banner.style.display = 'none';
+    updateBoardroomVoiceBanner();
     pumpVoiceQueue();
-  }).catch(() => {
-    alert('音频解锁失败 · 请在浏览器内点击页面任何位置后重试');
-  });
+  } catch (e) {
+    // No blocking alert · just leave the banner visible so the user
+    // can tap again. Surface the cause in console for debugging.
+    console.warn('[voice] mobile unlock failed:', e);
+  }
 }
+
+/** Global one-shot · attempts to unlock audio playback on the first
+ *  user gesture anywhere on the page, so the user usually never has
+ *  to tap the explicit unlock banner. Mirrors the PC listener pair
+ *  at the bottom of public/app.js. iOS counts `touchstart` and
+ *  `click` as separate gesture types — listen for both. */
+function installGlobalAudioUnlock() {
+  if (appState._audioUnlockInstalled) return;
+  appState._audioUnlockInstalled = true;
+  const handler = () => {
+    unlockBoardroomAudio();
+    document.removeEventListener('touchstart', handler, true);
+    document.removeEventListener('click', handler, true);
+  };
+  document.addEventListener('touchstart', handler, { capture: true, passive: true });
+  document.addEventListener('click', handler, { capture: true });
+}
+document.addEventListener('DOMContentLoaded', installGlobalAudioUnlock);
+// Boot path already passed DOMContentLoaded by the time this script
+// block finishes parsing on a warm cache · run synchronously too so
+// the listener is armed for the very first tap.
+installGlobalAudioUnlock();
 
 function handleMessageAppended(payload) {
   if (!payload || !payload.messageId) return;
