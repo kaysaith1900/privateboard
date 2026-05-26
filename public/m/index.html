@@ -981,6 +981,7 @@
 </div>
 
 <script src="/typing-sfx.js"></script>
+<script type="module" src="/room-auto-continue.js"></script>
 <script>
 function $$(sel) { return document.querySelectorAll(sel); }
 function $(sel) { return document.querySelector(sel); }
@@ -1341,8 +1342,9 @@ function resetActiveRoomState() {
   stopRoomPoll();
   // Close any open SSE stream
   if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
-  // Stop + reset audio
-  cancelAutoContinue();
+  // Stop + reset audio · detachAutoContinue drops the controller's
+  // room reference so a stale tick can't restart on the old data.
+  detachAutoContinue();
   const audio = document.getElementById('bd-audio');
   if (audio) { try { audio.pause(); } catch {} audio.removeAttribute('src'); audio.load?.(); }
   // Voice queues + caches scoped to a single room
@@ -1354,7 +1356,6 @@ function resetActiveRoomState() {
   // Room-level flags
   appState.continuePending = false;
   clearTimeout(appState._continuePendingTo);
-  appState.continueSeen = 0;
   appState._roomLandedId = null;
   appState.pendingVoteMessageId = null;
   appState.activeRoomStatus = null;
@@ -1413,7 +1414,6 @@ async function loadActiveRoom() {
     appState.activeRoomRound = state.round || { spoken: 0, total: 0 };
     // Reset first-landing guard whenever we open a (different) room.
     if (appState._roomLandedId !== id) {
-      appState.continueSeen = 0;
       appState._roomLandedId = id;
     }
     // Cache members for SSE-driven incremental rendering.
@@ -1949,71 +1949,87 @@ async function adjournActiveRoom() {
   }
 }
 
-// ── auto-continue countdown (PC parity) ─────────────────────
-appState.autoContinue = { interval: null, deadline: 0, secondsLeft: 0, firing: false };
-appState.continueSeen = 0;
-const AUTO_CONTINUE_SECONDS = 10;
+// ── auto-continue countdown · delegated to shared controller ──
+// Single source of truth lives in /room-auto-continue.js (loaded
+// above as type=module). This file translates mobile room state into
+// the RoomSnapshot shape the controller expects, and renders whatever
+// the onTick callback emits. UI-only — no timer logic here.
+//
+// `appState.autoContinue.secondsLeft` is kept in sync with the
+// controller so existing render code (renderRoomActions) doesn't have
+// to change.
+appState.autoContinue = { secondsLeft: 0 };
 
-function canAutoContinue() {
-  const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
-  return (
-    appState.activeRoomId &&
-    appState.activeRoomStatus === 'live' &&
-    !appState.activeRoomAwaitingClarify &&
-    !appState.activeRoomAwaitingContinue &&
-    appState.activeRoomVoteTrigger !== 'manual' &&
-    (appState.activeRoomQueueLen || 0) === 0 &&
-    appState.activeRoomRound &&
-    appState.activeRoomRound.spoken >= appState.activeRoomRound.total &&
-    appState.activeRoomRound.total > 0 &&
-    // First entry on text view requires a manual click; the boardroom
-    // is a passive listening surface, so it auto-fires from turn 1.
-    (onBoardroom || appState.continueSeen > 0)
-  );
-}
-
-function maybeStartAutoContinue() {
-  if (!canAutoContinue()) { cancelAutoContinue(); return; }
-  if (appState.autoContinue.interval) return;
-  appState.autoContinue.deadline = Date.now() + AUTO_CONTINUE_SECONDS * 1000;
-  appState.autoContinue.secondsLeft = AUTO_CONTINUE_SECONDS;
-  appState.autoContinue.firing = false;
-  appState.autoContinue.interval = setInterval(tickAutoContinue, 1000);
-  // First beep fires the moment "10" appears so the 10-tick cadence
-  // (10, 9, 8 … 1) is in sync with the visible number — PC parity.
-  try { window.boardroomTypingSfx?.countdownTick?.(AUTO_CONTINUE_SECONDS); } catch {}
-  renderRoomActions();
-}
-
-function cancelAutoContinue() {
-  if (appState.autoContinue.interval) {
-    clearInterval(appState.autoContinue.interval);
-    appState.autoContinue.interval = null;
-  }
-  appState.autoContinue.secondsLeft = 0;
-  appState.autoContinue.deadline = 0;
-  appState.autoContinue.firing = false;
-}
-
-function tickAutoContinue() {
-  const left = Math.max(0, Math.ceil((appState.autoContinue.deadline - Date.now()) / 1000));
-  appState.autoContinue.secondsLeft = left;
-  renderRoomActions();
-  // Audible beep each visible tick (last 3s flip to a louder alarm
-  // register inside countdownTick — same module as PC).
-  try { window.boardroomTypingSfx?.countdownTick?.(left); } catch {}
-  if (left <= 0 && !appState.autoContinue.firing) {
-    appState.autoContinue.firing = true;
-    clearInterval(appState.autoContinue.interval);
-    appState.autoContinue.interval = null;
+const autoContinueController = new window.RoomAutoContinue.AutoContinueController({
+  totalSeconds: 10,
+  onTick: (left) => {
+    appState.autoContinue.secondsLeft = left;
+    renderRoomActions();
+  },
+  onFire: () => {
     continueDiscussion().catch(() => {});
-  }
+  },
+  onBeep: (left) => {
+    try { window.boardroomTypingSfx?.countdownTick?.(left); } catch {}
+  },
+});
+
+function buildRoomSnapshot() {
+  return {
+    id: appState.activeRoomId,
+    status: appState.activeRoomStatus,
+    awaitingClarify: appState.activeRoomAwaitingClarify,
+    awaitingContinue: appState.activeRoomAwaitingContinue,
+    voteTrigger: appState.activeRoomVoteTrigger,
+    queueLen: appState.activeRoomQueueLen || 0,
+    round: appState.activeRoomRound,
+    lastAgentMsg: {
+      // Mobile doesn't track a per-message `streaming` flag the way PC
+      // does; the proxy that matters here is "is a voice clip from the
+      // last director still playing" — auto-continuing on top of that
+      // talks over them. Voice queue length covers the streamed-but-
+      // not-yet-played case.
+      streaming: (appState.voiceQueue?.length || 0) > 0,
+      voicePlaying: !!appState.voicePlaying,
+    },
+    chairPending: false,
+  };
+}
+
+/** Re-evaluate the auto-continue decision against the latest room
+ *  state. Call from every place that previously called
+ *  `maybeStartAutoContinue()`. Idempotent · the controller no-ops if
+ *  the answer didn't change. */
+function syncAutoContinue() {
+  autoContinueController.setRoom(buildRoomSnapshot());
+}
+
+// Compat shim · `maybeStartAutoContinue` is referenced by call sites
+// throughout this file. Forward to the shared controller. Same name
+// kept so this PR's diff stays scoped to the wiring.
+function maybeStartAutoContinue() {
+  syncAutoContinue();
+}
+
+/** Stop the current countdown without dropping the room reference.
+ *  Used when the user clicks the manual Continue button — the
+ *  controller will re-arm itself on the next `syncAutoContinue()`
+ *  once the next round finishes. */
+function cancelAutoContinue() {
+  autoContinueController.cancel();
+}
+
+/** Hard-cancel + drop room reference · used by `resetActiveRoomState`
+ *  when the user navigates away from the room view. Without this, a
+ *  countdown that started before the user left would keep ticking
+ *  (and beeping) in the background until it fired `continueDiscussion`
+ *  for a room the user wasn't watching. */
+function detachAutoContinue() {
+  autoContinueController.detach();
 }
 
 async function continueDiscussion() {
   cancelAutoContinue();
-  // Manual click(s) unlock auto-continue for subsequent rounds.
-  appState.continueSeen = (appState.continueSeen || 0) + 1;
   const id = appState.activeRoomId;
   if (!id) return;
   // Pending flag · cleared by SSE when a new director starts speaking,
