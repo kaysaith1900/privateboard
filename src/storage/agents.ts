@@ -115,6 +115,11 @@ export interface PersonaSpec {
    *  agents (built before this field existed) and Signal-mode agents
    *  carry `undefined` here — the UI hides the entry point when so. */
   buildLog?: PersonaBuildLog;
+  /** Optional · set by Phase 5 when the persona is modeled on a real
+   *  public figure AND the voice-clone sub-task succeeded. The save
+   *  handler stamps the agent's voice profile to this voice_id so the
+   *  director speaks in the cloned voice by default. */
+  clonedVoice?: { celebrity: string; voiceId: string };
 }
 
 /** What the build-log modal renders: a human-readable narrative plus

@@ -521,7 +521,7 @@ export function agentsRouter(): Hono {
     let body: unknown;
     try { body = await c.req.json(); }
     catch { return c.json({ error: "invalid JSON body" }, 400); }
-    const b = (body ?? {}) as { description?: unknown; locale?: unknown };
+    const b = (body ?? {}) as { description?: unknown; locale?: unknown; voiceSourceUrl?: unknown };
     const description = typeof b.description === "string" ? b.description.trim() : "";
     if (description.length < 2) {
       return c.json({ error: "describe the director in at least a few words" }, 400);
@@ -532,7 +532,16 @@ export function agentsRouter(): Hono {
     const localeRaw = typeof b.locale === "string" ? b.locale : "";
     const locale: "en" | "zh" | "ja" | "es" =
       localeRaw === "zh" || localeRaw === "ja" || localeRaw === "es" ? localeRaw : "en";
-    const jobId = startPersonaBuild({ description, locale });
+    // Optional · when the caller pastes a specific video URL alongside
+    // the description, Phase 5 uses it directly for voice cloning and
+    // skips the YouTube auto-search step. Disambiguates short / common
+    // names where the search-ranker would otherwise pick a same-named
+    // entertainer instead of the intended business / public figure.
+    const voiceSourceUrlRaw = typeof b.voiceSourceUrl === "string" ? b.voiceSourceUrl.trim() : "";
+    const voiceSourceUrl = voiceSourceUrlRaw && /^https?:\/\//i.test(voiceSourceUrlRaw)
+      ? voiceSourceUrlRaw.slice(0, 500)
+      : undefined;
+    const jobId = startPersonaBuild({ description, locale, voiceSourceUrl });
     return c.json({ jobId });
   });
 
@@ -809,6 +818,25 @@ export function agentsRouter(): Hono {
       ability,
       personaSpec: finalSpec,
     });
+    // If Phase 5 cloned a real person's voice for this director, stamp
+    // the cloned voice_id onto the new agent's voice profile so the
+    // director speaks in that voice by default. Failure is non-fatal —
+    // the agent still ships with the system-default text voice.
+    if (finalSpec.clonedVoice?.voiceId) {
+      try {
+        updateAgent(agentId, {
+          voice: {
+            provider: "minimax",
+            model: "speech-2.8-hd",
+            voiceId: finalSpec.clonedVoice.voiceId,
+          },
+        });
+      } catch (e) {
+        process.stderr.write(
+          `[persona-save] voice attach failed for ${agentId}: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      }
+    }
     // Flush the build's accumulated tokens onto the new agent so the
     // Usage panel credits this director's existence to the right row
     // (rather than leaving the spend orphaned in the job table).

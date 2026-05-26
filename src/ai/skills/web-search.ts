@@ -36,6 +36,13 @@ export interface BraveSearchOpts {
   country?: string;
   searchLang?: string;
   timeoutMs?: number;
+  /** Brave `freshness` filter · constrains results by indexed date.
+   *  Accepted: `pd` (past day) | `pw` (past week) | `pm` (past month)
+   *  | `py` (past year) | `YYYY-MM-DDtoYYYY-MM-DD`. When unset, Brave
+   *  returns all-time results, which lets 2-year-old articles outrank
+   *  today's news for "latest" queries. Defaults to "pm" (past month)
+   *  on the caller side for any time-sensitive query. */
+  freshness?: string;
 }
 
 /** Run a Brave Search query. Returns up to `count` results, or null
@@ -53,6 +60,7 @@ export async function runBraveSearch(opts: BraveSearchOpts): Promise<BraveResult
   });
   if (opts.country) params.set("country", opts.country);
   if (opts.searchLang) params.set("search_lang", opts.searchLang);
+  if (opts.freshness) params.set("freshness", opts.freshness);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -106,6 +114,11 @@ export interface TavilySearchOpts {
   query: string;
   maxResults?: number;
   timeoutMs?: number;
+  /** Tavily `days` filter · cap result age to the last N days. Same
+   *  motivation as Brave's `freshness` — without it, stale articles
+   *  win the rank on "latest" queries. Defaults to 30 on the caller
+   *  side for time-sensitive queries. */
+  days?: number;
 }
 
 /** Run a Tavily Search query · same return shape as Brave for prompt formatters. */
@@ -127,6 +140,7 @@ export async function runTavilySearch(opts: TavilySearchOpts): Promise<BraveResu
         query,
         search_depth: "basic",
         max_results: maxResults,
+        ...(opts.days ? { days: opts.days, topic: "news" } : {}),
       }),
       signal: ctrl.signal,
     });
@@ -171,21 +185,39 @@ export async function runWebSearch(
   backend: WebSearchBackend,
   apiKey: string,
   query: string,
-  opts?: { count?: number; timeoutMs?: number },
+  opts?: { count?: number; timeoutMs?: number; freshDays?: number },
 ): Promise<BraveResult[] | null> {
+  // Caller passes `freshDays` to anchor results to the last N days.
+  // We default to 30 here because every consumer of `runWebSearch`
+  // today is the time-sensitive picker path — philosophical /
+  // evergreen questions never reach this layer (the picker returns
+  // null upstream). 30 days is the sweet spot: tight enough to
+  // outrank year-old articles for "latest" queries, lenient enough
+  // to keep recall on slower-moving topics (IPOs, regulatory filings).
+  const freshDays = opts?.freshDays ?? 30;
   if (backend === "tavily") {
     return runTavilySearch({
       apiKey,
       query,
       maxResults: opts?.count,
       timeoutMs: opts?.timeoutMs,
+      days: freshDays,
     });
   }
+  // Brave uses bucketed labels rather than a numeric N-days param ·
+  // map 7→pw, 30→pm, 365→py. Anything else falls back to pm so we
+  // never silently drop the filter.
+  const freshness = freshDays <= 1 ? "pd"
+    : freshDays <= 7 ? "pw"
+    : freshDays <= 31 ? "pm"
+    : freshDays <= 365 ? "py"
+    : "pm";
   return runBraveSearch({
     apiKey,
     query,
     count: opts?.count,
     timeoutMs: opts?.timeoutMs,
+    freshness,
   });
 }
 
