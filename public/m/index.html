@@ -2419,24 +2419,68 @@ async function cancelBuild() {
   goto('agents');
 }
 
+// Persona-build phase labels · mapped 1:1 to the backend's
+// `phaseLabels` array in src/orchestrator/persona-builder.ts. The
+// Chinese surface labels were prior-art from the static mockup.
+const PERSONA_PHASE_LABELS = [
+  '锻造身份',   // 1 · Persona spec (v1)
+  '挖掘知识',   // 2 · Knowledge context (research)
+  '锐化镜头',   // 3 · Persona spec (refined)
+  '起草手册',   // 4 · Behavioural rules
+  '捕捉声音',   // 5 · Few-shot examples (+ voice-clone sub-task)
+  '自检清单',   // 6 · Reflection checklist
+  '压力测试',   // 7 · Eval set + build report
+];
+
+/** Re-render the phase list against the current backend phase.
+ *  Phases < current = done (strikethrough), current = act (highlight),
+ *  phases > current = pending (dimmed). Caller passes the optional
+ *  `subDetail` so the active row gets the live "what's happening"
+ *  string from the SSE payload. */
+function renderBuildPhases(currentPhase, subDetail) {
+  const phasesEl = document.querySelector('[data-screen="build-progress"] .build-progress .phases');
+  if (!phasesEl) return;
+  const cur = Math.max(1, Math.min(PERSONA_PHASE_LABELS.length, currentPhase || 1));
+  phasesEl.innerHTML = PERSONA_PHASE_LABELS.map((label, i) => {
+    const n = i + 1;
+    const cls = n < cur ? 'done' : n === cur ? 'act' : '';
+    const num = String(n).padStart(2, '0');
+    // Only the active row gets the side-text · the SSE phaseDetail
+    // belongs to whatever phase is currently running, not the others.
+    const sub = (n === cur && subDetail) ? `<span class="sub">${escapeHtml(subDetail)}</span>` : '';
+    return `<li class="${cls}"><span class="num">${num}</span> <span class="lbl">${escapeHtml(label)}</span>${sub}</li>`;
+  }).join('');
+}
+
 function subscribeBuildStream(jobId) {
   if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
   if (!jobId) return;
   const phaseEl = document.querySelector('[data-screen="build-progress"] .build-progress .title');
   const subEl = document.querySelector('[data-screen="build-progress"] .build-progress .sub');
-  const phasesEl = document.querySelector('[data-screen="build-progress"] .build-progress .phases');
   const barFill = document.querySelector('[data-screen="build-progress"] .build-progress .fill');
   const titleEl = document.querySelector('[data-screen="build-progress"] .topbar .title');
+  // Reset to Phase-1-active baseline · the static HTML mockup hardcodes
+  // Phase 5 as the active row, which would otherwise show "we're at
+  // 5/7 · 捕捉声音" even when the backend is still doing Phase 1.
+  if (phaseEl) phaseEl.textContent = `1 / ${PERSONA_PHASE_LABELS.length}`;
+  if (subEl) subEl.textContent = '正在锻造身份...';
+  if (barFill) barFill.style.width = '0%';
+  if (titleEl) titleEl.textContent = '构建中';
+  renderBuildPhases(1, null);
+
   try {
     const es = new EventSource(`/api/agents/generate-persona/${encodeURIComponent(jobId)}/stream`);
     appState.buildStream = es;
     const updateUi = (ev) => {
       try {
         const j = JSON.parse(ev.data);
-        if (typeof j.currentPhase === 'number' && phaseEl) phaseEl.textContent = `${j.currentPhase} / 7`;
-        if (typeof j.phaseDetail === 'string' && subEl) subEl.textContent = j.phaseDetail;
+        const cur = typeof j.currentPhase === 'number' ? j.currentPhase : null;
+        const detail = typeof j.phaseDetail === 'string' ? j.phaseDetail : '';
+        if (cur && phaseEl) phaseEl.textContent = `${cur} / ${PERSONA_PHASE_LABELS.length}`;
+        if (detail && subEl) subEl.textContent = detail;
         if (typeof j.progressPct === 'number' && barFill) barFill.style.width = `${Math.max(0, Math.min(100, j.progressPct))}%`;
         if (typeof j.personName === 'string' && titleEl) titleEl.textContent = `构建中 · ${j.personName}`;
+        if (cur) renderBuildPhases(cur, detail);
       } catch {}
     };
     es.addEventListener('persona-phase-progress', updateUi);
