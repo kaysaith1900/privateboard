@@ -104,10 +104,10 @@ const INTENSITIES = ["calm", "sharp", "terse"] as const;
 // Signature phrases each tone block MUST carry. Lifted from prompt.ts —
 // re-grep these if the prompts get rewritten so the assertions track.
 const TONE_SIGNATURES: Record<(typeof TONES)[number], string[]> = {
-  brainstorm:    ["BRAINSTORM", "EXPAND THE POSSIBILITY SPACE", "Volume over polish", "YES-AND", "WILD"],
+  brainstorm:    ["BRAINSTORM", "VALUE AMPLIFICATION", "共创模式", "【我看到的价值】", "【一个更性感的表达】"],
   constructive:  ["CONSTRUCTIVE", "stronger version", "load-bearing assumption"],
   debate:        ["DEBATE", "PRODUCTIVE DISAGREEMENT", "steelman", "Honest pass", "What would change my mind"],
-  research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "low/med/high"],
+  research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "high/med/low"],
   critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "minor", "audit"],
 };
 
@@ -120,7 +120,7 @@ const INTENSITY_SIGNATURES: Record<(typeof INTENSITIES)[number], string[]> = {
 
 // HOUSE_ENGAGE_BY_TONE — the verbs threaded into the "engage" house rule.
 const HOUSE_ENGAGE_FRAGMENTS: Record<(typeof TONES)[number], string> = {
-  brainstorm:   "toss 3-6 ideas as a quick bulleted list",
+  brainstorm:   "fill the 5-section co-creation template",
   constructive: "pick a load-bearing assumption to sharpen",
   debate:       "steelman the target claim before attacking",
   research:     "cite a specific piece of material",
@@ -129,7 +129,7 @@ const HOUSE_ENGAGE_FRAGMENTS: Record<(typeof TONES)[number], string> = {
 
 // TONE_OVERRIDE_BY_TONE — what trained-preference the OVERRIDE meta-line names.
 const OVERRIDE_TARGETS: Record<(typeof TONES)[number], string> = {
-  brainstorm:   "evaluate, critique, or anchor on the most recent idea",
+  brainstorm:   "pressure-test, play devil's advocate",
   constructive: "diplomatically vague",
   debate:       "diplomatic middle ground",
   research:     "leap to recommendations",
