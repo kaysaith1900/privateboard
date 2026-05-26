@@ -1,0 +1,3310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0A">
+<title>PrivateBoard · Mobile Mockup</title>
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --panel: #131312;
+    --panel-2: #1A1A18;
+    --panel-3: #232220;
+    --ink: #E8E5DD;
+    --ink-mid: #A8A39B;
+    --ink-dim: #6D6962;
+    --gold: #C4A96A;
+    --gold-soft: #E7D39B;
+    --rule: rgba(255,255,255,0.08);
+    --rule-soft: rgba(255,255,255,0.04);
+    --green: #7AB87A;
+    --red: #d97a6c;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Inter, sans-serif;
+    overscroll-behavior-y: none;
+  }
+  button, a { color: inherit; background: transparent; border: 0; font: inherit; padding: 0; cursor: pointer; text-decoration: none; }
+  input, textarea { font: inherit; color: inherit; background: transparent; border: 0; outline: 0; }
+  ::placeholder { color: var(--ink-dim); }
+
+  /* device frame (only visible on desktop preview) */
+  .device {
+    position: relative;
+    width: 100%; min-height: 100vh;
+    max-width: 420px; margin: 0 auto;
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  /* top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    padding: calc(var(--safe-top) + 12px) 16px 12px;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 12px;
+    min-height: 52px;
+  }
+  .topbar .back { font-size: 22px; line-height: 1; color: var(--ink); width: 32px; }
+  .topbar .title { font-size: 17px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .actions { display: flex; gap: 14px; }
+  .topbar .actions button { font-size: 19px; color: var(--ink); }
+  .topbar .kicker {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  /* tab bar */
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    padding: 8px 0 calc(var(--safe-bottom) + 8px);
+    background: rgba(10,10,10,0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--rule);
+    display: flex;
+    max-width: 420px; margin: 0 auto;
+  }
+  .tabbar .tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 6px 0;
+    color: var(--ink-dim);
+    font-size: 10px;
+  }
+  .tabbar .tab .ic { font-size: 22px; line-height: 1; }
+  .tabbar .tab.on { color: var(--gold-soft); }
+
+  /* screen */
+  .screen { display: none; padding-bottom: calc(var(--safe-bottom) + 76px); min-height: 100vh; }
+  .screen.on { display: block; }
+
+  /* rooms list */
+  .room-card {
+    margin: 12px 16px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+  }
+  .room-card .row1 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .room-card .name { font-size: 15px; font-weight: 600; }
+  .room-card .tag { font-size: 10px; padding: 2px 8px; border-radius: 999px; }
+  .room-card .tag.live { background: rgba(122,184,122,0.12); color: var(--green); }
+  .room-card .tag.brief { background: rgba(196,169,106,0.12); color: var(--gold-soft); }
+  .room-card .cast { color: var(--ink-mid); font-size: 12px; margin-bottom: 8px; }
+  .room-card .preview { color: var(--ink-mid); font-size: 13px; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .room-card .meta { color: var(--ink-dim); font-size: 11px; margin-top: 8px; }
+
+  .fab-list-header {
+    padding: 16px 16px 4px;
+    color: var(--ink-dim);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  }
+
+  /* room chat */
+  .room-head-sub { color: var(--ink-mid); font-size: 11px; margin-top: 2px; }
+  .msgs { padding: 16px; padding-bottom: 180px; }
+  .msg { margin-bottom: 16px; }
+  .msg.system { color: var(--ink-dim); font-size: 12px; text-align: center; padding: 6px 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .msg.user { display: flex; justify-content: flex-end; }
+  .msg.user .bubble {
+    max-width: 80%;
+    background: var(--gold);
+    color: #0A0A0A;
+    padding: 10px 14px;
+    border-radius: 14px 14px 4px 14px;
+  }
+  .msg .who {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .msg .av { width: 28px; height: 28px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); }
+  .msg .name { font-size: 13px; font-weight: 600; }
+  .msg .name .h { color: var(--ink-dim); font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .msg .text { color: var(--ink); font-size: 14px; line-height: 1.6; }
+  .msg .text strong { color: var(--gold-soft); font-weight: 600; }
+
+  /* composer · sits flush above the tab bar. We measure the tab bar's
+     actual rendered height in JS (see syncTabbarHeight) and write it to
+     --tabbar-h so this offset stays accurate regardless of font / icon
+     scaling on different devices. */
+  .composer {
+    position: fixed; left: 0; right: 0;
+    bottom: var(--tabbar-h, calc(var(--safe-bottom) + 64px));
+    background: rgba(10,10,10,0.92);
+    backdrop-filter: blur(20px);
+    padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px;
+    max-width: 420px; margin: 0 auto;
+  }
+  .composer input {
+    flex: 1; padding: 10px 14px;
+    background: var(--panel-2); border-radius: 999px;
+    border: 1px solid var(--rule);
+  }
+  .composer .mic, .composer .send {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--panel-3);
+    display: grid; place-items: center;
+    font-size: 18px;
+  }
+  .composer .send { background: var(--gold); color: #0A0A0A; }
+
+  /* voice call mode */
+  .voice-call { position: fixed; inset: 0; background: linear-gradient(180deg,#1A1A18 0%, #0A0A0A 100%); z-index: 100; display: none; flex-direction: column; padding: calc(var(--safe-top) + 20px) 16px calc(var(--safe-bottom) + 20px); }
+  .voice-call.on { display: flex; }
+  .voice-call .vc-head { text-align: center; }
+  .voice-call .live-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(122,184,122,0.12); color: var(--green); font-size: 11px; font-family: ui-monospace, monospace; letter-spacing: 0.1em; }
+  .voice-call .live-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .voice-call .subject { margin-top: 12px; font-size: 16px; color: var(--ink); }
+  .voice-call .active-spk {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  }
+  .voice-call .big-av {
+    width: 180px; height: 180px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--panel-2), var(--panel-3));
+    display: grid; place-items: center;
+    font-size: 48px; color: var(--gold-soft);
+    box-shadow: 0 0 0 4px rgba(196,169,106,0.15), 0 0 120px rgba(196,169,106,0.25);
+    position: relative;
+  }
+  .voice-call .big-av::after {
+    content: ''; position: absolute; inset: -16px;
+    border-radius: 50%; border: 2px solid rgba(196,169,106,0.3);
+    animation: ring 2s infinite;
+  }
+  @keyframes ring { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.15); opacity: 0; } }
+  .voice-call .quote { color: var(--ink-mid); font-size: 14px; text-align: center; padding: 0 24px; min-height: 60px; }
+  .voice-call .wave { display: flex; gap: 4px; height: 24px; align-items: center; }
+  .voice-call .wave span { width: 3px; background: var(--gold-soft); border-radius: 2px; animation: w 1s infinite; }
+  .voice-call .wave span:nth-child(1) { animation-delay: 0.0s; }
+  .voice-call .wave span:nth-child(2) { animation-delay: 0.1s; }
+  .voice-call .wave span:nth-child(3) { animation-delay: 0.2s; }
+  .voice-call .wave span:nth-child(4) { animation-delay: 0.3s; }
+  .voice-call .wave span:nth-child(5) { animation-delay: 0.4s; }
+  .voice-call .wave span:nth-child(6) { animation-delay: 0.5s; }
+  .voice-call .wave span:nth-child(7) { animation-delay: 0.6s; }
+  @keyframes w { 0%,100% { height: 6px; } 50% { height: 22px; } }
+  .voice-call .queue { display: flex; justify-content: center; gap: 12px; margin: 18px 0; }
+  .voice-call .queue .qa { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--ink-dim); font-size: 11px; opacity: 0.55; }
+  .voice-call .queue .qa.next { opacity: 1; color: var(--gold-soft); }
+  .voice-call .queue .qa .a { width: 36px; height: 36px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 12px; border: 1px solid var(--rule); }
+  .voice-call .queue .qa.next .a { border-color: var(--gold-soft); }
+  .voice-call .ctrls { display: flex; justify-content: space-around; align-items: center; padding-top: 12px; }
+  .voice-call .ctrl-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--ink-mid); font-size: 11px; }
+  .voice-call .ctrl-btn .b { width: 56px; height: 56px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 22px; }
+  .voice-call .ctrl-btn.mic .b { background: var(--gold); color: #0A0A0A; width: 72px; height: 72px; font-size: 28px; }
+  .voice-call .ctrl-btn.end .b { background: var(--red); color: #fff; }
+
+  /* agents grid */
+  .ag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 12px 16px; }
+  .ag-card { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .ag-card .av { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg,var(--panel-2),var(--panel-3)); display: grid; place-items: center; font-size: 16px; color: var(--gold-soft); border: 1px solid var(--rule); }
+  .ag-card .nm { font-size: 12px; font-weight: 500; text-align: center; }
+  .ag-card .vt { font-size: 9px; color: var(--green); display: inline-flex; align-items: center; gap: 3px; }
+  .ag-card .vt.no { color: var(--ink-dim); }
+
+  /* sheet */
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 90; display: none; }
+  .sheet-bg.on { display: block; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 95;
+    max-width: 420px; margin: 0 auto;
+    background: var(--panel);
+    border-radius: 18px 18px 0 0;
+    border-top: 1px solid var(--rule);
+    padding: 8px 0 calc(var(--safe-bottom) + 16px);
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+    max-height: 88vh; overflow-y: auto;
+  }
+  .sheet.on { transform: translateY(0); }
+  .sheet .grab { width: 36px; height: 4px; background: var(--rule); border-radius: 2px; margin: 6px auto 12px; }
+  .sheet .sh-head { padding: 0 20px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--rule-soft); }
+  .sheet .sh-title { font-size: 16px; font-weight: 600; }
+  .sheet .sh-body { padding: 16px 20px 8px; }
+  .sheet label { display: block; color: var(--ink-mid); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; margin: 14px 0 8px; font-family: ui-monospace, monospace; }
+  .sheet textarea, .sheet input[type=text] {
+    width: 100%; min-height: 80px;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 12px 14px;
+    resize: vertical;
+  }
+  .sheet input[type=text] { min-height: auto; }
+  .sheet .cast-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin: 8px 0 4px; }
+  .sheet .cast-grid .pick { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 4px; text-align: center; font-size: 11px; }
+  .sheet .cast-grid .pick.on { border-color: var(--gold-soft); background: rgba(196,169,106,0.08); color: var(--gold-soft); }
+  .sheet .pick .av { width: 36px; height: 36px; margin: 0 auto 4px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 12px; }
+  .sheet .opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sheet .opts .opt { padding: 8px 14px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--rule); font-size: 12px; }
+  .sheet .opts .opt.on { background: rgba(196,169,106,0.12); border-color: var(--gold-soft); color: var(--gold-soft); }
+  .sheet .primary {
+    width: 100%; padding: 14px;
+    background: var(--gold); color: #0A0A0A;
+    border-radius: 12px; font-weight: 600; font-size: 14px;
+    margin-top: 20px;
+  }
+
+  /* build progress */
+  .build-progress { padding: 20px 16px; }
+  .build-progress .title { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .build-progress .sub { color: var(--ink-mid); font-size: 12px; margin-bottom: 20px; }
+  .build-progress .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; margin-bottom: 20px; }
+  .build-progress .bar .fill { height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold-soft)); width: 60%; }
+  .build-progress .phases { list-style: none; padding: 0; margin: 0; }
+  .build-progress .phases li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 13px; }
+  .build-progress .phases li .num { width: 24px; color: var(--ink-dim); font-family: ui-monospace, monospace; font-size: 11px; }
+  .build-progress .phases li.done .num { color: var(--ink-mid); }
+  .build-progress .phases li.done .lbl { color: var(--ink-mid); text-decoration: line-through; text-decoration-color: var(--rule); }
+  .build-progress .phases li.act .num { color: var(--gold-soft); }
+  .build-progress .phases li.act .lbl { color: var(--ink); }
+  .build-progress .phases li.act .sub { color: var(--gold-soft); font-family: ui-monospace, monospace; font-size: 10px; margin-left: auto; }
+  .build-progress .note { margin-top: 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; color: var(--ink-mid); font-size: 12px; line-height: 1.5; }
+
+  /* brief list */
+  .brief-card { margin: 12px 16px; padding: 16px; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; }
+  .brief-card .h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .brief-card .h .nm { font-size: 14px; font-weight: 600; }
+  .brief-card .h .date { font-size: 11px; color: var(--ink-dim); }
+  .brief-card .summary { color: var(--ink-mid); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .brief-card .footer { display: flex; gap: 12px; margin-top: 10px; color: var(--ink-dim); font-size: 11px; }
+  .brief-card .footer .lr { color: var(--gold-soft); display: flex; align-items: center; gap: 4px; }
+
+  /* settings */
+  .settings { padding: 0 16px; }
+  .settings .me { display: flex; align-items: center; gap: 14px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+  .settings .me .av { width: 56px; height: 56px; border-radius: 50%; background: var(--panel-2); display: grid; place-items: center; font-size: 18px; color: var(--gold-soft); border: 1px solid var(--rule); }
+  .settings .me .nm { font-size: 16px; font-weight: 600; }
+  .settings .me .em { font-size: 12px; color: var(--ink-mid); }
+  .settings .group { margin: 16px 0; }
+  .settings .group h4 { color: var(--ink-dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; font-family: ui-monospace, monospace; margin: 0 0 8px 4px; font-weight: 500; }
+  .settings .row { display: flex; align-items: center; justify-content: space-between; padding: 14px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; margin-bottom: 8px; font-size: 14px; }
+  .settings .row .lbl { display: flex; align-items: center; gap: 12px; }
+  .settings .row .lbl .ic { font-size: 18px; }
+  .settings .row .val { color: var(--ink-mid); font-size: 12px; }
+
+  /* boardroom · roundtable view */
+  .bd-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 60vh;
+    margin: 16px auto 0;
+    background: radial-gradient(ellipse at center, rgba(196,169,106,0.06) 0%, transparent 70%);
+  }
+  .bd-table {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 56%; aspect-ratio: 1.6 / 1;
+    border-radius: 50% / 60%;
+    background:
+      radial-gradient(ellipse at 50% 40%, #6B5638 0%, #4A3A24 60%, #2E2418 100%);
+    border: 2px solid #8A6D45;
+    box-shadow:
+      0 14px 40px rgba(0,0,0,0.7),
+      0 2px 0 rgba(196,169,106,0.15),
+      inset 0 4px 0 rgba(255,220,160,0.12),
+      inset 0 -10px 24px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 4px;
+    z-index: 1;
+  }
+  .bd-table-label {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .bd-table-quote {
+    font-size: 9px; color: var(--gold-soft);
+    text-align: center; margin-top: 4px;
+    padding: 0 8px;
+    font-style: italic;
+    line-height: 1.3;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .bd-table-round {
+    margin-top: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px; color: var(--ink-dim);
+  }
+
+  .bd-seat {
+    position: absolute;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    width: 80px;
+  }
+  /* Seat positions are computed in JS · runs on screen-enter and
+     scales with the number of seats. Each seat sits on an ellipse
+     around the central table; sprite size shrinks for N >= 7. */
+
+  .bd-av {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--panel-2), var(--panel-3));
+    border: 2px solid var(--rule);
+    display: grid; place-items: center;
+    font-size: 18px; color: var(--ink);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    transition: all 0.3s ease;
+  }
+  .bd-av.speaking {
+    border-color: var(--gold-soft);
+    color: var(--gold-soft);
+    box-shadow:
+      0 0 0 4px rgba(196,169,106,0.18),
+      0 0 24px rgba(196,169,106,0.4),
+      0 4px 12px rgba(0,0,0,0.4);
+    transform: scale(1.08);
+    animation: bd-pulse 2s infinite ease-in-out;
+  }
+  @keyframes bd-pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(196,169,106,0.18), 0 0 24px rgba(196,169,106,0.4), 0 4px 12px rgba(0,0,0,0.4); }
+    50%      { box-shadow: 0 0 0 8px rgba(196,169,106,0.10), 0 0 36px rgba(196,169,106,0.55), 0 4px 12px rgba(0,0,0,0.4); }
+  }
+  .bd-av.next {
+    border-color: rgba(196,169,106,0.35);
+    color: var(--gold-soft);
+  }
+  .bd-av.next::after {
+    content: 'next';
+    position: absolute; transform: translate(28px, -20px);
+    font-size: 8px; letter-spacing: 0.08em;
+    background: var(--gold);
+    color: #0A0A0A;
+    padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, monospace;
+  }
+  .bd-av.me {
+    background: var(--gold);
+    color: #0A0A0A;
+    border-color: var(--gold-soft);
+  }
+
+  /* pixel-art chibi sprites · chair + character stacked, reused from PC */
+  .bd-seat { width: 96px; }
+  .bd-pix {
+    position: relative;
+    width: 88px; height: 96px;
+    image-rendering: pixelated;
+  }
+  .bd-pix img {
+    position: absolute; left: 0; top: 0;
+    width: 100%; height: 100%;
+    image-rendering: pixelated;
+    -ms-interpolation-mode: nearest-neighbor;
+  }
+  .bd-pix .chair { z-index: 1; transform: translateY(8px); opacity: 0.95; }
+  .bd-pix .char  { z-index: 2; transform: translateY(-12px); }
+  .bd-pix.speaking {
+    filter: drop-shadow(0 0 12px rgba(196,169,106,0.55));
+    animation: bd-bounce 1.2s infinite ease-in-out;
+  }
+  @keyframes bd-bounce {
+    0%,100% { transform: translateY(0); }
+    50%     { transform: translateY(-4px); }
+  }
+  .bd-pix.next::after {
+    content: 'NEXT';
+    position: absolute; top: -4px; right: -8px;
+    background: var(--gold); color: #0A0A0A;
+    font-size: 9px; letter-spacing: 0.08em;
+    padding: 2px 6px; border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    z-index: 3;
+  }
+  .bd-pix.me { filter: drop-shadow(0 0 8px rgba(196,169,106,0.4)); }
+
+  /* boardroom stage · ensure table sits ON TOP of the radial bg
+     but BELOW the sprites (z-index hierarchy). */
+  .bd-stage { aspect-ratio: 1 / 1.05; max-height: 65vh; }
+  .bd-table {
+    width: 46%;
+    height: 28%;
+    aspect-ratio: auto;
+    border-radius: 50% / 60%;
+    z-index: 1;
+  }
+  .bd-seat { z-index: 2; }
+
+  .bd-name {
+    font-size: 10px;
+    color: var(--ink-mid);
+    text-align: center;
+  }
+  .bd-seat .bd-wave {
+    display: flex; gap: 2px; height: 12px; align-items: end;
+    margin-top: -2px;
+  }
+  .bd-seat .bd-wave span {
+    width: 2px; background: var(--gold-soft); border-radius: 1px;
+    animation: bd-w 0.9s infinite ease-in-out;
+  }
+  .bd-seat .bd-wave span:nth-child(1) { animation-delay: 0.0s; }
+  .bd-seat .bd-wave span:nth-child(2) { animation-delay: 0.12s; }
+  .bd-seat .bd-wave span:nth-child(3) { animation-delay: 0.24s; }
+  .bd-seat .bd-wave span:nth-child(4) { animation-delay: 0.36s; }
+  .bd-seat .bd-wave span:nth-child(5) { animation-delay: 0.48s; }
+  @keyframes bd-w { 0%,100% { height: 3px; } 50% { height: 12px; } }
+
+  .bd-subtitle {
+    margin: 8px 16px 12px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+  }
+  .bd-sub-who {
+    font-size: 11px;
+    color: var(--gold-soft);
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .bd-sub-text {
+    font-size: 14px;
+    color: var(--ink);
+    line-height: 1.55;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* helpers */
+  .empty { padding: 40px 24px; text-align: center; color: var(--ink-dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="device">
+
+  <!-- ─── SCREEN 1 · ROOMS LIST ──────────────────────────── -->
+  <section class="screen on" data-screen="rooms">
+    <div class="topbar">
+      <div style="width: 32px;"></div>
+      <div class="title">
+        <div class="kicker">// 02:11 · Tue</div>
+        PrivateBoard
+      </div>
+      <div class="actions">
+        <button onclick="openSheet('new-room')">＋</button>
+      </div>
+    </div>
+
+    <div id="rooms-list" data-state="loading">
+      <div class="fab-list-header" data-mock>// 加载中...</div>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 2 · ROOM CHAT ────────────────────────────── -->
+  <section class="screen" data-screen="room-chat">
+    <div class="topbar">
+      <button class="back" onclick="goto('rooms')">‹</button>
+      <div class="title">
+        <div id="rc-title">房间</div>
+        <div class="room-head-sub" id="rc-sub">—</div>
+      </div>
+      <div class="actions">
+        <button onclick="goto('boardroom')" title="圆桌视图">▦</button>
+        <button onclick="adjournActiveRoom()" title="结束并归档">⋯</button>
+      </div>
+    </div>
+
+    <div class="msgs" id="rc-msgs">
+      <div class="msg system">— 选一个房间打开 —</div>
+    </div>
+
+    <!-- room-level action bar · sits flush on top of the composer.
+         Heights: tab bar (~56) + composer (~58) → bar bottom = 56 + 58. -->
+    <!-- primary action · gold pill above the composer; hidden when no
+         action makes sense (e.g. while the room is mid-stream) -->
+    <div id="rc-actions" style="display:none; position:fixed; left:0; right:0; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + 58px); max-width:420px; margin:0 auto; padding:6px 12px 0; background:rgba(10,10,10,0.92); backdrop-filter:blur(20px); z-index:5;">
+      <button id="rc-act-primary" style="width:100%; padding:10px; border-radius:10px; background:var(--gold); color:#0A0A0A; font-weight:600; font-size:13px;">—</button>
+    </div>
+
+    <div id="rc-mention-picker" style="display:none; position:fixed; left:8px; right:8px; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + 52px); max-width:420px; margin:0 auto; background:var(--panel); border:1px solid var(--rule); border-radius:12px; padding:6px; z-index:10; max-height:240px; overflow-y:auto;"></div>
+    <div class="composer" id="rc-composer">
+      <input id="rc-input" type="text" placeholder="你的回应..." oninput="onComposerInput(this, 'rc-input')" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMessage('rc-input');}" />
+      <div class="send" onclick="submitMessage('rc-input')">↑</div>
+      <button id="rc-act-more" onclick="openSheet('room-more')" style="display:none; padding:0; width:40px; height:40px; border-radius:50%; background:var(--panel-3); color:var(--ink-mid); font-size:18px;">⋯</button>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 3 · AGENTS ──────────────────────────────── -->
+  <section class="screen" data-screen="agents">
+    <div class="topbar">
+      <div style="width: 32px;"></div>
+      <div class="title">董事会</div>
+      <div class="actions">
+        <button onclick="goto('new-agent')">＋</button>
+      </div>
+    </div>
+
+    <div id="agents-list" data-state="loading">
+      <div class="fab-list-header" data-mock>// 加载中...</div>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 4 · AGENT PROFILE ────────────────────────── -->
+  <section class="screen" data-screen="agent-profile">
+    <div class="topbar">
+      <button class="back" onclick="goto('agents')">‹</button>
+      <div class="title" id="ap-title">董事</div>
+      <div class="actions"><button onclick="deleteActiveAgent()" title="删除">🗑</button></div>
+    </div>
+
+    <div style="padding: 24px 16px;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:12px; padding: 20px 0;">
+        <div id="ap-avatar" style="width:120px; height:120px; border-radius:50%; background:linear-gradient(135deg,var(--panel-2),var(--panel-3)); display:grid; place-items:center; font-size:36px; color:var(--gold-soft); border:2px solid var(--rule);">?</div>
+        <div id="ap-name" style="font-size:20px; font-weight:600;">—</div>
+        <div id="ap-bio" style="color:var(--ink-mid); font-size:12px; text-align:center; padding:0 12px; line-height:1.5;">—</div>
+      </div>
+
+      <div id="ap-preview" onclick="playVoicePreview()" style="cursor:pointer; padding:14px; background:var(--panel); border:1px solid var(--rule); border-radius:12px; display:flex; align-items:center; gap:12px; margin-top:8px;">
+        <div id="ap-preview-icon" style="width:40px;height:40px;border-radius:50%;background:var(--gold);color:#0A0A0A;display:grid;place-items:center;font-size:18px;">▶</div>
+        <div style="flex:1;">
+          <div id="ap-preview-lbl" style="font-size:13px;">试听真人声音</div>
+          <div id="ap-preview-sub" style="font-size:11px; color:var(--ink-dim);">点击合成一段示例</div>
+        </div>
+        <div style="font-family:ui-monospace,monospace;font-size:10px;color:var(--gold-soft);">🔊</div>
+      </div>
+
+      <audio id="ap-preview-audio" preload="none" style="display:none;"></audio>
+
+      <div class="settings" style="padding-left:0; padding-right:0; margin-top:16px;">
+        <div class="group">
+          <h4>// 角色定位</h4>
+          <div class="row" onclick="editRoleTag()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🎭</span> <span id="ap-role-tag">—</span></div>
+            <div class="val" id="ap-role-val">director</div>
+          </div>
+        </div>
+        <div class="group">
+          <h4>// 真人声音</h4>
+          <div class="row" onclick="copyVoiceId()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🔊</span> voice_id</div>
+            <div class="val" id="ap-voice-id">—</div>
+          </div>
+          <div class="row" onclick="redistillVoice()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🔁</span> 重新蒸馏</div>
+            <div class="val">›</div>
+          </div>
+        </div>
+        <div class="group">
+          <h4>// 模型</h4>
+          <div class="row" onclick="pickModel()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⚙</span> <span id="ap-model">—</span></div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="toggleWebSearch()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🔍</span> Web Search</div>
+            <div class="val" id="ap-websearch">—</div>
+          </div>
+        </div>
+        <div class="group">
+          <h4>// 深度</h4>
+          <div class="row" onclick="openAgentMemories()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🧠</span> 长期记忆</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="openAgentSkills()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⚒</span> 技能 (Skills)</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="triggerDream()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">💭</span> 触发反思 (Dream)</div>
+            <div class="val">›</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 5 · NEW AGENT ────────────────────────────── -->
+  <section class="screen" data-screen="new-agent">
+    <div class="topbar">
+      <button class="back" onclick="goto('agents')">‹</button>
+      <div class="title">新建董事</div>
+      <div class="actions"><button onclick="submitNewAgent()">开始</button></div>
+    </div>
+
+    <div style="padding: 20px 16px;">
+      <div style="color:var(--ink-mid); font-size:13px; line-height:1.6; margin-bottom:16px;">
+        说一下你想要什么样的人。可以贴 YouTube / B 站 / 视频地址，自动用真人声音克隆。
+      </div>
+
+      <textarea id="new-agent-desc" oninput="onNewAgentDescInput(this.value)" style="width:100%; min-height:140px; background:var(--panel); border:1px solid var(--rule); border-radius:12px; padding:14px;" placeholder="例如：价值投资型角色，长期持有，拒绝高估值&#10;&#10;https://www.youtube.com/watch?v=..."></textarea>
+
+      <div id="new-agent-url-hint" style="display:none; margin-top:10px; padding:10px 14px; background:rgba(196,169,106,0.08); border:1px solid rgba(196,169,106,0.2); border-radius:10px; color:var(--gold-soft); font-size:12px; align-items:center; gap:8px;">
+        🎙 已识别到视频链接 · 将自动用作声音蒸馏源
+      </div>
+
+      <div id="new-agent-error" style="display:none; margin-top:10px; padding:10px 14px; background:rgba(220,80,80,0.12); border:1px solid rgba(220,80,80,0.3); border-radius:10px; color:#FF8B7E; font-size:12px;"></div>
+
+      <button id="new-agent-submit" style="width:100%; padding:14px; background:var(--gold); color:#0A0A0A; border-radius:12px; font-weight:600; margin-top:24px;" onclick="submitNewAgent()">✦ 开始构建 (5-10 min)</button>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 6 · BUILD PROGRESS ───────────────────────── -->
+  <section class="screen" data-screen="build-progress">
+    <div class="topbar">
+      <button class="back" onclick="goto('agents')">‹</button>
+      <div class="title">构建中</div>
+      <div class="actions"><button onclick="cancelBuild()">取消</button></div>
+    </div>
+
+    <div class="build-progress">
+      <div class="title" style="font-size: 26px; line-height: 1.2;">5 / 7</div>
+      <div class="sub">捕捉真人声音中... 预计还需 4 min</div>
+
+      <div class="bar"><div class="fill"></div></div>
+
+      <ul class="phases">
+        <li class="done"><span class="num">01</span> <span class="lbl">锻造身份</span></li>
+        <li class="done"><span class="num">02</span> <span class="lbl">挖掘知识</span></li>
+        <li class="done"><span class="num">03</span> <span class="lbl">锐化镜头</span></li>
+        <li class="done"><span class="num">04</span> <span class="lbl">起草手册</span></li>
+        <li class="act">
+          <span class="num">05</span>
+          <span class="lbl">捕捉声音</span>
+          <span class="sub">克隆 · 价值投资人 · 上传中</span>
+        </li>
+        <li><span class="num">06</span> <span class="lbl">自检清单</span></li>
+        <li><span class="num">07</span> <span class="lbl">压力测试</span></li>
+      </ul>
+
+      <div class="note">
+        ✓ 可锁屏 · 完成后系统通知你<br>
+        ✓ 切到其他屏不会中断
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 6.5 · BOARDROOM (roundtable view) ────────── -->
+  <section class="screen" data-screen="boardroom">
+    <div class="topbar">
+      <button class="back" onclick="goto('room-chat')">‹</button>
+      <div class="title">
+        <div id="bd-title">圆桌</div>
+        <div class="room-head-sub" id="bd-sub">—</div>
+      </div>
+      <div class="actions">
+        <button onclick="goto('room-chat')" title="文字视图">≡</button>
+      </div>
+    </div>
+
+    <div class="bd-stage" id="bd-stage">
+      <!-- center table -->
+      <div class="bd-table">
+        <div class="bd-table-label">// boardroom</div>
+        <div class="bd-table-quote" id="bd-table-quote">"打开一个房间看圆桌动起来"</div>
+        <div class="bd-table-round" id="bd-table-round">round 0</div>
+      </div>
+      <!-- seats injected by layoutBoardroomSeats() based on active room members -->
+    </div>
+
+    <!-- subtitle / latest line -->
+    <div class="bd-subtitle" id="bd-subtitle">
+      <div class="bd-sub-who" id="bd-sub-who">—</div>
+      <div class="bd-sub-text" id="bd-sub-text">选择一个房间，看董事们围坐讨论。</div>
+    </div>
+
+    <!-- boardroom voice toggle · always visible. Tap to (1) unlock
+         the AudioContext if it hasn't been, (2) flip the room's
+         delivery mode between voice and text. -->
+    <div id="bd-audio-unlock" onclick="onBoardroomVoiceToggle()" style="margin:0 16px 10px; padding:10px 14px; background:rgba(196,169,106,0.08); border:1px solid rgba(196,169,106,0.3); border-radius:10px; color:var(--gold-soft); font-size:12px; text-align:center; cursor:pointer;">
+      🔊 点这里开启语音 · 让董事们说出来
+    </div>
+
+    <audio id="bd-audio" preload="auto" style="display:none;"></audio>
+
+    <!-- composer bar (compact) -->
+    <div class="composer">
+      <input id="bd-input" type="text" placeholder="加入讨论..." oninput="onComposerInput(this, 'bd-input')" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMessage('bd-input');}" />
+      <div class="send" onclick="submitMessage('bd-input')">↑</div>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 7 · BRIEFS ───────────────────────────────── -->
+  <section class="screen" data-screen="briefs">
+    <div class="topbar">
+      <div style="width: 32px;"></div>
+      <div class="title">报告</div>
+      <div class="actions"><button onclick="filterBriefs()">🔍</button></div>
+    </div>
+
+    <div id="briefs-list" data-state="loading">
+      <div class="fab-list-header" data-mock>// 加载中...</div>
+    </div>
+  </section>
+
+  <!-- ─── SCREEN 8 · ME / SETTINGS ────────────────────────── -->
+  <section class="screen" data-screen="me">
+    <div class="topbar">
+      <div style="width: 32px;"></div>
+      <div class="title">我</div>
+      <div class="actions"></div>
+    </div>
+
+    <div class="settings">
+      <div class="me">
+        <div class="av">C</div>
+        <div style="flex:1;">
+          <div class="nm">Charven</div>
+          <div class="em">a2862321275@gmail.com</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h4>// 服务</h4>
+        <div class="row" onclick="openSettingOnDesktop('llm')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🔑</span> LLM Provider</div>
+          <div class="val">OpenRouter ›</div>
+        </div>
+        <div class="row" onclick="openSettingOnDesktop('voice')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🔊</span> 语音 (TTS)</div>
+          <div class="val">MiniMax · CN ›</div>
+        </div>
+        <div class="row" onclick="openSettingOnDesktop('search')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🔍</span> 联网搜索</div>
+          <div class="val">Brave ›</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h4>// 凭据管理</h4>
+        <div class="row" onclick="openCredentialMgr('llm')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🔐</span> LLM 凭据</div>
+          <div class="val">›</div>
+        </div>
+        <div class="row" onclick="openCredentialMgr('voice')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🎚</span> 语音凭据</div>
+          <div class="val">›</div>
+        </div>
+        <div class="row" onclick="openCredentialMgr('search')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🌐</span> 搜索凭据</div>
+          <div class="val">›</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h4>// 主席</h4>
+        <div class="row" onclick="openChairLongMemory()" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">📚</span> 关于我 (长期记忆)</div>
+          <div class="val">›</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h4>// 偏好</h4>
+        <div class="row" onclick="toggleLanguage()" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🌐</span> 语言</div>
+          <div class="val">中文 ›</div>
+        </div>
+        <div class="row" onclick="alert('当前移动端固定深色主题。在桌面端可切换浅色。')" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🎨</span> 主题</div>
+          <div class="val">深色 ›</div>
+        </div>
+        <div class="row" onclick="toggleBuildNotify(this)" style="cursor:pointer;">
+          <div class="lbl"><span class="ic">🔔</span> 构建完成通知</div>
+          <div class="val">已开启</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h4>// 关于</h4>
+        <div class="row">
+          <div class="lbl"><span class="ic">ⓘ</span> 版本</div>
+          <div class="val">v0.1.34 (m)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── TAB BAR ────────────────────────────────────────── -->
+  <nav class="tabbar">
+    <button class="tab on" data-tab="rooms" onclick="setTab('rooms')">
+      <div class="ic">💬</div><div>房间</div>
+    </button>
+    <button class="tab" data-tab="agents" onclick="setTab('agents')">
+      <div class="ic">👥</div><div>董事会</div>
+    </button>
+    <button class="tab" data-tab="briefs" onclick="setTab('briefs')">
+      <div class="ic">📄</div><div>报告</div>
+    </button>
+    <button class="tab" data-tab="me" onclick="setTab('me')">
+      <div class="ic">⚙</div><div>我</div>
+    </button>
+  </nav>
+
+  <!-- ─── SHEET · NEW ROOM ───────────────────────────────── -->
+  <div class="sheet-bg" onclick="closeSheet()"></div>
+  <div class="sheet" data-sheet="new-room">
+    <div class="grab"></div>
+    <div class="sh-head">
+      <div class="sh-title">新房间</div>
+      <button onclick="closeSheet()" style="color:var(--ink-dim); font-size:20px;">✕</button>
+    </div>
+    <div class="sh-body">
+      <label>讨论什么</label>
+      <textarea id="sh-subject" placeholder="例如：我该不该 all in AI 编程助手？"></textarea>
+
+      <label>选董事 (1-5 人)</label>
+      <div class="cast-grid" id="sh-cast-grid">
+        <div class="fab-list-header" data-empty>// 加载中...</div>
+      </div>
+
+      <label>模式</label>
+      <div class="opts" id="sh-modes">
+        <div class="opt on" data-mode="debate">辩论</div>
+        <div class="opt" data-mode="constructive">协作</div>
+        <div class="opt" data-mode="research">研究</div>
+        <div class="opt" data-mode="critique">批判</div>
+      </div>
+
+      <label>发声</label>
+      <div class="opts" id="sh-delivery">
+        <div class="opt on" data-delivery="voice">🔊 真人声音</div>
+        <div class="opt" data-delivery="text">静默 (仅文字)</div>
+      </div>
+
+      <div id="sh-error" style="display:none; padding:10px 14px; margin-top:12px; background:rgba(220,80,80,0.12); border:1px solid rgba(220,80,80,0.3); border-radius:10px; color:#FF8B7E; font-size:12px;"></div>
+
+      <button class="primary" id="sh-submit" onclick="submitNewRoom()">开始会议 →</button>
+    </div>
+  </div>
+
+  <!-- ─── SHEET · ROOM MORE ──────────────────────────────── -->
+  <div class="sheet" data-sheet="room-more">
+    <div class="grab"></div>
+    <div class="sh-head">
+      <div class="sh-title">更多动作</div>
+      <button onclick="closeSheet()" style="color:var(--ink-dim); font-size:20px;">✕</button>
+    </div>
+    <div class="sh-body">
+      <div class="settings" style="padding:0;">
+        <div class="group">
+          <div class="row" onclick="closeSheet();continueDiscussion()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">▶</span> 继续讨论 (下一轮)</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();endRound()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⏹</span> 结束本轮 (出关键点)</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();togglePauseRoom()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⏸</span> <span id="rc-pause-label">暂停 / 恢复</span></div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();toggleDeliveryMode()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🔊</span> 语音 / 静默</div>
+            <div class="val" id="rc-delivery-label">—</div>
+          </div>
+          <div class="row" onclick="closeSheet();toggleVoteTrigger()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⏱</span> 自动 / 手动 推进</div>
+            <div class="val" id="rc-vote-trigger-label">—</div>
+          </div>
+          <div class="row" onclick="closeSheet();openRoomNotes()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">📒</span> 房间旁注 / 高亮</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();openRoomVote()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">🗳</span> 关键点投票</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();regenerateBrief()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">📝</span> 重新生成报告</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();exportRoomMarkdown()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">📄</span> 导出 Markdown</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" onclick="closeSheet();adjournActiveRoom()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic" style="color:#FF8B7E;">⊘</span> <span style="color:#FF8B7E;">结束并归档</span></div>
+            <div class="val">›</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SHEET · UNIVERSAL MANAGER ──────────────────────── -->
+  <div class="sheet" data-sheet="mgr" style="max-height:78vh;">
+    <div class="grab"></div>
+    <div class="sh-head">
+      <div class="sh-title" id="mgr-title">—</div>
+      <button onclick="closeSheet()" style="color:var(--ink-dim); font-size:20px;">✕</button>
+    </div>
+    <div class="sh-body" style="max-height:62vh; overflow-y:auto;">
+      <div id="mgr-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <div id="mgr-empty" style="color:var(--ink-dim); font-size:12px; text-align:center; padding:24px 0; display:none;">— 空 —</div>
+      <button id="mgr-add" onclick="mgrOnAdd()" style="margin-top:14px; width:100%; padding:12px; border-radius:10px; background:var(--gold); color:#0A0A0A; font-weight:600; display:none;">＋ 添加</button>
+      <div id="mgr-error" style="display:none; margin-top:10px; padding:10px 14px; background:rgba(220,80,80,0.12); border:1px solid rgba(220,80,80,0.3); border-radius:10px; color:#FF8B7E; font-size:12px;"></div>
+    </div>
+  </div>
+
+  <!-- ─── VOICE CALL OVERLAY ──────────────────────────────── -->
+  <div class="voice-call" data-voice-call>
+    <div class="vc-head">
+      <div class="live-pill">LIVE</div>
+      <div class="subject">minimax 股价分析</div>
+    </div>
+    <div class="active-spk">
+      <div class="big-av">段</div>
+      <div style="font-size:18px; font-weight:600;">价值投资人</div>
+      <div class="wave"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="quote">"618 倍市销率不是分析，是信仰。这家公司现金流为负，DCF 根本不成立..."</div>
+    </div>
+    <div class="queue">
+      <div class="qa next"><div class="a">A</div>Active Manager</div>
+      <div class="qa"><div class="a">Z</div>Zhang</div>
+      <div class="qa"><div class="a">表</div>表达者</div>
+      <div class="qa"><div class="a">协</div>协作工具人</div>
+    </div>
+    <div class="ctrls">
+      <div class="ctrl-btn"><div class="b">⇆</div>切文字</div>
+      <div class="ctrl-btn mic"><div class="b">🎙</div>长按说话</div>
+      <div class="ctrl-btn end" onclick="closeVoiceCall()"><div class="b">✕</div>挂断</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/typing-sfx.js"></script>
+<script>
+function $$(sel) { return document.querySelectorAll(sel); }
+function $(sel) { return document.querySelector(sel); }
+
+function setTab(name) {
+  $$('.tabbar .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  $$('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === name));
+  window.scrollTo(0, 0);
+}
+
+function goto(screen) {
+  $$('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screen));
+  // sync tabbar highlight when navigating into a top-level tab
+  const tabMap = { rooms: 'rooms', agents: 'agents', briefs: 'briefs', me: 'me' };
+  if (tabMap[screen]) {
+    $$('.tabbar .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tabMap[screen]));
+  }
+  window.scrollTo(0, 0);
+}
+
+function openSheet(name) {
+  $('.sheet-bg').classList.add('on');
+  $('.sheet[data-sheet="' + name + '"]').classList.add('on');
+}
+function closeSheet() {
+  $('.sheet-bg').classList.remove('on');
+  $$('.sheet').forEach(s => s.classList.remove('on'));
+}
+
+function openVoiceCall() {
+  $('.voice-call').classList.add('on');
+}
+function closeVoiceCall() {
+  $('.voice-call').classList.remove('on');
+}
+
+// quick keyboard nav for desktop preview
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeSheet();
+    closeVoiceCall();
+  }
+});
+
+/** Layout the boardroom seats in an ellipse around the table.
+ *  Auto-scales position + sprite size with the number of seats.
+ *  Idempotent · safe to call on every screen entry. */
+function layoutBoardroomSeats() {
+  const stage = document.querySelector('.bd-stage');
+  if (!stage) return;
+  const seats = Array.from(stage.querySelectorAll('.bd-seat'));
+  const n = seats.length;
+  if (n === 0) return;
+  // Ellipse radii (as % of stage). Wider horizontally so the table
+  // (~56% wide) fits between left+right seats.
+  const rx = 40;
+  const ry = 42;
+  // Sprite shrink for crowded rooms.
+  const spriteW = n <= 4 ? 72 : n <= 6 ? 56 : n <= 8 ? 48 : 40;
+  const spriteH = Math.round(spriteW * 96 / 88);
+  seats.forEach((seat, i) => {
+    // Start at top (angle = -π/2), go clockwise.
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const x = 50 + rx * Math.cos(angle);
+    const y = 50 + ry * Math.sin(angle);
+    seat.style.position = 'absolute';
+    seat.style.left = x + '%';
+    seat.style.top = y + '%';
+    seat.style.transform = 'translate(-50%, -50%)';
+    const pix = seat.querySelector('.bd-pix');
+    if (pix) {
+      pix.style.width = spriteW + 'px';
+      pix.style.height = spriteH + 'px';
+    }
+  });
+}
+// Run on initial load + every time we navigate into the boardroom screen.
+const _origGoto = goto;
+goto = function(screen) {
+  _origGoto(screen);
+  if (screen === 'boardroom') requestAnimationFrame(layoutBoardroomSeats);
+};
+document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(layoutBoardroomSeats));
+// Re-layout when window resizes (rotation / devtools size change).
+window.addEventListener('resize', () => requestAnimationFrame(layoutBoardroomSeats));
+
+// Deep-link via URL · `?screen=room-chat` lands directly on the room.
+// Supported: rooms, room-chat, agents, agent-profile, new-agent,
+// build-progress, briefs, me. Optional `&voice=1` opens the voice
+// overlay on top. Optional `&sheet=new-room` opens the new-room sheet.
+(function applyDeepLink() {
+  const params = new URLSearchParams(location.search);
+  const screen = params.get('screen');
+  if (screen) goto(screen);
+  if (params.get('voice') === '1') openVoiceCall();
+  const sheet = params.get('sheet');
+  if (sheet) openSheet(sheet);
+})();
+
+// mockup left a document-level click handler that auto-toggled
+// `.cast-grid .pick .on` — kept for `.opts .opt` (mode/delivery
+// radio behaviour) but the cast-grid branch double-toggled with
+// togglePick() and cancelled it out, so picker never visually selected.
+document.addEventListener('click', (e) => {
+  const opt = e.target.closest('.opts .opt');
+  if (opt) {
+    opt.parentElement.querySelectorAll('.opt').forEach(x => x.classList.remove('on'));
+    opt.classList.add('on');
+  }
+});
+
+// ── data binding ──────────────────────────────────────────
+const SEED_SPRITES = [
+  '/avatars/value-investor.svg',
+  '/avatars/long-horizon.svg',
+  '/avatars/historian.svg',
+  '/avatars/user-empathy.svg',
+  '/avatars/phenomenologist.svg',
+  '/avatars/first-principles.svg',
+  '/avatars/socrates.svg',
+];
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function spriteFor(agent) {
+  if (!agent) return SEED_SPRITES[0];
+  if (typeof agent.avatarPath === 'string' && agent.avatarPath.startsWith('/avatars/') && agent.avatarPath !== '/avatars/chair.svg') {
+    return agent.avatarPath;
+  }
+  const h = agent.handle || agent.id || agent.name || '';
+  let acc = 0;
+  for (let i = 0; i < h.length; i++) acc = (acc * 31 + h.charCodeAt(i)) >>> 0;
+  return SEED_SPRITES[acc % SEED_SPRITES.length];
+}
+function initialFor(name) {
+  const s = String(name || '?').trim();
+  if (!s) return '?';
+  return Array.from(s)[0];
+}
+function relativeTime(ts) {
+  if (!ts) return '';
+  const ms = Date.now() - ts;
+  if (ms < 60_000) return 'just now';
+  if (ms < 3_600_000) return Math.floor(ms / 60_000) + ' min ago';
+  if (ms < 86_400_000) return Math.floor(ms / 3_600_000) + ' h ago';
+  return Math.floor(ms / 86_400_000) + ' d ago';
+}
+function fmtCast(members) {
+  if (!members || !members.length) return '—';
+  const names = members.slice(0, 3).map(m => m.name || m.handle || '?');
+  const extra = members.length - names.length;
+  return names.join(' · ') + (extra > 0 ? ' · +' + extra : '');
+}
+
+function renderRooms(rooms, agentsById) {
+  const live = rooms.filter(r => r.status === 'live' || r.status === 'paused');
+  const closed = rooms.filter(r => r.status === 'adjourned');
+  const card = (r) => {
+    const members = (r.members || []).map(m => agentsById[m.agentId]).filter(Boolean);
+    const tag = r.status === 'live' || r.status === 'paused'
+      ? '<div class="tag live">LIVE</div>'
+      : '<div class="tag brief">报告</div>';
+    return `
+      <div class="room-card" data-room-id="${escapeHtml(r.id)}" onclick="openRoom('${escapeHtml(r.id)}')">
+        <div class="row1">
+          <div class="name">${escapeHtml(r.name || r.subject || 'Untitled')}</div>
+          ${tag}
+        </div>
+        <div class="cast">${escapeHtml(fmtCast(members))}</div>
+        <div class="preview">${escapeHtml(r.subject || '')}</div>
+        <div class="meta">${escapeHtml(relativeTime(r.createdAt))} · ${escapeHtml(r.mode || '')}</div>
+      </div>`;
+  };
+  let html = '';
+  if (live.length) {
+    html += '<div class="fab-list-header">// 进行中</div>';
+    html += live.map(card).join('');
+  }
+  if (closed.length) {
+    html += '<div class="fab-list-header">// 已结束</div>';
+    html += closed.map(card).join('');
+  }
+  if (!html) html = '<div class="fab-list-header" data-empty>// 还没有房间，点右上 ＋ 新建</div>';
+  return html;
+}
+
+function renderAgents(agents) {
+  const cloned = agents.filter(a => a.voice && a.voice.voiceId);
+  const system = agents.filter(a => !a.voice || !a.voice.voiceId);
+  const card = (a) => `
+    <div class="ag-card" data-agent-id="${escapeHtml(a.id)}" onclick="openAgent('${escapeHtml(a.id)}')">
+      <div class="av">${escapeHtml(initialFor(a.name))}</div>
+      <div class="nm">${escapeHtml(a.name)}</div>
+      <div class="vt${a.voice && a.voice.voiceId ? '' : ' no'}">${a.voice && a.voice.voiceId ? '● 真人声' : '系统音'}</div>
+    </div>`;
+  let html = '';
+  if (cloned.length) {
+    html += '<div class="fab-list-header">// 置顶 · 真人克隆声音</div>';
+    html += `<div class="ag-grid">${cloned.map(card).join('')}</div>`;
+  }
+  if (system.length) {
+    html += '<div class="fab-list-header">// 系统音色</div>';
+    html += `<div class="ag-grid">${system.map(card).join('')}</div>`;
+  }
+  if (!html) html = '<div class="fab-list-header" data-empty>// 还没有董事，点右上 ＋ 新建</div>';
+  return html;
+}
+
+function renderBriefs(briefs) {
+  if (!briefs.length) return '<div class="fab-list-header" data-empty>// 还没有报告，先开个房间讨论</div>';
+  const card = (b) => {
+    const preview = (b.bodyMd || '').replace(/\s+/g, ' ').trim().slice(0, 160) || '—';
+    const title = b.roomName || b.title || 'Untitled brief';
+    const href = briefViewerHref(b);
+    return `
+      <div class="brief-card" data-brief-id="${escapeHtml(b.id)}" data-href="${escapeHtml(href)}" onclick="openBrief('${escapeHtml(b.id)}')" style="cursor:pointer;">
+        <div class="h">
+          <div class="nm">${escapeHtml(title)}</div>
+          <div class="date">${escapeHtml(relativeTime(b.createdAt))}</div>
+        </div>
+        <div class="summary">${escapeHtml(preview)}</div>
+        <div class="footer">
+          <div class="lr">📖 打开报告</div>
+          <div>${escapeHtml(b.mode || 'report')}</div>
+        </div>
+      </div>`;
+  };
+  return briefs.map(card).join('');
+}
+
+async function fetchJson(url) {
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  return r.json();
+}
+
+let cachedAgents = [];
+let cachedAgentsById = {};
+
+async function bootstrapAgents() {
+  const host = document.getElementById('agents-list');
+  if (!host) return;
+  try {
+    const data = await fetchJson('/api/agents');
+    const agents = (data.agents || []).filter(a => a.roleKind !== 'moderator');
+    cachedAgents = agents;
+    cachedAgentsById = Object.fromEntries(agents.map(a => [a.id, a]));
+    host.innerHTML = renderAgents(agents);
+    host.dataset.state = 'ready';
+  } catch (e) {
+    host.innerHTML = '<div class="fab-list-header" data-error>// 加载失败：' + escapeHtml(e.message) + '</div>';
+    host.dataset.state = 'error';
+  }
+}
+
+async function bootstrapRooms() {
+  const host = document.getElementById('rooms-list');
+  if (!host) return;
+  try {
+    const data = await fetchJson('/api/rooms');
+    const rooms = data.rooms || [];
+    host.innerHTML = renderRooms(rooms, cachedAgentsById);
+    host.dataset.state = 'ready';
+  } catch (e) {
+    host.innerHTML = '<div class="fab-list-header" data-error>// 加载失败：' + escapeHtml(e.message) + '</div>';
+    host.dataset.state = 'error';
+  }
+}
+
+async function bootstrapBriefs() {
+  const host = document.getElementById('briefs-list');
+  if (!host) return;
+  try {
+    const data = await fetchJson('/api/briefs');
+    host.innerHTML = renderBriefs(data.briefs || []);
+    host.dataset.state = 'ready';
+  } catch (e) {
+    host.innerHTML = '<div class="fab-list-header" data-error>// 加载失败：' + escapeHtml(e.message) + '</div>';
+    host.dataset.state = 'error';
+  }
+}
+
+// ── app state ─────────────────────────────────────────────
+const appState = {
+  activeRoomId: null,
+  activeAgentId: null,
+  activeBuildJobId: null,
+  selectedCastIds: new Set(),
+  selectedMode: 'debate',
+  selectedDelivery: 'voice',
+  rcStream: null,
+  buildStream: null,
+};
+// exposed so e2e + DevTools can introspect runtime state
+window.appState = appState;
+
+// ── briefs: open the right viewer per mode ────────────────
+function briefViewerHref(b) {
+  if (!b) return '';
+  const id = encodeURIComponent(b.id);
+  const r = b.roomId ? encodeURIComponent(b.roomId) : '';
+  if (b.mode === 'magazine') return `/magazine.html?b=${id}`;
+  if (b.mode === 'newspaper') return `/newspaper.html?b=${id}`;
+  if (b.mode === 'ppt') return `/ppt.html?b=${id}`;
+  return r ? `/report.html?r=${r}&b=${id}` : `/report.html?b=${id}`;
+}
+function openBrief(id) {
+  const r = document.querySelector(`#briefs-list .brief-card[data-brief-id="${id}"]`);
+  const href = r?.dataset.href;
+  if (href) window.open(href, '_blank');
+}
+
+async function forceRoomRefresh() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  try {
+    const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    appState.activeRoomStatus = st.room?.status || appState.activeRoomStatus;
+    appState.activeRoomAwaitingClarify = !!st.room?.awaitingClarify;
+    appState.activeRoomAwaitingContinue = !!st.room?.awaitingContinue;
+    appState.activeRoomQueueLen = (st.queue || []).length;
+    appState.activeRoomRound = st.round || appState.activeRoomRound;
+    appState.activeRoomDelivery = st.room?.deliveryMode || appState.activeRoomDelivery;
+    appState.activeRoomVoteTrigger = st.room?.voteTrigger || appState.activeRoomVoteTrigger;
+    // If the round actually finished, clear the in-flight guard so the
+    // primary button lights up on the next render.
+    if (appState.activeRoomQueueLen === 0
+        && appState.activeRoomRound.spoken >= appState.activeRoomRound.total
+        && appState.activeRoomRound.total > 0) {
+      appState.continuePending = false;
+      clearTimeout(appState._continuePendingTo);
+    }
+    renderRoomActions();
+    maybeStartAutoContinue();
+  } catch {}
+}
+
+// 5-second poll · safety net for SSE drops (mobile networks throttle
+// EventSource aggressively in the background). Only ticks while the
+// user is on the room view.
+function startRoomPoll() {
+  if (appState._roomPollInterval) return;
+  appState._roomPollInterval = setInterval(() => {
+    const screen = document.querySelector('.screen.on')?.dataset.screen;
+    if ((screen === 'room-chat' || screen === 'boardroom') && appState.activeRoomId) {
+      forceRoomRefresh();
+    }
+  }, 5000);
+}
+function stopRoomPoll() {
+  if (appState._roomPollInterval) {
+    clearInterval(appState._roomPollInterval);
+    appState._roomPollInterval = null;
+  }
+}
+
+function resetActiveRoomState() {
+  stopRoomPoll();
+  // Close any open SSE stream
+  if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
+  // Stop + reset audio
+  cancelAutoContinue();
+  const audio = document.getElementById('bd-audio');
+  if (audio) { try { audio.pause(); } catch {} audio.removeAttribute('src'); audio.load?.(); }
+  // Voice queues + caches scoped to a single room
+  appState.voiceQueue = [];
+  appState.voicePlaying = null;
+  appState.voicePlayedIds = new Set();
+  appState.voiceChunks = {};
+  appState.activeRoomLastAuthor = null;
+  // Room-level flags
+  appState.continuePending = false;
+  clearTimeout(appState._continuePendingTo);
+  appState.continueSeen = 0;
+  appState._roomLandedId = null;
+  appState.pendingVoteMessageId = null;
+  appState.activeRoomStatus = null;
+  appState.activeRoomAwaitingClarify = false;
+  appState.activeRoomAwaitingContinue = false;
+  appState.activeRoomDelivery = 'text';
+  appState.activeRoomVoteTrigger = 'auto';
+  appState.activeRoomQueueLen = 0;
+  appState.activeRoomRound = { spoken: 0, total: 0 };
+  appState.activeMembersById = {};
+  // Clear stale DOM so users don't see a flash of the previous room.
+  const msgsEl = document.getElementById('rc-msgs');
+  if (msgsEl) msgsEl.innerHTML = '<div class="msg system">— 加载中... —</div>';
+  const stage = document.getElementById('bd-stage');
+  if (stage) stage.querySelectorAll('.bd-seat').forEach(el => el.remove());
+}
+
+// ── rooms ─────────────────────────────────────────────────
+async function openRoom(id) {
+  if (appState.activeRoomId && appState.activeRoomId !== id) resetActiveRoomState();
+  appState.activeRoomId = id;
+  goto('room-chat');
+  await loadActiveRoom();
+}
+
+async function loadActiveRoom() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const title = document.getElementById('rc-title');
+  const sub = document.getElementById('rc-sub');
+  const msgsEl = document.getElementById('rc-msgs');
+  if (!msgsEl) return;
+  msgsEl.innerHTML = '<div class="msg system">— 加载中... —</div>';
+  try {
+    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    const room = state.room || {};
+    // API returns full Agent objects in `members`, not relation rows.
+    const members = state.members || [];
+    const messages = state.messages || [];
+    if (title) title.textContent = room.name || room.subject || '房间';
+    const roundLabel = state.round && typeof state.round === 'object'
+      ? `${state.round.spoken ?? 0} / ${state.round.total ?? 0}`
+      : (state.round ?? 0);
+    const statusLabel = room.status === 'adjourned' ? '已归档'
+      : room.status === 'paused' ? '已暂停'
+      : room.awaitingClarify ? '等你回答'
+      : room.awaitingContinue ? '等你确认'
+      : 'LIVE';
+    if (sub) sub.textContent = `${statusLabel} · ${members.length} directors · round ${roundLabel}`;
+    appState.activeRoomStatus = room.status;
+    appState.activeRoomAwaitingClarify = !!room.awaitingClarify;
+    appState.activeRoomAwaitingContinue = !!room.awaitingContinue;
+    appState.activeRoomDelivery = room.deliveryMode || 'text';
+    appState.activeRoomVoteTrigger = room.voteTrigger || 'auto';
+    appState.activeRoomQueueLen = (state.queue || []).length;
+    appState.activeRoomRound = state.round || { spoken: 0, total: 0 };
+    // Reset first-landing guard whenever we open a (different) room.
+    if (appState._roomLandedId !== id) {
+      appState.continueSeen = 0;
+      appState._roomLandedId = id;
+    }
+    // Cache members for SSE-driven incremental rendering.
+    appState.activeMembersById = Object.fromEntries(members.map(a => [a.id, a]));
+    startRoomPoll();
+    const dl = document.getElementById('rc-delivery-label');
+    if (dl) dl.textContent = appState.activeRoomDelivery === 'voice' ? '🔊 语音 ›' : '🔇 静默 ›';
+    const vl = document.getElementById('rc-vote-trigger-label');
+    if (vl) vl.textContent = appState.activeRoomVoteTrigger === 'manual' ? '手动 ›' : '自动 ›';
+    renderRoomActions();
+    maybeStartAutoContinue();
+    msgsEl.innerHTML = renderMessages(messages, members);
+    scrollToBottom();
+    subscribeRoomStream(id);
+  } catch (e) {
+    msgsEl.innerHTML = `<div class="msg system">— 加载失败：${escapeHtml(e.message)} —</div>`;
+  }
+}
+
+function renderMessages(messages, members) {
+  // Members are agents — index by their id for authorId lookup.
+  const memberById = Object.fromEntries(members.map(a => [a.id, a]));
+  return messages.map(m => renderOneMessage(m, memberById)).join('');
+}
+
+function renderOneMessage(m, memberById) {
+  const mid = m.id ? ` data-msg-id="${escapeHtml(m.id)}"` : '';
+  const aid = m.authorId ? ` data-author-id="${escapeHtml(m.authorId)}"` : '';
+  const kind = m.authorKind ? ` data-author-kind="${escapeHtml(m.authorKind)}"` : '';
+  if (m.authorKind === 'system' || m.authorKind === 'chair-system') {
+    return `<div class="msg system"${mid}${kind}>${escapeHtml(m.body || '').slice(0, 200)}</div>`;
+  }
+  if (m.authorKind === 'user') {
+    return `<div class="msg user"${mid}${kind}><div class="bubble">${escapeHtml(m.body || '')}</div></div>`;
+  }
+  const agent = (m.authorId && (memberById[m.authorId] || cachedAgentsById[m.authorId])) || null;
+  const name = agent?.name || m.authorName || 'director';
+  const handle = agent?.handle ? `<span class="h">${escapeHtml(agent.handle)}</span>` : '';
+  const initial = initialFor(name);
+  return `<div class="msg"${mid}${aid}${kind}>
+    <div class="who">
+      <div class="av">${escapeHtml(initial)}</div>
+      <div class="name">${escapeHtml(name)} ${handle}</div>
+    </div>
+    <div class="text">${escapeHtml(m.body || '').replace(/\n+/g, '<br>')}</div>
+  </div>`;
+}
+
+function subscribeRoomStream(id) {
+  if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
+  try {
+    const es = new EventSource(`/api/rooms/${encodeURIComponent(id)}/stream`);
+    appState.rcStream = es;
+    const refreshStatus = async () => {
+      try {
+        const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+        const next = st.room?.status;
+        if (next && next !== appState.activeRoomStatus) {
+          appState.activeRoomStatus = next;
+        }
+        appState.activeRoomAwaitingClarify = !!st.room?.awaitingClarify;
+        appState.activeRoomAwaitingContinue = !!st.room?.awaitingContinue;
+        appState.activeRoomVoteTrigger = st.room?.voteTrigger || appState.activeRoomVoteTrigger;
+        appState.activeRoomQueueLen = (st.queue || []).length;
+        appState.activeRoomRound = st.round || appState.activeRoomRound;
+        renderRoomActions();
+        maybeStartAutoContinue();
+      } catch {}
+    };
+    // Streaming-first DOM updates · we no longer full-refresh the
+    // message list on every SSE tick. Instead each event mutates the
+    // matching <div data-msg-id="..."> in place. Falls back to a
+    // full reload only when a message can't be located (defensive).
+    es.addEventListener('message-appended', (ev) => {
+      try { sseAppendMessage(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('message-token', (ev) => {
+      try { sseAppendToken(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('message-updated', (ev) => {
+      try { sseUpdateMessage(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('message-removed', (ev) => {
+      try { sseRemoveMessage(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('message-error', (ev) => {
+      try { sseErrorMessage(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('message-final', (ev) => {
+      try { sseFinalizeMessage(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('voice-chunk', (ev) => {
+      try { handleVoiceChunk(JSON.parse(ev.data)); } catch {}
+    });
+    // Generic fallthrough for legacy `message` events (some events come
+    // through without a typed name when relayed); resync as a safety net.
+    es.addEventListener('message', () => loadActiveRoomMessages());
+    es.addEventListener('config-event', () => refreshStatus());
+    es.onerror = () => { try { es.close(); } catch {} appState.rcStream = null; };
+  } catch {}
+}
+
+function findMsgEl(messageId) {
+  return document.querySelector(`#rc-msgs .msg[data-msg-id="${CSS.escape(messageId)}"]`);
+}
+
+// .msgs is not scrollable — the page itself is. Scroll the WINDOW so
+// freshly appended director messages stay in view.
+function isPageNearBottom() {
+  const docH = document.documentElement.scrollHeight;
+  const winH = window.innerHeight;
+  const top = window.pageYOffset || document.documentElement.scrollTop || 0;
+  return docH - top - winH < 120;
+}
+function scrollToBottom() {
+  // RAF so we measure after the just-injected DOM committed.
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+  });
+}
+
+function sseAppendMessage(payload) {
+  if (!payload || !payload.messageId) return;
+  if (findMsgEl(payload.messageId)) return;
+  if (payload.authorKind === 'agent' || payload.authorKind === 'director' || payload.authorKind === 'chair') {
+    if (appState.activeRoomLastAuthor !== payload.authorId) {
+      try { window.boardroomTypingSfx?.speakerChange?.(); } catch {}
+      appState.activeRoomLastAuthor = payload.authorId;
+    }
+  }
+  // Chair gavel · PC fires this when the chair posts a round-prompt /
+  // round-end / intervention. These are the "moment of order" beats.
+  const kind = payload.meta?.kind;
+  if (kind === 'round-prompt' || kind === 'round-end' || kind === 'intervention') {
+    try { window.boardroomTypingSfx?.gavel?.(); } catch {}
+  }
+  // Auto vote popover · chair just dropped key points (round-end with
+  // meta.keypoints). PC pops a vote UI inline. Mobile: stash the
+  // messageId and refresh action bar — the primary button will offer
+  // "🗳 投票关键点".
+  if (kind === 'round-end' && payload.meta?.keypoints) {
+    appState.pendingVoteMessageId = payload.messageId;
+    renderRoomActions();
+  }
+  const msgsEl = document.getElementById('rc-msgs');
+  if (!msgsEl) return;
+  // Remove the "thinking" placeholder if present (continueDiscussion paints it).
+  const ph = document.getElementById('rc-thinking-ph'); if (ph) ph.remove();
+  const memberById = appState.activeMembersById || {};
+  const html = renderOneMessage({
+    id: payload.messageId,
+    authorKind: payload.authorKind,
+    authorId: payload.authorId,
+    body: payload.body || '',
+    meta: payload.meta || {},
+    roundNum: payload.roundNum,
+  }, memberById);
+  const wasNearBottom = isPageNearBottom();
+  msgsEl.insertAdjacentHTML('beforeend', html);
+  if (wasNearBottom) scrollToBottom();
+  // Boardroom: highlight this speaker immediately, not waiting for audio.
+  if (payload.authorKind === 'agent' || payload.authorKind === 'director' || payload.authorKind === 'chair') {
+    if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom') {
+      highlightSpeaker(payload.authorId, payload.messageId);
+    }
+  }
+  handleMessageAppended(payload);
+}
+
+function sseAppendToken(payload) {
+  if (!payload || !payload.messageId || typeof payload.delta !== 'string') return;
+  const el = findMsgEl(payload.messageId);
+  if (!el) return;
+  const textEl = el.querySelector('.text') || el.querySelector('.bubble');
+  if (!textEl) return;
+  // Typing-keystroke SFX · same module + cadence as PC.
+  try { window.boardroomTypingSfx?.tick?.(); } catch {}
+  // Append text + auto-linebreak; safer than innerHTML += to avoid HTML injection.
+  const node = document.createTextNode(payload.delta);
+  textEl.appendChild(node);
+  // If we have a delta with line breaks, replace last text node breaks
+  // with <br>. Cheap enough to do on every token (small string).
+  if (payload.delta.includes('\n')) {
+    textEl.innerHTML = textEl.innerHTML.replace(/\n/g, '<br>');
+  }
+  const msgsEl = document.getElementById('rc-msgs');
+  if (msgsEl) {
+    if (isPageNearBottom()) scrollToBottom();
+  }
+  // Live-sync boardroom subtitle while director is still typing.
+  if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom') {
+    const subText = document.getElementById('bd-sub-text');
+    const quoteEl = document.getElementById('bd-table-quote');
+    const body = textEl.textContent || '';
+    if (subText) subText.textContent = body.slice(-120);
+    if (quoteEl) quoteEl.textContent = `"${body.slice(-36)}…"`;
+  }
+}
+
+function sseUpdateMessage(payload) {
+  if (!payload || !payload.messageId) return;
+  const el = findMsgEl(payload.messageId);
+  if (!el) return;
+  const textEl = el.querySelector('.text') || el.querySelector('.bubble');
+  if (textEl) {
+    textEl.innerHTML = escapeHtml(payload.body || '').replace(/\n+/g, '<br>');
+  }
+}
+
+function sseRemoveMessage(payload) {
+  if (!payload || !payload.messageId) return;
+  const el = findMsgEl(payload.messageId);
+  if (el) el.remove();
+}
+
+function sseErrorMessage(payload) {
+  if (!payload || !payload.messageId) return;
+  const el = findMsgEl(payload.messageId);
+  if (el) {
+    el.classList.add('msg-error');
+    el.style.opacity = '0.5';
+    const textEl = el.querySelector('.text');
+    if (textEl) textEl.innerHTML += `<div style="color:#FF8B7E; font-size:11px; margin-top:6px;">⚠ ${escapeHtml(payload.message || '该轮失败')}</div>`;
+  }
+}
+
+function sseFinalizeMessage(payload) {
+  if (!payload || !payload.messageId) return;
+  const el = findMsgEl(payload.messageId);
+  if (el) {
+    el.classList.remove('streaming');
+    el.classList.add('final');
+  }
+  // Director finished a turn → the "in-flight" guard can lift; the next
+  // SSE refresh below will re-evaluate the queue + round state.
+  if (appState.continuePending) {
+    appState.continuePending = false;
+    clearTimeout(appState._continuePendingTo);
+  }
+  handleMessageFinal(payload);
+  // After any director finishes, refresh room queue/round + re-evaluate
+  // the auto-continue eligibility (PC parity: countdown starts once the
+  // queue empties + spoken matches total).
+  if (appState.activeRoomId) {
+    fetchJson(`/api/rooms/${encodeURIComponent(appState.activeRoomId)}`).then(st => {
+      appState.activeRoomQueueLen = (st.queue || []).length;
+      appState.activeRoomRound = st.round || appState.activeRoomRound;
+      appState.activeRoomStatus = st.room?.status || appState.activeRoomStatus;
+      appState.activeRoomAwaitingClarify = !!st.room?.awaitingClarify;
+      appState.activeRoomAwaitingContinue = !!st.room?.awaitingContinue;
+      maybeStartAutoContinue();
+      renderRoomActions();
+    }).catch(() => {});
+  }
+}
+
+// ── boardroom voice queue ─────────────────────────────────
+appState.voiceQueue = [];
+appState.voicePlaying = null;
+appState.voiceUnlocked = false;
+appState.voicePlayedIds = new Set();
+
+async function catchUpBoardroomAudio() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  try {
+    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    const dirMsgs = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director' || m.authorKind === 'chair');
+    const last = dirMsgs[dirMsgs.length - 1];
+    if (!last) return;
+    // CatchUp = "rewind into live audio". Don't dedupe — the user just
+    // came back to the boardroom and expects the most recent message
+    // to play, even if voicePlayedIds remembers it from before.
+    appState.voicePlayedIds.add(last.id);
+    appState.voiceQueue.push({ messageId: last.id, authorId: last.authorId });
+    appState.voicePlaying = null;
+    pumpVoiceQueue();
+  } catch {}
+}
+
+function updateBoardroomVoiceBanner() {
+  const banner = document.getElementById('bd-audio-unlock');
+  if (!banner) return;
+  banner.style.display = 'block';
+  if (!appState.voiceUnlocked) {
+    banner.textContent = '🔊 点这里开启语音 · 让董事们说出来';
+    return;
+  }
+  banner.textContent = appState.activeRoomDelivery === 'voice'
+    ? '🔊 语音模式 · 点击切到静默'
+    : '🔇 静默模式 · 点击切到语音';
+}
+
+async function onBoardroomVoiceToggle() {
+  if (!appState.voiceUnlocked) {
+    await unlockBoardroomAudio();
+    updateBoardroomVoiceBanner();
+    return;
+  }
+  // unlocked → toggle deliveryMode (uses the existing PATCH path)
+  await toggleDeliveryMode();
+  updateBoardroomVoiceBanner();
+}
+
+function unlockBoardroomAudio() {
+  const audio = document.getElementById('bd-audio');
+  if (!audio) return;
+  // play a tiny silent buffer to satisfy iOS user-gesture requirement
+  audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+  audio.play().then(() => {
+    appState.voiceUnlocked = true;
+    const banner = document.getElementById('bd-audio-unlock');
+    if (banner) banner.style.display = 'none';
+    pumpVoiceQueue();
+  }).catch(() => {
+    alert('音频解锁失败 · 请在浏览器内点击页面任何位置后重试');
+  });
+}
+
+function handleMessageAppended(payload) {
+  if (!payload || !payload.messageId) return;
+  if (payload.authorKind === 'user') return;
+  // Only auto-play in boardroom + when room is voice-delivery
+  const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
+  if (!onBoardroom) return;
+  // dedupe — message-appended fires multiple times for streaming msgs
+  if (appState.voicePlayedIds.has(payload.messageId)) return;
+}
+
+function handleMessageFinal(payload) {
+  if (!payload || !payload.messageId) return;
+  const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
+  if (!onBoardroom) return;
+  if (appState.voicePlayedIds.has(payload.messageId)) return;
+  appState.voicePlayedIds.add(payload.messageId);
+  appState.voiceQueue.push({ messageId: payload.messageId, authorId: payload.authorId });
+  if (!appState.voicePlaying) pumpVoiceQueue();
+}
+
+// Voice-chunk streaming (PC parity): server emits base64 mp3 chunks
+// while TTS is still synthesising. We cache them per-message; when the
+// queue pump dequeues this message it plays the inline data: URL
+// (assembled from chunks) instead of fetching the whole file. Empty
+// payloads (text-only ping) are ignored.
+appState.voiceChunks = {};
+function handleVoiceChunk(payload) {
+  if (!payload || !payload.messageId || !payload.audioBase64) return;
+  let entry = appState.voiceChunks[payload.messageId];
+  if (!entry) {
+    entry = { mime: payload.mimeType || 'audio/mpeg', parts: [] };
+    appState.voiceChunks[payload.messageId] = entry;
+  }
+  entry.parts.push(payload.audioBase64);
+}
+
+async function pumpVoiceQueue() {
+  if (!appState.voiceUnlocked) {
+    const banner = document.getElementById('bd-audio-unlock');
+    if (banner) banner.style.display = 'block';
+    return;
+  }
+  // Self-heal · if voicePlaying is stuck but the audio element is
+  // actually idle (ended/paused with no src or beyond duration),
+  // clear it so the queue can advance. This prevents the "no sound
+  // after several toggles" lockup users hit when voicePlaying never
+  // got reset between voice/text switches.
+  if (appState.voicePlaying) {
+    const a = document.getElementById('bd-audio');
+    const idle = !a || !a.src || a.ended || (a.paused && a.currentTime === 0);
+    if (idle) appState.voicePlaying = null; else return;
+  }
+  const next = appState.voiceQueue.shift();
+  if (!next) return;
+  appState.voicePlaying = next;
+  highlightSpeaker(next.authorId, next.messageId);
+  const audio = document.getElementById('bd-audio');
+  if (!audio) return;
+  // Prefer cached SSE voice-chunks (assembled locally) so we start
+  // playing the moment message-final lands — no extra GET round trip.
+  const cached = appState.voiceChunks[next.messageId];
+  if (cached && cached.parts.length) {
+    audio.src = `data:${cached.mime};base64,${cached.parts.join('')}`;
+    delete appState.voiceChunks[next.messageId];
+  } else {
+    audio.src = `/api/voices/message/${encodeURIComponent(next.messageId)}/audio?ts=${Date.now()}`;
+  }
+  audio.onended = () => {
+    appState.voicePlaying = null;
+    pumpVoiceQueue();
+    // When the queue drains in boardroom voice mode, the round is done
+    // playing — re-evaluate auto-continue so the next round can fire.
+    if (!appState.voiceQueue.length) maybeStartAutoContinue();
+  };
+  audio.onerror = () => {
+    appState.voicePlaying = null;
+    pumpVoiceQueue();
+    if (!appState.voiceQueue.length) maybeStartAutoContinue();
+  };
+  try { await audio.play(); }
+  catch (e) {
+    // some browsers throw when called too quickly — try again next tick
+    appState.voicePlaying = null;
+    setTimeout(pumpVoiceQueue, 200);
+  }
+}
+
+function highlightSpeaker(authorId, messageId) {
+  if (!authorId) return;
+  document.querySelectorAll('#bd-stage .bd-pix.speaking').forEach(el => el.classList.remove('speaking'));
+  document.querySelectorAll('#bd-stage .bd-pix .bd-wave').forEach(el => el.remove());
+  const seat = document.querySelector(`#bd-stage .bd-seat[data-agent-id="${CSS.escape(authorId)}"]`);
+  if (seat) {
+    seat.querySelector('.bd-pix')?.classList.add('speaking');
+    if (!seat.querySelector('.bd-wave')) {
+      const wave = document.createElement('div');
+      wave.className = 'bd-wave';
+      wave.innerHTML = '<span></span><span></span><span></span><span></span><span></span>';
+      seat.appendChild(wave);
+    }
+  }
+  // Update subtitle from latest message body (best-effort, async fetch).
+  fetchJson(`/api/rooms/${encodeURIComponent(appState.activeRoomId)}`).then(state => {
+    const m = (state.messages || []).find(x => x.id === messageId);
+    if (m) {
+      const subText = document.getElementById('bd-sub-text');
+      const subWho = document.getElementById('bd-sub-who');
+      const quoteEl = document.getElementById('bd-table-quote');
+      const agent = (state.members || []).find(a => a.id === authorId) || cachedAgentsById[authorId];
+      if (subWho && agent) subWho.textContent = `${agent.name} · ${agent.roleTag || ''}`;
+      if (subText) subText.textContent = (m.body || '').replace(/\s+/g, ' ').slice(0, 120);
+      if (quoteEl) quoteEl.textContent = `"${(m.body || '').replace(/\s+/g, ' ').slice(0, 36)}…"`;
+    }
+  }).catch(() => {});
+}
+async function loadActiveRoomMessages() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const msgsEl = document.getElementById('rc-msgs');
+  if (!msgsEl) return;
+  try {
+    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    const wasAtBottom = isPageNearBottom();
+    msgsEl.innerHTML = renderMessages(state.messages || [], state.members || []);
+    if (wasAtBottom) scrollToBottom();
+  } catch {}
+}
+
+function onComposerInput(input, inputId) {
+  const v = input.value || '';
+  const m = v.match(/@([^\s@]*)$/);
+  const picker = document.getElementById('rc-mention-picker');
+  if (!picker) return;
+  if (!m) { picker.style.display = 'none'; return; }
+  const q = m[1].toLowerCase();
+  const members = Object.values(appState.activeMembersById || {});
+  const list = members
+    .filter(a => !q || (a.name || '').toLowerCase().includes(q) || (a.handle || '').toLowerCase().includes(q))
+    .slice(0, 8);
+  if (!list.length) { picker.style.display = 'none'; return; }
+  picker.innerHTML = list.map(a => `
+    <div onclick="insertMention('${escapeHtml(inputId)}','${escapeHtml(a.handle || a.id)}')" style="display:flex; gap:10px; align-items:center; padding:8px 10px; cursor:pointer; border-radius:8px;">
+      <div style="width:28px;height:28px;border-radius:50%;background:var(--panel-2);display:grid;place-items:center;font-size:12px;">${escapeHtml(initialFor(a.name))}</div>
+      <div style="flex:1;"><div style="font-size:13px;">${escapeHtml(a.name)}</div><div style="font-size:10px;color:var(--ink-dim);">${escapeHtml(a.handle || '')}</div></div>
+    </div>
+  `).join('');
+  picker.style.display = 'block';
+}
+
+function insertMention(inputId, handle) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const v = input.value.replace(/@[^\s@]*$/, `@${handle.replace(/^@/, '')} `);
+  input.value = v;
+  input.focus();
+  const picker = document.getElementById('rc-mention-picker');
+  if (picker) picker.style.display = 'none';
+}
+
+async function submitMessage(inputId = 'rc-input') {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const text = String(input.value || '').trim();
+  if (!text) return;
+  if (!appState.activeRoomId) { alert('请先打开一个房间'); return; }
+  input.value = '';
+  // Mirror input to the sibling composer (room-chat ↔ boardroom share state).
+  const mirrorId = inputId === 'rc-input' ? 'bd-input' : 'rc-input';
+  const mirror = document.getElementById(mirrorId);
+  if (mirror) mirror.value = '';
+  try {
+    // Resolve @handle tokens → agent ids (PC parity).
+    const mentions = [];
+    const handles = Array.from(text.matchAll(/@([\w_-]+)/g)).map(m => m[1]);
+    if (handles.length) {
+      const all = Object.values(appState.activeMembersById || {});
+      handles.forEach(h => {
+        const a = all.find(x => (x.handle || '').replace(/^@/, '') === h);
+        if (a && !mentions.includes(a.id)) mentions.push(a.id);
+      });
+    }
+    const r = await fetch(`/api/rooms/${encodeURIComponent(appState.activeRoomId)}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(mentions.length ? { body: text, mentions } : { body: text }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    await loadActiveRoomMessages();
+    // Also bump the boardroom subtitle/title freshness if we're on it.
+    if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom') {
+      refreshBoardroomFromState();
+    }
+  } catch (e) {
+    input.value = text;
+    alert('发送失败：' + e.message);
+  }
+}
+
+async function adjournActiveRoom() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  if (!confirm('结束本次会议并归档？')) return;
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/adjourn`, { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    appState.activeRoomStatus = 'adjourned';
+    renderRoomActions();
+    await loadActiveRoomMessages();
+  } catch (e) {
+    alert('归档失败：' + e.message);
+  }
+}
+
+// ── auto-continue countdown (PC parity) ─────────────────────
+appState.autoContinue = { interval: null, deadline: 0, secondsLeft: 0, firing: false };
+appState.continueSeen = 0;
+const AUTO_CONTINUE_SECONDS = 10;
+
+function canAutoContinue() {
+  const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
+  return (
+    appState.activeRoomId &&
+    appState.activeRoomStatus === 'live' &&
+    !appState.activeRoomAwaitingClarify &&
+    !appState.activeRoomAwaitingContinue &&
+    appState.activeRoomVoteTrigger !== 'manual' &&
+    (appState.activeRoomQueueLen || 0) === 0 &&
+    appState.activeRoomRound &&
+    appState.activeRoomRound.spoken >= appState.activeRoomRound.total &&
+    appState.activeRoomRound.total > 0 &&
+    // First entry on text view requires a manual click; the boardroom
+    // is a passive listening surface, so it auto-fires from turn 1.
+    (onBoardroom || appState.continueSeen > 0)
+  );
+}
+
+function maybeStartAutoContinue() {
+  if (!canAutoContinue()) { cancelAutoContinue(); return; }
+  if (appState.autoContinue.interval) return;
+  appState.autoContinue.deadline = Date.now() + AUTO_CONTINUE_SECONDS * 1000;
+  appState.autoContinue.secondsLeft = AUTO_CONTINUE_SECONDS;
+  appState.autoContinue.firing = false;
+  appState.autoContinue.interval = setInterval(tickAutoContinue, 1000);
+  // First beep fires the moment "10" appears so the 10-tick cadence
+  // (10, 9, 8 … 1) is in sync with the visible number — PC parity.
+  try { window.boardroomTypingSfx?.countdownTick?.(AUTO_CONTINUE_SECONDS); } catch {}
+  renderRoomActions();
+}
+
+function cancelAutoContinue() {
+  if (appState.autoContinue.interval) {
+    clearInterval(appState.autoContinue.interval);
+    appState.autoContinue.interval = null;
+  }
+  appState.autoContinue.secondsLeft = 0;
+  appState.autoContinue.deadline = 0;
+  appState.autoContinue.firing = false;
+}
+
+function tickAutoContinue() {
+  const left = Math.max(0, Math.ceil((appState.autoContinue.deadline - Date.now()) / 1000));
+  appState.autoContinue.secondsLeft = left;
+  renderRoomActions();
+  // Audible beep each visible tick (last 3s flip to a louder alarm
+  // register inside countdownTick — same module as PC).
+  try { window.boardroomTypingSfx?.countdownTick?.(left); } catch {}
+  if (left <= 0 && !appState.autoContinue.firing) {
+    appState.autoContinue.firing = true;
+    clearInterval(appState.autoContinue.interval);
+    appState.autoContinue.interval = null;
+    continueDiscussion().catch(() => {});
+  }
+}
+
+async function continueDiscussion() {
+  cancelAutoContinue();
+  // Manual click(s) unlock auto-continue for subsequent rounds.
+  appState.continueSeen = (appState.continueSeen || 0) + 1;
+  const id = appState.activeRoomId;
+  if (!id) return;
+  // Pending flag · cleared by SSE when a new director starts speaking,
+  // OR by a 30s safety timeout. While true, renderRoomActions keeps
+  // the primary button disabled with "推进中..." copy.
+  appState.continuePending = true;
+  clearTimeout(appState._continuePendingTo);
+  appState._continuePendingTo = setTimeout(() => {
+    appState.continuePending = false;
+    renderRoomActions();
+  }, 30_000);
+  renderRoomActions();
+  try {
+    // Re-sync real room status before deciding the path. The cached
+    // appState may be stale (server-side state can flip via SSE delays
+    // or other clients), and POST /continue rejects everything that
+    // isn't strictly `live`.
+    let status = appState.activeRoomStatus;
+    let awaitingClarify = appState.activeRoomAwaitingClarify;
+    try {
+      const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+      status = st.room?.status || status;
+      awaitingClarify = !!st.room?.awaitingClarify;
+      appState.activeRoomStatus = status;
+      appState.activeRoomAwaitingClarify = awaitingClarify;
+    } catch {}
+    if (awaitingClarify) {
+      throw new Error('主席正在等你回答上面的问题，先在输入框回复一下再继续');
+    }
+    if (status === 'adjourned') {
+      throw new Error('房间已归档，无法继续讨论');
+    }
+    // Paused room must be resumed before /continue accepts it.
+    if (status === 'paused') {
+      const rr = await fetch(`/api/rooms/${encodeURIComponent(id)}/resume`, { method: 'POST' });
+      if (!rr.ok) {
+        const j = await rr.json().catch(() => ({}));
+        throw new Error(j.error || `恢复失败 HTTP ${rr.status}`);
+      }
+      appState.activeRoomStatus = 'live';
+    }
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/continue`, { method: 'POST' });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    await loadActiveRoomMessages();
+    // Append a transient "thinking" placeholder so the user knows the
+    // chair is queueing the next speaker. SSE message-appended will
+    // refresh the list and overwrite this once the LLM lands.
+    const msgsEl = document.getElementById('rc-msgs');
+    if (msgsEl) {
+      const ph = document.createElement('div');
+      ph.className = 'msg system';
+      ph.id = 'rc-thinking-ph';
+      ph.style.opacity = '0.6';
+      ph.textContent = '⏳ chair 正在排队下一位董事...';
+      msgsEl.appendChild(ph);
+      scrollToBottom();
+    }
+    try {
+      const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+      appState.activeRoomStatus = st.room?.status || appState.activeRoomStatus;
+    } catch {}
+  } catch (e) {
+    appState.continuePending = false;
+    clearTimeout(appState._continuePendingTo);
+    alert('继续失败：' + e.message);
+  } finally {
+    renderRoomActions();
+  }
+}
+
+async function regenerateBrief() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const status = appState.activeRoomStatus;
+  if (status !== 'adjourned') {
+    if (!confirm('房间还没归档。先归档再生成报告？')) return;
+    try {
+      const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/adjourn`, { method: 'POST' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      appState.activeRoomStatus = 'adjourned';
+    } catch (e) { alert('归档失败：' + e.message); return; }
+  }
+  const supplement = prompt('追加给 chair 的指示（可空）', '') || '';
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/brief`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(supplement ? { supplement } : {}),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    alert(`报告生成中（briefId=${(data.briefId || '').slice(0, 8)}…）。完成后会出现在「报告」tab。`);
+    setTimeout(() => bootstrapBriefs(), 1500);
+  } catch (e) {
+    alert('生成失败：' + e.message);
+  }
+}
+
+function exportRoomMarkdown() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  // open in new tab — browser handles Content-Disposition for download
+  window.open(`/api/rooms/${encodeURIComponent(id)}/export.md`, '_blank');
+}
+
+function renderRoomActions() {
+  const bar = document.getElementById('rc-actions');
+  const btn = document.getElementById('rc-act-primary');
+  const moreBtn = document.getElementById('rc-act-more');
+  const input = document.getElementById('rc-input');
+  if (!bar || !btn) return;
+  // "⋯ 更多" always visible once a room is active.
+  if (moreBtn) moreBtn.style.display = appState.activeRoomId ? 'block' : 'none';
+  const status = appState.activeRoomStatus;
+  // Chair-clarify · the only sensible action is to type into the composer.
+  // Hide the action bar and reframe the input placeholder.
+  if (appState.activeRoomAwaitingClarify) {
+    bar.style.display = 'none';
+    if (input) input.placeholder = '主席等你回答上面的问题...';
+    return;
+  }
+  if (input) input.placeholder = '你的回应...';
+  bar.style.display = appState.activeRoomId ? 'flex' : 'none';
+  if (!appState.activeRoomId) return;
+  if (status === 'live') {
+    // PC parity · the action bar (with "继续讨论") only makes sense
+    // when the room is idle (a round-prompt is awaiting the user).
+    // Hide it whenever directors are still speaking, the chair is mid-
+    // turn, or a continue we triggered hasn't produced a director
+    // round yet. The bar reappears when canAutoContinue() conditions
+    // resolve back to true via SSE / queue updates.
+    const round = appState.activeRoomRound || { spoken: 0, total: 0 };
+    // Room is "busy" when directors are still speaking. An empty round
+    // (total === 0, e.g. just-resumed paused room with no prompt yet)
+    // is treated as IDLE so the user can still see the action bar.
+    const roomBusy = appState.continuePending
+      || (appState.activeRoomQueueLen || 0) > 0
+      || (round.total > 0 && round.spoken < round.total);
+    const showSpecial = appState.pendingVoteMessageId || appState.activeRoomAwaitingContinue;
+    if (roomBusy && !showSpecial) {
+      bar.style.display = 'flex';
+      btn.textContent = '⏳ 等讲完... (点击刷新)';
+      // Click = force re-sync. Covers the case where SSE missed a
+      // final event and the local round/queue cache is stale.
+      btn.onclick = () => { forceRoomRefresh(); };
+      btn.disabled = false;
+      btn.style.opacity = '0.55';
+      btn.style.background = 'var(--panel)';
+      btn.style.color = 'var(--ink-dim)';
+      return;
+    }
+    btn.disabled = false; btn.style.opacity = '';
+    if (appState.pendingVoteMessageId) {
+      btn.textContent = '🗳 投票关键点';
+      btn.onclick = () => { openRoomVote(); appState.pendingVoteMessageId = null; renderRoomActions(); };
+      btn.style.background = 'var(--gold)';
+      btn.style.color = '#0A0A0A';
+      return;
+    }
+    if (appState.activeRoomAwaitingContinue) {
+      btn.textContent = '✓ 确认继续';
+      btn.onclick = continueDiscussion;
+      btn.style.background = 'var(--gold)';
+      btn.style.color = '#0A0A0A';
+      return;
+    }
+    const left = appState.autoContinue?.secondsLeft || 0;
+    btn.textContent = left > 0 ? `▶ 继续讨论 · ${left}s` : '▶ 继续讨论';
+    btn.onclick = continueDiscussion;
+    btn.style.background = 'var(--gold)';
+    btn.style.color = '#0A0A0A';
+  } else if (status === 'paused') {
+    btn.textContent = '⏯ 恢复并继续';
+    btn.onclick = continueDiscussion;
+    btn.style.background = 'var(--gold)';
+    btn.style.color = '#0A0A0A';
+  } else if (status === 'adjourned') {
+    btn.textContent = '📝 生成报告';
+    btn.onclick = regenerateBrief;
+    btn.style.background = 'var(--gold)';
+    btn.style.color = '#0A0A0A';
+  } else {
+    btn.textContent = '—';
+    btn.onclick = null;
+    btn.style.background = 'var(--panel)';
+    btn.style.color = 'var(--ink-mid)';
+  }
+}
+
+// ── new room sheet ────────────────────────────────────────
+function ensureNewRoomSheet() {
+  const grid = document.getElementById('sh-cast-grid');
+  if (!grid) return;
+  if (grid.dataset.rendered === '1') return;
+  const items = cachedAgents
+    .filter(a => a.roleKind === 'director')
+    .slice(0, 24)
+    .map(a => `<div class="pick" data-agent-id="${escapeHtml(a.id)}" onclick="togglePick(this)"><div class="av">${escapeHtml(initialFor(a.name))}</div>${escapeHtml(a.name)}</div>`)
+    .join('');
+  grid.innerHTML = items + '<div class="pick" style="border-style:dashed;" onclick="goto(\'new-agent\');closeSheet();">＋</div>';
+  grid.dataset.rendered = '1';
+}
+function togglePick(el) {
+  const id = el.dataset.agentId;
+  if (!id) return;
+  if (appState.selectedCastIds.has(id)) {
+    appState.selectedCastIds.delete(id);
+    el.classList.remove('on');
+  } else {
+    if (appState.selectedCastIds.size >= 5) {
+      flashSheetError('最多选 5 位董事');
+      return;
+    }
+    appState.selectedCastIds.add(id);
+    el.classList.add('on');
+  }
+}
+function flashSheetError(msg) {
+  const err = document.getElementById('sh-error');
+  if (!err) return;
+  err.textContent = msg;
+  err.style.display = 'block';
+  clearTimeout(flashSheetError._t);
+  flashSheetError._t = setTimeout(() => { err.style.display = 'none'; }, 3000);
+}
+document.addEventListener('click', (e) => {
+  const opt = e.target.closest('#sh-modes .opt');
+  if (opt) { appState.selectedMode = opt.dataset.mode || 'debate'; return; }
+  const optD = e.target.closest('#sh-delivery .opt');
+  if (optD) { appState.selectedDelivery = optD.dataset.delivery || 'voice'; }
+});
+
+async function submitNewRoom() {
+  const subjectEl = document.getElementById('sh-subject');
+  const subject = String(subjectEl?.value || '').trim();
+  if (!subject) { flashSheetError('讨论主题不能为空'); return; }
+  const agentIds = Array.from(appState.selectedCastIds);
+  if (agentIds.length === 0) { flashSheetError('至少选 1 位董事'); return; }
+  const btn = document.getElementById('sh-submit');
+  if (btn) { btn.textContent = '开会中...'; btn.style.opacity = '0.5'; btn.disabled = true; }
+  try {
+    const r = await fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        subject,
+        agentIds,
+        mode: appState.selectedMode,
+        deliveryMode: appState.selectedDelivery,
+      }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    const newRoomId = data.room?.id;
+    closeSheet();
+    if (subjectEl) subjectEl.value = '';
+    appState.selectedCastIds.clear();
+    document.querySelectorAll('#sh-cast-grid .pick.on').forEach(el => el.classList.remove('on'));
+    await bootstrapRooms();
+    if (newRoomId) openRoom(newRoomId);
+  } catch (e) {
+    flashSheetError('创建失败：' + e.message);
+  } finally {
+    if (btn) { btn.textContent = '开始会议 →'; btn.style.opacity = ''; btn.disabled = false; }
+  }
+}
+
+// Intercept openSheet to lazy-render the cast grid before sliding up.
+const _origOpenSheet = openSheet;
+openSheet = function(name) {
+  _origOpenSheet(name);
+  if (name === 'new-room') ensureNewRoomSheet();
+};
+
+// ── new agent build ───────────────────────────────────────
+const VOICE_URL_RE = /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|bilibili\.com|b23\.tv|vimeo\.com|x\.com|twitter\.com|weibo\.com|tiktok\.com|douyin\.com|xiaohongshu\.com|xhslink\.com)\/\S+/i;
+function onNewAgentDescInput(value) {
+  const hint = document.getElementById('new-agent-url-hint');
+  if (!hint) return;
+  hint.style.display = VOICE_URL_RE.test(String(value || '')) ? 'flex' : 'none';
+}
+
+async function submitNewAgent() {
+  const ta = document.getElementById('new-agent-desc');
+  const raw = String(ta?.value || '').trim();
+  const err = document.getElementById('new-agent-error');
+  if (err) err.style.display = 'none';
+  if (raw.length < 6) {
+    if (err) { err.textContent = '描述太短，多写几句'; err.style.display = 'block'; }
+    return;
+  }
+  const urlMatch = raw.match(VOICE_URL_RE);
+  const voiceSourceUrl = urlMatch ? urlMatch[0] : '';
+  const description = raw.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+  const btn = document.getElementById('new-agent-submit');
+  if (btn) { btn.textContent = '启动中...'; btn.disabled = true; btn.style.opacity = '0.5'; }
+  try {
+    const r = await fetch('/api/agents/generate-persona', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ description, voiceSourceUrl, locale: 'zh' }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    appState.activeBuildJobId = data.jobId || data.id;
+    goto('build-progress');
+    subscribeBuildStream(appState.activeBuildJobId);
+  } catch (e) {
+    if (err) { err.textContent = '启动失败：' + e.message; err.style.display = 'block'; }
+  } finally {
+    if (btn) { btn.textContent = '✦ 开始构建 (5-10 min)'; btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+async function cancelBuild() {
+  const jobId = appState.activeBuildJobId;
+  if (!jobId) { goto('agents'); return; }
+  if (!confirm('取消正在进行的董事构建？这一步无法撤销。')) return;
+  try {
+    await fetch(`/api/agents/generate-persona/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
+  } catch {}
+  if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
+  appState.activeBuildJobId = null;
+  goto('agents');
+}
+
+function subscribeBuildStream(jobId) {
+  if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
+  if (!jobId) return;
+  const phaseEl = document.querySelector('[data-screen="build-progress"] .build-progress .title');
+  const subEl = document.querySelector('[data-screen="build-progress"] .build-progress .sub');
+  const phasesEl = document.querySelector('[data-screen="build-progress"] .build-progress .phases');
+  const barFill = document.querySelector('[data-screen="build-progress"] .build-progress .fill');
+  const titleEl = document.querySelector('[data-screen="build-progress"] .topbar .title');
+  try {
+    const es = new EventSource(`/api/agents/generate-persona/${encodeURIComponent(jobId)}/stream`);
+    appState.buildStream = es;
+    const updateUi = (ev) => {
+      try {
+        const j = JSON.parse(ev.data);
+        if (typeof j.currentPhase === 'number' && phaseEl) phaseEl.textContent = `${j.currentPhase} / 7`;
+        if (typeof j.phaseDetail === 'string' && subEl) subEl.textContent = j.phaseDetail;
+        if (typeof j.progressPct === 'number' && barFill) barFill.style.width = `${Math.max(0, Math.min(100, j.progressPct))}%`;
+        if (typeof j.personName === 'string' && titleEl) titleEl.textContent = `构建中 · ${j.personName}`;
+      } catch {}
+    };
+    es.addEventListener('persona-phase-progress', updateUi);
+    es.addEventListener('persona-final', () => { try { es.close(); } catch {} appState.buildStream = null; goto('agents'); bootstrapAgents(); });
+    es.addEventListener('error', () => {});
+    es.onerror = () => { try { es.close(); } catch {} appState.buildStream = null; };
+  } catch {}
+}
+
+// ── agent profile ─────────────────────────────────────────
+async function openAgent(id) {
+  appState.activeAgentId = id;
+  goto('agent-profile');
+  await loadActiveAgent();
+}
+async function loadActiveAgent() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  const a = cachedAgentsById[id];
+  if (!a) return;
+  // Reset the preview <audio> · the previous agent's clip stays in
+  // audio.src until reassigned. Without this, clicking 试听 on Long Horizon
+  // after listening to Product VP's clip would resume Product VP's audio.
+  const prevAudio = document.getElementById('ap-preview-audio');
+  if (prevAudio) {
+    try { prevAudio.pause(); } catch {}
+    prevAudio.removeAttribute('src');
+    prevAudio.load();
+    prevAudio.currentTime = 0;
+  }
+  const set = (elId, val) => { const el = document.getElementById(elId); if (el) el.textContent = val; };
+  set('ap-title', a.name);
+  set('ap-name', a.name);
+  set('ap-bio', a.bio || a.coverQuote || a.roleTag || '');
+  set('ap-role-tag', a.roleTag || 'director');
+  set('ap-role-val', a.roleKind || 'director');
+  set('ap-model', a.modelV || '—');
+  set('ap-websearch', a.webSearchEnabled === false ? '已关闭' : '已开启');
+  const voiceId = a.voice?.voiceId;
+  set('ap-voice-id', voiceId ? voiceId.slice(0, 12) + '…' : '系统音');
+  // Always reset preview icon + sub when switching agent.
+  set('ap-preview-icon', '▶');
+  set('ap-preview-sub', voiceId ? `点击试听 · voice ${voiceId.slice(0, 10)}…` : '点击合成一段示例');
+  // Avatar — use sprite png if avatarPath looks renderable, else initial.
+  const avEl = document.getElementById('ap-avatar');
+  if (avEl) {
+    avEl.innerHTML = '';
+    if (a.avatarPath?.startsWith('/avatars/') && a.avatarPath !== '/avatars/chair.svg') {
+      avEl.innerHTML = `<img src="${escapeHtml(a.avatarPath)}" style="width:88px;height:96px;image-rendering:pixelated;">`;
+      avEl.style.background = 'linear-gradient(135deg,var(--panel-2),var(--panel-3))';
+    } else if (a.avatarPath?.startsWith('data:image/')) {
+      avEl.innerHTML = `<img src="${escapeHtml(a.avatarPath)}" style="width:88px;height:96px;image-rendering:pixelated;">`;
+    } else {
+      avEl.textContent = initialFor(a.name);
+    }
+  }
+  set('ap-preview-sub', voiceId
+    ? `点击试听 · voice ${voiceId.slice(0, 10)}…`
+    : '点击合成一段示例');
+}
+
+async function playVoicePreview() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  if (!a) return;
+  const audio = document.getElementById('ap-preview-audio');
+  const icon = document.getElementById('ap-preview-icon');
+  const sub = document.getElementById('ap-preview-sub');
+  if (!audio || !icon || !sub) return;
+  // Toggle · if currently playing → pause; if paused mid-clip → resume.
+  if (!audio.paused && !audio.ended) {
+    audio.pause();
+    icon.textContent = '▶';
+    sub.textContent = '已暂停 · 点击继续';
+    return;
+  }
+  if (audio.src && audio.currentTime > 0 && audio.currentTime < (audio.duration || Infinity)) {
+    try { await audio.play(); icon.textContent = '⏸'; sub.textContent = '播放中…'; } catch {}
+    return;
+  }
+  // Fresh play · synth new audio.
+  icon.textContent = '…';
+  sub.textContent = '正在合成...';
+  try {
+    const sampleText = a.coverQuote || `你好，我是${a.name}。${a.roleTag || ''}。`;
+    const body = {
+      text: sampleText.slice(0, 120),
+      provider: a.voice?.provider || 'minimax',
+      model: a.voice?.model || 'speech-2.8-hd',
+      voiceId: a.voice?.voiceId || 'male-qn-qingse',
+    };
+    const r = await fetch('/api/voices/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    const j = await r.json();
+    if (j.audioBase64) {
+      audio.src = `data:${j.mimeType || 'audio/mpeg'};base64,${j.audioBase64}`;
+      audio.onended = () => { icon.textContent = '▶'; sub.textContent = '试听完毕，再点重听'; };
+      audio.onpause = () => { if (!audio.ended) { icon.textContent = '▶'; sub.textContent = '已暂停 · 点击继续'; } };
+      audio.onplay = () => { icon.textContent = '⏸'; sub.textContent = '播放中…'; };
+      await audio.play();
+    }
+  } catch (e) {
+    icon.textContent = '▶';
+    sub.textContent = '试听失败：' + e.message;
+  }
+}
+
+async function copyVoiceId() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  const v = a?.voice?.voiceId;
+  if (!v) { alert('这位董事用的是系统音色，没有 voice_id 可复制。'); return; }
+  try {
+    await navigator.clipboard.writeText(v);
+    const el = document.getElementById('ap-voice-id');
+    const prev = el?.textContent;
+    if (el) { el.textContent = '已复制 ✓'; setTimeout(() => { el.textContent = prev; }, 1200); }
+  } catch {
+    prompt('复制这段 voice_id', v);
+  }
+}
+
+async function redistillVoice() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  if (!a) return;
+  const url = prompt(
+    `重新蒸馏 ${a.name} 的声音\n\n` +
+    '粘贴一个 YouTube / B站 / TikTok / 微博等视频地址 (推荐时长 ≤ 30 min)：',
+    ''
+  );
+  if (!url || !/^https?:\/\//i.test(url)) {
+    if (url !== null) alert('请提供合法的视频 URL');
+    return;
+  }
+  try {
+    const r = await fetch('/api/voices/clone-from-video', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        videoUrl: url.trim(),
+        celebrity: a.name,
+        agentId: a.id,
+      }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    alert(`蒸馏任务已提交。处理需要 3-10 分钟，完成后 voice_id 会自动绑定到 ${a.name}。`);
+  } catch (e) {
+    alert('提交失败：' + e.message);
+  }
+}
+
+async function pickModel() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  if (!a) return;
+  try {
+    const data = await fetchJson('/api/models');
+    const models = (data.models || data || []).map(m => typeof m === 'string' ? m : (m.id || m.modelV || m.name)).filter(Boolean);
+    if (!models.length) { alert('未拿到可选模型列表'); return; }
+    const choice = prompt(
+      `选择 ${a.name} 使用的模型 (当前: ${a.modelV})\n\n` +
+      models.map((m, i) => `${i + 1}. ${m}`).join('\n') +
+      '\n\n输入序号或直接粘贴模型 ID：',
+      String(models.indexOf(a.modelV) + 1 || 1)
+    );
+    if (!choice) return;
+    let target = choice.trim();
+    const num = Number(target);
+    if (Number.isInteger(num) && num >= 1 && num <= models.length) target = models[num - 1];
+    if (target === a.modelV) return;
+    await patchAgent(a.id, { modelV: target });
+    alert(`已切换至 ${target}`);
+  } catch (e) {
+    alert('切换失败：' + e.message);
+  }
+}
+
+async function toggleWebSearch() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  if (!a) return;
+  const next = !(a.webSearchEnabled !== false);
+  try {
+    await patchAgent(a.id, { webSearchEnabled: next });
+    const el = document.getElementById('ap-websearch');
+    if (el) el.textContent = next ? '已开启' : '已关闭';
+  } catch (e) {
+    alert('切换失败：' + e.message);
+  }
+}
+
+async function patchAgent(id, patch) {
+  const r = await fetch(`/api/agents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.error || `HTTP ${r.status}`);
+  }
+  const updated = await r.json();
+  // Refresh cache.
+  if (updated.agent) {
+    cachedAgentsById[id] = updated.agent;
+    const i = cachedAgents.findIndex(x => x.id === id);
+    if (i >= 0) cachedAgents[i] = updated.agent;
+  } else {
+    // Mutate in-place as fallback.
+    if (cachedAgentsById[id]) Object.assign(cachedAgentsById[id], patch);
+  }
+  return updated;
+}
+
+async function editRoleTag() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  if (!a) return;
+  const next = prompt(
+    `修改 ${a.name} 的角色标签\n(显示在头像下方 + 圆桌字幕)`,
+    a.roleTag || ''
+  );
+  if (next === null || next.trim() === a.roleTag) return;
+  try {
+    // PATCH /api/agents/:id accepts bio updates; roleTag is part of agent
+    // spec — fall back to local mutate + UI hint if server rejects.
+    await patchAgent(a.id, { bio: a.bio || '', roleTag: next.trim() });
+    const set = (eid, v) => { const e = document.getElementById(eid); if (e) e.textContent = v; };
+    if (cachedAgentsById[id]) cachedAgentsById[id].roleTag = next.trim();
+    set('ap-role-tag', next.trim());
+  } catch (e) {
+    alert('修改失败：' + e.message + '\n\n注：角色标签的编辑需要桌面端支持，移动端目前只是回显。');
+  }
+}
+
+async function deleteActiveAgent() {
+  const id = appState.activeAgentId;
+  const a = id ? cachedAgentsById[id] : null;
+  if (!a) return;
+  if (!confirm(`删除董事「${a.name}」？\n这位董事不会再被任何房间召唤，已发言的历史保留。`)) return;
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    goto('agents');
+    await bootstrapAgents();
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
+}
+
+// ── me ─────────────────────────────────────────────────────
+async function loadMe() {
+  // Best-effort · read /api/prefs + /api/version to surface real values.
+  try {
+    const [prefs, ver] = await Promise.all([
+      fetchJson('/api/prefs').catch(() => ({})),
+      fetchJson('/api/version').catch(() => ({})),
+    ]);
+    const groups = document.querySelectorAll('[data-screen="me"] .group');
+    // 服务 group · llm provider / voice provider / search provider
+    const svcRows = groups[0]?.querySelectorAll('.row .val') || [];
+    const llmLabel = prefs.activeLlmProvider ? String(prefs.activeLlmProvider) : (prefs.defaultModelV || 'OpenRouter');
+    const voiceLabel = (prefs.minimaxRegion === 'cn' ? 'MiniMax · CN' : 'MiniMax · INTL');
+    const searchLabel = prefs.webSearchProvider || 'tavily';
+    if (svcRows[0]) svcRows[0].textContent = llmLabel + ' ›';
+    if (svcRows[1]) svcRows[1].textContent = voiceLabel + ' ›';
+    if (svcRows[2]) svcRows[2].textContent = searchLabel + ' ›';
+    // 关于 group · version row (last group)
+    const aboutGroup = groups[groups.length - 1];
+    const verRow = aboutGroup?.querySelector('.row .val');
+    if (verRow && ver?.version) verRow.textContent = `v${ver.version} (m)`;
+    // me header · name from prefs
+    const nm = document.querySelector('[data-screen="me"] .me .nm');
+    if (nm && prefs.name) nm.textContent = prefs.name;
+  } catch {}
+}
+
+// Boot order: agents first so rooms can resolve member sprites.
+async function bootstrapAll() {
+  await bootstrapAgents();
+  await Promise.all([bootstrapRooms(), bootstrapBriefs(), loadMe()]);
+  // If a deep-link opened the new-room sheet before our wrap could
+  // catch it, re-render the cast grid now that agents are cached.
+  if (document.querySelector('.sheet[data-sheet="new-room"]')?.classList.contains('on')) {
+    ensureNewRoomSheet();
+  }
+  // Deep-link into boardroom fires goto() before our wrap installs, so
+  // the seats are never injected. Catch that here after bootstrap.
+  const active = document.querySelector('.screen.on')?.dataset.screen;
+  if (active === 'boardroom') {
+    loadBoardroomFor(appState.activeRoomId || null);
+    if (!appState.voiceUnlocked) {
+      const banner = document.getElementById('bd-audio-unlock');
+      if (banner) banner.style.display = 'block';
+    }
+  }
+}
+function syncTabbarHeight() {
+  const tb = document.querySelector('.tabbar');
+  if (!tb) return;
+  // Measure actual rendered height + breathing strip (4px) so the
+  // composer/action-bar bottom offsets never overlap the tabbar.
+  const h = tb.offsetHeight + 4;
+  document.documentElement.style.setProperty('--tabbar-h', h + 'px');
+}
+window.addEventListener('resize', syncTabbarHeight);
+document.addEventListener('DOMContentLoaded', () => { syncTabbarHeight(); bootstrapAll(); });
+
+// When user lands directly via ?screen=room-chat or similar, attempt to
+// reload the active room view if id is in URL (?roomId=...).
+(function applyExtraDeepLink() {
+  const p = new URLSearchParams(location.search);
+  const rid = p.get('roomId');
+  if (rid) {
+    appState.activeRoomId = rid;
+    setTimeout(() => {
+      const screen = document.querySelector('.screen.on')?.dataset.screen;
+      if (screen === 'boardroom') loadBoardroomFor(rid);
+      else loadActiveRoom();
+    }, 300);
+  }
+  const aid = p.get('agentId');
+  if (aid) { appState.activeAgentId = aid; setTimeout(() => loadActiveAgent(), 200); }
+})();
+
+// ── boardroom · ring layout from real room members ─────────
+function seatHtml(agent, opts = {}) {
+  const klass = ['bd-pix', opts.speaking ? 'speaking' : '', opts.next ? 'next' : '', opts.isMe ? 'me' : ''].filter(Boolean).join(' ');
+  const sprite = spriteFor(agent);
+  const name = (agent?.name || 'director').replace(/\s+2026.*$/, '');
+  const waveHtml = opts.speaking ? '<div class="bd-wave"><span></span><span></span><span></span><span></span><span></span></div>' : '';
+  const aid = agent?.id || '';
+  const onclickAttr = aid ? `onclick="openAgent('${escapeHtml(aid)}')"` : '';
+  return `<div class="bd-seat" data-agent-id="${escapeHtml(aid)}" ${onclickAttr} style="cursor:pointer;">
+    <div class="${klass}">
+      <img class="chair" src="/avatars/chair.svg" alt="">
+      <img class="char" src="${escapeHtml(sprite)}" alt="${escapeHtml(name)}">
+    </div>
+    <div class="bd-name">${escapeHtml(name)}</div>
+    ${waveHtml}
+  </div>`;
+}
+
+function renderBoardroomSeats(agents, opts = {}) {
+  const stage = document.getElementById('bd-stage');
+  if (!stage) return;
+  // Remove existing seats but keep the table.
+  stage.querySelectorAll('.bd-seat').forEach(el => el.remove());
+  const html = agents.map((a, i) => seatHtml(a, {
+    speaking: opts.speakingId ? a.id === opts.speakingId : i === 0,
+    isMe: a.id === 'chair-self',
+  })).join('');
+  stage.insertAdjacentHTML('beforeend', html);
+  requestAnimationFrame(layoutBoardroomSeats);
+}
+
+async function loadBoardroomFor(roomId) {
+  const titleEl = document.getElementById('bd-title');
+  const subEl = document.getElementById('bd-sub');
+  const quoteEl = document.getElementById('bd-table-quote');
+  const roundEl = document.getElementById('bd-table-round');
+  const subWho = document.getElementById('bd-sub-who');
+  const subText = document.getElementById('bd-sub-text');
+  if (!roomId) {
+    const demo = (cachedAgents || []).filter(a => a.roleKind === 'director').slice(0, 6);
+    if (demo.length) renderBoardroomSeats(demo, { speakingId: demo[0].id });
+    if (titleEl) titleEl.textContent = '圆桌';
+    if (subEl) subEl.textContent = '— 演示视图 —';
+    if (quoteEl) quoteEl.textContent = '"打开一个房间看圆桌动起来"';
+    if (roundEl) roundEl.textContent = 'round 0';
+    if (subWho) subWho.textContent = '—';
+    if (subText) subText.textContent = '从「房间」tab 选一个，进入后点 ▦ 切到圆桌视图。';
+    return;
+  }
+  try {
+    const state = await fetchJson(`/api/rooms/${encodeURIComponent(roomId)}`);
+    // API returns full Agent objects in `members`.
+    const agents = state.members || [];
+    // Latest director/agent message for subtitle + speaking highlight.
+    const dirMsgs = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director' || m.authorKind === 'chair');
+    const last = dirMsgs[dirMsgs.length - 1];
+    const speakerId = last?.authorId;
+    if (titleEl) titleEl.textContent = state.room?.name || state.room?.subject || '房间';
+    const roundStr = state.round && typeof state.round === 'object'
+      ? `${state.round.spoken ?? 0} / ${state.round.total ?? 0}`
+      : (state.round ?? 0);
+    if (subEl) subEl.textContent = `圆桌 · round ${roundStr} · ${agents.length} directors`;
+    if (quoteEl) {
+      quoteEl.textContent = last?.body
+        ? `"${last.body.replace(/\s+/g, ' ').slice(0, 36)}…"`
+        : '"等待第一位董事开口…"';
+    }
+    if (roundEl) roundEl.textContent = 'round ' + roundStr;
+    if (subWho) {
+      const a = speakerId ? (agents.find(x => x.id === speakerId) || cachedAgentsById[speakerId]) : null;
+      subWho.textContent = a ? `${a.name} · ${a.roleTag || ''}` : '—';
+    }
+    if (subText) {
+      subText.textContent = (last?.body || '等待发言').replace(/\s+/g, ' ').slice(0, 120);
+    }
+    renderBoardroomSeats(agents, { speakingId: speakerId });
+  } catch (e) {
+    if (subText) subText.textContent = '加载房间失败：' + e.message;
+  }
+}
+
+async function refreshBoardroomFromState() {
+  if (appState.activeRoomId) await loadBoardroomFor(appState.activeRoomId);
+}
+
+// Hook the existing goto wrap one level higher: when entering boardroom,
+// also reload from active room (overrides demo state).
+const __prevGoto = goto;
+goto = function(screen) {
+  __prevGoto(screen);
+  if (screen === 'boardroom') {
+    if (appState.activeRoomId) {
+      loadBoardroomFor(appState.activeRoomId);
+    } else {
+      loadBoardroomFor(null);
+    }
+    // Attempt to auto-unlock audio · the click that triggered goto is a
+    // user gesture, so audio.play() should succeed on iOS Safari.
+    const audio = document.getElementById('bd-audio');
+    if (!appState.voiceUnlocked && audio) {
+      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      audio.play().then(() => {
+        appState.voiceUnlocked = true;
+        updateBoardroomVoiceBanner();
+        pumpVoiceQueue();
+      }).catch(() => {
+        updateBoardroomVoiceBanner();
+      });
+    } else if (audio && appState.voiceUnlocked) {
+      updateBoardroomVoiceBanner();
+      // Mid-discussion · resume the in-flight clip if we have one paused,
+      // otherwise fetch & play the most recent director message so the
+      // user lands into live audio immediately.
+      if (audio.src && audio.currentTime > 0 && audio.currentTime < (audio.duration || Infinity)) {
+        audio.play().catch(() => {});
+      } else {
+        catchUpBoardroomAudio();
+      }
+    }
+  } else {
+    const audio = document.getElementById('bd-audio');
+    if (audio && !audio.paused) { try { audio.pause(); } catch {} }
+  }
+  // Leaving the room view entirely · drop ALL room-scoped state so a
+  // future open never sees stale data from this session.
+  if (screen !== 'room-chat' && screen !== 'boardroom') {
+    if (appState.activeRoomId) {
+      const keepId = appState.activeRoomId; // keep id so direct re-entry still works
+      resetActiveRoomState();
+      appState.activeRoomId = keepId;
+    }
+  }
+  // Leaving agent-profile · always pause the preview clip so the
+  // sample doesn't keep playing after the user navigated away.
+  if (screen !== 'agent-profile') {
+    const preview = document.getElementById('ap-preview-audio');
+    if (preview && !preview.paused) { try { preview.pause(); preview.currentTime = 0; } catch {} }
+  }
+};
+
+// ── settings handlers (me tab) ────────────────────────────
+function openSettingOnDesktop(kind) {
+  alert(
+    '当前设置请在桌面端调整：\n\n' +
+    '打开 http://127.0.0.1:3030/ → 右上角 ⚙ → ' +
+    ({ llm: 'LLM 凭据', voice: '语音凭据', search: '搜索凭据' }[kind] || '设置')
+  );
+}
+function toggleLanguage() {
+  const next = (document.documentElement.lang === 'en') ? 'zh' : 'en';
+  document.documentElement.lang = next;
+  try { localStorage.setItem('pb-mobile-lang', next); } catch {}
+  alert('语言切换为 ' + (next === 'zh' ? '中文' : 'English') + '\n(部分文案仍在多语化中)');
+}
+function toggleBuildNotify(rowEl) {
+  if (!rowEl) return;
+  const val = rowEl.querySelector('.val');
+  if (!val) return;
+  const on = !val.textContent.includes('已关闭');
+  val.textContent = on ? '已关闭' : '已开启';
+  try { localStorage.setItem('pb-mobile-notify', on ? '0' : '1'); } catch {}
+  if (!on && 'Notification' in window) {
+    if (Notification.permission === 'default') Notification.requestPermission();
+  }
+}
+
+// ── universal manager sheet ───────────────────────────────
+let mgrOnAdd = () => {};
+function openManager({ title, items, render, onAdd, addLabel }) {
+  document.getElementById('mgr-title').textContent = title;
+  const list = document.getElementById('mgr-list');
+  list.innerHTML = '';
+  (items || []).forEach((it) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:12px 14px; background:var(--panel); border:1px solid var(--rule); border-radius:10px; font-size:13px; line-height:1.5;';
+    row.innerHTML = render(it);
+    list.appendChild(row);
+  });
+  document.getElementById('mgr-empty').style.display = (items?.length || 0) === 0 ? 'block' : 'none';
+  const addBtn = document.getElementById('mgr-add');
+  if (onAdd) {
+    addBtn.style.display = 'block';
+    addBtn.textContent = addLabel || '＋ 添加';
+    mgrOnAdd = onAdd;
+  } else {
+    addBtn.style.display = 'none';
+    mgrOnAdd = () => {};
+  }
+  document.getElementById('mgr-error').style.display = 'none';
+  openSheet('mgr');
+}
+function mgrError(msg) {
+  const el = document.getElementById('mgr-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
+// ── room: notes (旁注) ────────────────────────────────────
+async function openRoomNotes() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  await renderRoomNotes();
+}
+async function renderRoomNotes() {
+  const id = appState.activeRoomId;
+  try {
+    const data = await fetchJson(`/api/notes/by-room/${encodeURIComponent(id)}`);
+    const notes = data.notes || data || [];
+    openManager({
+      title: '房间旁注',
+      items: notes,
+      render: (n) => `
+        <div style="color:var(--ink-mid); font-size:11px; margin-bottom:4px;">${escapeHtml(n.authorName || '?')}</div>
+        <div style="color:var(--ink); border-left:2px solid var(--gold-soft); padding-left:8px;">${escapeHtml(n.quoteText || '')}</div>
+        <button onclick="deleteNote('${escapeHtml(n.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
+      `,
+      onAdd: addNote,
+      addLabel: '＋ 旁注 (选一条消息引述)',
+    });
+  } catch (e) {
+    openManager({ title: '房间旁注', items: [], render: () => '', onAdd: addNote, addLabel: '＋ 旁注' });
+    mgrError('加载失败：' + e.message);
+  }
+}
+async function addNote() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  // Get last director/agent message as a default target
+  let lastMsg = null;
+  try {
+    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    lastMsg = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director').pop();
+  } catch {}
+  if (!lastMsg) { mgrError('房间还没消息可引述'); return; }
+  const quote = prompt(`引述一段文字（来自最近一条 ${lastMsg.authorKind} 消息）`, (lastMsg.body || '').slice(0, 80));
+  if (!quote || !quote.trim()) return;
+  try {
+    const r = await fetch('/api/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomId: id, messageId: lastMsg.id, quoteText: quote.trim() }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await renderRoomNotes();
+  } catch (e) { mgrError('创建失败：' + e.message); }
+}
+async function deleteNote(noteId) {
+  try {
+    const r = await fetch(`/api/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await renderRoomNotes();
+  } catch (e) { mgrError('删除失败：' + e.message); }
+}
+
+// ── room: vote on key points ──────────────────────────────
+async function openRoomVote() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  try {
+    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    // Key-points messages are emitted by the chair at round-end.
+    const kpMsgs = (state.messages || []).filter(m =>
+      m.authorKind === 'chair-system' || (m.meta && (m.meta.kind === 'keypoints' || m.meta.keypoints))
+    );
+    const items = [];
+    kpMsgs.forEach(m => {
+      const pts = m.meta?.keypoints || m.meta?.points;
+      if (Array.isArray(pts)) {
+        pts.forEach(p => items.push({ id: p.id || p.kpId, text: p.text || p.title, msgId: m.id }));
+      } else if (typeof m.body === 'string') {
+        // fallback: each line is a key point
+        m.body.split('\n').filter(l => l.trim().length > 4).slice(0, 6).forEach((l, i) => {
+          items.push({ id: `${m.id}-${i}`, text: l.trim(), msgId: m.id });
+        });
+      }
+    });
+    openManager({
+      title: '关键点投票',
+      items,
+      render: (kp) => `
+        <div style="font-size:13px;">${escapeHtml(kp.text || '').slice(0, 200)}</div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button onclick="voteKp('${escapeHtml(kp.id)}', 1)" style="flex:1; padding:6px; border-radius:6px; background:var(--gold); color:#0A0A0A; font-size:12px;">👍 +1</button>
+          <button onclick="voteKp('${escapeHtml(kp.id)}', -1)" style="flex:1; padding:6px; border-radius:6px; background:var(--panel-2); border:1px solid var(--rule); color:var(--ink-mid); font-size:12px;">👎 -1</button>
+        </div>
+      `,
+    });
+    if (!items.length) mgrError('还没有可投的关键点。先用「结束本轮」让 chair 输出关键点。');
+  } catch (e) {
+    openManager({ title: '关键点投票', items: [], render: () => '' });
+    mgrError('加载失败：' + e.message);
+  }
+}
+async function voteKp(kpId, score) {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/keypoints/${encodeURIComponent(kpId)}/vote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ score }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    mgrError(`已投: ${score > 0 ? '👍' : '👎'}`);
+  } catch (e) { mgrError('投票失败：' + e.message); }
+}
+
+// ── room: pause / resume / round-end ──────────────────────
+async function toggleVoteTrigger() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const next = appState.activeRoomVoteTrigger === 'auto' ? 'manual' : 'auto';
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ voteTrigger: next }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    appState.activeRoomVoteTrigger = next;
+    const lbl = document.getElementById('rc-vote-trigger-label');
+    if (lbl) lbl.textContent = next === 'auto' ? '自动 ›' : '手动 ›';
+    if (next === 'manual') cancelAutoContinue();
+    renderRoomActions();
+  } catch (e) { alert('切换失败：' + e.message); }
+}
+
+async function toggleDeliveryMode() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const next = appState.activeRoomDelivery === 'voice' ? 'text' : 'voice';
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deliveryMode: next }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    appState.activeRoomDelivery = next;
+    const dl = document.getElementById('rc-delivery-label');
+    if (dl) dl.textContent = next === 'voice' ? '🔊 语音 ›' : '🔇 静默 ›';
+    if (next === 'text') {
+      appState.voiceQueue.length = 0;
+      const audio = document.getElementById('bd-audio');
+      if (audio && !audio.paused) { try { audio.pause(); } catch {} }
+    } else {
+      // Switched back to voice · re-engage the queue from a clean slot.
+      // Without resetting voicePlaying, pumpVoiceQueue early-returns
+      // forever because the previous "playing" item never got cleared
+      // when we paused the audio on the way out.
+      appState.voicePlayedIds.clear();
+      appState.voicePlaying = null;
+      appState.voiceQueue.length = 0;
+      const audio = document.getElementById('bd-audio');
+      if (audio) { try { audio.pause(); } catch {} audio.currentTime = 0; }
+      catchUpBoardroomAudio();
+    }
+  } catch (e) { alert('切换失败：' + e.message); }
+}
+
+async function togglePauseRoom() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const isPaused = appState.activeRoomStatus === 'paused';
+  const ep = isPaused ? 'resume' : 'pause';
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/${ep}`, { method: 'POST' });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    appState.activeRoomStatus = isPaused ? 'live' : 'paused';
+    renderRoomActions();
+    await loadActiveRoomMessages();
+  } catch (e) { alert((isPaused ? '恢复' : '暂停') + '失败：' + e.message); }
+}
+async function endRound() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  if (!confirm('结束本轮并请 chair 出关键点？')) return;
+  try {
+    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/round-end`, { method: 'POST' });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    setTimeout(loadActiveRoomMessages, 800);
+  } catch (e) { alert('结束本轮失败：' + e.message); }
+}
+
+// ── agent: memories ──────────────────────────────────────
+async function openAgentMemories() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  await renderAgentMemories();
+}
+async function renderAgentMemories() {
+  const id = appState.activeAgentId;
+  try {
+    const data = await fetchJson(`/api/agents/${encodeURIComponent(id)}/memories`);
+    const memories = data.memories || data || [];
+    openManager({
+      title: '长期记忆',
+      items: memories,
+      render: (m) => `
+        <div style="color:var(--ink-mid); font-size:10px; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">${escapeHtml(m.kind || 'fact')} ${m.pinned ? '· 📌' : ''}</div>
+        <div style="color:var(--ink);">${escapeHtml(m.content || '')}</div>
+        <button onclick="deleteAgentMemory('${escapeHtml(m.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
+      `,
+      onAdd: addAgentMemory,
+      addLabel: '＋ 加一条记忆',
+    });
+  } catch (e) {
+    openManager({ title: '长期记忆', items: [], render: () => '', onAdd: addAgentMemory });
+    mgrError('加载失败：' + e.message);
+  }
+}
+async function addAgentMemory() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  const content = prompt('一条新记忆（4-280 字符）');
+  if (!content || content.trim().length < 4) return;
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/memories`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: content.trim(), kind: 'fact' }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await renderAgentMemories();
+  } catch (e) { mgrError('添加失败：' + e.message); }
+}
+async function deleteAgentMemory(memId) {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/memories/${encodeURIComponent(memId)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await renderAgentMemories();
+  } catch (e) { mgrError('删除失败：' + e.message); }
+}
+
+// ── agent: skills ────────────────────────────────────────
+async function openAgentSkills() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  await renderAgentSkills();
+}
+async function renderAgentSkills() {
+  const id = appState.activeAgentId;
+  try {
+    const data = await fetchJson(`/api/agents/${encodeURIComponent(id)}/skills`);
+    const skills = data.skills || [];
+    openManager({
+      title: '技能',
+      items: skills,
+      render: (sk) => `
+        <div style="font-weight:600;">${escapeHtml(sk.name || sk.slug || '?')}</div>
+        <div style="color:var(--ink-mid); font-size:11px; margin-top:2px;">${escapeHtml((sk.description || '').slice(0, 100))}</div>
+        ${sk.source === 'user' || sk.kind === 'user' ? `<button onclick="deleteAgentSkill('${escapeHtml(sk.id || sk.slug)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>` : '<div style="margin-top:4px; font-size:10px; color:var(--ink-dim);">系统内置</div>'}
+      `,
+      onAdd: addAgentSkill,
+      addLabel: '＋ 安装 Skill.md',
+    });
+  } catch (e) {
+    openManager({ title: '技能', items: [], render: () => '', onAdd: addAgentSkill });
+    mgrError('加载失败：' + e.message);
+  }
+}
+async function addAgentSkill() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  const md = prompt('粘贴完整 Skill.md 内容（含 frontmatter）');
+  if (!md || md.trim().length < 20) { mgrError('Skill.md 内容太短'); return; }
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/skills`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ md: md.trim() }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await renderAgentSkills();
+  } catch (e) { mgrError('安装失败：' + e.message); }
+}
+async function deleteAgentSkill(skillId) {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(skillId)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await renderAgentSkills();
+  } catch (e) { mgrError('删除失败：' + e.message); }
+}
+
+// ── agent: dream ─────────────────────────────────────────
+async function triggerDream() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  if (!confirm('触发反思：让 agent 对最近的发言做一次自我反省、提炼 1-3 条记忆。这会花几十秒。')) return;
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/dream`, { method: 'POST' });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    alert('反思已触发。完成后，新记忆会出现在「长期记忆」里。');
+  } catch (e) { alert('触发失败：' + e.message); }
+}
+
+// ── chair: user long memory ──────────────────────────────
+async function openChairLongMemory() {
+  await renderChairLongMemory();
+}
+async function renderChairLongMemory() {
+  try {
+    const data = await fetchJson('/api/agents/chair/user-long-memory');
+    const items = data.memories || data || [];
+    openManager({
+      title: '主席关于我的记忆',
+      items,
+      render: (m) => `
+        <div style="color:var(--ink-mid); font-size:10px; margin-bottom:4px;">${escapeHtml(m.kind || '')} · ${escapeHtml(relativeTime(m.createdAt))}</div>
+        <div style="color:var(--ink);">${escapeHtml(m.content || '')}</div>
+        <button onclick="deleteChairMemory('${escapeHtml(m.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
+      `,
+    });
+  } catch (e) {
+    openManager({ title: '主席关于我的记忆', items: [], render: () => '' });
+    mgrError('加载失败：' + e.message);
+  }
+}
+async function deleteChairMemory(memId) {
+  try {
+    const r = await fetch(`/api/agents/chair/user-long-memory/${encodeURIComponent(memId)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await renderChairLongMemory();
+  } catch (e) { mgrError('删除失败：' + e.message); }
+}
+
+// ── credentials (LLM / voice / search) ───────────────────
+async function openCredentialMgr(kind) {
+  const endpoint = kind === 'llm' ? '/api/credentials'
+    : kind === 'voice' ? '/api/voice-credentials'
+    : '/api/search-credentials';
+  const titleMap = { llm: 'LLM 凭据', voice: '语音凭据', search: '搜索凭据' };
+  try {
+    const data = await fetchJson(endpoint);
+    const items = data.credentials || [];
+    const activeId = data.activeId;
+    openManager({
+      title: titleMap[kind],
+      items,
+      render: (c) => `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-weight:600;">${escapeHtml(c.label || c.provider || '?')}</div>
+            <div style="color:var(--ink-mid); font-size:11px; margin-top:2px;">${escapeHtml(c.provider || '')} ${c.preview ? '· ' + escapeHtml(c.preview) : ''}</div>
+          </div>
+          ${c.id === activeId ? '<div style="font-size:10px; color:var(--gold-soft); padding:2px 8px; background:rgba(196,169,106,0.1); border-radius:4px;">使用中</div>' : `<button onclick="activateCredential('${kind}', '${escapeHtml(c.id)}')" style="padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-mid); font-size:11px;">激活</button>`}
+        </div>
+        <button onclick="deleteCredential('${kind}', '${escapeHtml(c.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
+      `,
+      onAdd: () => addCredential(kind),
+      addLabel: '＋ 添加凭据 (在桌面端粘 key)',
+    });
+  } catch (e) {
+    openManager({ title: titleMap[kind], items: [], render: () => '' });
+    mgrError('加载失败：' + e.message);
+  }
+}
+async function activateCredential(kind, id) {
+  const endpoint = kind === 'llm' ? '/api/credentials/active'
+    : kind === 'voice' ? '/api/voice-credentials/active'
+    : '/api/search-credentials/active';
+  try {
+    const r = await fetch(endpoint, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await openCredentialMgr(kind);
+  } catch (e) { mgrError('激活失败：' + e.message); }
+}
+async function deleteCredential(kind, id) {
+  if (!confirm('删除这个凭据？')) return;
+  const endpoint = kind === 'llm' ? '/api/credentials/' : kind === 'voice' ? '/api/voice-credentials/' : '/api/search-credentials/';
+  try {
+    const r = await fetch(endpoint + encodeURIComponent(id), { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await openCredentialMgr(kind);
+  } catch (e) { mgrError('删除失败：' + e.message); }
+}
+function addCredential(kind) {
+  mgrError('凭据 key 在移动端不安全粘贴。请在桌面端 (http://127.0.0.1:3030/) 添加，添加后这里可看到 / 激活 / 删除。');
+}
+
+// ── briefs · client-side filter (search prompt) ───────────
+function filterBriefs() {
+  const q = prompt('搜索报告标题 / 摘要')?.trim();
+  if (q === null || q === undefined) return;
+  document.querySelectorAll('#briefs-list .brief-card').forEach((el) => {
+    if (!q) { el.style.display = ''; return; }
+    const text = el.textContent.toLowerCase();
+    el.style.display = text.includes(q.toLowerCase()) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>
