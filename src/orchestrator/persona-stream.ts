@@ -67,6 +67,13 @@ export type PersonaEvent =
       phase: number;
       detail: string;
       progressPct: number; // 0..100, monotonic across the WHOLE build
+      /** Optional · set only when Phase 5 has bridged a voice-distill
+       *  substep event onto the persona stream. 1-10, one per
+       *  `voice-distill.ts` substep (search / download / normalize /
+       *  transcribe / identify / extract / upload / clone / persist /
+       *  cleanup). UI surfaces use it to expand a nested mini-progress
+       *  list under Phase 5 mirroring PC's voice-distill panel. */
+      voiceDistillPhase?: number;
     }
   | {
       /** Phase complete · UI flips that row to `done` and the next
