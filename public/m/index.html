@@ -2468,24 +2468,97 @@ function subscribeBuildStream(jobId) {
   if (titleEl) titleEl.textContent = '构建中';
   renderBuildPhases(1, null);
 
+  // Track latest values so individual event handlers can fold partial
+  // updates into a consistent paint (phase-start carries phase but
+  // not detail; phase-progress carries both; phase-end carries phase
+  // + progressPct but not detail).
+  const state = { phase: 1, detail: '', progressPct: 0 };
+
+  const paint = () => {
+    if (phaseEl) phaseEl.textContent = `${state.phase} / ${PERSONA_PHASE_LABELS.length}`;
+    if (subEl && state.detail) subEl.textContent = state.detail;
+    if (barFill) barFill.style.width = `${Math.max(0, Math.min(100, state.progressPct))}%`;
+    renderBuildPhases(state.phase, state.detail);
+  };
+
   try {
     const es = new EventSource(`/api/agents/generate-persona/${encodeURIComponent(jobId)}/stream`);
     appState.buildStream = es;
-    const updateUi = (ev) => {
+
+    // `hello` · initial snapshot when the SSE subscriber attaches.
+    // Useful when the user reopens the build screen mid-flight: we
+    // hydrate from {currentPhase, progressPct} on the job row before
+    // the live bus pumps its first event.
+    es.addEventListener('hello', (ev) => {
       try {
         const j = JSON.parse(ev.data);
-        const cur = typeof j.currentPhase === 'number' ? j.currentPhase : null;
-        const detail = typeof j.phaseDetail === 'string' ? j.phaseDetail : '';
-        if (cur && phaseEl) phaseEl.textContent = `${cur} / ${PERSONA_PHASE_LABELS.length}`;
-        if (detail && subEl) subEl.textContent = detail;
-        if (typeof j.progressPct === 'number' && barFill) barFill.style.width = `${Math.max(0, Math.min(100, j.progressPct))}%`;
-        if (typeof j.personName === 'string' && titleEl) titleEl.textContent = `构建中 · ${j.personName}`;
-        if (cur) renderBuildPhases(cur, detail);
+        if (typeof j.currentPhase === 'number') state.phase = Math.max(1, j.currentPhase);
+        if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
+        paint();
       } catch {}
-    };
-    es.addEventListener('persona-phase-progress', updateUi);
-    es.addEventListener('persona-final', () => { try { es.close(); } catch {} appState.buildStream = null; goto('agents'); bootstrapAgents(); });
-    es.addEventListener('error', () => {});
+    });
+
+    // `persona-phase-start` · earliest signal that a new phase has
+    // begun. Flip the row classes immediately so there's no lag
+    // before the first reportProgress lands.
+    es.addEventListener('persona-phase-start', (ev) => {
+      try {
+        const j = JSON.parse(ev.data);
+        if (typeof j.phase === 'number') state.phase = j.phase;
+        // Use label as a starter detail · reportProgress will overwrite
+        // it almost immediately with the more specific "drafting…" text.
+        if (typeof j.label === 'string') state.detail = j.label;
+        paint();
+      } catch {}
+    });
+
+    // `persona-phase-progress` · mid-phase. Carries `phase`, `detail`,
+    // `progressPct`. Note: backend uses `detail`, NOT `phaseDetail`.
+    es.addEventListener('persona-phase-progress', (ev) => {
+      try {
+        const j = JSON.parse(ev.data);
+        if (typeof j.phase === 'number') state.phase = j.phase;
+        if (typeof j.detail === 'string') state.detail = j.detail;
+        if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
+        paint();
+      } catch {}
+    });
+
+    // `persona-phase-end` · phase N finished. Bumping phase here is
+    // belt-and-braces · phase-start for N+1 normally fires right
+    // after, but if the next phase's first event is slow this keeps
+    // the UI from stranding on the just-finished row.
+    es.addEventListener('persona-phase-end', (ev) => {
+      try {
+        const j = JSON.parse(ev.data);
+        if (typeof j.phase === 'number' && j.phase >= state.phase) {
+          state.phase = Math.min(PERSONA_PHASE_LABELS.length, j.phase + 1);
+          state.detail = '';
+        }
+        if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
+        paint();
+      } catch {}
+    });
+
+    es.addEventListener('persona-final', () => {
+      try { es.close(); } catch {}
+      appState.buildStream = null;
+      goto('agents');
+      bootstrapAgents();
+    });
+    es.addEventListener('persona-aborted', () => {
+      try { es.close(); } catch {}
+      appState.buildStream = null;
+      goto('agents');
+    });
+    es.addEventListener('persona-error', (ev) => {
+      try {
+        const j = JSON.parse(ev.data);
+        if (subEl) subEl.textContent = `构建失败：${j.message || '未知错误'}`;
+      } catch {}
+      try { es.close(); } catch {}
+      appState.buildStream = null;
+    });
     es.onerror = () => { try { es.close(); } catch {} appState.buildStream = null; };
   } catch {}
 }
