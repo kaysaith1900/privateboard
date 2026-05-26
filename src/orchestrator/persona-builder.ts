@@ -717,6 +717,8 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
       }
       // Wire the inner job's events into the persona stream as Phase 5
       // progress updates so the UI shows what the clone is doing.
+      // `voiceDistillPhase` rides along so surfaces can render a
+      // nested 10-step mini-progress list under Phase 5 (PC parity).
       const offBridge = voiceDistillBus.subscribe(cloneJobId, (event) => {
         if (event.type === "voice-distill-phase-start") {
           personaBus.emit(state.id, {
@@ -724,6 +726,7 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
             phase: 5,
             detail: `voice · ${event.label}`,
             progressPct: progressBaselinePct + 1,
+            voiceDistillPhase: event.phase,
           });
         } else if (event.type === "voice-distill-phase-progress") {
           personaBus.emit(state.id, {
@@ -731,6 +734,7 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
             phase: 5,
             detail: `voice · ${event.detail || ""}`.slice(0, 200),
             progressPct: progressBaselinePct + 1,
+            voiceDistillPhase: event.phase,
           });
         }
       });
