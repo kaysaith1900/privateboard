@@ -36,33 +36,45 @@ img[data-agent]:hover { filter: brightness(1.15); }
   width: 100%;
   max-width: 560px;
   max-height: calc(100vh - 60px);
-  overflow-y: auto;
   background: var(--panel);
   border: 0.5px solid var(--line-strong);
   color: var(--text);
   animation: agent-rise 0.18s ease-out;
-  /* Auto-hide scrollbar: thumb is transparent until the pointer is
-     over the card OR the card is actively being scrolled (the
-     .is-scrolling class is toggled by agent-overlay.js on each scroll
-     event with a short trailing timeout). Reserved gutter avoids
-     layout shift when the thumb fades in. */
+  /* Frame only · the scroll lives in the inner `.agent-card-scroll`
+     below. Keeping `.agent-card` a non-scrolling frame means the
+     decorative corner brackets (::before / ::after) stay pinned to the
+     card's corners instead of anchoring to the scrolled content and
+     drifting away. Flex column lets the inner scroller fill the frame
+     up to max-height. */
+  display: flex;
+  flex-direction: column;
+}
+/* Inner scroll region · owns the overflow + the auto-hide scrollbar
+   that used to live on `.agent-card`. Thumb stays transparent until the
+   pointer is over the region OR it's actively being scrolled (the
+   `.is-scrolling` class is toggled by agent-overlay.js with a short
+   trailing timeout). Reserved gutter avoids layout shift on fade-in. */
+.agent-card-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
   scrollbar-gutter: stable;
   transition: scrollbar-color 0.18s;
 }
-.agent-card:hover,
-.agent-card.is-scrolling { scrollbar-color: var(--text-faint) transparent; }
-.agent-card::-webkit-scrollbar { width: 8px; }
-.agent-card::-webkit-scrollbar-track { background: transparent; }
-.agent-card::-webkit-scrollbar-thumb {
+.agent-card-scroll:hover,
+.agent-card-scroll.is-scrolling { scrollbar-color: var(--text-faint) transparent; }
+.agent-card-scroll::-webkit-scrollbar { width: 8px; }
+.agent-card-scroll::-webkit-scrollbar-track { background: transparent; }
+.agent-card-scroll::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 4px;
   transition: background 0.18s;
 }
-.agent-card:hover::-webkit-scrollbar-thumb,
-.agent-card.is-scrolling::-webkit-scrollbar-thumb { background: var(--text-faint); }
-.agent-card::-webkit-scrollbar-thumb:hover { background: var(--text-soft); }
+.agent-card-scroll:hover::-webkit-scrollbar-thumb,
+.agent-card-scroll.is-scrolling::-webkit-scrollbar-thumb { background: var(--text-faint); }
+.agent-card-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-soft); }
 @keyframes agent-rise {
   from { transform: translateY(8px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
@@ -180,7 +192,7 @@ img[data-agent]:hover { filter: brightness(1.15); }
 
 .agent-lens {
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--text-soft);
   letter-spacing: -0.003em;

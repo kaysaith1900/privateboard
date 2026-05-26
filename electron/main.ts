@@ -292,6 +292,17 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     void shutdownApp(server).finally(() => {
       server = null;
+      // Force-close every window with destroy() (NOT close()). The
+      // renderer arms a `beforeunload` guard while an agent is
+      // speaking / a recording is active (public/app.js) — close()
+      // honours that guard and CANCELS the quit, so a single ⌘Q
+      // appeared to do nothing and the user had to mash it. destroy()
+      // skips beforeunload entirely; data integrity is already
+      // covered because shutdownApp() ran (server drained + WAL
+      // checkpointed) before we get here.
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.destroy();
+      }
       app.quit();
     });
   });

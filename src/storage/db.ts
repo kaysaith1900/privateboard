@@ -62,6 +62,9 @@ import voiceCredentials049 from "./migrations/049_voice_credentials.sql";
 import agentProviderBuckets050 from "./migrations/050_agent_provider_buckets.sql";
 import searchCredentials051 from "./migrations/051_search_credentials.sql";
 import roomNameAuto052 from "./migrations/052_room_name_auto.sql";
+import roomThreads053 from "./migrations/053_room_threads.sql";
+import voiceCloneJobs054 from "./migrations/054_voice_clone_jobs.sql";
+import voiceLabels055 from "./migrations/055_voice_labels.sql";
 
 interface Migration {
   name: string;
@@ -121,6 +124,9 @@ const MIGRATIONS: Migration[] = [
   { name: "050_agent_provider_buckets.sql", sql: agentProviderBuckets050 },
   { name: "051_search_credentials.sql", sql: searchCredentials051 },
   { name: "052_room_name_auto.sql", sql: roomNameAuto052 },
+  { name: "053_room_threads.sql", sql: roomThreads053 },
+  { name: "054_voice_clone_jobs.sql", sql: voiceCloneJobs054 },
+  { name: "055_voice_labels.sql", sql: voiceLabels055 },
 ];
 
 let _db: Database.Database | null = null;

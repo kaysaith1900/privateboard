@@ -39,6 +39,34 @@ export interface DirectorContext {
 
 export function buildDirectorContext(roomId: string): DirectorContext {
   const room = getRoom(roomId);
+
+  // Thread-room special case · the director needs the parent main
+  // room's prior conversation as context (up to the thread's creation
+  // moment) PLUS the thread's own messages. Without this the director
+  // would walk into the thread cold — no idea what was just discussed.
+  // We snapshot the parent at thread.createdAt: messages added to the
+  // main room after the thread spawned are NOT pulled in (the thread
+  // is a branched/forked conversation by design; the user explicitly
+  // wanted "分岔聊天").
+  if (room && room.kind === "thread" && room.parentRoomId) {
+    const threadOwn = listMessages(roomId);
+    const parentSnapshot = listMessages(room.parentRoomId)
+      .filter((m) => m.createdAt < room.createdAt);
+    const merged = [...parentSnapshot, ...threadOwn].sort(
+      (a, b) => a.createdAt - b.createdAt,
+    );
+    const currentRound = merged.length > 0
+      ? Math.max(...merged.map((m) => m.roundNum ?? 0), 0)
+      : 0;
+    // Skip the L1/L2 summary preamble · threads are short, branched
+    // discussions; even when the parent has L2 summaries the thread
+    // doesn't benefit from forcing them in (they describe the parent's
+    // full arc, including content the parent may have walked past
+    // since this thread snapshotted). Plain-history-only is honest
+    // and keeps the thread prompt simple.
+    return { historyMessages: merged, summaryPreamble: "", currentRound };
+  }
+
   const allMessages = listMessages(roomId);
   if (allMessages.length === 0) {
     return { historyMessages: [], summaryPreamble: "", currentRound: 0 };

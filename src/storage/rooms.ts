@@ -6,6 +6,11 @@ import { getDb } from "./db.js";
 
 export type RoomStatus = "live" | "paused" | "adjourned";
 export type RoomDeliveryMode = "text" | "voice";
+/** Kind of room · "main" is the regular multi-director boardroom
+ *  (default for all legacy rows); "thread" is a private 1:1 aside
+ *  spawned from a main room. Threads carry `parentRoomId` + a
+ *  `threadDirectorId` and skip brief / report inclusion. */
+export type RoomKind = "main" | "thread";
 /** Vote-trigger preference · controls whether the chair's vote
  *  phase (round-prompt) auto-fires at round wrap or only on a
  *  user click in the bottom bar. */
@@ -53,6 +58,15 @@ export interface Room {
    *  WHERE name_auto = 1) so a future rename UI can flip this to 0
    *  without racing the auto pipeline. */
   nameAuto: boolean;
+  /** Discriminator · "main" or "thread". Legacy rows default to
+   *  "main" via the migration. Threads are single-member private
+   *  asides with a parent main room. */
+  kind: RoomKind;
+  /** For thread rooms · the single director the user is in a private
+   *  aside with. NULL on main rooms. Soft reference (no FK) so a
+   *  deleted agent leaves the thread readable for transcript / memory
+   *  forensics. */
+  threadDirectorId: string | null;
 }
 
 export interface RoomMember {
@@ -85,6 +99,8 @@ interface Row {
   parent_room_id: string | null;
   parent_brief_id: string | null;
   name_auto: number;
+  room_kind: string;
+  thread_director_id: string | null;
 }
 
 interface MemberRow {
@@ -97,7 +113,7 @@ interface MemberRow {
 const ROOM_COLS =
   "id, number, name, subject, mode, intensity, delivery_mode, vote_trigger, status, brief_style, awaiting_continue, " +
   "awaiting_clarify, created_at, paused_at, adjourned_at, incognito, " +
-  "parent_room_id, parent_brief_id, name_auto";
+  "parent_room_id, parent_brief_id, name_auto, room_kind, thread_director_id";
 
 function mapRow(row: Row): Room {
   return {
@@ -120,6 +136,8 @@ function mapRow(row: Row): Room {
     parentRoomId: row.parent_room_id,
     parentBriefId: row.parent_brief_id,
     nameAuto: row.name_auto === 1,
+    kind: row.room_kind === "thread" ? "thread" : "main",
+    threadDirectorId: row.thread_director_id,
   };
 }
 
@@ -132,9 +150,23 @@ function mapMember(row: MemberRow): RoomMember {
   };
 }
 
+/** Sidebar / top-level room list · MAIN rooms only.
+ *
+ *  Thread rooms (room_kind = "thread") are private 1:1 asides spawned
+ *  from a parent main room. They live in the same `rooms` table for
+ *  storage convenience (reusing messages / SSE / pump plumbing) but
+ *  must NEVER surface in the sidebar — every thread spawn would
+ *  otherwise look like a brand-new room appearing in the user's list,
+ *  with a confusingly inherited subject from its parent.
+ *
+ *  Callers that explicitly need thread rooms use `listThreadsForRoom`. */
 export function listRooms(): Room[] {
   const rows = getDb()
-    .prepare(`SELECT ${ROOM_COLS} FROM rooms ORDER BY created_at DESC`)
+    .prepare(
+      `SELECT ${ROOM_COLS} FROM rooms ` +
+      `WHERE room_kind = 'main' ` +
+      `ORDER BY created_at DESC`,
+    )
     .all() as Row[];
   return rows.map(mapRow);
 }
@@ -174,12 +206,134 @@ export function listAllRoomMembers(roomId: string): RoomMember[] {
  *  follow-ups to `parentRoomId`. Newest-first so the parent room's
  *  UI lists most recent continuations at the top. Used by the
  *  parent-room view's "Follow-up rooms" panel. Does NOT recurse —
- *  grandchildren are reachable by clicking through. */
+ *  grandchildren are reachable by clicking through.
+ *
+ *  Filters out thread rooms (kind = "thread") — those are private 1:1
+ *  asides surfaced separately via `listThreadsForRoom`. Without this
+ *  filter, threads would show up as "follow-up rooms" in the parent's
+ *  navigation panel, which would expose private conversations to the
+ *  room's public navigation. */
 export function listFollowUpRooms(parentRoomId: string): Room[] {
   const rows = getDb()
-    .prepare(`SELECT ${ROOM_COLS} FROM rooms WHERE parent_room_id = ? ORDER BY created_at DESC`)
+    .prepare(
+      `SELECT ${ROOM_COLS} FROM rooms ` +
+      `WHERE parent_room_id = ? AND room_kind = 'main' ` +
+      `ORDER BY created_at DESC`,
+    )
     .all(parentRoomId) as Row[];
   return rows.map(mapRow);
+}
+
+/** Private thread rooms spawned from a main room · returns every
+ *  active 1:1 aside with `parentRoomId = mainRoomId`. Optional
+ *  `directorId` filter narrows to a single director's threads (used
+ *  by the per-director memory injection path in
+ *  `buildDirectorMessages`). Newest-first.
+ *
+ *  Threads are independent rooms — they carry their own messages,
+ *  status, and lifecycle. This function is the canonical way to
+ *  enumerate them; do NOT use `listFollowUpRooms` (which now filters
+ *  threads out). */
+export function listThreadsForRoom(
+  parentRoomId: string,
+  opts: { directorId?: string } = {},
+): Room[] {
+  const params: unknown[] = [parentRoomId];
+  let sql =
+    `SELECT ${ROOM_COLS} FROM rooms ` +
+    `WHERE parent_room_id = ? AND room_kind = 'thread'`;
+  if (opts.directorId) {
+    sql += ` AND thread_director_id = ?`;
+    params.push(opts.directorId);
+  }
+  sql += ` ORDER BY created_at DESC`;
+  const rows = getDb().prepare(sql).all(...params) as Row[];
+  return rows.map(mapRow);
+}
+
+/** Spawn a private thread room with a single director member. The
+ *  thread reuses the regular `rooms` / `messages` plumbing — it
+ *  appears as its own row in the rooms table and has its own SSE
+ *  stream at `/api/rooms/:threadId/stream`. The parent main room is
+ *  unaffected; threads spawn / close independently of parent status.
+ *
+ *  Field defaults:
+ *    · subject inherits parent's subject (the LLM still wants the
+ *      topical anchor; we just present this as a private aside)
+ *    · mode inherits parent
+ *    · deliveryMode forced to "text" (thread MVP doesn't do voice)
+ *    · briefStyle null (threads don't generate briefs)
+ *    · voteTrigger "manual" (vote isn't meaningful in a 1:1)
+ *    · No name_auto · the thread is presented by director name in UI,
+ *      not by an auto-generated title
+ *
+ *  Throws if the parent room doesn't exist OR the director isn't a
+ *  current member of the parent (you can only thread someone you're
+ *  actually in the room with). */
+export function createThread(parentRoomId: string, directorId: string): { room: Room; members: RoomMember[] } {
+  const parent = getRoom(parentRoomId);
+  if (!parent) throw new Error(`createThread · parent room ${parentRoomId} not found`);
+  if (parent.kind !== "main") {
+    throw new Error(`createThread · parent room ${parentRoomId} is a ${parent.kind}; threads can only spawn from main rooms`);
+  }
+  const parentMembers = listRoomMembers(parentRoomId);
+  const isMember = parentMembers.some((m) => m.agentId === directorId);
+  if (!isMember) {
+    throw new Error(`createThread · director ${directorId} is not a member of parent room ${parentRoomId}`);
+  }
+
+  const db = getDb();
+  const id = newId();
+  const number = nextRoomNumber();
+  const now = Date.now();
+  // Thread name + subject + name_auto coordination · the auto-
+  // titling pipeline (`generateRoomTitle`) has two gates we need to
+  // satisfy for threads:
+  //   (1) `name_auto = 1` so the helper doesn't bail with
+  //       reason:"user-named". Threads ARE auto-titled the same
+  //       way main rooms are — the LLM distils the first user
+  //       message into a sidebar-friendly phrase. We want this.
+  //   (2) `name === subject.slice(0, 60)` so the "already-renamed"
+  //       guard sees the title is still its initial fallback.
+  // Both invariants are re-aligned in routes/rooms.ts the moment
+  // the user sends their first thread message (we swap subject to
+  // the user's body, sync name to the new truncation, then fire
+  // generateRoomTitle). Until then the thread inherits the parent
+  // subject's truncation — better than `thread:abc` for any
+  // list view that surfaces it.
+  const subject = parent.subject;
+  const name = subject.slice(0, 60);
+  const mode = parent.mode;
+  const intensity = parent.intensity;
+  // Thread = text-only in MVP (see plan section 6). Even if the
+  // parent main room is in voice mode, the thread renders as a
+  // floating chat window with keyboard input.
+  const deliveryMode = "text";
+  const voteTrigger = "manual";
+
+  const insertRoom = db.prepare(
+    `INSERT INTO rooms (
+       id, number, name, subject, mode, intensity, delivery_mode, vote_trigger,
+       brief_style, status, created_at,
+       parent_room_id, parent_brief_id, name_auto, room_kind, thread_director_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'live', ?, ?, NULL, 1, 'thread', ?)`,
+  );
+  const insertMember = db.prepare(
+    "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
+  );
+
+  const tx = db.transaction(() => {
+    insertRoom.run(id, number, name, subject, mode, intensity, deliveryMode, voteTrigger, now, parentRoomId, directorId);
+    // Single member · the director. No chair in threads (they're not
+    // moderated; the user-director pair drives the conversation).
+    insertMember.run(id, directorId, 0, now);
+  });
+  tx();
+
+  return {
+    room: getRoom(id)!,
+    members: listRoomMembers(id),
+  };
 }
 
 /** How many of the last N rooms each director appeared in. Used by
@@ -187,12 +341,18 @@ export function listFollowUpRooms(parentRoomId: string): Room[] {
  *  recent rooms get downweighted when topical fit is comparable, so
  *  the user doesn't keep seeing the same trio across consecutive
  *  rooms. The chair (position -1) is excluded from the count.
- *  Returns a Map keyed by agentId. Missing keys = 0 recent appearances. */
+ *  Returns a Map keyed by agentId. Missing keys = 0 recent appearances.
+ *
+ *  Threads excluded · a private 1:1 thread isn't a "room appearance"
+ *  in the recency-bias sense; without this filter, a single thread
+ *  with a director would skew the next room's auto-picker into
+ *  preferring directors the user hasn't recently been threading with.
+ *  Sidebar-level decisions consume the main-room appearances only. */
 export function recentDirectorAppearances(
   windowSize: number,
 ): Map<string, number> {
   const rooms = getDb()
-    .prepare("SELECT id FROM rooms ORDER BY created_at DESC LIMIT ?")
+    .prepare("SELECT id FROM rooms WHERE room_kind = 'main' ORDER BY created_at DESC LIMIT ?")
     .all(Math.max(1, Math.floor(windowSize))) as Array<{ id: string }>;
   const counts = new Map<string, number>();
   if (rooms.length === 0) return counts;
@@ -321,6 +481,49 @@ export function setRoomNameFromAuto(roomId: string, name: string): boolean {
   if (!trimmed) return false;
   const r = getDb()
     .prepare("UPDATE rooms SET name = ? WHERE id = ? AND name_auto = 1")
+    .run(trimmed, roomId);
+  return r.changes > 0;
+}
+
+/**
+ * Force an auto-generated name onto a room AND (re)assert name_auto = 1,
+ * bypassing the `WHERE name_auto = 1` guard in `setRoomNameFromAuto`.
+ *
+ * This exists for the THREAD title backfill: legacy thread rows were
+ * created by an earlier `createThread` that wrote a `thread:<dir>`
+ * placeholder name with name_auto = 0, which makes `generateRoomTitle`
+ * bail at the "user-named" gate forever — so those threads can never
+ * get a distilled title through the normal path. The thread titler
+ * (`generateThreadTitle`) distils from the thread's own first user
+ * message and writes through here so both legacy placeholders and
+ * new threads whose fire-and-forget title generation was lost end up
+ * with a proper short phrase. NOT for user-renamed rooms · the thread
+ * titler's own idempotency check (name no longer looks like a raw
+ * fallback) protects a name the user might have set.
+ * Returns true when a row was rewritten.
+ */
+export function forceRoomAutoName(roomId: string, name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const r = getDb()
+    .prepare("UPDATE rooms SET name = ?, name_auto = 1 WHERE id = ?")
+    .run(trimmed, roomId);
+  return r.changes > 0;
+}
+
+/**
+ * Overwrite a room's `subject` field. Used for THREADS to swap the
+ * inherited-from-parent subject for the user's actual first message
+ * in the thread, so the auto-title generator (which reads subject)
+ * produces a thread-specific label like "性能优化讨论" instead of
+ * reusing the parent room's broader question. No-op when `next` is
+ * empty.
+ */
+export function setRoomSubject(roomId: string, next: string): boolean {
+  const trimmed = next.trim();
+  if (!trimmed) return false;
+  const r = getDb()
+    .prepare("UPDATE rooms SET subject = ? WHERE id = ?")
     .run(trimmed, roomId);
   return r.changes > 0;
 }

@@ -80,9 +80,10 @@
   white-space: nowrap;
 }
 /* Adjourned-room state · Probe / Second hide (they post to a
-   closed room), but Save stays — bookmarking from a finished
-   session is a primary use case. */
-.qcta.qcta-readonly .qcta-btn:not(.qcta-btn-save) { display: none; }
+   closed room), but Save and Thread stay — bookmarking and opening a
+   private 1:1 follow-up thread are both primary review-mode uses
+   (a thread spawns its own live room, independent of the parent). */
+.qcta.qcta-readonly .qcta-btn:not(.qcta-btn-save):not(.qcta-btn-thread) { display: none; }
 .qcta.qcta-readonly .qcta-hint { display: inline-flex; align-items: center; }
 
 /* ─── Save toast ─────────────────────────────────────────────
@@ -220,7 +221,7 @@
   content: ">";
   color: var(--lime);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--mono, "Inter", system-ui, sans-serif);
   padding: 9px 0 0 11px;
   align-self: flex-start;

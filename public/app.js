@@ -343,6 +343,34 @@
           : (btn.getAttribute("data-more") || this._t("convene_show_more"));
         btn.textContent = label;
       });
+
+      // Thread trigger · per-bubble "// thread" link on each director
+      // message. Doc-level delegate so it picks up bubbles rendered
+      // both at chat first paint AND via every message-appended /
+      // renderChat invalidation.
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-thread-trigger]");
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const directorId = btn.getAttribute("data-thread-trigger");
+        if (directorId) this.openThreadWith(directorId);
+      });
+
+      // Threads-list popover trigger · the room head's "all threads"
+      // icon. Click toggles the popover open/closed; click outside
+      // dismisses (handled inside openThreadsListPopover).
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-threads-trigger]");
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.getElementById("thread-list-pop")) {
+          this.closeThreadsListPopover();
+        } else {
+          this.openThreadsListPopover(btn);
+        }
+      });
       // Live-subtitle minimize / restore · attached in CAPTURE phase
       // so it wins ahead of any outside-click handlers (picker dismiss
       // / overlay close) that might `stopPropagation` and swallow the
@@ -1089,6 +1117,30 @@
         return;
       }
 
+      // Thread guard · the main room view is not the right surface
+      // for a thread (it expects a chair, multiple directors, the
+      // full round / vote / brief pipeline). If the URL hash routed
+      // to a thread (manual paste, stale link), redirect to the
+      // parent and surface the thread as a float window so the user
+      // lands somewhere coherent.
+      if (data.room && data.room.kind === "thread") {
+        const parentId = data.room.parentRoomId;
+        if (parentId) {
+          // Navigate to parent and re-mount the thread window.
+          location.hash = "#/r/" + encodeURIComponent(parentId);
+          if (data.room.threadDirectorId) {
+            // Defer until after the route handler settles into the
+            // parent so currentRoomId / agentsById are populated.
+            setTimeout(() => {
+              this.openThreadWith(data.room.threadDirectorId);
+            }, 200);
+          }
+        } else {
+          this.closeRoom();
+        }
+        return;
+      }
+
       // We may be coming from the All Reports view OR an agent profile
       // — make sure the room main view is the visible one and the
       // others are hidden. The agent-view hide is what stops a stale
@@ -1296,6 +1348,12 @@
         console.error("[openRoom] renderRoom failed:", err);
       }
       this.markActiveRoom(roomId);
+      // Restore any thread float windows the user had open for this
+      // room before the last page reload · the threads themselves
+      // live in the DB; this just rebuilds the floating UI for the
+      // ones the user had visible. Fire-and-forget · failure here
+      // never blocks room load.
+      this.restoreThreadsForRoom(roomId);
       // Round-table stage · paint + decide whether the .chat or
       // .roundtable-stage should be visible for this room. Runs
       // AFTER renderRoom so the DOM exists and currentRoom /
@@ -1369,6 +1427,19 @@
     },
 
     async closeRoom() {
+      // Thread cleanup · route through `closeThreadWindow` so the
+      // localStorage persistence entry is dropped too. Per the
+      // updated UX rule, leaving a room means the thread chat is
+      // CLOSED — coming back to the same room later should land
+      // on a clean main view, not auto-restore an old thread.
+      // closeThreadWindow handles DOM, SSE, body.has-thread-dock,
+      // and `pb.thread.open.<parentRoomId>` cleanup in one place.
+      if (this._threads) {
+        for (const tid of Object.keys(this._threads)) {
+          this.closeThreadWindow(tid);
+        }
+      }
+      document.body.classList.remove("has-thread-dock");
       // Recording guard · if a meeting capture is in progress for
       // the current room, intercept and let the user choose:
       // stop-and-save before leaving or cancel and stay. We re-route
@@ -2099,6 +2170,26 @@
             this._pendingAdjournAfterRecordStop = false;
             try { this.adjournRoom({ skipBrief: true }); }
             catch (e) { console.warn("[recorder] pending adjourn failed", e); }
+          } else if (
+            // Vanilla pause-after-current path · the user clicked
+            // "Pause after current director" while a recording was
+            // running. Without an explicit prompt the dialog would
+            // never appear and the recording would keep capturing
+            // a silent room. Surface a save dialog so the user can
+            // commit the clip + optionally adjourn before audio
+            // chunks of dead air pile up. Skip when:
+            //   · pauseMode === "hard"  · interrupt path (user
+            //     already saw the choice modal)
+            //   · _pendingAdjournAfterRecordStop · handled above
+            //   · _pendingReloadOnPause      · user picked reload
+            //   · recording-save modal already on screen (defensive)
+            payload.mode === "soft"
+            && !this._pendingReloadOnPause
+            && window.BoardroomRecorder
+            && window.BoardroomRecorder.isRecording()
+            && !document.getElementById("rec-pause-save-overlay")
+          ) {
+            this.openRecordingPauseSaveModal();
           }
         } else if (kind === "room-resumed") {
           if (this.currentRoom) {
@@ -5147,6 +5238,1296 @@
       }
     },
 
+    /* ─── Private thread · 1:1 director aside (Phase 1) ───────
+       The user pulls a single director into a Slack-DM-style floating
+       window for a private conversation. Persists as its own `rooms`
+       row (kind="thread") with parent_room_id pointing here, so:
+         · subscribe to its own SSE stream
+         · messages flow through the existing POST /messages route
+         · the orchestrator's buildDirectorContext detects kind==="thread"
+           and seeds the LLM with the parent room's snapshot
+       Storage / drag-window mounting / SSE plumbing all live in
+       these methods. State map below tracks the active windows by
+       threadId so subsequent opens reuse existing windows. */
+
+    /** SVG icon string · shared by the per-bubble trigger and the
+     *  head-cast badge. Lucide-style "reply" curve (arrow back to
+     *  the speaker) reads as IM-grammar for "respond privately". */
+    _threadTriggerIconSvg() {
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>`;
+    },
+
+    /** Discord-style floating message toolbar · appears on article
+     *  hover at the top-right of the bubble. Pure icons (no labels)
+     *  to keep the toolbar compact; the icon vocabulary is small and
+     *  reads instantly on hover. Future per-message actions (quote,
+     *  react, pin) slot as additional buttons inside the same
+     *  toolbar chrome. Returns "" when no actions apply (user / chair
+     *  / excused / thread room / adjourned). */
+    _messageToolbarHtml(m, isUser, isChair, excused, author) {
+      const trigger = this._threadTriggerHtml(m, isUser, isChair, excused, author);
+      if (!trigger) return "";
+      return `<div class="msg-toolbar">${trigger}</div>`;
+    },
+
+    /** Reply chip · icon + "Thread" label as a compact pill. Single
+     *  slot inside the Discord-style hover toolbar. Returns "" when
+     *  threading doesn't apply (see `_messageToolbarHtml`'s wrapper). */
+    _threadTriggerHtml(m, isUser, isChair, excused, author) {
+      if (isUser || isChair || excused) return "";
+      if (!author || !author.id) return "";
+      // Skip when rendering inside a thread window · `_threadMessageHtml`
+      // flips this flag for the duration of its messageHtml call so
+      // thread bubbles don't ship a "open another thread with this
+      // same director" trigger (which already exists · the user is
+      // looking at that thread right now).
+      if (this._renderingThread) return "";
+      const room = this.currentRoom;
+      // Threads can be spawned from a room in any status · live,
+      // paused, OR adjourned. Re-reading an adjourned session and
+      // wanting to follow up with one director privately is a real
+      // use case ("I want to go deeper on what Socrates said in that
+      // meeting from last week"). The thread itself is its own
+      // independent room — the parent's status doesn't constrain it.
+      // Only suppress when there's no room loaded OR we're already
+      // inside a thread (no nested threads).
+      if (!room) return "";
+      if (room.kind === "thread") return "";
+      const label = this._t("thread_trigger_label") || "Thread";
+      const tip = this._t("thread_trigger_tip", { name: author.name || "" })
+        || `Pull ${author.name || "this director"} aside privately`;
+      return `<button type="button" class="msg-thread-trigger" data-thread-trigger="${this.escape(author.id)}" title="${this.escape(tip)}" aria-label="${this.escape(tip)}">${this._threadTriggerIconSvg()}<span>${this.escape(label)}</span></button>`;
+    },
+
+    async openThreadWith(directorId) {
+      if (!this.currentRoomId || !directorId) return;
+      // De-dupe · if a thread window for (this room, this director)
+      // already exists, just restore it. Avoids spawning a duplicate
+      // DB row + duplicate SSE stream when the user clicks the
+      // "thread" trigger repeatedly.
+      this._threads = this._threads || {};
+      for (const [tid, t] of Object.entries(this._threads)) {
+        if (t.director && t.director.id === directorId) {
+          this.restoreThreadWindow(tid);
+          return;
+        }
+      }
+      // In-flight create guard · the de-dupe above misses the race
+      // where the user double-clicks (or two trigger buttons for the
+      // same director fire concurrently): both clicks see _threads
+      // empty, both POST, server creates TWO thread rows, both windows
+      // mount, the user perceives "the app keeps spawning new rooms."
+      // Track creates per-director with a Set so the second click
+      // becomes a no-op until the first POST resolves.
+      this._threadsCreating = this._threadsCreating || new Set();
+      if (this._threadsCreating.has(directorId)) return;
+      this._threadsCreating.add(directorId);
+      // Capture the parent roomId at click time · if the user
+      // navigates to a different room while the POST is in flight,
+      // we still want the thread to attach to the room the click
+      // originated from, not the room currently showing.
+      const parentRoomId = this.currentRoomId;
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(parentRoomId)}/threads`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ directorId }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert((err && err.error) || "Failed to open thread");
+          return;
+        }
+        const data = await res.json();
+        const director = (this.agentsById && this.agentsById[directorId])
+          || (data.members || []).find((m) => m.id === directorId)
+          || { id: directorId, name: directorId, avatarPath: "" };
+        // Default to docked mode · the user explicitly asked for the
+        // side-panel as the primary thread surface. Narrow viewports
+        // (`_canDockHere` returns false below 1200px) silently fall
+        // back to the floating mode since the chat-col would
+        // otherwise be squeezed below readable width.
+        this.mountThreadWindow(data.room, director, { docked: this._canDockHere() });
+      } catch (e) {
+        alert((e && e.message) || "Failed to open thread");
+      } finally {
+        this._threadsCreating.delete(directorId);
+      }
+    },
+
+    mountThreadWindow(threadRoom, director, opts) {
+      this._threads = this._threads || {};
+      // Idempotent · if the user already has this thread mounted
+      // (e.g. localStorage restore racing with an active session),
+      // just restore the existing window instead of building a
+      // duplicate DOM.
+      if (this._threads[threadRoom.id]) {
+        this.restoreThreadWindow(threadRoom.id);
+        return;
+      }
+      // Single-thread-per-room rule · the room may only have ONE
+      // thread surfaced at a time (float OR docked). Opening a new
+      // one closes any existing thread first. This sidesteps the
+      // "main chat squeezed by stacked docked panels" problem and
+      // keeps the maximize/restore toggle's mental model simple.
+      const existingIds = Object.keys(this._threads);
+      for (const oldId of existingIds) {
+        if (oldId !== threadRoom.id) this.closeThreadWindow(oldId);
+      }
+      // Threads are PANEL-ONLY · always dock into the active room view
+      // (the floating-window mode was removed). When no room view is
+      // mounted (defensive · the trigger only fires from inside a room)
+      // we fall back to a body-level overlay. On viewports < 1200px the
+      // `.is-docked` CSS @media renders the panel as a fixed overlay,
+      // which is the narrow-screen substitute for a full side panel.
+      void opts;
+      const dockHost = this._threadDockHost();
+      const startDocked = !!dockHost;
+
+      const root = document.createElement("div");
+      root.className = "thread-float" + (startDocked ? " is-docked" : "");
+      root.setAttribute("data-thread-id", threadRoom.id);
+      root.setAttribute("data-director-id", director.id);
+      if (!startDocked) {
+        root.style.right = "24px";
+        root.style.bottom = "24px";
+      }
+
+      const escape = (s) => String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      const avatarSrc = director.avatarPath ? escape(director.avatarPath) : "";
+      // Title / subtitle resolution · same priority as the popover
+      // row: LLM-distilled `room.name` > truncated `room.subject` >
+      // director's name as last-resort fallback. Director's name
+      // ALWAYS shows in the subtitle so the user reads "what we're
+      // talking about · with whom".
+      const headerTitle = this._resolveThreadTitle(threadRoom, director);
+      const headerSubtitle = director.name || director.id || "";
+      // Head buttons are icon-only (Lucide mask via CSS · see
+      // .thread-float-head-btn rules in thread.css). aria-label
+      // carries the action name for screen readers + the `title`
+      // attribute provides the hover tooltip. No textContent.
+      const minTip = this._t("thread_minimize_tip") || "Minimize";
+      const closeTip = this._t("thread_close_tip") || "Close";
+      const emptyTitle = this._t("thread_empty_title") || "Pull them aside";
+      const emptyDeck = this._t("thread_empty_deck", { name: director.name || "" })
+        || "What does {name} know that you want to dig into? They have the full room context up to this point.";
+      const placeholder = this._t("thread_composer_placeholder", { name: director.name || "" })
+        || `Ask ${director.name || "them"} anything…`;
+      const sendLabel = this._t("thread_send") || "Send";
+
+      root.innerHTML = `
+        <div class="thread-dock-resize-handle" data-thread-dock-resize aria-hidden="true" title="${escape(this._t("thread_dock_resize_tip") || "Drag to resize panel")}"></div>
+        <div class="thread-float-resize thread-float-resize-top" data-thread-resize="top" aria-hidden="true" title="${escape(this._t("thread_resize_tip") || "Drag to resize")}"></div>
+        <header class="thread-float-head" data-thread-drag>
+          ${avatarSrc
+            ? `<img class="thread-float-head-avatar" src="${avatarSrc}" alt="" data-agent="${escape(director.id)}" title="${escape(director.name || "")}">`
+            : `<span class="thread-float-head-avatar" data-agent="${escape(director.id)}" title="${escape(director.name || "")}"></span>`}
+          <div class="thread-float-meta-wrap thread-float-head-meta">
+            <span class="thread-float-head-title">${escape(headerTitle)}</span>
+            <span class="thread-float-head-subtitle">${escape(headerSubtitle)}</span>
+          </div>
+          <div class="thread-float-head-controls">
+            <button type="button" class="thread-float-head-btn" data-thread-minimize title="${escape(minTip)}" aria-label="${escape(minTip)}"></button>
+            <button type="button" class="thread-float-head-btn" data-thread-close title="${escape(closeTip)}" aria-label="${escape(closeTip)}"></button>
+          </div>
+        </header>
+        <div class="thread-float-messages" data-thread-messages>
+          <div class="thread-float-empty" data-thread-empty>
+            <span class="thread-float-empty-tag">// ${escape(emptyTitle)}</span>
+            <span>${escape(emptyDeck)}</span>
+          </div>
+        </div>
+        <div class="thread-float-composer" data-thread-composer>
+          <div class="thread-float-composer-text-row">
+            <textarea class="thread-float-textarea" data-thread-input placeholder="${escape(placeholder)}" rows="1"></textarea>
+          </div>
+          <div class="thread-float-composer-controls-row">
+            <button type="button" class="ib-action ib-jump-top" data-thread-jump-top title="${escape(this._t("ib_jump_top_tip") || "Jump to top")}" aria-label="${escape(this._t("ib_jump_top_label") || "Jump to top")}" data-tip="${escape(this._t("ib_jump_top_tip") || "Jump to top")}"></button>
+            <button type="button" class="thread-float-send" data-thread-send title="${escape(sendLabel)}" aria-label="${escape(sendLabel)}">${escape(sendLabel)}</button>
+            <button type="button" class="thread-float-stop" data-thread-stop title="${escape(this._t("thread_stop_tip") || "Stop director")}" aria-label="${escape(this._t("thread_stop") || "Stop")}">${escape(this._t("thread_stop") || "Stop")}</button>
+          </div>
+        </div>
+        <div class="thread-float-resize thread-float-resize-bottom" data-thread-resize="bottom" aria-hidden="true" title="${escape(this._t("thread_resize_tip") || "Drag to resize")}"></div>
+      `;
+      // Mount target depends on docked vs float mode.
+      // · Float (default): body-level overlay (fixed positioning).
+      // · Docked: side-by-side with chat-col inside the active
+      //   room main-view, so the chat is genuinely beside the
+      //   thread and not under a floating chip.
+      if (startDocked && dockHost) {
+        dockHost.appendChild(root);
+        document.body.classList.add("has-thread-dock");
+      } else {
+        document.body.appendChild(root);
+      }
+
+      // Per-thread state · SSE + drag-offset bookkeeping. Stored on
+      // app so the SSE callbacks + drag handlers can find their
+      // window even when many threads are open.
+      const state = {
+        threadId: threadRoom.id,
+        director,
+        room: threadRoom,
+        windowEl: root,
+        sse: null,
+        messages: [],
+        minimized: false,
+        // Threads are panel-only · `docked` is true whenever a room
+        // view exists to host the side panel (the float-window mode +
+        // its maximize/restore toggle were removed). The only time
+        // this is false is the defensive no-room-view fallback, where
+        // the panel renders as a body-level overlay.
+        docked: startDocked,
+        // Drag translate offset · still honoured for the narrow-
+        // viewport fallback where `.is-docked` renders as a fixed,
+        // draggable overlay (see thread.css @media max-width:1200px).
+        dragX: 0,
+        dragY: 0,
+        // User-resized height (px) · null until the user drags the
+        // top edge. Persisted across minimize/restore so the chosen
+        // height survives toggling the chip. The window is bottom-
+        // anchored, so a taller height grows upward.
+        height: null,
+      };
+      this._threads[threadRoom.id] = state;
+      // Persist open-window membership across page reloads · the
+      // thread row itself lives in the DB regardless, but the user's
+      // CHOICE to have a window open for it is client-only state.
+      this._persistThreadOpen(threadRoom.parentRoomId, threadRoom.id, true);
+
+      // Wire interactions
+      root.querySelector("[data-thread-minimize]").addEventListener("click", () => {
+        this.minimizeThreadWindow(threadRoom.id);
+      });
+      root.querySelector("[data-thread-close]").addEventListener("click", () => {
+        this.closeThreadWindow(threadRoom.id);
+      });
+      // Left-edge resize handle · only matters in docked mode (CSS
+      // hides it in float). Wires up unconditionally so the toggle
+      // between float/dock doesn't need to re-bind.
+      const dockResizeHandle = root.querySelector("[data-thread-dock-resize]");
+      if (dockResizeHandle) this._wireThreadDockResize(dockResizeHandle);
+      const dragHead = root.querySelector("[data-thread-drag]");
+      this._wireThreadDrag(dragHead, state);
+      root.querySelectorAll("[data-thread-resize]").forEach((h) => {
+        this._wireThreadResize(h, state, h.getAttribute("data-thread-resize") === "bottom" ? "bottom" : "top");
+      });
+      const sendBtn = root.querySelector("[data-thread-send]");
+      const stopBtn = root.querySelector("[data-thread-stop]");
+      const jumpTopBtn = root.querySelector("[data-thread-jump-top]");
+      const input = root.querySelector("[data-thread-input]");
+      sendBtn.addEventListener("click", () => this.sendThreadMessage(threadRoom.id));
+      stopBtn.addEventListener("click", () => this.stopThreadDirector(threadRoom.id));
+      // Jump-to-top · mirror of the room input-bar's `[data-jump-to-opener]`
+      // affordance · scroll the thread message list back to its first
+      // message. Smooth-scrolling the messages container itself rather
+      // than the viewport · the thread panel has its own scroll context
+      // (absolute-positioned `.thread-float-messages`).
+      if (jumpTopBtn) {
+        jumpTopBtn.addEventListener("click", () => {
+          const list = root.querySelector("[data-thread-messages]");
+          if (list) list.scrollTop = 0;
+        });
+      }
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || e.shiftKey) return;
+        // IME composition guard · while a Chinese / Japanese / Korean
+        // input method is open (pinyin candidate row visible, kana
+        // pre-conversion buffer, etc.) the Enter key is the user
+        // committing their candidate selection, NOT submitting the
+        // message. Firing send here would dispatch the half-typed
+        // raw romanisation. `isComposing` is the standardised
+        // property; `keyCode === 229` is the legacy Chrome/Edge
+        // signal that fires before isComposing flips in some IME
+        // engines. Both checks together cover the matrix.
+        if (e.isComposing || e.keyCode === 229) return;
+        e.preventDefault();
+        this.sendThreadMessage(threadRoom.id);
+      });
+      // Auto-grow textarea up to max-height · 200px ceiling matches
+      // the room's `.ib-textarea` so a long compose feels identical
+      // across both surfaces (CSS cap is also 200px).
+      input.addEventListener("input", () => {
+        input.style.height = "auto";
+        input.style.height = Math.min(200, input.scrollHeight) + "px";
+      });
+      // Quote seed · the quote-cta bar's Thread button stashes the
+      // selected director text on `_threadPendingQuote[directorId]`
+      // BEFORE calling openThreadWith. Consume it here so the new
+      // thread's composer opens with a markdown blockquote ready —
+      // the user just types their follow-up question and hits send.
+      // Cleared after consumption so subsequent opens don't re-paste.
+      const pending = this._threadPendingQuote && this._threadPendingQuote[director.id];
+      if (pending && pending.text) {
+        const quoteLines = String(pending.text).split(/\r?\n/).map((l) => "> " + l);
+        if (pending.directorName) quoteLines.push("> — @" + pending.directorName);
+        input.value = quoteLines.join("\n") + "\n\n";
+        // Trigger autosize after the seed lands.
+        input.style.height = "auto";
+        input.style.height = Math.min(200, input.scrollHeight) + "px";
+        // Cursor goes after the blank line so the user types
+        // immediately at the follow-up position.
+        const pos = input.value.length;
+        try { input.setSelectionRange(pos, pos); } catch (_) {}
+        delete this._threadPendingQuote[director.id];
+      }
+      setTimeout(() => { try { input.focus(); } catch (_) {} }, 30);
+
+      // SSE subscription · the thread's own per-room stream. We get
+      // message-appended / message-token / message-final / message-updated
+      // for the thread's messages; main room events fan out via the
+      // main app.sse and don't reach here.
+      try {
+        const es = new EventSource(`/api/rooms/${encodeURIComponent(threadRoom.id)}/stream`);
+        state.sse = es;
+        es.addEventListener("message-appended", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadAppendMessage(threadRoom.id, data);
+        });
+        es.addEventListener("message-token", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadApplyToken(threadRoom.id, data);
+        });
+        es.addEventListener("message-updated", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadUpdateMessage(threadRoom.id, data);
+        });
+        es.addEventListener("message-final", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadFinalizeMessage(threadRoom.id, data);
+        });
+        es.addEventListener("message-removed", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadRemoveMessage(threadRoom.id, data);
+        });
+      } catch (e) {
+        console.warn("[thread] SSE attach failed:", e);
+      }
+    },
+
+    closeThreadWindow(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      if (state.sse) {
+        try { state.sse.close(); } catch (_) {}
+        state.sse = null;
+      }
+      if (state.windowEl && state.windowEl.parentNode) {
+        state.windowEl.parentNode.removeChild(state.windowEl);
+      }
+      const parentId = state.room && state.room.parentRoomId;
+      delete this._threads[threadId];
+      if (parentId) this._persistThreadOpen(parentId, threadId, false);
+      // If no docked thread remains, drop the body class that
+      // squeezed the chat-col into its left grid column.
+      const anyDocked = Object.values(this._threads || {}).some((s) => s && s.docked);
+      if (!anyDocked) document.body.classList.remove("has-thread-dock");
+    },
+
+    /** Title shown in the panel header AND in the popover row · same
+     *  priority chain as `openThreadsListPopover` so both surfaces
+     *  read the same string. LLM-distilled `room.name` wins; until
+     *  the title-gen pipeline completes (or for legacy threads
+     *  with name_auto=0), the truncated subject stands in; the
+     *  director's name is a last-resort fallback for fresh threads
+     *  with no user message yet. */
+    _resolveThreadTitle(threadRoom, director) {
+      if (!threadRoom) return (director && director.name) || "";
+      const isPlaceholder = typeof threadRoom.name === "string"
+        && /^thread:/.test(threadRoom.name);
+      if (!isPlaceholder && typeof threadRoom.name === "string" && threadRoom.name.trim()) {
+        return threadRoom.name.trim();
+      }
+      if (typeof threadRoom.subject === "string" && threadRoom.subject.trim()) {
+        const subj = threadRoom.subject.trim();
+        return subj.length > 60 ? subj.slice(0, 60) + "…" : subj;
+      }
+      return (director && director.name) || "";
+    },
+
+    /** Is the current viewport wide enough to honour docked mode?
+     *  Below ~1200px the 420px panel would squeeze the chat to an
+     *  uncomfortable width; in that case we keep the thread float-
+     *  only regardless of the user's maximize click. */
+    _canDockHere() {
+      try {
+        const w = window.innerWidth || document.documentElement.clientWidth || 0;
+        return w >= 1200;
+      } catch (_) { return false; }
+    },
+
+    /** Where to mount a docked thread panel · the active room
+     *  main-view, so the panel becomes a flex/grid sibling of the
+     *  chat-col. Returns null if no room view is active (defensive
+     *  · should never fire because the trigger is only reachable
+     *  from inside a room). */
+    _threadDockHost() {
+      const view = document.querySelector('.main-view[data-main-view="room"]');
+      return view && !view.hidden ? view : null;
+    },
+
+    /** Wire the left-edge resize handle so the user can drag-widen
+     *  the docked panel. Reads pointer-x on move, computes the new
+     *  width as `viewport_width - pointer_x` (panel is anchored to
+     *  the right edge), and writes the value to `--thread-dock-w`
+     *  on document body. CSS clamps the variable into a sane range
+     *  (320-720) so the chat-col never collapses below input-bar
+     *  content width. Persists to localStorage so the user's chosen
+     *  width survives page reload. */
+    _wireThreadDockResize(handle) {
+      // Hydrate any saved width on first wire so the dock opens at
+      // the user's last-chosen size.
+      const restorePersistedWidth = () => {
+        try {
+          const raw = localStorage.getItem("pb.thread.dock.width");
+          const n = raw ? parseInt(raw, 10) : 0;
+          if (n >= 320 && n <= 720) {
+            document.body.style.setProperty("--thread-dock-w", `${n}px`);
+          }
+        } catch (_) { /* */ }
+      };
+      restorePersistedWidth();
+
+      let dragging = false;
+      let rafId = 0;
+      let pendingX = 0;
+      const flush = () => {
+        rafId = 0;
+        if (!dragging) return;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        // Panel sits on the right; new width = distance from
+        // viewport right edge to pointer. Clamp to handle range so
+        // mid-drag the CSS clamp doesn't lag behind the variable.
+        const next = Math.max(320, Math.min(720, vw - pendingX));
+        document.body.style.setProperty("--thread-dock-w", `${next}px`);
+      };
+      const onMove = (e) => {
+        if (!dragging) return;
+        if (e.cancelable) e.preventDefault();
+        pendingX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
+      const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove("is-thread-dock-resizing");
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+        // Persist whatever value we landed on. Read back the
+        // computed style rather than the inline string so any
+        // clamp-by-CSS adjustment is honoured.
+        try {
+          const v = document.body.style.getPropertyValue("--thread-dock-w");
+          const n = parseInt(v, 10);
+          if (n >= 320 && n <= 720) {
+            localStorage.setItem("pb.thread.dock.width", String(n));
+          }
+        } catch (_) { /* private mode · ignore */ }
+      };
+      const onDown = (e) => {
+        // Only honour the drag when the panel is actually docked ·
+        // CSS already hides the handle off-screen otherwise, but
+        // defensive guard for keyboard / programmatic invocations.
+        const panel = handle.closest(".thread-float");
+        if (!panel || !panel.classList.contains("is-docked")) return;
+        dragging = true;
+        document.body.classList.add("is-thread-dock-resizing");
+        pendingX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      handle.addEventListener("touchstart", onDown, { passive: true });
+    },
+
+    /** Client-side membership · which thread IDs the user has a
+     *  window open for, keyed by parent roomId. localStorage so the
+     *  set survives page reload. Stored as a JSON array per room
+     *  under `pb.thread.open.<roomId>` (mirrors the rest of the
+     *  app's `pb.*` localStorage namespace). */
+    _persistThreadOpen(parentRoomId, threadId, isOpen) {
+      if (!parentRoomId || !threadId) return;
+      const key = `pb.thread.open.${parentRoomId}`;
+      try {
+        const raw = localStorage.getItem(key);
+        const ids = raw ? JSON.parse(raw) : [];
+        const next = isOpen
+          ? Array.from(new Set([...ids, threadId]))
+          : ids.filter((id) => id !== threadId);
+        if (next.length) localStorage.setItem(key, JSON.stringify(next));
+        else localStorage.removeItem(key);
+      } catch (_) { /* quota / private mode · silently degrade */ }
+    },
+
+    _persistedThreadOpen(parentRoomId) {
+      if (!parentRoomId) return [];
+      try {
+        const raw = localStorage.getItem(`pb.thread.open.${parentRoomId}`);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+      } catch { return []; }
+    },
+
+    /** Re-mount any thread windows the user previously had open for
+     *  the current room. Called from openRoom AFTER members /
+     *  agentsById are populated so the director resolution works.
+     *  Threads whose IDs no longer exist (deleted out from under
+     *  the user) are quietly dropped from the persisted list. */
+    async restoreThreadsForRoom(parentRoomId) {
+      if (!parentRoomId) return;
+      const wanted = this._persistedThreadOpen(parentRoomId);
+      if (wanted.length === 0) return;
+      // Pull the canonical list from the server so we know which
+      // threads still exist. The persisted IDs are advisory.
+      let threads = [];
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(parentRoomId)}/threads`);
+        if (res.ok) {
+          const data = await res.json();
+          threads = Array.isArray(data.threads) ? data.threads : [];
+        }
+      } catch { return; }
+      const live = new Map(threads.map((t) => [t.id, t]));
+      const stillOpen = [];
+      for (const id of wanted) {
+        const room = live.get(id);
+        if (!room) continue;
+        const director = (this.agentsById && this.agentsById[room.threadDirectorId])
+          || { id: room.threadDirectorId, name: room.threadDirectorId, avatarPath: "" };
+        // Restore in the same mode the user opens NEW threads with.
+        // localStorage doesn't track float-vs-dock yet; default to
+        // dock when the viewport allows so the user's last session's
+        // dock preference is honoured implicitly.
+        this.mountThreadWindow(room, director, { docked: this._canDockHere() });
+        stillOpen.push(id);
+        // Seed the transcript · /threads list endpoint only returns
+        // room metadata, so we fetch the per-thread state to get
+        // messages and paint them into the freshly-mounted window.
+        // Fire-and-forget · each thread loads independently and the
+        // SSE stream picks up new messages from this point on.
+        fetch(`/api/rooms/${encodeURIComponent(id)}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (!data || !Array.isArray(data.messages) || data.messages.length === 0) return;
+            this._seedThreadHistory(id, data.messages);
+          })
+          .catch(() => { /* per-thread network blip · log via the SSE error path */ });
+      }
+      // Prune the persisted list to what actually exists · keeps the
+      // localStorage entry from accumulating stale IDs forever.
+      try {
+        const key = `pb.thread.open.${parentRoomId}`;
+        if (stillOpen.length) localStorage.setItem(key, JSON.stringify(stillOpen));
+        else localStorage.removeItem(key);
+      } catch (_) { /* */ }
+    },
+
+    /** Open a popover anchored under the head-threads icon listing
+     *  every thread (active or dormant) attached to this main room.
+     *  Each row is a click target that mounts / restores the thread
+     *  window. ESC + outside-click dismiss. */
+    async openThreadsListPopover(anchorBtn) {
+      this.closeThreadsListPopover();
+      if (!this.currentRoomId) return;
+      const pop = document.createElement("div");
+      pop.id = "thread-list-pop";
+      pop.className = "thread-list-pop";
+      const title = this._t("threads_list_title") || "Private threads";
+      const loading = this._t("threads_list_loading") || "Loading…";
+      pop.innerHTML = `
+        <div class="thread-list-head">${this.escape(title)}</div>
+        <div class="thread-list-body" data-threads-body>
+          <div class="thread-list-empty">${this.escape(loading)}</div>
+        </div>
+      `;
+      document.body.appendChild(pop);
+      // Anchor under the trigger button · `position: fixed` so values
+      // are viewport coords. Right-align so the popover stays under
+      // the icon when the head row contracts on narrow viewports.
+      const r = anchorBtn.getBoundingClientRect();
+      const POP_WIDTH = 320;
+      pop.style.top = `${Math.round(r.bottom + 6)}px`;
+      const rightSpace = window.innerWidth - r.right;
+      pop.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - POP_WIDTH - 8, r.right - POP_WIDTH)))}px`;
+      void rightSpace;
+
+      // Dismissal · outside click + ESC. Same pattern as
+      // closeCastEditOverlay's wiring.
+      this._threadsPopDocClick = (e) => {
+        if (e.target.closest("#thread-list-pop")) return;
+        if (e.target.closest("[data-threads-trigger]")) return;
+        this.closeThreadsListPopover();
+      };
+      this._threadsPopEsc = (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.closeThreadsListPopover();
+        }
+      };
+      setTimeout(() => document.addEventListener("click", this._threadsPopDocClick, true), 0);
+      document.addEventListener("keydown", this._threadsPopEsc, true);
+
+      // Fetch threads · canonical source is the server's
+      // /api/rooms/:id/threads endpoint we already shipped.
+      let threads = [];
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(this.currentRoomId)}/threads`);
+        if (res.ok) {
+          const data = await res.json();
+          threads = Array.isArray(data.threads) ? data.threads : [];
+        }
+      } catch (_) { /* network · render empty state */ }
+
+      const body = pop.querySelector("[data-threads-body]");
+      if (!body) return;
+
+      // Filter rules:
+      // - messageCount === 0 · empty threads (user opened a thread
+      //   from the trigger but never sent a message) are clutter,
+      //   hide them.
+      // - Dedupe by director id · keep ONLY the newest thread per
+      //   director. Older duplicates (created by past race bugs,
+      //   or by manual API hits) collapse so the user sees one row
+      //   per director — which is the mental model the rest of the
+      //   UI assumes (open-thread-with-director, not per-message).
+      //   `threads` arrives newest-first from the server, so the
+      //   first occurrence per directorId is the winner.
+      const seenDirectors = new Set();
+      const visible = [];
+      for (const t of threads) {
+        if (typeof t.messageCount === "number" && t.messageCount === 0) continue;
+        if (t.threadDirectorId && seenDirectors.has(t.threadDirectorId)) continue;
+        if (t.threadDirectorId) seenDirectors.add(t.threadDirectorId);
+        visible.push(t);
+      }
+
+      if (visible.length === 0) {
+        const emptyMsg = this._t("threads_list_empty")
+          || "No private threads yet · open one from the // Thread button on any director's message.";
+        // Placeholder icon · Lucide MessagesSquare (two chat bubbles,
+        // matching the head-threads trigger glyph) so the empty
+        // state reads as "this is where your private threads
+        // would appear" rather than as a bare line of text.
+        const placeholderIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>`;
+        body.innerHTML = `
+          <div class="thread-list-empty">
+            <span class="thread-list-empty-icon" aria-hidden="true">${placeholderIcon}</span>
+            <span>${this.escape(emptyMsg)}</span>
+          </div>
+        `;
+        return;
+      }
+      const activeLabel = this._t("threads_list_active") || "open";
+      const trashIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+      const deleteTip = this._t("threads_list_delete_tip") || "Delete this thread";
+
+      body.innerHTML = visible.map((t) => {
+        const director = (this.agentsById && this.agentsById[t.threadDirectorId])
+          || { name: t.threadDirectorId || "?", avatarPath: "" };
+        const avatarSrc = director.avatarPath ? this.escape(director.avatarPath) : "";
+        const ts = this.timeFmt ? this.timeFmt(t.createdAt) : "";
+        const isOpen = !!(this._threads && this._threads[t.id]);
+        // Title resolution · ALWAYS surface the topic phrase (same
+        // convention as the sidebar's room titles). Priority:
+        //   1. LLM-distilled `room.name` (set by generateRoomTitle
+        //      after the first user message · the canonical short
+        //      phrase mode)
+        //   2. `room.subject` truncated (the raw first user message
+        //      · interim state while the LLM call is in flight or
+        //      if it failed to land a phrase)
+        //   3. Director name (last-resort fallback for threads with
+        //      no user message yet — shouldn't appear in practice
+        //      since we filter messageCount === 0 above)
+        // The director's name + timestamp ALWAYS live in the
+        // subtitle, regardless of which title path was picked.
+        const isPlaceholderName = typeof t.name === "string" && /^thread:/.test(t.name);
+        let title = "";
+        if (!isPlaceholderName && typeof t.name === "string" && t.name.trim()) {
+          title = t.name.trim();
+        } else if (typeof t.subject === "string" && t.subject.trim()) {
+          const subj = t.subject.trim();
+          title = subj.length > 60 ? subj.slice(0, 60) + "…" : subj;
+        } else {
+          title = director.name || "";
+        }
+        const subtitleParts = [];
+        if (director.name) subtitleParts.push(director.name);
+        if (ts) subtitleParts.push(ts);
+        const subtitle = subtitleParts.join(" · ");
+        return `
+          <div class="thread-list-row">
+            <button type="button" class="thread-list-row-body" data-thread-open="${this.escape(t.id)}">
+              ${avatarSrc ? `<img class="thread-list-row-av" src="${avatarSrc}" alt="">` : `<span class="thread-list-row-av"></span>`}
+              <span class="thread-list-row-meta">
+                <span class="thread-list-row-name">${this.escape(title)}</span>
+                <span class="thread-list-row-time">${this.escape(subtitle)}</span>
+              </span>
+              ${isOpen ? `<span class="thread-list-row-active">// ${this.escape(activeLabel)}</span>` : ""}
+            </button>
+            <button type="button" class="thread-list-row-delete" data-thread-delete="${this.escape(t.id)}" data-director-name="${this.escape(director.name || "")}" title="${this.escape(deleteTip)}" aria-label="${this.escape(deleteTip)}">
+              ${trashIcon}
+            </button>
+          </div>
+        `;
+      }).join("");
+      body.querySelectorAll("[data-thread-open]").forEach((row) => {
+        row.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const id = row.getAttribute("data-thread-open");
+          this.closeThreadsListPopover();
+          if (id) this.openExistingThread(id);
+        });
+      });
+      body.querySelectorAll("[data-thread-delete]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = btn.getAttribute("data-thread-delete");
+          const dirName = btn.getAttribute("data-director-name") || "";
+          if (id) this.deleteThread(id, dirName, anchorBtn);
+        });
+      });
+    },
+
+    /** Permanently delete a thread room · routes through the standard
+     *  DELETE /api/rooms/:id which cascades messages + members.
+     *  Confirms via `window.confirm` since the action is destructive
+     *  and not undoable. Closes any open window for the same thread,
+     *  prunes localStorage, and re-renders the popover. */
+    async deleteThread(threadId, directorName, anchorBtn) {
+      if (!threadId) return;
+      const tmpl = this._t("threads_list_delete_confirm")
+        || "Delete the private thread with {name}? This can't be undone.";
+      const msg = tmpl.replace("{name}", directorName || "this director");
+      if (!window.confirm(msg)) return;
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(threadId)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert((err && err.error) || "Delete failed");
+          return;
+        }
+      } catch (e) {
+        alert((e && e.message) || "Delete failed");
+        return;
+      }
+      // Tear down any open window for this thread + drop from
+      // persistence. closeThreadWindow does both.
+      if (this._threads && this._threads[threadId]) {
+        this.closeThreadWindow(threadId);
+      }
+      // Refresh the popover so the row disappears. Reuse the
+      // original trigger as the anchor — it's still on screen since
+      // we never navigated away.
+      const trigger = anchorBtn || document.querySelector("[data-threads-trigger]");
+      this.closeThreadsListPopover();
+      if (trigger) this.openThreadsListPopover(trigger);
+    },
+
+    closeThreadsListPopover() {
+      const el = document.getElementById("thread-list-pop");
+      if (el) el.remove();
+      if (this._threadsPopDocClick) {
+        document.removeEventListener("click", this._threadsPopDocClick, true);
+        this._threadsPopDocClick = null;
+      }
+      if (this._threadsPopEsc) {
+        document.removeEventListener("keydown", this._threadsPopEsc, true);
+        this._threadsPopEsc = null;
+      }
+    },
+
+    /** Mount a window for an EXISTING thread (one the user hasn't
+     *  got open right now but exists in the DB). Used by the
+     *  "Threads" header popover entries · the user clicks a row to
+     *  resume an old aside without spawning a new one. */
+    async openExistingThread(threadId) {
+      if (!threadId) return;
+      this._threads = this._threads || {};
+      if (this._threads[threadId]) {
+        this.restoreThreadWindow(threadId);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(threadId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const room = data.room;
+        if (!room || room.kind !== "thread") return;
+        const director = (this.agentsById && this.agentsById[room.threadDirectorId])
+          || { id: room.threadDirectorId, name: room.threadDirectorId, avatarPath: "" };
+        // Default docked · same as the trigger-button entry path.
+        this.mountThreadWindow(room, director, { docked: this._canDockHere() });
+        // Seed the historical transcript · without this the window
+        // mounts empty and only catches messages arriving via SSE
+        // FROM NOW ON, so reopening an old thread looked like a
+        // brand-new conversation. The /api/rooms/:id state response
+        // already carries the full message list — paint it now.
+        if (Array.isArray(data.messages) && data.messages.length > 0) {
+          this._seedThreadHistory(threadId, data.messages);
+        }
+      } catch (e) {
+        try { console.warn("[thread] openExisting failed:", e); } catch (_) {}
+      }
+    },
+
+    /** Paint the thread room's stored messages into the window on
+     *  first mount. State + DOM both populated so subsequent SSE
+     *  token / update / final events can find the message refs and
+     *  patch the bubbles in place. */
+    _seedThreadHistory(threadId, messages) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const list = state.windowEl.querySelector("[data-thread-messages]");
+      if (!list) return;
+      // Hide the empty-state placeholder if any messages exist.
+      this._threadEmptyState(threadId, true);
+      // Dedupe against anything already streamed in via SSE that
+      // raced the seed (rare but possible). Skip if already known.
+      const known = new Set(state.messages.map((m) => m.id));
+      const html = [];
+      for (const data of messages) {
+        if (!data || !data.id || known.has(data.id)) continue;
+        const msg = {
+          id: data.id,
+          authorKind: data.authorKind,
+          authorId: data.authorId,
+          body: data.body || "",
+          meta: data.meta || {},
+          roundNum: data.roundNum,
+          createdAt: data.createdAt,
+        };
+        state.messages.push(msg);
+        html.push(this._threadMessageHtml(state, msg));
+      }
+      if (html.length) {
+        list.insertAdjacentHTML("beforeend", html.join(""));
+        list.scrollTop = list.scrollHeight;
+      }
+    },
+
+    minimizeThreadWindow(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      state.minimized = true;
+      state.windowEl.classList.add("is-minimized");
+      // Drop the user-resized inline height · the minimized pill sizes
+      // to its content (CSS `height: auto`), and inline height would
+      // win over that class rule and stretch the chip. The chosen
+      // height is preserved on state.height and reapplied on restore.
+      state.windowEl.style.height = "";
+      // Reset transform so the minimized chip lives in its dock
+      // anchor at the bottom-right rather than at the user's drag
+      // location. The dragX/dragY values stay on state so restore
+      // can put it back where they had it.
+      state.windowEl.style.transform = "";
+      // Pull into a shared dock so multiple minimized chips line up
+      // along the bottom-right edge.
+      const dock = this._ensureThreadDock();
+      dock.appendChild(state.windowEl);
+      state.windowEl.style.right = "auto";
+      state.windowEl.style.bottom = "auto";
+      // Click-to-restore on the whole chip (header is hidden,
+      // controls are hidden, so the chip itself is the click target).
+      const restoreHandler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.restoreThreadWindow(threadId);
+      };
+      state.windowEl.addEventListener("click", restoreHandler, { once: true });
+    },
+
+    restoreThreadWindow(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      state.minimized = false;
+      const el = state.windowEl;
+      el.classList.remove("is-minimized");
+      // Panel-only · restore re-docks into the active room view rather
+      // than reviving a floating window (float mode was removed). Clear
+      // any leftover float inline anchors first, then re-parent into the
+      // dock host. Only when no room view is mounted (defensive) do we
+      // fall back to a body-level overlay.
+      el.style.right = "";
+      el.style.bottom = "";
+      el.style.transform = "";
+      el.style.height = "";
+      const dockHost = this._threadDockHost();
+      if (dockHost) {
+        el.classList.add("is-docked");
+        state.docked = true;
+        if (el.parentNode !== dockHost) dockHost.appendChild(el);
+        document.body.classList.add("has-thread-dock");
+      } else {
+        el.classList.remove("is-docked");
+        state.docked = false;
+        if (el.parentNode !== document.body) document.body.appendChild(el);
+        el.style.right = "24px";
+        el.style.bottom = "24px";
+      }
+    },
+
+    _ensureThreadDock() {
+      let dock = document.getElementById("thread-dock");
+      if (!dock) {
+        dock = document.createElement("div");
+        dock.id = "thread-dock";
+        dock.className = "thread-dock";
+        document.body.appendChild(dock);
+      }
+      return dock;
+    },
+
+    _wireThreadDrag(handle, state) {
+      // Per-drag scratch + rAF coalescing · pointermove fires faster
+      // than the browser can paint on most setups; without throttling
+      // we'd issue multiple style writes per frame. Reading the
+      // pending coords in a single rAF and writing transform once
+      // keeps the window pinned to the cursor with no perceived
+      // lag. The earlier implementation wrote transform on every
+      // mousemove AND had a 0.15s transition (since removed from
+      // .thread-float CSS), which compounded into visible drag jitter.
+      let startX = 0, startY = 0, baseX = 0, baseY = 0;
+      let dragging = false;
+      let pendingX = 0, pendingY = 0;
+      let rafId = 0;
+      const flush = () => {
+        rafId = 0;
+        if (!dragging) return;
+        state.dragX = baseX + (pendingX - startX);
+        state.dragY = baseY + (pendingY - startY);
+        state.windowEl.style.transform = `translate(${state.dragX}px, ${state.dragY}px)`;
+      };
+      const onMove = (e) => {
+        if (!dragging) return;
+        // touchmove may need preventDefault to suppress page scroll
+        // while the user drags the window across the viewport.
+        if (e.cancelable && e.type === "touchmove") e.preventDefault();
+        pendingX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        pendingY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
+      const onUp = () => {
+        dragging = false;
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        // Reset the compositor hint once dragging ends so the layer
+        // is freed and the window doesn't keep paying the
+        // promote-to-its-own-layer tax forever.
+        if (state.windowEl) state.windowEl.style.willChange = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+      };
+      const onDown = (e) => {
+        // Ignore drags that originate on interactive children of the
+        // header — buttons (close / min / max) AND the director
+        // avatar, which carries `[data-agent]` and routes its click
+        // to the lightweight intro overlay (agent-overlay.js).
+        if (e.target && e.target.closest && e.target.closest("button, [data-agent]")) return;
+        dragging = true;
+        startX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        startY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        pendingX = startX;
+        pendingY = startY;
+        baseX = state.dragX || 0;
+        baseY = state.dragY || 0;
+        // Promote the window to its own compositor layer for the
+        // drag duration so transform updates can be GPU-accelerated.
+        // Cleared on mouseup so we don't permanently inflate
+        // memory.
+        if (state.windowEl) state.windowEl.style.willChange = "transform";
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        // touchmove · passive:false so we can preventDefault inside
+        // onMove (matters on iOS Safari where the browser otherwise
+        // hijacks vertical drags for page scroll).
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      handle.addEventListener("touchstart", onDown, { passive: true });
+    },
+
+    /** Edge resize · the float is bottom-anchored.
+     *    · "top"    handle · drag UP grows / DOWN shrinks; the bottom
+     *      edge stays pinned (height only).
+     *    · "bottom" handle · the bottom edge follows the cursor (drag
+     *      DOWN grows / UP shrinks) while the top edge stays pinned —
+     *      achieved by moving the drag-translate `dragY` by the same
+     *      delta the height grows, so the box's top doesn't shift.
+     *  Mirrors `_wireThreadDrag`'s rAF-coalesced pointer bookkeeping.
+     *  Height is clamped to [240, viewport-96] — the upper cap matches
+     *  `.thread-float`'s CSS `max-height` so the inline height never
+     *  fights it. Persisted on `state.height` (+ `dragY` for the
+     *  bottom edge) so minimize/restore keeps the chosen size + spot. */
+    _wireThreadResize(handle, state, edge) {
+      const MIN_H = 240;
+      const maxH = () => Math.max(MIN_H, window.innerHeight - 96);
+      const isBottom = edge === "bottom";
+      let startY = 0, baseH = 0, baseDragY = 0;
+      let resizing = false;
+      let pendingY = 0;
+      let rafId = 0;
+      const flush = () => {
+        rafId = 0;
+        if (!resizing || !state.windowEl) return;
+        // Drag delta along Y · top edge grows when the cursor moves UP
+        // (startY - cur); bottom edge grows when it moves DOWN.
+        const rawDelta = isBottom ? (pendingY - startY) : (startY - pendingY);
+        const next = Math.min(maxH(), Math.max(MIN_H, baseH + rawDelta));
+        state.height = next;
+        state.windowEl.style.height = `${next}px`;
+        if (isBottom) {
+          // Shift the box down by however much it actually grew so the
+          // top edge stays put (height was clamped, so use the applied
+          // delta, not the raw cursor delta).
+          state.dragY = baseDragY + (next - baseH);
+          state.windowEl.style.transform = `translate(${state.dragX || 0}px, ${state.dragY}px)`;
+        }
+      };
+      const onMove = (e) => {
+        if (!resizing) return;
+        if (e.cancelable && e.type === "touchmove") e.preventDefault();
+        pendingY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
+      const onUp = () => {
+        resizing = false;
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        // Re-enable text selection in the rest of the app.
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+      };
+      const onDown = (e) => {
+        // Don't start a resize while minimized · the handle is hidden
+        // then anyway, but guard against stray events.
+        if (state.minimized || !state.windowEl) return;
+        // Swallow the event so it doesn't also reach the header's
+        // drag-to-move handler underneath.
+        if (e.stopPropagation) e.stopPropagation();
+        // Suppress text selection for the whole drag · without this the
+        // mousemove sweep selects whatever room text sits under the
+        // cursor, which reads as a glitch while resizing the window.
+        if (e.type === "mousedown" && e.preventDefault) e.preventDefault();
+        document.body.style.userSelect = "none";
+        resizing = true;
+        startY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        pendingY = startY;
+        baseH = state.windowEl.getBoundingClientRect().height;
+        baseDragY = state.dragY || 0;
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      handle.addEventListener("touchstart", onDown, { passive: true });
+    },
+
+    async sendThreadMessage(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const input = state.windowEl.querySelector("[data-thread-input]");
+      if (!input) return;
+      const text = (input.value || "").trim();
+      if (!text) return;
+      input.value = "";
+      input.style.height = "auto";
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(threadId)}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ body: text, mode: "now" }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert((err && err.error) || "Failed to send thread message");
+        }
+        // No need to optimistically render · the SSE message-appended
+        // for the user message will fan out and our handler renders it.
+      } catch (e) {
+        alert((e && e.message) || "Failed to send thread message");
+      }
+    },
+
+    _threadEmptyState(threadId, hide) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const empty = state.windowEl.querySelector("[data-thread-empty]");
+      if (empty) empty.style.display = hide ? "none" : "";
+    },
+
+    /** Render a thread bubble using the main chat's full `messageHtml`
+     *  pipeline — keeps user avatars, director avatars, model badges,
+     *  the streaming dots animation, name+tag chips, etc. all
+     *  consistent with the main room. Earlier custom-mini renderer
+     *  produced visually broken bubbles (no user avatar, missing
+     *  meta chips) because it duplicated only a fraction of the
+     *  main path. Now reuses ONE source of truth.
+     *
+     *  Side effect protection · sets `this._renderingThread = true`
+     *  for the duration of the call so the per-message thread
+     *  toolbar (`_threadTriggerHtml`) skips rendering inside thread
+     *  windows — there's no "thread the speaker again" inside an
+     *  already-open thread. The flag flips back in `finally`. */
+    _threadMessageHtml(state, msg) {
+      void state;
+      this._renderingThread = true;
+      try {
+        return this.messageHtml(msg, false);
+      } finally {
+        this._renderingThread = false;
+      }
+    },
+
+    _threadAppendMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const list = state.windowEl.querySelector("[data-thread-messages]");
+      if (!list) return;
+      this._threadEmptyState(threadId, true);
+      // Track msg in state so streaming token appends find a stable
+      // reference even if the article gets re-rendered.
+      const msg = {
+        id: data.messageId,
+        authorKind: data.authorKind,
+        authorId: data.authorId,
+        body: data.body || "",
+        meta: data.meta || {},
+        roundNum: data.roundNum,
+        createdAt: data.createdAt,
+      };
+      state.messages.push(msg);
+      list.insertAdjacentHTML("beforeend", this._threadMessageHtml(state, msg));
+      list.scrollTop = list.scrollHeight;
+      // Director just started streaming · swap composer Send → Stop
+      // so the user can interrupt the response in flight. The flag
+      // stays on the message; later finalize / abort clears it.
+      if (msg.authorKind === "agent" && msg.meta && msg.meta.streaming) {
+        this._setThreadStreamingState(threadId, msg.id);
+      }
+    },
+
+    _threadApplyToken(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      const msg = state.messages.find((m) => m.id === data.messageId);
+      if (!msg) return;
+      msg.body = (msg.body || "") + (data.delta || "");
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (!article) return;
+      const bubble = article.querySelector(".msg-bubble");
+      if (!bubble) return;
+      article.classList.remove("thinking");
+      bubble.innerHTML = this.renderBody ? this.renderBody(msg.body) : msg.body;
+      const list = state.windowEl.querySelector("[data-thread-messages]");
+      if (list) list.scrollTop = list.scrollHeight;
+    },
+
+    _threadUpdateMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      const msg = state.messages.find((m) => m.id === data.messageId);
+      if (msg) {
+        msg.body = data.body || "";
+        msg.meta = data.meta || {};
+      }
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (!article) return;
+      const bubble = article.querySelector(".msg-bubble");
+      if (bubble) {
+        bubble.innerHTML = this.renderBody ? this.renderBody(data.body || "") : (data.body || "");
+      }
+      const streaming = !!(data.meta && data.meta.streaming);
+      article.classList.toggle("streaming", streaming);
+      if (!streaming) {
+        article.classList.remove("thinking");
+        // Server flipped streaming:false on this director's message ·
+        // restore the composer to Send mode if this was the message
+        // we were tracking. Catches the abort + natural-finish paths
+        // uniformly without needing a separate handler.
+        if (state.streamingMessageId === data.messageId) {
+          this._setThreadStreamingState(threadId, null);
+        }
+      }
+    },
+
+    _threadFinalizeMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (article) {
+        article.classList.remove("streaming");
+        article.classList.remove("thinking");
+      }
+      // Director's stream finished · flip composer back to Send.
+      if (state.streamingMessageId === data.messageId) {
+        this._setThreadStreamingState(threadId, null);
+      }
+    },
+
+    /** Flip the composer's Send/Stop visibility on the thread window
+     *  via a state class on `.thread-float-composer`. Tracks which
+     *  message we believe is currently streaming so duplicate
+     *  message-updated events (e.g. multiple token batches before
+     *  the streaming:false flag flips) don't toggle prematurely. */
+    _setThreadStreamingState(threadId, messageId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      state.streamingMessageId = messageId;
+      const composer = state.windowEl.querySelector("[data-thread-composer]");
+      if (composer) composer.classList.toggle("is-streaming", !!messageId);
+    },
+
+    /** Interrupt the in-flight director response in a thread. Hits
+     *  POST /api/rooms/:threadId/abort (the same endpoint the main
+     *  room uses for chair-interrupt + skip-current-speaker), which
+     *  aborts the LLM stream and drains voice waiters. The director's
+     *  partial body stays in chat; the composer flips back to Send
+     *  when the server's resulting message-updated (streaming:false)
+     *  arrives via SSE. */
+    async stopThreadDirector(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      try {
+        await fetch(`/api/rooms/${encodeURIComponent(threadId)}/abort`, { method: "POST" });
+      } catch (e) {
+        try { console.warn("[thread] abort failed:", e); } catch (_) {}
+      }
+      // Optimistic UX · flip the composer back immediately rather
+      // than waiting for the SSE round-trip. The streaming:false
+      // update + message-final will arrive shortly and the toggle
+      // is idempotent.
+      this._setThreadStreamingState(threadId, null);
+    },
+
+    _threadRemoveMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      state.messages = state.messages.filter((m) => m.id !== data.messageId);
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (article && article.parentNode) article.parentNode.removeChild(article);
+    },
+
     async submitFollowUp() {
       const overlay = document.getElementById("followup-overlay");
       if (!overlay) return;
@@ -6028,6 +7409,81 @@
     closeRecordingStopModal() {
       const el = document.getElementById("recording-stop-overlay");
       if (el) el.remove();
+    },
+
+    /** Pause-after-current save modal · the user soft-paused the room
+     *  while a recording was running. The recording itself doesn't
+     *  stop automatically (room can resume), so we ask the user
+     *  whether to save it now. Three choices:
+     *    · primary "Save & adjourn"     — stopAndDownload + adjourn(skipBrief)
+     *    · secondary "Save & keep paused" — stopAndDownload, room stays paused
+     *    · ghost "Keep recording"        — close modal, room paused, recorder
+     *                                      continues capturing the silence
+     *  Modal reuses the .pc-overlay / .pc-modal / .pc-choice chrome
+     *  for visual consistency with other pause-/reload-choice flows. */
+    openRecordingPauseSaveModal() {
+      this.closeRecordingPauseSaveModal();
+      const html = `
+        <div id="rec-pause-save-overlay" class="pc-overlay">
+          <div class="pc-modal">
+            <div class="pc-classification">
+              <span><span class="dot">●</span> ${this.escape(this._t("rec_pause_save_class"))}</span>
+              <span class="right">${this.escape(this._t("rec_pause_save_right"))}</span>
+            </div>
+            <div class="pc-head">
+              <div class="pc-tag">${this.escape(this._t("rec_pause_save_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("rec_pause_save_title"))}</h2>
+              <p class="pc-deck">${this.escape(this._t("rec_pause_save_deck"))}</p>
+            </div>
+            <div class="pc-body">
+              <button type="button" class="pc-choice primary" data-rec-pause-save-choice="save-adjourn">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_pause_save_adjourn_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_pause_save_adjourn_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice" data-rec-pause-save-choice="save-keep">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_pause_save_keep_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_pause_save_keep_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice ghost" data-rec-pause-save-choice="continue">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_pause_save_continue_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_pause_save_continue_deck"))}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+    },
+
+    closeRecordingPauseSaveModal() {
+      const el = document.getElementById("rec-pause-save-overlay");
+      if (el) el.remove();
+    },
+
+    async handleRecordingPauseSaveChoice(mode) {
+      this.closeRecordingPauseSaveModal();
+      if (mode === "continue") return; // keep recording, room stays paused
+      // Both save paths stop + download the clip first.
+      let blob = null;
+      try { blob = await window.BoardroomRecorder.stopAndDownload(); }
+      catch (e) { console.error("[recorder] stopAndDownload failed", e); }
+      if (blob && blob.size > 0) {
+        try {
+          this.showRoundTableToast({
+            kind: "settings",
+            glyph: "↓",
+            htmlText: this.escape(this._t("rec_saved_toast")),
+            lifetimeMs: 5200,
+          });
+        } catch (_) { /* toast best-effort */ }
+      }
+      if (mode === "save-adjourn") {
+        // skipBrief · recording-driven adjourns never auto-generate
+        // a report; the user files one manually.
+        try { await this.adjournRoom({ skipBrief: true }); }
+        catch (e) { console.warn("[recorder] adjournRoom failed", e); }
+      }
+      // save-keep · nothing else to do; room is already paused.
     },
 
     async handleRecordingStopChoice(mode) {
@@ -6920,9 +8376,17 @@
     timeFmt(ms) {
       if (!ms) return "";
       const d = new Date(ms);
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${hh}:${mm}`;
+      // Absolute timestamp · "May 24, 3:45 PM". When the year differs
+      // from the current one (last year or earlier) the year is
+      // prepended so e.g. "2024 May 24, 3:45 PM" disambiguates old
+      // messages. en-US locale pins the short month + 12-hour "PM"
+      // meridiem regardless of UI language (matches the notification
+      // date format elsewhere in the app).
+      const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      const base = `${datePart}, ${timePart}`;
+      const yr = d.getFullYear();
+      return yr === new Date().getFullYear() ? base : `${yr} ${base}`;
     },
 
     relTime(ms) {
@@ -9712,7 +11176,11 @@
       const article = document.querySelector(`article[data-message-id="${openerId}"]`);
       if (!article) return;
       try {
-        article.scrollIntoView({ behavior: "smooth", block: "start" });
+        // Instant · matches the thread panel's jump-top affordance.
+        // User reads the result, not the animation; smooth scrolling
+        // on long rooms (10+ screens of history) takes ≥800ms which
+        // reads as sluggish.
+        article.scrollIntoView({ behavior: "auto", block: "start" });
       } catch { /* */ }
       this.chatStuckToBottom = false;
       this._suppressBottomScrollUntil = Date.now() + 2000;
@@ -9994,6 +11462,15 @@
 
     showNoteTooltip(span) {
       if (!span) return;
+      // Suppress while a text selection is active · the selection CTA
+      // bar (quote-cta.js) already sits in this slot above the
+      // selection. Selecting text that overlaps an already-saved
+      // highlight would otherwise stack the "✓ Saved" hover tip on
+      // top of the CTA bar — the user sees two toolbars. Once the
+      // selection collapses (click elsewhere), hovering the highlight
+      // shows the tip again as normal.
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed) return;
       const tip = this._ensureNoteTip();
       const noteId = span.dataset.noteId;
       // Resolve note metadata from currentNotes · used for the time
@@ -12817,9 +14294,8 @@
             <span class="brief-picker-num">${this.escape(num)}</span>
             <span class="brief-picker-main">
               <span class="brief-picker-title">${this.escape(b.title || "(untitled)")}</span>
-              ${subtitle ? `<span class="brief-picker-sub">${this.escape(subtitle)}</span>` : ""}
+              ${(subtitle || filedLabel) ? `<span class="brief-picker-subrow">${subtitle ? `<span class="brief-picker-sub">${this.escape(subtitle)}</span>` : ""}${filedLabel ? `<span class="brief-picker-time">${this.escape(filedLabel)}</span>` : ""}</span>` : ""}
             </span>
-            ${filedLabel ? `<span class="brief-picker-time">${this.escape(filedLabel)}</span>` : ""}
             <span class="brief-picker-arrow">↗</span>
           </a>
         `;
@@ -13723,10 +15199,27 @@
       // (instead of relying on agent-overlay's autoTagAvatars regex) is
       // required for custom agents whose avatarPath is a data: URL —
       // the regex only matches `/avatars/*.svg`.
+      // Head-cast avatars · each director wrapped in a span so a
+      // small thread-trigger badge can pin to the avatar's bottom-
+      // right. Avatar click stays as the agent-overlay open (existing
+      // data-agent behavior); the badge gets its own click target
+      // (data-thread-trigger) so the two affordances don't fight.
+      // Chair is never threadable — filter on roleKind. Allow every
+      // status (live, paused, adjourned) — threads are independent
+      // rooms; the parent's status doesn't gate them. Only block
+      // when this room itself is a thread (no nested threads).
+      const canThreadHere = r.kind !== "thread";
+      const threadTipBase = this._t("thread_trigger") || "// thread";
+      const threadIcon = this._threadTriggerIconSvg();
       const castImgs = this.currentMembers
         .map((a) => {
           const id = this.escape(a.id);
-          return `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
+          const img = `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
+          const showBadge = canThreadHere && a.roleKind !== "moderator";
+          const badge = showBadge
+            ? `<button type="button" class="head-cast-thread" data-thread-trigger="${id}" data-no-agent-overlay title="${this.escape(this._t("thread_trigger_tip", { name: a.name || "" }) || threadTipBase)}" aria-label="${this.escape(this._t("thread_trigger_tip", { name: a.name || "" }) || threadTipBase)}">${threadIcon}</button>`
+            : "";
+          return `<span class="head-cast-wrap">${img}${badge}</span>`;
         })
         .join("");
       const castCount = this.currentMembers.length;
@@ -13799,9 +15292,10 @@
         </div>
         <div class="head-actions">
           <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
+          <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
           <div class="head-cast">${castHtml}</div>
           <a href="#" class="head-icon-btn head-add-cast" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"></a>
-          <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
+          <a href="#" class="head-icon-btn head-threads" data-threads-trigger data-tip="${this.escape(this._t("head_threads_tip") || "All private threads in this room")}" aria-label="${this.escape(this._t("head_threads_label") || "All threads")}"></a>
           <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
           ${this.currentBrief
             ? (() => {
@@ -16382,7 +17876,13 @@
       // the text-mode "two directors flashing" race vanishes.
       const isDirectorMsg = !isUser && !isChair;
       const activeId = this.currentActiveMessageId || null;
-      const speakingGate = !isDirectorMsg || !activeId || m.id === activeId;
+      // `currentActiveMessageId` tracks the MAIN room's currently-
+      // visible speaker · doesn't apply to thread windows (which run
+      // their own SSE / pump with a different message id pool). When
+      // rendering inside a thread, skip the gate so the thread's own
+      // streaming bubble shows the dots + animation normally.
+      const speakingGate = this._renderingThread
+        || !isDirectorMsg || !activeId || m.id === activeId;
       const wantStreaming = !!streaming && speakingGate;
       const stateCls = [];
       if (wantStreaming) stateCls.push("streaming");
@@ -16417,7 +17917,18 @@
       const webSearchUsed = !!(m.meta && m.meta.webSearchUsed);
       const webSearchQuery = (m.meta && typeof m.meta.webSearchQuery === "string") ? m.meta.webSearchQuery : "";
       const webSearchSources = (m.meta && Array.isArray(m.meta.webSearchSources)) ? m.meta.webSearchSources : [];
-      const webSearchBadge = webSearchUsed
+      // Thread mode promotes the director's web-search into a
+      // standalone `.msg-tool-card` rendered ABOVE the bubble,
+      // mirroring the chair's tool-use card in main rooms (chair.ts
+      // emits a tool-use message; here the director's webSearch
+      // lives on the same message's meta, so we synthesise the same
+      // visual treatment in-place). In the main room layout we
+      // keep the original inline-badge-in-meta + sources-panel-
+      // under-bubble pattern (matches every other director bubble
+      // in the room and doesn't compete with the chair's tool-use
+      // cards above).
+      const renderWsAsCard = this._renderingThread === true && webSearchUsed;
+      const webSearchBadge = (!renderWsAsCard && webSearchUsed)
         ? (() => {
           const n = webSearchSources.length;
           const title = this.escape(this._t("msg_ws_title", { query: webSearchQuery, n }));
@@ -16427,7 +17938,7 @@
           return `<button type="button" class="msg-web-search" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" title="${title}">🔍 ${label}</button>`;
         })()
         : "";
-      const webSearchSourcesPanel = webSearchUsed && webSearchSources.length > 0
+      const webSearchSourcesPanel = (!renderWsAsCard && webSearchUsed && webSearchSources.length > 0)
         ? `<div class="msg-web-search-sources" data-msg-ws-sources data-message-id="${this.escape(m.id)}" hidden>
             <div class="msg-web-search-query"><span class="msg-web-search-query-label">${this.escape(this._t("msg_ws_query_label"))}</span><span class="msg-web-search-query-text">${this.escape(webSearchQuery)}</span></div>
             <ol class="msg-web-search-list">
@@ -16441,6 +17952,76 @@
               `).join("")}
             </ol>
           </div>`
+        : "";
+      // Thread mode · synthesise a `.msg-tool-card` for the
+      // director's web-search and surface it ABOVE the bubble.
+      // Visual shape mirrors `chair.ts`'s standalone tool-use card:
+      // banner kicker + body row (status mark + "Searched 'query'"
+      // text + caret) + collapsible sources list + expand button.
+      // Same `data-msg-ws-toggle` / `data-msg-ws-sources` attribute
+      // pair the chair card uses → the existing toggle handler at
+      // app.js:21376 works without modification. Always status=done
+      // since the message meta is set after the search completed.
+      const threadWebSearchCard = renderWsAsCard
+        ? (() => {
+          const n = webSearchSources.length;
+          const hasSources = n > 0;
+          const tail = "";
+          const stamp = !hasSources
+            ? this.escape(this._t("msg_ws_failed"))
+            : n === 1
+              ? this.escape(this._t("msg_ws_done_one", { tail }))
+              : this.escape(this._t("msg_ws_done", { n, tail }));
+          const stampClass = hasSources ? "status-done" : "status-failed";
+          const mark = hasSources ? "✓" : "⚠";
+          const bodyText = this.escape(this._t("msg_ws_card_body", { query: webSearchQuery }));
+          const caret = hasSources ? `<span class="msg-tool-caret" aria-hidden="true">▸</span>` : "";
+          const bodyToggleAttrs = hasSources
+            ? ` data-msg-ws-toggle data-message-id="${this.escape(m.id)}" role="button" tabindex="0" aria-label="${this.escape(this._t("msg_ws_toggle"))}"`
+            : "";
+          const sourcesList = hasSources
+            ? `
+              <ol class="msg-tool-sources-list" data-msg-ws-sources data-message-id="${this.escape(m.id)}" hidden>
+                ${webSearchSources.map((s, i) => {
+                  const url = s && typeof s.url === "string" ? s.url : "";
+                  const title = s && typeof s.title === "string" ? s.title : url;
+                  const desc = s && typeof s.description === "string" ? s.description : "";
+                  const host = this.hostnameOf(url);
+                  const numStr = String(i + 1).padStart(2, "0");
+                  return `
+                    <li>
+                      <span class="msg-tool-sources-num">${numStr}</span>
+                      <a href="${this.escape(url)}" target="_blank" rel="noopener noreferrer" class="msg-tool-sources-title">
+                        <span class="msg-tool-sources-title-text">${this.escape(title)}</span>
+                        <span class="msg-tool-sources-ext" aria-hidden="true">↗</span>
+                      </a>
+                      <span class="msg-tool-sources-host">${this.escape(host)}</span>
+                      ${desc ? `<span class="msg-tool-sources-desc">${this.escape(desc)}</span>` : ""}
+                    </li>
+                  `;
+                }).join("")}
+              </ol>
+              <button type="button" class="msg-tool-sources-expand" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" aria-label="${this.escape(this._t("msg_ws_toggle"))}">
+                <span class="msg-tool-sources-expand-icon" aria-hidden="true">▾</span>
+                <span class="msg-tool-sources-expand-show">${this.escape(this._t("msg_ws_expand_show", { n }))}</span>
+                <span class="msg-tool-sources-expand-hide">${this.escape(this._t("msg_ws_expand_hide"))}</span>
+              </button>`
+            : "";
+          return `
+            <div class="msg-tool-card ${stampClass} thread-tool-card" data-message-id="${this.escape(m.id)}">
+              <div class="msg-tool-banner">
+                <span class="msg-tool-banner-tag">${this.escape(this._t("msg_ws_banner"))}</span>
+                <span class="msg-tool-banner-stamp">${stamp}</span>
+              </div>
+              <div class="msg-tool-card-body${hasSources ? " is-toggle" : ""}"${bodyToggleAttrs}>
+                <span class="msg-tool-mark" aria-hidden="true">${mark}</span>
+                <span class="msg-tool-card-text">${bodyText}</span>
+                ${caret}
+              </div>
+              ${sourcesList}
+            </div>
+          `;
+        })()
         : "";
 
       // Round-end card · render even DURING streaming so the user sees
@@ -16511,9 +18092,11 @@
               ${ctxBadge}
               <span class="msg-time">${this.timeFmt(m.createdAt)}</span>
             </div>
+            ${threadWebSearchCard}
             <div class="msg-bubble">${bubbleHtml}</div>
             ${webSearchSourcesPanel}
           </div>
+          ${this._messageToolbarHtml(m, isUser, isChair, excusedMember, author)}
         </article>
         ${roundEndCard}
         ${roundPromptCard}
@@ -20061,6 +21644,21 @@
       app.closeRecordingStopModal();
       return;
     }
+    // Pause-after-current save modal · three-option grammar
+    // (save-adjourn / save-keep / continue). Fired by SSE
+    // room-paused when payload.mode==="soft" + recording active.
+    const recPauseSaveChoice = e.target.closest("[data-rec-pause-save-choice]");
+    if (recPauseSaveChoice) {
+      e.preventDefault();
+      app.handleRecordingPauseSaveChoice(recPauseSaveChoice.getAttribute("data-rec-pause-save-choice"));
+      return;
+    }
+    if (e.target.id === "rec-pause-save-overlay") {
+      // Backdrop click · keep recording (don't accidentally end
+      // a recording the user explicitly hasn't decided to stop).
+      app.closeRecordingPauseSaveModal();
+      return;
+    }
     // Record button in the room header · toggle on/off.
     if (e.target.closest("[data-record-toggle]")) {
       e.preventDefault();
@@ -21320,19 +22918,21 @@
     }
   });
 
-  // Input-bar textarea scrollbar reveal · the scrollbar is
-  // permanently hidden via `.ib-textarea { scrollbar-width: none }`
-  // and only flips visible while the user is actively scrolling.
-  // We toggle a `.is-scrolling` class on the SCROLLING element with
-  // a debounced removal so the scrollbar fades back out ~800 ms
-  // after the last scroll event. Scroll events don't bubble, so the
-  // listener is in capture phase to catch them from any textarea
-  // anywhere in the document.
+  // Scrollbar auto-reveal · `.ib-textarea` (room input bar) and
+  // `.thread-float-messages` (thread chat) both render with
+  // `scrollbar-width: none` by default and only flip visible
+  // while the user is actively scrolling. We toggle `.is-scrolling`
+  // with an 800 ms debounce so the scrollbar fades back out
+  // shortly after the last scroll. Scroll events don't bubble,
+  // hence the capture-phase listener.
   const _scrollDecayTimers = new WeakMap();
   document.addEventListener("scroll", (ev) => {
     const t = ev.target;
-    if (!t || !(t instanceof HTMLTextAreaElement)) return;
-    if (!t.classList.contains("ib-textarea")) return;
+    if (!t || !(t instanceof HTMLElement)) return;
+    const eligible =
+      (t instanceof HTMLTextAreaElement && t.classList.contains("ib-textarea"))
+      || t.classList.contains("thread-float-messages");
+    if (!eligible) return;
     t.classList.add("is-scrolling");
     const prev = _scrollDecayTimers.get(t);
     if (prev) clearTimeout(prev);

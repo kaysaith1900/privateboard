@@ -161,23 +161,32 @@ export function voiceCredentialsRouter(): Hono {
     const meta = createVoiceCredential(provider, label, key);
     if (!meta) return c.json({ error: "failed to create credential" }, 500);
 
-    // Auto-activate ONLY when no active credential exists yet · the user
-    // explicitly requested that subsequent keys not take over the active
-    // slot, so they keep using their chosen credential until they manually
-    // switch via the list. Without the first-credential exception the
-    // system would have no voice provider to dispatch against on a fresh
-    // install.
-    const hadActive = !!getPrefs().activeVoiceCredentialId;
-    if (!hadActive) {
+    // Activation policy:
+    //   · No active credential yet → activate (first-key) + reconcile so
+    //     a fresh install has a provider to dispatch against.
+    //   · Active credential is the SAME provider → activate the new one.
+    //     This is a key rotation / region switch (e.g. swapping a MiniMax
+    //     CN key for an `intl` one after toggling minimaxRegion). The
+    //     button literally says "Save & activate", and leaving the old
+    //     key active silently sends it to the new region's host →
+    //     1004 "login fail". Same provider ⇒ director voice_ids stay
+    //     valid, so no reconcile is needed — just point at the new key.
+    //   · Active credential is a DIFFERENT provider → do NOT take over,
+    //     so adding a secondary provider's key never clobbers the user's
+    //     configured voice provider + director voices. They switch
+    //     manually via the credential list.
+    const priorActiveId = getPrefs().activeVoiceCredentialId;
+    const priorActive = priorActiveId ? getVoiceCredentialMeta(priorActiveId) : null;
+    if (!priorActive) {
       updatePrefs({ activeVoiceCredentialId: meta.id });
-      // First-credential path · no prior provider by definition, so no
-      // snapshot. Explicit null for symmetry with the LLM path.
       try { reconcileAgentVoices({ reason: "first-key", priorProvider: null }); }
       catch (e) {
         process.stderr.write(
           `[voice-credentials.post] reconcile failed: ${e instanceof Error ? e.message : String(e)}\n`,
         );
       }
+    } else if (priorActive.provider === provider) {
+      updatePrefs({ activeVoiceCredentialId: meta.id });
     }
     const activeId = getPrefs().activeVoiceCredentialId;
     return c.json(payloadFor(meta, activeId), 201);

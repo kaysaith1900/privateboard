@@ -2999,9 +2999,108 @@
     await fetchNextVoicePage(30);
     return state.voices;
   }
+  /** Repaint the voice-picker trigger's label for a given director.
+   *  Called after `ensureVoiceOptions()` resolves and after a label
+   *  rename so the trigger reflects the friendliest available name
+   *  without forcing the user to reopen the profile. Idempotent +
+   *  cheap (DOM querySelector). */
+  function repaintTriggerLabel(slug) {
+    if (!slug) return;
+    const v = window.app && window.app.agentsById ? window.app.agentsById[slug]?.voice : null;
+    if (!v || !v.voiceId) return;
+    document.querySelectorAll(`[data-ap-voice-row][data-slug="${slug}"]`).forEach((row) => {
+      const name = row.querySelector("[data-ap-voice-name]");
+      if (name) name.textContent = `${v.provider} · ${resolveVoiceLabel(v)}`;
+    });
+  }
+
   function voiceForAgent(slug) {
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     return live && live.voice ? live.voice : null;
+  }
+  /** Standalone voice-label cache · mirrors the server's
+   *  `voice_labels` table (mig 055) so the friendly name a user
+   *  typed in the clone modal survives a page reload without
+   *  waiting for `/api/voices` catalog propagation. Filled on boot
+   *  by `prefetchVoiceLabels()`; rewritten when the user renames
+   *  a voice in the picker. Map<voiceId, label>. */
+  const voiceLabelCache = new Map();
+  let voiceLabelPrefetchPromise = null;
+
+  async function prefetchVoiceLabels() {
+    if (voiceLabelPrefetchPromise) return voiceLabelPrefetchPromise;
+    voiceLabelPrefetchPromise = (async () => {
+      try {
+        const res = await fetch("/api/voice-labels", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        const rows = Array.isArray(json && json.labels) ? json.labels : [];
+        voiceLabelCache.clear();
+        for (const row of rows) {
+          if (row && typeof row.voiceId === "string" && typeof row.label === "string") {
+            voiceLabelCache.set(row.voiceId, row.label);
+          }
+        }
+      } catch { /* network blip · resolveVoiceLabel falls back to catalog */ }
+    })();
+    return voiceLabelPrefetchPromise;
+  }
+  // Boot-time prefetch · the agent-profile module loads on every
+  // page, so the cache is warm by the time the user opens any
+  // director profile. Fire-and-forget; the trigger repaint below
+  // also re-resolves once it lands.
+  prefetchVoiceLabels();
+
+  /** Pick the friendliest display name for a voice. Four sources,
+   *  in priority order:
+   *   1. The local `voiceLabelCache` (filled from `/api/voice-labels`
+   *      at boot) — survives reload + multi-device sync.
+   *   2. `voice.label` from the catalogue row (provider-side rename
+   *      via the MiniMax / ElevenLabs dashboard wins here).
+   *   3. The cached pager state · voices coming from `agent.voice`
+   *      (rendered by the trigger) carry only `{provider, model,
+   *      voiceId, ...}` — no label field. Look up the matching
+   *      voiceId in `voicePagerState.voices` to find the catalog
+   *      entry's friendly name.
+   *   4. Raw voice_id as last resort. */
+  function resolveVoiceLabel(voice) {
+    if (!voice) return "";
+    const id = voice.voiceId || "";
+    if (id && voiceLabelCache.has(id)) return voiceLabelCache.get(id);
+    if (voice.label) return voice.label;
+    if (!id) return "";
+    try {
+      const cached = (voicePagerState && voicePagerState.voices) || [];
+      const hit = cached.find((x) =>
+        x.voiceId === id && (!voice.provider || x.provider === voice.provider),
+      );
+      if (hit && hit.label && hit.label !== hit.voiceId) return hit.label;
+    } catch { /* */ }
+    return id;
+  }
+  /** Re-fetch the voice catalog + repaint the open picker in place.
+   *  Called from the inline-rename flow after PUT/DELETE on
+   *  /api/voice-labels/* so the user sees the new label without
+   *  re-opening the dropdown. No-op when the picker isn't open. */
+  async function refreshOpenVoicePicker() {
+    const pop = document.getElementById("ap-voice-picker");
+    if (!pop) return;
+    const slug = pop.dataset.slug;
+    invalidateVoicePager();
+    await fetchNextVoicePage(30);
+    if (!slug) return;
+    renderVoicePickerBody(pop, slug);
+    // Trigger label may also need a refresh (if we renamed the
+    // currently-selected voice).
+    const row = document.querySelector(`[data-ap-voice-row][data-slug="${slug}"]`);
+    if (row) {
+      const v = voiceForAgent(slug);
+      const name = row.querySelector("[data-ap-voice-name]");
+      const state = getVoicePagerState();
+      // Look up the fresh row by voiceId so we pick up the renamed label.
+      const fresh = (state.voices || []).find((x) => v && x.provider === v.provider && x.voiceId === v.voiceId);
+      if (name && v) name.textContent = `${v.provider} · ${resolveVoiceLabel(fresh || v)}`;
+    }
   }
   /** Format a voice-tune slider value for display. Speed gets an
    *  `×` suffix; centered ranges (pitch / modify-*) prefix non-zero
@@ -3076,9 +3175,21 @@
     // pops instantly when the user clicks. Without it the first click
     // pays the /api/voices round-trip (hundreds of voices on MiniMax)
     // and the dropdown lags visibly. Idempotent · cache-hit no-ops.
-    ensureVoiceOptions();
+    //
+    // After the cache lands (or the parallel voice-labels prefetch
+    // resolves) we re-resolve the trigger label · the initial
+    // render only has access to `agent.voice` (no label field), so
+    // trigger initially shows the raw voice_id. Once either source
+    // lands `resolveVoiceLabel` can find the friendly name.
+    void ensureVoiceOptions().then(() => repaintTriggerLabel(slug));
+    void prefetchVoiceLabels().then(() => repaintTriggerLabel(slug));
     const v = voiceForAgent(slug);
-    const label = v ? `${v.provider} · ${v.voiceId}` : uiT("ap_voice_browser_default");
+    // Trigger label prefers the user-typed name for cloned voices
+    // (stored in localStorage at clone time) over the raw voice_id.
+    // resolveVoiceLabel() picks the friendliest available string.
+    const label = v
+      ? `${v.provider} · ${resolveVoiceLabel(v)}`
+      : uiT("ap_voice_browser_default");
     const speed = v?.speed ?? 1;
     const pitch = v?.pitch ?? 0;
     const emotion = v?.emotion || "";
@@ -3090,34 +3201,73 @@
 
     return `
       <div class="ap-voice-config" data-ap-voice-row data-slug="${escape(slug)}">
-        <div class="ap-voice-picker-row">
-          <button type="button" class="ap-model-trigger" data-ap-voice-trigger>
-            <span class="ap-model-trigger-text">
-              <span class="ap-model-trigger-name" data-ap-voice-name>${escape(label)}</span>
-            </span>
-            <span class="ap-model-trigger-caret">▾</span>
-          </button>
-          <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="${escape(uiT("ap_voice_preview_btn_title"))}" aria-label="${escape(uiT("ap_voice_preview_btn_title"))}"><span class="ap-voice-preview-glyph">▶</span><span class="ap-voice-preview-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>
-        </div>
-        <div class="ap-voice-emotion-row">
-          <button type="button" class="ap-model-trigger ap-voice-emotion-trigger" data-ap-emotion-trigger data-slug="${escape(slug)}">
-            <span class="ap-model-trigger-text">
-              <span class="ap-model-trigger-name" data-ap-voice-emotion-label>${escape(emotionLabel)}</span>
-            </span>
-            <span class="ap-model-trigger-caret">▾</span>
-          </button>
-          <div class="ap-voice-emotion-hint">${escape(uiT("ap_voice_emotion_hint"))}</div>
-        </div>
-        <details class="ap-voice-advanced">
-          <summary>${escape(uiT("ap_voice_advanced"))}</summary>
-          <div class="ap-voice-tune-grid">
-            ${renderVoiceTuneRow(slug, "speed",           uiT("ap_voice_speed"),           speed,        0.5, 2,   0.1)}
-            ${renderVoiceTuneRow(slug, "pitch",           uiT("ap_voice_pitch"),           pitch,       -12, 12,   1)}
-            ${renderVoiceTuneRow(slug, "modifyPitch",     uiT("ap_voice_modify_pitch"),    modPitch,   -100, 100,  5)}
-            ${renderVoiceTuneRow(slug, "modifyIntensity", uiT("ap_voice_modify_intensity"), modIntensity, -100, 100,  5)}
-            ${renderVoiceTuneRow(slug, "modifyTimbre",    uiT("ap_voice_modify_timbre"),    modTimbre,   -100, 100,  5)}
+        <section class="ap-voice-section">
+          <header class="ap-voice-section-head">${escape(uiT("ap_voice_section_voice"))}</header>
+          <div class="ap-voice-picker-row">
+            <button type="button" class="ap-model-trigger" data-ap-voice-trigger>
+              <span class="ap-model-trigger-text">
+                <span class="ap-model-trigger-name" data-ap-voice-name>${escape(label)}</span>
+              </span>
+              <span class="ap-model-trigger-caret">▾</span>
+            </button>
+            <button type="button" class="ap-voice-preview-btn" data-ap-voice-preview data-slug="${escape(slug)}" title="${escape(uiT("ap_voice_preview_btn_title"))}" aria-label="${escape(uiT("ap_voice_preview_btn_title"))}"><span class="ap-voice-preview-glyph">▶</span><span class="ap-voice-preview-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>
           </div>
-        </details>
+        </section>
+        <section class="ap-voice-section">
+          <header class="ap-voice-section-head">${escape(uiT("ap_voice_section_emotion"))}</header>
+          <div class="ap-voice-emotion-row">
+            <button type="button" class="ap-model-trigger ap-voice-emotion-trigger" data-ap-emotion-trigger data-slug="${escape(slug)}">
+              <span class="ap-model-trigger-text">
+                <span class="ap-model-trigger-name" data-ap-voice-emotion-label>${escape(emotionLabel)}</span>
+              </span>
+              <span class="ap-model-trigger-caret">▾</span>
+            </button>
+            <div class="ap-voice-emotion-hint">${escape(uiT("ap_voice_emotion_hint"))}</div>
+          </div>
+        </section>
+        <section class="ap-voice-section">
+          <header class="ap-voice-section-head">${escape(uiT("ap_voice_section_preview"))}</header>
+          <div class="ap-voice-preview-row">
+            <textarea
+              id="ap-voice-preview-text-${escape(slug)}"
+              class="ap-voice-preview-text"
+              data-ap-voice-preview-text="${escape(slug)}"
+              rows="2"
+              maxlength="240"
+              placeholder="${escape(uiT("ap_voice_preview_sample"))}"
+            >${escape(loadPreviewText(slug))}</textarea>
+          </div>
+        </section>
+        <section class="ap-voice-section">
+          <button type="button" class="ap-voice-forge" data-ap-voice-clone="${escape(slug)}">
+          <span class="ap-voice-forge-corner ap-voice-forge-corner-tl" aria-hidden="true"></span>
+          <span class="ap-voice-forge-corner ap-voice-forge-corner-tr" aria-hidden="true"></span>
+          <span class="ap-voice-forge-corner ap-voice-forge-corner-bl" aria-hidden="true"></span>
+          <span class="ap-voice-forge-corner ap-voice-forge-corner-br" aria-hidden="true"></span>
+          <span class="ap-voice-forge-scan" aria-hidden="true"></span>
+          <span class="ap-voice-forge-kicker">${escape(uiT("voice_clone_btn_kicker"))}</span>
+          <span class="ap-voice-forge-body">
+            <span class="ap-voice-forge-rune" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+            </span>
+            <span class="ap-voice-forge-title">${escape(uiT("voice_clone_btn"))}</span>
+            <span class="ap-voice-forge-arrow" aria-hidden="true">›</span>
+          </span>
+          <span class="ap-voice-forge-hint">${escape(uiT("voice_clone_btn_hint"))}</span>
+        </button>
+        </section>
+        <section class="ap-voice-section">
+          <details class="ap-voice-advanced">
+            <summary>${escape(uiT("ap_voice_advanced"))}</summary>
+            <div class="ap-voice-tune-grid">
+              ${renderVoiceTuneRow(slug, "speed",           uiT("ap_voice_speed"),           speed,        0.5, 2,   0.1)}
+              ${renderVoiceTuneRow(slug, "pitch",           uiT("ap_voice_pitch"),           pitch,       -12, 12,   1)}
+              ${renderVoiceTuneRow(slug, "modifyPitch",     uiT("ap_voice_modify_pitch"),    modPitch,   -100, 100,  5)}
+              ${renderVoiceTuneRow(slug, "modifyIntensity", uiT("ap_voice_modify_intensity"), modIntensity, -100, 100,  5)}
+              ${renderVoiceTuneRow(slug, "modifyTimbre",    uiT("ap_voice_modify_timbre"),    modTimbre,   -100, 100,  5)}
+            </div>
+          </details>
+        </section>
       </div>
     `;
   }
@@ -3230,20 +3380,49 @@
     // popover. Same treatment as the empty-state error.
     const errBannerHtml = voicePickerErrorHtml(state.error);
     if (errBannerHtml) groups.push(errBannerHtml);
+    // Two-level grouping · user-owned cloned voices get their own
+    // header at the top of the dropdown ("// cloned · MiniMax"), then
+    // the standard provider groups for system / premade voices. Cloned
+    // voices on both providers carry a recognisable language tag —
+    // MiniMax sets it to "clone" (we tag it), ElevenLabs uses v2's
+    // `category` which is "cloned" / "professional" for user voices.
+    const isClonedTag = (v) => v && (v.language === "clone" || v.language === "cloned" || v.language === "professional");
     let last = null;
     for (const v of voices) {
       const provider = String(v.provider || "browser");
-      if (provider !== last) {
-        groups.push(`<div class="ap-model-group">${escape(provider)}</div>`);
-        last = provider;
+      const cloned = isClonedTag(v);
+      // Group key reflects the section the row belongs to. Two
+      // cloned rows from the same provider share a header; two
+      // system rows do too.
+      const groupKey = cloned ? `clone:${provider}` : `system:${provider}`;
+      if (groupKey !== last) {
+        const label = cloned
+          ? uiT("ap_voice_group_cloned_provider", { provider })
+          : provider;
+        groups.push(`<div class="ap-model-group${cloned ? " ap-model-group-cloned" : ""}">${escape(label)}</div>`);
+        last = groupKey;
       }
       const id = [provider, v.model || "", v.voiceId || ""].join("|");
       const active = current && current.provider === provider && current.model === v.model && current.voiceId === v.voiceId;
+      // For cloned rows the `language: "clone"` hint is redundant
+      // (the group header already says so); show just the model.
+      const hintParts = [v.model || ""];
+      if (!cloned && v.language) hintParts.push(v.language);
+      // Inline rename button · only meaningful for provider-side
+      // voices (cloned / system on minimax + elevenlabs). The browser
+      // fallback row has no voice_id to label, so skip the chip there.
+      const canRename = (provider === "minimax" || provider === "elevenlabs") && v.voiceId;
+      const renameBtn = canRename
+        ? `<button type="button" class="ap-model-opt-rename" data-ap-voice-label-edit data-voice-id="${escape(v.voiceId)}" data-provider="${escape(provider)}" data-current-label="${escape(resolveVoiceLabel(v) || "")}" aria-label="${escape(uiT("ap_voice_rename_btn"))}" title="${escape(uiT("ap_voice_rename_btn"))}">✎</button>`
+        : "";
       groups.push(`
-        <button type="button" class="ap-model-opt${active ? " active" : ""}" data-ap-voice-pick="${escape(id)}">
-          <span class="ap-model-opt-label">${escape(v.label || v.voiceId || uiT("ap_voice_fallback_voice"))}</span>
-          <span class="ap-model-opt-hint">${escape((v.model || "") + (v.language ? " · " + v.language : ""))}</span>
-        </button>
+        <div class="ap-model-opt-row${cloned ? " is-cloned" : ""}">
+          <button type="button" class="ap-model-opt${active ? " active" : ""}${cloned ? " ap-model-opt-cloned" : ""}" data-ap-voice-pick="${escape(id)}">
+            <span class="ap-model-opt-label">${escape(resolveVoiceLabel(v) || uiT("ap_voice_fallback_voice"))}</span>
+            <span class="ap-model-opt-hint">${escape(hintParts.filter(Boolean).join(" · "))}</span>
+          </button>
+          ${renameBtn}
+        </div>
       `);
     }
     // Trailing sentinel · either a "loading more" pulse (when we're
@@ -3381,13 +3560,32 @@
         rows.forEach((row) => {
           const name = row.querySelector("[data-ap-voice-name]");
           const prov = row.querySelector("[data-ap-voice-provider]");
-          if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${nv.voiceId}`;
+          if (name && nv && nv.provider && nv.voiceId) name.textContent = `${nv.provider} · ${resolveVoiceLabel(nv)}`;
           if (prov && nv && nv.model != null) prov.textContent = nv.model;
           const emLb = row.querySelector("[data-ap-voice-emotion-label]");
           if (emLb && nv) emLb.textContent = voiceEmotionOptionLabel(nv.emotion ?? "");
         });
       })
       .catch((e) => alert(uiT("ap_voice_save_err", { msg: e && e.message ? e.message : String(e) })));
+  }
+
+  /** Per-slug custom preview text · persisted to localStorage so the
+   *  user's preferred sample line is remembered across renders /
+   *  reloads / agent-profile open & close. Falls back to the active
+   *  locale's `ap_voice_preview_sample` when empty. */
+  function previewTextStorageKey(slug) {
+    return `pb.voice-preview-text.${slug}`;
+  }
+  function loadPreviewText(slug) {
+    try {
+      return localStorage.getItem(previewTextStorageKey(slug)) || "";
+    } catch { return ""; }
+  }
+  function savePreviewText(slug, value) {
+    try {
+      if (value && value.trim()) localStorage.setItem(previewTextStorageKey(slug), value);
+      else localStorage.removeItem(previewTextStorageKey(slug));
+    } catch { /* */ }
   }
 
   async function previewVoice(slug) {
@@ -3403,16 +3601,17 @@
     // doesn't match the system's mono register.
     if (btn) { btn.disabled = true; btn.classList.add("is-loading"); }
     try {
+      // User's custom preview text wins when set (saved per slug to
+      // localStorage from the .ap-voice-preview-text textarea). When
+      // empty we send the active locale's default — server otherwise
+      // falls back to a hardcoded Chinese phrase, which surfaced in
+      // EN/JA/ES locales as the wrong language being read.
+      const customText = (loadPreviewText(slug) || "").trim();
       const r = await fetch("/api/voices/preview", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          // Localised sample line · the server falls back to a
-          // hardcoded Chinese default when `text` is omitted, which
-          // surfaced in English / Japanese / Spanish locales as a
-          // Chinese phrase being read out of the voice. Sending the
-          // i18n key value matches the user's active UI locale.
-          text: uiT("ap_voice_preview_sample"),
+          text: customText || uiT("ap_voice_preview_sample"),
           provider: v.provider,
           model: v.model,
           voiceId: v.voiceId,
@@ -5033,6 +5232,61 @@
         closeEmotionPicker();
         return;
       }
+      // Inline rename · per-row ✎ button. Prompt for the new label,
+      // PUT it to /api/voice-labels/:voiceId, drop both the server
+      // catalogue cache (the route does that for us) and the client
+      // pager state, then re-fetch + repaint the open picker. This
+      // keeps the menu open during the rename so the user sees the
+      // label flip in place.
+      const labelBtn = e.target.closest("[data-ap-voice-label-edit]");
+      if (labelBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const voiceId = labelBtn.getAttribute("data-voice-id") || "";
+        const provider = labelBtn.getAttribute("data-provider") || "";
+        const current = labelBtn.getAttribute("data-current-label") || "";
+        if (!voiceId || !provider) return;
+        const next = window.prompt(uiT("ap_voice_rename_prompt", { id: voiceId }), current);
+        if (next === null) return; // cancelled
+        const trimmed = String(next).trim();
+        if (!trimmed) {
+          // Empty input clears the custom label so the catalog name
+          // wins again (or falls back to voice_id).
+          if (!window.confirm(uiT("ap_voice_rename_clear_confirm"))) return;
+          fetch(`/api/voice-labels/${encodeURIComponent(voiceId)}`, { method: "DELETE" })
+            .then(() => {
+              voiceLabelCache.delete(voiceId);
+              refreshOpenVoicePicker();
+              // Trigger labels for any director sitting on this voice
+              // need to re-resolve · their previous "friendly" name
+              // just disappeared.
+              document.querySelectorAll(`[data-ap-voice-row]`).forEach((row) => {
+                const s = row.getAttribute("data-slug");
+                if (s) repaintTriggerLabel(s);
+              });
+            })
+            .catch(() => { /* */ });
+          return;
+        }
+        fetch(`/api/voice-labels/${encodeURIComponent(voiceId)}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ provider, label: trimmed }),
+        })
+          .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
+          .then(() => {
+            voiceLabelCache.set(voiceId, trimmed);
+            refreshOpenVoicePicker();
+            // Repaint every trigger that currently displays this
+            // voice so the rename lands immediately.
+            document.querySelectorAll(`[data-ap-voice-row]`).forEach((row) => {
+              const s = row.getAttribute("data-slug");
+              if (s) repaintTriggerLabel(s);
+            });
+          })
+          .catch((err) => alert(uiT("ap_voice_rename_err", { msg: err?.message || String(err) })));
+        return;
+      }
       const voiceOpt = e.target.closest("[data-ap-voice-pick]");
       if (voiceOpt) {
         e.preventDefault();
@@ -5052,6 +5306,113 @@
         e.preventDefault();
         const slug = previewBtn.getAttribute("data-slug");
         if (slug) previewVoice(slug);
+        return;
+      }
+      // Preview text textarea · persist on blur so we don't hammer
+      // localStorage on every keystroke; the input listener below
+      // syncs the in-memory STATE for the next previewVoice call.
+      // Voice cloning · open the boardroomVoiceClone overlay. The
+      // singleton lives in `public/voice-clone.js`; the `onApplied`
+      // callback re-renders this voice block so the picker label
+      // updates to the new voice_id without a full profile reload.
+      const cloneBtn = e.target.closest("[data-ap-voice-clone]");
+      if (cloneBtn) {
+        e.preventDefault();
+        const slug = cloneBtn.getAttribute("data-ap-voice-clone");
+        if (!slug) return;
+        const vc = window.boardroomVoiceClone;
+        if (!vc || typeof vc.open !== "function") return;
+        const agent = (window.app && window.app.agentsById && window.app.agentsById[slug]) || null;
+        vc.open({
+          agentId: slug,
+          agentName: agent ? agent.name : "",
+          onApplied: async (applied) => {
+            // `applied` = { voiceId, label, provider } from voice-clone.js.
+            // Four steps land the user squarely on the new voice:
+            //   1. Sync the client-side agent cache (`window.app.
+            //      agentsById[slug].voice`) so the picker trigger
+            //      renders the new selection.
+            //   2. Drop the pager cache + re-fetch /api/voices · the
+            //      server has just dropped its catalogue cache, so a
+            //      fresh fetch may pick up the new voice straight from
+            //      the provider (5-30 s propagation can still mean the
+            //      catalog doesn't carry it yet — step 3 fills the gap).
+            //   3. Inject the new voice into the pager state if the
+            //      fresh fetch didn't bring it back. This is the
+            //      optimistic safety net for the propagation gap. The
+            //      model field MUST match the model the catalog will
+            //      return on the next refresh — otherwise dedup misses
+            //      and the row appears twice. We hard-code the
+            //      cloning-model per provider (same as the server
+            //      worker writes into agent.voice.model).
+            //   4. Re-render the voice block so the trigger label
+            //      reflects the new voice immediately.
+            try {
+              const provider = (applied && applied.provider) || "minimax";
+              const model = provider === "elevenlabs" ? "eleven_multilingual_v2" : "speech-2.8-hd";
+              const voiceId = applied && applied.voiceId;
+              const label = (applied && applied.label) || "";
+
+              // Step 1 · live agent cache.
+              const liveAgent = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
+              if (liveAgent && voiceId) {
+                const prev = liveAgent.voice || {};
+                liveAgent.voice = {
+                  speed: prev.speed,
+                  pitch: prev.pitch,
+                  volume: prev.volume,
+                  emotion: prev.emotion,
+                  provider,
+                  model,
+                  voiceId,
+                };
+              }
+              // Step 1b · local label cache · keeps the friendly name
+              // available across a page reload BEFORE `/api/voice-labels`
+              // prefetch round-trips on the next boot.
+              if (voiceId && label) {
+                voiceLabelCache.set(voiceId, label);
+              }
+
+              // Step 2 · drop pager cache + force re-fetch. Without
+              // this, any later `invalidateVoicePager` triggered by
+              // settings tweaks would strand a stale optimistic-only
+              // row (cleared state has no voices for the new id).
+              invalidateVoicePager();
+              try { await fetchNextVoicePage(30); } catch { /* */ }
+
+              // Step 3 · inject if the catalog refetch didn't include it.
+              const state = getVoicePagerState();
+              if (voiceId && state) {
+                const id = `${provider}|${model}|${voiceId}`;
+                const dupeIdx = (state.voices || []).findIndex((x) => `${x.provider}|${x.model || ""}|${x.voiceId || ""}` === id);
+                if (dupeIdx < 0) {
+                  state.voices.unshift({
+                    provider,
+                    model,
+                    voiceId,
+                    label: label || voiceId,
+                    language: "clone",
+                    configured: true,
+                  });
+                } else if (label) {
+                  if (!state.voices[dupeIdx].label || state.voices[dupeIdx].label === voiceId) {
+                    state.voices[dupeIdx] = { ...state.voices[dupeIdx], label, language: "clone" };
+                  }
+                }
+              }
+
+              // 3 · re-render the voice block (trigger label now correct).
+              const row = document.querySelector(`.ap-voice-config[data-slug="${slug}"], .ap-voice-locked[data-slug="${slug}"]`);
+              if (row && typeof renderVoiceBlock === "function") {
+                const wrap = document.createElement("div");
+                wrap.innerHTML = renderVoiceBlock(slug);
+                const fresh = wrap.firstElementChild;
+                if (fresh && row.parentNode) row.parentNode.replaceChild(fresh, row);
+              }
+            } catch { /* */ }
+          },
+        });
         return;
       }
     });
@@ -5092,6 +5453,16 @@
         const { lo, hi } = rangeFillPositions(parseFloat(range.min), parseFloat(range.max), val);
         range.style.setProperty("--fill-lo", lo);
         range.style.setProperty("--fill-hi", hi);
+        return;
+      }
+      // Custom preview text · persist per-slug to localStorage so the
+      // next previewVoice call (or the next agent-profile open) picks
+      // it up. Save on every keystroke; the cost is one tiny write
+      // and the user never wonders "did my edit stick?".
+      const previewText = e.target.closest("[data-ap-voice-preview-text]");
+      if (previewText) {
+        const slug = previewText.getAttribute("data-ap-voice-preview-text");
+        if (slug) savePreviewText(slug, previewText.value);
         return;
       }
     });

@@ -19,7 +19,9 @@ import { roomsRouter } from "./routes/rooms.js";
 import { searchCredentialsRouter } from "./routes/search-credentials.js";
 import { searchRouter } from "./routes/search.js";
 import { usageRouter } from "./routes/usage.js";
+import { voiceCloneRouter } from "./routes/voice-clone.js";
 import { voiceCredentialsRouter } from "./routes/voice-credentials.js";
+import { voiceLabelsRouter } from "./routes/voice-labels.js";
 import { voicesRouter } from "./routes/voices.js";
 import { publicDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
@@ -135,6 +137,8 @@ export function createApp() {
   app.route("/api/usage", usageRouter());
   app.route("/api/voices", voicesRouter());
   app.route("/api/voice-credentials", voiceCredentialsRouter());
+  app.route("/api/voice-clone", voiceCloneRouter());
+  app.route("/api/voice-labels", voiceLabelsRouter());
   app.route("/api/search", searchRouter());
   app.route("/api/search-credentials", searchCredentialsRouter());
 

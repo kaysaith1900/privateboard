@@ -218,7 +218,7 @@ html.is-electron-mac .room-settings-overlay * {
 }
 .rs-config-row-name {
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.005em;
@@ -1096,12 +1096,11 @@ html.is-electron-mac .room-settings-overlay * {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.4; }
 }
-/* Generate-Report variant · adjourned room with no brief yet. The
-   primary CTA-ness moves to the icon's color tone (lime) — same
-   tactic as the sidebar's `.new-btn.active` lime state. */
-.head-view-report.is-generate {
-  color: var(--lime);
-}
+/* Generate-Report variant · adjourned room with no brief yet. No
+   colour accent — the icon rests at the shared `.head-icon-btn`
+   text-soft tone (lime only on hover, like every other head icon)
+   so it doesn't read as a yellow/gold highlight (`--lime` is the
+   warm gold #C9A46B in the default theme). */
 /* Count chip for multi-brief popover trigger · pinned to the icon's
    top-right corner so the user sees "there's more than one report"
    without taking horizontal space. Mono pill, same micro-tag register
@@ -1133,9 +1132,20 @@ html.is-electron-mac .room-settings-overlay * {
 /* Edit cast · Lucide UserPlus. Sits between the cast avatars and the
    primary state action so the user reads it as a direct affordance on
    the cast strip ("add a member to this group"). Hidden on adjourned
-   rooms (the cast is frozen once the brief is filed). */
+   rooms (the cast is frozen once the brief is filed).
+   The glyph (user silhouette + plus) sits in opposite quadrants of
+   the 24×24 viewBox · at the shared 16×16 mask size the symbol reads
+   visually smaller than dense siblings like `.head-divergence`. Bump
+   the mask + ::before box to 18×18 so it sits at the same perceived
+   weight as the cast avatars (26px) next to it. */
 .head-add-cast {
   --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='19' x2='19' y1='8' y2='14'/><line x1='22' x2='16' y1='11' y2='11'/></svg>");
+}
+.head-add-cast::before {
+  width: 18px;
+  height: 18px;
+  -webkit-mask-size: 18px 18px;
+          mask-size: 18px 18px;
 }
 html[data-status="adjourned"] .head-add-cast { display: none; }
 /* Adjourn · identical glyph to the input-bar's `.ib-adjourn` (Lucide
@@ -1195,7 +1205,12 @@ html[data-status="adjourned"] .head-add-cast { display: none; }
 .rec-countdown-overlay {
   position: absolute;
   inset: 0;
-  z-index: 10;
+  /* Sit above the live caption · `.rt-subtitle` is z-index: 12 (see
+     index.html line ~9554), so the countdown overlay must be
+     higher or else the subtitle bar punches through "3 / 2 / 1 /
+     READY" and ruins the movie-trailer intro. 30 leaves headroom
+     for any future stage chrome we want to slip between. */
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;

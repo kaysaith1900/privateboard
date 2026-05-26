@@ -16,6 +16,38 @@ user reads (chat messages, summaries, explanations) is in Chinese.
 
 ## CSS
 
+### No 13px font-size in app UI surfaces
+
+Never set `font-size: 13px` in any app-shell CSS (`public/index.html`'s
+inline `<style>`, `public/thread.css`, `public/agent-overlay.css`,
+`public/room-settings.css`, `public/onboarding.css`,
+`public/agent-profile.css`, `public/user-settings.css`,
+`public/new-agent.css`, `public/adjourn-overlay.css`,
+`public/voice-replay.css`, `public/app-updater.css`,
+`public/quote-cta.css`, `public/mention-picker.js`). Round to **14px**
+instead — the smallest body / chip / row-label register the app uses.
+
+Why: 13px is the awkward in-between size that reads as "too small to
+relax into, too large to feel like a label." A previous pass had it
+scattered across ~70 callsites for body / meta / chip / row text. The
+inconsistency made the UI feel typographically noisy and the chips
+visually tiny against neighbouring 14px / 15px text. The chosen
+register is 11/12px (mono kicker / pill label) → 14px (body / chip
+text) → 15-16px (chat message / heading meta). No 13px tier.
+
+**Exceptions** — explicitly NOT covered by this rule:
+
+- `public/report.html` and `public/report/spines/*` — the report
+  design system has its own type scale (see the *No sub-pixel sizing
+  in the report system* section below); 13px caption against 15px
+  body is part of that scale.
+- `public/ppt.html`, `public/magazine.html`, `public/newspaper.html` —
+  these are report spine templates.
+- `public/home.html` — marketing landing page with its own scale.
+
+Anywhere else: pick 12 or 14. If you're tempted to write 13 to "split
+the difference," go with 14 (the app's body register).
+
 ### No coloured `border-left` callouts
 
 Never use `border-left` as a callout treatment in any spine of the

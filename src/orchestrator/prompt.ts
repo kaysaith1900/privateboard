@@ -551,7 +551,9 @@ const TONE_GUIDANCE: Record<string, string> = {
     "1–2 句。给这个 idea 一个**更有传播力的说法**——一句 slogan、一个新名字、一个对外讲得清楚的定位、一个让人记住的比喻。",
     "",
     "【一个具体做法】",
-    "1–3 句。给一个**最小可执行**的具体动作 / 实验 / 第一步形态。**下周就能做的事**，不是宏大蓝图。",
+    "1–3 句。给一个**最小可执行**的具体动作 / 实验 / 第一步形态——可以是一个原型、一通电话、一次小测、一份草案、一个能跑通的最小闭环。重点是「能立刻动手、规模可控」，不是宏大蓝图。",
+    "  · **不要用模板腔**写「下周就能做的事」「这周就能动手」「明天就能开始」这一类**死板时间表达**——任何 director 一旦机械复读「下周就能做」「下周可以…」/「next week we can…」/「by next week…」，整段都会被视为模板填充而非真正贡献。这种 phrasing **整轮里最多出现一次**，不要每个 director 都重复。",
+    "  · 表达「最小可执行」用各自的话：例如「一个下午就能拼出原型」「先找 3 个目标用户聊一聊」「拿现成数据先跑一版」「写一页 brief 发给 X」「在 X 平台上挂个落地页测点击」「先做内测版给小范围用户」——你的角色背景决定你怎么描述这个最小动作，而不是套时间词。",
     "",
     "【我补充的新方向】",
     "1–3 句。从你独特的角色视角，开一个**房间里还没人讲过的方向**。可以是邻近领域的类比、未被注意的用户场景、跨学科的连接、半成品式的「如果…会怎样」。这里是你 contrarian DNA 的唯一出口——把它用在「开别人没开过的方向」上，不是「指出别人的盲点」。",
@@ -1015,6 +1017,26 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
     }
   }
 
+  // Thread-mode block · when this room is a private 1:1 aside spawned
+  // from a main room (room.kind === "thread"), the director is in a
+  // different conversational posture: no peers in the room, no
+  // round-robin, no chair moderation, no brief at the end. The user
+  // pulled them aside to dig deeper on something. Override the
+  // default "speak into the room" framing with a "private aside"
+  // framing so the model doesn't mistakenly address other directors
+  // who aren't here, and so they understand candidness is invited.
+  const threadModeBlock = room.kind === "thread"
+    ? [
+        ``,
+        `─── PRIVATE ASIDE · 1:1 WITH THE USER ───`,
+        `This is a private thread the user pulled you into from the main boardroom (room "${room.subject}"). The transcript below shows BOTH (a) the main room conversation up to the moment the user opened this thread, AND (b) this thread's own messages — chronologically merged so you have full context.`,
+        `Crucially: the other directors are NOT here. They cannot see this conversation. Anything you say below is between you and the user. The chair is not moderating; there is no round-robin; there will be no brief.`,
+        `Your posture · drop the "speak into the room" framing. You're having a candid 1:1 — be more personal, more specific, willing to commit to a view, willing to say what you wouldn't put on the record. Stay yourself (your lens, your discipline) but you don't have to "represent your seat" — just talk with this person.`,
+        `Do not address other directors by name as if they're listening (they aren't). You CAN reference what they said in the main room (it's part of your context) — "Socrates earlier framed it as X, but between you and me, I think the sharper question is …".`,
+        `No `+"`@handle`"+` tokens in prose — the same handle-vs-name rule applies (use NAME if you reference someone, never the raw handle).`,
+      ].join("\n")
+    : "";
+
   const system: LLMMessage = {
     role: "system",
     content: [
@@ -1025,6 +1047,7 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `Other directors at the table:`,
       `  · ${others_summary}`,
       youSection,
+      ...(threadModeBlock ? [threadModeBlock] : []),
       ...(memoryBlock ? [memoryBlock] : []),
       ...interestLines,
       ...(priorContext && priorContext.trim() ? [priorContext] : []),
@@ -1047,8 +1070,16 @@ export function buildDirectorMessages(opts: BuildOpts): LLMMessage[] {
       `─── INTENSITY · ${intensity.toUpperCase()} ───`,
       intensityLine,
       ``,
-      `─── ROUND MODE · ${opening ? "OPENING (PARALLEL)" : "REACTIVE"} ───`,
-      opening ? OPENING_BLOCK : REACTIVE_BLOCK,
+      // Round-mode block is only meaningful in main rooms (opening
+      // parallel sweep vs reactive build-on). Threads are a continuous
+      // 1:1 with no rounds, no peers — skip this block entirely so the
+      // model isn't told to "engage other directors" who aren't here.
+      ...(room.kind === "thread"
+        ? []
+        : [
+            `─── ROUND MODE · ${opening ? "OPENING (PARALLEL)" : "REACTIVE"} ───`,
+            opening ? OPENING_BLOCK : REACTIVE_BLOCK,
+          ]),
       ...(chairBriefBlock ? [chairBriefBlock] : []),
       ...(activeSkillsBlock ? ["", activeSkillsBlock] : []),
       ...(sharedMaterials && sharedMaterials.trim() ? ["", sharedMaterials] : []),

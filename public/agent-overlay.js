@@ -201,6 +201,7 @@
   const OVERLAY_HTML = `
     <div class="agent-overlay" id="agent-overlay" role="dialog" aria-modal="true" aria-hidden="true">
       <div class="agent-card" role="document">
+        <div class="agent-card-scroll">
         <div class="agent-classification">
           <span><span class="dot">●</span> <span data-i18n="ao_personnel_kicker">agent · personnel file</span></span>
           <span class="right" data-i18n="ao_classified_mark">// classified</span>
@@ -303,6 +304,7 @@
           <div class="meta public-only"><span data-i18n="ao_first_room_meta">first room ·</span> <span class="lime" data-i18n="ao_free">free</span></div>
           <a href="/#convene" class="agent-card-cta public-only" data-i18n="ao_signin_cta">[ → Sign in to convene ]</a>
         </footer>
+        </div>
       </div>
     </div>
   `;
@@ -366,7 +368,7 @@
         timer = setTimeout(() => node.classList.remove("is-scrolling"), 700);
       }, { passive: true });
     }
-    bindScrollAutoHide(card);
+    bindScrollAutoHide(card.querySelector(".agent-card-scroll"));
     bindScrollAutoHide(card.querySelector(".agent-memory-list"));
 
     /** Build a card from a live /api/agents record (custom directors).

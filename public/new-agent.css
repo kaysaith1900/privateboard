@@ -304,7 +304,7 @@
 }
 .na-avatar-regen .icon {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1;
 }
@@ -362,7 +362,7 @@
   color: var(--lime);
 }
 .na-model-trigger .trigger-l .name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.003em;
@@ -779,7 +779,7 @@
   border: none;
   background: transparent;
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   outline: none;
@@ -951,7 +951,7 @@
   margin-top: 6px;
   align-self: flex-start;
 }
-.new-agent-overlay .na-rule-add .plus { color: var(--lime); font-size: 13px; line-height: 1; }
+.new-agent-overlay .na-rule-add .plus { color: var(--lime); font-size: 14px; line-height: 1; }
 .new-agent-overlay .na-rule-add:hover { border-color: var(--lime); color: var(--lime); border-style: solid; }
 .new-agent-overlay .na-rule-add[disabled],
 .new-agent-overlay .na-rule-add.at-cap {
@@ -1119,7 +1119,7 @@
   border: 0.5px solid var(--line-bright);
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -1352,7 +1352,7 @@
 .new-agent-overlay .na-textarea-wrap.tall textarea {
   min-height: 220px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   resize: vertical;
   overflow-y: auto;
@@ -1382,7 +1382,7 @@
   font-weight: 700;
   letter-spacing: -0.005em;
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
 }
 .na-summary-handle { color: var(--lime); }
 .na-foot-sep { color: var(--text-faint); }

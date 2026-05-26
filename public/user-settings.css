@@ -537,7 +537,7 @@
   content: ">";
   color: var(--lime);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--mono);
   padding: 9px 0 0 11px;
   align-self: flex-start;
@@ -547,7 +547,7 @@
   border: none;
   background: transparent;
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   outline: none;
@@ -857,7 +857,7 @@
 }
 .us-signout-text {
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.6;
 }
@@ -1021,7 +1021,7 @@
   font-weight: 600;
 }
 .us-chart-meta-value {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1293,7 +1293,7 @@
   font-family: var(--mono, "Inter", system-ui, sans-serif);
 }
 .us-model-tokens {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -2101,7 +2101,7 @@
 .us-llm-pick-single { min-height: 64px; }
 .us-llm-pick-label {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
 }

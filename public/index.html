@@ -87,7 +87,7 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     height: 100vh;
@@ -327,7 +327,7 @@
   .migrate-deck {
     margin: 0;
     font-family: var(--font-human, system-ui, sans-serif);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
   }
@@ -1234,7 +1234,7 @@
     justify-content: center;
     gap: 7px;
     font-family: var(--sans);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-dim);
     cursor: pointer;
@@ -1554,7 +1554,7 @@
     position: relative;
     z-index: 1;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--lime);
     line-height: 1;
   }
@@ -2372,7 +2372,7 @@
     background: var(--panel-2);
   }
   .reports-load-more-arrow {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
 
@@ -2883,7 +2883,7 @@
   }
   .search-overlay-status-msg {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-soft);
     line-height: 1.5;
     max-width: 360px;
@@ -4715,7 +4715,7 @@
   .brief-active-substage {
     font-family: var(--font-headline, "Charter", "Songti SC", Georgia, serif);
     font-style: italic;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin-top: 6px;
@@ -5022,7 +5022,7 @@
     color: var(--bg);
   }
   .brief-retry-mark {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
 
@@ -5086,7 +5086,7 @@
     border: none;
     color: var(--text-faint);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     padding: 2px 4px;
   }
@@ -5121,7 +5121,7 @@
     color: var(--text-faint);
     width: 18px;
     padding: 0 4px 0 0;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     cursor: pointer;
     opacity: 0;
@@ -5458,7 +5458,7 @@
      what the user is looking at before they get to the verdict. */
   .dv-purpose {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin: 0;
@@ -5511,7 +5511,7 @@
   }
   .dv-verdict-body {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin: 0;
@@ -5532,7 +5532,7 @@
   }
   .dv-unexplored-row {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     color: var(--text);
     padding: 8px 12px;
@@ -5710,7 +5710,7 @@
      overflows. Mirrors the adjourn-overlay / room-settings clamp
      pattern so all three modals read identically. */
   .followup-parent-subject {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text);
     line-height: 1.4;
@@ -6396,7 +6396,7 @@
        common case (textarea + one strip); tall textarea +
        multiple strips can still cover the bottom message, the
        user scrolls a touch — acceptable. */
-    padding: calc(14px + var(--room-head-h, 56px)) 50px 140px 40px;
+    padding: calc(14px + var(--room-head-h, 56px)) 40px 140px 40px;
     transition: opacity 0.18s ease-out;
   }
   /* Note-jump loading state · the user clicked a note in the All
@@ -6715,7 +6715,7 @@
     color: var(--text);
     text-decoration: none;
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.005em;
     line-height: 1.4;
@@ -6727,6 +6727,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    font-weight: 400;
   }
   .msg-tool-sources-title:hover {
     color: var(--lime);
@@ -7352,7 +7353,7 @@
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 14px;
     border: 0.5px solid var(--line-strong);
     font-family: var(--mono);
   }
@@ -7608,12 +7609,12 @@
      Used by quote-cta probe / second messages and any plain
      markdown blockquote a director / chair might emit. */
   .msg-bubble .msg-quote {
-    margin: 0 0 12px;
-    padding: 10px 14px;
+    margin: 0;
+    padding: 10px 0;
     background: var(--panel-2);
     font-family: var(--font-agent);
     font-style: italic;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
   }
@@ -7629,7 +7630,6 @@
     font-style: normal;
     margin-bottom: 6px;
   }
-  .msg-bubble .msg-quote:last-child { margin-bottom: 0; }
   /* Markdown tables · editorial style. No outer box, no zebra, no
      uppercase data-grid headers — those read as "spreadsheet pasted
      into a conversation" and broke the bubble's literary register.
@@ -7646,7 +7646,7 @@
     width: 100%;
     font-family: var(--font-human);
     font-style: normal;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     letter-spacing: -0.003em;
@@ -7982,7 +7982,7 @@
   .kp-row:hover { border-color: var(--line-strong); }
   .kp-body {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     line-height: 1.4;
   }
@@ -9721,7 +9721,7 @@
     height: 16px;
     line-height: 1;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     padding: 0;
     cursor: pointer;
@@ -11204,7 +11204,7 @@
   }
   .starter-deck {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-soft);
     line-height: 1.5;
     margin: 0;
@@ -11455,15 +11455,6 @@
     display: block !important;
     align-content: initial !important;
     overflow-y: auto;
-  }
-  .chat.chat--composer.chat--composer-overflow .cmp {
-    /* Overflow mode · the starters tray (now augmented with
-       topic recommendations + the "+ N more" button) can push
-       total content past one viewport, at which point the
-       composer can't stay centred. Pin the hero a fixed 120px
-       from the top so it sits comfortably above the fold and
-       the tray scrolls underneath. */
-    padding-top: 120px;
   }
   .cmp-hero {
     text-align: center;
@@ -12051,7 +12042,7 @@
     background: transparent;
     border: none;
     color: var(--text-faint);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     cursor: pointer;
     transition: color 0.1s;
@@ -12564,7 +12555,7 @@
   }
   .ag-gen-error-desc-body {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
   }
@@ -12595,7 +12586,7 @@
     color: var(--lime);
   }
   .ag-gen-error-retry-mark {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
   .ag-gen-error-discard {
@@ -13031,7 +13022,7 @@
   }
   .pb-done-sub {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-soft);
     line-height: 1.5;
     margin: 0 auto 18px;
@@ -13073,7 +13064,7 @@
     background: transparent;
     color: var(--lime);
   }
-  .pb-done-open-mark { font-size: 13px; line-height: 1; }
+  .pb-done-open-mark { font-size: 14px; line-height: 1; }
 
   /* When the manual overlay is in Full-mode reuse, surface the
      build's footer-meta override in lime (it carries the
@@ -13097,19 +13088,6 @@
   .pb-stage {
     padding: 16px 0 32px;
     color: var(--text);
-  }
-  /* Persona-builder layout · default behaviour is the SAME as the
-     new-room / new-agent hero: vertically centred by
-     `.chat.chat--composer { align-content: center }`. When the
-     dashboard's natural height exceeds 90% of the viewport (the
-     overflow trigger for pb-stage · `updateComposerOverflow` in
-     app.js switches its threshold from 70% of chat height to 90%
-     of `window.innerHeight` when a `.pb-stage` is present),
-     `.chat--composer-overflow` kicks in and we reduce the default
-     120 px top offset to 50 px so the dashboard pins comfortably
-     near the top of the panel rather than getting shoved down. */
-  .chat.chat--composer.chat--composer-overflow:has(.pb-stage) .cmp {
-    padding-top: 50px !important;
   }
   .pb-stage-head {
     display: grid;
@@ -13655,7 +13633,7 @@
     background: color-mix(in srgb, var(--red) 5%, transparent);
   }
   .pb-cancel-mark {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
   .pb-foot-hint {
@@ -13714,7 +13692,7 @@
     border: 0.5px solid var(--line-bright);
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     padding: 7px 10px;
     width: 100%;
     box-sizing: border-box;
@@ -13849,7 +13827,7 @@
     gap: 12px;
   }
   .ag-persona-error-detail {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     line-height: 1.55;
   }
@@ -14155,7 +14133,7 @@
     border: 0.5px solid var(--line-strong);
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     padding: 8px 10px;
     width: 100%;
@@ -14456,7 +14434,7 @@
   .brief-picker-title-head {
     font-family: var(--mono);
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 400;
     letter-spacing: 0.04em;
     color: var(--text);
   }
@@ -14474,7 +14452,7 @@
   }
   .brief-picker-row {
     display: grid;
-    grid-template-columns: 32px 1fr auto auto;
+    grid-template-columns: 32px 1fr auto;
     gap: 10px;
     align-items: center;
     padding: 10px 12px;
@@ -14501,14 +14479,23 @@
   }
   .brief-picker-title {
     font-family: var(--font-human, system-ui, sans-serif);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 400;
     color: var(--text);
     line-height: 1.3;
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+  }
+  /* Subtitle row · supplement label (left) + filed time (right) share
+     one line beneath the title, so the title row gets the full main
+     column width instead of competing with the time for space. */
+  .brief-picker-subrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
   .brief-picker-sub {
     font-family: var(--mono);
@@ -14518,6 +14505,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .brief-picker-time {
     font-family: var(--mono);
@@ -14525,6 +14514,8 @@
     letter-spacing: 0.04em;
     color: var(--text-faint);
     white-space: nowrap;
+    flex: 0 0 auto;
+    margin-left: auto;
   }
   .brief-picker-arrow {
     font-family: var(--mono);
@@ -15620,7 +15611,7 @@
     flex: 1 1 auto;
     min-width: 0;
     font-family: var(--sans);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     /* Theme accent · `--lime` is the per-theme primary token
        (swapped by every theme in themes.css). Sits on the
@@ -15795,6 +15786,9 @@
 <script src="app-updater.js" defer></script>
 <link rel="stylesheet" href="quote-cta.css">
 <script src="quote-cta.js" defer></script>
+<link rel="stylesheet" href="thread.css">
+<link rel="stylesheet" href="voice-clone.css">
+<script src="voice-clone.js" defer></script>
 <script src="typing-sfx.js" defer></script>
 <script src="agent-build-bgm.js" defer></script>
 <script src="share-cover-svg-creator.js" defer></script>
