@@ -67,15 +67,24 @@ import type {
 
 import { personaBus, type BuildEvent } from "./persona-stream.js";
 import { runPersonaNarrator } from "./persona-narrator.js";
+import {
+  startVoiceDistill,
+  waitForVoiceDistillResult,
+} from "./voice-distill.js";
+import { voiceDistillBus } from "./voice-distill-stream.js";
+import { getActiveVoiceProvider } from "../storage/voice-credentials.js";
 
 /* ─────────── Caps · derived from the plan §8 ─────────── */
 
 /** Per-LLM-call wall-clock. Phase-3..7 calls finish well under this;
  *  Phase 2 search rounds use `REACT_ROUND_BUDGET_MS` instead. */
 const LLM_CALL_TIMEOUT_MS = 90_000;
-/** Build-wide hard ceiling. The user explicitly asked for 5-10 min;
- *  10 min is the wall-clock kill switch. */
-const BUILD_WALL_CLOCK_MS = 10 * 60_000;
+/** Build-wide hard ceiling. Phase 5 now runs a parallel voice-clone
+ *  sub-task (up to 8 min on its own when a real-person referent is
+ *  detected); raise the build budget to 20 min so the persona build
+ *  isn't killed mid-clone. Persona-only builds still finish in
+ *  5-10 min — the higher cap is a ceiling, not a target. */
+const BUILD_WALL_CLOCK_MS = 20 * 60_000;
 /** Token kill switch · prevents a runaway model from spending
  *  unbounded tokens. The user said "don't save tokens" but a runaway
  *  is a different failure mode. */
@@ -107,12 +116,20 @@ const DIMENSION_RESULTS_PER_QUERY = 6;
 const DIMENSION_PARALLEL_CHUNK = 3;
 const DIMENSION_CHUNK_GAP_MS = 1_000;
 
-/** Per-bucket caps on the raw-source string fed to the synthesizer.
- *  6 dims × 11k + 2 top-up × 7k = 80k worst case · final synthesizer
- *  slice at `RAW_SOURCES_SYNTH_CAP` is the safety net. */
+/** Per-bucket caps on the raw-source string fed to the dim-level
+ *  distiller (NOT the final synthesizer). The distill step compresses
+ *  each dim's raw block to ≤ `RAW_SOURCES_DISTILLED_CAP` chars before
+ *  it ever reaches the cross-dim synthesizer, so this cap exists only
+ *  to keep one distiller call from running away on a runaway page. */
 const RAW_SOURCES_PER_DIM_CAP = 11_000;
 const RAW_SOURCES_TOPUP_CAP = 7_000;
-const RAW_SOURCES_SYNTH_CAP = 80_000;
+/** Per-dim/per-topup distilled block size. The streaming-distill step
+ *  collapses raw search results + page text into a compact bullet
+ *  digest at this cap, so the cross-dim synthesizer sees at most
+ *  6×2.5k + 2×2.5k = 20k chars instead of the 80k+ raw bundle that
+ *  used to blow past the per-phase token ceiling. */
+const RAW_SOURCES_DISTILLED_CAP = 2_500;
+const RAW_SOURCES_SYNTH_CAP = 20_000;
 
 /* ─────────── State + helpers ─────────── */
 
@@ -125,6 +142,9 @@ interface PersonaJobState {
    *  build-end; the agent profile renders it as-is and never
    *  re-translates. */
   locale: "en" | "zh" | "ja" | "es";
+  /** Optional caller-supplied URL for voice cloning. When set, Phase 5
+   *  skips YouTube search and pulls audio from this URL directly. */
+  voiceSourceUrl?: string;
   startedAt: number;
   controller: AbortController;
   promptTokens: number;
@@ -135,6 +155,14 @@ interface PersonaJobState {
    *  this carries the true grand total for the build-log footer. */
   totalPromptTokens: number;
   totalOutputTokens: number;
+  /** Set to true when `bumpTokens` detects the per-phase prompt/output
+   *  ceiling was breached. `callPhaseLLMVerbose` still aborts the
+   *  controller to short-circuit in-flight HTTP, but this flag lets
+   *  `checkAbortOrCap` distinguish a token-ceiling stop from a
+   *  user/wall-clock cancel — without it, the controller-aborted
+   *  branch swallows the ceiling case and the UI shows the misleading
+   *  "You cancelled the build" instead of the real cause. */
+  tokenCeilingExceeded: boolean;
   /** Append-only timeline · every meaningful event the build produced.
    *  Mirrored from the `personaBus.emit` sites via `recordEvent` so
    *  the narrative pass + saved build log can render what happened
@@ -283,7 +311,10 @@ async function callPhaseLLMVerbose(
       const exceeded = bumpTokens(state, r.usage.promptTokens, r.usage.completionTokens);
       if (exceeded) {
         // Mark the abort with a clear reason so the caller surfaces
-        // a useful error to the user.
+        // a useful error to the user. The flag is checked BEFORE
+        // `signal.aborted` in `checkAbortOrCap` so the ceiling case
+        // doesn't get misclassified as a user cancel.
+        state.tokenCeilingExceeded = true;
         state.controller.abort();
         return null;
       }
@@ -325,7 +356,17 @@ function extractJson<T>(raw: string): T | null {
  *  state, returns the jobId immediately, runs the pipeline async.
  *  Caller (the route) opens an SSE stream with the jobId to receive
  *  progress events. */
-export function startPersonaBuild(opts: { description: string; locale?: "en" | "zh" | "ja" | "es" }): string {
+export function startPersonaBuild(opts: {
+  description: string;
+  locale?: "en" | "zh" | "ja" | "es";
+  /** Optional caller-supplied URL (YouTube / Bilibili / direct mp4)
+   *  pointing at audio of the target person. When set, Phase 5 skips
+   *  the YouTube auto-search step and clones straight from this URL.
+   *  Resolves the ambiguity problem for short / common public-figure
+   *  names where YouTube auto-search would otherwise land on a
+   *  same-named entertainer or parody channel. */
+  voiceSourceUrl?: string;
+}): string {
   const description = opts.description.trim();
   const jobId = randomUUID();
   createPersonaJob({ id: jobId, description });
@@ -333,12 +374,14 @@ export function startPersonaBuild(opts: { description: string; locale?: "en" | "
     id: jobId,
     description,
     locale: opts.locale ?? "en",
+    voiceSourceUrl: opts.voiceSourceUrl,
     startedAt: Date.now(),
     controller: new AbortController(),
     promptTokens: 0,
     outputTokens: 0,
     totalPromptTokens: 0,
     totalOutputTokens: 0,
+    tokenCeilingExceeded: false,
     searchRounds: [],
     dimensionPlan: [],
     rawSourcesByDim: new Map<string, string>(),
@@ -391,6 +434,11 @@ interface PartialBuild {
   evalSet?: PersonaEvalEntry[];
   differentiationScore?: number | null;
   toolAccess?: { webSearch: boolean };
+  /** Set by Phase 5 when the persona is modeled on a real public
+   *  figure AND the voice-clone sub-task succeeded. The save handler
+   *  reads this and stamps the new agent's voice profile to the
+   *  cloned MiniMax voice_id. */
+  clonedVoice?: { celebrity: string; voiceId: string };
   /** v1 profile · the original AgentProfile shape from agent-spec.ts.
    *  Kept across phases so the planner + critique passes can read it. */
   profileV1?: AgentProfile;
@@ -507,6 +555,14 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
   };
 
   const checkAbortOrCap = (): "ok" | "aborted" | "tokens" => {
+    // Token ceiling check FIRST · `callPhaseLLMVerbose` aborts the
+    // controller after a ceiling breach so the in-flight HTTP call
+    // unblocks, which means by the time we get here both flags can be
+    // true. The ceiling reason is the more useful one to surface, so
+    // it wins.
+    if (state.tokenCeilingExceeded) {
+      return "tokens";
+    }
     if (state.controller.signal.aborted) {
       // Distinguish wall-clock abort vs. user cancel · the wall-clock
       // timer aborted the same controller, so we can't tell after the
@@ -600,10 +656,126 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
       if (status !== "ok") return finalizeFromCheck(state, status);
     }
 
-    /* ─────────── Phase 5 · Few-shot examples ─────────── */
+    /* ─────────── Phase 5 · Voice (few-shot + real-voice clone) ─────────── */
     startPhase(5);
     reportProgress(5, "writing worked examples", 0.2);
-    partial.fewShot = await runFewShotPhase(state, partial.profileV2!, partial.rules || []);
+
+    // Parallel sub-task · if the persona is modelled on a real public
+    // figure, kick a voice-distill job at the same time as the few-shot
+    // generator. The clone takes 3-8 minutes; running it alongside the
+    // remaining phases keeps total wall-clock close to the existing
+    // budget. Failure / timeout is non-fatal · the agent still ships
+    // with the text-style voice from few-shot.
+    const voiceClonePromise = (async (): Promise<{
+      celebrity: string;
+      voiceId: string;
+    } | null> => {
+      if (getActiveVoiceProvider() !== "minimax") return null;
+
+      // Fast path · caller pasted a specific URL on the composer.
+      // Skip the LLM detect + YouTube search entirely. The celebrity
+      // label is still useful for naming the registered MiniMax voice,
+      // so derive a best-effort one from the description (or fall
+      // back to the literal description if no name detected).
+      let personName: string;
+      let cloneJobId: string;
+      if (state.voiceSourceUrl) {
+        const detected = await detectRealPersonReferent(state, partial.profileV2!);
+        personName = detected?.name || state.description.split(/[，,。.]/)[0].trim().slice(0, 40) || "director";
+        reportProgress(5, `cloning voice from supplied URL · ${personName}`, 0.3);
+        personaBus.emit(state.id, {
+          type: "persona-phase-progress",
+          phase: 5,
+          detail: `cloning voice · supplied URL`,
+          progressPct: progressBaselinePct + 1,
+        });
+        cloneJobId = startVoiceDistill({
+          celebrity: personName,
+          videoUrl: state.voiceSourceUrl,
+        });
+      } else {
+        // Auto path · detect a real person from the description, then
+        // search YouTube with the disambiguation hint stitched in.
+        const detected = await detectRealPersonReferent(state, partial.profileV2!);
+        if (!detected) return null;
+        personName = detected.name;
+        // Stitch in the disambiguation hint so YouTube search lands on
+        // the right person · a bare short name often matches parody or
+        // same-named entertainer videos, while "<name> <company> <role>
+        // <signature talk topic>" steers the search to the real keynote.
+        const searchQuery = detected.disambiguationHint
+          ? `${personName} ${detected.disambiguationHint}`
+          : personName;
+        reportProgress(5, `cloning real voice from ${personName}`, 0.3);
+        personaBus.emit(state.id, {
+          type: "persona-phase-progress",
+          phase: 5,
+          detail: `cloning voice · ${personName}`,
+          progressPct: progressBaselinePct + 1,
+        });
+        cloneJobId = startVoiceDistill({ celebrity: searchQuery });
+      }
+      // Wire the inner job's events into the persona stream as Phase 5
+      // progress updates so the UI shows what the clone is doing.
+      const offBridge = voiceDistillBus.subscribe(cloneJobId, (event) => {
+        if (event.type === "voice-distill-phase-start") {
+          personaBus.emit(state.id, {
+            type: "persona-phase-progress",
+            phase: 5,
+            detail: `voice · ${event.label}`,
+            progressPct: progressBaselinePct + 1,
+          });
+        } else if (event.type === "voice-distill-phase-progress") {
+          personaBus.emit(state.id, {
+            type: "persona-phase-progress",
+            phase: 5,
+            detail: `voice · ${event.detail || ""}`.slice(0, 200),
+            progressPct: progressBaselinePct + 1,
+          });
+        }
+      });
+      try {
+        const result = await waitForVoiceDistillResult(cloneJobId, {
+          timeoutMs: 8 * 60_000,
+          signal: state.controller.signal,
+        });
+        if (result.status === "done" && result.voiceId) {
+          state.buildEvents.push({
+            kind: "phase-end",
+            ts: Date.now(),
+            phase: 5,
+            durationMs: 0,
+          });
+          return { celebrity: personName, voiceId: result.voiceId };
+        }
+        if (result.status === "failed") {
+          process.stderr.write(
+            `[persona-builder/voice-clone] ${personName} · failed: ${result.error || ""}\n`,
+          );
+        } else if (result.status === "timeout") {
+          process.stderr.write(
+            `[persona-builder/voice-clone] ${personName} · timeout after 8 min\n`,
+          );
+        }
+        return null;
+      } finally {
+        offBridge();
+      }
+    })().catch((e: unknown) => {
+      process.stderr.write(
+        `[persona-builder/voice-clone] uncaught: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      return null;
+    });
+
+    const [fewShot, clonedVoice] = await Promise.all([
+      runFewShotPhase(state, partial.profileV2!, partial.rules || []),
+      voiceClonePromise,
+    ]);
+    partial.fewShot = fewShot;
+    if (clonedVoice) {
+      partial.clonedVoice = clonedVoice;
+    }
     finishPhase(5);
     {
       const status = checkAbortOrCap();
@@ -713,6 +885,19 @@ async function runPipeline(state: PersonaJobState): Promise<void> {
 }
 
 function finalizeAbort(state: PersonaJobState): void {
+  // Distinguish wall-clock timeout from a user-initiated cancel. Both
+  // share the same AbortController so we infer from elapsed time: if
+  // we're at-or-past 95% of the budget, treat as timeout (surface a
+  // useful error) instead of letting the UI lie ("you cancelled").
+  const elapsed = Date.now() - state.startedAt;
+  if (elapsed >= BUILD_WALL_CLOCK_MS * 0.95) {
+    const minutes = Math.round(BUILD_WALL_CLOCK_MS / 60_000);
+    const msg = `Build timed out after ${minutes} min · the pipeline (or the parallel voice clone) ran longer than the wall-clock ceiling.`;
+    updatePersonaJob(state.id, { status: "failed", error: msg });
+    personaBus.emit(state.id, { type: "persona-error", message: msg });
+    personaBus.drop(state.id);
+    return;
+  }
   updatePersonaJob(state.id, { status: "aborted" });
   personaBus.emit(state.id, { type: "persona-aborted" });
   personaBus.drop(state.id);
@@ -989,7 +1174,12 @@ async function runReActLoop(
       }
     }
     if (blockParts.length > 0) {
-      state.rawSourcesTopup.push(blockParts.join("\n\n").slice(0, RAW_SOURCES_TOPUP_CAP));
+      const rawTopupBlock = blockParts.join("\n\n").slice(0, RAW_SOURCES_TOPUP_CAP);
+      // Same streaming-distill treatment as the dim batch · keep the
+      // synthesizer's input bounded regardless of how many top-up
+      // rounds fired.
+      const distilledTopup = await distillDimensionBlock(state, `topup-${round}`, query, rawTopupBlock);
+      state.rawSourcesTopup.push(distilledTopup);
     }
 
     const roundNum = plan.length + round;
@@ -1098,7 +1288,7 @@ function defaultDimensionFallback(profileV1: AgentProfile): Array<{ dimension: s
     { dimension: "key_works", query: `foundational works books papers${tag}`, why: "name the canonical artifacts the persona refers to" },
     { dimension: "signature_concepts", query: `signature ideas concepts coined${tag}`, why: "capture the named moves the persona is known for" },
     { dimension: "contested_claims", query: `criticism counterarguments controversies${tag}`, why: "expose the positions that draw pushback" },
-    { dimension: "recent_developments", query: `recent developments 2024 2025${tag}`, why: "capture the last 1-3 years of activity" },
+    { dimension: "recent_developments", query: `recent developments ${new Date().getFullYear() - 1} ${new Date().getFullYear()}${tag}`, why: "capture the last 1-3 years of activity" },
   ];
 }
 
@@ -1149,8 +1339,14 @@ async function runDimensionSearch(
   if (pageCount === 0 && resultsArr.length > 0) {
     blockParts.push("(no readable pages)");
   }
-  const block = blockParts.join("\n\n").slice(0, RAW_SOURCES_PER_DIM_CAP);
-  state.rawSourcesByDim.set(entry.dimension, block);
+  const rawBlock = blockParts.join("\n\n").slice(0, RAW_SOURCES_PER_DIM_CAP);
+  // Streaming distill · compress the raw block in-place to a compact
+  // digest so the cross-dim synthesizer sees a 2.5k-char summary per
+  // dimension instead of an 11k-char raw dump. Cheap utility-tier LLM
+  // call; on failure we fall back to a heuristic truncation so the
+  // build never stalls on a distiller hiccup.
+  const distilled = await distillDimensionBlock(state, entry.dimension, entry.query, rawBlock);
+  state.rawSourcesByDim.set(entry.dimension, distilled);
 
   state.searchRounds.push({
     query: entry.query,
@@ -1179,6 +1375,78 @@ async function runDimensionSearch(
     dimension: entry.dimension,
     round: roundNum,
   });
+}
+
+/** Streaming distill · per-dim compression step that runs inside
+ *  Phase 2 right after a dim's raw block is assembled. Compresses the
+ *  search-results + page-text bundle (≤11k chars) into a compact
+ *  digest (≤`RAW_SOURCES_DISTILLED_CAP` chars) so the cross-dim
+ *  synthesizer at the end of Phase 2 sees a digestible 6×2.5k = 15k
+ *  bundle instead of the 80k raw dump that used to blow past the
+ *  per-phase token ceiling.
+ *
+ *  Design choices:
+ *  - Uses the utility-tier model (haiku) so the latency + cost of N
+ *    distill calls stays well under the single librarian call it
+ *    replaces. Falls back to heuristic truncation when no utility
+ *    model is reachable or the call fails.
+ *  - The prompt asks for short bullets that PRESERVE: named entities
+ *    (people, works, places), dates / years, numerical facts,
+ *    short quoted phrases, and citation URLs. This is what the
+ *    librarian synthesizer downstream needs — losing verbatim quotes
+ *    is the main risk, so we name it explicitly.
+ *  - No JSON shape · the output is read as opaque text by the
+ *    librarian. Keeping the format loose avoids a parsing failure
+ *    silently nuking a dim's contribution.
+ *  - Abort-aware · returns the heuristic fallback if the controller
+ *    is aborted mid-call. Never throws. */
+async function distillDimensionBlock(
+  state: PersonaJobState,
+  dimension: string,
+  query: string,
+  rawBlock: string,
+): Promise<string> {
+  const heuristic = (): string => {
+    const head = `─── DIMENSION · ${dimension} (${query})\n`;
+    const body = rawBlock.replace(/\n{3,}/g, "\n\n").slice(0, RAW_SOURCES_DISTILLED_CAP - head.length);
+    return head + body;
+  };
+  if (!rawBlock.trim() || state.controller.signal.aborted) return heuristic();
+  const routerModel = utilityModelFor();
+  if (!routerModel) return heuristic();
+
+  const sys = [
+    "You compress a single research bundle for a downstream persona-builder.",
+    "Output a tight bullet digest. PRESERVE these signals exactly when they appear:",
+    "  · named entities (people, organizations, books, papers, places),",
+    "  · dates / years,",
+    "  · numerical facts (prices, counts, percentages),",
+    "  · short verbatim quotes (≤25 words each, in their original language),",
+    "  · citation URLs — paste them inline after the bullet they support.",
+    "Drop boilerplate, navigation, ads, repeated header chrome.",
+    "8–14 bullets. No prose preamble, no closing summary. Plain text only.",
+    `Hard limit · keep the WHOLE output under ${RAW_SOURCES_DISTILLED_CAP - 200} characters.`,
+  ].join("\n");
+  const user = [
+    `Dimension: ${dimension}`,
+    `Search query: ${query}`,
+    ``,
+    `Raw bundle:`,
+    rawBlock,
+  ].join("\n");
+
+  try {
+    const text = await callPhaseLLM(state, routerModel, [
+      { role: "system", content: sys },
+      { role: "user", content: user },
+    ], { temperature: 0.2, maxTokens: 800 });
+    if (!text || !text.trim()) return heuristic();
+    const header = `─── DIMENSION · ${dimension} (${query})\n`;
+    const body = text.trim().slice(0, RAW_SOURCES_DISTILLED_CAP - header.length);
+    return header + body;
+  } catch {
+    return heuristic();
+  }
 }
 
 /** Concatenate all per-dim blocks (in plan order) + top-up blocks
@@ -1470,7 +1738,98 @@ function partialToPersona(partial: PartialBuild): PersonaSpec {
     toolAccess: partial.toolAccess || { webSearch: false },
     ...(partial.guessName ? { guessName: partial.guessName } : {}),
     ...(partial.buildLog ? { buildLog: partial.buildLog } : {}),
+    ...(partial.clonedVoice ? { clonedVoice: partial.clonedVoice } : {}),
   };
+}
+
+/** Decide whether the persona's textual description + v2 profile names
+ *  a specific REAL public figure that a voice clone should target.
+ *  Returns the canonical name or null when the persona is an archetype,
+ *  mentions multiple equally-weighted figures, or has no clear single
+ *  subject.
+ *
+ *  Implementation · a single utility-tier LLM call that takes the
+ *  description + first few `influencedBy` + `referentSet` names and
+ *  emits strict JSON `{ name: "..." | null }`. Bias is toward null —
+ *  a false-positive wastes a 3-8 minute voice-distill run, while a
+ *  false-negative just falls back to the existing text-style voice. */
+async function detectRealPersonReferent(
+  state: PersonaJobState,
+  profileV2: AgentProfile,
+): Promise<{ name: string; disambiguationHint?: string } | null> {
+  const routerModel = utilityModelFor();
+  if (!routerModel) return null;
+
+  const influences = (profileV2.intellectualLineage?.influencedBy || []).slice(0, 8);
+  const referents = (profileV2.referentSet || [])
+    .slice(0, 8)
+    .map((r) => r.ref)
+    .filter((s) => typeof s === "string" && s.trim().length > 0);
+
+  const sys: { role: "system"; content: string } = {
+    role: "system",
+    content: [
+      "You decide whether a custom AI director is modeled on a single real public figure whose voice would be cloned for the director's TTS output.",
+      "Reply with STRICT JSON ONLY:",
+      "  { \"name\": \"<full public name>\", \"hint\": \"<3-6 disambiguating keywords>\" }  — when ONE living-or-historical public figure is the clear single subject AND public audio of them exists.",
+      "  { \"name\": null }                    — otherwise.",
+      "",
+      "Pick `null` ONLY when:",
+      "- The persona is a pure archetype with no named subject at all (e.g. \"a first-principles thinker\", \"a Socratic skeptic\", \"a value investor\" with NO specific person named).",
+      "- Multiple real people are referenced with equal weight (e.g. \"in the style of A + B\", \"a mix of two named founders\").",
+      "- The named entity is fictional, a company alone, an event, a book title, or a generic descriptor.",
+      "",
+      "Pick a name (NOT null) when ONE specific named real person is the clear primary subject — INCLUDING:",
+      "- Any globally famous public figure (tech founders, investors, scientists, writers).",
+      "- Regional public figures (Chinese / Japanese / European tech / business / investing figures) who give public talks, even if not globally A-list.",
+      "- Any founder, CEO, investor, professor, writer, journalist with public interview / keynote videos online.",
+      "- Historical thinkers with extant recordings, or text-only authors whose voice has been captured in interviews.",
+      "",
+      "The `hint` field is CRITICAL · short / common names are AMBIGUOUS on YouTube — there are singers, actors, parody videos, and unrelated public figures with the same names. The hint MUST contain the unique identifiers that disambiguate THIS person from same-named entertainers / athletes / officials. Include:",
+      "  · primary company / org affiliation",
+      "  · role / title (founder, CEO, vice-president, partner, professor)",
+      "  · domain (AI, value investing, product management, biotech, etc.)",
+      "  · 1-2 signature concepts only if necessary",
+      "",
+      "Hint patterns:",
+      "  · short CJK name → hint should carry at least 3 disambiguators (primary company + role + domain or signature talk topic)",
+      "  · long Latin-script name with a famous firm → hint can be shorter (firm + role is usually enough)",
+      "  · globally iconic figure (one of a handful of names everyone recognises) → hint can be short or even a single keyword",
+      "",
+      "Return the canonical display name. No prefixes, no quotes inside the name. Strip honorifics like 老师 / 总 / 先生 / Mr. / Dr.",
+    ].join("\n"),
+  };
+
+  const user: { role: "user"; content: string } = {
+    role: "user",
+    content: [
+      `Description:`,
+      state.description.slice(0, 1200),
+      ``,
+      `intellectualLineage.influencedBy: ${influences.join(", ") || "(none)"}`,
+      `referentSet: ${referents.join(", ") || "(none)"}`,
+      ``,
+      `Is there exactly ONE real public figure this director is modeled on? If yes, also produce a disambiguating hint that uniquely identifies them on YouTube.`,
+    ].join("\n"),
+  };
+
+  let raw: string | null = "";
+  try {
+    raw = await callPhaseLLM(state, routerModel, [sys, user], { temperature: 0, maxTokens: 160 });
+  } catch (e) {
+    process.stderr.write(
+      `[persona-builder/detect-person] failed: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+    return null;
+  }
+  if (!raw) return null;
+  const parsed = extractJson<{ name?: unknown; hint?: unknown }>(raw);
+  if (!parsed) return null;
+  const name = typeof parsed.name === "string" ? parsed.name.trim() : "";
+  if (!name || name.toLowerCase() === "null" || name.toLowerCase() === "none") return null;
+  if (name.length < 2 || name.length > 80) return null;
+  const hint = typeof parsed.hint === "string" ? parsed.hint.trim().slice(0, 120) : "";
+  return { name, disambiguationHint: hint || undefined };
 }
 
 /** Read a job's current state · surfaced via the SSE replay path so
@@ -1498,5 +1857,9 @@ export function getPartialPersona(jobId: string): PersonaSpec | null {
     toolAccess: v.toolAccess || { webSearch: false },
     ...(typeof v.guessName === "string" && v.guessName ? { guessName: v.guessName } : {}),
     ...(v.buildLog ? { buildLog: v.buildLog } : {}),
+    ...(v.clonedVoice && typeof v.clonedVoice === "object"
+      && typeof (v.clonedVoice as { voiceId?: unknown }).voiceId === "string"
+      ? { clonedVoice: v.clonedVoice }
+      : {}),
   };
 }

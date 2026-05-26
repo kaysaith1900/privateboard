@@ -20,6 +20,7 @@ import { searchCredentialsRouter } from "./routes/search-credentials.js";
 import { searchRouter } from "./routes/search.js";
 import { usageRouter } from "./routes/usage.js";
 import { voiceCredentialsRouter } from "./routes/voice-credentials.js";
+import { voiceDistillRouter } from "./routes/voice-distill.js";
 import { voicesRouter } from "./routes/voices.js";
 import { publicDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
@@ -133,6 +134,9 @@ export function createApp() {
   app.route("/api/notes", notesRouter());
   app.route("/api/avatar", avatarRouter());
   app.route("/api/usage", usageRouter());
+  // Mount /api/voices/clone-from-video before /api/voices so the more
+  // specific prefix wins · voicesRouter doesn't know about clone-from-video.
+  app.route("/api/voices/clone-from-video", voiceDistillRouter());
   app.route("/api/voices", voicesRouter());
   app.route("/api/voice-credentials", voiceCredentialsRouter());
   app.route("/api/search", searchRouter());

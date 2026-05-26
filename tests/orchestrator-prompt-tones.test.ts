@@ -107,7 +107,7 @@ const TONE_SIGNATURES: Record<(typeof TONES)[number], string[]> = {
   brainstorm:    ["BRAINSTORM", "EXPAND THE POSSIBILITY SPACE", "Volume over polish", "YES-AND", "WILD"],
   constructive:  ["CONSTRUCTIVE", "stronger version", "load-bearing assumption"],
   debate:        ["DEBATE", "PRODUCTIVE DISAGREEMENT", "steelman", "Honest pass", "What would change my mind"],
-  research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "low/med/high"],
+  research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "high/med/low"],
   critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "minor", "audit"],
 };
 
