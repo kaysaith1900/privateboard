@@ -272,6 +272,16 @@
   .build-progress .phases li.act .num { color: var(--gold-soft); }
   .build-progress .phases li.act .lbl { color: var(--ink); }
   .build-progress .phases li.act .sub { color: var(--gold-soft); font-family: ui-monospace, monospace; font-size: 10px; margin-left: auto; }
+  /* Nested voice-distill substeps · rendered inside the Phase 5 row
+     when the backend bridges a voice-distill substep event. Indented
+     under the parent, smaller type, no border on the last child. */
+  .vd-sub-phases { list-style: none; padding: 0 0 6px 36px; margin: -6px 0 0; }
+  .vd-sub-phases li { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 0; font-size: 11px; color: var(--ink-dim); }
+  .vd-sub-phases li .num { width: 22px; color: var(--ink-dim); font-family: ui-monospace, monospace; font-size: 9px; }
+  .vd-sub-phases li.done .num { color: var(--ink-mid); }
+  .vd-sub-phases li.done .lbl { color: var(--ink-mid); text-decoration: line-through; text-decoration-color: var(--rule); }
+  .vd-sub-phases li.act .num { color: var(--gold-soft); }
+  .vd-sub-phases li.act .lbl { color: var(--ink); }
   .build-progress .note { margin-top: 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; color: var(--ink-mid); font-size: 12px; line-height: 1.5; }
 
   /* brief list */
@@ -981,6 +991,7 @@
 </div>
 
 <script src="/typing-sfx.js"></script>
+<script src="/agent-build-bgm.js" defer></script>
 <!-- Classic script (NOT type=module) · loads synchronously so the
      `window.RoomAutoContinue` namespace is ready before the main
      inline script below constructs its controller. Earlier iteration
@@ -2415,6 +2426,7 @@ async function cancelBuild() {
     await fetch(`/api/agents/generate-persona/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
   } catch {}
   if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
+  try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
   appState.activeBuildJobId = null;
   goto('agents');
 }
@@ -2432,12 +2444,46 @@ const PERSONA_PHASE_LABELS = [
   '压力测试',   // 7 · Eval set + build report
 ];
 
+// Voice-distill 10-step labels · mirror server side in
+// src/orchestrator/voice-distill.ts so PC + mobile + the inline
+// composer panel all narrate the same substep names.
+const VOICE_DISTILL_PHASE_LABELS = [
+  'Search candidate video',
+  'Download audio',
+  'Normalize audio',
+  'Transcribe speech',
+  'Identify target speaker',
+  'Extract clean clip',
+  'Upload to MiniMax',
+  'Register voice clone',
+  'Persist + link agent',
+  'Cleanup',
+];
+
+/** Render the nested 10-step voice-distill sub-list that sits inside
+ *  the Phase 5 row. Only called when the backend has bridged a
+ *  voice-distill substep onto the persona stream (i.e. Phase 5 is
+ *  actively distilling). PC parity: the dedicated voice-distill panel
+ *  shows the same 10 rows. */
+function renderVoiceDistillSubsteps(activeSub) {
+  const cur = Math.max(1, Math.min(VOICE_DISTILL_PHASE_LABELS.length, activeSub || 1));
+  return `<ul class="vd-sub-phases">${
+    VOICE_DISTILL_PHASE_LABELS.map((label, i) => {
+      const n = i + 1;
+      const cls = n < cur ? 'done' : n === cur ? 'act' : '';
+      const num = String(n).padStart(2, '0');
+      return `<li class="${cls}"><span class="num">${num}</span> <span class="lbl">${escapeHtml(label)}</span></li>`;
+    }).join('')
+  }</ul>`;
+}
+
 /** Re-render the phase list against the current backend phase.
  *  Phases < current = done (strikethrough), current = act (highlight),
  *  phases > current = pending (dimmed). Caller passes the optional
  *  `subDetail` so the active row gets the live "what's happening"
- *  string from the SSE payload. */
-function renderBuildPhases(currentPhase, subDetail) {
+ *  string from the SSE payload, plus `voiceDistillPhase` to expand
+ *  the nested 10-step substep list under Phase 5. */
+function renderBuildPhases(currentPhase, subDetail, voiceDistillPhase) {
   const phasesEl = document.querySelector('[data-screen="build-progress"] .build-progress .phases');
   if (!phasesEl) return;
   const cur = Math.max(1, Math.min(PERSONA_PHASE_LABELS.length, currentPhase || 1));
@@ -2448,7 +2494,12 @@ function renderBuildPhases(currentPhase, subDetail) {
     // Only the active row gets the side-text · the SSE phaseDetail
     // belongs to whatever phase is currently running, not the others.
     const sub = (n === cur && subDetail) ? `<span class="sub">${escapeHtml(subDetail)}</span>` : '';
-    return `<li class="${cls}"><span class="num">${num}</span> <span class="lbl">${escapeHtml(label)}</span>${sub}</li>`;
+    // Phase 5 expands into a 10-row voice-distill substep list when
+    // the backend has signalled a voiceDistillPhase. PC parity.
+    const nested = (n === 5 && n === cur && voiceDistillPhase)
+      ? renderVoiceDistillSubsteps(voiceDistillPhase)
+      : '';
+    return `<li class="${cls}"><span class="num">${num}</span> <span class="lbl">${escapeHtml(label)}</span>${sub}</li>${nested}`;
   }).join('');
 }
 
@@ -2466,19 +2517,33 @@ function subscribeBuildStream(jobId) {
   if (subEl) subEl.textContent = '正在锻造身份...';
   if (barFill) barFill.style.width = '0%';
   if (titleEl) titleEl.textContent = '构建中';
-  renderBuildPhases(1, null);
+  renderBuildPhases(1, null, 0);
 
   // Track latest values so individual event handlers can fold partial
   // updates into a consistent paint (phase-start carries phase but
   // not detail; phase-progress carries both; phase-end carries phase
-  // + progressPct but not detail).
-  const state = { phase: 1, detail: '', progressPct: 0 };
+  // + progressPct but not detail). `voiceDistillPhase` is sticky
+  // within Phase 5 only · clear on transition out.
+  const state = { phase: 1, detail: '', progressPct: 0, voiceDistillPhase: 0 };
 
   const paint = () => {
     if (phaseEl) phaseEl.textContent = `${state.phase} / ${PERSONA_PHASE_LABELS.length}`;
     if (subEl && state.detail) subEl.textContent = state.detail;
     if (barFill) barFill.style.width = `${Math.max(0, Math.min(100, state.progressPct))}%`;
-    renderBuildPhases(state.phase, state.detail);
+    renderBuildPhases(state.phase, state.detail, state.phase === 5 ? state.voiceDistillPhase : 0);
+  };
+
+  // PC parity · ambient 8-bit scanner pings every ~3s during the
+  // build. Idempotent · the module's own start() is a no-op if
+  // already playing. Stopped in cancelBuild() / on terminal events.
+  try { window.boardroomAgentBuildBgm?.start?.(); } catch {}
+
+  // Tick the typing-sfx on every SSE event the user can see · gives
+  // the build screen the same "something is happening" pulse PC has
+  // (PC ticks on every LLM streaming chunk; mobile doesn't see raw
+  // tokens but the SSE phase events fire at a similar cadence).
+  const tickSfx = () => {
+    try { window.boardroomTypingSfx?.tick?.(); } catch {}
   };
 
   try {
@@ -2504,22 +2569,34 @@ function subscribeBuildStream(jobId) {
     es.addEventListener('persona-phase-start', (ev) => {
       try {
         const j = JSON.parse(ev.data);
-        if (typeof j.phase === 'number') state.phase = j.phase;
+        if (typeof j.phase === 'number') {
+          // Clear nested voice-distill state when leaving Phase 5
+          // so we don't carry stale substep highlight into Phase 6+.
+          if (state.phase === 5 && j.phase !== 5) state.voiceDistillPhase = 0;
+          state.phase = j.phase;
+        }
         // Use label as a starter detail · reportProgress will overwrite
         // it almost immediately with the more specific "drafting…" text.
         if (typeof j.label === 'string') state.detail = j.label;
+        tickSfx();
         paint();
       } catch {}
     });
 
     // `persona-phase-progress` · mid-phase. Carries `phase`, `detail`,
-    // `progressPct`. Note: backend uses `detail`, NOT `phaseDetail`.
+    // `progressPct`. Backend uses `detail`, NOT `phaseDetail`. When
+    // Phase 5's voice-clone sub-task is running, `voiceDistillPhase`
+    // rides along (1-10) so we can render the nested substep list.
     es.addEventListener('persona-phase-progress', (ev) => {
       try {
         const j = JSON.parse(ev.data);
         if (typeof j.phase === 'number') state.phase = j.phase;
         if (typeof j.detail === 'string') state.detail = j.detail;
         if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
+        if (typeof j.voiceDistillPhase === 'number') {
+          state.voiceDistillPhase = j.voiceDistillPhase;
+        }
+        tickSfx();
         paint();
       } catch {}
     });
@@ -2532,23 +2609,32 @@ function subscribeBuildStream(jobId) {
       try {
         const j = JSON.parse(ev.data);
         if (typeof j.phase === 'number' && j.phase >= state.phase) {
+          // Leaving Phase 5 · drop nested voice-distill state.
+          if (j.phase === 5) state.voiceDistillPhase = 0;
           state.phase = Math.min(PERSONA_PHASE_LABELS.length, j.phase + 1);
           state.detail = '';
         }
         if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
+        tickSfx();
         paint();
       } catch {}
     });
 
+    const stopBgm = () => {
+      try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
+    };
+
     es.addEventListener('persona-final', () => {
       try { es.close(); } catch {}
       appState.buildStream = null;
+      stopBgm();
       goto('agents');
       bootstrapAgents();
     });
     es.addEventListener('persona-aborted', () => {
       try { es.close(); } catch {}
       appState.buildStream = null;
+      stopBgm();
       goto('agents');
     });
     es.addEventListener('persona-error', (ev) => {
@@ -2558,8 +2644,13 @@ function subscribeBuildStream(jobId) {
       } catch {}
       try { es.close(); } catch {}
       appState.buildStream = null;
+      stopBgm();
     });
-    es.onerror = () => { try { es.close(); } catch {} appState.buildStream = null; };
+    es.onerror = () => {
+      try { es.close(); } catch {}
+      appState.buildStream = null;
+      stopBgm();
+    };
   } catch {}
 }
 
