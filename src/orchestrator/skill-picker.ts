@@ -610,9 +610,19 @@ export async function pickChairWebSearch(opts: {
   const prompt = latestUserPrompt(opts.history);
   if (!prompt) return null;
 
+  const currentYear = new Date().getFullYear();
+
   const sys: LLMMessage = {
     role: "system",
     content: [
+      `Today's date is ${new Date().toISOString().slice(0, 10)} · the CURRENT year is ${currentYear}.`,
+      `When the user asks for "latest" / "最新" / "recent" / "现在" anything, "latest"`,
+      `means right now — anchor the query with the CURRENT MONTH, not just year.`,
+      `Use "${currentYear}年${new Date().getMonth() + 1}月" for CJK queries or`,
+      `"${new Date().toLocaleString("en-US", { month: "long" })} ${currentYear}" for English`,
+      `queries. Year-alone is too coarse · "${currentYear}" alone lets year-old articles`,
+      `outrank today's news. NEVER use an older year (e.g. "2024") when ${currentYear} is current.`,
+      "",
       "You are the boardroom chair's pre-turn search router. You decide ONE thing:",
       "should the chair run a web search before its next reply, and if so what query.",
       "",
@@ -623,7 +633,7 @@ export async function pickChairWebSearch(opts: {
       "- Verbs of recent action: 'released' / 'launched' / 'announced' / 'shipped' /",
       "  'reported' / 'filed' / '发布' / '推出' / '宣布' / '上线' / '披露'.",
       "- Specific named events / products / numbers / prices that the model can't",
-      "  reliably know from training (CES 2025, model launches, IPO numbers, ARR figures,",
+      `  reliably know from training (CES ${currentYear}, model launches, IPO numbers, ARR figures,`,
       "  raise sizes, market caps).",
       "- A specific person's PUBLIC statements / posts (X/Twitter, blog, interviews)",
       "  asked about by name.",
@@ -654,11 +664,11 @@ export async function pickChairWebSearch(opts: {
       "- Match the language of the question when possible (English keywords for",
       "  global topics; CJK keywords if the question is China-specific).",
       "- For time-sensitive questions, INCLUDE the time marker in the query when",
-      "  it sharpens results (e.g. '2025', 'this week', '最近').",
+      `  it sharpens results (e.g. '${currentYear}', 'this week', '最近').`,
       "- When the user is META-instructing search, BUILD the query from the actual",
       "  TOPIC in the transcript, NOT from the user's directive verbs. For example,",
       "  if the user said '搜一下' and the chair previously asked about 'AI moats',",
-      "  the query should be `AI moats 2025` — never `搜索 AI 护城河 用户` or similar.",
+      `  the query should be \`AI moats ${currentYear}\` — never \`搜索 AI 护城河 用户\` or similar.`,
       "- DEFAULT WHEN UNCERTAIN: if any STRONG-SEARCH signal is present, ALWAYS",
       "  return a query — never null. Skipping a clearly time-sensitive question",
       "  is worse than issuing one web search.",
@@ -792,6 +802,7 @@ export async function pickSkills(opts: {
 }): Promise<SkillPickResult> {
   const { speaker, skills, history, signal } = opts;
   const webSearchAvailable = opts.webSearchAvailable ?? false;
+  const currentYear = new Date().getFullYear();
   // Web-search isn't a body-injection skill — it's an external action
   // decided in the same router call but executed separately. Keep it
   // out of the toolbox index so the LLM doesn't try to "apply" it as
@@ -806,6 +817,14 @@ export async function pickSkills(opts: {
   if (!prompt) return { used: [], reason: "", webSearchQuery: null };
 
   const baseLines = [
+    `Today's date is ${new Date().toISOString().slice(0, 10)} · the CURRENT year is ${currentYear}.`,
+    `When the question asks about "latest" / "最新" / "recent" / "现在" anything, anchor the`,
+    `web_search query with the CURRENT MONTH, not just the year. Use`,
+    `"${currentYear}年${new Date().getMonth() + 1}月" for CJK queries or`,
+    `"${new Date().toLocaleString("en-US", { month: "long" })} ${currentYear}" for English.`,
+    `Year-alone is too coarse · "${currentYear}" alone lets year-old articles rank above`,
+    `today's news. NEVER inject an older year (e.g. "2024") into the query.`,
+    ``,
     `You are ${speaker.name}'s pre-turn router. You make two cheap decisions before ${speaker.name} answers.`,
     ``,
   ];
@@ -857,7 +876,7 @@ export async function pickSkills(opts: {
   if (webSearchAvailable) {
     schemaLines.push(`- For \`web_search.query\`: 3-8 keywords, no full sentences. Plain ASCII works best.`);
     schemaLines.push(`- Match the question's language for the query (English keywords for global topics; CJK if China-specific).`);
-    schemaLines.push(`- For time-sensitive questions, INCLUDE the time marker in the query when it sharpens results (e.g. '2025', 'this week', '最近').`);
+    schemaLines.push(`- For time-sensitive questions, INCLUDE the time marker in the query when it sharpens results (e.g. '${currentYear}', 'this week', '最近').`);
     schemaLines.push(`- DEFAULT WHEN UNCERTAIN: if any STRONG-SEARCH signal is present in the question, ALWAYS issue a query — never null. Skipping a clearly time-sensitive question is worse than one search call.`);
   } else {
     schemaLines.push(`- \`web_search\` MUST be null — the user hasn't enabled it for this speaker.`);

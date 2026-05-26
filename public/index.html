@@ -11256,6 +11256,28 @@
   .cmp-input-frame:focus-within {
     border-color: var(--lime);
   }
+  .cmp-voice-src-row {
+    margin-top: 10px;
+    padding: 0 4px;
+  }
+  .cmp-voice-src {
+    width: 100%;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: var(--ink, #d8d6cf);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .cmp-voice-src::placeholder {
+    color: rgba(255,255,255,0.35);
+  }
+  .cmp-voice-src:focus {
+    outline: none;
+    border-color: rgba(255,255,255,0.25);
+  }
+
   .cmp-input {
     display: block;
     width: 100%;
@@ -15443,6 +15465,101 @@
     .room-head { padding: 8px 12px; flex-wrap: wrap; }
     .head-cast { display: none; }
   }
+
+  /* ─── Voice distill panel (agent composer) ─── */
+  .vd-panel {
+    margin-top: 32px;
+    padding: 18px 20px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink, #d8d6cf);
+  }
+  .vd-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .vd-kicker {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+  }
+  .vd-deck { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .vd-form { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; }
+  .vd-form input {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--ink, #d8d6cf);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .vd-form input:focus {
+    outline: none;
+    border-color: rgba(255,255,255,0.3);
+  }
+  .vd-go, .vd-cancel, .vd-reset {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--ink, #d8d6cf);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .vd-go:hover, .vd-cancel:hover, .vd-reset:hover {
+    background: rgba(255,255,255,0.1);
+  }
+  .vd-progress {
+    margin: 12px 0;
+    height: 4px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .vd-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #c4a96a, #e7d39b);
+    transition: width 0.3s ease;
+  }
+  .vd-phases { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  .vd-phase { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 2px 0; }
+  .vd-phase-num {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    min-width: 24px;
+  }
+  .vd-phase-label { color: rgba(255,255,255,0.5); }
+  .vd-phase.vd-done .vd-phase-num { color: rgba(255,255,255,0.55); }
+  .vd-phase.vd-done .vd-phase-label { color: rgba(255,255,255,0.75); text-decoration: line-through; text-decoration-color: rgba(255,255,255,0.2); }
+  .vd-phase.vd-active .vd-phase-num { color: #e7d39b; }
+  .vd-phase.vd-active .vd-phase-label { color: #ffffff; }
+  .vd-detail {
+    margin-top: 10px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .vd-actions { margin-top: 14px; }
+  .vd-result-line { font-size: 12px; color: rgba(255,255,255,0.7); margin: 4px 0; }
+  .vd-result-tag {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.4);
+    margin-right: 8px;
+  }
+  .vd-result code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #e7d39b; }
+  .vd-error-msg { color: #e89a8c; font-size: 12px; }
+  .vd-pending-hint { margin-top: 10px; font-size: 11px; color: #b8d39b; }
 </style>
 <link rel="stylesheet" href="themes.css">
 <link rel="stylesheet" href="icons.css">

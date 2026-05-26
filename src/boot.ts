@@ -22,6 +22,7 @@ import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
 import { recoverStuckClarifyRooms } from "./storage/rooms.js";
 import { markRunningJobsFailed } from "./storage/persona-jobs.js";
+import { markRunningVoiceDistillJobsFailed } from "./storage/voice-distill-jobs.js";
 import { listAllAgents } from "./storage/agents.js";
 import { countMemoriesForAgent } from "./storage/memories.js";
 import { runDreamCycle, bootCeilingFor } from "./orchestrator/dream.js";
@@ -93,6 +94,15 @@ export async function bootApp(opts: BootOptions = {}): Promise<BootResult> {
     }
   } catch (e) {
     process.stderr.write(`[boot] persona-job recovery failed: ${errMsg(e)}\n`);
+  }
+
+  try {
+    const failed = markRunningVoiceDistillJobsFailed();
+    if (failed > 0) {
+      process.stderr.write(`[boot] marked ${failed} voice-distill job(s) failed (server restarted mid-distill)\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`[boot] voice-distill recovery failed: ${errMsg(e)}\n`);
   }
 
   // Dream sweep · fire-and-forget. Per-agent memory counters reset on

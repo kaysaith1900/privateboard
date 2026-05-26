@@ -1412,6 +1412,7 @@ export function buildChairClarifyMessages(opts: ClarifyOpts): LLMMessage[] {
     `2. <仅当第二个轴向同样关键时才出现>`,
     ``,
     `─── HARD RULES ───`,
+    `· SHARED MATERIALS first · if a SHARED MATERIALS block appears above this task, the chair's web-search / fetch-url already ran and the results sit there as ground truth. Before naming an ambiguity, scan that block — if it already answers a candidate ambiguity (ticker symbol, IPO/listing status, recent price or round, named event, public role), treat that fact as SETTLED. Don't ask the user "is X listed?" / "do you mean the company called Y?" / "what's the latest price?" when the search already says so. Either RELEASE with READY, or ask about a DIFFERENT axis the search did NOT cover (decision criteria, time horizon, risk tolerance, etc.).`,
     `· Two questions MAX. Most rooms need only ONE. If the second isn't a different axis (just a sub-detail), drop it.`,
     `· Questions must point at the load-bearing gap — not vague "could you tell me more about your background" territory.`,
     `· FORBIDDEN preamble: "Welcome", "Sure", "Great question", "Thank you", "您好", "太棒了", "好的", any greeting or compliment.`,

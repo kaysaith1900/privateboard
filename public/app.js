@@ -7677,6 +7677,23 @@
       try { localStorage.setItem("boardroom.agent-composer.draft", String(text || "")); }
       catch { /* ignore */ }
     },
+    /** Voice-source URL companion field · persists across view switches
+     *  so the user doesn't lose a pasted YouTube link if they navigate
+     *  away mid-typing. Cleared on successful build start. */
+    loadAgentComposerVoiceUrl() {
+      try {
+        const raw = localStorage.getItem("boardroom.agent-composer.voice-url");
+        return typeof raw === "string" ? raw : "";
+      } catch { return ""; }
+    },
+    saveAgentComposerVoiceUrl(text) {
+      try { localStorage.setItem("boardroom.agent-composer.voice-url", String(text || "")); }
+      catch { /* ignore */ }
+    },
+    clearAgentComposerVoiceUrl() {
+      try { localStorage.removeItem("boardroom.agent-composer.voice-url"); }
+      catch { /* ignore */ }
+    },
     clearAgentComposerDraft() {
       try { localStorage.removeItem("boardroom.agent-composer.draft"); }
       catch { /* ignore */ }
@@ -11214,6 +11231,7 @@
       // Recovery from a failed build still works via _agentComposerLastDesc.
       if (ta) ta.value = "";
       this.clearAgentComposerDraft();
+      this.clearAgentComposerVoiceUrl();
       const mode = this.loadAgentBuilderMode();
       if (mode === "full") {
         await this.startFullPersonaBuild(description);
@@ -11251,7 +11269,20 @@
      *  progress block. Errors here surface as a fail-state in the
      *  builder UI (no separate `agentSpecError` path · the persona
      *  job state carries its own error message). */
-    async startFullPersonaBuild(description) {
+    async startFullPersonaBuild(rawDescription) {
+      // Extract any pasted media URL from the description so the
+      // server's Phase 5 voice clone can use it directly (skips the
+      // YouTube search step + avoids same-name confusion). The URL is
+      // STRIPPED from the description text so the persona prompt isn't
+      // polluted with a long URL the LLM doesn't need.
+      const urlMatch = String(rawDescription || "").match(
+        /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|bilibili\.com|b23\.tv|vimeo\.com|x\.com|twitter\.com|weibo\.com)\/\S+/i,
+      );
+      const voiceSourceUrlInline = urlMatch ? urlMatch[0] : "";
+      const description = String(rawDescription || "")
+        .replace(/https?:\/\/\S+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
       // Reset prior persona state so a second build starts clean.
       this.cancelPersonaBuild({ silent: true });
       // The auto-open guard is per-build · clear so a fresh build's
@@ -11287,10 +11318,20 @@
         // phase 7 writes the build-log summary in the user's language.
         // Falls back to "en" server-side if the field is missing.
         const locale = (window.I18n && typeof window.I18n.getLocale === "function") ? window.I18n.getLocale() : "en";
+        // Optional · URL the user pasted INTO the description textarea
+        // (e.g. "<name> https://www.youtube.com/watch?v=..."). We
+        // extracted it above + stripped it from `description` so the
+        // persona prompt isn't polluted. Phase 5 uses it directly for
+        // voice cloning, skipping the YouTube auto-search step.
+        const voiceSourceUrl = voiceSourceUrlInline;
         const r = await fetch("/api/agents/generate-persona", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ description, locale }),
+          body: JSON.stringify({
+            description,
+            locale,
+            ...(voiceSourceUrl ? { voiceSourceUrl } : {}),
+          }),
         });
         if (!r.ok) {
           const e = await r.json().catch(() => ({}));
@@ -11631,6 +11672,305 @@
      *  in persona-builder.ts so client + server tell the user the
      *  same story. */
     PERSONA_PHASE_ETAS: [30, 280, 30, 45, 90, 30, 60],
+
+    /** Phase labels for the voice-distill pipeline · mirror server side
+     *  in src/orchestrator/voice-distill.ts. Used by the inline panel
+     *  rendered below the celebrity grid on the agent composer. */
+    VOICE_DISTILL_PHASE_LABELS: [
+      "Search candidate video",
+      "Download audio",
+      "Normalize audio",
+      "Transcribe speech",
+      "Identify target speaker",
+      "Extract clean clip",
+      "Upload to MiniMax",
+      "Register voice clone",
+      "Persist + link agent",
+      "Cleanup",
+    ],
+
+    /** Stash key for the most-recently-cloned voice_id when the user
+     *  ran distill BEFORE the agent existed. Save handlers pick this
+     *  up and write it onto the new agent's voice profile. */
+    _pendingDistilledVoice: null,
+
+    /** Active voice-distill job state · {jobId, status, phase, progressPct, detail, error, voiceId, agentId}.
+     *  null when no job is in flight. */
+    voiceDistillJob: null,
+
+    /** Render the inline "Distill voice from public video" panel that
+     *  sits below the celebrity starter grid on the agent composer.
+     *  Three states: idle (form), running (progress), terminal (result
+     *  + reset). */
+    renderVoiceDistillPanelHtml() {
+      const job = this.voiceDistillJob;
+      if (!job) {
+        return `
+          <div class="vd-panel vd-idle" data-vd-panel>
+            <div class="vd-head">
+              <span class="vd-kicker">// voice distill · public video → MiniMax clone</span>
+              <span class="vd-deck">Type a real person's name and we auto-search a public interview / talk, verify it, and clone the voice. The clone is auto-attached to the next director you save. (Optional: paste a specific URL to skip the search.)</span>
+            </div>
+            <div class="vd-form">
+              <input type="text" class="vd-name" data-vd-name
+                     placeholder="目标说话人姓名 · e.g. 某位公开演讲过的人物" />
+              <input type="url" class="vd-url" data-vd-url
+                     placeholder="(可选) https://...specific video URL" />
+              <button type="button" class="vd-go" data-vd-start>
+                <span class="vd-go-mark">🎙</span>
+                <span>蒸馏声音</span>
+              </button>
+            </div>
+            ${this._pendingDistilledVoice ? `
+              <div class="vd-pending-hint">✅ Ready · cloned voice ${this.escape(this._pendingDistilledVoice.voiceId)} will attach to your next saved director.</div>
+            ` : ""}
+          </div>
+        `;
+      }
+
+      const labels = this.VOICE_DISTILL_PHASE_LABELS;
+      const active = Math.max(1, Math.min(labels.length, job.phase || 1));
+      const pct = Math.max(0, Math.min(100, job.progressPct || 0));
+
+      if (job.status === "running" || job.status === "starting") {
+        return `
+          <div class="vd-panel vd-running" data-vd-panel>
+            <div class="vd-head">
+              <span class="vd-kicker">// voice distill · in progress</span>
+              <span class="vd-deck">${this.escape(job.celebrity || "")} · ${pct}%</span>
+            </div>
+            <div class="vd-progress"><div class="vd-progress-fill" style="width:${pct}%"></div></div>
+            <ol class="vd-phases">
+              ${labels.map((label, i) => {
+                const n = i + 1;
+                const state = n < active ? "done" : (n === active ? "active" : "pending");
+                return `<li class="vd-phase vd-${state}"><span class="vd-phase-num">${n.toString().padStart(2, "0")}</span><span class="vd-phase-label">${this.escape(label)}</span></li>`;
+              }).join("")}
+            </ol>
+            ${job.detail ? `<div class="vd-detail">${this.escape(job.detail)}</div>` : ""}
+            <div class="vd-actions">
+              <button type="button" class="vd-cancel" data-vd-cancel>[ Cancel distill ]</button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (job.status === "done") {
+        return `
+          <div class="vd-panel vd-done" data-vd-panel>
+            <div class="vd-head">
+              <span class="vd-kicker">// voice distill · complete</span>
+              <span class="vd-deck">${this.escape(job.celebrity || "")} · voice_id ready</span>
+            </div>
+            <div class="vd-result">
+              <div class="vd-result-line"><span class="vd-result-tag">voice_id</span><code>${this.escape(job.voiceId || "")}</code></div>
+              ${job.agentId ? `<div class="vd-result-line">Attached to agent <code>${this.escape(job.agentId)}</code> as the default TTS voice.</div>` : `<div class="vd-result-line">Will attach to your next saved director.</div>`}
+            </div>
+            <div class="vd-actions">
+              <button type="button" class="vd-reset" data-vd-reset>[ ↻ Start another ]</button>
+            </div>
+          </div>
+        `;
+      }
+
+      // failed / aborted
+      const msg = job.error || (job.status === "aborted" ? "Cancelled." : "Distill failed.");
+      return `
+        <div class="vd-panel vd-error" data-vd-panel>
+          <div class="vd-head">
+            <span class="vd-kicker">// voice distill · ${this.escape(job.status)}</span>
+          </div>
+          <div class="vd-error-msg">${this.escape(msg)}</div>
+          <div class="vd-actions">
+            <button type="button" class="vd-reset" data-vd-reset>[ ↻ Try again ]</button>
+          </div>
+        </div>
+      `;
+    },
+
+    /** Kick off a voice-distill job · POST + open the SSE stream.
+     *  videoUrl is optional · when empty the server auto-searches. */
+    async startVoiceDistill({ videoUrl, celebrity, agentId } = {}) {
+      const url = (videoUrl || "").trim();
+      const name = (celebrity || "").trim();
+      if (!name) return;
+      this.voiceDistillJob = {
+        jobId: null,
+        status: "starting",
+        phase: 1,
+        progressPct: 0,
+        detail: url ? "Starting…" : "Searching candidate video…",
+        celebrity: name,
+        videoUrl: url || null,
+        agentId: agentId || null,
+        voiceId: null,
+        error: null,
+      };
+      this.renderEmptyState();
+      try {
+        const r = await fetch("/api/voices/clone-from-video", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...(url ? { videoUrl: url } : {}),
+            celebrity: name,
+            agentId: agentId || null,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+          throw new Error(err.error || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        this.voiceDistillJob.jobId = data.jobId;
+        this.voiceDistillJob.status = "running";
+        this._openVoiceDistillSse(data.jobId);
+        this.renderEmptyState();
+      } catch (e) {
+        this.voiceDistillJob.status = "failed";
+        this.voiceDistillJob.error = (e && e.message) || String(e);
+        this.renderEmptyState();
+      }
+    },
+
+    /** Subscribe to the per-job SSE stream. Handlers mutate
+     *  `this.voiceDistillJob` and re-render. */
+    _openVoiceDistillSse(jobId) {
+      this._closeVoiceDistillSse();
+      const sse = new EventSource(`/api/voices/clone-from-video/${encodeURIComponent(jobId)}/stream`);
+      this._voiceDistillSse = sse;
+
+      const onMsg = (cb) => (e) => {
+        try { cb(JSON.parse(e.data)); }
+        catch { /* ignore parse errors · server emits well-formed JSON */ }
+        this.renderEmptyState();
+      };
+
+      sse.addEventListener("hello", onMsg((data) => {
+        if (this.voiceDistillJob) {
+          this.voiceDistillJob.phase = data.currentPhase || this.voiceDistillJob.phase;
+          this.voiceDistillJob.progressPct = data.progressPct || 0;
+          this.voiceDistillJob.celebrity = data.celebrity || this.voiceDistillJob.celebrity;
+          if (data.status && data.status !== "running") {
+            this.voiceDistillJob.status = data.status;
+            if (data.voiceId) this.voiceDistillJob.voiceId = data.voiceId;
+          }
+        }
+      }));
+      sse.addEventListener("voice-distill-phase-start", onMsg((data) => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.phase = data.phase;
+        this.voiceDistillJob.detail = data.label;
+      }));
+      sse.addEventListener("voice-distill-phase-progress", onMsg((data) => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.phase = data.phase;
+        this.voiceDistillJob.progressPct = data.progressPct;
+        this.voiceDistillJob.detail = data.detail;
+      }));
+      sse.addEventListener("voice-distill-phase-end", onMsg((data) => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.progressPct = data.progressPct;
+      }));
+      sse.addEventListener("voice-distill-warning", onMsg((data) => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.detail = "⚠ " + (data.message || "warning");
+      }));
+      sse.addEventListener("voice-distill-final", onMsg((data) => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.status = "done";
+        this.voiceDistillJob.progressPct = 100;
+        this.voiceDistillJob.voiceId = data.voiceId;
+        // Stash for the next agent-save · the persona save handler
+        // will read `_pendingDistilledVoice` and attach the voice id.
+        if (!this.voiceDistillJob.agentId) {
+          this._pendingDistilledVoice = {
+            voiceId: data.voiceId,
+            celebrity: this.voiceDistillJob.celebrity,
+            jobId: this.voiceDistillJob.jobId,
+          };
+        }
+        this._closeVoiceDistillSse();
+      }));
+      sse.addEventListener("voice-distill-error", onMsg((data) => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.status = "failed";
+        this.voiceDistillJob.error = data.message || "distill failed";
+        this._closeVoiceDistillSse();
+      }));
+      sse.addEventListener("voice-distill-aborted", onMsg(() => {
+        if (!this.voiceDistillJob) return;
+        this.voiceDistillJob.status = "aborted";
+        this._closeVoiceDistillSse();
+      }));
+      sse.onerror = () => {
+        // EventSource auto-retries · only fail if we have no job
+        // status yet. Otherwise keep waiting for the terminal event.
+        if (this.voiceDistillJob && this.voiceDistillJob.status === "starting") {
+          this.voiceDistillJob.status = "failed";
+          this.voiceDistillJob.error = "Lost connection to distill stream.";
+          this._closeVoiceDistillSse();
+          this.renderEmptyState();
+        }
+      };
+    },
+
+    _closeVoiceDistillSse() {
+      if (this._voiceDistillSse) {
+        try { this._voiceDistillSse.close(); } catch { /* */ }
+        this._voiceDistillSse = null;
+      }
+    },
+
+    cancelVoiceDistill() {
+      const job = this.voiceDistillJob;
+      if (!job || !job.jobId) {
+        this.voiceDistillJob = null;
+        this._closeVoiceDistillSse();
+        this.renderEmptyState();
+        return;
+      }
+      fetch(`/api/voices/clone-from-video/${encodeURIComponent(job.jobId)}/abort`, { method: "POST" })
+        .catch(() => { /* idempotent server-side */ });
+    },
+
+    resetVoiceDistill() {
+      this.voiceDistillJob = null;
+      this._closeVoiceDistillSse();
+      this.renderEmptyState();
+    },
+
+    /** Attach the pending distilled voice (if any) to a freshly saved
+     *  agent. PATCH /api/agents/:id with a MiniMax voice profile.
+     *  Best-effort · failure logs to console but doesn't break the
+     *  save flow. Clears `_pendingDistilledVoice` on success so the
+     *  same clone isn't applied to a second agent by accident. */
+    async _attachPendingDistilledVoice(agentId) {
+      const pending = this._pendingDistilledVoice;
+      if (!pending || !pending.voiceId || !agentId) return;
+      try {
+        const r = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            voice: {
+              provider: "minimax",
+              model: "speech-2.8-hd",
+              voiceId: pending.voiceId,
+            },
+          }),
+        });
+        if (!r.ok) {
+          // eslint-disable-next-line no-console
+          console.warn("[voice-distill] attach failed", await r.text());
+          return;
+        }
+        this._pendingDistilledVoice = null;
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[voice-distill] attach error", e);
+      }
+    },
 
     renderPersonaBuilderHtml() {
       const job = this.personaJob;
@@ -12067,6 +12407,13 @@
             const e = await r.json().catch(() => ({}));
             throw new Error(e.error || ("HTTP " + r.status));
           }
+          // Pull the new agent record so we can attach a pending
+          // distilled voice (when present). The persona save endpoint
+          // returns the inserted row at the top level.
+          const savedAgent = await r.json().catch(() => null);
+          if (savedAgent && savedAgent.id) {
+            await this._attachPendingDistilledVoice(savedAgent.id);
+          }
           // Capture the celebrity seed id (if any) BEFORE nulling
           // personaJob below · `_markCelebritySeedConsumed` needs
           // it to update localStorage. Tagging happens in
@@ -12245,12 +12592,13 @@
             throw new Error(e.error || ("HTTP " + r.status));
           }
           const j = await r.json();
+          const newId = j && (j.id || (j.agent && j.agent.id));
+          if (newId) await this._attachPendingDistilledVoice(newId);
           await this.refreshAgents?.();
           this.agentSpec = null;
           this.agentSpecAvatarSeed = null;
           this.clearAgentComposerDraft();
           this.composerMode = "room";
-          const newId = j && (j.id || (j.agent && j.agent.id));
           // Land on the new agent's full profile (mirrors the prior
           // inline-preview save flow's post-success navigation).
           if (newId && typeof window.boardroomFocusAgent === "function") {
@@ -12368,6 +12716,9 @@
           throw new Error(e.error || ("HTTP " + r.status));
         }
         const j = await r.json();
+        // POST /api/agents returns the agent record directly (not wrapped).
+        const newId = j && (j.id || (j.agent && j.agent.id));
+        if (newId) await this._attachPendingDistilledVoice(newId);
         // Refresh local agent catalog so the new director shows up
         // in pickers + sidebar immediately.
         await this.refreshAgents?.();
@@ -12377,8 +12728,6 @@
         // a future visit to "+ New Agent" should land on a fresh textarea.
         this.clearAgentComposerDraft();
         this.composerMode = "room";
-        // POST /api/agents returns the agent record directly (not wrapped).
-        const newId = j && (j.id || (j.agent && j.agent.id));
         // Land the user on the new agent's full profile page · also
         // switches the sidebar to the Agents tab and persists the
         // sub-state so a refresh keeps them on the same agent.
@@ -20021,6 +20370,27 @@
       app.discardPersonaBuild();
       return;
     }
+    // ─── Voice distill · start / cancel / reset
+    if (e.target.closest("[data-vd-start]")) {
+      e.preventDefault();
+      const panel = e.target.closest("[data-vd-panel]");
+      const urlEl = panel && panel.querySelector("[data-vd-url]");
+      const nameEl = panel && panel.querySelector("[data-vd-name]");
+      const videoUrl = urlEl ? urlEl.value : "";
+      const celebrity = nameEl ? nameEl.value : "";
+      app.startVoiceDistill({ videoUrl, celebrity });
+      return;
+    }
+    if (e.target.closest("[data-vd-cancel]")) {
+      e.preventDefault();
+      app.cancelVoiceDistill();
+      return;
+    }
+    if (e.target.closest("[data-vd-reset]")) {
+      e.preventDefault();
+      app.resetVoiceDistill();
+      return;
+    }
     // Note · `data-persona-save` / `data-persona-discard` /
     // `data-persona-spec-reroll` are no longer emitted · the
     // Full-mode save screen reuses Signal's `.ag-prev-card` shell,
@@ -20483,6 +20853,8 @@
     } else if (e.target && e.target.matches && e.target.matches("[data-agent-composer-desc]")) {
       app.saveAgentComposerDraft(e.target.value);
       app.autosizeAgentComposerTextarea();
+    } else if (e.target && e.target.matches && e.target.matches("[data-agent-composer-voice-url]")) {
+      app.saveAgentComposerVoiceUrl(e.target.value);
     } else if (e.target && e.target.matches && e.target.matches("[data-search-input]")) {
       app.runSearch(e.target.value);
     } else if (e.target && e.target.matches && e.target.matches(".ib-textarea[data-send-input]")) {
