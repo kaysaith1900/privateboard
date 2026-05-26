@@ -12,7 +12,25 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { canAutoContinue, AutoContinueController } from "../public/room-auto-continue.js";
+// The shared controller ships as a classic IIFE so the mobile shell's
+// inline classic script can consume it synchronously. Pull it in via
+// side-effect import + the `globalThis` namespace it attaches.
+import "../public/room-auto-continue.js";
+
+const RoomAutoContinue = (globalThis as unknown as {
+  RoomAutoContinue: {
+    canAutoContinue: (room: unknown) => boolean;
+    AutoContinueController: new (opts: Record<string, unknown>) => {
+      setRoom(room: unknown): void;
+      cancel(): void;
+      detach(): void;
+      readonly secondsLeft: number;
+      readonly active: boolean;
+    };
+  };
+}).RoomAutoContinue;
+
+const { canAutoContinue, AutoContinueController } = RoomAutoContinue;
 
 function liveRoom(overrides: Record<string, unknown> = {}) {
   return {

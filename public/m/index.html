@@ -981,7 +981,12 @@
 </div>
 
 <script src="/typing-sfx.js"></script>
-<script type="module" src="/room-auto-continue.js"></script>
+<!-- Classic script (NOT type=module) · loads synchronously so the
+     `window.RoomAutoContinue` namespace is ready before the main
+     inline script below constructs its controller. Earlier iteration
+     used type=module and broke first-render because module scripts
+     are implicitly deferred and lost the race with the inline body. -->
+<script src="/room-auto-continue.js"></script>
 <script>
 function $$(sel) { return document.querySelectorAll(sel); }
 function $(sel) { return document.querySelector(sel); }
@@ -1951,8 +1956,10 @@ async function adjournActiveRoom() {
 
 // ── auto-continue countdown · delegated to shared controller ──
 // Single source of truth lives in /room-auto-continue.js (loaded
-// above as type=module). This file translates mobile room state into
-// the RoomSnapshot shape the controller expects, and renders whatever
+// above as a classic script so its `window.RoomAutoContinue` global
+// is ready synchronously). This file translates mobile room state
+// into the RoomSnapshot shape the controller expects, and renders
+// whatever
 // the onTick callback emits. UI-only — no timer logic here.
 //
 // `appState.autoContinue.secondsLeft` is kept in sync with the
