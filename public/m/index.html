@@ -2252,10 +2252,10 @@ function togglePick(el) {
     appState.selectedCastIds.delete(id);
     el.classList.remove('on');
   } else {
-    if (appState.selectedCastIds.size >= 5) {
-      flashSheetError('最多选 5 位董事');
-      return;
-    }
+    // No upper cap · PC has no director limit on new-room composition
+    // (only the chair-side auto-pick path defaults to a smaller subset
+    // when the user picks none). Mobile previously imposed a 5-person
+    // hard cap; removing it for behavioural parity with PC.
     appState.selectedCastIds.add(id);
     el.classList.add('on');
   }
