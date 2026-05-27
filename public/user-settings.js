@@ -342,10 +342,6 @@
               <span class="us-mini-btn-mark">◈</span>
               <span>${tr("us_avatar3d")}</span>
             </button>
-            <button type="button" class="us-mini-btn" data-us-regen-avatar>
-              <span class="us-mini-btn-mark">◆</span>
-              <span>${tr("us_regen_avatar")}</span>
-            </button>
           </div>
         </div>
 
@@ -1957,24 +1953,6 @@
       persist();
     });
     introCount.textContent = introInput.value.length;
-
-    // Regenerate avatar · same pattern as agent-profile's
-    // regenerateProfileAvatar: pull a fresh seed, persist to the
-    // user prefs, and repaint. Clears any captured 3D customizer
-    // PNG (avatarUrl / avatar3d) so the next paint takes the new
-    // seed-derived 3D snap rather than the previous capture.
-    paneEl.querySelector("[data-us-regen-avatar]").addEventListener("click", (e) => {
-      e.preventDefault();
-      const snap = window.Avatar3DSnap;
-      if (!snap || typeof snap.randomSeed !== "function") return;
-      const seed = snap.randomSeed();
-      saveUser({ avatarSeed: seed, avatarUrl: null, avatar3d: null });
-      paintUserAvatar();
-      if (window.app) {
-        window.app.prefs = { ...(window.app.prefs || {}), avatarSeed: seed, avatarUrl: null, avatar3d: null };
-        if (typeof window.app.renderUserBlock === "function") window.app.renderUserBlock();
-      }
-    });
 
     // Customize 3D avatar · opens the shared editor in "user" mode. The
     // editor saves the rendered PNG + config to prefs (PUT /api/prefs) and

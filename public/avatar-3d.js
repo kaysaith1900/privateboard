@@ -128,6 +128,29 @@ export const AVATAR_MODELS = [
       { role: "tie", color: [0.074, 0.631, 0.753] },            // teal bow (neckwear)
     ],
   },
+  {
+    // Parts source only · supplies a top hat ("礼帽"), a low-ponytail
+    // hairstyle, distinct eyes, and a sleeveless dress. Not a standalone
+    // body (partsOnly).
+    id: "style6", label: "礼帽 · 背心裙", partsOnly: true,
+    url: "/icons/new-style6.glb",
+    accessory: "tophat",
+    colorRoles: [
+      { c: [0.913, 0.565, 0.376], role: "skin" },
+      { c: [0.147, 0.076, 0.031], role: "hair" },   // long ponytail hair
+      { c: [0.054, 0.054, 0.054], role: "outfit" }, // dark dress
+      { c: [0.913, 0.913, 0.913], role: "outfit" }, // light dress trim
+    ],
+    // The top hat is the only textured mesh → tag it as its own accessory
+    // role so it doesn't collide with classic's "hat". The dress's second
+    // white mesh is named "White.001", which the name rule would mis-tag as
+    // eyewhite (it sits at torso level, not the eyes) — force it to outfit so
+    // the outfit swap carries the whole dress.
+    partTags: [
+      { role: "tophat", textured: true },
+      { role: "outfit", name: "white" },
+    ],
+  },
 ];
 /** Back-compat · the first style's GLB. */
 export const DEFAULT_AVATAR_URL = AVATAR_MODELS[0].url;
@@ -306,7 +329,8 @@ function tagEyebrows(root, model) {
  *  parts that colour/name classification can't separate — e.g. a white cap
  *  that shares the shorts' colour, or sunglasses that would misfire as a hat
  *  via the textured-mesh rule. Each rule matches on `textured` (has a map),
- *  `color` (≈ base colour), and/or a `minY`/`maxY` band on the mesh's raw
+ *  `name` (case-insensitive substring of the material name), `color`
+ *  (≈ base colour), and/or a `minY`/`maxY` band on the mesh's raw
  *  bounding-box centre; the first matching rule wins. Runs after tagEyebrows. */
 function tagModelParts(root, model) {
   if (!model.partTags || !model.partTags.length) return;
@@ -317,6 +341,7 @@ function tagModelParts(root, model) {
     let cy = null;
     for (const rule of model.partTags) {
       if (rule.textured && !m.map) continue;
+      if (rule.name && !(m.name || "").toLowerCase().includes(rule.name.toLowerCase())) continue;
       if (rule.color && !(m.color && colorNear(m.color, rule.color))) continue;
       if (rule.minY != null || rule.maxY != null) {
         if (cy == null) {
@@ -413,6 +438,12 @@ export function buildAvatar3D(seed, opts = {}) {
   const tieStyle = opts.tieStyle && opts.tieStyle !== "none" ? opts.tieStyle : null;
   if (tieStyle) overlayRole(group, inst, model, tieStyle, "tie");
 
+  // Eye-shape dimension · `opts.eyeStyle` is a model id whose eyes (role
+  // "eye") to wear; "default" / omitted / own id keeps the body's own eyes.
+  // Overlaid BEFORE painting so the swapped-in eyes still pick up 瞳色.
+  const eyeStyle = opts.eyeStyle && opts.eyeStyle !== "default" ? opts.eyeStyle : null;
+  if (eyeStyle) overlayRole(group, inst, model, eyeStyle, "eye");
+
   // Accessory dimension · independent of body style. `opts.accessory` is a
   // style id ("none" / "glasses" / "hat"); back-compat: false → "none",
   // true / undefined → the body's own accessory.
@@ -441,6 +472,7 @@ export function buildAvatar3D(seed, opts = {}) {
   group.userData.avatarOutfitStyle = outfitStyle;
   group.userData.avatarBrowStyle = browStyle || "default";
   group.userData.avatarTieStyle = tieStyle || "none";
+  group.userData.avatarEyeStyle = eyeStyle || "default";
   group.userData.avatarAccessory = accStyle;
   return group;
 }
@@ -496,8 +528,8 @@ function swapHair(group, inst, bodyModel, hairStyle) {
 }
 
 /** Which model supplies each accessory (it's baked into that model). */
-const ACCESSORY_SRC = { hat: "classic", glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas" };
-const ACCESSORY_ROLES = ["hat", "glasses", "headphones", "cap", "crown", "santa", "shades"];
+const ACCESSORY_SRC = { hat: "classic", glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas", tophat: "style6" };
+const ACCESSORY_ROLES = ["hat", "glasses", "headphones", "cap", "crown", "santa", "shades", "tophat"];
 
 /** Swap the avatar's accessory · independent of body style. Hides the
  *  body's OWN accessory, then (if `accStyle` isn't "none" and isn't the
@@ -637,6 +669,7 @@ export const HAIR_STYLES = [
   { id: "street", label: "街头短发" },
   { id: "royal", label: "中长发/刘海" },
   { id: "xmas", label: "披肩长发" },
+  { id: "style6", label: "低马尾" },
   { id: "none", label: "无 (光头)" },
 ];
 
@@ -656,6 +689,14 @@ export const TIE_STYLES = [
   { id: "xmas", label: "蝴蝶结" },
 ];
 
+/** Eye-shape dimension · "default" keeps the body's own eyes; each model id
+ *  overlays that model's eye mesh (role "eye"), still tinted by 瞳色. The
+ *  pupil COLOUR is a separate dimension (AVATAR_PALETTES.eye). */
+export const EYE_STYLES = [
+  { id: "default", label: "默认" },
+  { id: "style6", label: "圆亮眼" },
+];
+
 /** Clothing styles offered by the customizer · an independent dimension.
  *  Each id is a model whose outfit (role "outfit") is overlaid onto the
  *  body. The body's own clothing is the default for each style. */
@@ -664,6 +705,7 @@ export const OUTFIT_STYLES = [
   { id: "glasses", label: "蓝白校园" },
   { id: "casual", label: "T恤短裤" },
   { id: "street", label: "黑T短裤·街头" },
+  { id: "style6", label: "背心裙" },
 ];
 
 /** Accessory styles offered by the customizer · an independent dimension.
@@ -677,6 +719,7 @@ export const ACCESSORY_STYLES = [
   { id: "cap", label: "鸭舌帽" },
   { id: "crown", label: "王冠" },
   { id: "santa", label: "圣诞帽" },
+  { id: "tophat", label: "礼帽" },
 ];
 
 /** Live-recolour an existing avatar Group without rebuilding (customizer
@@ -714,6 +757,7 @@ export function deriveDefaultAvatarConfig(seed) {
     accessory: pickId(ACCESSORY_STYLES),
     browStyle: "default", // keep the body's own brows by default
     tieStyle: "none",     // no tie by default
+    eyeStyle: "default",  // keep the body's own eyes by default
     skin: pick(SKIN_TONES, rng),
     hair,
     brow: hair,
@@ -787,6 +831,6 @@ if (typeof window !== "undefined") {
     deriveDefaultAvatarConfig,
     getFaceBox, applyFaceFraming,
     DEFAULT_AVATAR_URL, AVATAR_MODELS, AVATAR_PALETTES, HAIR_STYLES, OUTFIT_STYLES, ACCESSORY_STYLES,
-    BROW_STYLES, TIE_STYLES,
+    BROW_STYLES, TIE_STYLES, EYE_STYLES,
   };
 }

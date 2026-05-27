@@ -57,6 +57,15 @@ export function runSeed(): SeedReport {
       if (!existing.avatar3d && d.avatar3d) {
         updateAgent(d.id, { avatar3d: d.avatar3d });
       }
+      // Avatar path backfill · old installs still carry the legacy
+      // 8-bit `/avatars/{slug}.svg` placeholder from before the 3D
+      // portrait shipped. Migrate to the 3D PNG so the profile +
+      // sidebar + round-table seat show the proper portrait without
+      // any 8-bit flash. User-saved PNG dataURLs (captured via the
+      // customizer) are left alone.
+      if (existing.avatarPath === `/avatars/${d.id}.svg`) {
+        updateAgent(d.id, { avatarPath: d.avatarPath });
+      }
     }
   }
 

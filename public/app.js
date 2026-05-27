@@ -18206,7 +18206,7 @@
       }
       const avatarHtml = isUser
         ? userAvHtml
-        : `<img class="msg-av" src="${this.escape(author?.avatarPath || "/avatars/socrates.svg")}" alt=""${agentTag}>`;
+        : `<img class="msg-av" src="${this.escape(author?.avatarPath || "/avatars/3d/socrates.png")}" alt=""${agentTag}>`;
 
       // Chair round-end: trim the POINTS: block from the bubble; the
       // vote card below the bubble surfaces the points as toggles.
@@ -19029,7 +19029,7 @@
     },
 
     /** Inline pixel-art chair sprite · 32×40 viewBox, painted as 1×1
-     *  rect cells in the same vocabulary as /public/avatars/chair.svg.
+     *  rect cells in the same vocabulary as /public/avatars/3d/chair.png.
      *  `isModerator: true` adds two cyan side-rails + a cyan headrest
      *  gem to distinguish the chair's seat from the directors'. */
     renderRoundTableChairSvg(isModerator) {

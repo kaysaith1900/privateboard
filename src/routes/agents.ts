@@ -786,7 +786,7 @@ export function agentsRouter(): Hono {
     const coverQuote = typeof b.coverQuote === "string" ? b.coverQuote.trim().slice(0, 220) : null;
     const avatarPath = typeof b.avatarPath === "string" && isValidAvatar(b.avatarPath)
       ? b.avatarPath
-      : "/avatars/socrates.svg"; // safe fallback · client should always pass a real avatar
+      : "/avatars/3d/socrates.png"; // safe fallback · client should always pass a real avatar
 
     const ability = parseAbilityFromRequest(b.ability) ?? synthesizeAbility(`${bio} ${roleTag} ${partial.description}`);
 
@@ -905,7 +905,7 @@ export function agentsRouter(): Hono {
     const avatarPath =
       rawAvatar && isValidAvatar(rawAvatar)
         ? rawAvatar
-        : "/avatars/socrates.svg";
+        : "/avatars/3d/socrates.png";
 
     // Optional roleTag — if missing, derive from the bio's first noun-ish
     // token, falling back to a generic "custom".

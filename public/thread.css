@@ -204,8 +204,9 @@
      the director's agent-profile overlay — wired through the
      standard `[data-agent-profile]` capture-phase handler in
      agent-profile.js. */
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  margin-top: -10px;
   flex-shrink: 0;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -399,11 +400,11 @@
   order: 99;
 }
 .thread-float-messages article.msg .msg-bubble {
-  /* Match the room's `.msg-bubble { font-size: 16px; line-height:
-     1.65 }` (index.html:7557). Keeps prose-reading rhythm
-     identical between main chat and thread. */
-  font-size: 16px;
-  line-height: 1.65;
+  /* Thread bubbles read at the app body register (14px) — tighter than
+     the main chat's 16px since the float panel is a narrower column.
+     line-height eased to 1.6 to keep prose rhythm at the smaller size. */
+  font-size: 14px;
+  line-height: 1.6;
 }
 /* In threads we don't show round-end vote cards or chair pick
    kickers — there are no rounds, no chair. Hide aggressively. */

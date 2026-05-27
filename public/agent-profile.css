@@ -1635,9 +1635,12 @@
 }
 .ap-avatar {
   position: relative;
-  width: 76px;
-  height: 76px;
-  margin-top: -46px;
+  width: 96px;
+  height: 96px;
+  /* Straddles the 84px cover · margin-top scaled with the size bump
+     (was 76px/-46px) so the avatar keeps the same ~60% overlap into
+     the cover and ~40% dropping into the body row. */
+  margin-top: -58px;
   margin-bottom: 0;
   overflow: hidden;
   display: flex;

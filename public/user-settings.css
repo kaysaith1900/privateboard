@@ -457,12 +457,6 @@
   overflow: hidden;
   position: relative;
 }
-.us-avatar-frame svg {
-  width: 100%; height: 100%;
-  image-rendering: pixelated;
-  image-rendering: -moz-crisp-edges;
-  display: block;
-}
 /* 3D portrait PNG · the capture is already framed head-and-shoulders
    (face-anchored, identical to the agent profile avatar), so just cover-fit. */
 .us-avatar-frame img {
@@ -491,21 +485,6 @@
 }
 .us-mini-btn:hover { border-color: var(--lime); color: var(--lime); }
 .us-mini-btn-mark { font-size: 11px; line-height: 1; color: var(--lime); }
-.us-mini-btn.primary {
-  background: var(--lime);
-  color: var(--bg);
-  border-color: var(--lime);
-}
-.us-mini-btn.primary:hover { background: transparent; color: var(--lime); }
-.us-mini-btn.danger {
-  border-color: rgba(181, 112, 106, 0.5);
-  color: var(--red);
-}
-.us-mini-btn.danger:hover {
-  background: var(--red);
-  color: var(--bg);
-  border-color: var(--red);
-}
 
 /* Inputs (shared with API Key section) */
 .us-input-wrap {

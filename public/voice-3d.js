@@ -3127,7 +3127,7 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
         try {
           const a = buildAvatar3D(member.id, {
             model: cfg.model, hairStyle: cfg.hairStyle, outfitStyle: cfg.outfitStyle,
-            browStyle: cfg.browStyle, tieStyle: cfg.tieStyle,
+            browStyle: cfg.browStyle, tieStyle: cfg.tieStyle, eyeStyle: cfg.eyeStyle,
             accessory: cfg.accessory, height: AVATAR_FIG_HEIGHT,
             skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit, tie: cfg.tie, eye: cfg.eye,
           });

@@ -55,6 +55,7 @@
           <div class="av3d-body">
             <div class="av3d-grp"><div class="av3d-lab">发型 Hair</div><div class="av3d-sw is-pill" data-row="hairStyle"></div></div>
             <div class="av3d-grp"><div class="av3d-lab">眼眉 Brow</div><div class="av3d-sw is-pill" data-row="browStyle"></div></div>
+            <div class="av3d-grp"><div class="av3d-lab">眼睛 Eyes</div><div class="av3d-sw is-pill" data-row="eyeStyle"></div></div>
             <div class="av3d-grp"><div class="av3d-lab">衣服款式 Outfit</div><div class="av3d-sw is-pill" data-row="outfitStyle"></div></div>
             <div class="av3d-grp"><div class="av3d-lab">领带 Tie</div><div class="av3d-sw is-pill" data-row="tieStyle"></div></div>
             <div class="av3d-grp"><div class="av3d-lab">装饰 Accessory</div><div class="av3d-sw is-pill" data-row="accessory"></div></div>
@@ -160,7 +161,7 @@
     if (group) { scene.remove(group); group = null; }
     group = av.buildAvatar3D(buildSeed || "editor", {
       model: sel.model, hairStyle: sel.hairStyle, outfitStyle: sel.outfitStyle,
-      browStyle: sel.browStyle, tieStyle: sel.tieStyle,
+      browStyle: sel.browStyle, tieStyle: sel.tieStyle, eyeStyle: sel.eyeStyle,
       accessory: sel.accessory, height: AVATAR_HEIGHT,
       skin: sel.skin, hair: sel.hair, brow: sel.brow, outfit: sel.outfit, tie: sel.tie, eye: sel.eye,
     });
@@ -174,6 +175,7 @@
   const PILL_LISTS = () => ({
     hairStyle: av.HAIR_STYLES,
     browStyle: av.BROW_STYLES,
+    eyeStyle: av.EYE_STYLES,
     outfitStyle: av.OUTFIT_STYLES,
     tieStyle: av.TIE_STYLES,
     accessory: av.ACCESSORY_STYLES,
@@ -253,6 +255,7 @@
     // Newer dimensions · default when absent (configs saved before they existed).
     if (typeof out.browStyle !== "string" || !out.browStyle) out.browStyle = "default";
     if (typeof out.tieStyle !== "string" || !out.tieStyle) out.tieStyle = "none";
+    if (typeof out.eyeStyle !== "string" || !out.eyeStyle) out.eyeStyle = "default";
     if (typeof out.tie !== "string" || !out.tie) out.tie = (av.AVATAR_PALETTES.tie || ["#3b5b78"])[0];
     if (typeof out.eye !== "string" || !out.eye) out.eye = (av.AVATAR_PALETTES.eye || ["#0d0d0d"])[0];
     return out;
@@ -455,7 +458,7 @@
     try {
       const g = av.buildAvatar3D("portrait", {
         model: cfg.model, hairStyle: cfg.hairStyle, outfitStyle: cfg.outfitStyle,
-        browStyle: cfg.browStyle, tieStyle: cfg.tieStyle, accessory: cfg.accessory, height: AVATAR_HEIGHT,
+        browStyle: cfg.browStyle, tieStyle: cfg.tieStyle, eyeStyle: cfg.eyeStyle, accessory: cfg.accessory, height: AVATAR_HEIGHT,
         skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit, tie: cfg.tie, eye: cfg.eye,
       });
       if (g) {

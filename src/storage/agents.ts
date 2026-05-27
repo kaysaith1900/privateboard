@@ -41,6 +41,9 @@ export interface Avatar3dConfig {
    *  existed — treated as "default" / "none". */
   browStyle?: string;
   tieStyle?: string;
+  /** Optional · eye-shape source ("default" = own). Absent on configs saved
+   *  before this dimension existed — treated as "default". */
+  eyeStyle?: string;
   /** Optional · neckwear (tie / bow) colour `#rrggbb`. */
   tie?: string;
   /** Optional · iris / pupil colour `#rrggbb`. */
@@ -696,6 +699,7 @@ export function parseAvatar3d(json: string | null | undefined): Avatar3dConfig |
     // Optional newer dimensions · kept only when present + valid (back-compat).
     if (typeof o.browStyle === "string" && o.browStyle) cfg.browStyle = o.browStyle;
     if (typeof o.tieStyle === "string" && o.tieStyle) cfg.tieStyle = o.tieStyle;
+    if (typeof o.eyeStyle === "string" && o.eyeStyle) cfg.eyeStyle = o.eyeStyle;
     if (typeof o.tie === "string" && HEX6_RE.test(o.tie)) cfg.tie = o.tie;
     if (typeof o.eye === "string" && HEX6_RE.test(o.eye)) cfg.eye = o.eye;
     return cfg;

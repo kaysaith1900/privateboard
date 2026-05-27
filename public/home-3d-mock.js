@@ -32,13 +32,13 @@
    with the moderator chair as the bottom-row anchor. 7 seats total
    fills the ring without empty arcs. */
 const CAST = [
-  { id: "chair",           name: "Chair",          avatarPath: "/avatars/chair.svg",            roleKind: "chair" },
-  { id: "socrates",        name: "Socrates",       avatarPath: "/avatars/socrates.svg",         roleKind: "director" },
-  { id: "first-principles", name: "First Principles", avatarPath: "/avatars/first-principles.svg", roleKind: "director" },
-  { id: "value-investor",  name: "Value Investor", avatarPath: "/avatars/value-investor.svg",   roleKind: "director" },
-  { id: "user-empathy",    name: "User-Empathy",   avatarPath: "/avatars/user-empathy.svg",     roleKind: "director" },
-  { id: "long-horizon",    name: "Long Horizon",   avatarPath: "/avatars/long-horizon.svg",     roleKind: "director" },
-  { id: "phenomenologist", name: "Phenomenologist", avatarPath: "/avatars/phenomenologist.svg", roleKind: "director" },
+  { id: "chair",           name: "Chair",          avatarPath: "/avatars/3d/chair.png",            roleKind: "chair" },
+  { id: "socrates",        name: "Socrates",       avatarPath: "/avatars/3d/socrates.png",         roleKind: "director" },
+  { id: "first-principles", name: "First Principles", avatarPath: "/avatars/3d/first-principles.png", roleKind: "director" },
+  { id: "value-investor",  name: "Value Investor", avatarPath: "/avatars/3d/value-investor.png",   roleKind: "director" },
+  { id: "user-empathy",    name: "User-Empathy",   avatarPath: "/avatars/3d/user-empathy.png",     roleKind: "director" },
+  { id: "long-horizon",    name: "Long Horizon",   avatarPath: "/avatars/3d/long-horizon.png",     roleKind: "director" },
+  { id: "phenomenologist", name: "Phenomenologist", avatarPath: "/avatars/3d/phenomenologist.png", roleKind: "director" },
 ];
 
 /* Which of the five tone-keyed rooms (voice-3d.js) the homepage hero

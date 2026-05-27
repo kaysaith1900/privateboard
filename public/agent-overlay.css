@@ -113,13 +113,10 @@ img[data-agent]:hover { filter: brightness(1.15); }
   border-bottom: 0.5px dashed var(--line-bright);
 }
 .agent-card-avatar {
-  width: 68px;
-  height: 68px;
-  background: var(--panel-2);
-  border: 0.5px solid var(--line-bright);
-  padding: 5px;
+  width: 72px;
+  height: 72px;
+  margin: -10px 0 10px;
   display: block;
-  image-rendering: pixelated;
 }
 .agent-card-id .name {
   font-size: 18px;
@@ -527,6 +524,17 @@ img[data-agent]:hover { filter: brightness(1.15); }
   color: var(--text-faint);
   border-color: var(--lime-dim);
 }
+
+/* Hide the secondary voice-block sections inside the agent overlay.
+   The same renderVoiceBlock() is shared with the full agent-profile
+   page (where these stay visible); the overlay is meant to be a
+   quick read-only summary, not a place to type a preview line, run
+   a multi-minute clone job, or tune speed / pitch / timbre sliders.
+   Scope by parent so the profile page is untouched. */
+.agent-overlay .ap-voice-section:has(> .ap-voice-forge),
+.agent-overlay .ap-voice-section:has(.ap-voice-preview-text),
+.agent-overlay .ap-voice-section:has(.ap-voice-emotion-row),
+.agent-overlay .ap-voice-section:has(.ap-voice-advanced) { display: none; }
 
 @media (max-width: 600px) {
   .agent-overlay { padding: 12px; }

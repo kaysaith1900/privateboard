@@ -43,7 +43,7 @@
     /* ════════════════════════════════════ SOCRATES ════════════════════════════════════ */
     "socrates": {
       name: "Socrates", role: "The Skeptic", handle: "@socrates",
-      avatar: "avatars/socrates.svg", status: "active", tenure: "core · 4 yr",
+      avatar: "avatars/3d/socrates.png", status: "active", tenure: "core · 4 yr",
       coverQuote: "won't let any sentence pass",
       meta: { creator: "@Kay", joined: "2024-04-01" },
       bio: [
@@ -114,7 +114,7 @@
     /* ════════════════════════════════════ FIRST PRINCIPLES ════════════════════════════ */
     "first-principles": {
       name: "First Principles", role: "Causal Reasoning", handle: "@first_p",
-      avatar: "avatars/first-principles.svg", status: "active", tenure: "core · 4 yr",
+      avatar: "avatars/3d/first-principles.png", status: "active", tenure: "core · 4 yr",
       coverQuote: "what's the smallest unit?",
       meta: { creator: "@Kay", joined: "2024-04-01" },
       bio: [
@@ -177,7 +177,7 @@
     /* ════════════════════════════════════ VALUE INVESTOR ════════════════════════════ */
     "value-investor": {
       name: "Value Investor", role: "Pattern Recognition", handle: "@value_inv",
-      avatar: "avatars/value-investor.svg", status: "active", tenure: "core · 3 yr",
+      avatar: "avatars/3d/value-investor.png", status: "active", tenure: "core · 3 yr",
       coverQuote: "who's tried this before?",
       meta: { creator: "@Kay", joined: "2024-08-14" },
       bio: [
@@ -242,7 +242,7 @@
     /* ════════════════════════════════════ USER-EMPATHY ════════════════════════════════ */
     "user-empathy": {
       name: "User-Empathy", role: "Empathy Lens", handle: "@user_e",
-      avatar: "avatars/user-empathy.svg", status: "active", tenure: "core · 2 yr",
+      avatar: "avatars/3d/user-empathy.png", status: "active", tenure: "core · 2 yr",
       coverQuote: "name one user who'd reach for it",
       meta: { creator: "@Kay", joined: "2024-11-02" },
       bio: [
@@ -306,7 +306,7 @@
     /* ════════════════════════════════════ LONG HORIZON ════════════════════════════════ */
     "long-horizon": {
       name: "Long Horizon", role: "Historical Lens", handle: "@long_h",
-      avatar: "avatars/long-horizon.svg", status: "active", tenure: "core · 2 yr",
+      avatar: "avatars/3d/long-horizon.png", status: "active", tenure: "core · 2 yr",
       coverQuote: "this is the cycle's mid-point",
       meta: { creator: "@Kay", joined: "2025-01-22" },
       bio: [
@@ -368,7 +368,7 @@
     /* ════════════════════════════════════ PHENOMENOLOGIST ═══════════════════════════ */
     "phenomenologist": {
       name: "Phenomenologist", role: "Experience-First", handle: "@phen",
-      avatar: "avatars/phenomenologist.svg", status: "intern", tenure: "intern · trial",
+      avatar: "avatars/3d/phenomenologist.png", status: "intern", tenure: "intern · trial",
       coverQuote: "what is it like, actually?",
       meta: { creator: "@Kay", joined: "2026-03-08" },
       bio: [

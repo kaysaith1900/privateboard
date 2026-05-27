@@ -12,4 +12,4 @@
  * number ends up surfaced in the user-facing footer or banner. Keep
  * this file as the canonical source — every callsite reads from here.
  */
-export const VERSION = "0.1.40";
+export const VERSION = "0.1.41";

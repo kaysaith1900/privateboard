@@ -39,7 +39,7 @@
       name: "Socrates",
       role: "The Skeptic",
       handle: "@socrates",
-      avatar: "avatars/socrates.svg",
+      avatar: "avatars/3d/socrates.png",
       lens: "Won't let any sentence pass without unpacking its assumptions three layers deep. Treats every word as a contract that must be defined before reasoning can begin.",
       traits: ["probing", "definitional", "patient", "rarely concedes"],
       memory: [
@@ -63,7 +63,7 @@
       name: "First Principles",
       role: "Causal Reasoning",
       handle: "@first_p",
-      avatar: "avatars/first-principles.svg",
+      avatar: "avatars/3d/first-principles.png",
       lens: "Strips problems to their primitives. Refuses to reason in the middle layer where most thinking dies. Will rebuild the argument from physics if necessary.",
       traits: ["reductive", "literal", "cold", "physics-first"],
       memory: [
@@ -87,7 +87,7 @@
       name: "Value Investor",
       role: "Pattern Recognition",
       handle: "@value_inv",
-      avatar: "avatars/value-investor.svg",
+      avatar: "avatars/3d/value-investor.png",
       lens: "Reads every judgment through a ten-year lens. Pattern recognition trained on twenty years of market history. Sees what's already been tried — and how it ended.",
       traits: ["historical", "skeptical of hype", "long-horizon", "selectively quiet"],
       memory: [
@@ -111,7 +111,7 @@
       name: "User-Empathy",
       role: "Empathy Lens",
       handle: "@user_e",
-      avatar: "avatars/user-empathy.svg",
+      avatar: "avatars/3d/user-empathy.png",
       lens: "Asks why anyone would actually use this — never lets a feature pass without a real-person scenario. Holds the room accountable to people who aren't in it.",
       traits: ["narrative", "scenario-driven", "warm", "uncompromising"],
       memory: [
@@ -135,7 +135,7 @@
       name: "Long Horizon",
       role: "Historical Lens",
       handle: "@long_h",
-      avatar: "avatars/long-horizon.svg",
+      avatar: "avatars/3d/long-horizon.png",
       lens: "Reads everything on a hundred-year scale. Knows which patterns repeat and which never do. Treats the present as a single frame in a much longer film.",
       traits: ["macro", "civilizational", "calm", "rare interjector"],
       memory: [
@@ -159,7 +159,7 @@
       name: "Phenomenologist",
       role: "Experience-First · Intern",
       handle: "@phen",
-      avatar: "avatars/phenomenologist.svg",
+      avatar: "avatars/3d/phenomenologist.png",
       lens: "Begins from experience itself, without imposing structure. Currently on probation — has to earn a permanent seat, or step back to observer.",
       traits: ["unstructured", "first-person", "uneven", "promising"],
       memory: [
