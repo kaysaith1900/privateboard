@@ -1639,13 +1639,6 @@
   height: 76px;
   margin-top: -46px;
   margin-bottom: 0;
-  border-radius: 50%;
-  background: var(--panel-2);
-  /* Ring color follows the page bg so the avatar reads as separated
-     from the cover gradient on every theme · in light themes the ring
-     is white against the gray cover; in dark themes the ring is the
-     near-black bg against the panel-toned cover. */
-  border: 4px solid var(--bg);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -1657,8 +1650,9 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  /* The 3D-avatar portrait is a smooth downscaled PNG · keep it smooth
+     (pixelated would render it blocky at this size). */
+  image-rendering: auto;
 }
 /* Text column · sits to the right of the avatar in the same row,
    so name + meta read as one tight identifier block. */

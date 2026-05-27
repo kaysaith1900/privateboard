@@ -15,7 +15,7 @@ import { callLLM } from "../ai/adapter.js";
 import { utilityModelFor } from "../ai/availability.js";
 
 export interface CelebritySeed {
-  id: string;                // kebab-case slug; also the AvatarSkill seed
+  id: string;                // kebab-case slug; also the Avatar3DSnap seed
   name: string;              // verbatim, no i18n (proper noun)
   roleTag: string;           // short English mono tag
   intro: { en: string; zh: string };

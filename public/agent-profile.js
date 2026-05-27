@@ -760,39 +760,81 @@
     return tag.toUpperCase().slice(0, 8);
   }
 
-  /* Per-agent rules (visual only · localStorage). */
+  /* Per-agent rules · PERSISTED SERVER-SIDE (agent.userRules) so the
+     orchestrator can inject them into the director's turn prompt. (They
+     used to be localStorage-only / "visual" — which is why a rule like
+     "不要谈及范冰冰" had zero effect: it never reached the model.)
+     A per-slug working copy backs the inputs for snappy editing; changes
+     debounce-flush to PATCH /api/agents/:id. */
   const RULES_MAX = 5;
-  function rulesKey(slug) { return "boardroom.agent.rules." + slug; }
-  function rulesForAgent(slug) {
-    try {
-      const raw = localStorage.getItem(rulesKey(slug));
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) return arr;
-      }
-    } catch (e) { /* */ }
-    return [];
+  const _rules = Object.create(null);        // slug -> string[] working copy
+  const _rulesTimer = Object.create(null);   // slug -> debounce timer
+  function _legacyRulesKey(slug) { return "boardroom.agent.rules." + slug; }
+  function _liveAgentFor(slug) {
+    return (window.app && window.app.agentsById) ? window.app.agentsById[slug] : null;
   }
-  function setRulesFor(slug, arr) {
-    try { localStorage.setItem(rulesKey(slug), JSON.stringify(arr)); } catch (e) { /* */ }
+  // Seed the working copy once per slug: prefer the server value
+  // (agent.userRules); else migrate any legacy localStorage rules up to
+  // the server so a user who set rules in the old "visual-only" era
+  // doesn't lose them (and they start actually working).
+  function seedRules(slug) {
+    if (_rules[slug]) return _rules[slug];
+    const live = _liveAgentFor(slug);
+    let arr = (live && Array.isArray(live.userRules)) ? live.userRules.slice() : [];
+    if (arr.length === 0) {
+      try {
+        const raw = localStorage.getItem(_legacyRulesKey(slug));
+        if (raw) {
+          const a = JSON.parse(raw);
+          if (Array.isArray(a)) {
+            const legacy = a.map((x) => String(x).trim()).filter((x) => x.length > 0);
+            if (legacy.length > 0) { arr = legacy; _rules[slug] = arr; persistRules(slug); }
+          }
+        }
+      } catch (e) { /* */ }
+    }
+    _rules[slug] = arr;
+    return _rules[slug];
+  }
+  function rulesForAgent(slug) { return seedRules(slug); }
+  function _cleanRules(slug) {
+    return (_rules[slug] || []).map((x) => String(x).trim()).filter((x) => x.length > 0).slice(0, RULES_MAX);
+  }
+  function persistRules(slug) {
+    const arr = _cleanRules(slug);
+    const live = _liveAgentFor(slug);
+    if (live) live.userRules = arr.slice();   // optimistic
+    fetch("/api/agents/" + encodeURIComponent(slug), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userRules: arr }),
+    }).then((r) => (r.ok ? r.json() : null)).then((updated) => {
+      if (updated && Array.isArray(updated.userRules) && live) {
+        live.userRules = updated.userRules.slice();
+      }
+      try { localStorage.removeItem(_legacyRulesKey(slug)); } catch (e) { /* */ }
+    }).catch(() => { /* offline · working copy keeps the edit */ });
+  }
+  function persistRulesSoon(slug) {
+    if (_rulesTimer[slug]) clearTimeout(_rulesTimer[slug]);
+    _rulesTimer[slug] = setTimeout(() => { _rulesTimer[slug] = null; persistRules(slug); }, 600);
   }
   function addRuleFor(slug) {
-    const rules = rulesForAgent(slug);
+    const rules = seedRules(slug);
     if (rules.length >= RULES_MAX) return;
-    rules.push("");
-    setRulesFor(slug, rules);
+    rules.push("");   // empty rows aren't persisted until typed into
   }
   function setRuleAt(slug, idx, body) {
-    const rules = rulesForAgent(slug);
+    const rules = seedRules(slug);
     if (idx < 0 || idx >= rules.length) return;
     rules[idx] = body;
-    setRulesFor(slug, rules);
+    persistRulesSoon(slug);
   }
   function removeRuleFor(slug, idx) {
-    const rules = rulesForAgent(slug);
+    const rules = seedRules(slug);
     if (idx < 0 || idx >= rules.length) return;
     rules.splice(idx, 1);
-    setRulesFor(slug, rules);
+    persistRules(slug);   // immediate on remove
   }
   function repaintProfileRules(slug) {
     const card = document.querySelector(`.ap-card[data-ap-card-slug="${slug}"]`);
@@ -1123,8 +1165,9 @@
   /** Render the RULES block · editable list of numbered constraints.
    *  Mirrors the new-agent overlay UX: each row is a numbered input
    *  with a trailing remove button; an "add rule" button below the
-   *  list (hidden when the cap of 5 is reached). All mutations
-   *  persist immediately via setRulesFor. */
+   *  list (hidden when the cap of 5 is reached). Mutations persist
+   *  server-side via PATCH /api/agents/:id (see setRuleAt / removeRuleFor)
+   *  so the orchestrator injects them into the director's prompt. */
   function renderRulesBlock(slug) {
     return `<div class="ap-rules-block" data-ap-rules-block data-slug="${escape(slug)}">${renderRulesInner(slug)}</div>`;
   }
@@ -2402,6 +2445,11 @@
           <span class="ap-id-menu-mark">◆</span>
           <span>Regenerate 8-bit avatar</span>
         </button>`);
+      parts.push(`
+        <button type="button" class="ap-id-menu-item" data-ap-menu-action="edit-avatar3d">
+          <span class="ap-id-menu-mark">◈</span>
+          <span>Customize 3D avatar</span>
+        </button>`);
     }
     // Persona MD download · only present for Full-mode agents (those
     // built via the deep persona-builder pipeline). Their `personaSpec`
@@ -2440,17 +2488,19 @@
     if (el) el.remove();
   }
 
-  /** Generate a fresh 8-bit SVG and persist it as the agent's
+  /** Render a fresh 3D voxel portrait and persist it as the agent's
    *  avatar. Updates the live store so subsequent renders use the
-   *  new image, then repaints the profile in place. Seeded directors
-   *  fall back to a localStorage override (the server only stores
-   *  user-created agents). */
+   *  new image, then repaints the profile in place. Uses the shared
+   *  Avatar3DSnap helper (same pipeline the agent-profile capture
+   *  and home / new-agent flows go through) — no more 8-bit SVG.
+   *  Seeded directors fall back to a localStorage override (the
+   *  server only stores user-created agents). */
   async function regenerateProfileAvatar(slug) {
-    const skill = window.AvatarSkill;
-    if (!skill) return;
-    const seed = skill.randomSeed();
-    const svg = skill.generate(seed);
-    const dataUrl = "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+    const snap = window.Avatar3DSnap;
+    if (!snap || typeof snap.generate !== "function") return;
+    const seed = snap.randomSeed();
+    const dataUrl = await snap.generate(seed);
+    if (!dataUrl) return;
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     if (live) {
       try {
@@ -4358,6 +4408,9 @@
         e.preventDefault();
         closeProfileIdMenu();
         if (action === "regen-avatar" && slug) regenerateProfileAvatar(slug);
+        if (action === "edit-avatar3d" && slug && typeof window.openAvatar3DEditor === "function") {
+          window.openAvatar3DEditor(slug);
+        }
         if (action === "delete" && slug && window.app && typeof window.app.deleteAgent === "function") {
           // deleteAgent handles confirm + DELETE call + closes the
           // profile + refreshes the sidebar. No-op for seed/chair
@@ -5050,8 +5103,8 @@
       }
     });
 
-    // Rules · persist edits as the user types (debounce-free; the
-    // payload is small and writes go to localStorage).
+    // Rules · persist edits as the user types · setRuleAt debounce-
+    // flushes to PATCH /api/agents/:id so the orchestrator picks them up.
     document.addEventListener("input", (e) => {
       const ri = e.target.closest("[data-ap-rule-input]");
       if (!ri) return;

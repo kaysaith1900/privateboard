@@ -922,14 +922,14 @@
    actions. Hidden by default, slides in on article hover. */
 .msg-toolbar {
   position: absolute;
-  /* Shift LEFT so the chip doesn't overlap the right-aligned
-     timestamp in the msg-meta row. The timestamp sits at the
-     article's right edge (margin-left: auto in the flex meta
-     row); reserving ~76px of clearance puts the toolbar to the
-     LEFT of "12:34 PM"-sized timestamps with room to spare for
-     a context badge or model chip if one is present. */
-  top: -12px;
-  right: 76px;
+  /* Sits at the RIGHT END of the meta row (the timestamp no longer
+     pins to the right — see `.msg-time` — so the far-right is free),
+     vertically aligned with that line rather than floating above the
+     message. The small negative top centres the ~26px chip on the
+     ~16px meta line; right:0 puts it flush with the content column's
+     right edge. */
+  top: -4px;
+  right: 0;
   z-index: 3;
   display: inline-flex;
   align-items: center;

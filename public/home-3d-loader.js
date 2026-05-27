@@ -61,7 +61,11 @@
     setTimeout(() => hintEl.classList.remove("is-visible"), 3500);
   }
 
-  async function mountHero3d(heroEl, stageEl, hintEl) {
+  async function mountHero3d(heroEl, stageEl, hintEl, loadingEl) {
+    // Drop the loading veil on any non-mounted exit (capability bail,
+    // mount failure, import throw) so it never spins forever. On the
+    // success path the `[data-mounted]` CSS rule fades it instead.
+    const hideLoading = () => { if (loadingEl) loadingEl.setAttribute("hidden", ""); };
     try {
       // Import voice-3d.js · its top-level `import` of three.module +
       // OrbitControls pulls those in too. The IIFE inside sets
@@ -70,7 +74,7 @@
       // after the import completes.
       await import("/voice-3d.js");
       const VS3D = window.VoiceStage3D;
-      if (!VS3D || !VS3D.isSupported || !VS3D.isSupported()) return;
+      if (!VS3D || !VS3D.isSupported || !VS3D.isSupported()) { hideLoading(); return; }
 
       // The stage host must be visible (display: block, not [hidden])
       // before mount, otherwise WebGLRenderer reads a 0×0 canvas size
@@ -96,7 +100,7 @@
         // top of the poster would just darken it before the canvas
         // takes over.
         loading: false,
-      })) return;
+      })) { hideLoading(); return; }
 
       // Pull the cast + start the rotating-speaker driver. The mock
       // module is small (~3KB) so importing it after VS3D.mount keeps
@@ -116,6 +120,7 @@
     } catch (e) {
       // Silently fall back to the poster. The visitor still sees a
       // polished hero, just without the live scene.
+      hideLoading();
       try { console.warn("[home-3d] mount failed, poster fallback:", e); } catch (_) {}
     }
   }
@@ -125,6 +130,7 @@
     if (!heroEl) return;
     const stageEl = heroEl.querySelector("[data-hero-3d-stage]");
     const hintEl  = heroEl.querySelector("[data-hero-3d-hint]");
+    const loadingEl = heroEl.querySelector("[data-hero-3d-loading]");
     if (!stageEl) return;
 
     if (shouldSkip3d()) return; // keep poster, do nothing
@@ -139,12 +145,17 @@
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
         observer.disconnect();
+        // Commit to loading · reveal the loading veil NOW (before the
+        // idle yield + ~500KB download) so the section shows a spinner
+        // for the whole gap, not blank. Torn down on mount / failure
+        // inside mountHero3d.
+        if (loadingEl) loadingEl.removeAttribute("hidden");
         // Yield to the main thread so initial paint / hero font load
         // / hero CSS animations all finish before we kick off ~500KB
         // of JS download. requestIdleCallback is the right primitive
         // here; setTimeout(..., 0) fallback for Safari which still
         // lacks it as of 2026.
-        const kick = () => mountHero3d(heroEl, stageEl, hintEl);
+        const kick = () => mountHero3d(heroEl, stageEl, hintEl, loadingEl);
         if (typeof window.requestIdleCallback === "function") {
           window.requestIdleCallback(kick, { timeout: 1500 });
         } else {

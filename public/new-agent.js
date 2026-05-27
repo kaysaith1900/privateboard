@@ -141,12 +141,15 @@
     const rng = makeRng(seed);
     return [0,0,0,0].map(() => Math.floor(rng() * 16).toString(16)).join("");
   }
-  // Avatar generation delegates to the shared AvatarSkill
-  // (see public/avatar-skill.js). One source of truth for the
-  // 8-bit pixel-art look used here, in user settings, and anywhere
-  // else that wants a director-style avatar.
-  function generateAvatar(seed, opts) {
-    return window.AvatarSkill.generate(seed, opts);
+  // Avatar generation delegates to the shared Avatar3DSnap helper
+  // (public/avatar-3d-snap.js). One source of truth for the 3D
+  // voxel head-and-shoulders portrait used everywhere a director
+  // face appears. The legacy AvatarSkill 8-bit SVG generator was
+  // retired in favour of this 3D pipeline.
+  async function generateAvatarDataUrl(seed) {
+    const snap = window.Avatar3DSnap;
+    if (!snap || typeof snap.generate !== "function") return "";
+    return snap.generate(seed);
   }
 
   function modalHTML() {
@@ -612,16 +615,37 @@
     if (!frame) return;
     if (avatarState.placeholder) {
       frame.classList.add("placeholder");
-      frame.innerHTML = generateAvatar("__placeholder__", { placeholder: true });
+      // Empty frame · the wrapper's CSS placeholder (initial letter
+      // / texture) is the resting state until the user clicks
+      // regenerate. The legacy 8-bit SVG silhouette was retired.
+      frame.innerHTML = "";
       if (seedEl) seedEl.textContent = "—";
       if (rollEl) rollEl.textContent = "";
-    } else {
-      frame.classList.remove("placeholder");
-      const seedKey = avatarState.seed + "::" + avatarState.roll;
-      frame.innerHTML = generateAvatar(seedKey);
-      if (seedEl) seedEl.textContent = shortHash(avatarState.seed);
-      if (rollEl) rollEl.textContent = " · #" + avatarState.roll;
+      return;
     }
+    frame.classList.remove("placeholder");
+    const seedKey = avatarState.seed + "::" + avatarState.roll;
+    if (seedEl) seedEl.textContent = shortHash(avatarState.seed);
+    if (rollEl) rollEl.textContent = " · #" + avatarState.roll;
+    const snap = window.Avatar3DSnap;
+    const cached = snap && typeof snap.cacheGet === "function" ? snap.cacheGet(seedKey) : null;
+    if (cached) {
+      frame.innerHTML = `<img src="${cached}" alt="">`;
+      return;
+    }
+    frame.innerHTML = '<div class="na-avatar-loading" aria-hidden="true">…</div>';
+    if (!snap || typeof snap.generate !== "function") return;
+    const expected = seedKey;
+    snap.generate(seedKey).then((dataUrl) => {
+      if (!dataUrl) return;
+      // Bail if the user has already rolled again — only the latest
+      // seed's render should land in the frame.
+      const cur = avatarState.placeholder ? null : (avatarState.seed + "::" + avatarState.roll);
+      if (cur !== expected) return;
+      const f2 = modal.querySelector("[data-na-avatar]");
+      if (!f2) return;
+      f2.innerHTML = `<img src="${dataUrl}" alt="">`;
+    }).catch(() => { /* */ });
   }
 
   function positionDropdown() {
@@ -665,10 +689,10 @@
   }
 
   /** Regenerate the avatar by asking the LLM for a "vibe seed" derived
-   *  from the director's name + bio, then painting the SVG via the
-   *  shared AvatarSkill. Falls back to a local random seed if the
-   *  endpoint errors (no key, network, etc.) so the button always
-   *  produces a fresh face. */
+   *  from the director's name + bio, then painting the 3D portrait
+   *  via the shared Avatar3DSnap. Falls back to a local random seed
+   *  if the endpoint errors (no key, network, etc.) so the button
+   *  always produces a fresh face. */
   async function regenerateAvatar() {
     const name = modal.querySelector(".na-name-input").value.trim();
     const desc = modal.querySelector(".na-desc-input").value.trim();
@@ -682,7 +706,7 @@
     // Without a name, just produce a random seed locally — no point
     // burning an LLM call on an empty form.
     if (!name) {
-      avatarState.seed = (window.AvatarSkill?.randomSeed?.() || ("anon|" + Date.now()));
+      avatarState.seed = (window.Avatar3DSnap?.randomSeed?.() || ("anon|" + Date.now()));
       if (vibeEl) vibeEl.textContent = "";
       paintAvatar();
       return;
@@ -800,14 +824,16 @@
 
       // Avatar → data URL. If the user never clicked "regenerate", we
       // build one off the form values now so the agent has a real face.
+      // The render is async (3D portrait via Avatar3DSnap); falls back
+      // to an empty string when WebGL isn't available — the backend
+      // already tolerates a missing avatarPath.
       let avatarSeed = avatarState.seed;
       let avatarRoll = avatarState.roll || 1;
       if (avatarState.placeholder) {
         avatarSeed = (name + "|" + bio) || "anon";
         avatarRoll = 1;
       }
-      const svg = generateAvatar(avatarSeed + "::" + avatarRoll);
-      const avatarPath = "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+      const avatarPath = (await generateAvatarDataUrl(avatarSeed + "::" + avatarRoll)) || "";
 
       // Lock the button while the request is in flight.
       create.disabled = true;

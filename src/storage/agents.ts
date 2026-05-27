@@ -22,6 +22,31 @@ function parseCarrierPref(raw: string | null): AgentCarrierPref | null {
     : null;
 }
 
+/** Per-director 3D-avatar config built in the "捏 avatar" editor. The four
+ *  id fields select a body style + independent hair / clothing / accessory
+ *  dimensions (ids from the avatar-3d.js *_STYLES / *_MODELS registries); the
+ *  four colour fields are `#rrggbb`. Persisted to `agents.avatar3d_json`;
+ *  NULL → the room derives a deterministic per-id default. */
+export interface Avatar3dConfig {
+  model: string;
+  hairStyle: string;
+  outfitStyle: string;
+  accessory: string;
+  skin: string;
+  hair: string;
+  brow: string;
+  outfit: string;
+  /** Optional · eyebrow-shape source ("default" = own) and tie source
+   *  ("none" = no tie). Absent on configs saved before these dimensions
+   *  existed — treated as "default" / "none". */
+  browStyle?: string;
+  tieStyle?: string;
+  /** Optional · neckwear (tie / bow) colour `#rrggbb`. */
+  tie?: string;
+  /** Optional · iris / pupil colour `#rrggbb`. */
+  eye?: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -54,6 +79,17 @@ export interface Agent {
    *  director system prompts is gated on this field — see
    *  `src/orchestrator/prompt.ts:buildDirectorMessages`. */
   personaSpec: PersonaSpec | null;
+  /** User-authored hard rules typed in the agent profile (e.g.
+   *  "不要谈及范冰冰"). Distinct from `personaSpec.rules` (LLM-generated
+   *  behavioural rules): these are explicit user directives that the
+   *  orchestrator injects into the director's turn prompt as hard
+   *  constraints — see `src/orchestrator/prompt.ts`. Empty array when
+   *  the user set none. Persisted to `agents.user_rules_json`. */
+  userRules: string[];
+  /** 3D-avatar config from the "捏 avatar" editor. NULL when the director
+   *  has never been customized — the voice room then renders a deterministic
+   *  per-id default. Persisted to `agents.avatar3d_json`. */
+  avatar3d: Avatar3dConfig | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -233,6 +269,8 @@ interface Row {
   web_search_enabled: number;
   voice_json: string | null;
   persona_spec_json: string | null;
+  user_rules_json: string | null;
+  avatar3d_json: string | null;
   model_by_provider_json: string | null;
   voice_by_provider_json: string | null;
   created_at: number;
@@ -629,15 +667,66 @@ function mapRow(row: Row): Agent {
     webSearchEnabled: row.web_search_enabled !== 0,
     voice: parseVoice(row.voice_json),
     personaSpec: parsePersonaSpec(row.persona_spec_json),
+    userRules: parseUserRules(row.user_rules_json),
+    avatar3d: parseAvatar3d(row.avatar3d_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
+const HEX6_RE = /^#[0-9a-f]{6}$/i;
+
+/** Parse the persisted 3D-avatar config. Returns `null` on null / malformed
+ *  blobs or any field-shape mismatch (the four id fields must be strings, the
+ *  four colour fields must be `#rrggbb`). A clean null lets the room fall back
+ *  to its deterministic per-id default rather than build from a partial. */
+export function parseAvatar3d(json: string | null | undefined): Avatar3dConfig | null {
+  if (!json) return null;
+  try {
+    const o = JSON.parse(json);
+    if (!o || typeof o !== "object") return null;
+    const ids = ["model", "hairStyle", "outfitStyle", "accessory"] as const;
+    const cols = ["skin", "hair", "brow", "outfit"] as const;
+    for (const k of ids) if (typeof o[k] !== "string" || !o[k]) return null;
+    for (const k of cols) if (typeof o[k] !== "string" || !HEX6_RE.test(o[k])) return null;
+    const cfg: Avatar3dConfig = {
+      model: o.model, hairStyle: o.hairStyle, outfitStyle: o.outfitStyle, accessory: o.accessory,
+      skin: o.skin, hair: o.hair, brow: o.brow, outfit: o.outfit,
+    };
+    // Optional newer dimensions · kept only when present + valid (back-compat).
+    if (typeof o.browStyle === "string" && o.browStyle) cfg.browStyle = o.browStyle;
+    if (typeof o.tieStyle === "string" && o.tieStyle) cfg.tieStyle = o.tieStyle;
+    if (typeof o.tie === "string" && HEX6_RE.test(o.tie)) cfg.tie = o.tie;
+    if (typeof o.eye === "string" && HEX6_RE.test(o.eye)) cfg.eye = o.eye;
+    return cfg;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse the persisted user-rules JSON array. Tolerates null / malformed
+ *  blobs (returns []) and drops non-string / empty entries so the prompt
+ *  builder always gets a clean string[]. Capped to keep a runaway list
+ *  from bloating every director turn. */
+export function parseUserRules(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((r): r is string => typeof r === "string")
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0)
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
 const SELECT_COLS =
   "id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref, " +
   "avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json, " +
-  "persona_spec_json, model_by_provider_json, voice_by_provider_json, created_at, updated_at";
+  "persona_spec_json, user_rules_json, avatar3d_json, model_by_provider_json, voice_by_provider_json, created_at, updated_at";
 
 /** Directors only — the moderator (chair) is hidden from generic listings. */
 export function listAgents(): Agent[] {
@@ -1042,6 +1131,11 @@ export interface AgentInsert {
    *  injection of few-shot examples + reflection checklist into the
    *  per-turn director system prompt. */
   personaSpec?: PersonaSpec | null;
+  /** Seed-supplied 3D-avatar config (chair + core directors get a
+   *  hand-picked "捏 avatar" default so the voice room + marketing
+   *  page render the canonical look out of the box). NULL on every
+   *  user-generated insert; users build their own via the editor. */
+  avatar3d?: Avatar3dConfig | null;
 }
 
 export function insertAgent(a: AgentInsert): Agent {
@@ -1062,13 +1156,14 @@ export function insertAgent(a: AgentInsert): Agent {
   // tool-access output). Signal-mode and seed inserts keep the
   // historical "opt-in via toggle" behaviour at 0.
   const initialWebSearch = a.personaSpec?.toolAccess?.webSearch ? 1 : 0;
+  const avatar3dJson = a.avatar3d ? JSON.stringify(a.avatar3d) : null;
   getDb()
     .prepare(
       `INSERT INTO agents
        (id, name, handle, role_tag, role_kind, bio, cover_quote, instruction, model_v, carrier_pref,
         avatar_path, ability_json, is_pinned, is_seed, web_search_enabled, voice_json,
-        persona_spec_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        persona_spec_json, avatar3d_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       a.id,
@@ -1088,6 +1183,7 @@ export function insertAgent(a: AgentInsert): Agent {
       initialWebSearch,
       serializeVoice(a.voice ?? null),
       personaSpecJson,
+      avatar3dJson,
       now,
       now,
     );
@@ -1155,6 +1251,13 @@ export function updateAgent(
      *  agent to Signal-mode), or a `PersonaSpec` to write. Omitting
      *  the key leaves the column untouched. */
     personaSpec?: PersonaSpec | null;
+    /** User-authored hard rules (agent profile). Pass an array to
+     *  replace the full set (entries trimmed / empties dropped / capped),
+     *  or omit the key to leave them untouched. An empty array clears. */
+    userRules?: string[];
+    /** 3D-avatar config (捏 avatar editor). Pass a config to save, `null`
+     *  to clear, or omit the key to leave it untouched. */
+    avatar3d?: Avatar3dConfig | null;
   },
 ): Agent | null {
   const fields: string[] = [];
@@ -1201,6 +1304,21 @@ export function updateAgent(
   if (patch.personaSpec !== undefined) {
     fields.push("persona_spec_json = ?");
     values.push(patch.personaSpec ? JSON.stringify(patch.personaSpec) : null);
+  }
+  if (patch.userRules !== undefined) {
+    fields.push("user_rules_json = ?");
+    const clean = Array.isArray(patch.userRules)
+      ? patch.userRules
+          .filter((r): r is string => typeof r === "string")
+          .map((r) => r.trim())
+          .filter((r) => r.length > 0)
+          .slice(0, 12)
+      : [];
+    values.push(clean.length > 0 ? JSON.stringify(clean) : null);
+  }
+  if (patch.avatar3d !== undefined) {
+    fields.push("avatar3d_json = ?");
+    values.push(patch.avatar3d ? JSON.stringify(patch.avatar3d) : null);
   }
   if (fields.length === 0) return getAgent(id);
   fields.push("updated_at = ?");

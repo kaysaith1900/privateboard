@@ -1,0 +1,200 @@
+/* ═══════════════════════════════════════════
+   3D AVATAR EDITOR OVERLAY (捏 avatar)
+   Floating modal: left = three.js stage, right = control panel.
+   Mirrors the room-settings overlay chrome. Opened from the director
+   profile's ⋯ menu via window.openAvatar3DEditor(slug).
+   ═══════════════════════════════════════════ */
+
+.avatar3d-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 9600;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+}
+.avatar3d-overlay.open {
+  display: flex;
+  animation: av3d-fade 0.14s ease-out;
+}
+/* Electron macOS · reclaim the subtree as no-drag so clicks land (see the
+   same note in room-settings.css). */
+html.is-electron-mac .avatar3d-overlay,
+html.is-electron-mac .avatar3d-overlay * {
+  -webkit-app-region: no-drag;
+}
+@keyframes av3d-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes av3d-rise { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.avatar3d-modal {
+  position: relative;
+  width: 100%;
+  max-width: 880px;
+  height: 560px;
+  max-height: calc(100vh - 48px);
+  background: var(--panel, #16181c);
+  border: 1px solid var(--line-strong, #333);
+  color: var(--text, #dde);
+  animation: av3d-rise 0.18s ease-out;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Left · three.js stage. The canvas is appended here and sized to fit. */
+.av3d-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #2a2e36 0%, #17191d 70%, #121317 100%);
+  overflow: hidden;
+}
+.av3d-stage canvas { display: block; }
+.av3d-status {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, #8aa);
+  pointer-events: none;
+}
+.av3d-hint {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 11px;
+  color: var(--text-dim, #7d8694);
+  pointer-events: none;
+}
+
+/* Right · control panel. */
+.av3d-panel {
+  flex: 0 0 264px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--line, #2a2c31);
+  background: var(--panel-2, rgba(18, 20, 24, 0.6));
+}
+.av3d-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line, #2a2c31);
+}
+.av3d-kicker {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent, #9fe);
+  margin: 0;
+}
+.av3d-close {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--text-dim, #8aa);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.av3d-close:hover { background: var(--hover, #262931); color: var(--text, #dde); }
+
+.av3d-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.av3d-grp { margin-bottom: 16px; }
+.av3d-lab {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim, #9aa);
+  margin-bottom: 7px;
+}
+.av3d-sw { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* Colour swatches · round chips. */
+.av3d-sw.is-color button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.av3d-sw.is-color button:hover { transform: scale(1.12); }
+.av3d-sw.is-color button.on {
+  border-color: var(--accent, #9fe);
+  box-shadow: 0 0 0 2px rgba(153, 238, 255, 0.25);
+}
+
+/* Style / hair / outfit / accessory pills. */
+.av3d-sw.is-pill button {
+  appearance: none;
+  border-radius: 6px;
+  padding: 6px 11px;
+  font-size: 12px;
+  line-height: 1;
+  background: var(--chip, #283140);
+  color: var(--text, #cde);
+  border: 1px solid var(--line-strong, #44506a);
+  cursor: pointer;
+}
+.av3d-sw.is-pill button:hover { background: var(--chip-hover, #33405a); }
+.av3d-sw.is-pill button.on {
+  color: var(--accent, #9fe);
+  border-color: var(--accent, #9fe);
+}
+
+.av3d-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line, #2a2c31);
+}
+.av3d-foot button {
+  flex: 1;
+  padding: 9px;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--line-strong, #44506a);
+}
+.av3d-btn-rand {
+  background: var(--chip, #283140);
+  color: var(--text, #cde);
+  flex: 0 0 auto;
+  padding: 9px 12px;
+}
+.av3d-btn-rand:hover { background: var(--chip-hover, #33405a); }
+.av3d-btn-cancel { background: var(--chip, #283140); color: var(--text, #cde); }
+.av3d-btn-cancel:hover { background: var(--chip-hover, #33405a); }
+.av3d-btn-save {
+  background: var(--accent, #9fe);
+  color: #0c1014;
+  border-color: var(--accent, #9fe);
+  font-weight: 600;
+}
+.av3d-btn-save:hover { filter: brightness(1.06); }
+.av3d-btn-save[disabled] { opacity: 0.5; cursor: default; }
+
+/* Narrow viewports · stack stage over panel. */
+@media (max-width: 700px) {
+  .avatar3d-modal { flex-direction: column; height: calc(100vh - 48px); }
+  .av3d-panel { flex: 0 0 auto; border-left: 0; border-top: 1px solid var(--line, #2a2c31); }
+}

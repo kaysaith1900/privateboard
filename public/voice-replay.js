@@ -378,6 +378,15 @@
         close();
         return;
       }
+      // Stop button mirrored into the room header (.head-actions) ·
+      // app.js renders it statically + toggles its visibility on the
+      // replay-* events, but the stop ACTION stays owned here so all
+      // replay controls funnel through close().
+      if (target.closest("[data-vr-header-stop]")) {
+        ev.preventDefault();
+        close();
+        return;
+      }
       if (target.closest("[data-vr-inline-expand]")) {
         ev.preventDefault();
         toggleCollapsed();
@@ -403,6 +412,17 @@
     const collapsed = STATE.overlay.classList.toggle("is-collapsed");
     if (collapsed) mountInlineExpand();
     else removeInlineExpand();
+  }
+
+  /** Force the floating panel into its collapsed posture (idempotent).
+   *  Exposed on the public API so the recorder can tuck the player
+   *  out of the captured stage region · the panel floats bottom-right
+   *  over the stage, so leaving it expanded would bleed into the
+   *  recording. Collapsing surfaces the inline controls in the
+   *  input-bar (below the captured region) instead. */
+  function collapse() {
+    if (!STATE.overlay) return;
+    if (!STATE.overlay.classList.contains("is-collapsed")) toggleCollapsed();
   }
 
   /** Slot the inline replay control group into the bottom-bar
@@ -974,6 +994,7 @@
     getActiveAudio: getActiveAudio,
     getRoomId: getRoomId,
     togglePause: togglePause,
+    collapse: collapse,
     // Exposed for testing.
     _internals: { buildPlaylist, PROCEDURAL_KINDS },
   };

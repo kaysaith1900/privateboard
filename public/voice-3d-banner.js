@@ -162,6 +162,18 @@
     // marketing-homepage driver (home-3d-mock.js) stays its own copy
     // because it's loaded by a different surface, but this banner
     // can't afford the load-then-paint gap on first visit.
+    // Decorate CAST with canonical avatar3d configs · without this
+    // the chair + directors render as RNG-drawn random faces instead
+    // of the seeded looks from src/seed/*.ts. Source: window.PB_CORE_AVATARS
+    // (public/core-avatars.js, loaded by index.html before this file).
+    // Idempotent · we re-walk on every mount in case PB_CORE_AVATARS
+    // landed after first CAST construction.
+    if (window.PB_CORE_AVATARS) {
+      for (const m of CAST) {
+        const cfg = window.PB_CORE_AVATARS[m.id];
+        if (cfg && !m.avatar3d) m.avatar3d = cfg;
+      }
+    }
     const positions = computeSeatPositions(CAST);
     const directorIds = CAST
       .filter((m) => m.roleKind === "director")

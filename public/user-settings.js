@@ -166,6 +166,8 @@
         name: typeof data.name === "string" ? data.name : "You",
         intro: typeof data.intro === "string" ? data.intro : "",
         avatarSeed: data.avatarSeed ?? null,
+        avatar3d: data.avatar3d ?? null,
+        avatarUrl: data.avatarUrl ?? null,
         webSearchProvider: data.webSearchProvider === "tavily" ? "tavily" : "brave",
         minimaxRegion: data.minimaxRegion === "intl" ? "intl" : "cn",
       };
@@ -187,10 +189,21 @@
       body: JSON.stringify({
         name: u.name,
         intro: u.intro,
-        avatarSeed: u.avatarSeed
+        avatarSeed: u.avatarSeed,
+        ...("avatarUrl" in u ? { avatarUrl: u.avatarUrl } : {}),
+        ...("avatar3d" in u ? { avatar3d: u.avatar3d } : {}),
       })
     }).catch(() => { /* offline → cache stays, retry on next edit */ });
   }
+
+  // The 3D-avatar editor (avatar3d-editor.js) saves the user's portrait via
+  // PUT /api/prefs and fires this event. Sync our cache + repaint the frame so
+  // the settings avatar updates without reopening the pane.
+  window.addEventListener("pb:user-avatar-updated", (e) => {
+    const url = e && e.detail && e.detail.avatarUrl;
+    _prefsCache = { ...(_prefsCache || {}), avatarUrl: url || null };
+    try { paintUserAvatar(); } catch (_) {}
+  });
 
   // Provider keys · canonical state lives in keys-store.js (loaded as a
   // module script before this file). All reads/writes go through that store;
@@ -325,6 +338,10 @@
           <div class="us-row-label">${tr("us_avatar")}</div>
           <div class="us-row-field us-avatar-row">
             <div class="us-avatar-frame" data-us-avatar></div>
+            <button type="button" class="us-mini-btn" data-us-avatar3d>
+              <span class="us-mini-btn-mark">◈</span>
+              <span>${tr("us_avatar3d")}</span>
+            </button>
             <button type="button" class="us-mini-btn" data-us-regen-avatar>
               <span class="us-mini-btn-mark">◆</span>
               <span>${tr("us_regen_avatar")}</span>
@@ -367,30 +384,13 @@
     }).join("");
   }
 
-  /* ── Room style toggle (3D voxel boardroom vs 2D flat round-table)
-        Persists to `localStorage["boardroom.stage3d"]` ("on" | "off")
-        — same key voice-3d.js and renderRoundTable already gate on.
-        Default "on" matches the existing implicit default. */
-  const STAGE3D_KEY = "boardroom.stage3d";
-  function getStage3d() {
-    try { return localStorage.getItem(STAGE3D_KEY) !== "off"; }
-    catch (_) { return true; }
-  }
-  function setStage3d(on) {
-    try { localStorage.setItem(STAGE3D_KEY, on ? "on" : "off"); } catch (_) {}
-  }
-  function stageStyleSegmentsHTML() {
-    const cur = getStage3d() ? "3d" : "2d";
-    const items = [
-      { key: "3d", labelKey: "us_stage_3d" },
-      { key: "2d", labelKey: "us_stage_2d" },
-    ];
-    return items.map(({ key, labelKey }) => {
-      const label = tr(labelKey);
-      const cls = "us-seg-btn" + (key === cur ? " active" : "");
-      return `<button type="button" class="${cls}" data-stage="${key}" role="radio" aria-checked="${key === cur ? "true" : "false"}">${escape(label)}</button>`;
-    }).join("");
-  }
+  /* The 2D / 3D stage toggle was retired (2026-05) · the voice room
+     is 3D-only now. `STAGE3D_KEY` / `getStage3d` / `setStage3d` /
+     `stageStyleSegmentsHTML` used to live here and have been removed
+     along with their row in `otherSettingsSectionHTML` and the click
+     handler below. The localStorage key the toggle persisted to
+     (`boardroom.stage3d`) is also no longer consulted anywhere; old
+     values are inert. */
 
   function otherSettingsSectionHTML() {
     return `
@@ -407,16 +407,6 @@
               ${appearanceSegmentsHTML()}
             </div>
             <p class="us-locale-deck">${escape(tr("us_appearance_deck"))}</p>
-          </div>
-        </div>
-
-        <div class="us-row">
-          <div class="us-row-label">${tr("us_stage_label")}</div>
-          <div class="us-row-field">
-            <div class="us-seg" role="radiogroup" aria-label="${escape(tr("us_stage_label"))}" data-us-stage>
-              ${stageStyleSegmentsHTML()}
-            </div>
-            <p class="us-locale-deck">${escape(tr("us_stage_deck"))}</p>
           </div>
         </div>
 
@@ -493,25 +483,8 @@
     // the app to re-render the current round-table so the swap is
     // visible immediately for anyone currently sitting in a voice
     // room (instead of "have to leave + re-enter to see it").
-    const stGroup = paneEl.querySelector("[data-us-stage]");
-    if (stGroup) {
-      stGroup.addEventListener("click", (e) => {
-        const btn = e.target.closest(".us-seg-btn[data-stage]");
-        if (!btn) return;
-        const next = btn.dataset.stage; // "3d" | "2d"
-        setStage3d(next === "3d");
-        stGroup.querySelectorAll(".us-seg-btn").forEach((el) => {
-          const on = el.dataset.stage === next;
-          el.classList.toggle("active", on);
-          el.setAttribute("aria-checked", on ? "true" : "false");
-        });
-        try {
-          if (window.app && typeof window.app.renderRoundTable === "function") {
-            window.app.renderRoundTable();
-          }
-        } catch (_) { /* room may not be a voice room · ignore */ }
-      });
-    }
+    // [removed 2026-05] The 2D/3D stage toggle wire-up used to live
+    // here · the voice room is 3D-only now, no toggle to bind.
     // Typing-sound toggle · the persistence + audio context lives in
     // window.boardroomTypingSfx (typing-sfx.js); this row only mirrors
     // the current state and proxies clicks. Reading inside wire-up
@@ -1840,11 +1813,14 @@
 
   /* Avatar generation · same flow as the agent profile's regenerate
      button (see agent-profile.js / regenerateProfileAvatar): each
-     click pulls a fresh seed from AvatarSkill.randomSeed(), saves it
-     to the user prefs (`avatarSeed`), and re-paints. The SVG is
-     rendered from that seed via AvatarSkill.generate(). */
-  function generateAvatar(seed) {
-    return window.AvatarSkill.generate(seed);
+     click pulls a fresh seed from Avatar3DSnap.randomSeed(), saves
+     it to the user prefs (`avatarSeed`), and re-paints. Renders a
+     3D voxel head-and-shoulders portrait (the legacy AvatarSkill
+     8-bit SVG generator was retired). */
+  // Synchronous "still rendering" placeholder used while the async
+  // 3D snap is in flight · pure CSS via the .us-avatar-frame parent.
+  function loadingHtml() {
+    return '<div class="us-avatar-loading" aria-hidden="true">…</div>';
   }
 
   /* ── Modal shell ──────────────────────────────────────────── */
@@ -1918,21 +1894,44 @@
     const frame = paneEl.querySelector("[data-us-avatar]");
     if (!frame) return;
     const u = getUser();
-    // Mirror the agent profile flow · the avatar is whatever seed is
-    // saved on the user prefs. If none has ever been generated, mint
-    // one now so the avatar is stable across reloads.
+    // 3D portrait takes precedence · if the user customised a 3D
+    // avatar in the editor (avatarUrl is the rendered PNG), show
+    // that. Otherwise render an async 3D snap from the user's seed.
+    if (u.avatarUrl) {
+      frame.innerHTML = `<img src="${u.avatarUrl}" alt="">`;
+      return;
+    }
+    const snap = window.Avatar3DSnap;
     let seed = u.avatarSeed;
-    if (!seed && window.AvatarSkill) {
-      seed = window.AvatarSkill.randomSeed();
+    if (!seed && snap) {
+      seed = snap.randomSeed();
       saveUser({ avatarSeed: seed });
-      // Cascade the freshly-minted seed to app.prefs so the sidebar
-      // foot picks it up on the same paint.
       if (window.app) {
         window.app.prefs = { ...(window.app.prefs || {}), avatarSeed: seed };
         if (typeof window.app.renderUserBlock === "function") window.app.renderUserBlock();
       }
     }
-    frame.innerHTML = generateAvatar(seed || "default");
+    if (!seed || !snap) {
+      // No snap helper / no seed · clear the frame so the underlying
+      // CSS placeholder shows (the .us-avatar-frame already has its
+      // own initial styling).
+      frame.innerHTML = "";
+      return;
+    }
+    const cached = typeof snap.cacheGet === "function" ? snap.cacheGet(seed) : null;
+    if (cached) {
+      frame.innerHTML = `<img src="${cached}" alt="">`;
+      return;
+    }
+    frame.innerHTML = loadingHtml();
+    snap.generate(seed).then((url) => {
+      if (!url) return;
+      // Only paint if the frame is still in the DOM and showing the
+      // same loading state (user may have already swapped avatars).
+      const f2 = paneEl.querySelector("[data-us-avatar]");
+      if (!f2) return;
+      f2.innerHTML = `<img src="${url}" alt="">`;
+    }).catch(() => { /* */ });
   }
 
   function wireUserSection() {
@@ -1960,24 +1959,33 @@
     introCount.textContent = introInput.value.length;
 
     // Regenerate avatar · same pattern as agent-profile's
-    // regenerateProfileAvatar: pull a fresh randomSeed, persist it to
-    // the user prefs, repaint. No counter, no name/intro composition —
-    // the seed is the only thing that determines the avatar.
+    // regenerateProfileAvatar: pull a fresh seed, persist to the
+    // user prefs, and repaint. Clears any captured 3D customizer
+    // PNG (avatarUrl / avatar3d) so the next paint takes the new
+    // seed-derived 3D snap rather than the previous capture.
     paneEl.querySelector("[data-us-regen-avatar]").addEventListener("click", (e) => {
       e.preventDefault();
-      if (!window.AvatarSkill) return;
-      const seed = window.AvatarSkill.randomSeed();
-      saveUser({ avatarSeed: seed });
+      const snap = window.Avatar3DSnap;
+      if (!snap || typeof snap.randomSeed !== "function") return;
+      const seed = snap.randomSeed();
+      saveUser({ avatarSeed: seed, avatarUrl: null, avatar3d: null });
       paintUserAvatar();
-      // Push the new seed into app.prefs so the sidebar foot's user
-      // avatar repaints with the same SVG. Without this, the settings
-      // overlay shows the new face but the sidebar keeps the old one
-      // until the next reload.
       if (window.app) {
-        window.app.prefs = { ...(window.app.prefs || {}), avatarSeed: seed };
+        window.app.prefs = { ...(window.app.prefs || {}), avatarSeed: seed, avatarUrl: null, avatar3d: null };
         if (typeof window.app.renderUserBlock === "function") window.app.renderUserBlock();
       }
     });
+
+    // Customize 3D avatar · opens the shared editor in "user" mode. The
+    // editor saves the rendered PNG + config to prefs (PUT /api/prefs) and
+    // fires "pb:user-avatar-updated"; we repaint the frame on that event.
+    const a3dBtn = paneEl.querySelector("[data-us-avatar3d]");
+    if (a3dBtn) {
+      a3dBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (typeof window.openAvatar3DEditor === "function") window.openAvatar3DEditor({ kind: "user" });
+      });
+    }
 
     paintUserAvatar();
   }

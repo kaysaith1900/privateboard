@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8"><title>捏 avatar · customizer</title>
+<style>
+  html,body{margin:0;height:100%;background:#1c1e22;overflow:hidden;font-family:-apple-system,"PingFang SC",system-ui,sans-serif}
+  #status{position:fixed;top:8px;left:10px;color:#9fe;font:12px/1.5 monospace;z-index:9;white-space:pre-wrap;max-width:60vw}
+  #panel{position:fixed;top:0;right:0;bottom:0;width:260px;z-index:9;background:rgba(18,20,24,.92);border-left:1px solid #333;
+         padding:18px 16px;color:#dde;overflow-y:auto;backdrop-filter:blur(6px)}
+  #panel h2{font-size:13px;margin:0 0 14px;letter-spacing:.04em;color:#9fe;text-transform:uppercase}
+  .grp{margin-bottom:18px}
+  .grp .lab{font-size:11px;color:#9aa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px}
+  .sw{display:flex;flex-wrap:wrap;gap:7px}
+  .sw button{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;outline:none;transition:transform .1s,border-color .1s}
+  .sw button:hover{transform:scale(1.12)}
+  .sw button.on{border-color:#9fe;box-shadow:0 0 0 2px rgba(153,238,255,.25)}
+  #sw-style button,#sw-hairstyle button,#sw-outfitstyle button,#sw-acc button{width:auto;height:auto;border-radius:6px;padding:6px 11px;font:11px/1 monospace;background:#283140;color:#cde;border:1px solid #44506a}
+  #sw-style button:hover,#sw-hairstyle button:hover,#sw-outfitstyle button:hover,#sw-acc button:hover{transform:none;background:#33405a}
+  #sw-style button.on,#sw-hairstyle button.on,#sw-outfitstyle button.on,#sw-acc button.on{color:#9fe;box-shadow:none}
+  .row{display:flex;align-items:center;gap:8px;font-size:12px;color:#cde;margin-bottom:14px}
+  .row input{accent-color:#9fe}
+  .btns{display:flex;gap:8px;margin-top:6px}
+  .btns button{flex:1;padding:7px;background:#283140;color:#cde;border:1px solid #44506a;border-radius:6px;cursor:pointer;font:12px/1 monospace}
+  .btns button:hover{background:#33405a}
+  #out{margin-top:12px;font:10px/1.5 monospace;color:#8aa;word-break:break-all}
+</style>
+</head><body>
+<div id="status">booting…</div>
+<div id="panel">
+  <h2>捏 avatar</h2>
+  <div class="grp"><div class="lab">风格 Style</div><div class="sw" id="sw-style"></div></div>
+  <div class="grp"><div class="lab">发型 Hair style</div><div class="sw" id="sw-hairstyle"></div></div>
+  <div class="grp"><div class="lab">衣服款式 Outfit style</div><div class="sw" id="sw-outfitstyle"></div></div>
+  <div class="grp"><div class="lab">装饰 Accessory</div><div class="sw" id="sw-acc"></div></div>
+  <div class="grp"><div class="lab">肤色 Skin</div><div class="sw" id="sw-skin"></div></div>
+  <div class="grp"><div class="lab">发色 Hair</div><div class="sw" id="sw-hair"></div></div>
+  <div class="grp"><div class="lab">眉色 Brow</div><div class="sw" id="sw-brow"></div></div>
+  <div class="grp"><div class="lab">衣色 Outfit color</div><div class="sw" id="sw-outfit"></div></div>
+  <div class="btns"><button id="rand">🎲 随机</button><button id="copy">复制配置</button></div>
+  <div id="out"></div>
+</div>
+
+<script>
+  window.__s = function (m, e) { var el = document.getElementById("status"); if (el) { el.textContent = m; el.style.color = e ? "#f88" : "#9fe"; } };
+  if (location.protocol === "file:") __s("⚠ 用 file:// 打开无法加载模块/GLB，请在运行中的 app 里用 http 访问。", true);
+  window.addEventListener("error", function (e) { __s("JS/资源错误: " + (e.message || (e.target && (e.target.src || e.target.href)) || "?"), true); }, true);
+  window.addEventListener("unhandledrejection", function (e) { __s("Promise 拒绝: " + ((e.reason && e.reason.message) || e.reason), true); });
+</script>
+
+<script type="module">
+  const S = window.__s;
+  (async () => {
+    try {
+      S("加载 three…");
+      const THREE = await import("/vendor/three.module.min.js");
+      const { OrbitControls } = await import("/vendor/OrbitControls.js");
+      const { RoomEnvironment } = await import("/vendor/RoomEnvironment.js");
+      const av = await import("/avatar-3d.js");
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      const w = innerWidth - 260, h = innerHeight;
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.7;            // tuned brightness
+      document.body.appendChild(renderer.domElement);
+      renderer.domElement.style.position = "fixed";
+      renderer.domElement.style.left = "0"; renderer.domElement.style.top = "0";
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1c1e22);
+      const camera = new THREE.PerspectiveCamera(32, w / h, 0.1, 100);
+      camera.position.set(0.7, 1.55, 2.6);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 0.95, 0);
+      controls.enableDamping = true; controls.dampingFactor = 0.1;
+      controls.minDistance = 1.4; controls.maxDistance = 5;
+      controls.update();
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.35;
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x33384a, 0.18));
+      const key = new THREE.DirectionalLight(0xffffff, 0.7);
+      key.position.set(3, 6, 4); key.castShadow = true; scene.add(key);
+      const rim = new THREE.DirectionalLight(0xbfd4ff, 0.3);
+      rim.position.set(-4, 3, -3); scene.add(rim);
+      const ground = new THREE.Mesh(
+        new THREE.CircleGeometry(2.0, 48),
+        new THREE.MeshStandardMaterial({ color: 0x26282e, roughness: 1 }),
+      );
+      ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+      window.addEventListener("resize", () => {
+        const W = innerWidth - 260, H = innerHeight;
+        renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix();
+      });
+      renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+
+      S("下载 + 解析 GLB（两个风格）…");
+      // Preload BOTH models so cross-model hair (e.g. classic body + 丸子头)
+      // is available without a wait when the user picks it.
+      await Promise.all(av.AVATAR_MODELS.map((m) => av.loadAvatar3D(m.id)));
+
+      const P = av.AVATAR_PALETTES;
+      const MODELS = av.AVATAR_MODELS;
+      const HAIRS = av.HAIR_STYLES;
+      const OUTFITS = av.OUTFIT_STYLES;
+      const ACCS = av.ACCESSORY_STYLES;
+      // hairStyle + outfitStyle + accStyle are INDEPENDENT dimensions
+      // (default to the starting body's own hair / clothing / accessory).
+      const sel = { model: "classic", hairStyle: "classic", outfitStyle: "classic", accStyle: "hat", skin: P.skin[1], hair: P.hair[4], brow: P.hair[4], outfit: P.outfit[0] };
+      const curModel = () => MODELS.find((m) => m.id === sel.model) || MODELS[0];
+
+      let group = null;
+      function rebuild() {
+        if (group) { scene.remove(group); group = null; }
+        group = av.buildAvatar3D("customizer", {
+          model: sel.model, hairStyle: sel.hairStyle, outfitStyle: sel.outfitStyle,
+          accessory: sel.accStyle, height: 1.7,
+          skin: sel.skin, hair: sel.hair, brow: sel.brow, outfit: sel.outfit,
+        });
+        scene.add(group);
+      }
+      rebuild();
+
+      // Colour swatch rows · click recolours the live instance.
+      function swatches(containerId, list, role) {
+        const c = document.getElementById(containerId);
+        c.innerHTML = "";
+        list.forEach((hex) => {
+          const b = document.createElement("button");
+          b.style.background = hex;
+          b.title = hex;
+          if (hex.toLowerCase() === String(sel[role]).toLowerCase()) b.classList.add("on");
+          b.addEventListener("click", () => {
+            sel[role] = hex;
+            av.recolorAvatar(group, { [role]: hex });
+            c.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            updateOut();
+          });
+          c.appendChild(b);
+        });
+      }
+      function refreshSwatches() {
+        swatches("sw-skin", P.skin, "skin");
+        swatches("sw-hair", P.hair, "hair");
+        swatches("sw-brow", P.brow, "brow");
+        swatches("sw-outfit", P.outfit, "outfit");
+      }
+      refreshSwatches();
+
+      // Style buttons · switching loads that model's GLB (once) + rebuilds
+      // with the current colours so the look carries across styles.
+      function styleButtons() {
+        const c = document.getElementById("sw-style");
+        c.innerHTML = "";
+        MODELS.forEach((m) => {
+          const b = document.createElement("button");
+          b.textContent = m.label;
+          if (m.id === sel.model) b.classList.add("on");
+          b.addEventListener("click", async () => {
+            if (sel.model === m.id) return;
+            sel.model = m.id;
+            c.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            S("加载风格 " + m.label + "…");
+            try { await av.loadAvatar3D(m.id); }
+            catch (err) { S("风格加载失败: " + ((err && err.message) || err), true); return; }
+            rebuild();
+            updateOut();
+            S("✓ " + m.label + "（拖动旋转）");
+          });
+          c.appendChild(b);
+        });
+      }
+      styleButtons();
+
+      // Hair-style buttons · independent dimension (body keeps its style;
+      // only the hair swaps). Both models are preloaded so any combo is
+      // instant. A full rebuild is the simplest way to re-overlay hair.
+      function hairButtons() {
+        const c = document.getElementById("sw-hairstyle");
+        c.innerHTML = "";
+        HAIRS.forEach((hs) => {
+          const b = document.createElement("button");
+          b.textContent = hs.label;
+          if (hs.id === sel.hairStyle) b.classList.add("on");
+          b.addEventListener("click", () => {
+            if (sel.hairStyle === hs.id) return;
+            sel.hairStyle = hs.id;
+            c.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            rebuild();
+            updateOut();
+          });
+          c.appendChild(b);
+        });
+      }
+      hairButtons();
+
+      // Outfit-style buttons · independent dimension (body keeps its style;
+      // only the clothing swaps, overlaid from the chosen model). Colour is
+      // still applied on top via the 衣色 swatches.
+      function outfitStyleButtons() {
+        const c = document.getElementById("sw-outfitstyle");
+        c.innerHTML = "";
+        OUTFITS.forEach((os) => {
+          const b = document.createElement("button");
+          b.textContent = os.label;
+          if (os.id === sel.outfitStyle) b.classList.add("on");
+          b.addEventListener("click", () => {
+            if (sel.outfitStyle === os.id) return;
+            sel.outfitStyle = os.id;
+            c.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            rebuild();
+            updateOut();
+          });
+          c.appendChild(b);
+        });
+      }
+      outfitStyleButtons();
+
+      // Accessory buttons · independent dimension (无 / 眼镜 / 帽子). The
+      // accessory is overlaid from whichever model carries it, so e.g. the
+      // hatless body can wear glasses and vice-versa.
+      function accButtons() {
+        const c = document.getElementById("sw-acc");
+        c.innerHTML = "";
+        ACCS.forEach((a) => {
+          const b = document.createElement("button");
+          b.textContent = a.label;
+          if (a.id === sel.accStyle) b.classList.add("on");
+          b.addEventListener("click", () => {
+            if (sel.accStyle === a.id) return;
+            sel.accStyle = a.id;
+            c.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            rebuild();
+            updateOut();
+          });
+          c.appendChild(b);
+        });
+      }
+      accButtons();
+
+      document.getElementById("rand").addEventListener("click", () => {
+        const r = (a) => a[Math.floor(Math.random() * a.length)];
+        sel.skin = r(P.skin); sel.hair = r(P.hair); sel.brow = r(P.brow); sel.outfit = r(P.outfit);
+        av.recolorAvatar(group, sel);
+        refreshSwatches();
+        updateOut();
+      });
+      function updateOut() {
+        const t = JSON.stringify({ model: sel.model, hairStyle: sel.hairStyle, outfitStyle: sel.outfitStyle, accessory: sel.accStyle, skin: sel.skin, hair: sel.hair, brow: sel.brow, outfit: sel.outfit });
+        document.getElementById("out").textContent = t;
+        return t;
+      }
+      document.getElementById("copy").addEventListener("click", () => {
+        const t = updateOut();
+        if (navigator.clipboard) navigator.clipboard.writeText(t);
+        document.getElementById("copy").textContent = "已复制";
+        setTimeout(() => { document.getElementById("copy").textContent = "复制配置"; }, 1200);
+      });
+      updateOut();
+      S("✓ 就绪 · 点色板捏脸（拖动旋转）");
+    } catch (e) {
+      S("ERROR: " + (e && e.stack ? e.stack : (e && e.message) || e), true);
+    }
+  })();
+</script>
+</body></html>

@@ -28,9 +28,10 @@
 
    Toggle
    ──────
-   Gated by `localStorage["boardroom.stage3d"]` ("on" | "off",
-   default "on"). When off the legacy 2D SVG renders instead · same
-   code path that shipped before this module existed.
+   Retired (2026-05). The voice room is 3D-only · `app.js`
+   `renderRoundTable` always calls into VS3D when WebGL is available.
+   The old `localStorage["boardroom.stage3d"]` key is no longer
+   consulted; any cached value is inert.
 
    Why a separate file
    ───────────────────
@@ -41,6 +42,8 @@
 
 import * as THREE from "/vendor/three.module.min.js";
 import { OrbitControls } from "/vendor/OrbitControls.js";
+import { RoomEnvironment } from "/vendor/RoomEnvironment.js";
+import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig, AVATAR_MODELS } from "/avatar-3d.js";
 
 (function () {
   /* ── State held across mount lifecycle ─────────────────────── */
@@ -98,8 +101,6 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   const CHAIR_WIDTH = 0.8;
   const CHAIR_DEPTH = 0.8;
   const CHAIR_SEAT_H = 0.45;
-  const CHAIR_BACK_H = 1.15;
-  const CHAIR_BACK_T = 0.15;
 
   /** Director sprite · the rasterised SVG canvas is 1:1 (256×256),
    *  so the sprite MUST also be 1:1 — otherwise nearest-neighbour
@@ -158,6 +159,39 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     critique:     { wall: 0x6B3F2F, trim: 0x2A1612, rail: 0x4A2A20 },
   };
 
+  /** Per-tone table finish · the shared table materials are retinted
+   *  (refreshTable) to echo each room without re-modelling the table.
+   *  `body` = mid slab, `top` = upper rim, `shade` = floor shadow strip.
+   *  constructive flips the top to a translucent GLASS slab over a steel
+   *  body (the one room that reads as a different material, not just a
+   *  different wood). Tones track the room's walls / floor so the table
+   *  belongs to the room rather than floating as a neutral default. */
+  const TABLE_PALETTE_BY_TONE = {
+    brainstorm:   { body: 0x3E6B4A, top: 0x4F8460, shade: 0x264A32, material: "plastic" }, // deep forest-green plastic
+    debate:       { body: 0x6E4F33, top: 0x9E7A4E, shade: 0x3F2C1B, material: "wood" },    // deep chamber oak · matches the debate wall planks
+    research:     { body: 0x9A7C50, top: 0xC2A06A, shade: 0x5A4530, material: "wood" },    // light library oak
+    constructive: { body: 0x4A525C, top: 0x9FB4C2, shade: 0x2E333A, material: "glass" },   // steel frame + glass top
+    critique:     { body: 0x4A2A20, top: 0x6B3F2F, shade: 0x2A1612, material: "wood" },    // dark mahogany
+  };
+
+  /** Per-tone velvet for the sheen armchair (buildSheenChair) · every
+   *  room uses the upholstered chair, dressed in its own fabric so the
+   *  seating belongs to the room. `body` = cushions/back, `lit` = the
+   *  lighter sheen-catch panel, `shade` = arms/shell, `leg` = splayed
+   *  legs, `specular` = the Phong sheen highlight.
+   *    brainstorm   · warm ochre on walnut    (forest-green/cream room)
+   *    constructive · cool slate-blue, charcoal metal legs (steel/glass)
+   *    debate       · oxblood club velvet on dark walnut (deep oak chamber)
+   *    research     · bottle-green reading velvet on oak  (warm library)
+   *    critique     · graphite velvet on brass legs (dark mahogany + brass) */
+  const SHEEN_PALETTE_BY_TONE = {
+    brainstorm:   { body: 0xBE8A3C, lit: 0xD8A856, shade: 0x9C6F2E, leg: 0x4A3526, specular: 0x4A3A1E },
+    constructive: { body: 0x55677A, lit: 0x86A0B6, shade: 0x3C4A59, leg: 0x33373D, specular: 0x2E3942 },
+    debate:       { body: 0x8A4038, lit: 0xA85A4E, shade: 0x5E2A24, leg: 0x3A2418, specular: 0x3A201A },
+    research:     { body: 0x3D5A45, lit: 0x577E63, shade: 0x274033, leg: 0x6B4A2C, specular: 0x223A2C },
+    critique:     { body: 0x3C3C42, lit: 0x5C5C64, shade: 0x28282E, leg: 0x8A6A2E, specular: 0x3A3A40 },
+  };
+
   /** Wood palette for the table · matches `.rt-table-*` CSS tokens
    *  (rim / mid / hi / shadow). The 2D table is a flat SVG; the 3D
    *  version uses these for top-face, side-face, and edge-highlight
@@ -181,6 +215,41 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   let avatarGroup = null;
   let floorMesh = null;
   let tableGroup = null;
+  // 3D-avatar integration · the rigged GLB figures replace the sprite
+  // billboards on the chairs. Models load async; until ready,
+  // buildDirectorFigure falls back to the sprite. `_lastPositions` /
+  // `_lastMode` are stashed each update() so the preload completion can
+  // re-fire a full rebuild and swap sprites → 3D in one pass.
+  let avatar3dReady = false;
+  let avatar3dPreloadStarted = false;
+  let _lastPositions = null;
+  let _lastMode = null;
+  const AVATAR_FIG_HEIGHT = 1.55; // feet at y=0; head clears the chair back
+  const AVATAR_SEAT_LIFT = 0.4;   // raise 3D figures so the body clears the seat cushion
+  const MOUTH_OPEN = 0.062;       // mouth-overlay max height (fully open) while talking
+  const MOUTH_MIN = 0.014;        // mouth-overlay min height (closed-mouth line) while talking
+  /** Table materials · created fresh in buildTable() each mount and
+   *  retinted per tone by refreshTable(). Module-scope so refreshTable
+   *  can reach them; nulled on unmount (rebuilt next mount). */
+  let tableBodyMat = null;
+  let tableTopMat = null;
+  let tableShadeMat = null;
+  /** Grayscale surface-grain texture for the table · multiplies the
+   *  per-tone material colour (white base = colour unchanged, darker
+   *  streaks = subtle grain) so one neutral texture works for every
+   *  wood / plastic / steel tint. Built lazily in refreshTable, applied
+   *  as `.map` to the opaque body / top (skipped on translucent glass /
+   *  acrylic tops so see-through surfaces stay clean). */
+  let tableGrainTex = null;
+  /** Per-room 3D furniture · real box meshes against the back wall (NOT
+   *  painted into the wall texture) so each room has a signature piece
+   *  with real depth at a scale that matches the table — brainstorm a
+   *  chest + sofa, debate a lectern, research a bookcase, constructive a
+   *  steel credenza, critique a mahogany credenza + globe. Rebuilt by
+   *  refreshFurniture() only when the tone changes; `roomFurnitureMode`
+   *  tracks what's currently built so an unchanged tone is a no-op. */
+  let roomFurniture = null;
+  let roomFurnitureMode = null;
   /** Wall materials · shared across all wall / trim / rail meshes
    *  so a single colour swap (in refreshWallColors) repaints the
    *  whole room when the tone changes. Lazily created in
@@ -202,6 +271,18 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   let brainstormWallTexture = null;
   let constructiveWallTexture = null;
   let critiqueWallTexture = null;
+  // debate → warm-oak forum/chamber paneling with tall daylight
+  // windows (mullions + sills), a chair rail, and frame-and-panel
+  // wainscot painted in. Same lazy module-singleton lifecycle as the
+  // other three; the texture supplies its own rail/baseboard so the
+  // debate branch hides `wallTrimGroup` like the other textured tones.
+  let debateWallTexture = null;
+  // research → light-oak library · built-in bookcases (rows of varied
+  // book spines with gilt titles), oak shelf boards + case uprights, a
+  // crown, and a cabinet plinth. Scholarly, warm-neutral. Same lazy
+  // module-singleton lifecycle; supplies its own trim so the research
+  // branch hides `wallTrimGroup`.
+  let researchWallTexture = null;
   /** Procedural plant-baseboard texture · dense foliage band that
    *  hugs the wall-floor seam in the constructive room (replaces a
    *  cold sterile cove with a "boardroom is lived-in" green band).
@@ -294,6 +375,33 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   /** Resting camera position the entry animation lerps TO · captured
    *  in mount() after the resting camera is positioned. */
   let cameraRestPos = null;
+
+  /** ── Speaker-change camera pulse ──────────────────────────────
+   *  Every time `activeSpeakerId` flips while the new speaker is
+   *  actively `speaking`, the camera does one quick cinematic move:
+   *  dollies + lifts toward the new speaker's seat, peaks at ~45%
+   *  of the duration, then eases back to the resting position. Reads
+   *  as a "cut to the next director" scene swap.
+   *
+   *  · Disabled when the entry animation is still running (the entry
+   *    sequence owns the camera fully for its first 700-1100ms).
+   *  · OrbitControls is muted for the pulse window so the user's
+   *    manual orbit doesn't fight the lerp; restored on completion.
+   *  · Skipped when the new speaker is the user (`isUser`) — the
+   *    user has no seat figure worth focusing on. */
+  const CAMERA_PULSE_DURATION_MS = 1200;
+  const CAMERA_PULSE_FORWARD = 5.0; // world units shifted toward the seat
+  const CAMERA_PULSE_LIFT = 1.4;    // world units the camera rises mid-pulse
+  let cameraPulseActive = false;
+  let cameraPulseStart = 0;
+  let cameraPulseDirX = 0;
+  let cameraPulseDirZ = 0;
+  /** Tracks the speaker id we last triggered a pulse for so that
+   *  repeated `update()` calls inside the same turn don't re-fire
+   *  the animation every frame. Initialised to `undefined` so the
+   *  FIRST recognised speaker (post-mount entry) DOES skip the pulse
+   *  — entry animation already provides the cinematic arrival. */
+  let lastPulseSpeakerId = undefined;
   /** Camera params resolved at mount() time · default to the legacy
    *  app values (18 unit distance, 30° elevation, lookAt y = 0.5)
    *  unless `mount(host, { camera: { ... } })` overrides them. The
@@ -521,13 +629,30 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // ── three.js core ──
     renderer = new THREE.WebGLRenderer({
       canvas: canvasEl,
-      antialias: false,    // pixel-art register · sharper without AA
+      // Smooth rigged-GLB avatars sit on the chairs now · antialias on
+      // softens the voxel chairs/table slightly but the character edges
+      // benefit far more than the props lose.
+      antialias: true,
       alpha: true,
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setClearColor(0x000000, 0);
+    // ACES tone mapping · the avatar materials (MeshStandard + env map)
+    // are authored for it. Exposure slightly above the customizer's 0.7
+    // to partly compensate for ACES darkening the existing voxel props.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.85;
 
     scene = new THREE.Scene();
+    // Image-based lighting · a PMREM-filtered RoomEnvironment gives the
+    // avatars' skin/hair their gloss. Lambert/Phong props ignore env maps,
+    // so the env contribution lands almost entirely on the avatars — kept
+    // modest so it lifts them without washing out.
+    {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.25;
+    }
 
     // Camera · matches the 2D view's orientation. The 2D layout is
     // a top-down rectangle with the long table edge running screen-
@@ -587,7 +712,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // legible without losing the "indoor lamp" mood.
     const ambient = new THREE.AmbientLight(0xffffff, 0.55);
     scene.add(ambient);
-    const key = new THREE.DirectionalLight(0xffe9c8, 0.85);
+    const key = new THREE.DirectionalLight(0xffe9c8, 0.92);
     key.position.set(4, 8, 5);
     scene.add(key);
     const fill = new THREE.DirectionalLight(0x9ec0ff, 0.25);
@@ -623,6 +748,9 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     // plants fully on stage at every realistic chat-col width.
     scene.add(buildBushyPlant(STAGE_HALF_X * 0.78, STAGE_HALF_Z * -0.75));
     scene.add(buildSnakePlant(STAGE_HALF_X * -0.65, STAGE_HALF_Z * 0.60));
+
+    // Per-room 3D furniture is built lazily by refreshFurniture() on the
+    // first update() (once the tone is known) and rebuilt on tone change.
 
     // Resize handling · the stage is inside a flex chat-col, so its
     // pixel dimensions change as the user resizes the window or
@@ -727,6 +855,19 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
 
     // RAF loop · animations + render each frame.
     startRaf();
+
+    // Preload the avatar GLB templates (best-effort, non-blocking). Until
+    // they resolve, seats render the sprite fallback; once ready we re-fire
+    // the last rebuild so the directors swap to their 3D figures.
+    if (!avatar3dPreloadStarted) {
+      avatar3dPreloadStarted = true;
+      Promise.all(AVATAR_MODELS.map((m) => loadAvatar3D(m.id)))
+        .then(() => {
+          avatar3dReady = true;
+          if (avatarGroup && _lastPositions) rebuildSeats(_lastPositions, _lastMode);
+        })
+        .catch((e) => { console.warn("[voice-3d] avatar3d preload failed; keeping sprites", e); });
+    }
 
     return true;
   }
@@ -852,8 +993,20 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     camera = null;
     chairGroup = null;
     avatarGroup = null;
+    // Reset the per-mount preload trigger + stashed render args (the GLB
+    // templates themselves stay cached in avatar-3d.js across mounts). On
+    // remount the preload block re-runs and re-fires a rebuild once ready.
+    avatar3dPreloadStarted = false;
+    _lastPositions = null;
+    _lastMode = null;
     floorMesh = null;
     tableGroup = null;
+    tableBodyMat = null;
+    tableTopMat = null;
+    tableShadeMat = null;
+    if (tableGrainTex) { try { tableGrainTex.dispose(); } catch (_) {} tableGrainTex = null; }
+    roomFurniture = null;
+    roomFurnitureMode = null;
     // Wall / trim / rail materials are shared module-scope
     // singletons (lazy-created in buildBoardroomWalls). We KEEP
     // them alive across unmount cycles so a room swap doesn't
@@ -926,9 +1079,26 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     const mode = (state && state.mode) || "constructive";
     rebuildFloor(mode);
     refreshWallColors(mode);
-    rebuildSeats(state && state.positions ? state.positions : []);
+    refreshTable(mode);
+    refreshFurniture(mode);
+    _lastPositions = state && state.positions ? state.positions : [];
+    _lastMode = mode;
+    rebuildSeats(_lastPositions, mode);
+    const prevSpeakerIdSnapshot = activeSpeakerId;
     activeSpeakerId = (state && state.speakerId) || null;
     activeSpeakerState = (state && state.speakerState) || null;
+    // Trigger the "scene-cut to new director" camera pulse when the
+    // speaker actually changed AND the new turn is in `speaking`
+    // (not just `thinking` — thinking phase is transient and a
+    // pulse there would feel like camera jitter when the bubble
+    // flips text without an audible audio swap).
+    if (
+      activeSpeakerId
+      && activeSpeakerId !== prevSpeakerIdSnapshot
+      && activeSpeakerState === "speaking"
+    ) {
+      maybeTriggerSpeakerCameraPulse(activeSpeakerId);
+    }
     activeUserWait = !!(state && state.userWait);
     activeUserBubble = (state && state.userBubble && typeof state.userBubble === "object"
       && typeof state.userBubble.text === "string" && state.userBubble.text.trim())
@@ -968,12 +1138,33 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     if (!wallMat || !trimMat || !railMat) return;
     const palette = WALL_PALETTE_BY_TONE[mode] || WALL_PALETTE_BY_TONE.constructive;
 
+    // Default · walls are lit by the room lights only. The brainstorm
+    // nature-vista opts into self-illumination below (emissive map) so
+    // its daylight reads bright in the dim room; reset emissive here so
+    // every OTHER tone stays normally lit.
+    if (wallMat.emissiveMap || (wallMat.emissive && wallMat.emissive.getHex() !== 0x000000)) {
+      wallMat.emissive.setHex(0x000000);
+      wallMat.emissiveMap = null;
+      wallMat.needsUpdate = true;
+    }
+
     if (mode === "brainstorm") {
       if (!brainstormWallTexture) brainstormWallTexture = buildBrainstormWallTexture();
       if (wallMat.map !== brainstormWallTexture) {
         wallMat.map = brainstormWallTexture;
         wallMat.needsUpdate = true;
       }
+      // Gentle self-illumination · the same texture as an emissive map
+      // lifts the cozy interior so it reads in the dim room without
+      // flattening the baked furniture shading. Kept VERY LOW (0.10) —
+      // the cream field is large and even 0.22 still self-glowed enough
+      // to read as glaring on the voice-room stage. The room lights
+      // (ambient + key) carry the base wall brightness; this is just a
+      // faint lift on top so the daylight window doesn't go flat.
+      wallMat.emissive.setHex(0xFFFFFF);
+      wallMat.emissiveMap = brainstormWallTexture;
+      wallMat.emissiveIntensity = 0.10;
+      wallMat.needsUpdate = true;
       // White color so the texture renders un-tinted under Lambert
       // shading. Lambert multiplies color × map per pixel.
       wallMat.color.setHex(0xFFFFFF);
@@ -986,14 +1177,19 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     if (mode === "constructive") {
       if (!constructiveWallTexture) constructiveWallTexture = buildConstructiveWallTexture();
       if (wallMat.map !== constructiveWallTexture) {
+        // Tile the elevation twice across the wide wall so its features
+        // read at ~half the table width, not a single oversized print.
+        constructiveWallTexture.wrapS = THREE.RepeatWrapping;
+        constructiveWallTexture.repeat.x = 2;
         wallMat.map = constructiveWallTexture;
         wallMat.needsUpdate = true;
       }
       wallMat.color.setHex(0xFFFFFF);
-      // Hide the original baseboard / chair-rail · the plant band
-      // takes over the bottom of the wall here.
+      // Glass curtain wall paints its own steel/concrete spandrel base,
+      // so hide both the flat-paint trim band AND the foliage band (a
+      // planter at the foot of a glass partition would clash).
       if (wallTrimGroup) wallTrimGroup.visible = false;
-      if (plantBaseboardGroup) plantBaseboardGroup.visible = true;
+      if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
       if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
       return;
     }
@@ -1001,13 +1197,58 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     if (mode === "critique") {
       if (!critiqueWallTexture) critiqueWallTexture = buildCritiqueWallTexture();
       if (wallMat.map !== critiqueWallTexture) {
+        critiqueWallTexture.wrapS = THREE.RepeatWrapping;
+        critiqueWallTexture.repeat.x = 2;
         wallMat.map = critiqueWallTexture;
         wallMat.needsUpdate = true;
       }
       wallMat.color.setHex(0xFFFFFF);
+      // Mahogany panelling paints its own chair-rail + plinth, so hide
+      // every trim band (the old sandstone wall needed the wood
+      // baseboard; the panelled wall does not).
       if (wallTrimGroup) wallTrimGroup.visible = false;
       if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
-      if (woodBaseboardGroup) woodBaseboardGroup.visible = true;
+      if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
+      return;
+    }
+
+    if (mode === "debate") {
+      if (!debateWallTexture) debateWallTexture = buildDebateWallTexture();
+      if (wallMat.map !== debateWallTexture) {
+        debateWallTexture.wrapS = THREE.RepeatWrapping;
+        debateWallTexture.repeat.x = 2;
+        wallMat.map = debateWallTexture;
+        wallMat.needsUpdate = true;
+      }
+      wallMat.color.setHex(0xFFFFFF);
+      // The texture paints its own chair-rail + wainscot + baseboard,
+      // so hide the flat-paint trim band (a horizontal rail strip would
+      // otherwise slice across the windows / wainscot panels).
+      if (wallTrimGroup) wallTrimGroup.visible = false;
+      if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
+      if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
+      return;
+    }
+
+    if (mode === "research") {
+      if (!researchWallTexture) researchWallTexture = buildResearchWallTexture();
+      if (wallMat.map !== researchWallTexture) {
+        // No horizontal tiling for the bookcase · repeat.x=2 squeezed the
+        // spines into thin slivers (~0.12–0.29 world units wide) that read
+        // as too-narrow next to the 0.8-wide directors. At repeat.x=1 the
+        // 3 bays span the full 26-unit back wall and book widths land in a
+        // believable range against the seated figures.
+        researchWallTexture.wrapS = THREE.ClampToEdgeWrapping;
+        researchWallTexture.repeat.x = 1;
+        wallMat.map = researchWallTexture;
+        wallMat.needsUpdate = true;
+      }
+      wallMat.color.setHex(0xFFFFFF);
+      // Bookcases + crown + plinth are painted into the texture; hide
+      // the flat-paint trim band so it doesn't cut across the shelves.
+      if (wallTrimGroup) wallTrimGroup.visible = false;
+      if (plantBaseboardGroup) plantBaseboardGroup.visible = false;
+      if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
       return;
     }
 
@@ -1023,12 +1264,14 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     if (woodBaseboardGroup) woodBaseboardGroup.visible = false;
   }
 
-  /** Procedural pixel-art brick wall painted into a canvas, returned
-   *  as a NearestFilter CanvasTexture so the chunky aesthetic of the
-   *  rest of the scene carries through. Matches `public/icons/wall.png`
-   *  — running-bond red bricks with deep mortar lines, irregular
-   *  grey stone bands top + bottom, and green moss clusters scattered
-   *  along the mortar / stone seams. */
+  /** Procedural pixel-art COZY MODERN INTERIOR · a warm low-poly room
+   *  modelled on the three.js skinning-IK example's furnished scene:
+   *  cream walls, a daylight window, a wooden chest of drawers, a sage
+   *  sofa with framed art above it, and a leafy floor plant. The same
+   *  texture wraps all three walls so the directors sit in a furnished
+   *  lounge. Palette locked with the user · sage #8CA07E sofa, cream
+   *  #E4DAC8 walls, oak #B08A5A wood. refreshWallColors() gives the wall
+   *  a gentle emissive lift so the room reads bright. */
   function buildBrainstormWallTexture() {
     const W = 1024, H = 512;
     const canvas = document.createElement("canvas");
@@ -1037,76 +1280,44 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
 
-    // Mortar base · dark warm grey fills the whole canvas so any
-    // gaps between bricks / stones read as mortar lines instead of
-    // background bleed-through.
-    ctx.fillStyle = "#3A302B";
-    ctx.fillRect(0, 0, W, H);
+    const P = {
+      // Softer, deeper cream than the original #E4DAC8 — the brighter
+      // cream read as glaring on the voice-room stage once the wall
+      // self-illuminates. This is a muted, gentler warm tone.
+      WALL: "#CEC2AB", WALL_HI: "#DACFBB", WALL_SH: "#BEB298",
+      BASE: "#C9BB9E", BASE_DK: "#AE9F82",
+      WOOD: "#B08A5A", WOOD_HI: "#C8A472", WOOD_DK: "#8A6A3E",
+    };
+    const FLOOR = 498; // wall meets floor / furniture baseline
 
-    // Stone bands · irregular grey block strips along the top and
-    // bottom edges, mirroring the reference's framing detail.
-    const stoneBandH = 38;
-    drawStoneBand(ctx, W, 0, stoneBandH, mulberry32(101));
-    drawStoneBand(ctx, W, H - stoneBandH, stoneBandH, mulberry32(211));
+    // Wall · warm cream, lifted near the ceiling, gently shaded toward
+    // the floor so the room has soft ambient depth.
+    ctx.fillStyle = P.WALL; ctx.fillRect(0, 0, W, H);
+    const topLight = ctx.createLinearGradient(0, 0, 0, 130);
+    topLight.addColorStop(0, "rgba(255,250,240,0.18)");
+    topLight.addColorStop(1, "rgba(255,250,240,0)");
+    ctx.fillStyle = topLight; ctx.fillRect(0, 0, W, 130);
+    const floorShade = ctx.createLinearGradient(0, H * 0.45, 0, FLOOR);
+    floorShade.addColorStop(0, "rgba(150,135,105,0)");
+    floorShade.addColorStop(1, "rgba(150,135,105,0.16)");
+    ctx.fillStyle = floorShade; ctx.fillRect(0, Math.round(H * 0.45), W, FLOOR - Math.round(H * 0.45));
 
-    // Brick courses · running-bond pattern between the two stone
-    // bands. Each brick gets a slight per-block colour wobble + a
-    // top-edge highlight + bottom-edge shadow to suggest stacked
-    // clay courses.
-    const brickW = 46;
-    const brickH = 16;
-    const mortar = 3;
-    const brickPalette = [
-      "#A03A2A", "#B24535", "#92322A", "#BC5040",
-      "#8B3025", "#A8413A", "#9F3B2E", "#B54838",
-    ];
-    const brickHighlight = "#D26E5C";
-    const brickShadow = "#5E2017";
-    const rand = mulberry32(7);
+    // Baseboard · behind the furniture, where wall meets floor.
+    ctx.fillStyle = P.BASE; ctx.fillRect(0, FLOOR, W, H - FLOOR);
+    ctx.fillStyle = P.BASE_DK; ctx.fillRect(0, FLOOR, W, 2);
 
-    const courseTop = stoneBandH;
-    const courseBottom = H - stoneBandH;
-    let row = 0;
-    for (let y = courseTop; y < courseBottom; y += brickH) {
-      const stagger = (row % 2 === 0) ? 0 : -Math.floor(brickW / 2);
-      for (let i = -1; i < Math.ceil(W / brickW) + 2; i++) {
-        const bx = i * brickW + stagger;
-        const color = brickPalette[Math.floor(rand() * brickPalette.length)];
-        const x0 = bx + Math.floor(mortar / 2);
-        const y0 = y + Math.floor(mortar / 2);
-        const w = brickW - mortar;
-        const h = brickH - mortar;
-        ctx.fillStyle = color;
-        ctx.fillRect(x0, y0, w, h);
-        ctx.fillStyle = brickHighlight;
-        ctx.fillRect(x0, y0, w, 1);
-        ctx.fillStyle = brickShadow;
-        ctx.fillRect(x0, y0 + h - 1, w, 1);
-      }
-      row += 1;
-    }
-
-    // Moss patches · scatter green clusters along brick seams + at
-    // the stone-band boundaries. Drawn after bricks so they overlap
-    // and read as growth on the wall, not under it.
-    const mossPalette = ["#5E7A3A", "#6E8E48", "#82A656", "#476830"];
-    const mossRand = mulberry32(53);
-    for (let n = 0; n < 56; n++) {
-      const mx = Math.floor(mossRand() * W);
-      // Bias moss toward the stone-band edges + scattered through
-      // the brick field. ~1/3 hugging the top band, ~1/6 hugging
-      // the bottom, the rest spread through the brick field.
-      const zone = mossRand();
-      let my;
-      if (zone < 0.33) {
-        my = stoneBandH - 6 + Math.floor(mossRand() * 18);
-      } else if (zone < 0.50) {
-        my = H - stoneBandH - 8 + Math.floor(mossRand() * 14);
-      } else {
-        my = stoneBandH + Math.floor(mossRand() * (H - stoneBandH * 2));
-      }
-      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
-    }
+    // Wall backdrop · two glass windows (wood frame + clean glass, no
+    // painted view) + framed art on the cream wall. The chest / sofa /
+    // plant are NOT painted here — they're real 3D furniture meshes in
+    // the room (buildRoomFurniture) so they have actual depth and a scale
+    // that matches the table, instead of a flat wallpaper print.
+    // Windows + art sit in the wall's LOWER band · the camera frames the
+    // table and only the lower strip of the back wall is in view at init,
+    // so anything up near y=60 would be cropped off-screen. Dropping them
+    // to ~y=248 puts a window in the opening shot.
+    drawWindowGlass(ctx, 96, 248, 232, 190, P);
+    drawWallArt(ctx, 430, 285, 164, 116, P);
+    drawWindowGlass(ctx, 696, 248, 232, 190, P);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.magFilter = THREE.NearestFilter;
@@ -1116,46 +1327,63 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     return tex;
   }
 
-  /** Irregular grey stone band · packs variable-width stone blocks
-   *  along a horizontal strip with thin mortar gaps. Each stone
-   *  picks a grey tone + gets a 1px top highlight / bottom shadow
-   *  so the band reads as cobbled masonry instead of one flat slab. */
-  function drawStoneBand(ctx, W, yStart, height, rand) {
-    const palette = ["#5C5650", "#6E6862", "#4A4540", "#7A746E", "#635B54"];
-    const highlight = "#8A847C";
-    const shadow = "#2E2823";
-    let x = 0;
-    while (x < W) {
-      const w = 18 + Math.floor(rand() * 42);
-      const color = palette[Math.floor(rand() * palette.length)];
-      ctx.fillStyle = color;
-      ctx.fillRect(x, yStart + 1, w, height - 2);
-      ctx.fillStyle = highlight;
-      ctx.fillRect(x, yStart + 1, w, 1);
-      ctx.fillStyle = shadow;
-      ctx.fillRect(x, yStart + height - 2, w, 1);
-      x += w + 2; // 2px mortar gap between stones
-    }
+  /** Glass window · warm-oak frame + sill around clean glass — no
+   *  painted sky / landscape, just a pale cool pane with soft diagonal
+   *  reflection sheen so it reads as transparent glass rather than a
+   *  sealed board. A wood mullion cross splits it into four panes. */
+  function drawWindowGlass(ctx, x, y, w, h, P) {
+    const fr = 8;
+    // Outer oak frame · dark edge, mid face, lit top, shaded bottom.
+    ctx.fillStyle = P.WOOD_DK; ctx.fillRect(x - fr, y - fr, w + fr * 2, h + fr * 2);
+    ctx.fillStyle = P.WOOD;    ctx.fillRect(x - fr + 2, y - fr + 2, w + fr * 2 - 4, h + fr * 2 - 4);
+    ctx.fillStyle = P.WOOD_HI; ctx.fillRect(x - fr + 2, y - fr + 2, w + fr * 2 - 4, 2);
+    ctx.fillStyle = P.WOOD_DK; ctx.fillRect(x - fr + 2, y + h + fr - 4, w + fr * 2 - 4, 2);
+
+    // Glass pane · pale cool gradient, NOT a sky view.
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, "#CAD6D8");
+    g.addColorStop(1, "#E3E9E6");
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+    // Inner shadow just under the head jamb so the glass sits recessed.
+    ctx.fillStyle = "rgba(70,82,82,0.18)"; ctx.fillRect(x, y, w, 4);
+
+    // Reflection sheen · two soft slanted light streaks across the pane.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    const streak = (ox, sw) => {
+      ctx.beginPath();
+      ctx.moveTo(x + ox, y);
+      ctx.lineTo(x + ox + sw, y);
+      ctx.lineTo(x + ox + sw - h * 0.55, y + h);
+      ctx.lineTo(x + ox - h * 0.55, y + h);
+      ctx.closePath(); ctx.fill();
+    };
+    streak(w * 0.16, 20);
+    streak(w * 0.44, 10);
+    ctx.restore();
+
+    // Wood mullion cross → four panes, lit on the upper/left face.
+    const cx = x + Math.round(w / 2);
+    const cy = y + Math.round(h / 2);
+    ctx.fillStyle = P.WOOD;    ctx.fillRect(cx - 4, y, 8, h); ctx.fillRect(x, cy - 4, w, 8);
+    ctx.fillStyle = P.WOOD_HI; ctx.fillRect(cx - 4, y, 2, h); ctx.fillRect(x, cy - 4, w, 2);
+
+    // Sill · a proud wood ledge under the window.
+    ctx.fillStyle = P.WOOD;    ctx.fillRect(x - fr - 4, y + h + fr, w + fr * 2 + 8, 8);
+    ctx.fillStyle = P.WOOD_HI; ctx.fillRect(x - fr - 4, y + h + fr, w + fr * 2 + 8, 2);
   }
 
-  /** Moss blob · small irregular cluster of green pixels, roughly
-   *  diamond-shaped so it reads as a growth patch instead of a
-   *  rectangle. Picks a tone per blob from the supplied palette. */
-  function drawMossBlob(ctx, cx, cy, palette, rand) {
-    const color = palette[Math.floor(rand() * palette.length)];
-    const w = 10 + Math.floor(rand() * 18);
-    const h = 5 + Math.floor(rand() * 7);
-    ctx.fillStyle = color;
-    for (let py = 0; py < h; py++) {
-      const taper = Math.floor(Math.abs(py - h / 2) * 1.6);
-      const rowW = Math.max(2, w - taper);
-      const offset = Math.floor((w - rowW) / 2);
-      ctx.fillRect(cx + offset, cy + py, rowW, 1);
-    }
-    const hi = palette[Math.min(palette.length - 1, Math.floor(rand() * palette.length))];
-    ctx.fillStyle = hi;
-    ctx.fillRect(cx + Math.floor(w * 0.3), cy, 2, 1);
-    ctx.fillRect(cx + Math.floor(w * 0.6), cy + 1, 2, 1);
+  /** Framed wall art · oak frame + a soft warm abstract that echoes the
+   *  room palette (a sage block + a terracotta accent over a cream field). */
+  function drawWallArt(ctx, x, y, w, h, P) {
+    ctx.fillStyle = P.WOOD_DK; ctx.fillRect(x - 4, y - 4, w + 8, h + 8);
+    ctx.fillStyle = P.WOOD; ctx.fillRect(x - 4, y - 4, w + 8, 2);
+    ctx.fillStyle = "#E8E0D2"; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "#C9B79A"; ctx.fillRect(x, y + Math.round(h * 0.55), w, Math.round(h * 0.45));
+    ctx.fillStyle = "#A9B89A"; ctx.fillRect(x + Math.round(w * 0.15), y + Math.round(h * 0.30), Math.round(w * 0.4), Math.round(h * 0.3));
+    ctx.fillStyle = "#C58A5E"; ctx.fillRect(x + Math.round(w * 0.62), y + Math.round(h * 0.18), Math.round(w * 0.22), Math.round(h * 0.5));
+    ctx.fillStyle = "#8A7A60"; ctx.fillRect(x, y + Math.round(h * 0.55), w, 1);
   }
 
   /** Procedural pixel-art stone wall · modelled after
@@ -1173,139 +1401,65 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
 
-    // Mortar base · near-black cool grey fills the canvas so any
-    // gap between stone blocks reads as a deep seam.
-    ctx.fillStyle = "#15171C";
+    // ── Modern corporate CURTAIN WALL · steel mullions + cool dusk
+    // glass. Replaces the old stone-and-moss surface. Glass is painted
+    // in discrete colour bands (pixel-art, not a smooth gradient) so
+    // the chunky NearestFilter read carries through; distant warm dots
+    // in the lower panes suggest a city at dusk behind the glazing. ──
+    const STEEL_DEEP = "#23272E", STEEL = "#3A424C", STEEL_HI = "#6E7A88";
+    const SPANDREL = "#2C3138";
+    const GLASS = ["#7C8DA0", "#6A7C90", "#586A7E", "#48596C", "#3A4858"];
+    const SHEEN = "rgba(200,220,235,0.18)";
+    const CITY_LIGHT = ["#C9A86A", "#D8C088", "#9FB4C2"];
+    const rand = mulberry32(13);
+
+    // Backdrop · deep steel shows in any gap behind the glazing.
+    ctx.fillStyle = STEEL_DEEP;
     ctx.fillRect(0, 0, W, H);
 
-    // Stone palette · mostly cool slate greys with a handful of
-    // warm rust blocks for character (matches the reference's few
-    // tan / amber stones scattered through the field).
-    const stonePalette = [
-      "#6B7382", "#5C636F", "#7A8290", "#535A65",
-      "#67707D", "#737B89", "#5F6772",
-    ];
-    const stoneWarm = ["#7E6B58", "#8B7560", "#74614E"];
-    const highlightTone = (hex) => {
-      // Lift R/G/B by ~28 to make a top-edge highlight without
-      // pulling away from the base hue. Clamp at 255.
-      const n = parseInt(hex.slice(1), 16);
-      const r = Math.min(255, ((n >> 16) & 0xff) + 28);
-      const g = Math.min(255, ((n >> 8) & 0xff) + 28);
-      const b = Math.min(255, (n & 0xff) + 28);
-      return `rgb(${r},${g},${b})`;
-    };
-    const shadowTone = (hex) => {
-      const n = parseInt(hex.slice(1), 16);
-      const r = Math.max(0, ((n >> 16) & 0xff) - 32);
-      const g = Math.max(0, ((n >> 8) & 0xff) - 32);
-      const b = Math.max(0, (n & 0xff) - 32);
-      return `rgb(${r},${g},${b})`;
-    };
+    // Header beam · top steel rail.
+    ctx.fillStyle = STEEL; ctx.fillRect(0, 0, W, 20);
+    ctx.fillStyle = STEEL_HI; ctx.fillRect(0, 0, W, 2);
+    ctx.fillStyle = STEEL_DEEP; ctx.fillRect(0, 20, W, 3);
 
-    // Stone rows · each row picks its own height (38-58px), then
-    // lays variable-width blocks across with mortar gaps. Row
-    // starts at a per-row x offset so neighbouring rows don't
-    // share vertical seams (broken-bond pattern, like masonry).
-    const mortar = 2;
-    const rand = mulberry32(13);
-    let y = 0;
-    let rowIdx = 0;
-    while (y < H) {
-      const rowH = 16 + Math.floor(rand() * 10);
-      const startOffset = Math.floor(rand() * 30);
-      let x = -startOffset;
-      while (x < W) {
-        const w = 24 + Math.floor(rand() * 28);
-        const useWarm = rand() < 0.10;
-        const base = useWarm
-          ? stoneWarm[Math.floor(rand() * stoneWarm.length)]
-          : stonePalette[Math.floor(rand() * stonePalette.length)];
-        const x0 = x + mortar;
-        const y0 = y + mortar;
-        const sw = w - mortar;
-        const sh = rowH - mortar;
-        // Block body.
-        ctx.fillStyle = base;
-        ctx.fillRect(x0, y0, sw, sh);
-        // Worn corners · clip a 2×2 chunk out of each corner so the
-        // block reads as a rounded river stone instead of a sharp
-        // rectangle. Mortar shows through the clip.
-        ctx.fillStyle = "#15171C";
-        ctx.fillRect(x0, y0, 2, 2);
-        ctx.fillRect(x0 + sw - 2, y0, 2, 2);
-        ctx.fillRect(x0, y0 + sh - 2, 2, 2);
-        ctx.fillRect(x0 + sw - 2, y0 + sh - 2, 2, 2);
-        // Top-edge highlight (skip the worn corners).
-        ctx.fillStyle = highlightTone(base);
-        ctx.fillRect(x0 + 2, y0, sw - 4, 1);
-        // Bottom-edge shadow.
-        ctx.fillStyle = shadowTone(base);
-        ctx.fillRect(x0 + 2, y0 + sh - 1, sw - 4, 1);
-        // A faint inner crack / blemish on ~30% of stones for
-        // texture variation.
-        if (rand() < 0.25 && sw > 12 && sh > 10) {
-          ctx.fillStyle = shadowTone(base);
-          const cx = x0 + 3 + Math.floor(rand() * Math.max(1, sw - 9));
-          const cy = y0 + 3 + Math.floor(rand() * Math.max(1, sh - 8));
-          const cl = 3 + Math.floor(rand() * 6);
-          if (rand() < 0.5) ctx.fillRect(cx, cy, cl, 1);
-          else ctx.fillRect(cx, cy, 1, cl);
-        }
-        x += w;
+    // Glazing · 5 bays × 4 rows of panes between header and spandrel.
+    const glassTop = 23, glassBot = 470;
+    const cols = 5, rows = 4;
+    const mull = 8;
+    const bayW = (W - mull) / cols;
+    const paneRowH = (glassBot - glassTop - mull) / rows;
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        const px = Math.round(mull + c * bayW);
+        const py = Math.round(glassTop + mull + r * paneRowH);
+        const pw = Math.round(bayW - mull);
+        const ph = Math.round(paneRowH - mull);
+        drawGlassPane(ctx, px, py, pw, ph, r, rows, GLASS, SHEEN, CITY_LIGHT, rand);
       }
-      y += rowH;
-      rowIdx += 1;
     }
 
-    // Moss patches · scatter green clusters along stone seams +
-    // pool moss at top + bottom of the wall (the reference has
-    // moss running along the upper edge and pooling at the floor).
-    const mossPalette = ["#5E7A3A", "#6E8E48", "#82A656", "#476830", "#7C9A48"];
-    const mossRand = mulberry32(91);
-    // Top moss band · several clusters along the top 36 px.
-    for (let n = 0; n < 28; n++) {
-      const mx = Math.floor(mossRand() * W);
-      const my = Math.floor(mossRand() * 30);
-      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    // Mullions · steel bars over the grid seams (vertical + horizontal).
+    for (let c = 0; c <= cols; c++) {
+      const mx = Math.round(c * bayW);
+      ctx.fillStyle = STEEL; ctx.fillRect(mx, glassTop, mull, glassBot - glassTop);
+      ctx.fillStyle = STEEL_HI; ctx.fillRect(mx, glassTop, 1, glassBot - glassTop);
+      ctx.fillStyle = STEEL_DEEP; ctx.fillRect(mx + mull - 1, glassTop, 1, glassBot - glassTop);
     }
-    // Bottom moss band · taller clusters along the bottom 50 px
-    // so the wall reads as "rooted in earth" at floor level.
-    for (let n = 0; n < 36; n++) {
-      const mx = Math.floor(mossRand() * W);
-      const my = H - 40 + Math.floor(mossRand() * 36);
-      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
-    }
-    // Mid-wall moss · sparse clusters along internal seams.
-    for (let n = 0; n < 24; n++) {
-      const mx = Math.floor(mossRand() * W);
-      const my = 60 + Math.floor(mossRand() * (H - 120));
-      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    for (let r = 0; r <= rows; r++) {
+      const my = Math.round(glassTop + r * paneRowH);
+      ctx.fillStyle = STEEL; ctx.fillRect(0, my, W, mull);
+      ctx.fillStyle = STEEL_HI; ctx.fillRect(0, my, W, 1);
+      ctx.fillStyle = STEEL_DEEP; ctx.fillRect(0, my + mull - 1, W, 1);
     }
 
-    // Falling vines · a few thin vertical strands of green pixels
-    // hanging from the top down a third of the wall, mirroring the
-    // ivy strands in the reference.
-    const vinePalette = ["#5E7A3A", "#476830", "#3F5F2A"];
-    for (let v = 0; v < 9; v++) {
-      const vx = Math.floor(mossRand() * W);
-      const vy0 = Math.floor(mossRand() * 30);
-      const vLen = 60 + Math.floor(mossRand() * 110);
-      const tone = vinePalette[Math.floor(mossRand() * vinePalette.length)];
-      ctx.fillStyle = tone;
-      for (let py = 0; py < vLen; py++) {
-        // Wobble the vine a half pixel every few rows so it doesn't
-        // read as a solid rectangle.
-        const wobble = Math.sin(py * 0.18 + v) > 0 ? 1 : 0;
-        ctx.fillRect(vx + wobble, vy0 + py, 1, 1);
-      }
-      // Three small leaves along the vine.
-      for (let l = 0; l < 3; l++) {
-        const ly = vy0 + 14 + l * Math.floor(vLen / 3);
-        const lx = vx + (l % 2 === 0 ? 1 : -2);
-        ctx.fillRect(lx, ly, 3, 1);
-        ctx.fillRect(lx, ly + 1, 2, 1);
-      }
+    // Spandrel base · opaque steel / concrete panel at the floor seam,
+    // with vertical seams aligned to the mullions above.
+    ctx.fillStyle = SPANDREL; ctx.fillRect(0, glassBot, W, H - glassBot);
+    ctx.fillStyle = STEEL_HI; ctx.fillRect(0, glassBot, W, 2);
+    ctx.fillStyle = STEEL_DEEP; ctx.fillRect(0, H - 8, W, 8);
+    for (let c = 1; c < cols; c++) {
+      ctx.fillStyle = STEEL_DEEP;
+      ctx.fillRect(Math.round(c * bayW + mull / 2) - 1, glassBot + 4, 2, H - glassBot - 12);
     }
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -1316,12 +1470,55 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     return tex;
   }
 
-  /** Procedural pixel-art warm sandstone wall · modelled after
-   *  `public/icons/wall2.png`. Same broken-bond layout as the
-   *  constructive stone wall but in an amber / sandstone / terracotta
-   *  palette · multi-tone stones range from pale sand to deep rust,
-   *  with occasional brighter terracotta accents for visual punch.
-   *  Used for the critique tone in place of the flat-paint wall. */
+  /** One curtain-wall glass pane · cool dusk colour in discrete bands
+   *  (pixel-art, no smooth gradient), a diagonal reflective sheen on
+   *  ~60% of panes, distant warm city-light dots in the lower rows,
+   *  and a thin recessed shadow on the right + bottom edges. `rowIdx`
+   *  grades the colour so upper rows read as sky, lower rows as deep
+   *  glass. */
+  function drawGlassPane(ctx, x, y, w, h, rowIdx, rowCount, glass, sheen, lights, rand) {
+    const bands = glass.length;
+    const bandH = Math.ceil(h / bands);
+    const startBand = Math.min(bands - 1,
+      Math.round((rowIdx / Math.max(1, rowCount)) * (bands - 1)));
+    for (let i = 0; i < bands; i++) {
+      const bi = Math.min(bands - 1, startBand + Math.floor(i * 0.6));
+      ctx.fillStyle = glass[bi];
+      ctx.fillRect(x, y + i * bandH, w, bandH);
+    }
+    // Distant city lights · only the lower rows, a few warm dots.
+    if (rowIdx >= rowCount - 2) {
+      const n = 2 + Math.floor(rand() * 4);
+      for (let k = 0; k < n; k++) {
+        ctx.fillStyle = lights[Math.floor(rand() * lights.length)];
+        const lx = x + 3 + Math.floor(rand() * Math.max(1, w - 6));
+        const ly = y + Math.floor(h * 0.45) + Math.floor(rand() * Math.max(1, h * 0.45));
+        ctx.fillRect(lx, ly, 1 + Math.floor(rand() * 2), 1);
+      }
+    }
+    // Diagonal reflective sheen.
+    if (rand() < 0.6) {
+      ctx.fillStyle = sheen;
+      const sx = x + Math.floor(rand() * w * 0.5);
+      for (let s = 0; s < h; s++) {
+        const xx = sx + Math.floor(s * 0.5);
+        if (xx >= x && xx < x + w) ctx.fillRect(xx, y + s, 3, 1);
+      }
+    }
+    // Recessed edge shadow (right + bottom) so the pane reads as glass
+    // set behind its steel frame.
+    ctx.fillStyle = "rgba(10,14,20,0.35)";
+    ctx.fillRect(x + w - 1, y, 1, h);
+    ctx.fillRect(x, y + h - 1, w, 1);
+  }
+
+  /** Procedural pixel-art CRITIQUE wall · a dark MAHOGANY EXECUTIVE
+   *  PANEL room. Top-down: a dentil cornice capped with brass → a row
+   *  of tall raised mahogany panels (brass pin accents) → a brass
+   *  chair-rail datum → a row of shorter dado panels → a dark plinth
+   *  with a brass reveal. Formal + scrutinising — the boardroom that
+   *  finds the holes. Pairs with the brass-on-gunmetal metal-weave
+   *  floor. Same NearestFilter canvas-texture recipe as the others. */
   function buildCritiqueWallTexture() {
     const W = 1024, H = 512;
     const canvas = document.createElement("canvas");
@@ -1330,98 +1527,48 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
 
-    // Mortar base · deep warm walnut · matches the existing
-    // critique trim colour family so the seams feel native.
-    ctx.fillStyle = "#2A1A0E";
-    ctx.fillRect(0, 0, W, H);
+    const MAH = "#6B3F2F", MAH_HI = "#8A5038", MAH_DK = "#341A12", STILE = "#4A2A20";
+    const BRASS = "#C9A85A", BRASS_HI = "#E6CC8E", BRASS_SH = "#94774A";
 
-    // Stone palette · warm sandstone family, low-sat to mid-sat
-    // golden browns mixing pale sand and deep rust.
-    const stonePalette = [
-      "#B8895A", "#9C7340", "#C8A06C", "#8B5E32",
-      "#D9B07C", "#A87850", "#7A4F30", "#B07A48",
-    ];
-    // Occasional brighter terracotta / amber stones for accent ·
-    // ~10% of stones pick from this set to mirror the reference's
-    // pop of orange-red here and there.
-    const stoneAccent = ["#C97448", "#D88A50", "#BA6634"];
-    const highlightTone = (hex) => {
-      const n = parseInt(hex.slice(1), 16);
-      const r = Math.min(255, ((n >> 16) & 0xff) + 30);
-      const g = Math.min(255, ((n >> 8) & 0xff) + 26);
-      const b = Math.min(255, (n & 0xff) + 18);
-      return `rgb(${r},${g},${b})`;
-    };
-    const shadowTone = (hex) => {
-      const n = parseInt(hex.slice(1), 16);
-      const r = Math.max(0, ((n >> 16) & 0xff) - 34);
-      const g = Math.max(0, ((n >> 8) & 0xff) - 28);
-      const b = Math.max(0, (n & 0xff) - 20);
-      return `rgb(${r},${g},${b})`;
-    };
+    // Deep mahogany ground · panel gaps / reveals read as shadow.
+    ctx.fillStyle = MAH_DK; ctx.fillRect(0, 0, W, H);
 
-    // Block layout · rectangular bond pattern. Slightly larger
-    // blocks than constructive (the reference reads as chunky
-    // hand-cut sandstone, not pebble cobble) and a touch more
-    // mortar so the seams catch the eye.
-    const mortar = 2;
-    const rand = mulberry32(29);
-    let y = 0;
-    while (y < H) {
-      const rowH = 17 + Math.floor(rand() * 8);
-      const startOffset = Math.floor(rand() * 40);
-      let x = -startOffset;
-      while (x < W) {
-        const w = 24 + Math.floor(rand() * 30);
-        const useAccent = rand() < 0.10;
-        const base = useAccent
-          ? stoneAccent[Math.floor(rand() * stoneAccent.length)]
-          : stonePalette[Math.floor(rand() * stonePalette.length)];
-        const x0 = x + mortar;
-        const y0 = y + mortar;
-        const sw = w - mortar;
-        const sh = rowH - mortar;
-        // Block body.
-        ctx.fillStyle = base;
-        ctx.fillRect(x0, y0, sw, sh);
-        // Worn corners · clip a 2×2 chunk so each block reads as
-        // a hand-cut sandstone instead of a sharp rectangle.
-        ctx.fillStyle = "#2A1A0E";
-        ctx.fillRect(x0, y0, 2, 2);
-        ctx.fillRect(x0 + sw - 2, y0, 2, 2);
-        ctx.fillRect(x0, y0 + sh - 2, 2, 2);
-        ctx.fillRect(x0 + sw - 2, y0 + sh - 2, 2, 2);
-        // Top-edge highlight (skip the worn corners).
-        ctx.fillStyle = highlightTone(base);
-        ctx.fillRect(x0 + 2, y0, sw - 4, 1);
-        // Bottom-edge shadow.
-        ctx.fillStyle = shadowTone(base);
-        ctx.fillRect(x0 + 2, y0 + sh - 1, sw - 4, 1);
-        // Inner blemish · ~30% of stones get a small chip / crack
-        // for hand-cut character.
-        if (rand() < 0.30 && sw > 14 && sh > 12) {
-          ctx.fillStyle = shadowTone(base);
-          const cx = x0 + 3 + Math.floor(rand() * Math.max(1, sw - 9));
-          const cy = y0 + 3 + Math.floor(rand() * Math.max(1, sh - 8));
-          const cl = 3 + Math.floor(rand() * 7);
-          if (rand() < 0.5) ctx.fillRect(cx, cy, cl, 1);
-          else ctx.fillRect(cx, cy, 1, cl);
-        }
-        x += w;
-      }
-      y += rowH;
+    // Crown · cornice with a row of dentils + a brass reveal line.
+    ctx.fillStyle = STILE; ctx.fillRect(0, 0, W, 18);
+    ctx.fillStyle = MAH_HI; ctx.fillRect(0, 0, W, 1);
+    ctx.fillStyle = MAH_DK; for (let dx = 4; dx < W; dx += 22) ctx.fillRect(dx, 12, 12, 6); // dentils
+    ctx.fillStyle = BRASS_SH; ctx.fillRect(0, 24, W, 1);
+    ctx.fillStyle = BRASS; ctx.fillRect(0, 22, W, 2);
+    ctx.fillStyle = BRASS_HI; ctx.fillRect(0, 22, W, 1);
+
+    const panels = 5, pw = W / panels;
+
+    // Upper field · tall raised panels with brass pin accents.
+    const upTop = 34, upBot = 300;
+    for (let i = 0; i < panels; i++) {
+      const x = Math.round(i * pw) + 6;
+      drawRaisedPanel(ctx, x, upTop, Math.round(pw) - 12, upBot - upTop, MAH, MAH_HI, MAH_DK);
+      ctx.fillStyle = BRASS;
+      ctx.fillRect(x + 6, upTop + 8, 2, 2);
+      ctx.fillRect(x + Math.round(pw) - 20, upTop + 8, 2, 2);
     }
 
-    // Sparse moss accent · the reference has a hint of green only
-    // near the upper seams; keep it subtle (no bottom band, no
-    // vines) so the warm sandstone stays the dominant register.
-    const mossPalette = ["#5E7A3A", "#6E8E48", "#476830"];
-    const mossRand = mulberry32(73);
-    for (let n = 0; n < 12; n++) {
-      const mx = Math.floor(mossRand() * W);
-      const my = Math.floor(mossRand() * 36);
-      drawMossBlob(ctx, mx, my, mossPalette, mossRand);
+    // Chair-rail datum · a brass line over a dark reveal.
+    ctx.fillStyle = STILE; ctx.fillRect(0, 300, W, 12);
+    ctx.fillStyle = BRASS_SH; ctx.fillRect(0, 310, W, 1);
+    ctx.fillStyle = BRASS; ctx.fillRect(0, 302, W, 2);
+    ctx.fillStyle = BRASS_HI; ctx.fillRect(0, 302, W, 1);
+
+    // Lower dado · shorter raised panels.
+    const loTop = 318, loBot = 486;
+    for (let i = 0; i < panels; i++) {
+      drawRaisedPanel(ctx, Math.round(i * pw) + 6, loTop, Math.round(pw) - 12, loBot - loTop, MAH, MAH_HI, MAH_DK);
     }
+
+    // Plinth · dark base band with a brass top reveal.
+    ctx.fillStyle = STILE; ctx.fillRect(0, loBot, W, H - loBot);
+    ctx.fillStyle = BRASS; ctx.fillRect(0, loBot, W, 2);
+    ctx.fillStyle = BRASS_HI; ctx.fillRect(0, loBot, W, 1);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.magFilter = THREE.NearestFilter;
@@ -1429,6 +1576,322 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     tex.generateMipmaps = false;
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
+  }
+
+  /** A RAISED frame-and-panel rectangle · light top/left, dark
+   *  bottom/right bevels so the panel face reads as proud of the
+   *  surrounding stiles. Used for the critique mahogany wall. */
+  function drawRaisedPanel(ctx, x, y, w, h, face, hi, lo) {
+    ctx.fillStyle = lo; ctx.fillRect(x, y, w, h);                  // stile / recess border
+    ctx.fillStyle = face; ctx.fillRect(x + 4, y + 4, w - 8, h - 8); // raised face
+    ctx.fillStyle = hi; ctx.fillRect(x + 4, y + 4, w - 8, 2);      // top bevel light
+    ctx.fillStyle = hi; ctx.fillRect(x + 4, y + 4, 2, h - 8);      // left bevel light
+    ctx.fillStyle = lo; ctx.fillRect(x + 4, y + h - 6, w - 8, 2);  // bottom bevel shade
+    ctx.fillStyle = lo; ctx.fillRect(x + w - 6, y + 4, 2, h - 8);  // right bevel shade
+  }
+
+  /** Procedural pixel-art DEBATE wall · a warm-oak forum / chamber.
+   *  Top-down the texture reads: crown molding → upper field with
+   *  three tall daylight windows (wood mullions, sill, a faint sun
+   *  glow) → chair rail → frame-and-panel wainscot → baseboard. Cool
+   *  daylight in the windows plays against the warm wood + the warm
+   *  debate floor so the room reads "lit from outside". Same chunky
+   *  NearestFilter canvas-texture recipe as the brick / stone tones. */
+  function buildDebateWallTexture() {
+    const W = 1024, H = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    // Warm-oak palette.
+    const OAK_DEEP = "#3F2C1B";
+    const OAK_DARK = "#5A3F28";
+    const OAK_MID = "#6E4F33";
+    const OAK_BASE = "#80603E";
+    const OAK_HI = "#9E7A4E";
+    const OAK_HI2 = "#B58F5E";
+
+    const grain = mulberry32(57);
+
+    // ── Wall field · vertical plank paneling with grain + seams. ──
+    ctx.fillStyle = OAK_MID;
+    ctx.fillRect(0, 0, W, H);
+    const plankW = 64;
+    for (let x = 0; x < W; x += plankW) {
+      const tone = [OAK_MID, OAK_BASE, OAK_DARK][Math.floor(grain() * 3)];
+      ctx.fillStyle = tone;
+      ctx.fillRect(x, 0, plankW, H);
+      // Faint vertical grain streaks.
+      for (let s = 0; s < 6; s++) {
+        const gx = x + 4 + Math.floor(grain() * (plankW - 8));
+        const gy = Math.floor(grain() * H);
+        const gh = 30 + Math.floor(grain() * 120);
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = grain() < 0.5 ? OAK_DEEP : OAK_HI;
+        ctx.fillRect(gx, gy, 1, gh);
+        ctx.globalAlpha = 1;
+      }
+      // Plank seam · dark right edge + soft highlight on the left.
+      ctx.fillStyle = OAK_DEEP;
+      ctx.fillRect(x + plankW - 1, 0, 1, H);
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = OAK_HI;
+      ctx.fillRect(x, 0, 1, H);
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Crown molding · top band. ──
+    ctx.fillStyle = OAK_DEEP; ctx.fillRect(0, 0, W, 22);
+    ctx.fillStyle = OAK_HI2; ctx.fillRect(0, 20, W, 2);
+    ctx.fillStyle = OAK_DARK; ctx.fillRect(0, 22, W, 4);
+
+    // ── Windows · three arched daylight openings set LOW on the wall so
+    // they land inside the camera's initial framing (it frames the back
+    // wall's lower band behind the seated directors). Sill sits ~1 world
+    // unit off the floor. The tall wainscot that used to fill this band —
+    // and hide the glass — is gone; just a baseboard grounds the floor. ──
+    const winTop = 292, winH = 178, winW = 150;
+    for (const frac of [0.2, 0.5, 0.8]) {
+      drawDebateWindow(ctx, Math.round(W * frac - winW / 2), winTop, winW, winH, grain);
+    }
+
+    // ── Baseboard · dark band at the floor seam (below the window sills). ──
+    const baseTop = 490;
+    ctx.fillStyle = OAK_DEEP; ctx.fillRect(0, baseTop, W, H - baseTop);
+    ctx.fillStyle = OAK_HI; ctx.fillRect(0, baseTop, W, 2);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** One tall daylight window for the debate wall · wood frame + sill,
+   *  a banded cool-daylight sky, a faint sun glow, and a 3×4 mullion
+   *  grid. `x,y` is the top-left of the glass opening. */
+  function drawDebateWindow(ctx, x, y, w, h, rand) {
+    const FRAME = "#3F2C1B", FRAME_HI = "#7A5836", SILL = "#5A3F28";
+    const fr = 10;
+    // Outer wood frame + top/left bevel highlight.
+    ctx.fillStyle = FRAME;
+    ctx.fillRect(x - fr, y - fr, w + fr * 2, h + fr * 2);
+    ctx.fillStyle = FRAME_HI;
+    ctx.fillRect(x - fr, y - fr, w + fr * 2, 2);
+    ctx.fillRect(x - fr, y - fr, 2, h + fr * 2);
+
+    // Sky · vertical daylight bands (pale blue → warm horizon).
+    const sky = ["#A6C0D2", "#B4CBD9", "#C3D6E0", "#D3E1E8", "#E0EAEC"];
+    const bandH = Math.ceil(h / sky.length);
+    for (let i = 0; i < sky.length; i++) {
+      ctx.fillStyle = sky[i];
+      ctx.fillRect(x, y + i * bandH, w, bandH);
+    }
+    // Warm horizon glow near the bottom of the glass.
+    ctx.fillStyle = "#ECDDC4";
+    ctx.fillRect(x, y + h - 16, w, 16);
+    // Faint sun disc · upper-left pane.
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "#FFF6E2";
+    ctx.fillRect(x + 14, y + 16, 12, 12);
+    ctx.globalAlpha = 1;
+
+    // Mullions · 2 vertical + 3 horizontal wood bars → 3×4 panes.
+    const bar = 6;
+    ctx.fillStyle = FRAME;
+    for (let c = 1; c < 3; c++) {
+      ctx.fillRect(x + Math.round((w * c) / 3) - bar / 2, y, bar, h);
+    }
+    for (let r = 1; r < 4; r++) {
+      ctx.fillRect(x, y + Math.round((h * r) / 4) - bar / 2, w, bar);
+    }
+
+    // Sill · wood ledge jutting below the frame.
+    ctx.fillStyle = SILL;
+    ctx.fillRect(x - fr - 4, y + h + fr, w + fr * 2 + 8, 8);
+    ctx.fillStyle = FRAME_HI;
+    ctx.fillRect(x - fr - 4, y + h + fr, w + fr * 2 + 8, 2);
+    void rand;
+  }
+
+  /** Lighten / darken a #rrggbb hex toward white / black · shared by
+   *  the library book-spine shading below. Returns an `rgb()` string. */
+  function tintHex(hex, d) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.max(0, Math.min(255, ((n >> 16) & 0xff) + d));
+    const g = Math.max(0, Math.min(255, ((n >> 8) & 0xff) + d));
+    const b = Math.max(0, Math.min(255, (n & 0xff) + d));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  /** Procedural pixel-art RESEARCH wall · a light-oak library. Top-down:
+   *  crown molding → built-in bookcases (oak shelf boards + case
+   *  uprights framing three bays, each shelf packed with varied book
+   *  spines — gilt titles, the odd horizontal stack, a potted plant for
+   *  warmth) → oak cabinet plinth + baseboard. Scholarly + warm-neutral
+   *  against the library's pale-marble floor. Same NearestFilter
+   *  canvas-texture recipe as the other tones. */
+  function buildResearchWallTexture() {
+    const W = 1024, H = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    const OAK_DEEP = "#5A4326", OAK_DARK = "#6E5430", OAK_MID = "#8A6E44",
+      OAK_HI = "#B0905A", OAK_HI2 = "#C8AC72", RECESS = "#352A1B";
+    const SPINES = [
+      "#7C3A33", "#3E6B4A", "#3A567A", "#A6814A", "#B5953F", "#5A4636",
+      "#7A3050", "#356E6A", "#8A4A2E", "#4A4458", "#9C8A5A", "#6A8C46",
+    ];
+    const GILT = "#C9A85A";
+    const rand = mulberry32(91);
+
+    // Dark recess behind the shelves.
+    ctx.fillStyle = RECESS;
+    ctx.fillRect(0, 0, W, H);
+
+    // Crown molding.
+    ctx.fillStyle = OAK_DEEP; ctx.fillRect(0, 0, W, 22);
+    ctx.fillStyle = OAK_HI2; ctx.fillRect(0, 20, W, 2);
+    ctx.fillStyle = OAK_DARK; ctx.fillRect(0, 22, W, 4);
+
+    // Bookcase field · 3 bays × a fixed shelf COUNT filling top→plinth.
+    // Using a count (not a fixed row height) guarantees the rows reach
+    // the plinth, so the lowest books land in the camera's initial
+    // framing instead of bunching high and leaving the visible lower
+    // band empty (the prior fixed 74px rows stopped ~70px short).
+    const top = 30, bot = 486;
+    const board = 9;             // shelf-board thickness
+    // 8 shelves (was 6) · shorter rows shrink the book heights from
+    // ~1.15–1.5 world units (nearly as tall as a seated director) down
+    // to ~0.7–1.0, so the shelving reads at a believable scale against
+    // the figures and the table instead of looking oversized.
+    const shelves = 8;
+    const rowH = (bot - top) / shelves;
+    const bays = [
+      [6, Math.round(W / 3) - 6],
+      [Math.round(W / 3) + 6, Math.round((2 * W) / 3) - 6],
+      [Math.round((2 * W) / 3) + 6, W - 6],
+    ];
+    let plantPlaced = false;
+    for (let s = 0; s < shelves; s++) {
+      const yTop = Math.round(top + s * rowH);
+      const gapH = Math.round(rowH) - board;
+      for (const [bx0, bx1] of bays) {
+        // Occasionally make ONE shelf in a bay a decorative niche
+        // (potted plant) instead of books — once per texture, for warmth.
+        if (!plantPlaced && rand() < 0.12) {
+          drawShelfPlant(ctx, Math.round((bx0 + bx1) / 2), yTop + gapH);
+          plantPlaced = true;
+        } else {
+          drawBookRow(ctx, bx0, bx1, yTop, gapH, SPINES, GILT, rand);
+        }
+      }
+      // Shelf board spanning the full width under this row.
+      const by = yTop + gapH;
+      ctx.fillStyle = OAK_MID; ctx.fillRect(0, by, W, board);
+      ctx.fillStyle = OAK_HI; ctx.fillRect(0, by, W, 2);          // lit front edge
+      ctx.fillStyle = OAK_DEEP; ctx.fillRect(0, by + board - 1, W, 1); // under-shadow
+    }
+
+    // Case uprights · vertical oak posts framing the 3 bays.
+    const posts = [0, Math.round(W / 3), Math.round((2 * W) / 3), W - 12];
+    for (const px of posts) {
+      ctx.fillStyle = OAK_DARK; ctx.fillRect(px, 24, 12, bot - 24);
+      ctx.fillStyle = OAK_HI; ctx.fillRect(px, 24, 2, bot - 24);       // left highlight
+      ctx.fillStyle = OAK_DEEP; ctx.fillRect(px + 10, 24, 2, bot - 24); // right shadow
+    }
+
+    // Cabinet plinth + baseboard.
+    ctx.fillStyle = OAK_MID; ctx.fillRect(0, bot, W, H - bot);
+    ctx.fillStyle = OAK_HI; ctx.fillRect(0, bot, W, 2);          // top edge catch-light
+    ctx.fillStyle = OAK_DEEP; ctx.fillRect(0, H - 10, W, 10);    // dark plinth foot
+    ctx.fillStyle = OAK_HI; ctx.fillRect(0, H - 10, W, 1);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** Fill one shelf gap (x0..x1, sitting on the board at yTop+gapH) with
+   *  a packed row of varied book spines · widths / heights / colours
+   *  vary, ~35% get a gilt title band, occasional horizontal stacks and
+   *  small gaps break the rhythm so it reads hand-shelved, not tiled. */
+  function drawBookRow(ctx, x0, x1, yTop, gapH, spines, gilt, rand) {
+    const floorY = yTop + gapH; // book bottoms sit here (on the board)
+    let x = x0 + 2;
+    while (x < x1 - 6) {
+      const r = rand();
+      if (r < 0.06) { x += 4 + Math.floor(rand() * 9); continue; } // gap
+      if (r < 0.14 && x1 - x > 44) {
+        // Horizontal stack of a few books laid flat.
+        const sw = 26 + Math.floor(rand() * 16);
+        let sy = floorY;
+        const stk = 2 + Math.floor(rand() * 3);
+        for (let k = 0; k < stk; k++) {
+          const sh = 6 + Math.floor(rand() * 4);
+          sy -= sh + 1;
+          if (sy < yTop + 2) break;
+          const c = spines[Math.floor(rand() * spines.length)];
+          ctx.fillStyle = c; ctx.fillRect(x, sy, sw, sh);
+          ctx.fillStyle = tintHex(c, -28); ctx.fillRect(x, sy + sh - 1, sw, 1);
+          ctx.fillStyle = tintHex(c, 26); ctx.fillRect(x, sy, sw, 1);
+        }
+        x += sw + 3;
+        continue;
+      }
+      // Upright spine.
+      const sw = 9 + Math.floor(rand() * 14);
+      const sh = gapH - 2 - Math.floor(rand() * 16);
+      const sy = floorY - sh;
+      const c = spines[Math.floor(rand() * spines.length)];
+      ctx.fillStyle = c; ctx.fillRect(x, sy, sw, sh);
+      ctx.fillStyle = tintHex(c, 24); ctx.fillRect(x, sy, 1, sh);          // left catch-light
+      ctx.fillStyle = tintHex(c, -30); ctx.fillRect(x + sw - 1, sy, 1, sh); // right shadow
+      ctx.fillStyle = tintHex(c, -34); ctx.fillRect(x, sy, sw, 1);          // top cap shadow
+      if (rand() < 0.35 && sh > 26 && sw > 11) {
+        ctx.fillStyle = gilt;
+        const gy = sy + 7 + Math.floor(rand() * (sh - 20));
+        ctx.fillRect(x + 2, gy, sw - 4, 1);
+        if (rand() < 0.5) ctx.fillRect(x + 2, gy + 3, sw - 4, 1);
+      }
+      x += sw + 2;
+    }
+  }
+
+  /** A small potted plant sitting on a library shelf · terracotta pot +
+   *  a clump of leaves. `cx` is the pot centre, `baseY` the shelf-board
+   *  top the pot rests on. Pure decoration to warm the bookcase. */
+  function drawShelfPlant(ctx, cx, baseY) {
+    const POT = "#A85A38", POT_HI = "#C47A50", POT_DK = "#7A3E24";
+    const LEAF = ["#4E7A3A", "#5E8E46", "#3E6830"];
+    const potW = 16, potH = 14;
+    const px = cx - potW / 2, py = baseY - potH;
+    // Pot · tapered (narrower at the base).
+    ctx.fillStyle = POT; ctx.fillRect(px, py, potW, potH);
+    ctx.fillStyle = POT_DK; ctx.fillRect(px + 2, py + potH - 1, potW - 4, 1);
+    ctx.fillStyle = POT_HI; ctx.fillRect(px, py, potW, 2);   // rim catch-light
+    ctx.fillStyle = POT_DK; ctx.fillRect(px + potW - 1, py, 1, potH); // right shade
+    // Foliage · a few stacked leaf blobs above the rim.
+    let lx = cx - 12, ly = py - 2;
+    for (let i = 0; i < 14; i++) {
+      const c = LEAF[i % LEAF.length];
+      ctx.fillStyle = c;
+      const bw = 3 + (i % 3);
+      const bh = 3 + ((i + 1) % 3);
+      const ox = (i * 7) % 22 - 10;
+      const oy = -((i * 5) % 16);
+      ctx.fillRect(cx + ox, py - 4 + oy, bw, bh);
+    }
+    void lx; void ly;
   }
 
   /** Tiny deterministic PRNG (Mulberry32). Same seed → same sequence,
@@ -2062,6 +2525,47 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     return g;
   }
 
+  /** Procedural grayscale grain · horizontal streaks (run along the
+   *  table length) over a near-white base, with a few darker knots and
+   *  fine per-row noise. Used as `.map` so it MODULATES the per-tone
+   *  colour rather than replacing it · white→colour as-is, the ~0.82
+   *  streaks darken slightly to read as wood / moulded grain. */
+  function buildTableGrainTexture() {
+    const W = 512, H = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    const rand = mulberry32(73);
+    // Near-white base · keeps the material colour intact between streaks.
+    ctx.fillStyle = "#FAFAFA"; ctx.fillRect(0, 0, W, H);
+    // Long horizontal grain streaks · slightly darker greys, varied
+    // length / opacity so the grain reads organic, not striped.
+    for (let i = 0; i < 90; i++) {
+      const y = Math.floor(rand() * H);
+      const len = 80 + Math.floor(rand() * (W - 80));
+      const x = Math.floor(rand() * (W - len));
+      const g = 200 + Math.floor(rand() * 38);          // 0xC8..0xEE
+      const a = 0.10 + rand() * 0.22;
+      ctx.fillStyle = `rgba(${g - 40},${g - 46},${g - 54},${a.toFixed(3)})`;
+      ctx.fillRect(x, y, len, 1);
+    }
+    // A handful of darker knots / figure swirls.
+    for (let i = 0; i < 6; i++) {
+      const cx = Math.floor(rand() * W);
+      const cy = Math.floor(rand() * H);
+      const r = 3 + Math.floor(rand() * 6);
+      ctx.fillStyle = `rgba(120,108,92,${(0.10 + rand() * 0.12).toFixed(3)})`;
+      ctx.beginPath(); ctx.ellipse(cx, cy, r, Math.max(1, r * 0.4), 0, 0, Math.PI * 2); ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 1); // denser grain along the long axis
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    return tex;
+  }
+
   function buildTable() {
     // Stacked-box voxel table · centre of the stage. Dimensions
     // tuned tight against the seat ring · side directors at
@@ -2074,85 +2578,375 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     const topH = 0.35;
     const bodyH = 0.9;
 
+    // Materials are module-scope · refreshTable() retints them per tone
+    // right after mount (and on every mode change), so the initial WOOD
+    // colours here are just a placeholder until the first refresh.
+    tableBodyMat = new THREE.MeshLambertMaterial({ color: WOOD.mid });
+    tableTopMat = new THREE.MeshLambertMaterial({ color: WOOD.hi });
+    tableShadeMat = new THREE.MeshLambertMaterial({ color: WOOD.shade });
+
     // Body (mid wood) · sits with its top at y=topH baseline so chairs
     // can tuck under naturally.
-    const bodyGeo = new THREE.BoxGeometry(tableW, bodyH, tableD);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: WOOD.mid });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(tableW, bodyH, tableD), tableBodyMat);
     body.position.y = bodyH / 2;
     g.add(body);
 
     // Top slab (rim wood, slightly lighter) · sits flush above body
-    // for the chunky "two-layer" pixel-art read.
-    const topGeo = new THREE.BoxGeometry(tableW + 0.1, topH, tableD + 0.1);
-    const topMat = new THREE.MeshLambertMaterial({ color: WOOD.hi });
-    const top = new THREE.Mesh(topGeo, topMat);
+    // for the chunky "two-layer" pixel-art read. constructive turns this
+    // translucent (glass) via refreshTable.
+    const top = new THREE.Mesh(new THREE.BoxGeometry(tableW + 0.1, topH, tableD + 0.1), tableTopMat);
     top.position.y = bodyH + topH / 2;
     g.add(top);
 
     // Bottom shadow slab (dark wood) · a thin dark strip under the body
     // grounds the table to the floor like the SVG's `.rt-table-floor`
     // ellipse does in 2D.
-    const shadeGeo = new THREE.BoxGeometry(tableW + 0.05, 0.08, tableD + 0.05);
-    const shadeMat = new THREE.MeshLambertMaterial({ color: WOOD.shade });
-    const shade = new THREE.Mesh(shadeGeo, shadeMat);
+    const shade = new THREE.Mesh(new THREE.BoxGeometry(tableW + 0.05, 0.08, tableD + 0.05), tableShadeMat);
     shade.position.y = 0.04;
     g.add(shade);
 
     return g;
   }
 
-  function buildChair() {
-    // Voxel chair · mirrors the existing 2D chair sprite anatomy
-    // (4 legs + seat slab + back rail + 2 finials at the top
-    // corners of the back).
+  /** Retint the shared table materials to the active tone + apply its
+   *  material finish · "wood" (opaque matte), "glass" (translucent top
+   *  over a steel body · constructive), "acrylic" (whole table
+   *  translucent), or "plastic" (opaque, vivid, with a small emissive
+   *  lift so the bright colour reads glossy · brainstorm). Cheap +
+   *  idempotent, safe every update() tick; mirrors refreshWallColors. */
+  function refreshTable(mode) {
+    if (!tableBodyMat || !tableTopMat || !tableShadeMat) return;
+    if (!tableGrainTex) tableGrainTex = buildTableGrainTexture();
+    const p = TABLE_PALETTE_BY_TONE[mode] || TABLE_PALETTE_BY_TONE.debate;
+    const finish = p.material || "wood";
+    tableBodyMat.color.setHex(p.body);
+    tableShadeMat.color.setHex(p.shade);
+    tableTopMat.color.setHex(p.top);
+    const applyFinish = (mat, translucent, opacity) => {
+      if (mat.transparent !== translucent) { mat.transparent = translucent; mat.needsUpdate = true; }
+      mat.opacity = translucent ? opacity : 1;
+    };
+    // acrylic · body + top translucent; glass · only the top; else opaque.
+    const bodyTranslucent = finish === "acrylic";
+    const topTranslucent = finish === "acrylic" || finish === "glass";
+    applyFinish(tableBodyMat, bodyTranslucent, 0.5);
+    applyFinish(tableTopMat, topTranslucent, 0.55);
+    applyFinish(tableShadeMat, finish === "acrylic", 0.4); // soften the floor shadow under see-through tables
+    // Grain map · only on the OPAQUE faces. See-through glass / acrylic
+    // surfaces stay clean (a texture on translucent glass reads as dirt).
+    const setMap = (mat, on) => {
+      const want = on ? tableGrainTex : null;
+      if (mat.map !== want) { mat.map = want; mat.needsUpdate = true; }
+    };
+    setMap(tableBodyMat, !bodyTranslucent);
+    setMap(tableTopMat, !topTranslucent);
+    // plastic · a small emissive of the body/top colour so the vivid hue
+    // reads as glossy moulded plastic, not flat matte wood. Kept low so
+    // the table doesn't self-glow and wash the room out. Other finishes
+    // reset emissive to black (no glow).
+    const plastic = finish === "plastic";
+    tableBodyMat.emissive.setHex(plastic ? p.body : 0x000000);
+    tableTopMat.emissive.setHex(plastic ? p.top : 0x000000);
+    tableBodyMat.emissiveIntensity = 0.10;
+    tableTopMat.emissiveIntensity = 0.10;
+  }
+
+  /** Brainstorm-only 3D furniture group · a chest of drawers + a low
+   *  sofa as box meshes against the back wall, scaled to harmonise with
+   *  the 6.5×1.25 table. Lit by the room lights (no emissive) so they
+   *  read with real box-shaded depth — the user's "3D feel". */
+  function buildRoomFurniture(mode) {
+    const g = new THREE.Group();
+    const backZ = -STAGE_HALF_Z * 1.45;        // back wall plane (≈ -8.7)
+    if (mode === "brainstorm") {
+      const chest = buildChestOfDrawers();
+      chest.position.set(-3.4, 0, backZ + 0.36);
+      g.add(chest);
+      const sofa = buildLowSofa();
+      sofa.position.set(2.9, 0, backZ + 0.6);
+      g.add(sofa);
+    } else if (mode === "debate") {
+      const lectern = buildLectern();        // forum rostrum
+      lectern.position.set(3.0, 0, backZ + 0.6);
+      g.add(lectern);
+      const sideboard = buildChestOfDrawers({ body: 0x7A5230, top: 0xB8884E, dk: 0x4A2E18, knob: 0x3A2410 });
+      sideboard.position.set(-3.3, 0, backZ + 0.36);
+      g.add(sideboard);
+    } else if (mode === "research") {
+      // The wall is already floor-to-ceiling bookcases, so no 3D shelf
+      // here (it would just double up) — a floor globe is plenty.
+      const globe = buildGlobe();
+      globe.position.set(3.0, 0, backZ + 0.7);
+      g.add(globe);
+    } else if (mode === "constructive") {
+      const credenza = buildChestOfDrawers({ body: 0x3A424C, top: 0x4A525C, dk: 0x23272E, knob: 0x8A929C });
+      credenza.position.set(-3.3, 0, backZ + 0.36);  // sleek steel credenza
+      g.add(credenza);
+    } else if (mode === "critique") {
+      const credenza = buildChestOfDrawers({ body: 0x4A2A20, top: 0x6B3F2F, dk: 0x2A1612, knob: 0xC9A85A });
+      credenza.position.set(-3.3, 0, backZ + 0.36);  // mahogany + brass
+      g.add(credenza);
+      const globe = buildGlobe();
+      globe.position.set(3.2, 0, backZ + 0.7);
+      g.add(globe);
+    }
+    return g;
+  }
+
+  /** Swap the back-wall furniture to the active tone · rebuilds only on
+   *  a tone change (disposing the previous group's geometry + materials)
+   *  so an unchanged tone is a no-op every update() tick. */
+  function refreshFurniture(mode) {
+    if (!scene) return;
+    if (mode === roomFurnitureMode && roomFurniture) return;
+    if (roomFurniture) {
+      scene.remove(roomFurniture);
+      roomFurniture.traverse((o) => {
+        if (o.geometry) { try { o.geometry.dispose(); } catch (_) { /* */ } }
+        if (o.material) { try { o.material.dispose(); } catch (_) { /* */ } }
+      });
+    }
+    roomFurniture = buildRoomFurniture(mode);
+    roomFurnitureMode = mode;
+    scene.add(roomFurniture);
+  }
+
+  /** Mid-century chest of drawers / credenza · box body on splayed legs,
+   *  three drawer fronts proud of the face with paired knobs, a lighter
+   *  top slab. ~2.2w × 1.22h × 0.55d (top lands a touch below the table
+   *  top at y≈1.25). `pal` recolours it into a sideboard / steel credenza
+   *  / mahogany credenza; the default (no `pal`) is the warm-oak
+   *  brainstorm chest, which also gets a cozy vase + sprig on top. */
+  function buildChestOfDrawers(pal) {
+    const g = new THREE.Group();
+    const W = 2.2, D = 0.55, legH = 0.2, bodyH = 0.92, topH = 0.1;
+    const OAK = pal ? pal.body : 0xB08A5A;
+    const OAK_HI = pal ? pal.top : 0xC8A472;
+    const OAK_DK = pal ? pal.dk : 0x6E5230;
+    const KNOB = pal ? pal.knob : 0x4A3422;
+    const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+    const legGeo = new THREE.BoxGeometry(0.1, legH, 0.1);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const leg = new THREE.Mesh(legGeo, mat(OAK_DK));
+      leg.position.set(sx * (W / 2 - 0.16), legH / 2, sz * (D / 2 - 0.12));
+      g.add(leg);
+    }
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W, bodyH, D), mat(OAK));
+    body.position.set(0, legH + bodyH / 2, 0);
+    g.add(body);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(W + 0.08, topH, D + 0.08), mat(OAK_HI));
+    top.position.set(0, legH + bodyH + topH / 2, 0);
+    g.add(top);
+    const dn = 3, gap = 0.04, dh = (bodyH - gap * (dn + 1)) / dn, frontZ = D / 2 + 0.015;
+    for (let i = 0; i < dn; i++) {
+      const dy = legH + gap + dh / 2 + i * (dh + gap);
+      const front = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, dh, 0.03), mat(OAK_HI));
+      front.position.set(0, dy, frontZ);
+      g.add(front);
+      const knobGeo = new THREE.BoxGeometry(0.07, 0.07, 0.05);
+      for (const kx of [-W * 0.2, W * 0.2]) {
+        const knob = new THREE.Mesh(knobGeo, mat(KNOB));
+        knob.position.set(kx, dy, frontZ + 0.03);
+        g.add(knob);
+      }
+    }
+    if (!pal) { // cozy vase + sprig only on the default oak chest
+      const vase = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.14), mat(0xC7B6A0));
+      vase.position.set(-W * 0.28, legH + bodyH + topH + 0.1, 0);
+      g.add(vase);
+      const sprig = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.04), mat(0x5E8A52));
+      sprig.position.set(-W * 0.28, legH + bodyH + topH + 0.3, 0);
+      g.add(sprig);
+    }
+    return g;
+  }
+
+  /** Low sage sofa · seat base + backrest + two arms + cushions + wood
+   *  legs, all boxes. ~2.7w × 0.94h × 0.95d, faces +z (toward camera). */
+  function buildLowSofa() {
+    const g = new THREE.Group();
+    const W = 2.7, D = 0.95, legH = 0.16, seatH = 0.28, backH = 0.5, armW = 0.26;
+    const SAGE = 0x8CA07E, SAGE_HI = 0xA4B695, SAGE_DK = 0x6E835E, LEG = 0x6E5230;
+    const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+    const legGeo = new THREE.BoxGeometry(0.1, legH, 0.1);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const leg = new THREE.Mesh(legGeo, mat(LEG));
+      leg.position.set(sx * (W / 2 - 0.14), legH / 2, sz * (D / 2 - 0.12));
+      g.add(leg);
+    }
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(W, seatH, D), mat(SAGE_DK));
+    seat.position.set(0, legH + seatH / 2, 0);
+    g.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(W, backH, 0.2), mat(SAGE));
+    back.position.set(0, legH + seatH + backH / 2, -D / 2 + 0.1);
+    g.add(back);
+    const armGeo = new THREE.BoxGeometry(armW, seatH + 0.18, D);
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Mesh(armGeo, mat(SAGE_DK));
+      arm.position.set(sx * (W / 2 - armW / 2), legH + (seatH + 0.18) / 2, 0);
+      g.add(arm);
+    }
+    const innerW = W - armW * 2;
+    const scN = 2, scW = innerW / scN;
+    for (let i = 0; i < scN; i++) {
+      const cush = new THREE.Mesh(new THREE.BoxGeometry(scW - 0.06, 0.12, D - 0.18), mat(SAGE_HI));
+      cush.position.set(-innerW / 2 + scW * (i + 0.5), legH + seatH + 0.06, 0.04);
+      g.add(cush);
+    }
+    const bcN = 3, bcW = innerW / bcN;
+    for (let i = 0; i < bcN; i++) {
+      const cush = new THREE.Mesh(new THREE.BoxGeometry(bcW - 0.06, backH - 0.1, 0.12), mat(SAGE_HI));
+      cush.position.set(-innerW / 2 + bcW * (i + 0.5), legH + seatH + backH / 2, -D / 2 + 0.22);
+      g.add(cush);
+    }
+    return g;
+  }
+
+  /** Forum lectern (debate) · an oak column on a base with a slanted
+   *  reading top + a front lip. ~0.7w × 1.5h. */
+  function buildLectern() {
+    const g = new THREE.Group();
+    const OAK = 0x7A5230, OAK_HI = 0xB8884E, OAK_DK = 0x4A2E18;
+    const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.5), mat(OAK_DK)); base.position.set(0, 0.05, 0); g.add(base);
+    const col = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.0, 0.34), mat(OAK)); col.position.set(0, 0.6, 0); g.add(col);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.4, 0.5), mat(OAK)); head.position.set(0, 1.3, 0); head.rotation.x = -0.35; g.add(head);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.06, 0.08), mat(OAK_HI)); lip.position.set(0, 1.16, 0.22); g.add(lip);
+    return g;
+  }
+
+  /** Floor globe (research / critique) · a blue sphere with a faint land
+   *  overlay on a brass post + dark stand. ~1.1h. */
+  function buildGlobe() {
+    const g = new THREE.Group();
+    const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+    const stand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.1, 0.32), mat(0x4A3422)); stand.position.set(0, 0.05, 0); g.add(stand);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.42, 0.06), mat(0xC9A85A)); post.position.set(0, 0.3, 0); g.add(post);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12), mat(0x3A6B8A)); ball.position.set(0, 0.8, 0); g.add(ball);
+    const land = new THREE.Mesh(new THREE.SphereGeometry(0.325, 10, 8),
+      new THREE.MeshLambertMaterial({ color: 0x6E9A5A, transparent: true, opacity: 0.45 }));
+    land.position.copy(ball.position); g.add(land);
+    return g;
+  }
+
+  /* ── Sheen armchair (brainstorm) ───────────────────────────────
+     A cozy mid-century upholstered armchair, echoing three.js'
+     `webgl_loader_gltf_sheen` SheenChair silhouette · splayed slim
+     wooden legs, a plump velvet seat cushion, a leaned-back padded
+     backrest with a lighter "sheen catch" inner panel, and two arm
+     bolsters. The original is a smooth PBR velvet GLB; we keep the
+     scene's box aesthetic but use MeshPhongMaterial on the cushions
+     so a soft specular reads as velvet sheen under the room lights.
+     Footprint stays within CHAIR_WIDTH so side seats don't collide.
+
+     Palette is tone-keyed (SHEEN_PALETTE_BY_TONE) so the same model
+     dresses each room in its own fabric · warm ochre velvet for the
+     forest-green/cream brainstorm room (green × ochre, the classic
+     mid-century pairing), cool slate-blue velvet on charcoal metal
+     legs for the steel-and-glass constructive room. */
+  function buildSheenChair(pal) {
+    const p = pal || SHEEN_PALETTE_BY_TONE.brainstorm;
     const g = new THREE.Group();
 
-    // 4 legs · thin voxel posts at the seat's four corners.
-    // Heights up to the seat's underside (CHAIR_SEAT_H - seat-slab-half).
-    const legH = CHAIR_SEAT_H - 0.06; // seat slab is 0.12 tall, half = 0.06
-    const legGeo = new THREE.BoxGeometry(0.12, legH, 0.12);
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x5A3A22 });
-    const legOffsetX = CHAIR_WIDTH / 2 - 0.08;
-    const legOffsetZ = CHAIR_DEPTH / 2 - 0.08;
+    const VELVET      = p.body;    // velvet body
+    const VELVET_LIT  = p.lit;     // sheen catch · lighter panel
+    const VELVET_DK   = p.shade;   // arm + side shade
+    const WALNUT      = p.leg;      // splayed legs
+
+    const velvet = (c) => new THREE.MeshPhongMaterial({
+      color: c, specular: p.specular, shininess: 10,
+    });
+
+    // Splayed slim wooden legs · tapered cylinders tilted outward
+    // (mid-century hallmark). Top meets the cushion underside.
+    const legLen = 0.44;
+    const legGeo = new THREE.CylinderGeometry(0.032, 0.022, legLen, 10);
+    const legMat = new THREE.MeshLambertMaterial({ color: WALNUT });
+    const legX = CHAIR_WIDTH / 2 - 0.16;
+    const legZ = CHAIR_DEPTH / 2 - 0.16;
+    const splay = 0.16;
     for (const [sx, sz] of [[-1, -1], [+1, -1], [-1, +1], [+1, +1]]) {
       const leg = new THREE.Mesh(legGeo, legMat);
-      leg.position.set(sx * legOffsetX, legH / 2, sz * legOffsetZ);
+      leg.position.set(sx * legX, legLen / 2, sz * legZ);
+      leg.rotation.z = -sx * splay;
+      leg.rotation.x = sz * splay;
       g.add(leg);
     }
 
-    // Seat slab
-    const seatGeo = new THREE.BoxGeometry(CHAIR_WIDTH, 0.12, CHAIR_DEPTH);
-    const seatMat = new THREE.MeshLambertMaterial({ color: 0x8B5E3B }); // chair-seat
-    const seat = new THREE.Mesh(seatGeo, seatMat);
-    seat.position.y = CHAIR_SEAT_H;
-    g.add(seat);
+    // Upholstered shell · the rounded under-seat body the cushion
+    // nests in. Sits just below the cushion top.
+    const shell = new THREE.Mesh(
+      new THREE.BoxGeometry(CHAIR_WIDTH, 0.2, CHAIR_DEPTH * 0.92),
+      velvet(VELVET_DK),
+    );
+    shell.position.y = CHAIR_SEAT_H - 0.06;
+    g.add(shell);
 
-    // Back rail (the upright part)
-    const backGeo = new THREE.BoxGeometry(CHAIR_WIDTH, CHAIR_BACK_H, CHAIR_BACK_T);
-    const backMat = new THREE.MeshLambertMaterial({ color: 0xC8A877 }); // chair-back
-    const back = new THREE.Mesh(backGeo, backMat);
-    back.position.set(0, CHAIR_SEAT_H + CHAIR_BACK_H / 2, -CHAIR_DEPTH / 2 + CHAIR_BACK_T / 2);
-    g.add(back);
+    // Seat cushion · plump velvet box on top of the shell.
+    const cushion = new THREE.Mesh(
+      new THREE.BoxGeometry(CHAIR_WIDTH * 0.86, 0.16, CHAIR_DEPTH * 0.8),
+      velvet(VELVET),
+    );
+    cushion.position.y = CHAIR_SEAT_H + 0.07;
+    g.add(cushion);
 
-    // Back shaded inner panel
-    const backShadeGeo = new THREE.BoxGeometry(CHAIR_WIDTH * 0.82, CHAIR_BACK_H * 0.78, 0.02);
-    const backShadeMat = new THREE.MeshLambertMaterial({ color: 0xA0814F }); // chair-back-shade
-    const backShade = new THREE.Mesh(backShadeGeo, backShadeMat);
-    backShade.position.set(0, CHAIR_SEAT_H + CHAIR_BACK_H / 2, -CHAIR_DEPTH / 2 + CHAIR_BACK_T + 0.01);
-    g.add(backShade);
+    // Backrest · padded, leaned back ~10°. Pivot at the cushion's
+    // rear edge so the lean swings the top backward, not the base.
+    const backH = 0.92;
+    const backGroup = new THREE.Group();
+    backGroup.position.set(0, CHAIR_SEAT_H + 0.06, -CHAIR_DEPTH / 2 + 0.16);
+    // Recline · negative tilts the top AWAY from the camera (+z is
+    // toward the viewer). A positive angle would lean the back
+    // forward over the seat and clip through the director sprite.
+    backGroup.rotation.x = -0.17;
+    g.add(backGroup);
 
-    // Finials · two small cubes capping the top corners of the back.
-    const finialGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
-    const finialMat = new THREE.MeshLambertMaterial({ color: 0x5A3A22 });
-    const finialL = new THREE.Mesh(finialGeo, finialMat);
-    finialL.position.set(-CHAIR_WIDTH / 2 + 0.07, CHAIR_SEAT_H + CHAIR_BACK_H + 0.05, -CHAIR_DEPTH / 2 + CHAIR_BACK_T / 2);
-    g.add(finialL);
-    const finialR = new THREE.Mesh(finialGeo, finialMat);
-    finialR.position.set(CHAIR_WIDTH / 2 - 0.07, CHAIR_SEAT_H + CHAIR_BACK_H + 0.05, -CHAIR_DEPTH / 2 + CHAIR_BACK_T / 2);
-    g.add(finialR);
+    const back = new THREE.Mesh(
+      new THREE.BoxGeometry(CHAIR_WIDTH * 0.9, backH, 0.16),
+      velvet(VELVET),
+    );
+    back.position.y = backH / 2;
+    backGroup.add(back);
+
+    // Sheen catch · a lighter velvet inner panel, the highlight the
+    // SheenChair is named for. Slightly proud of the back face.
+    const catchPanel = new THREE.Mesh(
+      new THREE.BoxGeometry(CHAIR_WIDTH * 0.66, backH * 0.78, 0.03),
+      velvet(VELVET_LIT),
+    );
+    catchPanel.position.set(0, backH / 2, 0.09);
+    backGroup.add(catchPanel);
+
+    // Arm bolsters · two padded rolls along the sides, fronts rounded
+    // by a capping cylinder. Kept thin so total width stays in budget.
+    const armH = 0.2;
+    const armY = CHAIR_SEAT_H + 0.18;
+    const armDepth = CHAIR_DEPTH * 0.72;
+    for (const sx of [-1, +1]) {
+      const arm = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, armH, armDepth),
+        velvet(VELVET_DK),
+      );
+      arm.position.set(sx * (CHAIR_WIDTH / 2 - 0.02), armY, -0.04);
+      g.add(arm);
+      // Rounded front cap.
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(armH / 2, armH / 2, 0.12, 12),
+        velvet(VELVET_DK),
+      );
+      cap.rotation.z = Math.PI / 2;
+      cap.position.set(sx * (CHAIR_WIDTH / 2 - 0.02), armY, -0.04 + armDepth / 2);
+      g.add(cap);
+    }
 
     return g;
+  }
+
+  /** Every seat is the upholstered sheen armchair now · the old voxel
+   *  chair was retired. Dressed in the room's velvet palette, falling
+   *  back to the brainstorm ochre for any unmapped tone. */
+  function buildChair(mode) {
+    return buildSheenChair(SHEEN_PALETTE_BY_TONE[mode]);
   }
 
   /* ── Plants ────────────────────────────────────────────────
@@ -2316,6 +3110,35 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   }
 
   function buildDirectorFigure(member) {
+    // 3D avatar · every seat (directors + chair) gets a rigged GLB
+    // figure from the saved avatar3d config (or a deterministic
+    // per-id default when un-customized). The chair was previously
+    // excluded — moderator stayed a flat sprite — which left it
+    // hovering on a different vertical axis than the voxel directors
+    // sitting next to it. Including the chair makes every seat share
+    // the same `AVATAR_SEAT_LIFT` so thigh-up clears the cushion
+    // consistently. The user seat still falls back to a sprite when
+    // they haven't customised one yet (no per-id default for the user).
+    if (avatar3dReady && member && member.id) {
+      const cfg = (member.avatar3d && typeof member.avatar3d === "object")
+        ? member.avatar3d
+        : (member.__isUser ? null : deriveDefaultAvatarConfig(member.id));
+      if (cfg && isAvatar3DReady(cfg.model)) {
+        try {
+          const a = buildAvatar3D(member.id, {
+            model: cfg.model, hairStyle: cfg.hairStyle, outfitStyle: cfg.outfitStyle,
+            browStyle: cfg.browStyle, tieStyle: cfg.tieStyle,
+            accessory: cfg.accessory, height: AVATAR_FIG_HEIGHT,
+            skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit, tie: cfg.tie, eye: cfg.eye,
+          });
+          if (a) { a.userData.isAvatar3d = true; return a; }
+        } catch (e) {
+          console.warn("[voice-3d] avatar build failed; sprite fallback", e);
+        }
+      }
+      // models not ready / build failed → fall through to the sprite
+    }
+
     // Single sprite billboard · the existing 8-bit director SVG
     // (head + face features + body + accessories all baked in)
     // sits inside the 3D chair as a 2D plane that always faces
@@ -2353,27 +3176,18 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     return g;
   }
 
-  /** Resolve a member to an avatar URL the sprite can texture:
-   *   · directors / chair · `member.avatarPath` (SVG under /avatars/
-   *     or a custom data: URL on the live record).
-   *   · user seat · synthesised on demand from `member.__seed` via
-   *     `AvatarSkill.generateDataUrl` so the user's pixel-art
-   *     portrait (same one shown in chat + sidebar) appears in the
-   *     3D scene too.
-   *  Returns `null` when neither path resolves · caller renders
-   *  the voxel-cube fallback. */
+  /** Resolve a member to an avatar URL the sprite can texture.
+   *  Returns whatever `member.avatarPath` carries (PNG portrait /
+   *  data URL / SVG file under /avatars/) or `null` to let the
+   *  caller fall back to the voxel-cube fallback. The legacy
+   *  AvatarSkill on-the-fly 8-bit SVG generation was retired in
+   *  favour of the 3D portrait pipeline (avatar-3d-snap.js); the
+   *  user seat is expected to either be a captured PNG (stored in
+   *  prefs.avatarUrl by the customizer) or have no avatarPath, in
+   *  which case the cube fallback renders. */
   function resolveAvatarPath(member) {
     if (!member) return null;
     if (member.avatarPath) return member.avatarPath;
-    if (member.__isUser && member.__seed
-        && window.AvatarSkill
-        && typeof window.AvatarSkill.generateDataUrl === "function") {
-      try {
-        return window.AvatarSkill.generateDataUrl(member.__seed);
-      } catch (_) {
-        return null;
-      }
-    }
     return null;
   }
 
@@ -2512,7 +3326,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     }
   }
 
-  function rebuildSeats(positions) {
+  function rebuildSeats(positions, mode) {
     if (!chairGroup || !avatarGroup) return;
     // Clear + rebuild · in Phase 1 we don't diff. Seat count changes
     // are infrequent (member add / remove) and the per-frame cost
@@ -2532,10 +3346,13 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
     while (avatarGroup.children.length) {
       const child = avatarGroup.children[0];
       avatarGroup.remove(child);
-      // Each child is now a `THREE.Group` (body + arms + tie + head).
-      // Walk its descendants and dispose materials + geometries. Heads
-      // use a per-face material ARRAY (one per BoxGeometry face) so
-      // unwrap the array before calling dispose on each.
+      // A 3D avatar figure (buildAvatar3D group) SHARES its geometry with
+      // the cached model template — only its materials are per-instance
+      // clones. Disposing that shared geometry would corrupt the template
+      // and break every later build, so for avatar groups we dispose the
+      // (cloned) materials only and leave geometry alone. Sprite / voxel
+      // figures own their geometry outright and dispose it normally.
+      const isAvatar3d = child.name === "avatar3d" || (child.userData && child.userData.isAvatar3d);
       child.traverse((node) => {
         if (node.material) {
           if (Array.isArray(node.material)) {
@@ -2544,7 +3361,9 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
             try { node.material.dispose(); } catch (_) {}
           }
         }
-        if (node.geometry) {
+        // Skip shared template geometry under avatar3d groups, EXCEPT the
+        // mouth overlay (its SphereGeometry is per-instance, not shared).
+        if (node.geometry && (!isAvatar3d || (node.userData && node.userData.isMouthOverlay))) {
           try { node.geometry.dispose(); } catch (_) {}
         }
       });
@@ -2567,7 +3386,7 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       // tradeoff is worth it: every occupant is square-on to the
       // viewer, no awkward side-profile chibis, no asymmetric
       // hand-of-cards arrangement.
-      const chair = buildChair();
+      const chair = buildChair(mode);
       chair.position.set(wx, 0, wz);
       chairGroup.add(chair);
 
@@ -2575,8 +3394,47 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       // `THREE.Sprite` self-orients toward the camera every frame,
       // so no rotation needed regardless of chair / fig pose.
       const fig = buildDirectorFigure(m);
-      fig.position.set(wx, 0, wz);
+      // 3D avatars are standing chibis · with feet at the floor (y=0) the seat
+      // cushion (top ~0.60) buries the lower body to mid-thigh. Lift them so
+      // more of the body clears the cushion (feet stay hidden behind it). The
+      // sprite billboards keep y=0 (they're already framed for the floor).
+      const figBaseY = (fig.userData && fig.userData.isAvatar3d) ? AVATAR_SEAT_LIFT : 0;
+      fig.position.set(wx, figBaseY, wz);
       avatarGroup.add(fig);
+
+      // Talking-mouth overlay (3D avatars only) · the avatars have a baked
+      // smile + fixed lips and no jaw bone, so the mouth can't actually open
+      // (dropping the teeth just hides them behind the lower lip). Instead we
+      // overlay a dark ellipsoid just IN FRONT of the lips and grow/shrink it
+      // while the seat speaks — a clearly-visible open/close talking mouth.
+      let mouthOverlay = null;
+      if (fig.userData && fig.userData.isAvatar3d) {
+        fig.updateMatrixWorld(true);
+        const mb = new THREE.Box3();
+        let found = false;
+        fig.traverse((o) => {
+          if (o.isMesh && o.userData && (o.userData.avatarRole === "mouth" || o.userData.avatarRole === "teeth")) {
+            mb.expandByObject(o); found = true;
+          }
+        });
+        if (found) {
+          const mc = mb.getCenter(new THREE.Vector3());
+          const msz = mb.getSize(new THREE.Vector3());
+          const ov = new THREE.Mesh(
+            new THREE.SphereGeometry(1, 18, 12),
+            new THREE.MeshStandardMaterial({ color: 0x3a1418, roughness: 0.55, metalness: 0 }),
+          );
+          ov.userData.isMouthOverlay = true;
+          // Local position within fig (no rotation, unit scale) + a small
+          // forward nudge so it sits in front of the lips, not inside the head.
+          const local = fig.worldToLocal(mc.clone());
+          ov.position.set(local.x, local.y, local.z + msz.z * 0.5 + 0.03);
+          ov.scale.set(msz.x * 0.34, 0.001, 0.05); // (width, closed-height, depth)
+          ov.visible = false;
+          fig.add(ov);
+          mouthOverlay = ov;
+        }
+      }
 
       // ── Floor glow ring · sits flat just above the floor under
       // the chair. Hidden by default; refreshSpeakerOverlay flips
@@ -2714,6 +3572,8 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
           // 3D refs · the figure group (for idle-bob position
           // animation) + the floor glow ring (for speaker halo).
           fig,
+          figBaseY,
+          mouthOverlay,
           glowRing,
           // Stagger the idle-bob phase per seat so the cast looks
           // alive instead of metronome-synchronized. 0.7 rad apart
@@ -2836,6 +3696,84 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    *     chair and its occupant land in sync.
    *  Self-deactivates after the duration; subsequent ticks return
    *  fast and the scene is in its resting state. */
+  /** Kick off the speaker-change pulse · resolves the new speaker's
+   *  seat (if any), captures the dolly direction, and flips the
+   *  active flag. No-op when the entry animation is still running
+   *  (entry owns the camera) or when the new speaker is the user
+   *  (no seat figure to focus on). */
+  function maybeTriggerSpeakerCameraPulse(speakerId) {
+    if (entryActive) {
+      lastPulseSpeakerId = speakerId; // skip but record so we don't re-pulse later
+      return;
+    }
+    if (!camera || !cameraRestPos) return;
+    if (lastPulseSpeakerId === undefined) {
+      // First recognised speaker after mount · let entry animation
+      // be the cinematic arrival; record so the SECOND speaker is
+      // the first pulse target.
+      lastPulseSpeakerId = speakerId;
+      return;
+    }
+    if (lastPulseSpeakerId === speakerId) return;
+    const seat = (overlaySeats || []).find((s) => s.id === speakerId);
+    if (!seat || seat.isUser || !seat.worldPos) {
+      // User taking a turn / unknown seat · skip the pulse but
+      // remember the id so we don't keep retrying on every frame.
+      lastPulseSpeakerId = speakerId;
+      return;
+    }
+    // Direction from rest position toward the speaker's seat on
+    // the XZ plane (no vertical component · we add lift separately).
+    const dx = seat.worldPos.x - cameraRestPos.x;
+    const dz = seat.worldPos.z - cameraRestPos.z;
+    const mag = Math.hypot(dx, dz);
+    if (mag < 0.0001) {
+      // Seat is directly under the rest camera point — vanishingly
+      // rare, but bail to avoid NaN.
+      lastPulseSpeakerId = speakerId;
+      return;
+    }
+    cameraPulseDirX = dx / mag;
+    cameraPulseDirZ = dz / mag;
+    cameraPulseStart = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    cameraPulseActive = true;
+    lastPulseSpeakerId = speakerId;
+    // Hand camera off from OrbitControls for the pulse window so
+    // the user's drag-orbit doesn't fight the lerp · restored in
+    // tickSpeakerCameraPulse() when the pulse completes.
+    if (controls) controls.enabled = false;
+  }
+
+  function tickSpeakerCameraPulse() {
+    if (!cameraPulseActive || !camera || !cameraRestPos) return;
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const t = Math.max(0, Math.min(1, (now - cameraPulseStart) / CAMERA_PULSE_DURATION_MS));
+    // Bell curve: 0 at t=0, peaks at t=0.5, back to 0 at t=1.
+    // sin(πt) keeps the camera anchored at rest at both ends so
+    // there's no discontinuity when the pulse begins or ends.
+    const bell = Math.sin(Math.PI * t);
+    camera.position.set(
+      cameraRestPos.x + cameraPulseDirX * CAMERA_PULSE_FORWARD * bell,
+      cameraRestPos.y + CAMERA_PULSE_LIFT * bell,
+      cameraRestPos.z + cameraPulseDirZ * CAMERA_PULSE_FORWARD * bell,
+    );
+    camera.lookAt(0, _mountCamLookY, 0);
+    if (t >= 1) {
+      // Snap exactly back to rest and hand control back.
+      camera.position.copy(cameraRestPos);
+      camera.lookAt(0, _mountCamLookY, 0);
+      cameraPulseActive = false;
+      if (controls) {
+        controls.enabled = true;
+        // Re-anchor OrbitControls' internal target spherical so the
+        // next user drag starts from the rest pose, not from the
+        // mid-pulse pose we never let it observe.
+        if (controls.target) controls.target.set(0, _mountCamLookY, 0);
+        try { controls.update(); } catch (_) { /* */ }
+      }
+    }
+  }
+
   function tickEntryAnimation() {
     if (!entryActive || !camera || !cameraRestPos) return;
     const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -2915,24 +3853,54 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
   function tickSeatAnimations() {
     if (!overlaySeats.length) return;
     const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) * 0.001;
+    const app = (typeof window !== "undefined") ? window.app : null;
+    const canCheckAudio = !!(app && typeof app.isSpeakerAudible === "function");
     for (const seat of overlaySeats) {
-      const isSpeaking = activeSpeakerId && seat.id === activeSpeakerId;
-      // Idle bob · ±2.5 cm at ~0.4 Hz, suspended for the speaker.
+      const isActive = activeSpeakerId && seat.id === activeSpeakerId;
+      // The mouth only moves while actually SPEAKING — and synced to the real
+      // TTS audio when we can read it (the "speaking" stage state can start
+      // before the audio does, which made mouths move silently). Fall back to
+      // the stage state when no audio probe is available (e.g. older app).
+      const isTalking = isActive && (canCheckAudio
+        ? app.isSpeakerAudible(seat.id)
+        : activeSpeakerState === "speaking");
+      const isSpeaking = isActive; // kept for the idle-bob suspension below
+      // Idle bob · ±2.5 cm at ~0.4 Hz, suspended for the speaker. Relative to
+      // the seat's base Y (3D avatars are lifted onto the cushion).
       if (seat.fig) {
-        seat.fig.position.y = isSpeaking
-          ? 0
-          : Math.sin(t * 2.6 + seat.bobPhase) * 0.025;
-        // Speaking squash-blink · scale the figure group's height
-        // down briefly (anchored at the chair seat, so it compresses
-        // toward the body). Non-speakers and reduced-motion hold at 1.
-        let sy = 1;
-        if (isSpeaking && !prefersReducedMotion) {
-          const phase = (t + seat.bobPhase) % BLINK_PERIOD;
-          if (phase < BLINK_DUR) {
-            sy = 1 - BLINK_DEPTH * Math.sin((phase / BLINK_DUR) * Math.PI);
+        const baseY = seat.figBaseY || 0;
+        seat.fig.position.y = baseY + (isSpeaking ? 0 : Math.sin(t * 2.6 + seat.bobPhase) * 0.025);
+
+        const is3d = !!(seat.fig.userData && seat.fig.userData.isAvatar3d);
+        if (is3d) {
+          // 3D avatars · animate the REAL mouth (the overlay opening/closing)
+          // while speaking, NOT a body squash. Keep the body scale at 1.
+          if (seat.fig.scale.y !== 1) seat.fig.scale.y = 1;
+          const ov = seat.mouthOverlay;
+          if (ov) {
+            if (isTalking && !prefersReducedMotion) {
+              // Open/close at ~2.7 Hz with a mild wobble · reads as talking.
+              const o = 0.5 + 0.5 * Math.sin(t * 17 + seat.bobPhase * 3);
+              const wobble = 0.85 + 0.15 * Math.sin(t * 9.1 + seat.bobPhase);
+              ov.scale.y = MOUTH_MIN + (MOUTH_OPEN - MOUTH_MIN) * o * wobble;
+              ov.visible = true;
+            } else {
+              ov.visible = false; // thinking / silent · show the baked smile
+            }
           }
+        } else {
+          // Sprite / voxel fallback · the legacy speaking squash-blink (no
+          // mouth meshes to animate). Only while SPEAKING (not thinking);
+          // non-speakers + reduced-motion hold at 1.
+          let sy = 1;
+          if (isTalking && !prefersReducedMotion) {
+            const phase = (t + seat.bobPhase) % BLINK_PERIOD;
+            if (phase < BLINK_DUR) {
+              sy = 1 - BLINK_DEPTH * Math.sin((phase / BLINK_DUR) * Math.PI);
+            }
+          }
+          if (seat.fig.scale.y !== sy) seat.fig.scale.y = sy;
         }
-        if (seat.fig.scale.y !== sy) seat.fig.scale.y = sy;
       }
       // Speaker halo pulse · 0.35 ↔ 0.75 at ~0.8 Hz (matches the
       // 2D `.rt-seat-speaking::before` glow rhythm).
@@ -3032,6 +4000,13 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
       // positions / glow-ring opacity; projection AFTER render so
       // the overlay DOM transforms align with what was just drawn.
       tickEntryAnimation();
+      // Speaker-change pulse runs AFTER entry but BEFORE seat /
+      // controls update · entry owns the camera fully when active,
+      // then the pulse lerps freely (controls.enabled=false during
+      // the window), then controls take back over once the pulse
+      // settles. Seat animations don't touch the camera so order
+      // between them is interchangeable.
+      tickSpeakerCameraPulse();
       tickSeatAnimations();
       if (controls) controls.update();
       renderer.render(scene, camera);

@@ -1382,8 +1382,13 @@
        the brainstorm vars directly onto the stage host here. SVG
        data URI is copied verbatim from
        index.html:8674 (brainstorm tile). */
-    --floor-bg: #5E6B47;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%235E6B47'/><rect x='0' y='8' width='20' height='16' fill='%234F5C3D'/><rect x='104' y='20' width='20' height='20' fill='%234F5C3D'/><rect x='88' y='64' width='24' height='16' fill='%234F5C3D'/><rect x='0' y='64' width='12' height='20' fill='%234F5C3D'/><rect x='44' y='64' width='16' height='8' fill='%234F5C3D'/><rect x='72' y='8' width='12' height='8' fill='%236E7A52'/><rect x='120' y='80' width='8' height='12' fill='%236E7A52'/><rect x='48' y='84' width='8' height='8' fill='%236E7A52'/><rect x='48' y='24' width='32' height='32' fill='%235C4838'/><rect x='44' y='28' width='4' height='24' fill='%235C4838'/><rect x='80' y='28' width='4' height='24' fill='%235C4838'/><rect x='52' y='20' width='24' height='4' fill='%235C4838'/><rect x='52' y='56' width='20' height='4' fill='%235C4838'/><rect x='56' y='16' width='12' height='4' fill='%235C4838'/><rect x='56' y='32' width='8' height='8' fill='%234A3A28'/><rect x='68' y='40' width='4' height='8' fill='%234A3A28'/><rect x='60' y='24' width='4' height='4' fill='%236E5A48'/><rect x='68' y='48' width='4' height='4' fill='%236E5A48'/><rect x='58' y='44' width='2' height='2' fill='%236B6258'/><rect x='72' y='32' width='2' height='2' fill='%236B6258'/><rect x='50' y='38' width='2' height='2' fill='%236B6258'/><rect x='16' y='96' width='24' height='20' fill='%235C4838'/><rect x='12' y='100' width='4' height='12' fill='%235C4838'/><rect x='40' y='100' width='4' height='12' fill='%235C4838'/><rect x='20' y='92' width='16' height='4' fill='%235C4838'/><rect x='22' y='104' width='8' height='4' fill='%234A3A28'/><rect x='20' y='100' width='4' height='4' fill='%236E5A48'/><rect x='24' y='108' width='2' height='2' fill='%236B6258'/><rect x='32' y='98' width='2' height='2' fill='%236B6258'/><rect x='8' y='40' width='1' height='2' fill='%238FA068'/><rect x='24' y='72' width='1' height='2' fill='%238FA068'/><rect x='104' y='56' width='1' height='2' fill='%238FA068'/><rect x='120' y='104' width='1' height='2' fill='%238FA068'/><rect x='88' y='44' width='1' height='2' fill='%238FA068'/><rect x='4' y='88' width='1' height='2' fill='%238FA068'/><rect x='64' y='88' width='1' height='2' fill='%238FA068'/><rect x='92' y='24' width='1' height='2' fill='%238FA068'/><rect x='44' y='62' width='1' height='2' fill='%238FA068'/><rect x='80' y='120' width='1' height='2' fill='%238FA068'/><rect x='12' y='12' width='1' height='2' fill='%238FA068'/><rect x='112' y='60' width='1' height='2' fill='%238FA068'/></svg>");
+    /* FINAL · matched to DEFAULT_MODE "brainstorm" in home-3d-mock.js.
+       The warm-oak plank floor (mirrors index.html's
+       `.roundtable-stage[data-floor="brainstorm"]`) under the cozy
+       modern-interior walls — directors in a warm furnished lounge.
+       This is the homepage's showcase scene. */
+    --floor-bg: #C8A877;
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='64' shape-rendering='crispEdges'><rect width='128' height='64' fill='%23C8A877'/><rect y='16' width='128' height='16' fill='%23BE9E6C'/><rect y='48' width='128' height='16' fill='%23BE9E6C'/><rect y='0' width='128' height='1' fill='%23D8BC8C'/><rect y='16' width='128' height='1' fill='%23D8BC8C'/><rect y='32' width='128' height='1' fill='%23D8BC8C'/><rect y='48' width='128' height='1' fill='%23D8BC8C'/><rect y='15' width='128' height='1' fill='%239C7E50'/><rect y='31' width='128' height='1' fill='%239C7E50'/><rect y='47' width='128' height='1' fill='%239C7E50'/><rect y='63' width='128' height='1' fill='%239C7E50'/><rect x='40' y='0' width='1' height='16' fill='%239C7E50'/><rect x='96' y='16' width='1' height='16' fill='%239C7E50'/><rect x='20' y='32' width='1' height='16' fill='%239C7E50'/><rect x='72' y='48' width='1' height='16' fill='%239C7E50'/><rect x='10' y='6' width='14' height='1' fill='%23B8945E'/><rect x='60' y='22' width='18' height='1' fill='%23B8945E'/><rect x='100' y='40' width='14' height='1' fill='%23B8945E'/><rect x='30' y='56' width='16' height='1' fill='%23B8945E'/></svg>");
   }
   .hero-3d-stage canvas {
     width: 100% !important;
@@ -1414,12 +1419,55 @@
   }
   .hero-3d-hint.is-visible { opacity: 0.85; }
 
+  /* Loading veil · covers the stage while the 3D bundle downloads +
+     mounts. The static poster is the intended cover for that gap, but
+     when it's absent the section would sit blank during the ~500KB
+     download — so the veil fills it with a spinner + caption. Revealed
+     + torn down by home-3d-loader.js; only shown on devices that
+     actually load 3D (no perpetual spinner on skip). z-index above the
+     poster/stage so it covers both until `[data-mounted]` fades it. */
+  .hero-3d-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: var(--panel-2);
+    transition: opacity 0.4s ease-out;
+  }
+  .hero-3d-loading[hidden] { display: none; }
+  .hero-3d[data-mounted] .hero-3d-loading {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .hero-3d-spinner {
+    width: 26px;
+    height: 26px;
+    border: 2px solid var(--line-bright);
+    border-top-color: var(--lime);
+    border-radius: 50%;
+    animation: hero-3d-spin 0.8s linear infinite;
+  }
+  @keyframes hero-3d-spin { to { transform: rotate(360deg); } }
+  .hero-3d-loading-label {
+    font-family: var(--mono, "Inter", system-ui, sans-serif);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
   /* `prefers-reduced-motion` · the loader honours this and never
      mounts the scene · the poster stays. Skip CSS transitions too so
      nothing animates if the loader fails halfway and toggles classes. */
   @media (prefers-reduced-motion: reduce) {
     .hero-3d-poster,
-    .hero-3d-hint { transition: none; }
+    .hero-3d-hint,
+    .hero-3d-loading { transition: none; }
+    .hero-3d-spinner { animation: none; }
   }
 
   /* Narrow viewports (phone) · the round table compresses into a
@@ -1636,7 +1684,7 @@
         <div class="cast-card" data-agent="socrates">
           <div class="cast-card-frame">
             <span class="cc-corner cc-tl"></span><span class="cc-corner cc-br"></span>
-            <img src="avatars/socrates.svg" alt="Socrates">
+            <img src="avatars/3d/socrates.png" alt="Socrates">
           </div>
           <div class="cast-card-name">Socrates</div>
           <div class="cast-card-tag">// skeptic</div>
@@ -1644,7 +1692,7 @@
         <div class="cast-card" data-agent="first-principles">
           <div class="cast-card-frame">
             <span class="cc-corner cc-tl"></span><span class="cc-corner cc-br"></span>
-            <img src="avatars/first-principles.svg" alt="First Principles">
+            <img src="avatars/3d/first-principles.png" alt="First Principles">
           </div>
           <div class="cast-card-name">First Principles</div>
           <div class="cast-card-tag">// physicist</div>
@@ -1652,7 +1700,7 @@
         <div class="cast-card" data-agent="value-investor">
           <div class="cast-card-frame">
             <span class="cc-corner cc-tl"></span><span class="cc-corner cc-br"></span>
-            <img src="avatars/value-investor.svg" alt="Value Investor">
+            <img src="avatars/3d/value-investor.png" alt="Value Investor">
           </div>
           <div class="cast-card-name">Value Investor</div>
           <div class="cast-card-tag">// patterns</div>
@@ -1660,7 +1708,7 @@
         <div class="cast-card" data-agent="user-empathy">
           <div class="cast-card-frame">
             <span class="cc-corner cc-tl"></span><span class="cc-corner cc-br"></span>
-            <img src="avatars/user-empathy.svg" alt="User-Empathy">
+            <img src="avatars/3d/user-empathy.png" alt="User-Empathy">
           </div>
           <div class="cast-card-name">User-Empathy</div>
           <div class="cast-card-tag">// advocate</div>
@@ -1668,7 +1716,7 @@
         <div class="cast-card" data-agent="long-horizon">
           <div class="cast-card-frame">
             <span class="cc-corner cc-tl"></span><span class="cc-corner cc-br"></span>
-            <img src="avatars/long-horizon.svg" alt="Long Horizon">
+            <img src="avatars/3d/long-horizon.png" alt="Long Horizon">
           </div>
           <div class="cast-card-name">Long Horizon</div>
           <div class="cast-card-tag">// strategist</div>
@@ -1676,7 +1724,7 @@
         <div class="cast-card" data-agent="phenomenologist">
           <div class="cast-card-frame">
             <span class="cc-corner cc-tl"></span><span class="cc-corner cc-br"></span>
-            <img src="avatars/phenomenologist.svg" alt="Phenomenologist">
+            <img src="avatars/3d/phenomenologist.png" alt="Phenomenologist">
           </div>
           <div class="cast-card-name">Phenomenologist</div>
           <div class="cast-card-tag">// observer</div>
@@ -1816,6 +1864,14 @@
       </picture>
       <div class="hero-3d-stage" data-hero-3d-stage hidden></div>
       <div class="hero-3d-hint" data-hero-3d-hint hidden>drag to look around</div>
+      <!-- Loading veil · home-3d-loader.js reveals this the moment it
+           commits to downloading the 3D bundle (~500KB three.js +
+           voice-3d) and tears it down on mount / failure. Hidden by
+           default so devices that skip 3D never see a spinner. -->
+      <div class="hero-3d-loading" data-hero-3d-loading hidden aria-hidden="true">
+        <span class="hero-3d-spinner"></span>
+        <span class="hero-3d-loading-label">Rendering the round table…</span>
+      </div>
     </div>
   </section>
 
@@ -1833,42 +1889,42 @@
       <!-- LEFT · the standing six in a 3×2 grid (display-only) -->
       <div class="cast-directors">
         <div class="bento-cell bento-director" data-agent="socrates">
-          <img class="bento-director-img" src="avatars/socrates.svg" alt="Socrates">
+          <img class="bento-director-img" src="avatars/3d/socrates.png" alt="Socrates">
           <div class="bento-director-tag">// skeptic</div>
           <div class="bento-director-name">Socrates</div>
           <div class="bento-director-desc">Three layers deep on every assumption.</div>
           <div class="bento-director-model">claude-opus-4.7</div>
         </div>
         <div class="bento-cell bento-director" data-agent="first-principles">
-          <img class="bento-director-img" src="avatars/first-principles.svg" alt="First Principles">
+          <img class="bento-director-img" src="avatars/3d/first-principles.png" alt="First Principles">
           <div class="bento-director-tag">// physicist</div>
           <div class="bento-director-name">First Principles</div>
           <div class="bento-director-desc">Strips problems to their primitives.</div>
           <div class="bento-director-model">gpt-5.5-pro</div>
         </div>
         <div class="bento-cell bento-director" data-agent="value-investor">
-          <img class="bento-director-img" src="avatars/value-investor.svg" alt="Value Investor">
+          <img class="bento-director-img" src="avatars/3d/value-investor.png" alt="Value Investor">
           <div class="bento-director-tag">// patterns</div>
           <div class="bento-director-name">Value Investor</div>
           <div class="bento-director-desc">Reads every judgment through a ten-year lens.</div>
           <div class="bento-director-model">gemini-3.1-pro</div>
         </div>
         <div class="bento-cell bento-director" data-agent="user-empathy">
-          <img class="bento-director-img" src="avatars/user-empathy.svg" alt="User-Empathy">
+          <img class="bento-director-img" src="avatars/3d/user-empathy.png" alt="User-Empathy">
           <div class="bento-director-tag">// advocate</div>
           <div class="bento-director-name">User-Empathy</div>
           <div class="bento-director-desc">Asks why anyone would actually use this.</div>
           <div class="bento-director-model">grok-4.3</div>
         </div>
         <div class="bento-cell bento-director" data-agent="long-horizon">
-          <img class="bento-director-img" src="avatars/long-horizon.svg" alt="Long Horizon">
+          <img class="bento-director-img" src="avatars/3d/long-horizon.png" alt="Long Horizon">
           <div class="bento-director-tag">// strategist</div>
           <div class="bento-director-name">Long Horizon</div>
           <div class="bento-director-desc">Reads everything on a hundred-year scale.</div>
           <div class="bento-director-model">deepseek-v4-pro</div>
         </div>
         <div class="bento-cell bento-director" data-agent="phenomenologist">
-          <img class="bento-director-img" src="avatars/phenomenologist.svg" alt="Phenomenologist">
+          <img class="bento-director-img" src="avatars/3d/phenomenologist.png" alt="Phenomenologist">
           <div class="bento-director-tag">// observer</div>
           <div class="bento-director-name">Phenomenologist</div>
           <div class="bento-director-desc">Begins from experience itself.</div>
@@ -2226,6 +2282,12 @@
      `voice-3d.js` (which downloads three.module.min.js + OrbitControls,
      ~488 KB total). Visitors who can't or shouldn't run WebGL stay on
      the poster and never download the 3D bundle. -->
+<!-- Canonical chair + director avatar3d configs · populated onto
+     window.PB_CORE_AVATARS so the dynamically-imported home-3d-mock.js
+     can decorate its CAST with the same look the in-app voice room
+     and `src/seed/*.ts` ship. Classic-script defer · evaluates before
+     the ESM home-3d-loader's `import('/home-3d-mock.js')` resolves. -->
+<script src="core-avatars.js" defer></script>
 <script type="module" src="home-3d-loader.js" defer></script>
 
 </body>
