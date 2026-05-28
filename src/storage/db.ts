@@ -62,7 +62,13 @@ import voiceCredentials049 from "./migrations/049_voice_credentials.sql";
 import agentProviderBuckets050 from "./migrations/050_agent_provider_buckets.sql";
 import searchCredentials051 from "./migrations/051_search_credentials.sql";
 import roomNameAuto052 from "./migrations/052_room_name_auto.sql";
-import voiceDistillJobs053 from "./migrations/053_voice_distill_jobs.sql";
+import roomThreads053 from "./migrations/053_room_threads.sql";
+import voiceCloneJobs054 from "./migrations/054_voice_clone_jobs.sql";
+import voiceLabels055 from "./migrations/055_voice_labels.sql";
+import agentUserRules056 from "./migrations/056_agent_user_rules.sql";
+import agentAvatar3d057 from "./migrations/057_agent_avatar3d.sql";
+import prefsAvatar3d058 from "./migrations/058_prefs_avatar3d.sql";
+import voiceDistillJobs059 from "./migrations/059_voice_distill_jobs.sql";
 
 interface Migration {
   name: string;
@@ -122,7 +128,13 @@ const MIGRATIONS: Migration[] = [
   { name: "050_agent_provider_buckets.sql", sql: agentProviderBuckets050 },
   { name: "051_search_credentials.sql", sql: searchCredentials051 },
   { name: "052_room_name_auto.sql", sql: roomNameAuto052 },
-  { name: "053_voice_distill_jobs.sql", sql: voiceDistillJobs053 },
+  { name: "053_room_threads.sql", sql: roomThreads053 },
+  { name: "054_voice_clone_jobs.sql", sql: voiceCloneJobs054 },
+  { name: "055_voice_labels.sql", sql: voiceLabels055 },
+  { name: "056_agent_user_rules.sql", sql: agentUserRules056 },
+  { name: "057_agent_avatar3d.sql", sql: agentAvatar3d057 },
+  { name: "058_prefs_avatar3d.sql", sql: prefsAvatar3d058 },
+  { name: "059_voice_distill_jobs.sql", sql: voiceDistillJobs059 },
 ];
 
 let _db: Database.Database | null = null;

@@ -50,6 +50,22 @@ export function runSeed(): SeedReport {
       if (!existing.ability && d.ability) {
         updateAgent(d.id, { ability: d.ability });
       }
+      // Backfill seed 3D-avatar config for installs that predate it.
+      // Only fills when the director still has no customisation — we
+      // never overwrite a face the user already 捏'd. Once they
+      // customise it the seed default stays out of the way.
+      if (!existing.avatar3d && d.avatar3d) {
+        updateAgent(d.id, { avatar3d: d.avatar3d });
+      }
+      // Avatar path backfill · old installs still carry the legacy
+      // 8-bit `/avatars/{slug}.svg` placeholder from before the 3D
+      // portrait shipped. Migrate to the 3D PNG so the profile +
+      // sidebar + round-table seat show the proper portrait without
+      // any 8-bit flash. User-saved PNG dataURLs (captured via the
+      // customizer) are left alone.
+      if (existing.avatarPath === `/avatars/${d.id}.svg`) {
+        updateAgent(d.id, { avatarPath: d.avatarPath });
+      }
     }
   }
 
@@ -65,8 +81,27 @@ export function runSeed(): SeedReport {
   if (!existingChair) {
     insertAgent(SEED_CHAIR);
     inserted++;
-  } else if (existingChair.instruction !== SEED_CHAIR.instruction) {
-    updateAgent(CHAIR_ID, { instruction: SEED_CHAIR.instruction });
+  } else {
+    if (existingChair.instruction !== SEED_CHAIR.instruction) {
+      updateAgent(CHAIR_ID, { instruction: SEED_CHAIR.instruction });
+    }
+    // The chair's 3D-avatar config is system infrastructure (the
+    // canonical 杨天真 portrait) rather than a user preference —
+    // backfill it whenever it's still missing, identical to the
+    // instruction backfill above. If a user customised the chair
+    // we leave it alone.
+    if (!existingChair.avatar3d && SEED_CHAIR.avatar3d) {
+      updateAgent(CHAIR_ID, { avatar3d: SEED_CHAIR.avatar3d });
+    }
+    // Avatar path backfill · old installs still carry the legacy
+    // `/avatars/chair.svg` placeholder from before the 3D portrait
+    // shipped. Replace it with the hardcoded 杨天真 PNG so the chair
+    // profile + sidebar header show the proper portrait everywhere.
+    // We only overwrite the legacy SVG path · user-saved PNG dataURLs
+    // (captured via the customizer) are left alone.
+    if (existingChair.avatarPath === "/avatars/chair.svg") {
+      updateAgent(CHAIR_ID, { avatarPath: SEED_CHAIR.avatarPath });
+    }
   }
 
   // Backfill: every existing room must include the chair as a member.

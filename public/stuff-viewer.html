@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>stuff.glb · viewer</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #16181c; overflow: hidden; color: #cde; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #status {
+      position: fixed; top: 8px; left: 10px;
+      color: #9fe; z-index: 9; white-space: pre-wrap;
+      max-width: 60vw;
+      padding: 6px 10px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 0.5px solid #2c3038;
+      border-radius: 4px;
+    }
+    #status.is-err { color: #f88; border-color: #5a2a2a; }
+    #info {
+      position: fixed; bottom: 10px; left: 10px; z-index: 9;
+      background: rgba(0, 0, 0, 0.55);
+      border: 0.5px solid #2c3038;
+      border-radius: 4px;
+      padding: 8px 12px;
+      min-width: 220px;
+    }
+    #info h1 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #6ad29a; font-weight: 600; }
+    #info dl { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 2px; font-size: 11px; }
+    #info dt { color: #7a8290; }
+    #info dd { margin: 0; color: #cde; }
+    #panel {
+      position: fixed; top: 8px; right: 10px; z-index: 9;
+      background: rgba(0, 0, 0, 0.55);
+      border: 0.5px solid #2c3038; border-radius: 4px;
+      padding: 10px 12px; width: 230px;
+    }
+    #panel label { display: block; margin: 6px 0 2px; color: #aab2c0; }
+    #panel input[type=range] { width: 100%; accent-color: #6ad29a; }
+    #panel b { color: #6ad29a; }
+    #panel button {
+      width: 100%; margin-top: 8px; padding: 6px;
+      background: #232a36; color: #cde;
+      border: 0.5px solid #3a414d; border-radius: 4px;
+      font: 11px ui-monospace, monospace; cursor: pointer;
+    }
+    #panel button:hover { border-color: #6ad29a; color: #6ad29a; }
+  </style>
+</head>
+<body>
+  <div id="status">booting…</div>
+  <div id="panel">
+    <label>exposure · <b id="vExp">1.00</b></label>
+    <input type="range" id="exp" min="0.2" max="2.0" step="0.01" value="1.00">
+    <label>env intensity · <b id="vEnv">0.85</b></label>
+    <input type="range" id="env" min="0" max="2" step="0.01" value="0.85">
+    <label>key light · <b id="vKey">1.00</b></label>
+    <input type="range" id="key" min="0" max="3" step="0.01" value="1.00">
+    <label>rotate model · <b id="vRot">auto</b></label>
+    <input type="range" id="rot" min="0" max="360" step="1" value="0">
+    <button id="autoRotateToggle">↻ auto-rotate: ON</button>
+    <button id="reframeBtn">⤧ re-fit camera</button>
+  </div>
+  <div id="info">
+    <h1>// stuff.glb</h1>
+    <dl>
+      <dt>size</dt><dd id="iSize">—</dd>
+      <dt>meshes</dt><dd id="iMesh">—</dd>
+      <dt>vertices</dt><dd id="iVerts">—</dd>
+      <dt>materials</dt><dd id="iMats">—</dd>
+      <dt>bounds</dt><dd id="iBounds">—</dd>
+      <dt>fps</dt><dd id="iFps">—</dd>
+    </dl>
+  </div>
+
+  <script>
+    window.__setStatus = function (msg, isErr) {
+      const el = document.getElementById("status");
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.toggle("is-err", !!isErr);
+    };
+    if (location.protocol === "file:") {
+      window.__setStatus("⚠ Open via http://localhost:<port>/stuff-viewer.html · file:// blocks module + GLB loads.", true);
+    }
+    window.addEventListener("error", (e) => {
+      const what = e.message || (e.target && (e.target.src || e.target.href)) || "unknown";
+      window.__setStatus("JS / asset error: " + what, true);
+    }, true);
+    window.addEventListener("unhandledrejection", (e) => {
+      const r = e.reason;
+      window.__setStatus("Unhandled rejection: " + ((r && r.stack) || (r && r.message) || r), true);
+    });
+  </script>
+
+  <script type="module">
+    const S = window.__setStatus;
+    (async () => {
+      try {
+        const GLB = "/icons/stuff.glb";
+        S("checking " + GLB + " …");
+        const head = await fetch(GLB, { method: "HEAD" }).catch((err) => ({ ok: false, status: "fetch failed: " + err.message }));
+        if (!head.ok) {
+          S("GLB unreachable: " + GLB + " → " + head.status, true);
+          return;
+        }
+        const bytes = parseInt(head.headers.get("content-length") || "0", 10);
+        document.getElementById("iSize").textContent = bytes ? (bytes / 1024).toFixed(1) + " KB" : "?";
+
+        S("loading three.js …");
+        const THREE = await import("/vendor/three.module.min.js");
+        S("loading OrbitControls + GLTFLoader + RoomEnvironment …");
+        const { OrbitControls } = await import("/vendor/OrbitControls.js");
+        const { GLTFLoader } = await import("/vendor/GLTFLoader.js");
+        const { RoomEnvironment } = await import("/vendor/RoomEnvironment.js");
+        // Many Blender / Spline exports run the `meshopt` compressor on
+        // attributes (EXT_meshopt_compression). GLTFLoader refuses to
+        // load them until a decoder is attached. The decoder is a WASM-
+        // ish module shipped under three's examples; we vendored it
+        // into /vendor so cold-load works offline.
+        const { MeshoptDecoder } = await import("/vendor/meshopt_decoder.module.js");
+
+        // ── Renderer / scene / camera ───────────────────────────
+        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        document.body.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x16181c);
+
+        const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.01, 100);
+        camera.position.set(2.0, 1.6, 2.8);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.target.set(0, 0.5, 0);
+        controls.update();
+
+        // IBL · same recipe as the avatar viewer; gives any GLB
+        // PBR materials something to reflect.
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        scene.environmentIntensity = 0.85;
+
+        // Direct lights · key + fill + rim. Soft enough that PBR
+        // doesn't blow out, strong enough to read shape on matte
+        // surfaces.
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x2a3140, 0.32));
+        const key = new THREE.DirectionalLight(0xffffff, 1.0);
+        key.position.set(3, 5, 4);
+        key.castShadow = true;
+        key.shadow.mapSize.set(1024, 1024);
+        key.shadow.camera.near = 0.1;
+        key.shadow.camera.far = 20;
+        key.shadow.camera.top = 4;
+        key.shadow.camera.bottom = -4;
+        key.shadow.camera.left = -4;
+        key.shadow.camera.right = 4;
+        key.shadow.bias = -0.0005;
+        scene.add(key);
+        const rim = new THREE.DirectionalLight(0xbfd4ff, 0.35);
+        rim.position.set(-4, 3, -3);
+        scene.add(rim);
+
+        // Ground · circular disk so shadows can land; matches the
+        // dark BG so it reads as "stage" not "floor".
+        const ground = new THREE.Mesh(
+          new THREE.CircleGeometry(4.0, 64),
+          new THREE.MeshStandardMaterial({ color: 0x1d2026, roughness: 1, metalness: 0 }),
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.001;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Grid for scale reference · soft, low-contrast so it doesn't
+        // compete with the model.
+        const grid = new THREE.GridHelper(8, 32, 0x2a3140, 0x222831);
+        grid.material.transparent = true;
+        grid.material.opacity = 0.5;
+        scene.add(grid);
+
+        // ── Load GLB ────────────────────────────────────────────
+        S("downloading + parsing " + GLB + " …");
+        // The decoder boots its WASM lazily on first use — `ready` is a
+        // Promise we have to await so subsequent .load() calls find an
+        // initialised decoder. Without this the loader fires the same
+        // "setMeshoptDecoder must be called before loading compressed
+        // files" again on the next compressed buffer view.
+        await MeshoptDecoder.ready;
+        const loader = new GLTFLoader();
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        const gltf = await new Promise((resolve, reject) => {
+          loader.load(
+            GLB,
+            (g) => resolve(g),
+            (xhr) => {
+              if (xhr.total) {
+                S(`downloading … ${((xhr.loaded / xhr.total) * 100).toFixed(0)} %`);
+              } else {
+                S(`downloading … ${(xhr.loaded / 1024).toFixed(0)} KB`);
+              }
+            },
+            (err) => reject(err),
+          );
+        });
+
+        const model = gltf.scene;
+        // Enable shadows on every mesh in the imported tree.
+        let meshCount = 0;
+        let vertCount = 0;
+        const mats = new Set();
+        model.traverse((node) => {
+          if (node.isMesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+            meshCount += 1;
+            if (node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+              vertCount += node.geometry.attributes.position.count;
+            }
+            if (node.material) {
+              if (Array.isArray(node.material)) node.material.forEach((m) => mats.add(m));
+              else mats.add(node.material);
+            }
+          }
+        });
+        scene.add(model);
+
+        // Animations · play all clips at 1× if present.
+        let mixer = null;
+        if (gltf.animations && gltf.animations.length) {
+          mixer = new THREE.AnimationMixer(model);
+          for (const clip of gltf.animations) mixer.clipAction(clip).play();
+        }
+
+        // ── Fit camera to model bounds ─────────────────────────
+        function reframe() {
+          const box = new THREE.Box3().setFromObject(model);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const fov = camera.fov * Math.PI / 180;
+          const dist = (maxDim / 2) / Math.tan(fov / 2) * 1.7;
+          camera.position.set(
+            center.x + dist * 0.6,
+            center.y + dist * 0.55,
+            center.z + dist * 0.9,
+          );
+          camera.near = Math.max(0.005, maxDim / 200);
+          camera.far = Math.max(20, dist * 4);
+          camera.updateProjectionMatrix();
+          controls.target.copy(center);
+          controls.update();
+          document.getElementById("iBounds").textContent =
+            `${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}`;
+        }
+        reframe();
+
+        // ── Info panel ─────────────────────────────────────────
+        document.getElementById("iMesh").textContent = String(meshCount);
+        document.getElementById("iVerts").textContent = vertCount.toLocaleString();
+        document.getElementById("iMats").textContent = String(mats.size);
+
+        // ── UI wiring ───────────────────────────────────────────
+        const $ = (id) => document.getElementById(id);
+        const wire = (id, vid, fn, fmt) => {
+          const el = $(id), lab = $(vid);
+          const upd = () => { const v = parseFloat(el.value); fn(v); lab.textContent = fmt(v); };
+          el.addEventListener("input", upd); upd();
+        };
+        wire("exp", "vExp", (v) => { renderer.toneMappingExposure = v; }, (v) => v.toFixed(2));
+        wire("env", "vEnv", (v) => { scene.environmentIntensity = v; }, (v) => v.toFixed(2));
+        wire("key", "vKey", (v) => { key.intensity = v; }, (v) => v.toFixed(2));
+        const rotEl = $("rot");
+        rotEl.addEventListener("input", () => {
+          autoRotate = false;
+          autoBtn.textContent = "↻ auto-rotate: OFF";
+          const deg = parseFloat(rotEl.value);
+          model.rotation.y = deg * Math.PI / 180;
+          $("vRot").textContent = deg.toFixed(0) + "°";
+        });
+
+        let autoRotate = true;
+        const autoBtn = $("autoRotateToggle");
+        autoBtn.addEventListener("click", () => {
+          autoRotate = !autoRotate;
+          autoBtn.textContent = "↻ auto-rotate: " + (autoRotate ? "ON" : "OFF");
+        });
+        $("reframeBtn").addEventListener("click", reframe);
+
+        // ── Render loop ────────────────────────────────────────
+        const clock = new THREE.Clock();
+        let frames = 0, fpsAcc = 0;
+        renderer.setAnimationLoop(() => {
+          const dt = clock.getDelta();
+          if (autoRotate) {
+            model.rotation.y += dt * 0.6;
+            const deg = (model.rotation.y * 180 / Math.PI) % 360;
+            rotEl.value = ((deg + 360) % 360).toFixed(0);
+            $("vRot").textContent = "auto";
+          }
+          if (mixer) mixer.update(dt);
+          controls.update();
+          renderer.render(scene, camera);
+          frames += 1; fpsAcc += dt;
+          if (fpsAcc >= 0.5) {
+            $("iFps").textContent = (frames / fpsAcc).toFixed(0) + " fps";
+            frames = 0; fpsAcc = 0;
+          }
+        });
+
+        addEventListener("resize", () => {
+          camera.aspect = innerWidth / innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(innerWidth, innerHeight);
+        });
+
+        S(`✓ loaded · ${meshCount} mesh · ${vertCount.toLocaleString()} verts · drag to orbit, scroll to zoom`);
+      } catch (e) {
+        S("ERROR: " + (e && e.stack ? e.stack : (e && e.message) || e), true);
+      }
+    })();
+  </script>
+</body>
+</html>

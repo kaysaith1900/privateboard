@@ -452,25 +452,16 @@
   gap: 12px;
 }
 .us-avatar-frame {
-  width: 56px; height: 56px;
-  border: 0.5px solid var(--line-strong);
-  background: var(--bg);
-  padding: 3px;
+  width: 64px; height: 64px;
+  padding: 0;              /* avatar fills the container edge-to-edge */
+  overflow: hidden;
   position: relative;
 }
-.us-avatar-frame::before, .us-avatar-frame::after {
-  content: "";
-  position: absolute;
-  width: 5px; height: 5px;
-  border: 0.5px solid var(--lime);
-  pointer-events: none;
-}
-.us-avatar-frame::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
-.us-avatar-frame::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
-.us-avatar-frame svg {
+/* 3D portrait PNG · the capture is already framed head-and-shoulders
+   (face-anchored, identical to the agent profile avatar), so just cover-fit. */
+.us-avatar-frame img {
   width: 100%; height: 100%;
-  image-rendering: pixelated;
-  image-rendering: -moz-crisp-edges;
+  object-fit: cover;
   display: block;
 }
 
@@ -494,21 +485,6 @@
 }
 .us-mini-btn:hover { border-color: var(--lime); color: var(--lime); }
 .us-mini-btn-mark { font-size: 11px; line-height: 1; color: var(--lime); }
-.us-mini-btn.primary {
-  background: var(--lime);
-  color: var(--bg);
-  border-color: var(--lime);
-}
-.us-mini-btn.primary:hover { background: transparent; color: var(--lime); }
-.us-mini-btn.danger {
-  border-color: rgba(181, 112, 106, 0.5);
-  color: var(--red);
-}
-.us-mini-btn.danger:hover {
-  background: var(--red);
-  color: var(--bg);
-  border-color: var(--red);
-}
 
 /* Inputs (shared with API Key section) */
 .us-input-wrap {
@@ -537,7 +513,7 @@
   content: ">";
   color: var(--lime);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--mono);
   padding: 9px 0 0 11px;
   align-self: flex-start;
@@ -547,7 +523,7 @@
   border: none;
   background: transparent;
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   outline: none;
@@ -857,7 +833,7 @@
 }
 .us-signout-text {
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.6;
 }
@@ -1021,7 +997,7 @@
   font-weight: 600;
 }
 .us-chart-meta-value {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1293,7 +1269,7 @@
   font-family: var(--mono, "Inter", system-ui, sans-serif);
 }
 .us-model-tokens {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -2101,7 +2077,7 @@
 .us-llm-pick-single { min-height: 64px; }
 .us-llm-pick-label {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
 }

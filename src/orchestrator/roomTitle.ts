@@ -22,7 +22,8 @@ import { callLLM } from "../ai/adapter.js";
 import { utilityModelFor } from "../ai/availability.js";
 import type { ModelV } from "../ai/registry.js";
 
-import { getRoom, setRoomNameFromAuto } from "../storage/rooms.js";
+import { listMessages } from "../storage/messages.js";
+import { forceRoomAutoName, getRoom, setRoomNameFromAuto } from "../storage/rooms.js";
 
 import { roomBus } from "./stream.js";
 
@@ -56,6 +57,8 @@ export type RoomTitleResult =
       kind: "skipped";
       reason:
         | "no-room"
+        | "not-thread"
+        | "no-message"
         | "user-named"
         | "already-renamed"
         | "no-subject"
@@ -69,11 +72,20 @@ export type RoomTitleResult =
 
 export async function generateRoomTitle(roomId: string): Promise<RoomTitleResult> {
   const room = getRoom(roomId);
-  if (!room) return { kind: "skipped", reason: "no-room" };
-  if (!room.nameAuto) return { kind: "skipped", reason: "user-named" };
+  if (!room) {
+    process.stderr.write(`[room-title] room=${roomId} skip=no-room\n`);
+    return { kind: "skipped", reason: "no-room" };
+  }
+  if (!room.nameAuto) {
+    process.stderr.write(`[room-title] room=${roomId} kind=${room.kind} skip=user-named\n`);
+    return { kind: "skipped", reason: "user-named" };
+  }
 
   const subject = room.subject.trim();
-  if (!subject) return { kind: "skipped", reason: "no-subject" };
+  if (!subject) {
+    process.stderr.write(`[room-title] room=${roomId} kind=${room.kind} skip=no-subject\n`);
+    return { kind: "skipped", reason: "no-subject" };
+  }
 
   // Idempotency guard · `name_auto` stays 1 after a successful rename
   // (it tracks user-set vs auto-set, not "still the fallback"). If the
@@ -81,26 +93,46 @@ export async function generateRoomTitle(roomId: string): Promise<RoomTitleResult
   // someone already renamed it — skip the LLM call.
   const fallbackName = room.subject.slice(0, 60);
   if (room.name !== fallbackName) {
+    process.stderr.write(
+      `[room-title] room=${roomId} kind=${room.kind} skip=already-renamed ` +
+      `name="${room.name.slice(0, 30)}" fallback="${fallbackName.slice(0, 30)}"\n`,
+    );
     return { kind: "skipped", reason: "already-renamed", detail: room.name.slice(0, 60) };
   }
 
-  const modelV = utilityModelFor();
-  if (!modelV) return { kind: "skipped", reason: "no-model" };
+  const r = await distillTitle(subject, `room=${roomId} kind=${room.kind}`);
+  if (!r.ok) return { kind: "skipped", reason: r.reason, detail: r.detail };
 
-  // Prompt design notes:
-  // - Few-shot examples · utility-tier models (haiku-4-5 / gpt-5-4-mini /
-  //   gemini-3-1-flash) benefit much more from concrete examples than
-  //   from longer rule lists. Each example pairs a verbose opening
-  //   (with throat-clearing, framing, product names, polite scaffolding)
-  //   with the bare subject-matter title that survives the strip.
-  // - Length window · CJK 5-10 chars / Latin 3-6 words. The earlier
-  //   4-8 / 2-5 window was so tight the model picked the first noun
-  //   it saw and shipped; the wider window lets it carry one
-  //   distinguishing modifier ("产品宣传视频脚本" beats "视频脚本").
-  // - "Strip what doesn't distinguish" framing · gives the model a
-  //   concrete operation to perform instead of asking it to "be
-  //   representative" in the abstract.
-  const prompt =
+  const updated = setRoomNameFromAuto(roomId, r.phrase);
+  if (!updated) return { kind: "skipped", reason: "race-after-rename" };
+
+  // SSE push so any open client (sidebar, room header, mini-player)
+  // can reflect the new name without a refetch. Reuses the existing
+  // settings-changed protocol — the frontend's listener patches
+  // currentRoom + the rooms array + re-renders the sidebar list.
+  roomBus.emit(roomId, {
+    type: "config-event",
+    kind: "settings-changed",
+    payload: { changes: { name: { from: room.name, to: r.phrase } } },
+    createdAt: Date.now(),
+  });
+
+  return { kind: "ok", before: room.name, after: r.phrase };
+}
+
+/** Build the few-shot title-distillation prompt around an input text.
+ *
+ *  Prompt design notes:
+ *  - Few-shot examples · utility-tier models (haiku-4-5 / gpt-5-4-mini /
+ *    gemini-3-1-flash) benefit much more from concrete examples than
+ *    from longer rule lists. Each example pairs a verbose opening
+ *    (with throat-clearing, framing, product names, polite scaffolding)
+ *    with the bare subject-matter title that survives the strip.
+ *  - Length window · CJK 5-10 chars / Latin 3-6 words.
+ *  - "Strip what doesn't distinguish" framing · gives the model a
+ *    concrete operation to perform instead of an abstract goal. */
+function buildTitlePrompt(text: string): string {
+  return (
     "You are titling a conversation for a sidebar entry, the way ChatGPT does it. " +
     "Read the user's opening question and write the title that another reader " +
     "would expect to see for THIS conversation — specific enough to distinguish " +
@@ -128,54 +160,149 @@ export async function generateRoomTitle(roomId: string): Promise<RoomTitleResult
     "Output: Python regex Unicode bug\n\n" +
     "Input: I want to redesign our onboarding email sequence — currently 5 emails over 2 weeks, low click-through.\n" +
     "Output: Onboarding email redesign\n\n" +
-    `--- User's opening question ---\n${subject}\n\n` +
-    "--- Title ---\n";
+    `--- User's opening question ---\n${text}\n\n` +
+    "--- Title ---\n"
+  );
+}
 
+/** Shared distillation core · run the utility model over `text` and
+ *  sanitise into a short phrase. Used by both the main-room titler
+ *  and the thread titler so the prompt + model + cleanup stay in one
+ *  place. Returns the phrase or a structured skip reason; never
+ *  throws. `ctx` is a short label for the diagnostic log lines. */
+async function distillTitle(
+  text: string,
+  ctx: string,
+): Promise<
+  | { ok: true; phrase: string }
+  | { ok: false; reason: "no-model" | "llm-error" | "empty-output" | "rejected-generic"; detail?: string }
+> {
+  const modelV = utilityModelFor();
+  if (!modelV) {
+    process.stderr.write(`[room-title] ${ctx} skip=no-model\n`);
+    return { ok: false, reason: "no-model" };
+  }
+  process.stderr.write(`[room-title] ${ctx} model=${modelV} input="${text.slice(0, 40)}…" · calling LLM\n`);
   let raw = "";
   try {
     raw = await callLLM({
       modelV: modelV as ModelV,
       carrier: null,
-      messages: [{ role: "user", content: prompt }],
-      // Low but not zero · 0.2 was deterministic-ish but kept locking
-      // onto a generic first-noun pick. 0.4 lets the model trade off
-      // alternatives without wandering into creative territory.
+      messages: [{ role: "user", content: buildTitlePrompt(text) }],
+      // Low but not zero · 0.2 kept locking onto a generic first-noun
+      // pick; 0.4 lets the model trade off alternatives without
+      // wandering into creative territory.
       temperature: 0.4,
-      // 40 was tight enough that a model thinking briefly before
-      // answering would get cut off mid-title; 80 fits the title plus
-      // a small margin without inviting paragraphs.
+      // 40 truncated mid-title for models that think briefly first;
+      // 80 fits the title plus margin without inviting paragraphs.
       maxTokens: 80,
     });
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`[room-title] LLM call failed for ${roomId}: ${detail}\n`);
-    return { kind: "skipped", reason: "llm-error", detail };
+    process.stderr.write(`[room-title] ${ctx} LLM call failed: ${detail}\n`);
+    return { ok: false, reason: "llm-error", detail };
   }
-
   if (!raw.trim()) {
-    return { kind: "skipped", reason: "empty-output", detail: `model=${modelV}` };
+    process.stderr.write(`[room-title] ${ctx} skip=empty-output model=${modelV}\n`);
+    return { ok: false, reason: "empty-output", detail: `model=${modelV}` };
   }
-
   const phrase = sanitiseTitle(raw);
   if (!phrase) {
-    return { kind: "skipped", reason: "rejected-generic", detail: raw.trim().slice(0, 80) };
+    process.stderr.write(`[room-title] ${ctx} skip=rejected-generic raw="${raw.trim().slice(0, 80)}"\n`);
+    return { ok: false, reason: "rejected-generic", detail: raw.trim().slice(0, 80) };
+  }
+  process.stderr.write(`[room-title] ${ctx} llm_raw="${raw.trim().slice(0, 60)}" phrase="${phrase}"\n`);
+  return { ok: true, phrase };
+}
+
+/** Normalise a thread's first user message into clean title-input text.
+ *
+ *  The qcta "Thread" button pre-seeds the composer with a markdown
+ *  blockquote of the selected director line (`> …`) plus a `— @Director`
+ *  attribution, then the user adds their own prose below (see
+ *  public/quote-cta.js → public/app.js). We KEEP the quoted text — it's
+ *  the topic the thread is about, and the user's own prose is frequently
+ *  just a vague pointer ("展开讲讲这个" / "说说这里的高价值") that has no
+ *  titleable content on its own. We only strip the markdown markers and
+ *  the attribution line so the LLM sees plain "quoted topic + user
+ *  angle" prose. */
+function threadSeedText(body: string): string {
+  return body
+    .replace(/^\s*[—–-]\s*@.*$/gm, "") // drop the "— @Director" attribution line
+    .replace(/^\s*>\s?/gm, "")          // unwrap markdown blockquote markers
+    .replace(/\n{2,}/g, "\n")           // collapse the blank line between quote + prose
+    .trim();
+}
+
+/**
+ * Thread title pass · distil a private 1:1 thread's FIRST user message
+ * into a short sidebar-style phrase, the same way main rooms get
+ * titled.
+ *
+ * Why a separate function from `generateRoomTitle`:
+ *   - Threads must title from their own first user message, NOT from
+ *     `subject` (which legacy threads inherited verbatim from the
+ *     parent room — so every thread off the same room shared one
+ *     subject).
+ *   - Legacy threads carry `name_auto = 0` + a `thread:<dir>`
+ *     placeholder name, which makes `generateRoomTitle` bail at the
+ *     "user-named" gate forever. Here we detect the raw/placeholder
+ *     state directly and force the name through `forceRoomAutoName`.
+ *
+ * Idempotent + safe to re-fire (the popover's GET /threads handler
+ * calls this for every listed thread): a thread whose name is already
+ * a distilled phrase (not a placeholder, not the subject/message
+ * truncation) is left untouched, so no LLM call is spent on it. Never
+ * throws to its caller.
+ */
+export async function generateThreadTitle(threadId: string): Promise<RoomTitleResult> {
+  const room = getRoom(threadId);
+  if (!room) {
+    process.stderr.write(`[thread-title] thread=${threadId} skip=no-room\n`);
+    return { kind: "skipped", reason: "no-room" };
+  }
+  if (room.kind !== "thread") {
+    return { kind: "skipped", reason: "not-thread" };
   }
 
-  const updated = setRoomNameFromAuto(roomId, phrase);
+  const firstUser = listMessages(threadId).find((m) => m.authorKind === "user");
+  if (!firstUser || !firstUser.body.trim()) {
+    return { kind: "skipped", reason: "no-message" };
+  }
+  const seed = threadSeedText(firstUser.body);
+  if (!seed) {
+    return { kind: "skipped", reason: "no-subject" };
+  }
+
+  // Raw-state detection · the name still needs distilling when it is a
+  // legacy `thread:<dir>` placeholder, OR matches a 60-char truncation
+  // of either the inherited subject or the first user message (the two
+  // forms `createThread` / the first-message re-align leave behind).
+  // Anything else is a phrase a prior pass (or the user) already set →
+  // leave it. This is the idempotency guard that keeps the GET
+  // /threads backfill from re-calling the LLM on already-titled rows.
+  const name = (room.name || "").trim();
+  const isPlaceholder = /^thread:/.test(name);
+  const isRawTruncation =
+    name === room.subject.slice(0, 60) || name === firstUser.body.slice(0, 60);
+  if (!isPlaceholder && !isRawTruncation) {
+    return { kind: "skipped", reason: "already-renamed", detail: name.slice(0, 60) };
+  }
+
+  const r = await distillTitle(seed, `thread=${threadId}`);
+  if (!r.ok) return { kind: "skipped", reason: r.reason, detail: r.detail };
+
+  const updated = forceRoomAutoName(threadId, r.phrase);
   if (!updated) return { kind: "skipped", reason: "race-after-rename" };
 
-  // SSE push so any open client (sidebar, room header, mini-player)
-  // can reflect the new name without a refetch. Reuses the existing
-  // settings-changed protocol — the frontend's listener patches
-  // currentRoom + the rooms array + re-renders the sidebar list.
-  roomBus.emit(roomId, {
+  roomBus.emit(threadId, {
     type: "config-event",
     kind: "settings-changed",
-    payload: { changes: { name: { from: room.name, to: phrase } } },
+    payload: { changes: { name: { from: name, to: r.phrase } } },
     createdAt: Date.now(),
   });
-
-  return { kind: "ok", before: room.name, after: phrase };
+  process.stderr.write(`[thread-title] OK thread=${threadId} "${name.slice(0, 30)}" → "${r.phrase}"\n`);
+  return { kind: "ok", before: name, after: r.phrase };
 }
 
 /** Strip the cruft utility models like to add (quotes, leading

@@ -32,22 +32,21 @@
    with the moderator chair as the bottom-row anchor. 7 seats total
    fills the ring without empty arcs. */
 const CAST = [
-  { id: "chair",           name: "Chair",          avatarPath: "/avatars/chair.svg",            roleKind: "chair" },
-  { id: "socrates",        name: "Socrates",       avatarPath: "/avatars/socrates.svg",         roleKind: "director" },
-  { id: "first-principles", name: "First Principles", avatarPath: "/avatars/first-principles.svg", roleKind: "director" },
-  { id: "value-investor",  name: "Value Investor", avatarPath: "/avatars/value-investor.svg",   roleKind: "director" },
-  { id: "user-empathy",    name: "User-Empathy",   avatarPath: "/avatars/user-empathy.svg",     roleKind: "director" },
-  { id: "long-horizon",    name: "Long Horizon",   avatarPath: "/avatars/long-horizon.svg",     roleKind: "director" },
-  { id: "phenomenologist", name: "Phenomenologist", avatarPath: "/avatars/phenomenologist.svg", roleKind: "director" },
+  { id: "chair",           name: "Chair",          avatarPath: "/avatars/3d/chair.png",            roleKind: "chair" },
+  { id: "socrates",        name: "Socrates",       avatarPath: "/avatars/3d/socrates.png",         roleKind: "director" },
+  { id: "first-principles", name: "First Principles", avatarPath: "/avatars/3d/first-principles.png", roleKind: "director" },
+  { id: "value-investor",  name: "Value Investor", avatarPath: "/avatars/3d/value-investor.png",   roleKind: "director" },
+  { id: "user-empathy",    name: "User-Empathy",   avatarPath: "/avatars/3d/user-empathy.png",     roleKind: "director" },
+  { id: "long-horizon",    name: "Long Horizon",   avatarPath: "/avatars/3d/long-horizon.png",     roleKind: "director" },
+  { id: "phenomenologist", name: "Phenomenologist", avatarPath: "/avatars/3d/phenomenologist.png", roleKind: "director" },
 ];
 
-/* The 5 tone-keyed wall variants in voice-3d.js. "brainstorm" gives
-   us the red-brick + stone-band + moss painted mural — the most
-   characterful of the five, and the one the user explicitly asked
-   for as the homepage scene. Painted brick reads warm against the
-   page's dark theme, the moss + plants ground the room visually,
-   and the green floor (#5E6B47) gives the table a planted feel
-   instead of the cleaner library look "research" had. */
+/* Which of the five tone-keyed rooms (voice-3d.js) the homepage hero
+   shows. This is the FINAL homepage scene · "brainstorm" — the cozy
+   modern interior (daylight windows + framed art on cream walls, a real
+   3D oak chest + sage sofa) on the warm-oak plank floor (set on
+   `.hero-3d-stage` in home.html). All five rooms were redesigned +
+   signed off; brainstorm is the one we showcase here. */
 const DEFAULT_MODE = "brainstorm";
 
 /* Director rotation cadence. Long enough for the eye to register
@@ -122,6 +121,18 @@ function computeSeatPositions(members) {
 export function startMockDriver() {
   const VS3D = window.VoiceStage3D;
   if (!VS3D || typeof VS3D.update !== "function") return () => {};
+
+  // Decorate CAST with the canonical avatar3d configs · without this
+  // the chair + directors render as RNG-drawn random faces instead of
+  // the seeded looks the user sees in the in-app voice room. Source:
+  // window.PB_CORE_AVATARS (public/core-avatars.js, loaded by home.html
+  // before this driver). Idempotent · re-walks on every driver start.
+  if (window.PB_CORE_AVATARS) {
+    for (const m of CAST) {
+      const cfg = window.PB_CORE_AVATARS[m.id];
+      if (cfg && !m.avatar3d) m.avatar3d = cfg;
+    }
+  }
 
   const positions = computeSeatPositions(CAST);
   // Director ids only · the chair never speaks in this rotation

@@ -15,7 +15,7 @@ import { streamSSE } from "hono/streaming";
 import tinyPinyin from "tiny-pinyin";
 
 import { isModelV } from "../ai/registry.js";
-import { deleteAgent, deleteVoiceBucketEntry, getAgent, getAgentByHandle, getAgentStats, getChairAgent, incrementAgentTokens, insertAgent, listAgents, updateAgent, writeModelBucketEntry, writeVoiceBucketEntry, type AgentVoiceProvider, type PersonaSpec } from "../storage/agents.js";
+import { deleteAgent, deleteVoiceBucketEntry, getAgent, getAgentByHandle, getAgentStats, getChairAgent, incrementAgentTokens, insertAgent, listAgents, parseAvatar3d, updateAgent, writeModelBucketEntry, writeVoiceBucketEntry, type AgentVoiceProvider, type Avatar3dConfig, type PersonaSpec } from "../storage/agents.js";
 import { getPersonaJob } from "../storage/persona-jobs.js";
 import {
   abortPersonaBuild,
@@ -115,7 +115,14 @@ const HANDLE_MAX = 18;
 // Allow data: URLs (the SVG-generated client-side avatars) and absolute
 // paths under /avatars/. Anything else gets normalized to a default.
 const AVATAR_DATA_URL_RE = /^data:image\/svg\+xml(;[^,]+)?,/i;
+// The 3D-avatar editor renders a PNG screenshot of the rigged avatar and saves
+// it as the director's 2D avatar (reusing the avatar_path display pipeline).
+const AVATAR_PNG_DATA_URL_RE = /^data:image\/png;base64,/i;
 const AVATAR_PATH_RE = /^\/avatars\/[\w.-]+\.(svg|png|webp)$/i;
+/** Accept an inline SVG/PNG data URL or an /avatars/ path. */
+function isValidAvatar(raw: string): boolean {
+  return AVATAR_DATA_URL_RE.test(raw) || AVATAR_PNG_DATA_URL_RE.test(raw) || AVATAR_PATH_RE.test(raw);
+}
 
 const ABILITY_AXES = [
   "dissent",
@@ -786,9 +793,9 @@ export function agentsRouter(): Hono {
       ? b.bio.trim().slice(0, BIO_MAX)
       : (partial.description ? partial.description.slice(0, BIO_MAX) : `A custom director built via deep persona replication.`);
     const coverQuote = typeof b.coverQuote === "string" ? b.coverQuote.trim().slice(0, 220) : null;
-    const avatarPath = typeof b.avatarPath === "string" && (AVATAR_DATA_URL_RE.test(b.avatarPath) || AVATAR_PATH_RE.test(b.avatarPath))
+    const avatarPath = typeof b.avatarPath === "string" && isValidAvatar(b.avatarPath)
       ? b.avatarPath
-      : "/avatars/socrates.svg"; // safe fallback · client should always pass a real avatar
+      : "/avatars/3d/socrates.png"; // safe fallback · client should always pass a real avatar
 
     const ability = parseAbilityFromRequest(b.ability) ?? synthesizeAbility(`${bio} ${roleTag} ${partial.description}`);
 
@@ -924,9 +931,9 @@ export function agentsRouter(): Hono {
     // weird falls back to a generic SVG so the agent still renders.
     const rawAvatar = typeof b.avatarPath === "string" ? b.avatarPath : "";
     const avatarPath =
-      rawAvatar && (AVATAR_DATA_URL_RE.test(rawAvatar) || AVATAR_PATH_RE.test(rawAvatar))
+      rawAvatar && isValidAvatar(rawAvatar)
         ? rawAvatar
-        : "/avatars/socrates.svg";
+        : "/avatars/3d/socrates.png";
 
     // Optional roleTag — if missing, derive from the bio's first noun-ish
     // token, falling back to a generic "custom".
@@ -993,6 +1000,8 @@ export function agentsRouter(): Hono {
         instructions?: string;
       } | null;
       isPinned?: boolean;
+      userRules?: string[];
+      avatar3d?: Avatar3dConfig | null;
     } = {};
 
     if (typeof b.avatarPath === "string") {
@@ -1004,7 +1013,7 @@ export function agentsRouter(): Hono {
         return c.json({ error: "the chair's avatar is fixed and cannot be changed" }, 403);
       }
       const raw = b.avatarPath;
-      if (!AVATAR_DATA_URL_RE.test(raw) && !AVATAR_PATH_RE.test(raw)) {
+      if (!isValidAvatar(raw)) {
         return c.json({ error: "invalid avatarPath" }, 400);
       }
       patch.avatarPath = raw;
@@ -1082,6 +1091,31 @@ export function agentsRouter(): Hono {
     }
     if (typeof b.isPinned === "boolean") {
       patch.isPinned = b.isPinned;
+    }
+
+    // User-authored hard rules (agent profile). Replace the full set ·
+    // each entry trimmed + length-capped; empties dropped; whole list
+    // capped. An empty array clears all rules. updateAgent re-sanitises
+    // too, so this is belt-and-suspenders.
+    if ("userRules" in b && Array.isArray(b.userRules)) {
+      patch.userRules = b.userRules
+        .filter((r): r is string => typeof r === "string")
+        .map((r) => r.trim().slice(0, 280))
+        .filter((r) => r.length > 0)
+        .slice(0, 12);
+    }
+
+    // 3D-avatar config (捏 avatar editor). `null` clears it; an object is
+    // validated through the same defensive parser the storage layer uses
+    // (ids must be non-empty strings, colours must be #rrggbb).
+    if ("avatar3d" in b) {
+      if (b.avatar3d === null) {
+        patch.avatar3d = null;
+      } else {
+        const parsed = parseAvatar3d(JSON.stringify(b.avatar3d));
+        if (!parsed) return c.json({ error: "invalid avatar3d config" }, 400);
+        patch.avatar3d = parsed;
+      }
     }
 
     const updated = updateAgent(id, patch);

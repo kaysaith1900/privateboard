@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildDirectorMessages, parseRoundEndOutput } from "../src/orchestrator/prompt.js";
 import type { Agent } from "../src/storage/agents.js";
+import type { Message } from "../src/storage/messages.js";
 import type { Prefs } from "../src/storage/prefs.js";
 import type { Room } from "../src/storage/rooms.js";
 
@@ -104,10 +105,18 @@ const INTENSITIES = ["calm", "sharp", "terse"] as const;
 // Signature phrases each tone block MUST carry. Lifted from prompt.ts —
 // re-grep these if the prompts get rewritten so the assertions track.
 const TONE_SIGNATURES: Record<(typeof TONES)[number], string[]> = {
-  brainstorm:    ["BRAINSTORM", "EXPAND THE POSSIBILITY SPACE", "Volume over polish", "YES-AND", "WILD"],
+  // brainstorm no longer ships a rigid 5-section 【】 template — the
+  // output shape now lives in the round-mode block (light scaffold on the
+  // opening sweep this harness exercises, free prose on reactive rounds).
+  // Signatures track the surviving contract + the opening-shape wording.
+  brainstorm:    ["BRAINSTORM", "VALUE AMPLIFICATION", "No critique slot in this room"],
   constructive:  ["CONSTRUCTIVE", "stronger version", "load-bearing assumption"],
   debate:        ["DEBATE", "PRODUCTIVE DISAGREEMENT", "steelman", "Honest pass", "What would change my mind"],
-  research:      ["RESEARCH", "OBSERVATION", "INFERENCE", "SPECULATION", "research instrument", "high/med/low"],
+  // research mode no longer asks for literal OBSERVATION/INFERENCE/SPECULATION
+  // or a "confidence: low/med/high" stamp — it now forbids those labels and
+  // keeps the source/inference/speculation seam in prose. Signatures track the
+  // new prose-discipline wording instead.
+  research:      ["RESEARCH", "research instrument", "Ground in specific material", "Keep the seam visible", "Literal epistemic stamps"],
   critique:      ["CRITIQUE", "BLOCKER", "MAJOR", "minor", "audit"],
 };
 
@@ -120,7 +129,7 @@ const INTENSITY_SIGNATURES: Record<(typeof INTENSITIES)[number], string[]> = {
 
 // HOUSE_ENGAGE_BY_TONE — the verbs threaded into the "engage" house rule.
 const HOUSE_ENGAGE_FRAGMENTS: Record<(typeof TONES)[number], string> = {
-  brainstorm:   "toss 3-6 ideas as a quick bulleted list",
+  brainstorm:   "find and amplify value FIRST",
   constructive: "pick a load-bearing assumption to sharpen",
   debate:       "steelman the target claim before attacking",
   research:     "cite a specific piece of material",
@@ -129,7 +138,7 @@ const HOUSE_ENGAGE_FRAGMENTS: Record<(typeof TONES)[number], string> = {
 
 // TONE_OVERRIDE_BY_TONE — what trained-preference the OVERRIDE meta-line names.
 const OVERRIDE_TARGETS: Record<(typeof TONES)[number], string> = {
-  brainstorm:   "evaluate, critique, or anchor on the most recent idea",
+  brainstorm:   "anchor on the most recent idea",
   constructive: "diplomatically vague",
   debate:       "diplomatic middle ground",
   research:     "leap to recommendations",
@@ -223,6 +232,77 @@ describe("buildDirectorMessages · voice delivery mode", () => {
     expect(prompt).toContain("Forbidden taxonomy tours");
     expect(prompt).toContain("115 English words");
     expect(msgs[msgs.length - 1].content).toContain("One move only");
+  });
+});
+
+describe("buildDirectorMessages · brainstorm round shapes", () => {
+  // A reactive round is detected when history holds an agent message
+  // tagged meta.kind === "round-prompt" before the latest user message
+  // (see the opening-detection walk in prompt.ts). With empty history the
+  // turn is the opening parallel sweep.
+  function roundPromptMsg(): Message {
+    return {
+      id: "rp-1",
+      roomId: "room-1",
+      authorKind: "agent",
+      authorId: "chair",
+      replyToId: null,
+      body: "Round 2 — continue.",
+      meta: { kind: "round-prompt" },
+      roundNum: 1,
+      createdAt: 1,
+    };
+  }
+
+  function brainstormPrompt(opts: { reactive?: boolean; voice?: boolean }): string {
+    const speaker = fixtureAgent({ id: "speaker", name: "Speaker", handle: "@speaker" });
+    const peer = fixtureAgent({ id: "peer", name: "Peer", handle: "@peer" });
+    const room: Room = opts.voice
+      ? { ...fixtureRoom("brainstorm", "sharp"), deliveryMode: "voice" }
+      : fixtureRoom("brainstorm", "sharp");
+    const msgs = buildDirectorMessages({
+      speaker,
+      cast: [speaker, peer],
+      room,
+      prefs: fixturePrefs(),
+      history: opts.reactive ? [roundPromptMsg()] : [],
+      ...(opts.voice ? { deliveryMode: "voice" as const } : {}),
+    });
+    return msgs[0].content;
+  }
+
+  it("text opening uses the light scaffold and drops the 【】 template", () => {
+    const prompt = brainstormPrompt({});
+    expect(prompt).toContain("OPENING ROUND · brainstorm");
+    expect(prompt).toContain("No critique slot in this room");
+    // The old rigid template / its headers must be gone everywhere.
+    expect(prompt).not.toContain("【我看到的价值】");
+    expect(prompt).not.toContain("强制输出格式");
+  });
+
+  it("text reactive uses free prose and never the adversarial REACTIVE_BLOCK framing", () => {
+    const prompt = brainstormPrompt({ reactive: true });
+    expect(prompt).toContain("REACTIVE ROUND · brainstorm");
+    expect(prompt).toContain("still amplifying, never auditing");
+    // The generic REACTIVE_BLOCK's adversarial framing must NOT leak in.
+    // ("name the trade-off they hid" deliberately appears in our shape as
+    // a PROHIBITION, so sentinel on a phrase unique to the generic block.)
+    expect(prompt).not.toContain("push back on a weak one");
+  });
+
+  it("voice opening falls back to the critique-free generic OPENING_BLOCK (no labelled scaffold)", () => {
+    const prompt = brainstormPrompt({ voice: true });
+    expect(prompt).toContain("─── DELIVERY · VOICE MODE ───");
+    expect(prompt).toContain("OPENING ROUND."); // generic block
+    // The text-only labelled scaffold must not appear in voice.
+    expect(prompt).not.toContain("OPENING ROUND · brainstorm");
+  });
+
+  it("voice reactive uses the free-prose shape", () => {
+    const prompt = brainstormPrompt({ reactive: true, voice: true });
+    expect(prompt).toContain("─── DELIVERY · VOICE MODE ───");
+    expect(prompt).toContain("REACTIVE ROUND · brainstorm");
+    expect(prompt).not.toContain("push back on a weak one");
   });
 });
 

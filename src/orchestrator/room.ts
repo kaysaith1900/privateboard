@@ -835,9 +835,12 @@ export function tickRoom(roomId: string, opts: TickOptions): void {
   // user sees whether this round is parallel (independent) or
   // reactive. Skipped for forced single-speaker replies (those are
   // direct @-mention answers, not "rounds" in the multi-director
-  // sense).
+  // sense), AND skipped for thread rooms entirely (private 1:1s
+  // with one director · no chair, no rounds, no parallel sweep —
+  // a "Round N · directors speak in parallel" chip in a thread
+  // would be nonsense).
   const tickKind = opts.kind ?? "user";
-  if (!opts.forceSpeakerId && tickKind !== "force") {
+  if (!opts.forceSpeakerId && tickKind !== "force" && room.kind !== "thread") {
     announceRoundOpen(roomId, opts.roundNum, tickKind === "user");
   }
 
@@ -1626,6 +1629,19 @@ async function pumpQueue(roomId: string): Promise<void> {
     // see the round-prompt until the chair has decided.
     if (reachedCap) {
       const room = getRoom(roomId);
+      // Thread rooms · skip BOTH the manual auto-continue and the
+      // auto chair round-prompt below. A thread is a 1:1 with one
+      // director: they answer the user's message once, then wait for
+      // the next user input — there's no "round" to wrap up, no
+      // chair to summon, no vote to ask for. Without this guard the
+      // manual-trigger path below (created in v0.1.35 for main rooms
+      // whose chair is suppressed) re-ticks the thread with
+      // kind:"continue" on every drain, sending the director into
+      // an infinite auto-reply loop. The auto-trigger else-if would
+      // try announceRoundPrompt against a room with no chair member.
+      if (room && room.kind === "thread") {
+        return;
+      }
       if (
         room &&
         room.status === "live" &&

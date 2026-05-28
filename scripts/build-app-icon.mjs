@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build app-icon assets from `public/avatars/chair.svg`.
+ * Build app-icon assets from `public/avatars/3d/chair.png`.
  *
  * Outputs:
  *   - `public/icons/logo.png` · 1024×1024 PNG (web + dev-mode dock icon)
@@ -9,19 +9,18 @@
  *                                automatically from this PNG on mac/win
  *                                during `electron-builder --mac`).
  *
- * Source is the Chair avatar (the "facilitator" agent's portrait) —
- * pixel art on a 16-unit grid, but the viewBox is a 272×272 padded
- * frame so the avatar reads centered inside its own breathing room.
- * We upscale with nearest-neighbor (`kernel: "nearest"`) so each
- * 16-unit cell becomes a clean integer-aligned block of pixels;
- * bilinear/Lanczos would soften the edges and destroy the pixel-art
- * aesthetic. The viewBox dimensions are parsed at build time so a
- * future avatar swap doesn't require touching the density math.
+ * Source is the 3D Chair portrait (the canonical 杨天真 avatar) — a
+ * head-and-shoulders RGBA PNG captured by `avatar3d-editor.js`
+ * → `capturePng()` at 384×384 with a transparent background. The
+ * previous icon source was the pixel-art `chair.svg` rendered with
+ * nearest-neighbor for the 16-unit voxel aesthetic; the new source
+ * is a smooth voxel render so we resize with Lanczos for clean
+ * up-scaling rather than blocky stair-stepping.
  *
  * The interior squircle is pure black (`#000000`). Sat briefly at
  * the sidebar's #1A1A18 panel colour — turned out too washed-out
  * against the dock's other dark icons; pure black gives the chair
- * pixels the most contrast and matches the typical macOS dark-icon
+ * portrait the most contrast and matches the typical macOS dark-icon
  * vocabulary (Terminal, Reminders dark mode, etc.).
  *
  * Final output is masked into a macOS squircle and **inset to match
@@ -34,9 +33,7 @@
  * (824 × 0.2237 ≈ 184) — Apple's "concentricity ratio".
  *
  * Rendering the squircle mask as a separate SVG gives us anti-aliased
- * rounded edges WITHOUT softening the pixel-art interior — the
- * avatar keeps its nearest-neighbor crispness, only the silhouette
- * gets anti-aliasing where it meets the chrome.
+ * rounded edges where the silhouette meets the chrome.
  */
 import { mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -47,39 +44,29 @@ import sharp from "sharp";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
-const SRC = resolve(root, "public/avatars/chair.svg");
+const SRC = resolve(root, "public/avatars/3d/chair.png");
 const PNG_PUBLIC = resolve(root, "public/icons/logo.png");
 const PNG_BUILD = resolve(root, "build/icon.png");
 const CANVAS = 1024;
 const INNER = 824;                                 // Apple template safe area
 const OUTER_MARGIN = (CANVAS - INNER) / 2;         // 100 px transparent rim
 const RADIUS = Math.round(INNER * 0.2237);         // squircle concentricity
-// Chair avatar's viewBox includes generous internal padding (~14 %
-// each side) so the figure reads centered. Rendering it at the full
-// INNER size means that built-in padding becomes the squircle's
-// breathing room — no extra CONTENT inset needed. macOS native
-// app icons (Notes / Reminders) use this same "content fills inner
-// safe area, internal art carries the visual padding" pattern.
+// `capturePng()` already crops to a head-and-shoulders portrait
+// at 384×384 with internal breathing room above the head and along
+// the shoulders, so rendering it at the full INNER size lets that
+// built-in framing become the squircle's natural padding — no extra
+// inset / re-centring needed.
 
 async function main() {
-  const svg = await readFile(SRC);
-  const svgText = svg.toString("utf8");
+  const src = await readFile(SRC);
 
-  // Pull source dimensions from the SVG's viewBox so density scales
-  // correctly for any avatar we point this script at. viewBox format:
-  // "min-x min-y width height". We use the larger dimension to ensure
-  // the longer axis fits within INNER, then composite into a square.
-  const vbMatch = svgText.match(/viewBox\s*=\s*"([^"]+)"/i);
-  const vbParts = vbMatch ? vbMatch[1].trim().split(/[\s,]+/).map(Number) : null;
-  const [, , sourceW, sourceH] = vbParts && vbParts.length === 4 ? vbParts : [0, 0, 16, 16];
-  const sourceSize = Math.max(sourceW, sourceH);
-
-  // Step 1 · render the avatar at INNER size with nearest-neighbor.
-  // `density` is calibrated so the SVG renders directly at INNER pixels
-  // (no resize-step softening), and each 16-unit cell maps to an
-  // integer-aligned block at this scale.
-  const content = await sharp(svg, { density: 72 * (INNER / sourceSize) })
-    .resize(INNER, INNER, { kernel: "nearest", fit: "fill" })
+  // Step 1 · resize the source portrait to INNER size with Lanczos.
+  // Voxel renders contain anti-aliased pixel edges (three.js MSAA);
+  // nearest-neighbor would re-introduce stair-stepping after the
+  // 384→824 upscale, so Lanczos is the right kernel for this source
+  // (in contrast with the legacy pixel-art SVG path).
+  const content = await sharp(src)
+    .resize(INNER, INNER, { kernel: "lanczos3", fit: "fill" })
     .png()
     .toBuffer();
 
@@ -127,8 +114,12 @@ async function main() {
   await writeFile(PNG_PUBLIC, png);
   await writeFile(PNG_BUILD, png);
 
+  // Source metadata · purely for the build-log readout. Sharp picks it
+  // up from the file header; the value is the 3D portrait's native
+  // capture size (currently 384×384).
+  const meta = await sharp(src).metadata();
   console.log(
-    `✓ ${CANVAS} canvas · ${INNER} squircle (r=${RADIUS}) on #000000 · ${OUTER_MARGIN}px outer rim · source ${sourceSize}×${sourceSize} viewBox`,
+    `✓ ${CANVAS} canvas · ${INNER} squircle (r=${RADIUS}) on #000000 · ${OUTER_MARGIN}px outer rim · source ${meta.width}×${meta.height} (${SRC.split("/").slice(-3).join("/")})`,
   );
   console.log(`  ${PNG_PUBLIC}`);
   console.log(`  ${PNG_BUILD}`);

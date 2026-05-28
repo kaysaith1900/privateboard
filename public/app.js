@@ -343,6 +343,34 @@
           : (btn.getAttribute("data-more") || this._t("convene_show_more"));
         btn.textContent = label;
       });
+
+      // Thread trigger · per-bubble "// thread" link on each director
+      // message. Doc-level delegate so it picks up bubbles rendered
+      // both at chat first paint AND via every message-appended /
+      // renderChat invalidation.
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-thread-trigger]");
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const directorId = btn.getAttribute("data-thread-trigger");
+        if (directorId) this.openThreadWith(directorId);
+      });
+
+      // Threads-list popover trigger · the room head's "all threads"
+      // icon. Click toggles the popover open/closed; click outside
+      // dismisses (handled inside openThreadsListPopover).
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-threads-trigger]");
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.getElementById("thread-list-pop")) {
+          this.closeThreadsListPopover();
+        } else {
+          this.openThreadsListPopover(btn);
+        }
+      });
       // Live-subtitle minimize / restore · attached in CAPTURE phase
       // so it wins ahead of any outside-click handlers (picker dismiss
       // / overlay close) that might `stopPropagation` and swallow the
@@ -538,6 +566,17 @@
         // currentRoomId). Stage repaint still bails out when no
         // room is open, since the stage DOM isn't mounted there.
         this.refreshMiniPlayer();
+        // The Record button is offered while a replay runs (adjourned
+        // rooms), so re-render the header when the replay open-state
+        // flips. Guarded so we don't rebuild the header on every
+        // per-message item transition — only on open ↔ close.
+        const replOpen = this._isReplayActiveForRoom(this.currentRoomId);
+        if (replOpen !== this._lastReplayHeaderState) {
+          this._lastReplayHeaderState = replOpen;
+          if (this.currentRoomId && typeof this.renderHeader === "function") {
+            this.renderHeader();
+          }
+        }
         if (!this.currentRoomId) return;
         this.renderRoundTable();
       });
@@ -1089,6 +1128,30 @@
         return;
       }
 
+      // Thread guard · the main room view is not the right surface
+      // for a thread (it expects a chair, multiple directors, the
+      // full round / vote / brief pipeline). If the URL hash routed
+      // to a thread (manual paste, stale link), redirect to the
+      // parent and surface the thread as a float window so the user
+      // lands somewhere coherent.
+      if (data.room && data.room.kind === "thread") {
+        const parentId = data.room.parentRoomId;
+        if (parentId) {
+          // Navigate to parent and re-mount the thread window.
+          location.hash = "#/r/" + encodeURIComponent(parentId);
+          if (data.room.threadDirectorId) {
+            // Defer until after the route handler settles into the
+            // parent so currentRoomId / agentsById are populated.
+            setTimeout(() => {
+              this.openThreadWith(data.room.threadDirectorId);
+            }, 200);
+          }
+        } else {
+          this.closeRoom();
+        }
+        return;
+      }
+
       // We may be coming from the All Reports view OR an agent profile
       // — make sure the room main view is the visible one and the
       // others are hidden. The agent-view hide is what stops a stale
@@ -1296,6 +1359,12 @@
         console.error("[openRoom] renderRoom failed:", err);
       }
       this.markActiveRoom(roomId);
+      // Restore any thread float windows the user had open for this
+      // room before the last page reload · the threads themselves
+      // live in the DB; this just rebuilds the floating UI for the
+      // ones the user had visible. Fire-and-forget · failure here
+      // never blocks room load.
+      this.restoreThreadsForRoom(roomId);
       // Round-table stage · paint + decide whether the .chat or
       // .roundtable-stage should be visible for this room. Runs
       // AFTER renderRoom so the DOM exists and currentRoom /
@@ -1369,6 +1438,19 @@
     },
 
     async closeRoom() {
+      // Thread cleanup · route through `closeThreadWindow` so the
+      // localStorage persistence entry is dropped too. Per the
+      // updated UX rule, leaving a room means the thread chat is
+      // CLOSED — coming back to the same room later should land
+      // on a clean main view, not auto-restore an old thread.
+      // closeThreadWindow handles DOM, SSE, body.has-thread-dock,
+      // and `pb.thread.open.<parentRoomId>` cleanup in one place.
+      if (this._threads) {
+        for (const tid of Object.keys(this._threads)) {
+          this.closeThreadWindow(tid);
+        }
+      }
+      document.body.classList.remove("has-thread-dock");
       // Recording guard · if a meeting capture is in progress for
       // the current room, intercept and let the user choose:
       // stop-and-save before leaving or cancel and stay. We re-route
@@ -2099,6 +2181,26 @@
             this._pendingAdjournAfterRecordStop = false;
             try { this.adjournRoom({ skipBrief: true }); }
             catch (e) { console.warn("[recorder] pending adjourn failed", e); }
+          } else if (
+            // Vanilla pause-after-current path · the user clicked
+            // "Pause after current director" while a recording was
+            // running. Without an explicit prompt the dialog would
+            // never appear and the recording would keep capturing
+            // a silent room. Surface a save dialog so the user can
+            // commit the clip + optionally adjourn before audio
+            // chunks of dead air pile up. Skip when:
+            //   · pauseMode === "hard"  · interrupt path (user
+            //     already saw the choice modal)
+            //   · _pendingAdjournAfterRecordStop · handled above
+            //   · _pendingReloadOnPause      · user picked reload
+            //   · recording-save modal already on screen (defensive)
+            payload.mode === "soft"
+            && !this._pendingReloadOnPause
+            && window.BoardroomRecorder
+            && window.BoardroomRecorder.isRecording()
+            && !document.getElementById("rec-pause-save-overlay")
+          ) {
+            this.openRecordingPauseSaveModal();
           }
         } else if (kind === "room-resumed") {
           if (this.currentRoom) {
@@ -5147,6 +5249,1296 @@
       }
     },
 
+    /* ─── Private thread · 1:1 director aside (Phase 1) ───────
+       The user pulls a single director into a Slack-DM-style floating
+       window for a private conversation. Persists as its own `rooms`
+       row (kind="thread") with parent_room_id pointing here, so:
+         · subscribe to its own SSE stream
+         · messages flow through the existing POST /messages route
+         · the orchestrator's buildDirectorContext detects kind==="thread"
+           and seeds the LLM with the parent room's snapshot
+       Storage / drag-window mounting / SSE plumbing all live in
+       these methods. State map below tracks the active windows by
+       threadId so subsequent opens reuse existing windows. */
+
+    /** SVG icon string · shared by the per-bubble trigger and the
+     *  head-cast badge. Lucide-style "reply" curve (arrow back to
+     *  the speaker) reads as IM-grammar for "respond privately". */
+    _threadTriggerIconSvg() {
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>`;
+    },
+
+    /** Discord-style floating message toolbar · appears on article
+     *  hover at the top-right of the bubble. Pure icons (no labels)
+     *  to keep the toolbar compact; the icon vocabulary is small and
+     *  reads instantly on hover. Future per-message actions (quote,
+     *  react, pin) slot as additional buttons inside the same
+     *  toolbar chrome. Returns "" when no actions apply (user / chair
+     *  / excused / thread room / adjourned). */
+    _messageToolbarHtml(m, isUser, isChair, excused, author) {
+      const trigger = this._threadTriggerHtml(m, isUser, isChair, excused, author);
+      if (!trigger) return "";
+      return `<div class="msg-toolbar">${trigger}</div>`;
+    },
+
+    /** Reply chip · icon + "Thread" label as a compact pill. Single
+     *  slot inside the Discord-style hover toolbar. Returns "" when
+     *  threading doesn't apply (see `_messageToolbarHtml`'s wrapper). */
+    _threadTriggerHtml(m, isUser, isChair, excused, author) {
+      if (isUser || isChair || excused) return "";
+      if (!author || !author.id) return "";
+      // Skip when rendering inside a thread window · `_threadMessageHtml`
+      // flips this flag for the duration of its messageHtml call so
+      // thread bubbles don't ship a "open another thread with this
+      // same director" trigger (which already exists · the user is
+      // looking at that thread right now).
+      if (this._renderingThread) return "";
+      const room = this.currentRoom;
+      // Threads can be spawned from a room in any status · live,
+      // paused, OR adjourned. Re-reading an adjourned session and
+      // wanting to follow up with one director privately is a real
+      // use case ("I want to go deeper on what Socrates said in that
+      // meeting from last week"). The thread itself is its own
+      // independent room — the parent's status doesn't constrain it.
+      // Only suppress when there's no room loaded OR we're already
+      // inside a thread (no nested threads).
+      if (!room) return "";
+      if (room.kind === "thread") return "";
+      const label = this._t("thread_trigger_label") || "Thread";
+      const tip = this._t("thread_trigger_tip", { name: author.name || "" })
+        || `Pull ${author.name || "this director"} aside privately`;
+      return `<button type="button" class="msg-thread-trigger" data-thread-trigger="${this.escape(author.id)}" title="${this.escape(tip)}" aria-label="${this.escape(tip)}">${this._threadTriggerIconSvg()}<span>${this.escape(label)}</span></button>`;
+    },
+
+    async openThreadWith(directorId) {
+      if (!this.currentRoomId || !directorId) return;
+      // De-dupe · if a thread window for (this room, this director)
+      // already exists, just restore it. Avoids spawning a duplicate
+      // DB row + duplicate SSE stream when the user clicks the
+      // "thread" trigger repeatedly.
+      this._threads = this._threads || {};
+      for (const [tid, t] of Object.entries(this._threads)) {
+        if (t.director && t.director.id === directorId) {
+          this.restoreThreadWindow(tid);
+          return;
+        }
+      }
+      // In-flight create guard · the de-dupe above misses the race
+      // where the user double-clicks (or two trigger buttons for the
+      // same director fire concurrently): both clicks see _threads
+      // empty, both POST, server creates TWO thread rows, both windows
+      // mount, the user perceives "the app keeps spawning new rooms."
+      // Track creates per-director with a Set so the second click
+      // becomes a no-op until the first POST resolves.
+      this._threadsCreating = this._threadsCreating || new Set();
+      if (this._threadsCreating.has(directorId)) return;
+      this._threadsCreating.add(directorId);
+      // Capture the parent roomId at click time · if the user
+      // navigates to a different room while the POST is in flight,
+      // we still want the thread to attach to the room the click
+      // originated from, not the room currently showing.
+      const parentRoomId = this.currentRoomId;
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(parentRoomId)}/threads`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ directorId }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert((err && err.error) || "Failed to open thread");
+          return;
+        }
+        const data = await res.json();
+        const director = (this.agentsById && this.agentsById[directorId])
+          || (data.members || []).find((m) => m.id === directorId)
+          || { id: directorId, name: directorId, avatarPath: "" };
+        // Default to docked mode · the user explicitly asked for the
+        // side-panel as the primary thread surface. Narrow viewports
+        // (`_canDockHere` returns false below 1200px) silently fall
+        // back to the floating mode since the chat-col would
+        // otherwise be squeezed below readable width.
+        this.mountThreadWindow(data.room, director, { docked: this._canDockHere() });
+      } catch (e) {
+        alert((e && e.message) || "Failed to open thread");
+      } finally {
+        this._threadsCreating.delete(directorId);
+      }
+    },
+
+    mountThreadWindow(threadRoom, director, opts) {
+      this._threads = this._threads || {};
+      // Idempotent · if the user already has this thread mounted
+      // (e.g. localStorage restore racing with an active session),
+      // just restore the existing window instead of building a
+      // duplicate DOM.
+      if (this._threads[threadRoom.id]) {
+        this.restoreThreadWindow(threadRoom.id);
+        return;
+      }
+      // Single-thread-per-room rule · the room may only have ONE
+      // thread surfaced at a time (float OR docked). Opening a new
+      // one closes any existing thread first. This sidesteps the
+      // "main chat squeezed by stacked docked panels" problem and
+      // keeps the maximize/restore toggle's mental model simple.
+      const existingIds = Object.keys(this._threads);
+      for (const oldId of existingIds) {
+        if (oldId !== threadRoom.id) this.closeThreadWindow(oldId);
+      }
+      // Threads are PANEL-ONLY · always dock into the active room view
+      // (the floating-window mode was removed). When no room view is
+      // mounted (defensive · the trigger only fires from inside a room)
+      // we fall back to a body-level overlay. On viewports < 1200px the
+      // `.is-docked` CSS @media renders the panel as a fixed overlay,
+      // which is the narrow-screen substitute for a full side panel.
+      void opts;
+      const dockHost = this._threadDockHost();
+      const startDocked = !!dockHost;
+
+      const root = document.createElement("div");
+      root.className = "thread-float" + (startDocked ? " is-docked" : "");
+      root.setAttribute("data-thread-id", threadRoom.id);
+      root.setAttribute("data-director-id", director.id);
+      if (!startDocked) {
+        root.style.right = "24px";
+        root.style.bottom = "24px";
+      }
+
+      const escape = (s) => String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      const avatarSrc = director.avatarPath ? escape(director.avatarPath) : "";
+      // Title / subtitle resolution · same priority as the popover
+      // row: LLM-distilled `room.name` > truncated `room.subject` >
+      // director's name as last-resort fallback. Director's name
+      // ALWAYS shows in the subtitle so the user reads "what we're
+      // talking about · with whom".
+      const headerTitle = this._resolveThreadTitle(threadRoom, director);
+      const headerSubtitle = director.name || director.id || "";
+      // Head buttons are icon-only (Lucide mask via CSS · see
+      // .thread-float-head-btn rules in thread.css). aria-label
+      // carries the action name for screen readers + the `title`
+      // attribute provides the hover tooltip. No textContent.
+      const minTip = this._t("thread_minimize_tip") || "Minimize";
+      const closeTip = this._t("thread_close_tip") || "Close";
+      const emptyTitle = this._t("thread_empty_title") || "Pull them aside";
+      const emptyDeck = this._t("thread_empty_deck", { name: director.name || "" })
+        || "What does {name} know that you want to dig into? They have the full room context up to this point.";
+      const placeholder = this._t("thread_composer_placeholder", { name: director.name || "" })
+        || `Ask ${director.name || "them"} anything…`;
+      const sendLabel = this._t("thread_send") || "Send";
+
+      root.innerHTML = `
+        <div class="thread-dock-resize-handle" data-thread-dock-resize aria-hidden="true" title="${escape(this._t("thread_dock_resize_tip") || "Drag to resize panel")}"></div>
+        <div class="thread-float-resize thread-float-resize-top" data-thread-resize="top" aria-hidden="true" title="${escape(this._t("thread_resize_tip") || "Drag to resize")}"></div>
+        <header class="thread-float-head" data-thread-drag>
+          ${avatarSrc
+            ? `<img class="thread-float-head-avatar" src="${avatarSrc}" alt="" data-agent="${escape(director.id)}" title="${escape(director.name || "")}">`
+            : `<span class="thread-float-head-avatar" data-agent="${escape(director.id)}" title="${escape(director.name || "")}"></span>`}
+          <div class="thread-float-meta-wrap thread-float-head-meta">
+            <span class="thread-float-head-title">${escape(headerTitle)}</span>
+            <span class="thread-float-head-subtitle">${escape(headerSubtitle)}</span>
+          </div>
+          <div class="thread-float-head-controls">
+            <button type="button" class="thread-float-head-btn" data-thread-minimize title="${escape(minTip)}" aria-label="${escape(minTip)}"></button>
+            <button type="button" class="thread-float-head-btn" data-thread-close title="${escape(closeTip)}" aria-label="${escape(closeTip)}"></button>
+          </div>
+        </header>
+        <div class="thread-float-messages" data-thread-messages>
+          <div class="thread-float-empty" data-thread-empty>
+            <span class="thread-float-empty-tag">// ${escape(emptyTitle)}</span>
+            <span>${escape(emptyDeck)}</span>
+          </div>
+        </div>
+        <div class="thread-float-composer" data-thread-composer>
+          <div class="thread-float-composer-text-row">
+            <textarea class="thread-float-textarea" data-thread-input placeholder="${escape(placeholder)}" rows="1"></textarea>
+          </div>
+          <div class="thread-float-composer-controls-row">
+            <button type="button" class="ib-action ib-jump-top" data-thread-jump-top title="${escape(this._t("ib_jump_top_tip") || "Jump to top")}" aria-label="${escape(this._t("ib_jump_top_label") || "Jump to top")}" data-tip="${escape(this._t("ib_jump_top_tip") || "Jump to top")}"></button>
+            <button type="button" class="thread-float-send" data-thread-send title="${escape(sendLabel)}" aria-label="${escape(sendLabel)}">${escape(sendLabel)}</button>
+            <button type="button" class="thread-float-stop" data-thread-stop title="${escape(this._t("thread_stop_tip") || "Stop director")}" aria-label="${escape(this._t("thread_stop") || "Stop")}">${escape(this._t("thread_stop") || "Stop")}</button>
+          </div>
+        </div>
+        <div class="thread-float-resize thread-float-resize-bottom" data-thread-resize="bottom" aria-hidden="true" title="${escape(this._t("thread_resize_tip") || "Drag to resize")}"></div>
+      `;
+      // Mount target depends on docked vs float mode.
+      // · Float (default): body-level overlay (fixed positioning).
+      // · Docked: side-by-side with chat-col inside the active
+      //   room main-view, so the chat is genuinely beside the
+      //   thread and not under a floating chip.
+      if (startDocked && dockHost) {
+        dockHost.appendChild(root);
+        document.body.classList.add("has-thread-dock");
+      } else {
+        document.body.appendChild(root);
+      }
+
+      // Per-thread state · SSE + drag-offset bookkeeping. Stored on
+      // app so the SSE callbacks + drag handlers can find their
+      // window even when many threads are open.
+      const state = {
+        threadId: threadRoom.id,
+        director,
+        room: threadRoom,
+        windowEl: root,
+        sse: null,
+        messages: [],
+        minimized: false,
+        // Threads are panel-only · `docked` is true whenever a room
+        // view exists to host the side panel (the float-window mode +
+        // its maximize/restore toggle were removed). The only time
+        // this is false is the defensive no-room-view fallback, where
+        // the panel renders as a body-level overlay.
+        docked: startDocked,
+        // Drag translate offset · still honoured for the narrow-
+        // viewport fallback where `.is-docked` renders as a fixed,
+        // draggable overlay (see thread.css @media max-width:1200px).
+        dragX: 0,
+        dragY: 0,
+        // User-resized height (px) · null until the user drags the
+        // top edge. Persisted across minimize/restore so the chosen
+        // height survives toggling the chip. The window is bottom-
+        // anchored, so a taller height grows upward.
+        height: null,
+      };
+      this._threads[threadRoom.id] = state;
+      // Persist open-window membership across page reloads · the
+      // thread row itself lives in the DB regardless, but the user's
+      // CHOICE to have a window open for it is client-only state.
+      this._persistThreadOpen(threadRoom.parentRoomId, threadRoom.id, true);
+
+      // Wire interactions
+      root.querySelector("[data-thread-minimize]").addEventListener("click", () => {
+        this.minimizeThreadWindow(threadRoom.id);
+      });
+      root.querySelector("[data-thread-close]").addEventListener("click", () => {
+        this.closeThreadWindow(threadRoom.id);
+      });
+      // Left-edge resize handle · only matters in docked mode (CSS
+      // hides it in float). Wires up unconditionally so the toggle
+      // between float/dock doesn't need to re-bind.
+      const dockResizeHandle = root.querySelector("[data-thread-dock-resize]");
+      if (dockResizeHandle) this._wireThreadDockResize(dockResizeHandle);
+      const dragHead = root.querySelector("[data-thread-drag]");
+      this._wireThreadDrag(dragHead, state);
+      root.querySelectorAll("[data-thread-resize]").forEach((h) => {
+        this._wireThreadResize(h, state, h.getAttribute("data-thread-resize") === "bottom" ? "bottom" : "top");
+      });
+      const sendBtn = root.querySelector("[data-thread-send]");
+      const stopBtn = root.querySelector("[data-thread-stop]");
+      const jumpTopBtn = root.querySelector("[data-thread-jump-top]");
+      const input = root.querySelector("[data-thread-input]");
+      sendBtn.addEventListener("click", () => this.sendThreadMessage(threadRoom.id));
+      stopBtn.addEventListener("click", () => this.stopThreadDirector(threadRoom.id));
+      // Jump-to-top · mirror of the room input-bar's `[data-jump-to-opener]`
+      // affordance · scroll the thread message list back to its first
+      // message. Smooth-scrolling the messages container itself rather
+      // than the viewport · the thread panel has its own scroll context
+      // (absolute-positioned `.thread-float-messages`).
+      if (jumpTopBtn) {
+        jumpTopBtn.addEventListener("click", () => {
+          const list = root.querySelector("[data-thread-messages]");
+          if (list) list.scrollTop = 0;
+        });
+      }
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || e.shiftKey) return;
+        // IME composition guard · while a Chinese / Japanese / Korean
+        // input method is open (pinyin candidate row visible, kana
+        // pre-conversion buffer, etc.) the Enter key is the user
+        // committing their candidate selection, NOT submitting the
+        // message. Firing send here would dispatch the half-typed
+        // raw romanisation. `isComposing` is the standardised
+        // property; `keyCode === 229` is the legacy Chrome/Edge
+        // signal that fires before isComposing flips in some IME
+        // engines. Both checks together cover the matrix.
+        if (e.isComposing || e.keyCode === 229) return;
+        e.preventDefault();
+        this.sendThreadMessage(threadRoom.id);
+      });
+      // Auto-grow textarea up to max-height · 200px ceiling matches
+      // the room's `.ib-textarea` so a long compose feels identical
+      // across both surfaces (CSS cap is also 200px).
+      input.addEventListener("input", () => {
+        input.style.height = "auto";
+        input.style.height = Math.min(200, input.scrollHeight) + "px";
+      });
+      // Quote seed · the quote-cta bar's Thread button stashes the
+      // selected director text on `_threadPendingQuote[directorId]`
+      // BEFORE calling openThreadWith. Consume it here so the new
+      // thread's composer opens with a markdown blockquote ready —
+      // the user just types their follow-up question and hits send.
+      // Cleared after consumption so subsequent opens don't re-paste.
+      const pending = this._threadPendingQuote && this._threadPendingQuote[director.id];
+      if (pending && pending.text) {
+        const quoteLines = String(pending.text).split(/\r?\n/).map((l) => "> " + l);
+        if (pending.directorName) quoteLines.push("> — @" + pending.directorName);
+        input.value = quoteLines.join("\n") + "\n\n";
+        // Trigger autosize after the seed lands.
+        input.style.height = "auto";
+        input.style.height = Math.min(200, input.scrollHeight) + "px";
+        // Cursor goes after the blank line so the user types
+        // immediately at the follow-up position.
+        const pos = input.value.length;
+        try { input.setSelectionRange(pos, pos); } catch (_) {}
+        delete this._threadPendingQuote[director.id];
+      }
+      setTimeout(() => { try { input.focus(); } catch (_) {} }, 30);
+
+      // SSE subscription · the thread's own per-room stream. We get
+      // message-appended / message-token / message-final / message-updated
+      // for the thread's messages; main room events fan out via the
+      // main app.sse and don't reach here.
+      try {
+        const es = new EventSource(`/api/rooms/${encodeURIComponent(threadRoom.id)}/stream`);
+        state.sse = es;
+        es.addEventListener("message-appended", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadAppendMessage(threadRoom.id, data);
+        });
+        es.addEventListener("message-token", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadApplyToken(threadRoom.id, data);
+        });
+        es.addEventListener("message-updated", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadUpdateMessage(threadRoom.id, data);
+        });
+        es.addEventListener("message-final", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadFinalizeMessage(threadRoom.id, data);
+        });
+        es.addEventListener("message-removed", (ev) => {
+          const data = JSON.parse(ev.data);
+          this._threadRemoveMessage(threadRoom.id, data);
+        });
+      } catch (e) {
+        console.warn("[thread] SSE attach failed:", e);
+      }
+    },
+
+    closeThreadWindow(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      if (state.sse) {
+        try { state.sse.close(); } catch (_) {}
+        state.sse = null;
+      }
+      if (state.windowEl && state.windowEl.parentNode) {
+        state.windowEl.parentNode.removeChild(state.windowEl);
+      }
+      const parentId = state.room && state.room.parentRoomId;
+      delete this._threads[threadId];
+      if (parentId) this._persistThreadOpen(parentId, threadId, false);
+      // If no docked thread remains, drop the body class that
+      // squeezed the chat-col into its left grid column.
+      const anyDocked = Object.values(this._threads || {}).some((s) => s && s.docked);
+      if (!anyDocked) document.body.classList.remove("has-thread-dock");
+    },
+
+    /** Title shown in the panel header AND in the popover row · same
+     *  priority chain as `openThreadsListPopover` so both surfaces
+     *  read the same string. LLM-distilled `room.name` wins; until
+     *  the title-gen pipeline completes (or for legacy threads
+     *  with name_auto=0), the truncated subject stands in; the
+     *  director's name is a last-resort fallback for fresh threads
+     *  with no user message yet. */
+    _resolveThreadTitle(threadRoom, director) {
+      if (!threadRoom) return (director && director.name) || "";
+      const isPlaceholder = typeof threadRoom.name === "string"
+        && /^thread:/.test(threadRoom.name);
+      if (!isPlaceholder && typeof threadRoom.name === "string" && threadRoom.name.trim()) {
+        return threadRoom.name.trim();
+      }
+      if (typeof threadRoom.subject === "string" && threadRoom.subject.trim()) {
+        const subj = threadRoom.subject.trim();
+        return subj.length > 60 ? subj.slice(0, 60) + "…" : subj;
+      }
+      return (director && director.name) || "";
+    },
+
+    /** Is the current viewport wide enough to honour docked mode?
+     *  Below ~1200px the 420px panel would squeeze the chat to an
+     *  uncomfortable width; in that case we keep the thread float-
+     *  only regardless of the user's maximize click. */
+    _canDockHere() {
+      try {
+        const w = window.innerWidth || document.documentElement.clientWidth || 0;
+        return w >= 1200;
+      } catch (_) { return false; }
+    },
+
+    /** Where to mount a docked thread panel · the active room
+     *  main-view, so the panel becomes a flex/grid sibling of the
+     *  chat-col. Returns null if no room view is active (defensive
+     *  · should never fire because the trigger is only reachable
+     *  from inside a room). */
+    _threadDockHost() {
+      const view = document.querySelector('.main-view[data-main-view="room"]');
+      return view && !view.hidden ? view : null;
+    },
+
+    /** Wire the left-edge resize handle so the user can drag-widen
+     *  the docked panel. Reads pointer-x on move, computes the new
+     *  width as `viewport_width - pointer_x` (panel is anchored to
+     *  the right edge), and writes the value to `--thread-dock-w`
+     *  on document body. CSS clamps the variable into a sane range
+     *  (320-720) so the chat-col never collapses below input-bar
+     *  content width. Persists to localStorage so the user's chosen
+     *  width survives page reload. */
+    _wireThreadDockResize(handle) {
+      // Hydrate any saved width on first wire so the dock opens at
+      // the user's last-chosen size.
+      const restorePersistedWidth = () => {
+        try {
+          const raw = localStorage.getItem("pb.thread.dock.width");
+          const n = raw ? parseInt(raw, 10) : 0;
+          if (n >= 320 && n <= 720) {
+            document.body.style.setProperty("--thread-dock-w", `${n}px`);
+          }
+        } catch (_) { /* */ }
+      };
+      restorePersistedWidth();
+
+      let dragging = false;
+      let rafId = 0;
+      let pendingX = 0;
+      const flush = () => {
+        rafId = 0;
+        if (!dragging) return;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        // Panel sits on the right; new width = distance from
+        // viewport right edge to pointer. Clamp to handle range so
+        // mid-drag the CSS clamp doesn't lag behind the variable.
+        const next = Math.max(320, Math.min(720, vw - pendingX));
+        document.body.style.setProperty("--thread-dock-w", `${next}px`);
+      };
+      const onMove = (e) => {
+        if (!dragging) return;
+        if (e.cancelable) e.preventDefault();
+        pendingX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
+      const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove("is-thread-dock-resizing");
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+        // Persist whatever value we landed on. Read back the
+        // computed style rather than the inline string so any
+        // clamp-by-CSS adjustment is honoured.
+        try {
+          const v = document.body.style.getPropertyValue("--thread-dock-w");
+          const n = parseInt(v, 10);
+          if (n >= 320 && n <= 720) {
+            localStorage.setItem("pb.thread.dock.width", String(n));
+          }
+        } catch (_) { /* private mode · ignore */ }
+      };
+      const onDown = (e) => {
+        // Only honour the drag when the panel is actually docked ·
+        // CSS already hides the handle off-screen otherwise, but
+        // defensive guard for keyboard / programmatic invocations.
+        const panel = handle.closest(".thread-float");
+        if (!panel || !panel.classList.contains("is-docked")) return;
+        dragging = true;
+        document.body.classList.add("is-thread-dock-resizing");
+        pendingX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      handle.addEventListener("touchstart", onDown, { passive: true });
+    },
+
+    /** Client-side membership · which thread IDs the user has a
+     *  window open for, keyed by parent roomId. localStorage so the
+     *  set survives page reload. Stored as a JSON array per room
+     *  under `pb.thread.open.<roomId>` (mirrors the rest of the
+     *  app's `pb.*` localStorage namespace). */
+    _persistThreadOpen(parentRoomId, threadId, isOpen) {
+      if (!parentRoomId || !threadId) return;
+      const key = `pb.thread.open.${parentRoomId}`;
+      try {
+        const raw = localStorage.getItem(key);
+        const ids = raw ? JSON.parse(raw) : [];
+        const next = isOpen
+          ? Array.from(new Set([...ids, threadId]))
+          : ids.filter((id) => id !== threadId);
+        if (next.length) localStorage.setItem(key, JSON.stringify(next));
+        else localStorage.removeItem(key);
+      } catch (_) { /* quota / private mode · silently degrade */ }
+    },
+
+    _persistedThreadOpen(parentRoomId) {
+      if (!parentRoomId) return [];
+      try {
+        const raw = localStorage.getItem(`pb.thread.open.${parentRoomId}`);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+      } catch { return []; }
+    },
+
+    /** Re-mount any thread windows the user previously had open for
+     *  the current room. Called from openRoom AFTER members /
+     *  agentsById are populated so the director resolution works.
+     *  Threads whose IDs no longer exist (deleted out from under
+     *  the user) are quietly dropped from the persisted list. */
+    async restoreThreadsForRoom(parentRoomId) {
+      if (!parentRoomId) return;
+      const wanted = this._persistedThreadOpen(parentRoomId);
+      if (wanted.length === 0) return;
+      // Pull the canonical list from the server so we know which
+      // threads still exist. The persisted IDs are advisory.
+      let threads = [];
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(parentRoomId)}/threads`);
+        if (res.ok) {
+          const data = await res.json();
+          threads = Array.isArray(data.threads) ? data.threads : [];
+        }
+      } catch { return; }
+      const live = new Map(threads.map((t) => [t.id, t]));
+      const stillOpen = [];
+      for (const id of wanted) {
+        const room = live.get(id);
+        if (!room) continue;
+        const director = (this.agentsById && this.agentsById[room.threadDirectorId])
+          || { id: room.threadDirectorId, name: room.threadDirectorId, avatarPath: "" };
+        // Restore in the same mode the user opens NEW threads with.
+        // localStorage doesn't track float-vs-dock yet; default to
+        // dock when the viewport allows so the user's last session's
+        // dock preference is honoured implicitly.
+        this.mountThreadWindow(room, director, { docked: this._canDockHere() });
+        stillOpen.push(id);
+        // Seed the transcript · /threads list endpoint only returns
+        // room metadata, so we fetch the per-thread state to get
+        // messages and paint them into the freshly-mounted window.
+        // Fire-and-forget · each thread loads independently and the
+        // SSE stream picks up new messages from this point on.
+        fetch(`/api/rooms/${encodeURIComponent(id)}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (!data || !Array.isArray(data.messages) || data.messages.length === 0) return;
+            this._seedThreadHistory(id, data.messages);
+          })
+          .catch(() => { /* per-thread network blip · log via the SSE error path */ });
+      }
+      // Prune the persisted list to what actually exists · keeps the
+      // localStorage entry from accumulating stale IDs forever.
+      try {
+        const key = `pb.thread.open.${parentRoomId}`;
+        if (stillOpen.length) localStorage.setItem(key, JSON.stringify(stillOpen));
+        else localStorage.removeItem(key);
+      } catch (_) { /* */ }
+    },
+
+    /** Open a popover anchored under the head-threads icon listing
+     *  every thread (active or dormant) attached to this main room.
+     *  Each row is a click target that mounts / restores the thread
+     *  window. ESC + outside-click dismiss. */
+    async openThreadsListPopover(anchorBtn) {
+      this.closeThreadsListPopover();
+      if (!this.currentRoomId) return;
+      const pop = document.createElement("div");
+      pop.id = "thread-list-pop";
+      pop.className = "thread-list-pop";
+      const title = this._t("threads_list_title") || "Private threads";
+      const loading = this._t("threads_list_loading") || "Loading…";
+      pop.innerHTML = `
+        <div class="thread-list-head">${this.escape(title)}</div>
+        <div class="thread-list-body" data-threads-body>
+          <div class="thread-list-empty">${this.escape(loading)}</div>
+        </div>
+      `;
+      document.body.appendChild(pop);
+      // Anchor under the trigger button · `position: fixed` so values
+      // are viewport coords. Right-align so the popover stays under
+      // the icon when the head row contracts on narrow viewports.
+      const r = anchorBtn.getBoundingClientRect();
+      const POP_WIDTH = 320;
+      pop.style.top = `${Math.round(r.bottom + 6)}px`;
+      const rightSpace = window.innerWidth - r.right;
+      pop.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - POP_WIDTH - 8, r.right - POP_WIDTH)))}px`;
+      void rightSpace;
+
+      // Dismissal · outside click + ESC. Same pattern as
+      // closeCastEditOverlay's wiring.
+      this._threadsPopDocClick = (e) => {
+        if (e.target.closest("#thread-list-pop")) return;
+        if (e.target.closest("[data-threads-trigger]")) return;
+        this.closeThreadsListPopover();
+      };
+      this._threadsPopEsc = (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.closeThreadsListPopover();
+        }
+      };
+      setTimeout(() => document.addEventListener("click", this._threadsPopDocClick, true), 0);
+      document.addEventListener("keydown", this._threadsPopEsc, true);
+
+      // Fetch threads · canonical source is the server's
+      // /api/rooms/:id/threads endpoint we already shipped.
+      let threads = [];
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(this.currentRoomId)}/threads`);
+        if (res.ok) {
+          const data = await res.json();
+          threads = Array.isArray(data.threads) ? data.threads : [];
+        }
+      } catch (_) { /* network · render empty state */ }
+
+      const body = pop.querySelector("[data-threads-body]");
+      if (!body) return;
+
+      // Filter rules:
+      // - messageCount === 0 · empty threads (user opened a thread
+      //   from the trigger but never sent a message) are clutter,
+      //   hide them.
+      // - Dedupe by director id · keep ONLY the newest thread per
+      //   director. Older duplicates (created by past race bugs,
+      //   or by manual API hits) collapse so the user sees one row
+      //   per director — which is the mental model the rest of the
+      //   UI assumes (open-thread-with-director, not per-message).
+      //   `threads` arrives newest-first from the server, so the
+      //   first occurrence per directorId is the winner.
+      const seenDirectors = new Set();
+      const visible = [];
+      for (const t of threads) {
+        if (typeof t.messageCount === "number" && t.messageCount === 0) continue;
+        if (t.threadDirectorId && seenDirectors.has(t.threadDirectorId)) continue;
+        if (t.threadDirectorId) seenDirectors.add(t.threadDirectorId);
+        visible.push(t);
+      }
+
+      if (visible.length === 0) {
+        const emptyMsg = this._t("threads_list_empty")
+          || "No private threads yet · open one from the // Thread button on any director's message.";
+        // Placeholder icon · Lucide MessagesSquare (two chat bubbles,
+        // matching the head-threads trigger glyph) so the empty
+        // state reads as "this is where your private threads
+        // would appear" rather than as a bare line of text.
+        const placeholderIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>`;
+        body.innerHTML = `
+          <div class="thread-list-empty">
+            <span class="thread-list-empty-icon" aria-hidden="true">${placeholderIcon}</span>
+            <span>${this.escape(emptyMsg)}</span>
+          </div>
+        `;
+        return;
+      }
+      const activeLabel = this._t("threads_list_active") || "open";
+      const trashIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+      const deleteTip = this._t("threads_list_delete_tip") || "Delete this thread";
+
+      body.innerHTML = visible.map((t) => {
+        const director = (this.agentsById && this.agentsById[t.threadDirectorId])
+          || { name: t.threadDirectorId || "?", avatarPath: "" };
+        const avatarSrc = director.avatarPath ? this.escape(director.avatarPath) : "";
+        const ts = this.timeFmt ? this.timeFmt(t.createdAt) : "";
+        const isOpen = !!(this._threads && this._threads[t.id]);
+        // Title resolution · ALWAYS surface the topic phrase (same
+        // convention as the sidebar's room titles). Priority:
+        //   1. LLM-distilled `room.name` (set by generateRoomTitle
+        //      after the first user message · the canonical short
+        //      phrase mode)
+        //   2. `room.subject` truncated (the raw first user message
+        //      · interim state while the LLM call is in flight or
+        //      if it failed to land a phrase)
+        //   3. Director name (last-resort fallback for threads with
+        //      no user message yet — shouldn't appear in practice
+        //      since we filter messageCount === 0 above)
+        // The director's name + timestamp ALWAYS live in the
+        // subtitle, regardless of which title path was picked.
+        const isPlaceholderName = typeof t.name === "string" && /^thread:/.test(t.name);
+        let title = "";
+        if (!isPlaceholderName && typeof t.name === "string" && t.name.trim()) {
+          title = t.name.trim();
+        } else if (typeof t.subject === "string" && t.subject.trim()) {
+          const subj = t.subject.trim();
+          title = subj.length > 60 ? subj.slice(0, 60) + "…" : subj;
+        } else {
+          title = director.name || "";
+        }
+        const subtitleParts = [];
+        if (director.name) subtitleParts.push(director.name);
+        if (ts) subtitleParts.push(ts);
+        const subtitle = subtitleParts.join(" · ");
+        return `
+          <div class="thread-list-row">
+            <button type="button" class="thread-list-row-body" data-thread-open="${this.escape(t.id)}">
+              ${avatarSrc ? `<img class="thread-list-row-av" src="${avatarSrc}" alt="">` : `<span class="thread-list-row-av"></span>`}
+              <span class="thread-list-row-meta">
+                <span class="thread-list-row-name">${this.escape(title)}</span>
+                <span class="thread-list-row-time">${this.escape(subtitle)}</span>
+              </span>
+              ${isOpen ? `<span class="thread-list-row-active">// ${this.escape(activeLabel)}</span>` : ""}
+            </button>
+            <button type="button" class="thread-list-row-delete" data-thread-delete="${this.escape(t.id)}" data-director-name="${this.escape(director.name || "")}" title="${this.escape(deleteTip)}" aria-label="${this.escape(deleteTip)}">
+              ${trashIcon}
+            </button>
+          </div>
+        `;
+      }).join("");
+      body.querySelectorAll("[data-thread-open]").forEach((row) => {
+        row.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const id = row.getAttribute("data-thread-open");
+          this.closeThreadsListPopover();
+          if (id) this.openExistingThread(id);
+        });
+      });
+      body.querySelectorAll("[data-thread-delete]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = btn.getAttribute("data-thread-delete");
+          const dirName = btn.getAttribute("data-director-name") || "";
+          if (id) this.deleteThread(id, dirName, anchorBtn);
+        });
+      });
+    },
+
+    /** Permanently delete a thread room · routes through the standard
+     *  DELETE /api/rooms/:id which cascades messages + members.
+     *  Confirms via `window.confirm` since the action is destructive
+     *  and not undoable. Closes any open window for the same thread,
+     *  prunes localStorage, and re-renders the popover. */
+    async deleteThread(threadId, directorName, anchorBtn) {
+      if (!threadId) return;
+      const tmpl = this._t("threads_list_delete_confirm")
+        || "Delete the private thread with {name}? This can't be undone.";
+      const msg = tmpl.replace("{name}", directorName || "this director");
+      if (!window.confirm(msg)) return;
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(threadId)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert((err && err.error) || "Delete failed");
+          return;
+        }
+      } catch (e) {
+        alert((e && e.message) || "Delete failed");
+        return;
+      }
+      // Tear down any open window for this thread + drop from
+      // persistence. closeThreadWindow does both.
+      if (this._threads && this._threads[threadId]) {
+        this.closeThreadWindow(threadId);
+      }
+      // Refresh the popover so the row disappears. Reuse the
+      // original trigger as the anchor — it's still on screen since
+      // we never navigated away.
+      const trigger = anchorBtn || document.querySelector("[data-threads-trigger]");
+      this.closeThreadsListPopover();
+      if (trigger) this.openThreadsListPopover(trigger);
+    },
+
+    closeThreadsListPopover() {
+      const el = document.getElementById("thread-list-pop");
+      if (el) el.remove();
+      if (this._threadsPopDocClick) {
+        document.removeEventListener("click", this._threadsPopDocClick, true);
+        this._threadsPopDocClick = null;
+      }
+      if (this._threadsPopEsc) {
+        document.removeEventListener("keydown", this._threadsPopEsc, true);
+        this._threadsPopEsc = null;
+      }
+    },
+
+    /** Mount a window for an EXISTING thread (one the user hasn't
+     *  got open right now but exists in the DB). Used by the
+     *  "Threads" header popover entries · the user clicks a row to
+     *  resume an old aside without spawning a new one. */
+    async openExistingThread(threadId) {
+      if (!threadId) return;
+      this._threads = this._threads || {};
+      if (this._threads[threadId]) {
+        this.restoreThreadWindow(threadId);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(threadId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const room = data.room;
+        if (!room || room.kind !== "thread") return;
+        const director = (this.agentsById && this.agentsById[room.threadDirectorId])
+          || { id: room.threadDirectorId, name: room.threadDirectorId, avatarPath: "" };
+        // Default docked · same as the trigger-button entry path.
+        this.mountThreadWindow(room, director, { docked: this._canDockHere() });
+        // Seed the historical transcript · without this the window
+        // mounts empty and only catches messages arriving via SSE
+        // FROM NOW ON, so reopening an old thread looked like a
+        // brand-new conversation. The /api/rooms/:id state response
+        // already carries the full message list — paint it now.
+        if (Array.isArray(data.messages) && data.messages.length > 0) {
+          this._seedThreadHistory(threadId, data.messages);
+        }
+      } catch (e) {
+        try { console.warn("[thread] openExisting failed:", e); } catch (_) {}
+      }
+    },
+
+    /** Paint the thread room's stored messages into the window on
+     *  first mount. State + DOM both populated so subsequent SSE
+     *  token / update / final events can find the message refs and
+     *  patch the bubbles in place. */
+    _seedThreadHistory(threadId, messages) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const list = state.windowEl.querySelector("[data-thread-messages]");
+      if (!list) return;
+      // Hide the empty-state placeholder if any messages exist.
+      this._threadEmptyState(threadId, true);
+      // Dedupe against anything already streamed in via SSE that
+      // raced the seed (rare but possible). Skip if already known.
+      const known = new Set(state.messages.map((m) => m.id));
+      const html = [];
+      for (const data of messages) {
+        if (!data || !data.id || known.has(data.id)) continue;
+        const msg = {
+          id: data.id,
+          authorKind: data.authorKind,
+          authorId: data.authorId,
+          body: data.body || "",
+          meta: data.meta || {},
+          roundNum: data.roundNum,
+          createdAt: data.createdAt,
+        };
+        state.messages.push(msg);
+        html.push(this._threadMessageHtml(state, msg));
+      }
+      if (html.length) {
+        list.insertAdjacentHTML("beforeend", html.join(""));
+        list.scrollTop = list.scrollHeight;
+      }
+    },
+
+    minimizeThreadWindow(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      state.minimized = true;
+      state.windowEl.classList.add("is-minimized");
+      // Drop the user-resized inline height · the minimized pill sizes
+      // to its content (CSS `height: auto`), and inline height would
+      // win over that class rule and stretch the chip. The chosen
+      // height is preserved on state.height and reapplied on restore.
+      state.windowEl.style.height = "";
+      // Reset transform so the minimized chip lives in its dock
+      // anchor at the bottom-right rather than at the user's drag
+      // location. The dragX/dragY values stay on state so restore
+      // can put it back where they had it.
+      state.windowEl.style.transform = "";
+      // Pull into a shared dock so multiple minimized chips line up
+      // along the bottom-right edge.
+      const dock = this._ensureThreadDock();
+      dock.appendChild(state.windowEl);
+      state.windowEl.style.right = "auto";
+      state.windowEl.style.bottom = "auto";
+      // Click-to-restore on the whole chip (header is hidden,
+      // controls are hidden, so the chip itself is the click target).
+      const restoreHandler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.restoreThreadWindow(threadId);
+      };
+      state.windowEl.addEventListener("click", restoreHandler, { once: true });
+    },
+
+    restoreThreadWindow(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      state.minimized = false;
+      const el = state.windowEl;
+      el.classList.remove("is-minimized");
+      // Panel-only · restore re-docks into the active room view rather
+      // than reviving a floating window (float mode was removed). Clear
+      // any leftover float inline anchors first, then re-parent into the
+      // dock host. Only when no room view is mounted (defensive) do we
+      // fall back to a body-level overlay.
+      el.style.right = "";
+      el.style.bottom = "";
+      el.style.transform = "";
+      el.style.height = "";
+      const dockHost = this._threadDockHost();
+      if (dockHost) {
+        el.classList.add("is-docked");
+        state.docked = true;
+        if (el.parentNode !== dockHost) dockHost.appendChild(el);
+        document.body.classList.add("has-thread-dock");
+      } else {
+        el.classList.remove("is-docked");
+        state.docked = false;
+        if (el.parentNode !== document.body) document.body.appendChild(el);
+        el.style.right = "24px";
+        el.style.bottom = "24px";
+      }
+    },
+
+    _ensureThreadDock() {
+      let dock = document.getElementById("thread-dock");
+      if (!dock) {
+        dock = document.createElement("div");
+        dock.id = "thread-dock";
+        dock.className = "thread-dock";
+        document.body.appendChild(dock);
+      }
+      return dock;
+    },
+
+    _wireThreadDrag(handle, state) {
+      // Per-drag scratch + rAF coalescing · pointermove fires faster
+      // than the browser can paint on most setups; without throttling
+      // we'd issue multiple style writes per frame. Reading the
+      // pending coords in a single rAF and writing transform once
+      // keeps the window pinned to the cursor with no perceived
+      // lag. The earlier implementation wrote transform on every
+      // mousemove AND had a 0.15s transition (since removed from
+      // .thread-float CSS), which compounded into visible drag jitter.
+      let startX = 0, startY = 0, baseX = 0, baseY = 0;
+      let dragging = false;
+      let pendingX = 0, pendingY = 0;
+      let rafId = 0;
+      const flush = () => {
+        rafId = 0;
+        if (!dragging) return;
+        state.dragX = baseX + (pendingX - startX);
+        state.dragY = baseY + (pendingY - startY);
+        state.windowEl.style.transform = `translate(${state.dragX}px, ${state.dragY}px)`;
+      };
+      const onMove = (e) => {
+        if (!dragging) return;
+        // touchmove may need preventDefault to suppress page scroll
+        // while the user drags the window across the viewport.
+        if (e.cancelable && e.type === "touchmove") e.preventDefault();
+        pendingX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        pendingY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
+      const onUp = () => {
+        dragging = false;
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        // Reset the compositor hint once dragging ends so the layer
+        // is freed and the window doesn't keep paying the
+        // promote-to-its-own-layer tax forever.
+        if (state.windowEl) state.windowEl.style.willChange = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+      };
+      const onDown = (e) => {
+        // Ignore drags that originate on interactive children of the
+        // header — buttons (close / min / max) AND the director
+        // avatar, which carries `[data-agent]` and routes its click
+        // to the lightweight intro overlay (agent-overlay.js).
+        if (e.target && e.target.closest && e.target.closest("button, [data-agent]")) return;
+        dragging = true;
+        startX = ("touches" in e ? e.touches[0].clientX : e.clientX);
+        startY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        pendingX = startX;
+        pendingY = startY;
+        baseX = state.dragX || 0;
+        baseY = state.dragY || 0;
+        // Promote the window to its own compositor layer for the
+        // drag duration so transform updates can be GPU-accelerated.
+        // Cleared on mouseup so we don't permanently inflate
+        // memory.
+        if (state.windowEl) state.windowEl.style.willChange = "transform";
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        // touchmove · passive:false so we can preventDefault inside
+        // onMove (matters on iOS Safari where the browser otherwise
+        // hijacks vertical drags for page scroll).
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      handle.addEventListener("touchstart", onDown, { passive: true });
+    },
+
+    /** Edge resize · the float is bottom-anchored.
+     *    · "top"    handle · drag UP grows / DOWN shrinks; the bottom
+     *      edge stays pinned (height only).
+     *    · "bottom" handle · the bottom edge follows the cursor (drag
+     *      DOWN grows / UP shrinks) while the top edge stays pinned —
+     *      achieved by moving the drag-translate `dragY` by the same
+     *      delta the height grows, so the box's top doesn't shift.
+     *  Mirrors `_wireThreadDrag`'s rAF-coalesced pointer bookkeeping.
+     *  Height is clamped to [240, viewport-96] — the upper cap matches
+     *  `.thread-float`'s CSS `max-height` so the inline height never
+     *  fights it. Persisted on `state.height` (+ `dragY` for the
+     *  bottom edge) so minimize/restore keeps the chosen size + spot. */
+    _wireThreadResize(handle, state, edge) {
+      const MIN_H = 240;
+      const maxH = () => Math.max(MIN_H, window.innerHeight - 96);
+      const isBottom = edge === "bottom";
+      let startY = 0, baseH = 0, baseDragY = 0;
+      let resizing = false;
+      let pendingY = 0;
+      let rafId = 0;
+      const flush = () => {
+        rafId = 0;
+        if (!resizing || !state.windowEl) return;
+        // Drag delta along Y · top edge grows when the cursor moves UP
+        // (startY - cur); bottom edge grows when it moves DOWN.
+        const rawDelta = isBottom ? (pendingY - startY) : (startY - pendingY);
+        const next = Math.min(maxH(), Math.max(MIN_H, baseH + rawDelta));
+        state.height = next;
+        state.windowEl.style.height = `${next}px`;
+        if (isBottom) {
+          // Shift the box down by however much it actually grew so the
+          // top edge stays put (height was clamped, so use the applied
+          // delta, not the raw cursor delta).
+          state.dragY = baseDragY + (next - baseH);
+          state.windowEl.style.transform = `translate(${state.dragX || 0}px, ${state.dragY}px)`;
+        }
+      };
+      const onMove = (e) => {
+        if (!resizing) return;
+        if (e.cancelable && e.type === "touchmove") e.preventDefault();
+        pendingY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
+      const onUp = () => {
+        resizing = false;
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        // Re-enable text selection in the rest of the app.
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+      };
+      const onDown = (e) => {
+        // Don't start a resize while minimized · the handle is hidden
+        // then anyway, but guard against stray events.
+        if (state.minimized || !state.windowEl) return;
+        // Swallow the event so it doesn't also reach the header's
+        // drag-to-move handler underneath.
+        if (e.stopPropagation) e.stopPropagation();
+        // Suppress text selection for the whole drag · without this the
+        // mousemove sweep selects whatever room text sits under the
+        // cursor, which reads as a glitch while resizing the window.
+        if (e.type === "mousedown" && e.preventDefault) e.preventDefault();
+        document.body.style.userSelect = "none";
+        resizing = true;
+        startY = ("touches" in e ? e.touches[0].clientY : e.clientY);
+        pendingY = startY;
+        baseH = state.windowEl.getBoundingClientRect().height;
+        baseDragY = state.dragY || 0;
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      handle.addEventListener("touchstart", onDown, { passive: true });
+    },
+
+    async sendThreadMessage(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const input = state.windowEl.querySelector("[data-thread-input]");
+      if (!input) return;
+      const text = (input.value || "").trim();
+      if (!text) return;
+      input.value = "";
+      input.style.height = "auto";
+      try {
+        const res = await fetch(`/api/rooms/${encodeURIComponent(threadId)}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ body: text, mode: "now" }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert((err && err.error) || "Failed to send thread message");
+        }
+        // No need to optimistically render · the SSE message-appended
+        // for the user message will fan out and our handler renders it.
+      } catch (e) {
+        alert((e && e.message) || "Failed to send thread message");
+      }
+    },
+
+    _threadEmptyState(threadId, hide) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const empty = state.windowEl.querySelector("[data-thread-empty]");
+      if (empty) empty.style.display = hide ? "none" : "";
+    },
+
+    /** Render a thread bubble using the main chat's full `messageHtml`
+     *  pipeline — keeps user avatars, director avatars, model badges,
+     *  the streaming dots animation, name+tag chips, etc. all
+     *  consistent with the main room. Earlier custom-mini renderer
+     *  produced visually broken bubbles (no user avatar, missing
+     *  meta chips) because it duplicated only a fraction of the
+     *  main path. Now reuses ONE source of truth.
+     *
+     *  Side effect protection · sets `this._renderingThread = true`
+     *  for the duration of the call so the per-message thread
+     *  toolbar (`_threadTriggerHtml`) skips rendering inside thread
+     *  windows — there's no "thread the speaker again" inside an
+     *  already-open thread. The flag flips back in `finally`. */
+    _threadMessageHtml(state, msg) {
+      void state;
+      this._renderingThread = true;
+      try {
+        return this.messageHtml(msg, false);
+      } finally {
+        this._renderingThread = false;
+      }
+    },
+
+    _threadAppendMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      const list = state.windowEl.querySelector("[data-thread-messages]");
+      if (!list) return;
+      this._threadEmptyState(threadId, true);
+      // Track msg in state so streaming token appends find a stable
+      // reference even if the article gets re-rendered.
+      const msg = {
+        id: data.messageId,
+        authorKind: data.authorKind,
+        authorId: data.authorId,
+        body: data.body || "",
+        meta: data.meta || {},
+        roundNum: data.roundNum,
+        createdAt: data.createdAt,
+      };
+      state.messages.push(msg);
+      list.insertAdjacentHTML("beforeend", this._threadMessageHtml(state, msg));
+      list.scrollTop = list.scrollHeight;
+      // Director just started streaming · swap composer Send → Stop
+      // so the user can interrupt the response in flight. The flag
+      // stays on the message; later finalize / abort clears it.
+      if (msg.authorKind === "agent" && msg.meta && msg.meta.streaming) {
+        this._setThreadStreamingState(threadId, msg.id);
+      }
+    },
+
+    _threadApplyToken(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      const msg = state.messages.find((m) => m.id === data.messageId);
+      if (!msg) return;
+      msg.body = (msg.body || "") + (data.delta || "");
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (!article) return;
+      const bubble = article.querySelector(".msg-bubble");
+      if (!bubble) return;
+      article.classList.remove("thinking");
+      bubble.innerHTML = this.renderBody ? this.renderBody(msg.body) : msg.body;
+      const list = state.windowEl.querySelector("[data-thread-messages]");
+      if (list) list.scrollTop = list.scrollHeight;
+    },
+
+    _threadUpdateMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      const msg = state.messages.find((m) => m.id === data.messageId);
+      if (msg) {
+        msg.body = data.body || "";
+        msg.meta = data.meta || {};
+      }
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (!article) return;
+      const bubble = article.querySelector(".msg-bubble");
+      if (bubble) {
+        bubble.innerHTML = this.renderBody ? this.renderBody(data.body || "") : (data.body || "");
+      }
+      const streaming = !!(data.meta && data.meta.streaming);
+      article.classList.toggle("streaming", streaming);
+      if (!streaming) {
+        article.classList.remove("thinking");
+        // Server flipped streaming:false on this director's message ·
+        // restore the composer to Send mode if this was the message
+        // we were tracking. Catches the abort + natural-finish paths
+        // uniformly without needing a separate handler.
+        if (state.streamingMessageId === data.messageId) {
+          this._setThreadStreamingState(threadId, null);
+        }
+      }
+    },
+
+    _threadFinalizeMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (article) {
+        article.classList.remove("streaming");
+        article.classList.remove("thinking");
+      }
+      // Director's stream finished · flip composer back to Send.
+      if (state.streamingMessageId === data.messageId) {
+        this._setThreadStreamingState(threadId, null);
+      }
+    },
+
+    /** Flip the composer's Send/Stop visibility on the thread window
+     *  via a state class on `.thread-float-composer`. Tracks which
+     *  message we believe is currently streaming so duplicate
+     *  message-updated events (e.g. multiple token batches before
+     *  the streaming:false flag flips) don't toggle prematurely. */
+    _setThreadStreamingState(threadId, messageId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state || !state.windowEl) return;
+      state.streamingMessageId = messageId;
+      const composer = state.windowEl.querySelector("[data-thread-composer]");
+      if (composer) composer.classList.toggle("is-streaming", !!messageId);
+    },
+
+    /** Interrupt the in-flight director response in a thread. Hits
+     *  POST /api/rooms/:threadId/abort (the same endpoint the main
+     *  room uses for chair-interrupt + skip-current-speaker), which
+     *  aborts the LLM stream and drains voice waiters. The director's
+     *  partial body stays in chat; the composer flips back to Send
+     *  when the server's resulting message-updated (streaming:false)
+     *  arrives via SSE. */
+    async stopThreadDirector(threadId) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      try {
+        await fetch(`/api/rooms/${encodeURIComponent(threadId)}/abort`, { method: "POST" });
+      } catch (e) {
+        try { console.warn("[thread] abort failed:", e); } catch (_) {}
+      }
+      // Optimistic UX · flip the composer back immediately rather
+      // than waiting for the SSE round-trip. The streaming:false
+      // update + message-final will arrive shortly and the toggle
+      // is idempotent.
+      this._setThreadStreamingState(threadId, null);
+    },
+
+    _threadRemoveMessage(threadId, data) {
+      const state = this._threads && this._threads[threadId];
+      if (!state) return;
+      state.messages = state.messages.filter((m) => m.id !== data.messageId);
+      const article = state.windowEl.querySelector(
+        `[data-message-id="${(window.CSS && CSS.escape) ? CSS.escape(data.messageId) : data.messageId}"]`,
+      );
+      if (article && article.parentNode) article.parentNode.removeChild(article);
+    },
+
     async submitFollowUp() {
       const overlay = document.getElementById("followup-overlay");
       if (!overlay) return;
@@ -5906,6 +7298,19 @@
       }
     },
 
+    /** True when a voice replay is currently running for `roomId`.
+     *  Drives the Record button's visibility in adjourned rooms ·
+     *  recording the replay reconstructs a meeting video (3D stage
+     *  driven by the replay + the replay's TTS audio) the same way
+     *  a live room records. `getRoomId()` is null for legacy replays
+     *  that didn't pass a roomId · treat that as "matches". */
+    _isReplayActiveForRoom(roomId) {
+      const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+      if (!vr || typeof vr.isOpen !== "function" || !vr.isOpen()) return false;
+      const rid = typeof vr.getRoomId === "function" ? vr.getRoomId() : null;
+      return !rid || rid === roomId;
+    },
+
     /** Toggle recording for the current voice room. Idempotent · if
      *  already recording, stops + downloads; otherwise starts. */
     async handleRecordToggle() {
@@ -5914,15 +7319,30 @@
         console.warn("[recorder] module not loaded");
         return;
       }
+      const room = this.currentRoom;
+      const isLive = !!(room && room.status === "live");
       if (rec.isRecording()) {
-        // Live recording · open the stop-choice modal instead of
-        // stopping immediately. The user picks whether to also end
-        // the live room (interrupt / wait for speaker / keep room).
-        this.openRecordingStopModal();
+        if (isLive) {
+          // Live recording · open the stop-choice modal instead of
+          // stopping immediately. The user picks whether to also end
+          // the live room (interrupt / wait for speaker / keep room).
+          this.openRecordingStopModal();
+        } else {
+          // Replay / adjourned recording · there's no live room to
+          // interrupt or pause, so skip the lifecycle modal and just
+          // stop + download the clip.
+          await this._stopRecordingAndToast();
+        }
         return;
       }
-      const room = this.currentRoom;
       if (!room || room.deliveryMode !== "voice") return;
+      // Replay / adjourned · the round-table stage is opt-in there
+      // (hidden by default), but the recorder crops the window capture
+      // to the stage's on-screen rect — so the stage MUST be visible
+      // before start() locks the composite size. Force the stage view
+      // and collapse the floating replay player so it doesn't bleed
+      // into the captured region.
+      if (!isLive) this._ensureStageVisibleForRecording();
       try {
         await rec.start(room.id, room.subject || room.title || "Meeting");
         // Recorder is now capturing chunks · play the cinematic
@@ -5934,6 +7354,44 @@
         console.error("[recorder] start failed", e);
         const reason = (e && (e.message || String(e))) || this._t("rec_error_toast");
         try { alert(`${this._t("rec_error_toast")}\n\n${reason}`); } catch (_) {}
+      }
+    },
+
+    /** Stop + download the active recording and surface the saved
+     *  toast. Used by the replay / adjourned stop path where there's
+     *  no room lifecycle to reconcile (cf. handleRecordingStopChoice
+     *  for the live-room flow). */
+    async _stopRecordingAndToast() {
+      let blob = null;
+      try { blob = await window.BoardroomRecorder.stopAndDownload(); }
+      catch (e) { console.error("[recorder] stopAndDownload failed", e); }
+      if (blob && blob.size > 0) {
+        try {
+          this.showRoundTableToast({
+            kind: "settings",
+            glyph: "↓",
+            htmlText: this.escape(this._t("rec_saved_toast")),
+            lifetimeMs: 5200,
+          });
+        } catch (_) { /* toast best-effort */ }
+      }
+    },
+
+    /** Reveal the round-table stage (opt-in for adjourned rooms) so
+     *  the recorder has a non-empty region to crop, and collapse the
+     *  floating voice-replay player so its panel stays out of the
+     *  captured frame. */
+    _ensureStageVisibleForRecording() {
+      const roomId = this.currentRoomId;
+      if (!roomId) return;
+      try { localStorage.setItem("rt-view-" + roomId, "stage"); } catch (_) { /* noop */ }
+      if (typeof this.applyRoundTableVisibility === "function") {
+        this.applyRoundTableVisibility(roomId);
+      }
+      const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+      if (vr && typeof vr.isOpen === "function" && vr.isOpen()
+          && typeof vr.collapse === "function") {
+        try { vr.collapse(); } catch (_) { /* noop */ }
       }
     },
 
@@ -6028,6 +7486,81 @@
     closeRecordingStopModal() {
       const el = document.getElementById("recording-stop-overlay");
       if (el) el.remove();
+    },
+
+    /** Pause-after-current save modal · the user soft-paused the room
+     *  while a recording was running. The recording itself doesn't
+     *  stop automatically (room can resume), so we ask the user
+     *  whether to save it now. Three choices:
+     *    · primary "Save & adjourn"     — stopAndDownload + adjourn(skipBrief)
+     *    · secondary "Save & keep paused" — stopAndDownload, room stays paused
+     *    · ghost "Keep recording"        — close modal, room paused, recorder
+     *                                      continues capturing the silence
+     *  Modal reuses the .pc-overlay / .pc-modal / .pc-choice chrome
+     *  for visual consistency with other pause-/reload-choice flows. */
+    openRecordingPauseSaveModal() {
+      this.closeRecordingPauseSaveModal();
+      const html = `
+        <div id="rec-pause-save-overlay" class="pc-overlay">
+          <div class="pc-modal">
+            <div class="pc-classification">
+              <span><span class="dot">●</span> ${this.escape(this._t("rec_pause_save_class"))}</span>
+              <span class="right">${this.escape(this._t("rec_pause_save_right"))}</span>
+            </div>
+            <div class="pc-head">
+              <div class="pc-tag">${this.escape(this._t("rec_pause_save_tag"))}</div>
+              <h2 class="pc-title">${this.escape(this._t("rec_pause_save_title"))}</h2>
+              <p class="pc-deck">${this.escape(this._t("rec_pause_save_deck"))}</p>
+            </div>
+            <div class="pc-body">
+              <button type="button" class="pc-choice primary" data-rec-pause-save-choice="save-adjourn">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_pause_save_adjourn_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_pause_save_adjourn_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice" data-rec-pause-save-choice="save-keep">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_pause_save_keep_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_pause_save_keep_deck"))}</div>
+              </button>
+              <button type="button" class="pc-choice ghost" data-rec-pause-save-choice="continue">
+                <div class="pc-choice-mark">${this.escape(this._t("rec_pause_save_continue_mark"))}</div>
+                <div class="pc-choice-deck">${this.escape(this._t("rec_pause_save_continue_deck"))}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+    },
+
+    closeRecordingPauseSaveModal() {
+      const el = document.getElementById("rec-pause-save-overlay");
+      if (el) el.remove();
+    },
+
+    async handleRecordingPauseSaveChoice(mode) {
+      this.closeRecordingPauseSaveModal();
+      if (mode === "continue") return; // keep recording, room stays paused
+      // Both save paths stop + download the clip first.
+      let blob = null;
+      try { blob = await window.BoardroomRecorder.stopAndDownload(); }
+      catch (e) { console.error("[recorder] stopAndDownload failed", e); }
+      if (blob && blob.size > 0) {
+        try {
+          this.showRoundTableToast({
+            kind: "settings",
+            glyph: "↓",
+            htmlText: this.escape(this._t("rec_saved_toast")),
+            lifetimeMs: 5200,
+          });
+        } catch (_) { /* toast best-effort */ }
+      }
+      if (mode === "save-adjourn") {
+        // skipBrief · recording-driven adjourns never auto-generate
+        // a report; the user files one manually.
+        try { await this.adjournRoom({ skipBrief: true }); }
+        catch (e) { console.warn("[recorder] adjournRoom failed", e); }
+      }
+      // save-keep · nothing else to do; room is already paused.
     },
 
     async handleRecordingStopChoice(mode) {
@@ -6920,9 +8453,17 @@
     timeFmt(ms) {
       if (!ms) return "";
       const d = new Date(ms);
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${hh}:${mm}`;
+      // Absolute timestamp · "May 24, 3:45 PM". When the year differs
+      // from the current one (last year or earlier) the year is
+      // prepended so e.g. "2024 May 24, 3:45 PM" disambiguates old
+      // messages. en-US locale pins the short month + 12-hour "PM"
+      // meridiem regardless of UI language (matches the notification
+      // date format elsewhere in the app).
+      const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      const base = `${datePart}, ${timePart}`;
+      const yr = d.getFullYear();
+      return yr === new Date().getFullYear() ? base : `${yr} ${base}`;
     },
 
     relTime(ms) {
@@ -7363,29 +8904,42 @@
         meta = this._t("sidebar_host");
       }
 
-      // Avatar source-of-truth · prefs.avatarSeed (set by the
-      // preference overlay's "regenerate avatar" button). When a seed
-      // is present we render the AvatarSkill SVG so the sidebar foot
-      // matches what the user picked in settings; otherwise fall back
-      // to the initial-letter chip we shipped before AvatarSkill
-      // existed.
+      // Avatar source-of-truth · prefs.avatarUrl (rendered 3D PNG
+      // captured by the avatar customizer) wins. Otherwise we paint
+      // the seed-derived 3D snap (Avatar3DSnap.generate) and fall
+      // back to the initial-letter chip while the async render is
+      // in flight / when WebGL isn't available.
       // Sync every avatar slot · the full sidebar foot AND the
       // collapsed mini-rail foot both carry [data-user-avatar], so
       // querySelectorAll keeps them identical regardless of which is
       // currently visible.
+      const url = this.prefs?.avatarUrl;
       const seed = this.prefs?.avatarSeed;
-      const avHtml = (seed && window.AvatarSkill && typeof window.AvatarSkill.generate === "function")
-        ? window.AvatarSkill.generate(seed)
-        : null;
+      const snap = window.Avatar3DSnap;
+      const cachedSnap = (seed && snap && typeof snap.cacheGet === "function") ? snap.cacheGet(seed) : null;
+      const imgSrc = url || cachedSnap || null;
       document.querySelectorAll("[data-user-avatar]").forEach((av) => {
-        if (avHtml) {
+        if (imgSrc) {
           av.classList.add("has-pixel-av");
-          av.innerHTML = avHtml;
+          av.innerHTML = `<img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;image-rendering:auto">`;
         } else {
           av.classList.remove("has-pixel-av");
           av.textContent = initial;
         }
       });
+      if (!url && seed && !cachedSnap && snap && typeof snap.generate === "function") {
+        snap.generate(seed).then((dataUrl) => {
+          if (!dataUrl) return;
+          // Only repaint if the same seed is still in play — guard
+          // against fast-fire regenerate clicks landing stale renders.
+          if (this.prefs?.avatarSeed !== seed) return;
+          if (this.prefs?.avatarUrl) return;
+          document.querySelectorAll("[data-user-avatar]").forEach((av) => {
+            av.classList.add("has-pixel-av");
+            av.innerHTML = `<img src="${dataUrl}" alt="" style="width:100%;height:100%;object-fit:cover;image-rendering:auto">`;
+          });
+        }).catch(() => { /* */ });
+      }
       const nm = document.querySelector("[data-user-name]");
       if (nm) nm.textContent = name;
       const mt = document.querySelector("[data-user-meta]");
@@ -8091,6 +9645,12 @@
       if (chat) {
         if (this.composerMode === "agent") {
           chat.innerHTML = this.renderAgentComposerHtml();
+          // Hire-a-known-mind portraits · upgrade the 2D placeholders
+          // to deterministic 3D voxel renders. Fire-and-forget · the
+          // hydrator lazy-loads three.js + avatar-3d.js on first use,
+          // caches per-seed dataURLs, and re-skips already-rendered
+          // cards. Safe against rapid re-renders (idempotent).
+          try { void this._hydrateCelebrityAvatars3D(); } catch (_) { /* */ }
           // Focus the description textarea unless we're showing a preview.
           setTimeout(() => {
             const ta = chat.querySelector("[data-agent-composer-desc]");
@@ -9729,7 +11289,11 @@
       const article = document.querySelector(`article[data-message-id="${openerId}"]`);
       if (!article) return;
       try {
-        article.scrollIntoView({ behavior: "smooth", block: "start" });
+        // Instant · matches the thread panel's jump-top affordance.
+        // User reads the result, not the animation; smooth scrolling
+        // on long rooms (10+ screens of history) takes ≥800ms which
+        // reads as sluggish.
+        article.scrollIntoView({ behavior: "auto", block: "start" });
       } catch { /* */ }
       this.chatStuckToBottom = false;
       this._suppressBottomScrollUntil = Date.now() + 2000;
@@ -10011,6 +11575,15 @@
 
     showNoteTooltip(span) {
       if (!span) return;
+      // Suppress while a text selection is active · the selection CTA
+      // bar (quote-cta.js) already sits in this slot above the
+      // selection. Selecting text that overlaps an already-saved
+      // highlight would otherwise stack the "✓ Saved" hover tip on
+      // top of the CTA bar — the user sees two toolbars. Once the
+      // selection collapses (click elsewhere), hovering the highlight
+      // shows the tip again as normal.
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed) return;
       const tip = this._ensureNoteTip();
       const noteId = span.dataset.noteId;
       // Resolve note metadata from currentNotes · used for the time
@@ -10689,19 +12262,25 @@
       });
     },
 
-    /** Card HTML for one celebrity seed. Avatar comes from
-     *  AvatarSkill (deterministic from seed.id), so the portrait
-     *  is the same every render. Intro picks the en/zh field
-     *  that matches the active locale; ja/es fall back to en. */
+    /** Card HTML for one celebrity seed. Avatar tile mounts empty
+     *  (or with a cached 3D snap if one is hot) and gets painted by
+     *  the deterministic 3D voxel renderer asynchronously when WebGL
+     *  is available — see `_hydrateCelebrityAvatars3D()`. The 3D
+     *  config is derived from `seed.id` via
+     *  `deriveDefaultAvatarConfig`, so the portrait is stable across
+     *  re-renders + matches the random face shipped with the persona
+     *  once it's hired. Intro picks the en/zh field that matches the
+     *  active locale; ja/es fall back to en. */
     celebrityCardHtml(seed) {
       const lang = this.composerLanguage();
       const intro = (seed.intro && (seed.intro[lang] || seed.intro.en || "")) || "";
-      const avatarUrl = (window.AvatarSkill && typeof window.AvatarSkill.generateDataUrl === "function")
-        ? window.AvatarSkill.generateDataUrl(seed.id)
-        : "";
-      const avatarHtml = avatarUrl
-        ? `<img class="cmp-celeb-img" src="${this.escape(avatarUrl)}" alt="${this.escape(seed.name)}">`
-        : `<span class="cmp-celeb-img-fallback" aria-hidden="true">·</span>`;
+      // Prefer the cached 3D render if a previous open already
+      // hydrated this seed (hot-path through the composer should NOT
+      // flash an empty tile on a second open).
+      const cached = (this._celebrityAvatar3dCache && this._celebrityAvatar3dCache.get(seed.id)) || null;
+      const avatarHtml = cached
+        ? `<img class="cmp-celeb-img" data-cmp-celeb-img="${this.escape(seed.id)}" src="${this.escape(cached)}" alt="${this.escape(seed.name)}">`
+        : `<span class="cmp-celeb-img-fallback" data-cmp-celeb-img="${this.escape(seed.id)}" aria-hidden="true">·</span>`;
       return `
         <button type="button" class="cmp-celeb-card" data-celebrity-seed="${this.escape(seed.id)}" title="${this.escape(seed.name)}">
           <span class="cmp-celeb-av">${avatarHtml}</span>
@@ -10712,6 +12291,172 @@
           </span>
         </button>
       `;
+    },
+
+    /** Walk every `.cmp-celeb-card` currently mounted and render a
+     *  3D voxel portrait into each one (writes the image dataURL
+     *  back to its `<img data-cmp-celeb-img>` src). Idempotent · the
+     *  per-seed cache means subsequent calls only render new seeds.
+     *  Lazy-loads three.js + avatar-3d.js on the first call so the
+     *  composer's first paint isn't blocked. Skips silently when
+     *  WebGL isn't available (the 2D fallback already rendered). */
+    async _hydrateCelebrityAvatars3D() {
+      if (!this._celebrityAvatar3dCache) this._celebrityAvatar3dCache = new Map();
+      // Capability gate · skip on no-WebGL so the 2D fallback remains
+      // the visible portrait. Cheap test, runs every call (the user
+      // could plug in a WebGL-capable display between calls).
+      let canWebGL = false;
+      try {
+        const c = document.createElement("canvas");
+        canWebGL = !!(c.getContext("webgl2") || c.getContext("webgl"));
+      } catch (_) { canWebGL = false; }
+      if (!canWebGL) return;
+      const cards = Array.from(document.querySelectorAll("img[data-cmp-celeb-img], span[data-cmp-celeb-img]"));
+      if (cards.length === 0) return;
+      const want = [];
+      for (const el of cards) {
+        const id = el.getAttribute("data-cmp-celeb-img");
+        if (!id) continue;
+        // Already 3D-rendered? Skip (cached value was injected by the
+        // first paint). The check leans on the dataset marker rather
+        // than reading the src so a re-render that fell back to 2D
+        // gets reprocessed.
+        if (el.tagName === "IMG" && el.dataset.cmpCelebRendered === "1") continue;
+        want.push({ id, el });
+      }
+      if (want.length === 0) return;
+      // Cache hot · just paint and bail without loading three.
+      const hot = want.filter((j) => this._celebrityAvatar3dCache.has(j.id));
+      for (const j of hot) {
+        const url = this._celebrityAvatar3dCache.get(j.id);
+        this._paintCelebrityImg(j.el, url);
+      }
+      const cold = want.filter((j) => !this._celebrityAvatar3dCache.has(j.id));
+      if (cold.length === 0) return;
+
+      // Lazy-load three + avatar-3d once per session. The two imports
+      // race in parallel and resolve together.
+      let THREE, av;
+      try {
+        [THREE, av] = await Promise.all([
+          import("/vendor/three.module.min.js"),
+          import("/avatar-3d.js"),
+        ]);
+      } catch (e) {
+        try { console.warn("[celebrity-3d] dep load failed", e); } catch (_) {}
+        return;
+      }
+      // Preload every body / hair / outfit referenced by the cold
+      // seeds before rendering · cross-model swaps need the source
+      // GLB cached before buildAvatar3D walks the skeleton.
+      const cfgs = cold.map((j) => ({ id: j.id, cfg: av.deriveDefaultAvatarConfig(j.id) }));
+      const modelIds = new Set();
+      for (const { cfg } of cfgs) {
+        if (cfg.model) modelIds.add(cfg.model);
+        if (cfg.hairStyle && cfg.hairStyle !== "none") modelIds.add(cfg.hairStyle);
+        if (cfg.outfitStyle) modelIds.add(cfg.outfitStyle);
+      }
+      try {
+        await Promise.all(Array.from(modelIds).map((m) => av.loadAvatar3D(m).catch(() => null)));
+      } catch (_) { /* */ }
+
+      // Shared offscreen renderer · same recipe as home.html's
+      // (transparent BG, ACES tone-map, IBL via PMREM + RoomEnv).
+      // 112×112 is 2× retina for the 56-pixel display tile.
+      const SIZE = 112;
+      const off = document.createElement("canvas");
+      off.width = SIZE * 2; off.height = SIZE * 2;
+      let renderer;
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas: off, antialias: true, alpha: true, preserveDrawingBuffer: true });
+      } catch (e) {
+        try { console.warn("[celebrity-3d] renderer init failed", e); } catch (_) {}
+        return;
+      }
+      renderer.setSize(SIZE * 2, SIZE * 2, false);
+      renderer.setClearColor(0x000000, 0);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const scene = new THREE.Scene();
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x2a3140, 0.5));
+      const key = new THREE.DirectionalLight(0xffffff, 1.2);
+      key.position.set(2, 3, 2.5);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0xbfd4ff, 0.4);
+      rim.position.set(-2, 2, -2);
+      scene.add(rim);
+      // Camera FOV mirrors avatar3d-editor's capturePng so the
+      // head-anchor framing math (`applyFaceFraming`) produces the
+      // SAME crop the agent-profile portrait does. Position is
+      // computed per-figure right before render — face mesh is
+      // present at that point.
+      const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 20);
+
+      for (const { id, cfg } of cfgs) {
+        let figure = null;
+        try {
+          figure = av.buildAvatar3D(id, {
+            model: cfg.model,
+            hairStyle: cfg.hairStyle,
+            outfitStyle: cfg.outfitStyle,
+            accessory: cfg.accessory,
+            height: 1.7,
+            skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit,
+            browStyle: cfg.browStyle, tieStyle: cfg.tieStyle,
+            tie: cfg.tie, eye: cfg.eye,
+          });
+        } catch (_) { figure = null; }
+        if (!figure) continue;
+        // Faint 3/4 turn for visual interest, then frame on the
+        // face mesh (same routine the agent-profile capture uses)
+        // so every card shows the same head-and-shoulders crop.
+        figure.rotation.y = -0.18;
+        scene.add(figure);
+        try {
+          if (typeof av.applyFaceFraming === "function") {
+            av.applyFaceFraming(camera, figure);
+          }
+        } catch (_) { /* fallback to constructor defaults */ }
+        renderer.render(scene, camera);
+        const dataUrl = renderer.domElement.toDataURL("image/png");
+        this._celebrityAvatar3dCache.set(id, dataUrl);
+        // Find every mounted card with this id (composer can be open
+        // in two surfaces simultaneously in some flows) and paint.
+        document.querySelectorAll(`[data-cmp-celeb-img="${CSS.escape(id)}"]`)
+          .forEach((el) => this._paintCelebrityImg(el, dataUrl));
+        scene.remove(figure);
+        figure.traverse((n) => {
+          if (n.material) {
+            const ms = Array.isArray(n.material) ? n.material : [n.material];
+            for (const m of ms) { try { m.dispose(); } catch (_) {} }
+          }
+          if (n.geometry) { try { n.geometry.dispose(); } catch (_) {} }
+        });
+      }
+      renderer.dispose();
+    },
+
+    /** Internal · set a celebrity-card image to a dataURL, swapping
+     *  the placeholder `<span>` for an `<img>` when the initial
+     *  paint used the fallback dot. Marks the node so the next
+     *  hydrate pass skips it. */
+    _paintCelebrityImg(el, dataUrl) {
+      if (!el || !dataUrl) return;
+      if (el.tagName === "IMG") {
+        el.src = dataUrl;
+        el.dataset.cmpCelebRendered = "1";
+        return;
+      }
+      // Replace the fallback span with an img inside the same `.cmp-celeb-av` tile.
+      const img = document.createElement("img");
+      img.className = "cmp-celeb-img";
+      img.dataset.cmpCelebImg = el.getAttribute("data-cmp-celeb-img") || "";
+      img.src = dataUrl;
+      img.alt = "";
+      img.dataset.cmpCelebRendered = "1";
+      if (el.parentNode) el.parentNode.replaceChild(img, el);
     },
 
     /** Click handler · kick the full-mode persona builder with the
@@ -10959,8 +12704,8 @@
      *  topped up via the LLM-driven `_topUpCelebritySeeds` path.
      *
      *  Per-entry shape:
-     *    · id           · kebab-slug · doubles as `AvatarSkill` seed
-     *                     (deterministic 8-bit portrait)
+     *    · id           · kebab-slug · doubles as `Avatar3DSnap` seed
+     *                     (deterministic 3D voxel portrait)
      *    · name         · verbatim, no i18n (proper nouns)
      *    · roleTag      · short mono tag · kept English to match the
      *                     mono kicker register used elsewhere
@@ -11378,8 +13123,13 @@
 
     /** Preview card · all generated fields editable inline. */
     renderAgentSpecPreviewHtml(spec) {      const seed = this.agentSpecAvatarSeed;
-      const avatarSvg = (window.AvatarSkill && seed)
-        ? window.AvatarSkill.generate(seed, { size: 96 })
+      // Avatar paints async via Avatar3DSnap (see the post-render
+      // hydration that follows). The frame mounts with a cached
+      // snap if hot, otherwise empty + a CSS placeholder spinner.
+      const snap = window.Avatar3DSnap;
+      const cachedSnap = (seed && snap && typeof snap.cacheGet === "function") ? snap.cacheGet(seed) : null;
+      const avatarSvg = cachedSnap
+        ? `<img src="${cachedSnap}" alt="">`
         : `<div class="ag-prev-av-empty">—</div>`;
       // Reachable models only · filter by `/api/models` cache so the
       // user can't pick a model their active credential can't route
@@ -11848,9 +13598,14 @@
         this.personaJob.finalGuessRoleTag = data.guessRoleTag || "director";
         // Avatar seed · matches Signal-mode's pattern. Random per
         // build, user can re-roll on the save card.
-        this.personaJob.avatarSeed = (window.AvatarSkill && window.AvatarSkill.randomSeed)
-          ? window.AvatarSkill.randomSeed()
+        this.personaJob.avatarSeed = (window.Avatar3DSnap && window.Avatar3DSnap.randomSeed)
+          ? window.Avatar3DSnap.randomSeed()
           : null;
+        // Warm the 3D snap cache so the persona save overlay's
+        // portrait paints instantly when it opens.
+        if (this.personaJob.avatarSeed && window.Avatar3DSnap && typeof window.Avatar3DSnap.generate === "function") {
+          window.Avatar3DSnap.generate(this.personaJob.avatarSeed).catch(() => { /* */ });
+        }
         this._closePersonaSse();
         this._stopPersonaTick();
         this._personaRender();
@@ -12776,12 +14531,15 @@
             const e = await r.json().catch(() => ({}));
             throw new Error(e.error || ("HTTP " + r.status));
           }
-          // Pull the new agent record so we can attach a pending
-          // distilled voice (when present). The persona save endpoint
-          // returns the inserted row at the top level.
+          // Read the persona save response once · we need (a) the new
+          // agent id to apply a 3D portrait screenshot (best-effort)
+          // and (b) the same id to attach any pending distilled voice
+          // before the roster refresh below picks the new director up.
           const savedAgent = await r.json().catch(() => null);
-          if (savedAgent && savedAgent.id) {
-            await this._attachPendingDistilledVoice(savedAgent.id);
+          const newId = savedAgent && (savedAgent.id || (savedAgent.agent && savedAgent.agent.id));
+          if (newId) {
+            await this.apply3dPortrait(newId);
+            await this._attachPendingDistilledVoice(newId);
           }
           // Capture the celebrity seed id (if any) BEFORE nulling
           // personaJob below · `_markCelebritySeedConsumed` needs
@@ -12868,9 +14626,19 @@
           const userModel = this.loadAgentComposerModel();
           if (userModel && MODEL_LABELS[userModel]) this.agentSpec.modelV = userModel;
         }
-        this.agentSpecAvatarSeed = (window.AvatarSkill && window.AvatarSkill.randomSeed)
-          ? window.AvatarSkill.randomSeed()
+        this.agentSpecAvatarSeed = (window.Avatar3DSnap && window.Avatar3DSnap.randomSeed)
+          ? window.Avatar3DSnap.randomSeed()
           : null;
+        // Kick off the 3D portrait render so the cache is hot by the
+        // time the preview card mounts + the save handler reads it.
+        if (this.agentSpecAvatarSeed && window.Avatar3DSnap && typeof window.Avatar3DSnap.generate === "function") {
+          const seed = this.agentSpecAvatarSeed;
+          window.Avatar3DSnap.generate(seed).then((dataUrl) => {
+            if (!dataUrl || this.agentSpecAvatarSeed !== seed) return;
+            const f = document.querySelector(".ag-prev-av-frame");
+            if (f) f.innerHTML = `<img src="${dataUrl}" alt="">`;
+          }).catch(() => { /* */ });
+        }
         this.agentSpecError = null;
       } catch (e) {
         const isAbort = (e && (e.name === "AbortError" || /aborted/i.test(String(e.message))));
@@ -12962,7 +14730,11 @@
           }
           const j = await r.json();
           const newId = j && (j.id || (j.agent && j.agent.id));
-          if (newId) await this._attachPendingDistilledVoice(newId);
+          if (newId) {
+            // 3D screenshot avatar (before refresh, so the roster shows it).
+            await this.apply3dPortrait(newId);
+            await this._attachPendingDistilledVoice(newId);
+          }
           await this.refreshAgents?.();
           this.agentSpec = null;
           this.agentSpecAvatarSeed = null;
@@ -13001,14 +14773,19 @@
     },
 
     rerollAgentSpecAvatar() {
-      if (!window.AvatarSkill || !window.AvatarSkill.randomSeed || !window.AvatarSkill.generate) return;
-      this.agentSpecAvatarSeed = window.AvatarSkill.randomSeed();
-      // In-place re-render of just the avatar frame. AvatarSkill exposes
-      // `generate(seed, opts)` (returns SVG markup) — there's no
-      // renderSeedSvg helper, hence the previous reroll silently
-      // failed.
+      const snap = window.Avatar3DSnap;
+      if (!snap || !snap.randomSeed || !snap.generate) return;
+      const seed = snap.randomSeed();
+      this.agentSpecAvatarSeed = seed;
       const frame = document.querySelector(".ag-prev-av-frame");
-      if (frame) frame.innerHTML = window.AvatarSkill.generate(this.agentSpecAvatarSeed, { size: 96 });
+      if (!frame) return;
+      frame.innerHTML = '<div class="ag-prev-av-empty">…</div>';
+      snap.generate(seed).then((dataUrl) => {
+        if (!dataUrl) return;
+        if (this.agentSpecAvatarSeed !== seed) return; // user rolled again
+        const f2 = document.querySelector(".ag-prev-av-frame");
+        if (f2) f2.innerHTML = `<img src="${dataUrl}" alt="">`;
+      }).catch(() => { /* */ });
     },
 
     discardAgentSpec() {
@@ -13038,6 +14815,28 @@
       this._runAgentSpecGeneration(desc);
     },
 
+    /** Give a freshly-created director a 3D screenshot avatar. Renders the
+     *  director's deterministic default 3D config (derived from its id — the
+     *  same look the room + editor show) to a head-and-shoulders PNG and PATCHes
+     *  it as the avatar, plus persists the config. Best-effort: on any failure
+     *  the director keeps the 8-bit SVG avatar it was created with. Call AFTER
+     *  creation (id known) and BEFORE refreshAgents so the roster picks it up. */
+    async apply3dPortrait(agentId) {
+      try {
+        if (!agentId || !window.Avatar3D || typeof window.renderAvatar3DPortrait !== "function") return;
+        const cfg = window.Avatar3D.deriveDefaultAvatarConfig(agentId);
+        const png = await window.renderAvatar3DPortrait(cfg);
+        if (!png) return;
+        await fetch("/api/agents/" + encodeURIComponent(agentId), {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ avatarPath: png, avatar3d: cfg }),
+        });
+      } catch (e) {
+        console.warn("[avatar3d] new-director portrait failed; keeping fallback avatar", e);
+      }
+    },
+
     /** Read inline-edited values from the Signal preview card and
      *  POST to /api/agents. Persona-mode save is a separate path
      *  (`openPersonaConfirmOverlay` → manual-config overlay → its
@@ -13058,10 +14857,15 @@
         instruction: read("instruction").trim(),
         modelV: read("modelV").trim(),
       };
-      // Avatar — generated SVG from current seed, embedded as data: URL.
+      // Avatar — rendered 3D portrait from the current seed, embedded
+      // as a PNG data URL. Render is async (lazy three.js init) but
+      // we already kicked it off when the user landed on the preview
+      // card, so the seed should be hot in the per-seed cache by the
+      // time they click save.
       let avatarPath = null;
-      if (window.AvatarSkill && this.agentSpecAvatarSeed && window.AvatarSkill.generateDataUrl) {
-        avatarPath = window.AvatarSkill.generateDataUrl(this.agentSpecAvatarSeed);
+      const snap = window.Avatar3DSnap;
+      if (snap && this.agentSpecAvatarSeed && typeof snap.generate === "function") {
+        try { avatarPath = await snap.generate(this.agentSpecAvatarSeed); } catch (_) { avatarPath = null; }
       }
       // Ability axes · lifted from the spec produced by /api/agents/generate-spec.
       // The server validates + clamps + falls back to a heuristic if missing.
@@ -13087,7 +14891,12 @@
         const j = await r.json();
         // POST /api/agents returns the agent record directly (not wrapped).
         const newId = j && (j.id || (j.agent && j.agent.id));
-        if (newId) await this._attachPendingDistilledVoice(newId);
+        if (newId) {
+          // Replace the 8-bit avatar with a 3D screenshot before the roster
+          // refresh so the sidebar + profile show the 3D portrait immediately.
+          await this.apply3dPortrait(newId);
+          await this._attachPendingDistilledVoice(newId);
+        }
         // Refresh local agent catalog so the new director shows up
         // in pickers + sidebar immediately.
         await this.refreshAgents?.();
@@ -13166,9 +14975,8 @@
             <span class="brief-picker-num">${this.escape(num)}</span>
             <span class="brief-picker-main">
               <span class="brief-picker-title">${this.escape(b.title || "(untitled)")}</span>
-              ${subtitle ? `<span class="brief-picker-sub">${this.escape(subtitle)}</span>` : ""}
+              ${(subtitle || filedLabel) ? `<span class="brief-picker-subrow">${subtitle ? `<span class="brief-picker-sub">${this.escape(subtitle)}</span>` : ""}${filedLabel ? `<span class="brief-picker-time">${this.escape(filedLabel)}</span>` : ""}</span>` : ""}
             </span>
-            ${filedLabel ? `<span class="brief-picker-time">${this.escape(filedLabel)}</span>` : ""}
             <span class="brief-picker-arrow">↗</span>
           </a>
         `;
@@ -14072,10 +15880,27 @@
       // (instead of relying on agent-overlay's autoTagAvatars regex) is
       // required for custom agents whose avatarPath is a data: URL —
       // the regex only matches `/avatars/*.svg`.
+      // Head-cast avatars · each director wrapped in a span so a
+      // small thread-trigger badge can pin to the avatar's bottom-
+      // right. Avatar click stays as the agent-overlay open (existing
+      // data-agent behavior); the badge gets its own click target
+      // (data-thread-trigger) so the two affordances don't fight.
+      // Chair is never threadable — filter on roleKind. Allow every
+      // status (live, paused, adjourned) — threads are independent
+      // rooms; the parent's status doesn't gate them. Only block
+      // when this room itself is a thread (no nested threads).
+      const canThreadHere = r.kind !== "thread";
+      const threadTipBase = this._t("thread_trigger") || "// thread";
+      const threadIcon = this._threadTriggerIconSvg();
       const castImgs = this.currentMembers
         .map((a) => {
           const id = this.escape(a.id);
-          return `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
+          const img = `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
+          const showBadge = canThreadHere && a.roleKind !== "moderator";
+          const badge = showBadge
+            ? `<button type="button" class="head-cast-thread" data-thread-trigger="${id}" data-no-agent-overlay title="${this.escape(this._t("thread_trigger_tip", { name: a.name || "" }) || threadTipBase)}" aria-label="${this.escape(this._t("thread_trigger_tip", { name: a.name || "" }) || threadTipBase)}">${threadIcon}</button>`
+            : "";
+          return `<span class="head-cast-wrap">${img}${badge}</span>`;
         })
         .join("");
       const castCount = this.currentMembers.length;
@@ -14148,9 +15973,13 @@
         </div>
         <div class="head-actions">
           <a href="#" class="resume-btn" data-resume>[ ▶ ${this.escape(this._t("room_resume_verb"))} ]</a>
+          <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
+          ${this._isReplayActiveForRoom(r.id)
+            ? `<a href="#" class="replay-stop-btn" data-vr-header-stop aria-label="${this.escape(this._t("head_replay_stop_label") || "Stop")}">[ <span class="replay-stop-icon">■</span> ${this.escape(this._t("head_replay_stop_label") || "Stop")} ]</a>`
+            : ""}
           <div class="head-cast">${castHtml}</div>
           <a href="#" class="head-icon-btn head-add-cast" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"></a>
-          <a href="#" class="pause-btn" data-pause>[ <span class="pause-icon">❚❚</span> ${this.escape(this._t("room_pause_verb"))} ]</a>
+          <a href="#" class="head-icon-btn head-threads" data-threads-trigger data-tip="${this.escape(this._t("head_threads_tip") || "All private threads in this room")}" aria-label="${this.escape(this._t("head_threads_label") || "All threads")}"></a>
           <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
           ${this.currentBrief
             ? (() => {
@@ -14200,10 +16029,12 @@
             ? `<a href="#" class="head-icon-btn head-followup" data-room-followup data-tip="${this.escape(this._t("adj_followup_label"))}" aria-label="${this.escape(this._t("adj_followup_label"))}"></a>`
             : `<a href="#" class="head-icon-btn head-adjourn" data-adjourn data-tip="${this.escape(this._t("ib_adjourn_tip"))}" aria-label="${this.escape(this._t("ib_adjourn_label"))}"></a>`}
           ${(r.deliveryMode === "voice"
-              && r.status === "live"
               && window.BoardroomRecorder
               && typeof window.BoardroomRecorder.isAvailable === "function"
-              && window.BoardroomRecorder.isAvailable()) ? (() => {
+              && window.BoardroomRecorder.isAvailable()
+              && (r.status === "live"
+                  || this._isReplayActiveForRoom(r.id)
+                  || window.BoardroomRecorder.isRecording())) ? (() => {
             const isRec = window.BoardroomRecorder.isRecording();
             const tip = isRec ? this._t("head_record_stop_tip") : this._t("head_record_tip");
             const cls = "head-icon-btn head-record" + (isRec ? " is-recording" : "");
@@ -16698,22 +18529,35 @@
       // profile" kept regressing for custom directors.
       const agentTag = !isUser && author ? ` data-agent="${this.escape(author.id)}"` : "";
       // User avatar mirrors the preference-overlay setting · when
-      // prefs.avatarSeed is present we render the AvatarSkill SVG
-      // (same seed as the sidebar foot's user-av), otherwise fall back
-      // to the initial-letter chip we shipped before AvatarSkill
-      // existed.
+      // prefs.avatarUrl (a captured 3D PNG) is present we use that
+      // directly. Otherwise, if the avatarSeed has a cached 3D snap
+      // we paint it synchronously; if not we fall back to the
+      // initial-letter chip (the async snap render kicks in on the
+      // next renderUserBlock paint).
       let userAvHtml;
       if (isUser) {
+        const url = this.prefs?.avatarUrl;
         const seed = this.prefs?.avatarSeed;
-        if (seed && window.AvatarSkill && typeof window.AvatarSkill.generate === "function") {
-          userAvHtml = `<div class="msg-av msg-av-pixel">${window.AvatarSkill.generate(seed)}</div>`;
+        const snap = window.Avatar3DSnap;
+        const cachedSnap = (seed && snap && typeof snap.cacheGet === "function") ? snap.cacheGet(seed) : null;
+        const src = url || cachedSnap || "";
+        if (src) {
+          userAvHtml = `<img class="msg-av" src="${this.escape(src)}" alt="">`;
         } else {
           userAvHtml = `<div class="msg-av">${this.escape((this.prefs?.name || "Y").charAt(0).toUpperCase())}</div>`;
+          // Kick off the async render so future paints hit cache.
+          if (seed && snap && typeof snap.generate === "function") {
+            snap.generate(seed).then(() => {
+              if (typeof this.renderChat === "function") {
+                try { this.renderChat(); } catch (_) {}
+              }
+            }).catch(() => { /* */ });
+          }
         }
       }
       const avatarHtml = isUser
         ? userAvHtml
-        : `<img class="msg-av" src="${this.escape(author?.avatarPath || "/avatars/socrates.svg")}" alt=""${agentTag}>`;
+        : `<img class="msg-av" src="${this.escape(author?.avatarPath || "/avatars/3d/socrates.png")}" alt=""${agentTag}>`;
 
       // Chair round-end: trim the POINTS: block from the bubble; the
       // vote card below the bubble surfaces the points as toggles.
@@ -16731,7 +18575,13 @@
       // the text-mode "two directors flashing" race vanishes.
       const isDirectorMsg = !isUser && !isChair;
       const activeId = this.currentActiveMessageId || null;
-      const speakingGate = !isDirectorMsg || !activeId || m.id === activeId;
+      // `currentActiveMessageId` tracks the MAIN room's currently-
+      // visible speaker · doesn't apply to thread windows (which run
+      // their own SSE / pump with a different message id pool). When
+      // rendering inside a thread, skip the gate so the thread's own
+      // streaming bubble shows the dots + animation normally.
+      const speakingGate = this._renderingThread
+        || !isDirectorMsg || !activeId || m.id === activeId;
       const wantStreaming = !!streaming && speakingGate;
       const stateCls = [];
       if (wantStreaming) stateCls.push("streaming");
@@ -16766,7 +18616,18 @@
       const webSearchUsed = !!(m.meta && m.meta.webSearchUsed);
       const webSearchQuery = (m.meta && typeof m.meta.webSearchQuery === "string") ? m.meta.webSearchQuery : "";
       const webSearchSources = (m.meta && Array.isArray(m.meta.webSearchSources)) ? m.meta.webSearchSources : [];
-      const webSearchBadge = webSearchUsed
+      // Thread mode promotes the director's web-search into a
+      // standalone `.msg-tool-card` rendered ABOVE the bubble,
+      // mirroring the chair's tool-use card in main rooms (chair.ts
+      // emits a tool-use message; here the director's webSearch
+      // lives on the same message's meta, so we synthesise the same
+      // visual treatment in-place). In the main room layout we
+      // keep the original inline-badge-in-meta + sources-panel-
+      // under-bubble pattern (matches every other director bubble
+      // in the room and doesn't compete with the chair's tool-use
+      // cards above).
+      const renderWsAsCard = this._renderingThread === true && webSearchUsed;
+      const webSearchBadge = (!renderWsAsCard && webSearchUsed)
         ? (() => {
           const n = webSearchSources.length;
           const title = this.escape(this._t("msg_ws_title", { query: webSearchQuery, n }));
@@ -16776,7 +18637,7 @@
           return `<button type="button" class="msg-web-search" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" title="${title}">🔍 ${label}</button>`;
         })()
         : "";
-      const webSearchSourcesPanel = webSearchUsed && webSearchSources.length > 0
+      const webSearchSourcesPanel = (!renderWsAsCard && webSearchUsed && webSearchSources.length > 0)
         ? `<div class="msg-web-search-sources" data-msg-ws-sources data-message-id="${this.escape(m.id)}" hidden>
             <div class="msg-web-search-query"><span class="msg-web-search-query-label">${this.escape(this._t("msg_ws_query_label"))}</span><span class="msg-web-search-query-text">${this.escape(webSearchQuery)}</span></div>
             <ol class="msg-web-search-list">
@@ -16790,6 +18651,76 @@
               `).join("")}
             </ol>
           </div>`
+        : "";
+      // Thread mode · synthesise a `.msg-tool-card` for the
+      // director's web-search and surface it ABOVE the bubble.
+      // Visual shape mirrors `chair.ts`'s standalone tool-use card:
+      // banner kicker + body row (status mark + "Searched 'query'"
+      // text + caret) + collapsible sources list + expand button.
+      // Same `data-msg-ws-toggle` / `data-msg-ws-sources` attribute
+      // pair the chair card uses → the existing toggle handler at
+      // app.js:21376 works without modification. Always status=done
+      // since the message meta is set after the search completed.
+      const threadWebSearchCard = renderWsAsCard
+        ? (() => {
+          const n = webSearchSources.length;
+          const hasSources = n > 0;
+          const tail = "";
+          const stamp = !hasSources
+            ? this.escape(this._t("msg_ws_failed"))
+            : n === 1
+              ? this.escape(this._t("msg_ws_done_one", { tail }))
+              : this.escape(this._t("msg_ws_done", { n, tail }));
+          const stampClass = hasSources ? "status-done" : "status-failed";
+          const mark = hasSources ? "✓" : "⚠";
+          const bodyText = this.escape(this._t("msg_ws_card_body", { query: webSearchQuery }));
+          const caret = hasSources ? `<span class="msg-tool-caret" aria-hidden="true">▸</span>` : "";
+          const bodyToggleAttrs = hasSources
+            ? ` data-msg-ws-toggle data-message-id="${this.escape(m.id)}" role="button" tabindex="0" aria-label="${this.escape(this._t("msg_ws_toggle"))}"`
+            : "";
+          const sourcesList = hasSources
+            ? `
+              <ol class="msg-tool-sources-list" data-msg-ws-sources data-message-id="${this.escape(m.id)}" hidden>
+                ${webSearchSources.map((s, i) => {
+                  const url = s && typeof s.url === "string" ? s.url : "";
+                  const title = s && typeof s.title === "string" ? s.title : url;
+                  const desc = s && typeof s.description === "string" ? s.description : "";
+                  const host = this.hostnameOf(url);
+                  const numStr = String(i + 1).padStart(2, "0");
+                  return `
+                    <li>
+                      <span class="msg-tool-sources-num">${numStr}</span>
+                      <a href="${this.escape(url)}" target="_blank" rel="noopener noreferrer" class="msg-tool-sources-title">
+                        <span class="msg-tool-sources-title-text">${this.escape(title)}</span>
+                        <span class="msg-tool-sources-ext" aria-hidden="true">↗</span>
+                      </a>
+                      <span class="msg-tool-sources-host">${this.escape(host)}</span>
+                      ${desc ? `<span class="msg-tool-sources-desc">${this.escape(desc)}</span>` : ""}
+                    </li>
+                  `;
+                }).join("")}
+              </ol>
+              <button type="button" class="msg-tool-sources-expand" data-msg-ws-toggle data-message-id="${this.escape(m.id)}" aria-label="${this.escape(this._t("msg_ws_toggle"))}">
+                <span class="msg-tool-sources-expand-icon" aria-hidden="true">▾</span>
+                <span class="msg-tool-sources-expand-show">${this.escape(this._t("msg_ws_expand_show", { n }))}</span>
+                <span class="msg-tool-sources-expand-hide">${this.escape(this._t("msg_ws_expand_hide"))}</span>
+              </button>`
+            : "";
+          return `
+            <div class="msg-tool-card ${stampClass} thread-tool-card" data-message-id="${this.escape(m.id)}">
+              <div class="msg-tool-banner">
+                <span class="msg-tool-banner-tag">${this.escape(this._t("msg_ws_banner"))}</span>
+                <span class="msg-tool-banner-stamp">${stamp}</span>
+              </div>
+              <div class="msg-tool-card-body${hasSources ? " is-toggle" : ""}"${bodyToggleAttrs}>
+                <span class="msg-tool-mark" aria-hidden="true">${mark}</span>
+                <span class="msg-tool-card-text">${bodyText}</span>
+                ${caret}
+              </div>
+              ${sourcesList}
+            </div>
+          `;
+        })()
         : "";
 
       // Round-end card · render even DURING streaming so the user sees
@@ -16860,9 +18791,11 @@
               ${ctxBadge}
               <span class="msg-time">${this.timeFmt(m.createdAt)}</span>
             </div>
+            ${threadWebSearchCard}
             <div class="msg-bubble">${bubbleHtml}</div>
             ${webSearchSourcesPanel}
           </div>
+          ${this._messageToolbarHtml(m, isUser, isChair, excusedMember, author)}
         </article>
         ${roundEndCard}
         ${roundPromptCard}
@@ -17447,7 +19380,7 @@
     },
 
     /** Inline pixel-art chair sprite · 32×40 viewBox, painted as 1×1
-     *  rect cells in the same vocabulary as /public/avatars/chair.svg.
+     *  rect cells in the same vocabulary as /public/avatars/3d/chair.png.
      *  `isModerator: true` adds two cyan side-rails + a cyan headrest
      *  gem to distinguish the chair's seat from the directors'. */
     renderRoundTableChairSvg(isModerator) {
@@ -17520,8 +19453,12 @@
         members.push({
           id: "__user__",
           name: prefs.name || "You",
-          avatarPath: null,
+          // Prefer the 3D portrait PNG; the seat sprite shows it directly.
+          avatarPath: prefs.avatarUrl || null,
           __seed: prefs.avatarSeed || null,
+          // When the user has a saved 3D avatar, the room renders them as a
+          // full 3D figure (like directors) rather than a flat billboard.
+          avatar3d: prefs.avatar3d || null,
           __isUser: true,
         });
       }
@@ -17814,6 +19751,38 @@
       return { id: null, state: null };
     },
 
+    /** Is `authorId`'s TTS audio actually PRODUCING SOUND right now? Used by
+     *  the 3D room to sync the talking-mouth animation to real audio — the
+     *  "speaking" stage state can lead the audio (a streaming-text turn shows
+     *  "speaking" before its TTS chunk starts), which made mouths move
+     *  silently. This reads the live <audio> element, so it's frame-accurate.
+     *  Read each frame from voice-3d's tick (cheap · 0-2 queues). */
+    isSpeakerAudible(authorId) {
+      if (!authorId) return false;
+      // Voice-replay (adjourned playback) drives the seat itself · audible
+      // exactly when its playback state is "speaking".
+      const replay = (typeof window !== "undefined" && window.boardroomVoiceReplay
+        && typeof window.boardroomVoiceReplay.getActive === "function")
+        ? window.boardroomVoiceReplay.getActive() : null;
+      if (replay && replay.authorId) {
+        return replay.authorId === authorId && replay.state === "speaking";
+      }
+      // Live room · a voice queue for this author whose <audio> is playing.
+      const qs = this.voiceQueues;
+      if (qs) {
+        for (const k in qs) {
+          const vq = qs[k];
+          if (!vq || vq.playState !== "playing" || vq.authorId !== authorId) continue;
+          const a = vq.audio;
+          // The "playing" flag is set when audio.play() is invoked; confirm the
+          // element is genuinely running (not paused/ended/buffering at 0).
+          if (!a) return true; // flagged playing, no element to inspect → trust it
+          if (!a.paused && !a.ended && a.currentTime > 0) return true;
+        }
+      }
+      return false;
+    },
+
     /** Stage SFX driver · used by BOTH the 3D delegate path and the
      *  legacy 2D path so the thinking-blip loop + speaker-change
      *  chime fire regardless of which stage renderer is active.
@@ -17859,35 +19828,23 @@
       const floorMode = VALID_FLOORS.includes(tone) ? tone : "constructive";
       stage.setAttribute("data-floor", floorMode);
 
-      // ── 3D stage delegate ─────────────────────────────────────
-      // When the user's "voxel 3D stage" toggle is on (default) AND
-      // the voice-3d module loaded AND WebGL is available, hand off
-      // to VoiceStage3D and skip the legacy 2D seat DOM render.
-      // Falls through to the 2D path on toggle off / no WebGL / no
-      // module · the legacy SVG table + seats DOM stay in place
-      // for that case (we never delete them, only `.is-3d` hides).
-      const stage3dPref = (() => {
-        try { return localStorage.getItem("boardroom.stage3d") !== "off"; }
-        catch (_) { return true; }
-      })();
+      // ── 3D stage · the only path now ──────────────────────────
+      // The legacy 2D SVG stage was retired · the voice room is
+      // 3D-only. WebGL is required; if it's not available, the stage
+      // simply doesn't paint (caller is expected to gate room entry
+      // on `VS3D.isSupported()` if a no-WebGL fallback ever returns).
+      // The aria-label + HUD + subtitle + SFX tail still runs so
+      // screen readers and the status panels stay in sync regardless.
+      const members = this.roundTableMembers();
+      const positions = this.computeSeatPositions(members);
       const VS3D = window.VoiceStage3D;
-      const use3d = stage3dPref && VS3D && typeof VS3D.mount === "function" && VS3D.isSupported();
-      const members3d = this.roundTableMembers();
-      const positions3d = this.computeSeatPositions(members3d);
-      if (use3d) {
+      const sp = this._resolveStageSpeaker();
+      let speakingId = sp && sp.id ? sp.id : null;
+
+      if (VS3D && typeof VS3D.mount === "function" && VS3D.isSupported()) {
         try {
           VS3D.mount(stage);
-          // Compact speaker resolution · mirrors the longer 2D path
-          // below (priority: voice-replay → audible voice queue →
-          // streaming agent message → chair pending / convene →
-          // queue head). Enough to drive the 3D overlay's bubble +
-          // nameplate-hide while-speaking behaviour.
-          const sp = this._resolveStageSpeaker();
           const votePopHtml = this._resolveStageVotePop();
-          // User-spoke bubble · mirrors the 2D `data-rt-user-bubble`
-          // element. Active when the latest user message landed
-          // within the last USER_BUBBLE_TTL_MS, computed once per
-          // render so the bubble's countdown progress is fresh.
           const ub = this.userBubble;
           const nowMs = Date.now();
           const ubActive = !!(ub && ub.text && !ub.dismissed && nowMs < ub.deadline);
@@ -17896,8 +19853,8 @@
                 (this.USER_BUBBLE_TTL_MS - (ub.deadline - nowMs)) / this.USER_BUBBLE_TTL_MS))
             : 0;
           VS3D.update({
-            members: members3d,
-            positions: positions3d,
+            members,
+            positions,
             mode: floorMode,
             speakerId: sp.id,
             speakerState: sp.state,
@@ -17909,444 +19866,18 @@
             userWait: !!this.pendingUserMessage,
             userBubble: ubActive ? { text: ub.text, progress: ubProgress } : null,
           });
-          // The 2D path below ends with calls to renderRoundTableHud
-          // + renderRtSubtitle so the status panel + live subtitle
-          // stay in sync with each renderRoundTable. The 3D delegate
-          // `return`s above the 2D code, so without these two calls
-          // here the HUD div stays empty until some unrelated SSE
-          // (config-event / queue-update) happens to fire them ·
-          // user reported "HUD shows as a thin line, fixed by
-          // toggling the tone" which was exactly that race.
-          this.renderRoundTableHud();
-          this.renderRtSubtitle();
-          // Stage SFX · same call the 2D tail makes (thinking loop +
-          // speaker-change chime). Reuses `sp` resolved above so the
-          // helper sees the exact speaker/state the 3D scene rendered.
-          this._applyStageSfx(sp.id, sp.state);
-          return;
         } catch (e) {
-          // 3D path blew up · fall through to the legacy 2D render
-          // so the user still gets a working stage. Logged so we can
-          // diagnose later · the toggle stays on (user-flipped only).
-          console.warn("[voice-3d] mount/update failed, falling back to 2D:", e);
-          try { VS3D.unmount(); } catch (_) {}
-        }
-      } else if (VS3D && typeof VS3D.unmount === "function" && stage.classList.contains("is-3d")) {
-        // Toggle just flipped off · tear down the 3D canvas so the
-        // 2D path below paints into a clean stage.
-        try { VS3D.unmount(); } catch (_) {}
-      }
-
-      const seatsHost = stage.querySelector("[data-rt-seats]");
-      if (!seatsHost) return;
-      const members = members3d;
-      const positions = positions3d;
-
-      // Build seat HTML. Z-order via inline style based on the y
-      // coordinate so seats with larger y (front) paint last and
-      // occlude back-row seats / the table edge.
-      const seatsByZ = positions
-        .map((seat, i) => ({ seat, i, zScore: Math.round(seat.y * 10) }))
-        .sort((a, b) => a.zScore - b.zScore);
-
-      // Determine the active speaker AND whether they're thinking
-      // (warming up · no tokens yet) or actively speaking (tokens
-      // flowing). Priority:
-      //  1. Most recent streaming message → that author. State
-      //     depends on body content: empty body = thinking,
-      //     non-empty = speaking.
-      //  2. Most recent message with an ACTIVE VOICE QUEUE (audio
-      //     is being streamed/played for it). Catches chair
-      //     templated announcements (announceRoundPrompt +
-      //     announceIntervention) that emit voice-chunks without
-      //     setting meta.streaming · the user hears them speaking,
-      //     so the bubble must surface even though the streaming
-      //     flag is false.
-      //  3. currentQueue[0] when status === "speaking" → queue head
-      //     just promoted, no message-appended yet → thinking.
-      //  4. Otherwise null (idle).
-      let speakingId = null;
-      let speakerState = null; // "thinking" | "speaking"
-      let replayBody = null;   // populated only during voice-replay
-      // (0) Voice-replay override · when an adjourned room is playing
-      //     back its transcript via the replay overlay, the live
-      //     `streaming` / queue signals are absent (the room is
-      //     done). Read the replay's active speaker so the seat
-      //     lights up + the bubble + subtitle reflect the playback.
-      //     The `body` field powers the subtitle bar at the foot of
-      //     the stage (`renderRoundTableSubtitle`). Falls through to
-      //     the live-detection paths below when replay isn't active.
-      const replayActive = (typeof window !== "undefined"
-        && window.boardroomVoiceReplay
-        && typeof window.boardroomVoiceReplay.getActive === "function")
-        ? window.boardroomVoiceReplay.getActive()
-        : null;
-      if (replayActive && replayActive.authorId) {
-        speakingId = replayActive.authorId;
-        speakerState = replayActive.state === "speaking" ? "speaking" : "thinking";
-        replayBody = replayActive.body || "";
-      }
-      const msgs = this.currentMessages || [];
-      // (1) Audible voice queue takes precedence · with cross-director
-      //     pipelining, the most-recent streaming message is often the
-      //     PRE-WARMED next speaker (B's placeholder lands while A's
-      //     audio still plays). The seat that lights up must match
-      //     whoever the user is HEARING — not whoever's text is
-      //     streaming in the background. Scan voiceQueues for the
-      //     playing one and resolve back to its message's author.
-      if (!speakingId && this.voiceQueues) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const mm = msgs[i];
-          if (!mm || mm.authorKind !== "agent") continue;
-          const vq = this.voiceQueues[mm.id];
-          if (vq && vq.playState === "playing") {
-            speakingId = mm.authorId;
-            speakerState = "speaking";
-            break;
-          }
+          console.warn("[voice-3d] mount/update failed:", e);
         }
       }
-      // (2) Streaming message fallback · only relevant when no audible
-      //     queue exists (text mode, OR the brief warmup between
-      //     message-appended and first voice-chunk). Picks the most
-      //     recent streaming agent message that ISN'T pre-warmed —
-      //     pre-warmed messages have a voiceQueue with playState
-      //     "queued" and should NOT light up a seat.
-      if (!speakingId) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const mm = msgs[i];
-          if (!(mm && mm.meta && mm.meta.streaming === true && mm.authorKind === "agent")) continue;
-          // Skip queued (pre-warmed) speakers · their voice waits for
-          // the playing speaker's audio to finish.
-          const vq = this.voiceQueues && this.voiceQueues[mm.id];
-          if (vq && vq.playState === "queued") continue;
-          speakingId = mm.authorId;
-          const body = String(mm.body || "").trim();
-          speakerState = body.length > 0 ? "speaking" : "thinking";
-          break;
-        }
-      }
-      // (2b) Dead branch removed · the old "voice queue exists at all"
-      //      path was replaced by the playing-queue priority above.
-      if (false && !speakingId && this.voiceQueues) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const mm = msgs[i];
-          if (!mm || mm.authorKind !== "agent") continue;
-          const vq = this.voiceQueues[mm.id];
-          if (vq && vq.playState === "playing") {
-            speakingId = mm.authorId;
-            speakerState = "speaking";
-            break;
-          }
-        }
-      }
-      // (3) Chair preparing (silent prep phase between user input
-      //     and the chair's message-appended) · without this hook
-      //     the user has no visual signal during the seconds the
-      //     chair spends on tools + LLM startup. Show the thinking
-      //     bubble on the chair seat so they know the chair is
-      //     working. Cleared the moment the chair's real message
-      //     appends (hideChairPending fires).
-      if (!speakingId && this.chairPending === true && this.currentChair) {
-        speakingId = this.currentChair.id;
-        speakerState = "thinking";
-      }
-      // (3b) Convening sequence active (auto-pick + chair prep) ·
-      //      the chat-side convening card is hidden in voice mode,
-      //      so without this the stage shows nothing happening for
-      //      the 3-4s the picker LLM + chair tools + LLM startup
-      //      take. chairPending above only fires AFTER auto-pick-
-      //      complete; conveneState covers the EARLIER picker phase
-      //      too. Cleared on the chair's first message-appended.
-      if (!speakingId && this.conveneState && this.currentChair) {
-        speakingId = this.currentChair.id;
-        speakerState = "thinking";
-      }
-      if (!speakingId && Array.isArray(this.currentQueue) && this.currentQueue[0] && this.currentQueue[0].status === "speaking") {
-        speakingId = this.currentQueue[0].agentId;
-        speakerState = "thinking";
-      }
 
-      // Speaker's messageId · derived from the same priority chain
-      // above. Used by the stalled-audio bubble (per-queue watchdog
-      // surfaces on the speaker's bubble + the Skip click needs the
-      // messageId to POST /voice-done). Null when the speaker is
-      // thinking-only (no message id yet) or during replay.
-      let speakingMsgId = null;
-      if (speakingId && this.voiceQueues) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const mm = msgs[i];
-          if (!mm || mm.authorKind !== "agent") continue;
-          if (mm.authorId !== speakingId) continue;
-          if (this.voiceQueues[mm.id]) { speakingMsgId = mm.id; break; }
-        }
-      }
-      const stalledQ = (speakingMsgId && this.voiceQueues && this.voiceQueues[speakingMsgId] && this.voiceQueues[speakingMsgId].stalled)
-        ? this.voiceQueues[speakingMsgId]
-        : null;
+      // Stage SFX · thinking loop + speaker-change chime. The 2D
+      // path used to compute speakingId/state itself; we reuse the
+      // resolver above so this stays single-source.
+      this._applyStageSfx(sp.id, sp.state);
 
-      // Stage SFX · thinking loop + speaker-change chime. Logic
-      // lives in _applyStageSfx so the 3D delegate path can reuse
-      // it; see that helper for the AudioContext / voice-queue
-      // gating rationale.
-      this._applyStageSfx(speakingId, speakerState);
-
-      const html = seatsByZ.map(({ seat, i }) => {
-        const m = seat.member;
-        const isChair = seat.kind === "chair";
-        const isUser = !!m.__isUser;
-        const qIdx = isUser ? -1 : this.roundTableQueueIndex(m.id);
-        const isSpeaking = !isUser && m.id === speakingId;
-        const isQueued   = qIdx >= 1; // anyone after the head
-
-        // Chair sprite · user gets the plain (no-moderator-gem) chair
-        // sprite; the seat reads as "joined the table" not "running it".
-        const chairSvg = this.renderRoundTableChairSvg(isChair);
-        // Avatar · user takes prefs.avatarSeed via AvatarSkill when
-        // available, otherwise falls back to an initial-letter chip
-        // (mirrors the sidebar pattern at app.js:4847). Directors /
-        // chair use their stored avatarPath image.
-        let avatar;
-        if (isUser) {
-          const seed = m.__seed;
-          if (seed && window.AvatarSkill && typeof window.AvatarSkill.generate === "function") {
-            avatar = `<div class="rt-avatar rt-avatar-user has-pixel-av">${window.AvatarSkill.generate(seed)}</div>`;
-          } else {
-            const initial = this.escape(((m.name || "?")[0] || "?").toUpperCase());
-            avatar = `<div class="rt-avatar rt-avatar-user rt-avatar-initial">${initial}</div>`;
-          }
-        } else {
-          // `data-agent` opens the lightweight director overlay (see
-          // public/agent-overlay.js bubble-phase click handler). Tagged
-          // on directors AND the chair so the user can peek at any
-          // seated voice from the stage; user seat is a div, not an
-          // img, and is intentionally not tagged.
-          avatar = `<img class="rt-avatar" data-agent="${this.escape(m.id)}" src="${this.escape(m.avatarPath || "")}" alt="${this.escape(m.name || "")}">`;
-        }
-        // Name plate · adds a small "Chairman / 董事长" title beneath
-        // the user's name so the user seat reads as the room owner /
-        // chairman. Pulled from i18n (`rt_user_title`) so the label
-        // follows the active UI locale: defaults to "Chairman" in
-        // English, "董事长" in Chinese. Directors and the chair
-        // render the plain single-line name.
-        const name = isUser
-          ? `<div class="rt-name">${this.escape(m.name || "")}<div class="rt-name-title">${this.escape(this._t("rt_user_title"))}</div></div>`
-          : `<div class="rt-name">${this.escape(m.name || "")}</div>`;
-        const bubbleState = isSpeaking ? speakerState : null;
-        // Bubble carries the speaker's NAME so the user always knows
-        // who's speaking — the name plate beneath/above the seat is
-        // hidden during speaking (display:none in CSS), and without a
-        // name on the bubble itself the user could only guess. Status
-        // word ("thinking" / "speaking") is rendered as a smaller
-        // mono kicker beneath the name. Color + dots animation still
-        // distinguishes thinking (amber) from speaking (lime).
-        // Convene override · while the room is mid-convening, the
-        // chair seat shows the current stage label ("Analyzing topic"
-        // / "Seating directors" / "Preparing remarks") instead of the
-        // generic "Thinking" so the user knows WHICH part of the
-        // setup is in flight. Falls back to the generic label for
-        // every non-chair speaker and for chair turns post-convene.
-        let statusWord = bubbleState === "thinking"
-          ? this._t("rt_thinking")
-          : this._t("rt_speaking");
-        if (bubbleState === "thinking" && isChair && this.conveneState) {
-          const stageKey = ({
-            analyzing: "conv_stage_analyzing_title",
-            seating: "conv_stage_seating_title",
-            preparing: "conv_stage_preparing_title",
-          })[this.conveneState.stage];
-          if (stageKey) statusWord = this._t(stageKey);
-        }
-        // Chair-pending phase (server-driven · chair-pending payload.phase).
-        // Maps known phase strings to i18n keys so the bubble label
-        // reflects WHAT silent work is happening — picker LLM, clarify
-        // gate, vote summary, brief stages, etc. Falls back to the
-        // existing convene-stage / "Thinking" label when phase is
-        // empty or unrecognised.
-        if (bubbleState === "thinking" && isChair && this.chairPending && this.chairPendingPhase) {
-          const phaseKey = ({
-            "clarify-deciding": "rt_phase_clarify_deciding",
-            "picker-deciding":  "rt_phase_picker_deciding",
-            "next-speaker":     "rt_phase_next_speaker",
-            "llm-warming":      "rt_phase_llm_warming",
-            "vote-summary":     "rt_phase_vote_summary",
-            "brief-extracting": "rt_phase_brief_extracting",
-            "brief-composing":  "rt_phase_brief_composing",
-            "brief-writing":    "rt_phase_brief_writing",
-          })[this.chairPendingPhase];
-          if (phaseKey) statusWord = this._t(phaseKey);
-        }
-        // Per-message LLM first-token watchdog · client-side belt for
-        // the server's 60s hard cap. When a streaming director message
-        // has gone >8s with no message-token arriving, _localPhase is
-        // flipped to "llm-warming" and the bubble shows that label
-        // until the first token lands (or the server auto-skips).
-        if (bubbleState === "thinking" && !isChair) {
-          const streamingMsg = (this.currentMessages || []).slice().reverse().find(
-            (mm) => mm && mm.authorKind === "agent" && mm.authorId === m.id
-                 && mm.meta && mm.meta.streaming === true,
-          );
-          if (streamingMsg && streamingMsg.meta && streamingMsg.meta._localPhase === "llm-warming") {
-            statusWord = this._t("rt_phase_llm_warming");
-          }
-        }
-        const bubbleCls = bubbleState === "thinking"
-          ? "rt-bubble is-thinking"
-          : "rt-bubble";
-        // User bubble · ephemeral, shows latest typed message plus
-        // an `×` close button. Visible only when not dismissed and
-        // the deadline hasn't elapsed. The 10s countdown is
-        // rendered AS the bubble's border via a conic-gradient
-        // driven by `--rt-bubble-user-progress` (0 → 1 over 10s);
-        // the inline-text countdown digit was removed so prose
-        // can use the bubble's full interior width.
-        let bubble = "";
-        if (isUser) {
-          const ub = this.userBubble;
-          if (ub && !ub.dismissed && ub.text && Date.now() < ub.deadline) {
-            const elapsed = this.USER_BUBBLE_TTL_MS - (ub.deadline - Date.now());
-            const progress = Math.min(1, Math.max(0, elapsed / this.USER_BUBBLE_TTL_MS));
-            bubble = `<div class="rt-bubble rt-bubble-user" data-rt-user-bubble style="--rt-bubble-user-progress: ${progress.toFixed(3)}">` +
-              `<span class="rt-bubble-user-text">${this.escape(ub.text)}</span>` +
-              `<button type="button" class="rt-bubble-user-close" data-rt-user-bubble-close aria-label="Dismiss">✕</button>` +
-              `</div>`;
-          }
-        } else if (isChair && this.chairBubble && !this.chairBubble.dismissed
-            && this.chairBubble.text && Date.now() < this.chairBubble.deadline) {
-          // Chair clarify question · pinned to the chair seat with
-          // border countdown. Takes precedence over the "Speaking"
-          // status bubble since the chair has already finished its
-          // turn at this point (message-final flipped streaming off).
-          const cb = this.chairBubble;
-          const elapsed = this.CHAIR_BUBBLE_TTL_MS - (cb.deadline - Date.now());
-          const progress = Math.min(1, Math.max(0, elapsed / this.CHAIR_BUBBLE_TTL_MS));
-          bubble = `<div class="rt-bubble rt-bubble-chair-clarify" data-rt-chair-bubble style="--rt-bubble-chair-progress: ${progress.toFixed(3)}">` +
-            `<span class="rt-bubble-chair-clarify-text">${this.escape(cb.text)}</span>` +
-            `<button type="button" class="rt-bubble-chair-clarify-close" data-rt-chair-bubble-close aria-label="Dismiss">✕</button>` +
-            `</div>`;
-        } else if (isSpeaking) {
-          // Stalled-audio variant · the chunk-arrival watchdog flipped
-          // q.stalled when no new TTS chunks arrived for ~8s. Repaint
-          // the bubble amber to signal the issue; the 15s auto-skip
-          // inside the watchdog will recover automatically.
-          if (stalledQ && stalledQ.messageId === (this.voiceQueues[speakingMsgId]?.messageId)) {
-            // Audio stalled · the chunk-arrival watchdog flipped
-            // q.stalled when no new TTS chunks arrived for ~8s. Show
-            // an amber state on the bubble so the user understands
-            // why playback paused. The 15s auto-skip in the watchdog
-            // recovers automatically · no manual click affordance.
-            const stalledText = this._t("rt_audio_stalled");
-            bubble = `<div class="${bubbleCls} is-stalled"`
-              + ` title="${this.escape(stalledText)}">`
-              + `<span class="rt-bubble-name">${this.escape(m.name || "")}</span>`
-              + `<span class="rt-bubble-status">${this.escape(stalledText)}</span>`
-              + `</div>`;
-          } else {
-            bubble = `<div class="${bubbleCls}"><span class="rt-bubble-name">${this.escape(m.name || "")}</span><span class="rt-bubble-status">${this.escape(statusWord)}</span><span class="rt-bubble-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
-          }
-        }
-        const badge = (isQueued && !isSpeaking)
-          ? `<div class="rt-badge">${String(qIdx + 1).padStart(2, "0")}</div>`
-          : "";
-
-        // Vote popover on the chair seat · single voice-mode surface
-        // for both phases of the vote flow:
-        //   (A) round-prompt phase · chair has just prompted at round
-        //       wrap; popover shows [Open vote] [Continue] [Adjourn].
-        //   (B) round-end vote phase · awaitingContinue === true;
-        //       popover shows the 3 key-points + Continue / Adjourn
-        //       AFTER the chair has finished its TTS turn.
-        // The popover is suppressed while the chair is mid-presenting
-        // (preparing, streaming text, or audio still playing). The
-        // user wants to hear the chair speak first, THEN see the
-        // panel — without this gate the panel popped up under the
-        // chair's voice and split the user's attention.
-        const hasActivePrompt = (typeof this.activeRoundPromptId === "function")
-          ? !!this.activeRoundPromptId()
-          : false;
-        const isChairBusy = (() => {
-          if (this.chairPending === true) return true;
-          // Chair message landed but voice synthesis hasn't reached
-          // the client yet · the popover would otherwise flash for
-          // 0.5-2s before audio kicks in. See `_chairVoiceAwaiting`
-          // doc + the message-appended hook for the full reasoning.
-          if (this._chairVoiceAwaiting && this._chairVoiceAwaiting.size > 0) return true;
-          const allMsgs = this.currentMessages || [];
-          for (let k = allMsgs.length - 1; k >= 0; k--) {
-            const mm = allMsgs[k];
-            if (!mm || mm.authorKind !== "agent") continue;
-            // Most recent agent turn · streaming text OR active voice
-            // playback counts as "busy". Voice queues stay live for
-            // templated chair messages too (announceRoundPrompt), so
-            // this catches round-prompt voice as well as the LLM
-            // round-end stream.
-            if (mm.meta && mm.meta.streaming === true) return true;
-            if (this.voiceQueues && this.voiceQueues[mm.id]) return true;
-            return false;
-          }
-          return false;
-        })();
-        const showVotePop = isChair && this.currentRoom
-          && this.currentRoom.status !== "adjourned"
-          && (this.currentRoom.awaitingContinue === true || hasActivePrompt)
-          && !isChairBusy;
-        const votePop = showVotePop ? this.renderRoundTableVotePop() : "";
-
-        // Seats whose y is below the stage midline (chair + any
-        // front-row directors) get `rt-seat-below`. CSS flips the
-        // name plate to sit BELOW the chair sprite for these so
-        // names of front-row seats don't land on the table surface
-        // and obscure the props.
-        const isBelow = seat.y > 50;
-        const cls = [
-          "rt-seat",
-          isChair ? "rt-seat-chair" : (isUser ? "rt-seat-user" : "rt-seat-director"),
-          isSpeaking ? "rt-seat-speaking" : "",
-          isSpeaking && speakerState === "thinking" ? "rt-seat-thinking" : "",
-          showVotePop ? "rt-seat-voting" : "",
-          isBelow ? "rt-seat-below" : "",
-        ].filter(Boolean).join(" ");
-
-        // Inline style carries position + scaleHint + stagger index.
-        const style = [
-          `left: ${seat.x.toFixed(2)}%`,
-          `top: ${seat.y.toFixed(2)}%`,
-          `--rt-scale: ${seat.scaleHint.toFixed(3)}`,
-          `--seat-i: ${i}`,
-        ].join("; ");
-
-        // Wait-marker · only on the user seat, only when the user
-        // has picked "wait — flush after current speaker finishes"
-        // (pendingUserMessage is set). Reads as a small pixel pill
-        // anchored to the seat so a glance at the table answers
-        // "is my queued message still parked?" — clears the moment
-        // the message-appended SSE for the user's body lands.
-        const waitMark = (isUser && this.pendingUserMessage)
-          ? `<div class="rt-seat-wait-mark" aria-label="Waiting for current speaker to finish">⌛&nbsp;WAIT</div>`
-          : "";
-
-        return `
-          <div class="${cls}" data-seat-index="${i}" data-agent-id="${this.escape(m.id)}" style="${style}">
-            ${chairSvg}
-            ${avatar}
-            ${bubble}
-            ${badge}
-            ${waitMark}
-            ${name}
-            ${votePop}
-          </div>
-        `;
-      }).join("");
-
-      // Empty state · no directors yet.
-      const empty = members.length <= 1
-        ? `<div class="rt-empty"><span>// awaiting directors</span></div>`
-        : "";
-
-      seatsHost.innerHTML = html + empty;
-
-      // Update aria-label to keep screen readers in sync with the
-      // visual state · the speaking-queue strip below remains the
+      // Aria-label keeps screen readers in sync with the visible
+      // speaker · the speaking-queue strip below remains the
       // canonical accessible source of truth, this is just a hint.
       const speaker = members.find((m) => m.id === speakingId);
       const queuedNames = (this.currentQueue || [])
@@ -18365,18 +19896,15 @@
       }
       stage.setAttribute("aria-label", aria);
 
-      // Persistent HUD repaint · cheap (single template literal +
-      // innerHTML write) and the data sources are the same room
-      // state already consulted above. Always called on round-table
-      // re-render so the stat block stays in sync with round /
-      // member / vote changes that don't fire toasts.
+      // Persistent HUD + live subtitle repaint · cheap and the data
+      // sources are the same room state already consulted above. The
+      // message-token hot path calls renderRtSubtitle directly to
+      // bypass full re-render cost; this call covers queue-update /
+      // config-event / SSE hello cases that flow through here.
       this.renderRoundTableHud();
-      // Live subtitle · keep in sync with the same speaker-detection
-      // signals the seats use. Repaints triggered from message-token
-      // already call renderRtSubtitle directly to bypass the full
-      // seat re-render cost; this call covers queue-update / config-
-      // event / SSE hello cases that flow through renderRoundTable.
       this.renderRtSubtitle();
+      return;
+
     },
 
     /** Paint the top-left HUD console · gamified RPG-style status
@@ -20410,6 +21938,21 @@
       app.closeRecordingStopModal();
       return;
     }
+    // Pause-after-current save modal · three-option grammar
+    // (save-adjourn / save-keep / continue). Fired by SSE
+    // room-paused when payload.mode==="soft" + recording active.
+    const recPauseSaveChoice = e.target.closest("[data-rec-pause-save-choice]");
+    if (recPauseSaveChoice) {
+      e.preventDefault();
+      app.handleRecordingPauseSaveChoice(recPauseSaveChoice.getAttribute("data-rec-pause-save-choice"));
+      return;
+    }
+    if (e.target.id === "rec-pause-save-overlay") {
+      // Backdrop click · keep recording (don't accidentally end
+      // a recording the user explicitly hasn't decided to stop).
+      app.closeRecordingPauseSaveModal();
+      return;
+    }
     // Record button in the room header · toggle on/off.
     if (e.target.closest("[data-record-toggle]")) {
       e.preventDefault();
@@ -21692,19 +23235,21 @@
     }
   });
 
-  // Input-bar textarea scrollbar reveal · the scrollbar is
-  // permanently hidden via `.ib-textarea { scrollbar-width: none }`
-  // and only flips visible while the user is actively scrolling.
-  // We toggle a `.is-scrolling` class on the SCROLLING element with
-  // a debounced removal so the scrollbar fades back out ~800 ms
-  // after the last scroll event. Scroll events don't bubble, so the
-  // listener is in capture phase to catch them from any textarea
-  // anywhere in the document.
+  // Scrollbar auto-reveal · `.ib-textarea` (room input bar) and
+  // `.thread-float-messages` (thread chat) both render with
+  // `scrollbar-width: none` by default and only flip visible
+  // while the user is actively scrolling. We toggle `.is-scrolling`
+  // with an 800 ms debounce so the scrollbar fades back out
+  // shortly after the last scroll. Scroll events don't bubble,
+  // hence the capture-phase listener.
   const _scrollDecayTimers = new WeakMap();
   document.addEventListener("scroll", (ev) => {
     const t = ev.target;
-    if (!t || !(t instanceof HTMLTextAreaElement)) return;
-    if (!t.classList.contains("ib-textarea")) return;
+    if (!t || !(t instanceof HTMLElement)) return;
+    const eligible =
+      (t instanceof HTMLTextAreaElement && t.classList.contains("ib-textarea"))
+      || t.classList.contains("thread-float-messages");
+    if (!eligible) return;
     t.classList.add("is-scrolling");
     const prev = _scrollDecayTimers.get(t);
     if (prev) clearTimeout(prev);

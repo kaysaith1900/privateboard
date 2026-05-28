@@ -64,7 +64,7 @@
         flex-direction: column;
         gap: 4px;
         font-family: var(--sans, system-ui), sans-serif;
-        font-size: 13px;
+        font-size: 14px;
         color: var(--text);
       }
       .mention-picker[hidden] { display: none; }

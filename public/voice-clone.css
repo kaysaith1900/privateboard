@@ -1,0 +1,875 @@
+/* ═══════════════════════════════════════════════════════════════════
+   voice-clone.css · Director voice cloning overlay + minimized pill
+   ═══════════════════════════════════════════════════════════════════
+
+   Chrome (overlay shell, panel, head, classification strip, foot) is
+   a 1:1 mirror of `.room-settings-overlay` (see room-settings.css) so
+   the two modals read as the same product family — same backdrop
+   blur, same lime corner brackets on the panel, same mono kicker
+   strip up top, same ▸ lime arrow prefix on the title, same close
+   button geometry. Body / source-picker / progress / trim controls
+   keep their voice-clone-specific layout but inherit the shared
+   typography (mono font, lime accents).
+
+   Two surfaces share state:
+   1. `.vc-overlay` — full-screen modal (z-index 950, same as room-
+      settings; both sit beneath higher-z modals like adjourn).
+   2. `.vc-pill` — right-bottom floating chip while the modal is
+      minimized. z-index 940 (above main chat, below modals).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Overlay shell · `.room-settings-overlay` clone ──────────────── */
+.vc-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 950;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  animation: vc-fade 0.14s ease-out;
+}
+.vc-overlay.is-open { display: flex; }
+.vc-overlay.is-collapsed { display: none; }
+/* Electron macOS drag-region carve-out · mirror room-settings'
+   no-drag claim so close / minimize buttons aren't eaten by the
+   OS-level drag handler. */
+html.is-electron-mac .vc-overlay,
+html.is-electron-mac .vc-overlay * { -webkit-app-region: no-drag; }
+@keyframes vc-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes vc-rise { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.vc-backdrop {
+  position: absolute;
+  inset: 0;
+  /* No frosted blur here — the overlay itself does the blur, like
+     room-settings. Backdrop is just the click-to-dismiss target. */
+  background: transparent;
+}
+.vc-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 48px);
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: vc-rise 0.18s ease-out;
+}
+.vc-panel > .vc-classification,
+.vc-panel > .vc-head,
+.vc-panel > .vc-foot { flex: 0 0 auto; }
+.vc-panel > .vc-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Lime corner brackets · the room-settings signature. Drawn with
+   1.5px borders on opposite corners so the L-shape reads "this is a
+   live boardroom modal" the moment the user sees it. */
+.vc-panel::before,
+.vc-panel::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--lime);
+  pointer-events: none;
+}
+.vc-panel::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.vc-panel::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+/* ── Classification strip · lime kicker + right meta ───────────── */
+.vc-classification {
+  background: var(--strip-bg);
+  border-bottom: 0.5px solid var(--line-bright);
+  padding: 5px 14px;
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lime);
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.vc-classification .right {
+  color: var(--text-faint);
+  letter-spacing: 0.12em;
+}
+
+/* ── Head · meta + title (▸ prefix) + controls ─────────────────── */
+.vc-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px 12px;
+  background: var(--strip-bg);
+  border-bottom: 0.5px dashed var(--line-bright);
+}
+.vc-head .meta {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+.vc-head .title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.vc-head .title::before {
+  content: "▸ ";
+  color: var(--lime);
+}
+.vc-head-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.vc-head-btn {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--mono);
+  border-radius: 3px;
+  transition: all 0.12s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.vc-head-btn::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon, none);
+          mask-image: var(--icon, none);
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 12px 12px;
+          mask-size: 12px 12px;
+}
+.vc-head-btn:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+[data-vc-minimize] {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14'/></svg>");
+}
+[data-vc-close] {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>");
+}
+
+/* ── Body / picker stage ──────────────────────────────────────────── */
+.vc-body {
+  padding: 14px 16px 4px;
+}
+.vc-section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0 0 8px;
+}
+.vc-source-input {
+  margin-bottom: 14px;
+}
+.vc-source-input[hidden] { display: none; }
+.vc-file-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 0.5px dashed var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 14px;
+}
+.vc-file-pick:hover { border-color: var(--lime); color: var(--text); }
+.vc-file-pick.has-file {
+  border-style: solid;
+  color: var(--text);
+}
+.vc-file-pick svg { width: 16px; height: 16px; flex-shrink: 0; }
+.vc-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ── File-trim panel · dual-handle range slider over a thin
+   track. The two `<input type=range>` overlap; CSS hides their
+   default fill and only paints the thumbs. The `.vc-trim-track-
+   fill` div renders the selected band between handles. */
+.vc-trim {
+  margin-top: 12px;
+}
+.vc-trim-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.vc-trim-track {
+  position: relative;
+  height: 28px;
+  margin: 4px 4px 6px;
+}
+.vc-trim-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  background: var(--panel-3);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.vc-trim-track-fill {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  background: var(--lime);
+  border-radius: 2px;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.vc-trim-range {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+.vc-trim-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+.vc-trim-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--lime);
+  border: 2px solid var(--panel);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  margin-top: 6px;
+}
+.vc-trim-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--lime);
+  border: 2px solid var(--panel);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.vc-trim-range::-moz-range-track {
+  background: transparent;
+  height: 28px;
+}
+.vc-trim-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+.vc-trim-meta-sep { color: var(--text-faint); }
+.vc-trim-meta-dur { color: var(--text-faint); margin-left: auto; font-size: 10px; }
+
+/* ── Source mode tabs · "Upload file" / "Record voice" ────── */
+.vc-source-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.vc-source-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 10px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  border-radius: 4px;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.vc-source-mode svg { width: 14px; height: 14px; flex-shrink: 0; }
+.vc-source-mode:hover { color: var(--text); border-color: color-mix(in srgb, var(--lime) 30%, var(--line-bright)); }
+.vc-source-mode.is-active {
+  background: color-mix(in srgb, var(--lime) 12%, var(--panel-2));
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
+/* ── Record-mode pane · script + circular rec button + level meter ── */
+.vc-record-script {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+  line-height: 1.55;
+}
+/* Reading-script block · differentiates via TYPOGRAPHY (serif italic
+   + larger size + lime mono kicker via ::before) plus a hairline
+   top rule. Per CLAUDE.md "No coloured `border-left` callouts" we
+   do NOT paint a vertical accent strip — typography + top rule is
+   the canonical callout vocabulary for this codebase. */
+.vc-record-script-text {
+  margin: 0 0 14px;
+  padding: 12px 0 0;
+  border-top: 0.5px solid var(--line-bright);
+  font-family: var(--font-human, var(--serif, var(--sans)));
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.vc-record-script-text::before {
+  content: "// script";
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+.vc-record-stage {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "btn meta" "btn level";
+  column-gap: 16px;
+  row-gap: 8px;
+  align-items: center;
+  padding: 16px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  border-radius: 6px;
+}
+.vc-record-btn {
+  grid-area: btn;
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--lime) 16%, var(--panel-3));
+  border: 0.5px solid color-mix(in srgb, var(--lime) 45%, var(--line-bright));
+  color: var(--lime);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s, border-color 0.18s, transform 0.12s;
+}
+.vc-record-btn:hover { transform: scale(1.04); border-color: var(--lime); }
+.vc-record-glyph { font-size: 22px; line-height: 1; pointer-events: none; }
+.vc-record-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--red, #B5706A) 65%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.vc-record-btn.is-recording {
+  background: color-mix(in srgb, var(--red, #B5706A) 28%, var(--panel-3));
+  border-color: var(--red, #B5706A);
+  color: var(--red, #B5706A);
+}
+.vc-record-btn.is-recording .vc-record-ring {
+  opacity: 1;
+  animation: vc-record-pulse 1.2s ease-in-out infinite;
+}
+@keyframes vc-record-pulse {
+  0%, 100% { transform: scale(1);    opacity: 0.7; }
+  50%      { transform: scale(1.18); opacity: 0;   }
+}
+.vc-record-meta {
+  grid-area: meta;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.vc-record-time {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.vc-record-state {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.vc-record-level {
+  grid-area: level;
+  display: flex;
+  align-items: flex-end;
+  justify-content: stretch;
+  gap: 3px;
+  height: 24px;
+}
+.vc-record-level i {
+  flex: 1;
+  display: block;
+  height: 12%;
+  background: color-mix(in srgb, var(--lime) 55%, var(--panel-3));
+  border-radius: 1px;
+  transition: height 0.06s linear, background 0.18s;
+}
+.vc-record-btn.is-recording ~ .vc-record-meta + .vc-record-level i,
+.vc-record-stage:has(.vc-record-btn.is-recording) .vc-record-level i {
+  background: var(--lime);
+}
+.vc-record-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.vc-record-actions .vc-btn { flex: 1; }
+
+/* File-hint micro-row · sits under the file picker and explains
+   what we accept (audio + video containers). */
+.vc-file-hint {
+  margin: 6px 2px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+  line-height: 1.55;
+}
+
+.vc-label-input {
+  margin-top: 6px;
+}
+.vc-label-input input {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  outline: none;
+}
+.vc-label-input input:focus { border-color: var(--lime); }
+.vc-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  line-height: 1.55;
+}
+.vc-hint strong { color: var(--text-soft); font-weight: 600; }
+
+/* ── Progress stage (replaces .vc-body content during clone) ──── */
+.vc-progress { padding: 20px; }
+.vc-progress[hidden] { display: none; }
+.vc-stage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.vc-step {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+.vc-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  grid-row: 1 / span 2;
+}
+.vc-step-label {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text-faint);
+}
+.vc-step-pct {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.vc-step-bar {
+  grid-column: 2 / span 2;
+  height: 4px;
+  background: var(--panel-2);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.vc-step-bar-fill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: var(--lime);
+  transition: width 0.18s ease;
+}
+.vc-step.is-active .vc-step-num {
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
+}
+.vc-step.is-active .vc-step-label { color: var(--text); font-weight: 500; }
+.vc-step.is-active .vc-step-pct { color: var(--lime); }
+.vc-step.is-done .vc-step-num {
+  background: color-mix(in srgb, var(--lime) 26%, transparent);
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.vc-step.is-done .vc-step-num::after {
+  content: "✓";
+  font-size: 12px;
+  font-weight: 700;
+}
+.vc-step.is-done .vc-step-num { font-size: 0; }
+.vc-step.is-done .vc-step-label { color: var(--text); }
+.vc-step.is-done .vc-step-bar-fill { width: 100% !important; }
+
+.vc-stage-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-soft);
+  line-height: 1.55;
+  min-height: 16px;
+  /* Preserve newlines so the stderr tail appended to error messages
+     (see normaliseError in routes/voice-clone.ts) keeps yt-dlp's
+     diagnostic line breaks. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.vc-stage-text.is-error { color: var(--red); }
+
+/* ── Success / preview stage · replaces the progress view when
+       the clone job lands `done`. Reads as a celebration row plus a
+       big play button and an editable sample line. ─────────────── */
+.vc-success {
+  padding: 24px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+.vc-success[hidden] { display: none; }
+.vc-success-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.vc-success-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+.vc-success-title {
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.vc-preview-btn {
+  position: relative;
+  align-self: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--lime);
+  border: 0;
+  color: var(--bg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  line-height: 1;
+  transition: transform 0.12s, box-shadow 0.18s, background 0.18s;
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--lime) 80%, transparent);
+}
+.vc-preview-btn:hover { transform: translateY(-1px); }
+.vc-preview-btn:active { transform: translateY(0); }
+.vc-preview-btn.is-loading { cursor: progress; background: color-mix(in srgb, var(--lime) 60%, var(--panel-2)); }
+.vc-preview-btn.is-playing { background: color-mix(in srgb, var(--lime) 80%, white); }
+.vc-preview-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.vc-preview-glyph { pointer-events: none; font-size: 24px; line-height: 1; }
+.vc-preview-dots {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.vc-preview-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bg);
+  animation: vc-pulse 0.9s ease-in-out infinite;
+}
+.vc-preview-dots i:nth-child(2) { animation-delay: 0.15s; }
+.vc-preview-dots i:nth-child(3) { animation-delay: 0.3s; }
+.vc-preview-btn.is-loading .vc-preview-glyph { visibility: hidden; }
+.vc-preview-btn.is-loading .vc-preview-dots { display: inline-flex; }
+@keyframes vc-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+
+.vc-preview-text {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  max-height: 160px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.vc-preview-text:focus { border-color: var(--lime); }
+.vc-preview-hint {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.55;
+}
+/* Inline status note · used when preview fails (provider 4xx, voice
+   still propagating, audio decode error). Sits where an alert() used
+   to land so the user can read the error in context. */
+.vc-preview-status {
+  display: none;
+  margin: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  text-align: center;
+  color: var(--text-soft);
+}
+.vc-preview-status.is-error { color: var(--red, #B5706A); }
+
+/* ── Foot · buttons row · mirrors room-settings' rs-foot. The
+       hairline border + strip-bg row ties it to the head strip
+       above so the panel reads as a sealed boardroom card. */
+.vc-foot {
+  padding: 12px 16px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 0.5px solid var(--line-bright);
+  background: var(--strip-bg);
+}
+.vc-btn {
+  padding: 8px 14px;
+  background: transparent;
+  border: 0.5px solid var(--line-bright);
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.vc-btn::before { content: "[ "; color: var(--text-faint); }
+.vc-btn::after  { content: " ]"; color: var(--text-faint); }
+.vc-btn:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.vc-btn:hover::before,
+.vc-btn:hover::after { color: var(--lime); }
+.vc-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.vc-btn-primary {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.vc-btn-primary::before,
+.vc-btn-primary::after { color: var(--lime); }
+.vc-btn-primary:hover {
+  background: color-mix(in srgb, var(--lime) 12%, transparent);
+}
+.vc-btn-primary[disabled] {
+  border-color: var(--line-bright);
+  color: var(--text-faint);
+}
+.vc-btn-primary[disabled]::before,
+.vc-btn-primary[disabled]::after { color: var(--text-faint); }
+.vc-btn-danger {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 50%, var(--line-bright));
+}
+.vc-btn-danger:hover {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+  border-color: var(--red);
+}
+.vc-btn-danger::before,
+.vc-btn-danger::after { color: color-mix(in srgb, var(--red) 70%, var(--text-faint)); }
+
+/* ── Minimized pill · floating bottom-right ────────────────────── */
+.vc-pill {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 8400;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 10px;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.12s;
+  overflow: hidden;
+}
+.vc-pill[hidden] { display: none; }
+.vc-pill:hover { transform: translateY(-1px); }
+.vc-pill-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--lime);
+  color: var(--bg);
+  flex-shrink: 0;
+}
+.vc-pill-icon svg { width: 12px; height: 12px; }
+.vc-pill-label {
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.vc-pill-pct {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--lime);
+  font-weight: 700;
+}
+.vc-pill-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--lime) 16%, transparent);
+  overflow: hidden;
+  border-radius: 0 0 999px 999px;
+}
+.vc-pill-progress-fill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: var(--lime);
+  transition: width 0.18s ease;
+}
+.vc-pill.is-failed {
+  border-color: var(--red);
+}
+.vc-pill.is-failed .vc-pill-icon { background: var(--red); }
+.vc-pill.is-failed .vc-pill-pct { color: var(--red); }
+.vc-pill.is-failed .vc-pill-progress-fill { background: var(--red); }
+.vc-pill.is-done .vc-pill-icon { background: var(--lime); }

@@ -1,0 +1,13 @@
+-- 056_agent_user_rules.sql · Persist the per-director "rules" the user
+-- types in the agent profile.
+--
+-- These rules were previously stored only in the browser's localStorage
+-- (`boardroom.agent.rules.<slug>`) and never reached the server — so the
+-- orchestrator never injected them into the director's turn prompt and
+-- the model silently ignored them (e.g. "never mention 范冰冰" had zero
+-- effect). This column makes them durable + server-side so the prompt
+-- builder can inject them as hard constraints.
+--
+-- Stored as a JSON array of strings, e.g. ["不要谈及范冰冰", "always cite a number"].
+-- NULL / absent means "no user rules" (the common case).
+ALTER TABLE agents ADD COLUMN user_rules_json TEXT;

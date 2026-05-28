@@ -1,4 +1,4 @@
--- 053_voice_distill_jobs.sql
+-- 059_voice_distill_jobs.sql
 --
 -- Persistence for the "voice distill from public video" pipeline.
 -- One row per attempt; survives SSE disconnect / tab close so a
@@ -19,7 +19,7 @@
 -- voice_id; the orchestrator additionally writes the new voice into
 -- `voice_credentials` so the rest of the app sees a normal voice row.
 
-CREATE TABLE voice_distill_jobs (
+CREATE TABLE IF NOT EXISTS voice_distill_jobs (
   id            TEXT PRIMARY KEY,
   -- The public video URL the user submitted (YouTube / Bilibili / direct mp4 / etc.)
   video_url     TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE voice_distill_jobs (
   error         TEXT
 );
 
-CREATE INDEX voice_distill_jobs_status
+CREATE INDEX IF NOT EXISTS voice_distill_jobs_status
   ON voice_distill_jobs(status);
-CREATE INDEX voice_distill_jobs_started_at
+CREATE INDEX IF NOT EXISTS voice_distill_jobs_started_at
   ON voice_distill_jobs(started_at DESC);

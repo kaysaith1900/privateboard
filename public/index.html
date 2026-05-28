@@ -87,7 +87,7 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     height: 100vh;
@@ -327,7 +327,7 @@
   .migrate-deck {
     margin: 0;
     font-family: var(--font-human, system-ui, sans-serif);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
   }
@@ -1107,68 +1107,19 @@
      mask here also overrides the generic .mini-btn::before, which —
      lacking an --icon — would otherwise paint a solid square. */
   .mini-logo { position: relative; }
-  /* The chair avatar is a two-layer stack: open-eye frame always
-     visible, closed-eye frame flashed in by the blink keyframe. The
-     wrapper carries an occasional idle hop. */
-  .mini-logo-av {
-    position: relative;
-    width: 26px;
-    height: 26px;
-    transition: opacity 0.12s;
-    animation: chair-hop 7s ease-in-out infinite;
-  }
-  .mini-logo-av img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-  }
-  /* Closed-eye frame · hidden at rest, briefly opaque on the blink
-     keyframe. A different cycle length from the hop keeps the two from
-     locking into a robotic sync. */
-  .mini-logo-av .cl-blink {
-    opacity: 0;
-    animation: chair-blink 5.7s ease-in-out infinite;
-  }
-  .mini-logo:hover .mini-logo-av { opacity: 0; }
-  /* Occasional double-bounce hop · still ~85% of the cycle, then a
-     quick two-step hop so the chair reads as "alive" without being
-     busy. */
-  @keyframes chair-hop {
-    0%, 60%, 100% { transform: translateY(0); }
-    66% { transform: translateY(-4px); }
-    72% { transform: translateY(0); }
-    77% { transform: translateY(-2px); }
-    82% { transform: translateY(0); }
-  }
-  /* Single crisp blink near the end of the cycle (~170ms closed). */
-  @keyframes chair-blink {
-    0%, 93.5%, 100% { opacity: 0; }
-    94%, 96.5% { opacity: 1; }
-    97% { opacity: 0; }
-  }
-  /* Respect reduced-motion · hold the open-eye frame, no hop / blink. */
-  @media (prefers-reduced-motion: reduce) {
-    .mini-logo-av,
-    .mini-logo-av .cl-blink { animation: none; }
-  }
+  /* Fold glyph · same Lucide PanelLeft mark the in-sidebar collapse
+     button uses. Always visible (no chair avatar / hover swap),
+     mirrored on X so the rows flip to the right edge — telegraphs
+     "the panel expands out from here". */
   .mini-logo::before {
     content: "";
     position: absolute;
     top: 50%;
     left: 50%;
-    /* scaleX(-1) mirrors the fold so the rows flip to the right edge —
-       the same direction the in-sidebar collapse button uses in its
-       collapsed state to telegraph "the panel expands out from here". */
     transform: translate(-50%, -50%) scaleX(-1);
     -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
             mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
-    opacity: 0;
-    transition: opacity 0.12s;
   }
-  .mini-logo:hover::before { opacity: 1; }
   /* Divider between the action group and the rooms/agents switchers. */
   .mini-sep {
     width: 20px;
@@ -1234,7 +1185,7 @@
     justify-content: center;
     gap: 7px;
     font-family: var(--sans);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-dim);
     cursor: pointer;
@@ -1358,6 +1309,7 @@
   .agent-row .agent-row-av {
     width: 32px;
     height: 32px;
+    margin-top: -10px;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     flex-shrink: 0;
@@ -1554,7 +1506,7 @@
     position: relative;
     z-index: 1;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--lime);
     line-height: 1;
   }
@@ -2059,11 +2011,11 @@
     position: relative;
     overflow: hidden;
   }
-  /* Pixel-art variant · when prefs.avatarSeed exists, app.renderUserBlock
-     swaps the initial-letter chip for an AvatarSkill SVG. The pixel SVG
-     is transparent, so we drop the fill entirely (was --lime, then
-     --bg) and let it sit directly on the surface behind it — no boxed
-     square around the character. */
+  /* 3D portrait variant · when prefs.avatarSeed exists,
+     app.renderUserBlock swaps the initial-letter chip for the
+     Avatar3DSnap rendered PNG. The image fills the chip; we drop the
+     filled background so the portrait reads cleanly against the
+     surface behind it. */
   .user-av.has-pixel-av {
     background: transparent;
   }
@@ -2229,6 +2181,17 @@
      and leaving an empty band below. */
   .main-view[hidden] { display: none !important; }
 
+  /* Boot guard · on refresh, the sidebar restore tick has to wait for
+     the agent rows to mount before openAgentProfile fires, but app.js's
+     handleRoute paints the new-room composer into the room view straight
+     away on an empty hash. Mask the room view while a saved agent profile
+     is being restored so the composer doesn't flash under the profile.
+     The guard class is set SYNCHRONOUSLY during parse (top of the sidebar
+     IIFE, before app.js's deferred init runs) and cleared the moment the
+     profile opens or the restore gives up. `!important` beats app.js's
+     own removeAttribute("hidden") on the room view during that window. */
+  html.bb-restoring-agent .main-view[data-main-view="room"] { display: none !important; }
+
   /* ─── All Reports · clean vertical reading list ──────────────────
      Single-hierarchy archive view · header → filter chips → date-
      grouped reading rows. Each row uses pure typography (kicker /
@@ -2372,7 +2335,7 @@
     background: var(--panel-2);
   }
   .reports-load-more-arrow {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
 
@@ -2883,7 +2846,7 @@
   }
   .search-overlay-status-msg {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-soft);
     line-height: 1.5;
     max-width: 360px;
@@ -4202,6 +4165,34 @@
     letter-spacing: 0.1em;
   }
   .resume-btn:hover { background: var(--bg); color: var(--lime); }
+  /* Stop voice replay · same compact mono chrome as pause/resume, but in
+     red so it reads as a distinct "terminate playback" action. Rendered
+     by app.js only while a replay is active in this room, and it sits in
+     the pause/resume slot (those are hidden on adjourned rooms, where
+     replay runs) so it lands exactly where the eye looks for transport. */
+  .replay-stop-btn {
+    padding: 4px 10px;
+    background: transparent;
+    color: var(--text);
+    border: 0.5px solid var(--red, #B5706A);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transition: all 0.12s;
+  }
+  .replay-stop-btn .replay-stop-icon {
+    color: var(--red, #B5706A);
+    margin: 0 1px;
+    letter-spacing: -0.05em;
+  }
+  .replay-stop-btn:hover {
+    background: rgba(181, 112, 106, 0.12);
+    color: var(--red, #B5706A);
+  }
   /* ─── Empty state ───
      No room loaded (zero-room first-run, or after a navigation). The
      starter panel renders inside .chat; the input bar, speaking queue,
@@ -4715,7 +4706,7 @@
   .brief-active-substage {
     font-family: var(--font-headline, "Charter", "Songti SC", Georgia, serif);
     font-style: italic;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin-top: 6px;
@@ -5022,7 +5013,7 @@
     color: var(--bg);
   }
   .brief-retry-mark {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
 
@@ -5086,7 +5077,7 @@
     border: none;
     color: var(--text-faint);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     padding: 2px 4px;
   }
@@ -5121,7 +5112,7 @@
     color: var(--text-faint);
     width: 18px;
     padding: 0 4px 0 0;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     cursor: pointer;
     opacity: 0;
@@ -5458,7 +5449,7 @@
      what the user is looking at before they get to the verdict. */
   .dv-purpose {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin: 0;
@@ -5511,7 +5502,7 @@
   }
   .dv-verdict-body {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     margin: 0;
@@ -5532,7 +5523,7 @@
   }
   .dv-unexplored-row {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     color: var(--text);
     padding: 8px 12px;
@@ -5710,7 +5701,7 @@
      overflows. Mirrors the adjourn-overlay / room-settings clamp
      pattern so all three modals read identically. */
   .followup-parent-subject {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text);
     line-height: 1.4;
@@ -6396,7 +6387,7 @@
        common case (textarea + one strip); tall textarea +
        multiple strips can still cover the bottom message, the
        user scrolls a touch — acceptable. */
-    padding: calc(14px + var(--room-head-h, 56px)) 50px 140px 40px;
+    padding: calc(14px + var(--room-head-h, 56px)) 40px 140px 40px;
     transition: opacity 0.18s ease-out;
   }
   /* Note-jump loading state · the user clicked a note in the All
@@ -6715,7 +6706,7 @@
     color: var(--text);
     text-decoration: none;
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.005em;
     line-height: 1.4;
@@ -6727,6 +6718,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    font-weight: 400;
   }
   .msg-tool-sources-title:hover {
     color: var(--lime);
@@ -7352,15 +7344,14 @@
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 14px;
     border: 0.5px solid var(--line-strong);
     font-family: var(--mono);
   }
-  /* Pixel-art variant · when prefs.avatarSeed is set, renderChat swaps
-     the initial-letter chip for the AvatarSkill SVG (same seed the
-     sidebar foot + preference overlay use). The SVG provides its own
-     surface, so drop the border + bg + flex centering and let it fill
-     the chip edge-to-edge. */
+  /* Legacy pixel-av variant · the renderChat path no longer mounts
+     `msg-av-pixel` (Avatar3DSnap PNG fills `<img class="msg-av">`
+     directly), but the CSS is kept for any third-party plugins that
+     still write into that node. */
   .msg.user .msg-av.msg-av-pixel {
     border: none;
     background: var(--bg);
@@ -7546,7 +7537,10 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .msg-time { color: var(--text-faint); margin-left: auto; }
+  /* Flows inline right after the badges (no longer pinned far-right via
+     margin-left:auto) so the far-right end of the meta line is free for
+     the hover thread toolbar to sit at the row's end. */
+  .msg-time { color: var(--text-faint); }
 
   .msg-bubble {
     padding: 0;
@@ -7608,12 +7602,12 @@
      Used by quote-cta probe / second messages and any plain
      markdown blockquote a director / chair might emit. */
   .msg-bubble .msg-quote {
-    margin: 0 0 12px;
-    padding: 10px 14px;
+    margin: 0;
+    padding: 10px 0;
     background: var(--panel-2);
     font-family: var(--font-agent);
     font-style: italic;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
   }
@@ -7629,7 +7623,6 @@
     font-style: normal;
     margin-bottom: 6px;
   }
-  .msg-bubble .msg-quote:last-child { margin-bottom: 0; }
   /* Markdown tables · editorial style. No outer box, no zebra, no
      uppercase data-grid headers — those read as "spreadsheet pasted
      into a conversation" and broke the bubble's literary register.
@@ -7646,7 +7639,7 @@
     width: 100%;
     font-family: var(--font-human);
     font-style: normal;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
     letter-spacing: -0.003em;
@@ -7982,7 +7975,7 @@
   .kp-row:hover { border-color: var(--line-strong); }
   .kp-body {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     line-height: 1.4;
   }
@@ -8480,23 +8473,16 @@
     --rt-bottom-reserve: 130px;
   }
 
-  /* ─── brainstorm · SOIL + GRASS floor ────────────────────────
-     128×128 tileable terrain · grass base with two irregular dirt
-     patches placed inside the tile bounds so when the pattern
-     repeats the patches read as organic "islands" of bare earth in
-     a grass field rather than a gridded indoor layout. Subtle
-     tonal blobs in the grass (darker / lighter) break the flat
-     fill; scattered 1×2 lighter pixels read as grass blades
-     catching light; pebbles + dust spots inside the dirt patches
-     add ground-texture detail. JRPG outdoor-tile vocabulary for
-     the "yes-and" creative tone — open ground, room to grow.
-
-     Replaces the earlier muted-earth grid mosaic which still read
-     as an indoor floor pattern even at the larger tile size. */
+  /* ─── brainstorm · WARM-OAK PLANK floor ───────────────────────
+     128×64 light warm-oak planks · alternating plank tones, darker
+     seams, staggered plank-end joints, a soft catch-light under each
+     seam, and a few faint grain dashes. Pairs with the 3D room's cozy
+     modern interior (voice-3d.js · brainstorm = window / chest / sage
+     sofa) so the directors sit on a warm wood floor. Bright + cozy. */
   .roundtable-stage[data-floor="brainstorm"] {
-    --floor-bg: #5E6B47;
+    --floor-bg: #B0976E;
     --rt-chair-name: var(--lime, #6FB572);
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%235E6B47'/><rect x='0' y='8' width='20' height='16' fill='%234F5C3D'/><rect x='104' y='20' width='20' height='20' fill='%234F5C3D'/><rect x='88' y='64' width='24' height='16' fill='%234F5C3D'/><rect x='0' y='64' width='12' height='20' fill='%234F5C3D'/><rect x='44' y='64' width='16' height='8' fill='%234F5C3D'/><rect x='72' y='8' width='12' height='8' fill='%236E7A52'/><rect x='120' y='80' width='8' height='12' fill='%236E7A52'/><rect x='48' y='84' width='8' height='8' fill='%236E7A52'/><rect x='48' y='24' width='32' height='32' fill='%235C4838'/><rect x='44' y='28' width='4' height='24' fill='%235C4838'/><rect x='80' y='28' width='4' height='24' fill='%235C4838'/><rect x='52' y='20' width='24' height='4' fill='%235C4838'/><rect x='52' y='56' width='20' height='4' fill='%235C4838'/><rect x='56' y='16' width='12' height='4' fill='%235C4838'/><rect x='56' y='32' width='8' height='8' fill='%234A3A28'/><rect x='68' y='40' width='4' height='8' fill='%234A3A28'/><rect x='60' y='24' width='4' height='4' fill='%236E5A48'/><rect x='68' y='48' width='4' height='4' fill='%236E5A48'/><rect x='58' y='44' width='2' height='2' fill='%236B6258'/><rect x='72' y='32' width='2' height='2' fill='%236B6258'/><rect x='50' y='38' width='2' height='2' fill='%236B6258'/><rect x='16' y='96' width='24' height='20' fill='%235C4838'/><rect x='12' y='100' width='4' height='12' fill='%235C4838'/><rect x='40' y='100' width='4' height='12' fill='%235C4838'/><rect x='20' y='92' width='16' height='4' fill='%235C4838'/><rect x='22' y='104' width='8' height='4' fill='%234A3A28'/><rect x='20' y='100' width='4' height='4' fill='%236E5A48'/><rect x='24' y='108' width='2' height='2' fill='%236B6258'/><rect x='32' y='98' width='2' height='2' fill='%236B6258'/><rect x='8' y='40' width='1' height='2' fill='%238FA068'/><rect x='24' y='72' width='1' height='2' fill='%238FA068'/><rect x='104' y='56' width='1' height='2' fill='%238FA068'/><rect x='120' y='104' width='1' height='2' fill='%238FA068'/><rect x='88' y='44' width='1' height='2' fill='%238FA068'/><rect x='4' y='88' width='1' height='2' fill='%238FA068'/><rect x='64' y='88' width='1' height='2' fill='%238FA068'/><rect x='92' y='24' width='1' height='2' fill='%238FA068'/><rect x='44' y='62' width='1' height='2' fill='%238FA068'/><rect x='80' y='120' width='1' height='2' fill='%238FA068'/><rect x='12' y='12' width='1' height='2' fill='%238FA068'/><rect x='112' y='60' width='1' height='2' fill='%238FA068'/></svg>");
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='64' shape-rendering='crispEdges'><rect width='128' height='64' fill='%23B0976E'/><rect y='16' width='128' height='16' fill='%23A68C62'/><rect y='48' width='128' height='16' fill='%23A68C62'/><rect y='0' width='128' height='1' fill='%23C2A87E'/><rect y='16' width='128' height='1' fill='%23C2A87E'/><rect y='32' width='128' height='1' fill='%23C2A87E'/><rect y='48' width='128' height='1' fill='%23C2A87E'/><rect y='15' width='128' height='1' fill='%23877045'/><rect y='31' width='128' height='1' fill='%23877045'/><rect y='47' width='128' height='1' fill='%23877045'/><rect y='63' width='128' height='1' fill='%23877045'/><rect x='40' y='0' width='1' height='16' fill='%23877045'/><rect x='96' y='16' width='1' height='16' fill='%23877045'/><rect x='20' y='32' width='1' height='16' fill='%23877045'/><rect x='72' y='48' width='1' height='16' fill='%23877045'/><rect x='10' y='6' width='14' height='1' fill='%23A38755'/><rect x='60' y='22' width='18' height='1' fill='%23A38755'/><rect x='100' y='40' width='14' height='1' fill='%23A38755'/><rect x='30' y='56' width='16' height='1' fill='%23A38755'/></svg>");
   }
   /* ─── constructive · BLACK-WALNUT STAGGERED PLANK ─────────────
      192×192 tileable boardroom floor · 8 rows of horizontal black-
@@ -8555,10 +8541,16 @@
      arms in antique brass, polished-gold corner dots. Smaller tile
      than the burgundy carpet so the pattern reads as dense metallic
      weave at room scale (executive boardroom polish). */
+  /* ─── critique · DEEP-GREEN WOOL CARPET ───────────────────────
+     64×64 near-solid deep forest-green carpet · only a whisper of
+     low-contrast wool flecks (texture, not pattern). Replaced the
+     busy brass-on-gunmetal grid, which read too loud. Deep green is
+     the classic gentleman's-study pairing for the mahogany +
+     brass executive panel walls — calm, grounding, high-end. */
   .roundtable-stage[data-floor="critique"] {
-    --floor-bg: #3E362C;
+    --floor-bg: #2F3A30;
     --rt-chair-name: #E8C788;
-    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' shape-rendering='crispEdges'><rect width='16' height='16' fill='%233E362C'/><rect x='6' y='7' width='4' height='2' fill='%23BA9050'/><rect x='7' y='6' width='2' height='4' fill='%23BA9050'/><rect x='7' y='2' width='2' height='1' fill='%239F7C42'/><rect x='7' y='13' width='2' height='1' fill='%239F7C42'/><rect x='2' y='7' width='1' height='2' fill='%239F7C42'/><rect x='13' y='7' width='1' height='2' fill='%239F7C42'/><rect x='1' y='1' width='1' height='1' fill='%23E8C788'/><rect x='14' y='1' width='1' height='1' fill='%23E8C788'/><rect x='1' y='14' width='1' height='1' fill='%23E8C788'/><rect x='14' y='14' width='1' height='1' fill='%23E8C788'/></svg>");
+    --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' shape-rendering='crispEdges'><rect width='64' height='64' fill='%232F3A30'/><rect x='6' y='8' width='1' height='1' fill='%233C493C'/><rect x='24' y='5' width='1' height='1' fill='%233C493C'/><rect x='42' y='12' width='1' height='1' fill='%233C493C'/><rect x='58' y='7' width='1' height='1' fill='%233C493C'/><rect x='14' y='26' width='1' height='1' fill='%233C493C'/><rect x='34' y='22' width='1' height='1' fill='%233C493C'/><rect x='50' y='30' width='1' height='1' fill='%233C493C'/><rect x='9' y='44' width='1' height='1' fill='%233C493C'/><rect x='28' y='50' width='1' height='1' fill='%233C493C'/><rect x='46' y='46' width='1' height='1' fill='%233C493C'/><rect x='56' y='56' width='1' height='1' fill='%233C493C'/><rect x='18' y='60' width='1' height='1' fill='%233C493C'/><rect x='12' y='14' width='1' height='1' fill='%23283227'/><rect x='30' y='9' width='1' height='1' fill='%23283227'/><rect x='48' y='6' width='1' height='1' fill='%23283227'/><rect x='60' y='18' width='1' height='1' fill='%23283227'/><rect x='8' y='34' width='1' height='1' fill='%23283227'/><rect x='36' y='30' width='1' height='1' fill='%23283227'/><rect x='52' y='40' width='1' height='1' fill='%23283227'/><rect x='20' y='52' width='1' height='1' fill='%23283227'/><rect x='40' y='58' width='1' height='1' fill='%23283227'/><rect x='26' y='36' width='1' height='1' fill='%23283227'/><rect x='54' y='24' width='1' height='1' fill='%23283227'/><rect x='15' y='42' width='1' height='1' fill='%23283227'/></svg>");
   }
 
   /* 8-bit pixel-art conference table · sized to occupy the
@@ -9360,8 +9352,8 @@
 
   /* Initial-letter avatar chip · fallback when the user has no
      `prefs.avatarSeed` configured. Mirrors the sidebar foot's
-     pre-AvatarSkill chip so the seat reads as "the user, no
-     custom avatar" rather than empty space. */
+     placeholder chip so the seat reads as "the user, no custom
+     avatar" rather than empty space. */
   .rt-avatar-user.rt-avatar-initial {
     display: inline-flex;
     align-items: center;
@@ -9374,14 +9366,14 @@
     font-weight: 700;
     text-transform: uppercase;
   }
-  /* Pixel-art avatar wrapper · when an avatar seed IS present, the
-     SVG is injected by AvatarSkill; this wrapper just constrains it
-     to the same box as a regular `<img class="rt-avatar">`. The
-     wrapper itself stays transparent — the AvatarSkill SVG carries
-     its own surface, and the chair sprite shows through any
-     letterboxed area (the SVG is square, the seat-avatar box is
-     portrait 48×56, so without transparent bg a dark block paints
-     above + below the SVG). */
+  /* Portrait avatar wrapper · when an avatar seed IS present, an
+     Avatar3DSnap PNG is injected by app.renderRoundTable; this
+     wrapper constrains it to the same box as a regular
+     `<img class="rt-avatar">`. The wrapper itself stays transparent
+     — the rendered PNG carries its own surface, and the chair
+     sprite shows through any letterboxed area (the snap is square,
+     the seat-avatar box is portrait 48×56, so without transparent
+     bg a dark block paints above + below the image). */
   .rt-avatar-user.has-pixel-av {
     display: flex;
     align-items: center;
@@ -9721,7 +9713,7 @@
     height: 16px;
     line-height: 1;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     padding: 0;
     cursor: pointer;
@@ -11204,7 +11196,7 @@
   }
   .starter-deck {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-soft);
     line-height: 1.5;
     margin: 0;
@@ -11422,14 +11414,14 @@
     display: grid !important;
     align-content: center !important;
     justify-items: stretch !important;
-    /* `.chat` reserves 140 px of bottom padding for the floating
-       `.ib-stack` (input-bar + speaking-queue strips). The
-       new-room / new-agent composers don't mount an `.ib-stack` —
-       the composer's own `.cmp-toolbar` IS the input row — so
-       inheriting 140 px just pushes the composer off-centre by
-       ~70 px. Reset to a balanced gutter that matches the top
-       padding for visual symmetry. */
-    padding-bottom: 14px !important;
+    /* `.chat` carries gutter padding meant for the room view (top
+       clears the frosted `.room-head`, bottom reserves space for
+       the floating `.ib-stack`). Neither applies to the new-room /
+       new-agent composers — `.room-head:empty` and there's no
+       `.ib-stack`, so the inherited padding just throws off centring
+       and steals horizontal width from the cmp card. Zero it out;
+       `.cmp` carries its own breathing room. */
+    padding: 0 !important;
   }
   .chat.chat--composer > [data-chat-messages] {
     width: 100% !important;
@@ -11450,20 +11442,14 @@
      `50vh - 110px` puts the hero+input vertical midpoint at 50vh.
      `max(32px, …)` keeps the original padding floor on tiny viewports
      where the calc would go negative.
-     Toggled by JS (updateComposerOverflow) on render + resize. */
-  .chat.chat--composer.chat--composer-overflow {
+     Toggled by JS (updateComposerOverflow) on render + resize.
+     Scoped to NOT apply when the new-agent composer (`.ag-cmp`) is
+     mounted — the agent composer keeps the default grid-centre
+     layout regardless of natural height (per user spec). */
+  .chat.chat--composer.chat--composer-overflow:not(:has(.ag-cmp)) {
     display: block !important;
     align-content: initial !important;
     overflow-y: auto;
-  }
-  .chat.chat--composer.chat--composer-overflow .cmp {
-    /* Overflow mode · the starters tray (now augmented with
-       topic recommendations + the "+ N more" button) can push
-       total content past one viewport, at which point the
-       composer can't stay centred. Pin the hero a fixed 120px
-       from the top so it sits comfortably above the fold and
-       the tray scrolls underneath. */
-    padding-top: 120px;
   }
   .cmp-hero {
     text-align: center;
@@ -12073,7 +12059,7 @@
     background: transparent;
     border: none;
     color: var(--text-faint);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     cursor: pointer;
     transition: color 0.1s;
@@ -12353,7 +12339,7 @@
   .cmp-celeb-card {
     position: relative;
     display: grid;
-    grid-template-columns: 56px 1fr;
+    grid-template-columns: 64px 1fr;
     gap: 14px;
     align-items: stretch;
     width: 100%;
@@ -12374,12 +12360,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 4px;
-    overflow: hidden;
-    background: var(--panel);
-    border: 1px solid var(--line);
+    width: 64px;
+    height: 64px;
   }
   .cmp-celeb-img {
     width: 100%;
@@ -12586,7 +12568,7 @@
   }
   .ag-gen-error-desc-body {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.55;
     color: var(--text-soft);
   }
@@ -12617,7 +12599,7 @@
     color: var(--lime);
   }
   .ag-gen-error-retry-mark {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
   .ag-gen-error-discard {
@@ -13053,7 +13035,7 @@
   }
   .pb-done-sub {
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-soft);
     line-height: 1.5;
     margin: 0 auto 18px;
@@ -13095,7 +13077,7 @@
     background: transparent;
     color: var(--lime);
   }
-  .pb-done-open-mark { font-size: 13px; line-height: 1; }
+  .pb-done-open-mark { font-size: 14px; line-height: 1; }
 
   /* When the manual overlay is in Full-mode reuse, surface the
      build's footer-meta override in lime (it carries the
@@ -13119,19 +13101,6 @@
   .pb-stage {
     padding: 16px 0 32px;
     color: var(--text);
-  }
-  /* Persona-builder layout · default behaviour is the SAME as the
-     new-room / new-agent hero: vertically centred by
-     `.chat.chat--composer { align-content: center }`. When the
-     dashboard's natural height exceeds 90% of the viewport (the
-     overflow trigger for pb-stage · `updateComposerOverflow` in
-     app.js switches its threshold from 70% of chat height to 90%
-     of `window.innerHeight` when a `.pb-stage` is present),
-     `.chat--composer-overflow` kicks in and we reduce the default
-     120 px top offset to 50 px so the dashboard pins comfortably
-     near the top of the panel rather than getting shoved down. */
-  .chat.chat--composer.chat--composer-overflow:has(.pb-stage) .cmp {
-    padding-top: 50px !important;
   }
   .pb-stage-head {
     display: grid;
@@ -13677,7 +13646,7 @@
     background: color-mix(in srgb, var(--red) 5%, transparent);
   }
   .pb-cancel-mark {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
   .pb-foot-hint {
@@ -13736,7 +13705,7 @@
     border: 0.5px solid var(--line-bright);
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     padding: 7px 10px;
     width: 100%;
     box-sizing: border-box;
@@ -13871,7 +13840,7 @@
     gap: 12px;
   }
   .ag-persona-error-detail {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     line-height: 1.55;
   }
@@ -14177,7 +14146,7 @@
     border: 0.5px solid var(--line-strong);
     color: var(--text);
     font-family: var(--font-human);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     padding: 8px 10px;
     width: 100%;
@@ -14478,7 +14447,7 @@
   .brief-picker-title-head {
     font-family: var(--mono);
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 400;
     letter-spacing: 0.04em;
     color: var(--text);
   }
@@ -14496,7 +14465,7 @@
   }
   .brief-picker-row {
     display: grid;
-    grid-template-columns: 32px 1fr auto auto;
+    grid-template-columns: 32px 1fr auto;
     gap: 10px;
     align-items: center;
     padding: 10px 12px;
@@ -14523,14 +14492,23 @@
   }
   .brief-picker-title {
     font-family: var(--font-human, system-ui, sans-serif);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 400;
     color: var(--text);
     line-height: 1.3;
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+  }
+  /* Subtitle row · supplement label (left) + filed time (right) share
+     one line beneath the title, so the title row gets the full main
+     column width instead of competing with the time for space. */
+  .brief-picker-subrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
   .brief-picker-sub {
     font-family: var(--mono);
@@ -14540,6 +14518,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .brief-picker-time {
     font-family: var(--mono);
@@ -14547,6 +14527,8 @@
     letter-spacing: 0.04em;
     color: var(--text-faint);
     white-space: nowrap;
+    flex: 0 0 auto;
+    margin-left: auto;
   }
   .brief-picker-arrow {
     font-family: var(--mono);
@@ -15642,7 +15624,7 @@
     flex: 1 1 auto;
     min-width: 0;
     font-family: var(--sans);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     /* Theme accent · `--lime` is the per-theme primary token
        (swapped by every theme in themes.css). Sits on the
@@ -15890,11 +15872,18 @@
 <script src="room-settings.js" defer></script>
 <link rel="stylesheet" href="adjourn-overlay.css">
 <!-- Avatar skill must load before any UI that calls it (new-agent, user-settings). -->
-<script src="avatar-skill.js" defer></script>
+<!-- avatar-3d-snap · shared head-and-shoulders 3D portrait helper
+     (replaces the retired AvatarSkill 8-bit SVG generator). Loads as
+     a classic script so window.Avatar3DSnap is available before app.js
+     init(). Internally lazy-loads three.js + avatar-3d.js only when a
+     portrait is actually requested. -->
+<script src="avatar-3d-snap.js" defer></script>
 <link rel="stylesheet" href="agent-profile.css">
 <script src="agent-profile.js" defer></script>
 <link rel="stylesheet" href="new-agent.css">
 <script src="new-agent.js" defer></script>
+<link rel="stylesheet" href="avatar3d-editor.css">
+<script type="module" src="avatar3d-editor.js"></script>
 <link rel="stylesheet" href="user-settings.css">
 <script type="module" src="keys-store.js"></script>
 <script src="key-validators.js" defer></script>
@@ -15904,6 +15893,7 @@
 <script src="mention-picker.js" defer></script>
 <script src="auto-hide-scroll.js" defer></script>
 <link rel="stylesheet" href="onboarding.css">
+<script src="core-avatars.js" defer></script>
 <script src="voice-3d-banner.js" defer></script>
 <script src="onboarding.js" defer></script>
 <link rel="stylesheet" href="voice-onboarding.css">
@@ -15912,15 +15902,18 @@
 <script src="app-updater.js" defer></script>
 <link rel="stylesheet" href="quote-cta.css">
 <script src="quote-cta.js" defer></script>
+<link rel="stylesheet" href="thread.css">
+<link rel="stylesheet" href="voice-clone.css">
+<script src="voice-clone.js" defer></script>
 <script src="typing-sfx.js" defer></script>
 <script src="agent-build-bgm.js" defer></script>
 <script src="share-cover-svg-creator.js" defer></script>
 <!-- voice-3d · voxel pixel-art 3D round-table renderer. ES module
      (imports three.js from /vendor/three.module.min.js). Loads in
      parallel with app.js · no ordering dependency, app.js feature-
-     detects window.VoiceStage3D at render time. Toggle in user-
-     settings (or localStorage["boardroom.stage3d"]) decides whether
-     to use it · default on, falls back to the legacy 2D SVG path. -->
+     detects window.VoiceStage3D at render time. The voice room is
+     3D-only as of 2026-05; the legacy 2D SVG stage + the user-
+     settings toggle have been retired. -->
 <script type="module" src="voice-3d.js"></script>
 <!-- voice-recorder · meeting capture. Lazy module · only allocates
      anything on first start(). Loaded BEFORE app.js so the global
@@ -16201,12 +16194,7 @@
          sidebar uses); only the logo + rooms + agents expand. -->
     <aside class="mini-sidebar" aria-label="Collapsed sidebar navigation">
       <div class="mini-top">
-        <button type="button" class="mini-btn mini-logo" data-sidebar-expand data-i18n-tip="sidebar_expand" data-tip="Expand sidebar" aria-label="Expand sidebar">
-          <span class="mini-logo-av">
-            <img class="cl-open" src="/avatars/chair.svg" alt="" aria-hidden="true">
-            <img class="cl-blink" src="/avatars/chair-blink.svg" alt="" aria-hidden="true">
-          </span>
-        </button>
+        <button type="button" class="mini-btn mini-logo" data-sidebar-expand data-i18n-tip="sidebar_expand" data-tip="Expand sidebar" aria-label="Expand sidebar"></button>
         <button type="button" class="mini-btn mini-new-room" data-convene-trigger data-i18n-tip="sidebar_new_room" data-tip="New room" aria-label="New room"></button>
         <button type="button" class="mini-btn mini-new-agent" data-agent-composer-trigger data-i18n-tip="sidebar_new_agent" data-tip="New agent" aria-label="New agent"></button>
         <button type="button" class="mini-btn mini-search" data-search-trigger data-tip="Search" aria-label="Search"></button>
@@ -17141,6 +17129,22 @@
     const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
 
+    /* Anti-flash boot guard · runs SYNCHRONOUSLY during parse, before
+       app.js's deferred init paints the new-room composer. If this
+       refresh will restore a saved agent profile, mask the room view
+       now (see the `.bb-restoring-agent` CSS rule) so the composer never
+       flashes under the profile. Cleared by clearAgentRestoreGuard once
+       the profile opens or the restore gives up. */
+    if (lsGet(TAB_KEY) === "agents") {
+      const _savedAgent = lsGet(AGENTS_KEY);
+      if (_savedAgent && _savedAgent !== "new") {
+        document.documentElement.classList.add("bb-restoring-agent");
+      }
+    }
+    function clearAgentRestoreGuard() {
+      document.documentElement.classList.remove("bb-restoring-agent");
+    }
+
     /* Truth source for "does this room exist?" is `window.app.rooms`,
        not the DOM. The sidebar may not have rendered yet on first
        restore (app.init's loadInitial is async and runs concurrently
@@ -17247,14 +17251,25 @@
 
     function applyAgentsSubState(sub) {
       if (!sub || sub === "new") {
+        clearAgentRestoreGuard();
         if (window.app && typeof window.app.setComposerMode === "function") {
           window.app.setComposerMode("agent");
         }
         return;
       }
       if (typeof window.openAgentProfile === "function") {
-        try { window.openAgentProfile(sub); }
+        try {
+          window.openAgentProfile(sub);
+          // Drop the boot guard only once the profile view is actually
+          // visible. open() early-returns (leaving the agent view
+          // hidden) when the agent record hasn't loaded yet — in that
+          // case the retry tick calls us again and the room view stays
+          // masked until the profile genuinely opens.
+          const agentView = document.querySelector('[data-main-view="agent"]');
+          if (agentView && !agentView.hasAttribute("hidden")) clearAgentRestoreGuard();
+        }
         catch (_) {
+          clearAgentRestoreGuard();
           lsSet(AGENTS_KEY, "new");
           if (window.app && typeof window.app.setComposerMode === "function") {
             window.app.setComposerMode("agent");
@@ -17525,10 +17540,17 @@
         const tick = () => {
           attempts += 1;
           const id = lsGet(AGENTS_KEY);
-          if (!id || id === "new") return;
+          if (!id || id === "new") { clearAgentRestoreGuard(); return; }
           const haveAny = document.querySelector(".agents-scroll .agent-row[data-agent-profile]");
-          if (haveAny) { applyAgentsSubState(id); return; }
+          if (haveAny) {
+            applyAgentsSubState(id);
+            // If the profile opened, the guard is already cleared and we
+            // stop. If open() couldn't resolve the agent yet (guard still
+            // set), keep retrying instead of leaving the room view masked.
+            if (!document.documentElement.classList.contains("bb-restoring-agent")) return;
+          }
           if (attempts < 10) setTimeout(tick, 250);
+          else clearAgentRestoreGuard(); // give up · reveal the composer
         };
         setTimeout(tick, 250);
       }
@@ -17718,27 +17740,27 @@
       <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
       <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
         <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
-        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/chair.png" alt="">
         <div class="rt-name">CHAIR</div>
       </div>
       <div class="rt-seat" style="left:14.89%; top:43.11%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/socrates.png" alt="">
         <div class="rt-name">SOCRATES</div>
       </div>
       <div class="rt-seat rt-seat-speaking" style="left:35.45%; top:33.37%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/first-principles.png" alt="">
         <div class="rt-bubble">Speaking</div>
       </div>
       <div class="rt-seat" style="left:64.55%; top:33.37%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/value-investor.png" alt="">
         <div class="rt-name">INVESTOR</div>
       </div>
       <div class="rt-seat" style="left:85.11%; top:43.11%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/historian.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/historian.png" alt="">
         <div class="rt-name">HISTORIAN</div>
       </div>
     </div>
@@ -17756,32 +17778,32 @@
       <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
       <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
         <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
-        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/chair.png" alt="">
         <div class="rt-name">CHAIR</div>
       </div>
       <div class="rt-seat" style="left:13.86%; top:44.44%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/socrates.png" alt="">
         <div class="rt-name">SOCRATES</div>
       </div>
       <div class="rt-seat" style="left:27.66%; top:35.44%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/first-principles.png" alt="">
         <div class="rt-name">PRINCIPLES</div>
       </div>
       <div class="rt-seat" style="left:50%; top:32%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/value-investor.png" alt="">
         <div class="rt-name">INVESTOR</div>
       </div>
       <div class="rt-seat rt-seat-speaking" style="left:72.34%; top:35.44%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/historian.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/historian.png" alt="">
         <div class="rt-bubble">Speaking</div>
       </div>
       <div class="rt-seat" style="left:86.14%; top:44.44%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/long-horizon.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/long-horizon.png" alt="">
         <div class="rt-name">HORIZON</div>
       </div>
     </div>
@@ -17799,22 +17821,22 @@
       <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
       <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
         <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
-        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/chair.png" alt="">
         <div class="rt-name">CHAIR</div>
       </div>
       <div class="rt-seat" style="left:17.09%; top:41%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/socrates.png" alt="">
         <div class="rt-name">SOCRATES</div>
       </div>
       <div class="rt-seat rt-seat-speaking" style="left:50%; top:32%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/first-principles.png" alt="">
         <div class="rt-bubble">Speaking</div>
       </div>
       <div class="rt-seat" style="left:82.91%; top:41%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/value-investor.png" alt="">
         <div class="rt-name">INVESTOR</div>
       </div>
     </div>
@@ -17832,27 +17854,27 @@
       <svg class="rt-plant rt-plant-2" viewBox="0 0 48 60"><use href="#vrp-plant-2"/></svg>
       <div class="rt-seat rt-seat-chair" style="left:50%; top:82%;">
         <svg class="rt-chair rt-chair--mod" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair-mod"/></svg>
-        <img class="rt-avatar" src="avatars/chair.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/chair.png" alt="">
         <div class="rt-name">CHAIR</div>
       </div>
       <div class="rt-seat rt-seat-speaking" style="left:14.89%; top:43.11%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/socrates.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/socrates.png" alt="">
         <div class="rt-bubble">Speaking</div>
       </div>
       <div class="rt-seat" style="left:35.45%; top:33.37%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/first-principles.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/first-principles.png" alt="">
         <div class="rt-name">PRINCIPLES</div>
       </div>
       <div class="rt-seat" style="left:64.55%; top:33.37%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/value-investor.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/value-investor.png" alt="">
         <div class="rt-name">INVESTOR</div>
       </div>
       <div class="rt-seat" style="left:85.11%; top:43.11%;">
         <svg class="rt-chair" viewBox="0 0 32 40" preserveAspectRatio="xMidYMid meet"><use href="#vrp-chair"/></svg>
-        <img class="rt-avatar" src="avatars/phenomenologist.svg" alt="">
+        <img class="rt-avatar" src="avatars/3d/phenomenologist.png" alt="">
         <div class="rt-name">PHENOM</div>
       </div>
     </div>

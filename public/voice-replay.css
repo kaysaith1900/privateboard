@@ -59,7 +59,7 @@
 }
 .vr-kicker-glyph {
   font-family: var(--font-human);
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0;
 }
 .vr-head-actions {
@@ -274,7 +274,7 @@
 }
 .vr-avatar-placeholder {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-soft);
 }
@@ -427,7 +427,7 @@
 }
 .vr-key-title {
   font-family: var(--font-human, var(--mono));
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.005em;

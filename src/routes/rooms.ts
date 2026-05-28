@@ -58,20 +58,24 @@ import { getRecentUnexploredAngles } from "../storage/negative-space.js";
 import {
   addRoomMember,
   createRoom,
+  createThread,
   deleteRoom,
   getRoom,
   listFollowUpRooms,
   listRoomMembers,
   listRooms,
+  listThreadsForRoom,
   recentDirectorAppearances,
   removeRoomMember,
   setAwaitingClarify,
   setAwaitingContinue,
   setRoomIncognito,
+  setRoomNameFromAuto,
   setRoomStatus,
+  setRoomSubject,
   updateRoomSettings,
 } from "../storage/rooms.js";
-import { generateRoomTitle } from "../orchestrator/roomTitle.js";
+import { generateRoomTitle, generateThreadTitle } from "../orchestrator/roomTitle.js";
 
 /**
  * Auto-pick path · runs the LLM picker over the available director
@@ -684,6 +688,31 @@ export function roomsRouter(): Hono {
     // Each user message opens a new round; directors that respond share it.
     const roundNum = nextUserRoundNum(id);
 
+    // Thread title seed · the FIRST user message in a thread becomes
+    // the thread's subject (overriding the inherited parent subject),
+    // and a fire-and-forget LLM call distils it into the popover-
+    // friendly short label the same way main-room titling does.
+    // Detected by checking message count BEFORE we insert — zero
+    // user messages so far means this insert is the first.
+    //
+    // To make `generateRoomTitle`'s guards pass we re-align BOTH
+    // `subject` (the prompt source) AND `name` (the "still the
+    // initial fallback" sentinel) to the new user message before
+    // the helper runs. Without the name resync, the helper bails
+    // with reason:"already-renamed" because thread.name still
+    // matches the parent's-subject-truncated string set in
+    // createThread, not the new user-message truncation.
+    let triggerThreadTitle = false;
+    if (room.kind === "thread") {
+      const priorMsgs = listMessages(id);
+      const priorUser = priorMsgs.some((m) => m.authorKind === "user");
+      if (!priorUser) {
+        setRoomSubject(id, text);
+        setRoomNameFromAuto(id, text.slice(0, 60));
+        triggerThreadTitle = true;
+      }
+    }
+
     const msg = insertMessage({
       roomId: id,
       authorKind: "user",
@@ -692,6 +721,40 @@ export function roomsRouter(): Hono {
       meta: mentions.length ? { mentions } : {},
       roundNum,
     });
+
+    // Fire-and-forget thread title generation. Idempotent (helper has
+    // its own guards) so retries on later messages stay safe.
+    // Diagnostic logging · `generateRoomTitle` returns a result
+    // object on failures (not a throw), so without inspecting the
+    // result every skip would be invisible. Log every outcome so
+    // we can tail stderr and see WHY the title isn't being written.
+    if (triggerThreadTitle) {
+      const before = getRoom(id);
+      process.stderr.write(
+        `[thread-title] firing for thread=${id} ` +
+        `subject="${(before?.subject ?? "").slice(0, 40)}" ` +
+        `name="${before?.name ?? ""}" ` +
+        `nameAuto=${before?.nameAuto}\n`,
+      );
+      generateThreadTitle(id)
+        .then((result) => {
+          if (result.kind === "ok") {
+            process.stderr.write(
+              `[thread-title] OK thread=${id} "${result.before.slice(0, 40)}" → "${result.after}"\n`,
+            );
+          } else {
+            const tail = result.detail ? ` detail="${result.detail.slice(0, 100)}"` : "";
+            process.stderr.write(
+              `[thread-title] SKIP thread=${id} reason=${result.reason}${tail}\n`,
+            );
+          }
+        })
+        .catch((e) => {
+          process.stderr.write(
+            `[thread-title] THROW thread=${id} ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        });
+    }
     roomBus.emit(id, {
       type: "message-appended",
       messageId: msg.id,
@@ -749,10 +812,12 @@ export function roomsRouter(): Hono {
     // Forks to chairInterrupt: aborts any in-flight director, runs the
     // chair's direct response, then restores the queue. Skipped
     // entirely during awaitingClarify (handled above — user is already
-    // mid-conversation with the chair).
+    // mid-conversation with the chair) AND for thread rooms (no chair
+    // is a member of a private 1:1; chairInterrupt would have no one
+    // to dispatch). The thread's single director answers everything.
     const chair = getChairAgent();
     const chairMentioned =
-      !!chair &&
+      !!chair && room.kind !== "thread" &&
       (mentions.includes(chair.id) || /(?:^|\s)@chair\b/i.test(text));
     if (chairMentioned) {
       // Fire-and-forget · the chair's stream lands via SSE. We return
@@ -779,6 +844,113 @@ export function roomsRouter(): Hono {
     if (!getRoom(id)) return c.json({ error: "not found" }, 404);
     abortRoom(id);
     return c.json({ ok: true });
+  });
+
+  // ── Spawn a private thread with one director · the user pulls a
+  //   single director aside for a 1:1 conversation. The thread is a
+  //   lightweight `rooms` row (room_kind = "thread") with a single
+  //   member and a `parent_room_id` link back to this room. From here
+  //   on, the thread behaves like any other room (POST messages,
+  //   subscribe to its SSE stream), but its content stays private to
+  //   the user + that director — other directors never see it.
+  //
+  //   Body: { directorId: string, anchorMessageId?: string }
+  //   Returns: { room, members } — the thread room + its single member.
+  //
+  //   See `src/storage/rooms.ts:createThread` for validation rules:
+  //   parent must be a main room, director must be an active member.
+  r.post("/:id/threads", async (c) => {
+    const parentId = c.req.param("id");
+    const parent = getRoom(parentId);
+    if (!parent) return c.json({ error: "parent room not found" }, 404);
+    if (parent.kind !== "main") {
+      return c.json({ error: "threads can only spawn from main rooms" }, 400);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { return c.json({ error: "invalid JSON body" }, 400); }
+    const b = (body ?? {}) as { directorId?: unknown };
+    const directorId = typeof b.directorId === "string" ? b.directorId.trim() : "";
+    if (!directorId) return c.json({ error: "directorId is required" }, 400);
+
+    // Reject the chair · threading the chair would be confusing
+    // (the chair is procedural, not a domain perspective). The user
+    // can already @-mention the chair in the main room for a direct
+    // exchange via the chairInterrupt path.
+    const agent = getAgent(directorId);
+    if (!agent) return c.json({ error: "director not found" }, 404);
+    if (agent.roleKind === "moderator") {
+      return c.json({ error: "cannot open a thread with the chair" }, 400);
+    }
+
+    try {
+      // Idempotency · if a thread already exists for (parent, director),
+      // return it instead of spawning a new row. Without this, repeated
+      // clicks on the trigger (or stale orphans from earlier sessions
+      // before the client-side race guard was added) accumulate
+      // duplicate thread rows that show up in the popover list. The
+      // client-side de-dupe handles legacy orphans; this guards
+      // forward-going creates.
+      const existing = listThreadsForRoom(parentId, { directorId });
+      if (existing.length > 0) {
+        const newest = existing[0]; // already sorted DESC by created_at
+        const members = listRoomMembers(newest.id);
+        return c.json({ room: newest, members });
+      }
+      const result = createThread(parentId, directorId);
+      return c.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // createThread throws on parent-not-found / non-member director /
+      // wrong-kind parent · those are 400-class user errors, not
+      // server faults. Return a structured response.
+      return c.json({ error: msg }, 400);
+    }
+  });
+
+  // ── List active threads for a parent room · used by the dock bar
+  //   to surface "you have an open thread with X" reminders even
+  //   after page reload. Each row carries `messageCount` so the
+  //   client can hide empty threads (a quirk of the de-dupe window:
+  //   user clicks trigger, then closes without typing).
+  r.get("/:id/threads", (c) => {
+    const parentId = c.req.param("id");
+    if (!getRoom(parentId)) return c.json({ error: "not found" }, 404);
+    const directorId = c.req.query("directorId");
+    const threads = listThreadsForRoom(
+      parentId,
+      directorId ? { directorId } : {},
+    );
+    // Enrich · count non-streaming messages per thread so the client
+    // popover can drop empty threads (the user opened one but never
+    // sent anything). Streaming placeholders are excluded — a
+    // half-rendered director response that got abandoned doesn't
+    // count as "real content".
+    const enriched = threads.map((t) => {
+      const msgs = listMessages(t.id);
+      const messageCount = msgs.filter(
+        (m) => !((m.meta as { streaming?: unknown } | undefined)?.streaming === true),
+      ).length;
+      return { ...t, messageCount };
+    });
+    // Title self-heal · a thread's distilled name is produced fire-and-
+    // forget on its first user message (POST /messages). If that LLM
+    // call failed, got rejected as generic, or was lost to a process
+    // restart — and for legacy threads created before the titling
+    // pipeline (which carry a `thread:<dir>` placeholder name +
+    // name_auto=0) — the popover row would show the raw first-message
+    // truncation forever. Re-fire `generateThreadTitle` (NOT the
+    // main-room titler, which bails on a thread's name_auto=0) for any
+    // thread with content. It distils from the thread's own first user
+    // message and is idempotent + guarded: a thread whose name is
+    // already a distilled phrase is left untouched, so no LLM call is
+    // spent on it. Fire-and-forget — the new name lands via the SSE
+    // settings-changed event and on the next popover open.
+    for (const t of enriched) {
+      if (t.messageCount > 0) void generateThreadTitle(t.id).catch(() => {});
+    }
+    return c.json({ threads: enriched });
   });
 
   r.post("/:id/messages/:messageId/voice-done", (c) => {

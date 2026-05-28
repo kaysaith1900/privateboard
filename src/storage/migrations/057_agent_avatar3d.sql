@@ -1,0 +1,16 @@
+-- 057_agent_avatar3d.sql · Persist the per-director 3D-avatar config the user
+-- builds in the "捏 avatar" editor (the rigged-GLB customizer).
+--
+-- The config selects a body style + independent hair / clothing / accessory
+-- dimensions and skin / hair / brow / outfit colours. It is stored as a JSON
+-- object, e.g.
+--   {"model":"casual","hairStyle":"glasses","outfitStyle":"casual",
+--    "accessory":"headphones","skin":"#f1c27d","hair":"#241c16",
+--    "brow":"#241c16","outfit":"#3b5b78"}
+--
+-- Needed server-side so (a) the editor reopens with the saved look and (b) the
+-- voice room can rebuild each director's 3D figure from it. NULL / absent means
+-- "no saved config" → the room falls back to a deterministic per-id default.
+-- (The rendered PNG screenshot is stored separately in the existing avatar_path
+-- column, reusing the 2D avatar display pipeline.)
+ALTER TABLE agents ADD COLUMN avatar3d_json TEXT;

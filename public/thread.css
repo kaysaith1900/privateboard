@@ -1,0 +1,1212 @@
+/* ═══════════════════════════════════════════════════════════════════
+   thread.css · Private 1:1 thread float window (Slack DM-style)
+   ═══════════════════════════════════════════════════════════════════
+
+   Why this lives in its own file:
+   - Thread is an "epic feature" — it'll grow more chrome (dock,
+     pinned threads, search). Keeping its styles isolated makes
+     review + iteration easier than burying them in index.html's
+     inline block.
+   - The visual vocabulary deliberately copies adjourn / cast-edit
+     overlays — same border colors, same panel hierarchy — so the
+     float window reads as part of the same product family, just
+     in a more casual register (rounded corners, smaller padding,
+     no classification stripe).
+
+   Architectural notes:
+   - The float root uses `position: fixed` with explicit `right/bottom`
+     so the user's screen real estate isn't disturbed (main room
+     keeps running underneath). Drag updates `transform: translate(...)`
+     so we don't fight the fixed positioning baseline.
+   - z-index sits above adjourn (9400) and supplement (9000) overlays
+     but below the agent-profile dropdowns the user might still want
+     to use; we land at 8500 — high enough to win the main view,
+     low enough that "real" modals supersede.
+   - Multiple threads stack with per-instance right-offset (set
+     inline by the mounting JS); we don't try to manage that in CSS.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.thread-float {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  /* Default 360px in both float and docked forms · matches the
+     sidebar's room-list width register so the panel reads as
+     "extended sidebar real estate" rather than a heavy overlay.
+     The dock variant overrides to a CSS variable (clamped 320-720)
+     so the user can drag-resize. */
+  width: 360px;
+  height: 520px;
+  max-height: calc(100vh - 96px);
+  z-index: 8500;
+  /* Frosted-glass header + composer overlay the messages list;
+     scroll-under requires `position: relative` so the absolute
+     children anchor to the panel. */
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow:
+    0 8px 24px -8px rgba(0, 0, 0, 0.45),
+    0 4px 12px -4px rgba(0, 0, 0, 0.3);
+  font-family: var(--mono);
+  overflow: hidden;
+  /* Header height token · single-line title + subtitle stack +
+     padding. Consumed by `.thread-float-messages` via
+     `padding-top: calc(var(--thread-head-h) + 14px)` so the
+     scrollable area starts cleanly below the absolute-positioned
+     head. Mirror of `.main-view`'s `--room-head-h` pattern. */
+  --thread-head-h: 60px;
+  /* No `transition` on transform · the JS drag handler writes
+     `transform: translate(x, y)` on every mousemove (60Hz); if
+     transform were animated, each frame would queue a 150ms ease
+     that fights the next frame's write, making the window visibly
+     lag behind the cursor. Fixed positioning + bare transform
+     writes track the mouse 1:1. */
+}
+
+/* Minimized state · the window collapses into a compact pill that
+   shows just the director's avatar + name. Lives in the dock bar
+   along with any other minimized threads. Restoring expands back
+   to the full window. */
+.thread-float.is-minimized {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  height: auto;
+  border-radius: 999px;
+  padding: 4px 12px 4px 4px;
+  /* Now that the base `.thread-float` no longer sets `display:
+     flex` (the absolute-positioned children don't need it), be
+     explicit here so the minimized pill still lays out as a row. */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+  overflow: visible;
+}
+.thread-float.is-minimized .thread-float-messages,
+.thread-float.is-minimized .thread-float-composer,
+.thread-float.is-minimized .thread-float-head-controls {
+  display: none;
+}
+.thread-float.is-minimized .thread-float-head {
+  /* In minimized form the header is the pill's only visible
+     content · pull it out of the absolute layer and back into the
+     pill's flex row. Clear the frosted-glass chrome too — the
+     pill itself draws the background. */
+  position: static;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 0;
+  border-radius: 999px;
+  padding: 0;
+}
+.thread-float.is-minimized .thread-float-head-title {
+  font-size: 11px;
+}
+.thread-float.is-minimized .thread-float-head-subtitle {
+  display: none;
+}
+
+/* ── Header · drag handle + identity + window controls ──────────
+   Frosted glass · sits absolutely positioned over the top of the
+   messages list. Same backdrop-filter recipe as the room's
+   `.room-head` so the two surfaces read as one chrome family.
+   Messages list scrolls UNDER this header (padding-top on the
+   messages container creates the initial offset). */
+.thread-float-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 8px 12px;
+  background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+  background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 0.5px solid var(--line-bright, rgba(255, 255, 255, 0.18));
+  border-radius: 6px 6px 0 0;
+  cursor: grab;
+  user-select: none;
+}
+.thread-float-head:active { cursor: grabbing; }
+/* Header title block · two lines now (thread name + director
+   subtitle). Mirrors the room-head's title / subtitle stack
+   register so the two surfaces read the same way. */
+.thread-float-head-title {
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-float-head-subtitle {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint, rgba(255, 255, 255, 0.55));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Edge resize handles ──────────────────────────────────────────
+   The float is bottom-anchored. The TOP handle grows/shrinks height
+   with the bottom pinned; the BOTTOM handle moves the bottom edge
+   with the cursor (top pinned) — both wired in `_wireThreadResize`.
+   Each sits over the header / composer edge-padding strip; the
+   header drag-to-move and composer still work below/above them. A
+   short centered grip bar fades in on hover. */
+.thread-float-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 2;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.thread-float-resize-top    { top: 0;    border-radius: 6px 6px 0 0; }
+.thread-float-resize-bottom { bottom: 0; border-radius: 0 0 6px 6px; }
+.thread-float-resize::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.thread-float-resize-top::after    { top: 2px; }
+.thread-float-resize-bottom::after { bottom: 2px; }
+.thread-float-resize:hover::after { opacity: 0.6; }
+/* Minimized pill has no resize affordance. */
+.thread-float.is-minimized .thread-float-resize { display: none; }
+
+.thread-float-head-avatar {
+  /* Display the director's portrait raw · 32px square, no
+     circular mask, no panel-3 fallback ring. SVG/pixel-art
+     avatars in this project carry their own framing; cropping
+     them to a circle clipped the character art. Click opens
+     the director's agent-profile overlay — wired through the
+     standard `[data-agent-profile]` capture-phase handler in
+     agent-profile.js. */
+  width: 36px;
+  height: 36px;
+  margin-top: -10px;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.thread-float-head-avatar:hover { opacity: 0.78; }
+
+.thread-float-head-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.thread-float-head-name {
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-float-head-kicker {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint, rgba(255, 255, 255, 0.45));
+}
+
+.thread-float-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Head buttons · sidebar-nav register · 16px Lucide line icons
+   painted via mask-image so the glyph inherits `currentColor` (the
+   button text color cascades to the icon, matching the sidebar's
+   `.new-btn::before` pattern at index.html:1651). Each button gets
+   its own `--icon` custom property. The legacy Unicode-character
+   variant (— / ✕ / ⛶) read as different sizes / weights on every
+   OS and clashed with the sidebar's Lucide vocabulary. */
+.thread-float-head-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-soft, rgba(255, 255, 255, 0.65));
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0;
+  /* Empty button content · the ::before paints the icon. Keeping
+     font-size: 0 ensures any accidental whitespace inside the
+     button doesn't push the icon off-center. */
+  font-size: 0;
+  line-height: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.thread-float-head-btn::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon, none);
+          mask-image: var(--icon, none);
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 16px 16px;
+          mask-size: 16px 16px;
+}
+.thread-float-head-btn:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+/* Minimize · Lucide Minus (a single short horizontal bar) */
+[data-thread-minimize] {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14'/></svg>");
+}
+/* Close · Lucide X */
+[data-thread-close] {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>");
+}
+/* Close gets a soft red tint on hover · destructive-leaning action.
+   Matches the trash-chip color in `.thread-list-row-delete:hover`
+   so close affordances across the thread surface share one
+   "this removes something" register. */
+.thread-float-head-btn[data-thread-close]:hover {
+  color: var(--red, #B5706A);
+  background: color-mix(in srgb, var(--red, #B5706A) 14%, transparent);
+}
+
+/* ── Messages list · reuses .msg / .msg-content / .msg-bubble
+       styles from the main chat, just inside our scrollable
+       container. The compact density tweaks below scope to messages
+       inside a thread float so the main chat is unaffected. ─── */
+
+.thread-float-messages {
+  /* Full-bleed under the absolute header + composer · messages
+     scroll behind both, mirroring the room chat's chat-content
+     sliding under .room-head + .ib-stack. */
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: calc(var(--thread-head-h, 56px) + 14px) 22px 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* No `scroll-behavior: smooth` · entering an existing thread
+     snaps to the last message (seed-history sets `scrollTop =
+     scrollHeight`) and the jump-top button snaps to the first;
+     both should be instant so the user reads "now I'm at the
+     other end" not "watch the panel animate." Smooth scrolling
+     also amplifies the cost of any SSE re-jump-to-bottom on
+     each appended chunk during streaming. */
+  /* Scrollbar auto-hide · same pattern as `.ib-textarea` in
+     index.html (line 15024). Default: invisible; the global
+     scroll listener in app.js adds `.is-scrolling` on each
+     scroll event and removes it ~800ms after the last one.
+     Result: clean reading surface in idle state, scrollbar
+     appears the moment the user scrolls. */
+  scrollbar-width: none;
+}
+.thread-float-messages::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  /* Override the browser default white scrollbar gutter even
+     when widthless · WebKit otherwise paints the track stripe
+     visibly on light themes. */
+  background: transparent;
+}
+.thread-float-messages.is-scrolling { scrollbar-width: thin; }
+.thread-float-messages.is-scrolling::-webkit-scrollbar {
+  width: 5px;
+  background: transparent;
+}
+.thread-float-messages.is-scrolling::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink, currentColor) 28%, transparent);
+  border-radius: 4px;
+}
+.thread-float-messages.is-scrolling::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* Firefox can't be styled per-element track-vs-thumb · use
+   `scrollbar-color` with the same translucent thumb + transparent
+   track recipe. */
+.thread-float-messages.is-scrolling {
+  scrollbar-color: color-mix(in srgb, var(--ink, currentColor) 28%, transparent) transparent;
+}
+.thread-float-messages article.msg {
+  /* Slightly tighter than the main chat density · float is small. */
+  margin: 0;
+  /* Collapse the 32px avatar column · this is a 1:1 chat with one
+     director and the panel header already shows their avatar +
+     name. Repeating the head-shot on every message is redundant
+     and chews real estate that ChatGPT-style threads spend on
+     prose. Override the main chat's grid (32px / 1fr) to a single
+     1fr column so the message content flows edge-to-edge inside
+     the messages list's 24px horizontal padding. */
+  grid-template-columns: 1fr;
+}
+/* Hide ALL avatars inside thread bubbles (director + chair + user
+   alike). User already has its own `.msg.user .msg-av { display:
+   none }` rule below; this generalises to every author kind. */
+.thread-float-messages article.msg .msg-av {
+  display: none;
+}
+.thread-float-messages article.msg .msg-meta {
+  font-size: 10px;
+  /* Tighter than the main chat's 10px · the row-gap (vertical) also
+     governs the distance down to the wrapped timestamp line below,
+     which read too loose at 10px. column-gap stays a touch wider for
+     name / model / tag separation. */
+  gap: 3px 8px;
+}
+/* Timestamp drops onto its own line beneath the director's name
+   (instead of the main chat's right-aligned, same-row placement).
+   `flex-basis: 100%` makes it wrap in the flex meta row; `margin-left`
+   reset + `order` keep it last and left-aligned under the name.
+   User messages hide `.msg-meta` entirely in threads, so this only
+   affects director rows. */
+.thread-float-messages article.msg .msg-time {
+  flex-basis: 100%;
+  margin-left: 0;
+  order: 99;
+}
+.thread-float-messages article.msg .msg-bubble {
+  /* Thread bubbles read at the app body register (14px) — tighter than
+     the main chat's 16px since the float panel is a narrower column.
+     line-height eased to 1.6 to keep prose rhythm at the smaller size. */
+  font-size: 14px;
+  line-height: 1.6;
+}
+/* In threads we don't show round-end vote cards or chair pick
+   kickers — there are no rounds, no chair. Hide aggressively. */
+.thread-float-messages .chair-pick-kicker,
+.thread-float-messages .round-end-card,
+.thread-float-messages .msg-context {
+  display: none;
+}
+/* Hide the per-message model pill in threads · 1:1 private chat,
+   the user already knows which director / model they're talking
+   to (header carries the director's name + subtitle). Showing the
+   model on every bubble eats ~80-120px of the meta line on a
+   360px panel, which forced the `🔍 web-search` badge to wrap
+   below the director's name instead of sitting inline with it
+   like in the main room. Hiding the model frees enough room for
+   `name + tag + ws-badge` to live on one line. */
+.thread-float-messages article.msg .msg-model {
+  display: none;
+}
+
+/* ── Web search · chair-style tool-card promoted above the bubble ──
+   In thread mode `messageHtml` synthesises a `.msg-tool-card` (the
+   same component the chair's web-search uses in main rooms) and
+   inserts it ABOVE the director's bubble. The room's default card
+   geometry assumes a wide content column (`margin: 14px auto 28px;
+   max-width: 760px`), which doesn't fit a 316px-wide thread panel.
+   Override only the geometry — colors / banner / mark / caret
+   stay shared with the room card so the visual vocabulary reads
+   the same. */
+.thread-float-messages .msg-tool-card {
+  margin: 6px 0 10px;
+  max-width: 100%;
+}
+.thread-float-messages .msg-tool-banner {
+  padding: 6px 10px;
+  gap: 8px;
+}
+.thread-float-messages .msg-tool-banner-tag { font-size: 9px; }
+.thread-float-messages .msg-tool-banner-stamp { font-size: 9px; }
+.thread-float-messages .msg-tool-card-body {
+  padding: 10px 12px;
+  gap: 8px;
+  font-size: 11px;
+}
+.thread-float-messages .msg-tool-card .msg-tool-sources-list {
+  /* Sources rows inside the card · default 28px num column shrinks
+     to 22px so the title/url has more room in the 316px panel. */
+  font-size: 11px;
+}
+.thread-float-messages .msg-tool-card .msg-tool-sources-list li {
+  padding: 6px 12px;
+}
+.thread-float-messages .msg-tool-card .msg-tool-sources-num {
+  width: 20px;
+  min-width: 20px;
+}
+.thread-float-messages .msg-tool-card .msg-tool-sources-title-text { font-size: 12px; }
+.thread-float-messages .msg-tool-card .msg-tool-sources-desc { font-size: 11px; }
+.thread-float-messages .msg-tool-card .msg-tool-sources-expand {
+  font-size: 10px;
+  padding: 8px 12px;
+}
+
+/* ── ChatGPT-style user bubbles · right-aligned with surface ───
+   User-authored messages in a thread should read as the user's
+   voice in a 1:1 chat, not as a peer in a multi-director room.
+   Override the main chat's grid layout (32px avatar + 1fr content)
+   with a right-aligned flex row, hide the avatar entirely, and
+   give the bubble its own panel-2 surface with rounded corners.
+   Director messages stay in the default layout (avatar + plain
+   bubble · matches "assistant message" register in ChatGPT). */
+.thread-float-messages article.msg.user {
+  display: flex;
+  justify-content: flex-end;
+  grid-template-columns: none;
+  gap: 0;
+}
+.thread-float-messages article.msg.user .msg-av,
+.thread-float-messages article.msg.user .msg-meta,
+.thread-float-messages article.msg.user .msg-toolbar {
+  display: none;
+}
+.thread-float-messages article.msg.user .msg-content {
+  /* Cap so a long single-line message wraps within the window
+     instead of stretching to the full width and reading flat. */
+  max-width: 82%;
+  min-width: 0;
+}
+.thread-float-messages article.msg.user .msg-bubble {
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 8px 12px;
+  font-family: var(--font-human, var(--sans));
+  /* Soft border on light themes (transparent on dark since
+     panel-2 already separates from the chat bg) — color-mix
+     keeps both palettes balanced. */
+  border: 0.5px solid color-mix(in srgb, var(--line-bright, rgba(255, 255, 255, 0.12)) 60%, transparent);
+  /* Hint the layout system this block can shrink — without it
+     long unbroken strings (URLs) would push the bubble past the
+     82% cap. */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+/* Empty-state hint · before the user types anything */
+.thread-float-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  padding: 24px;
+  color: var(--text-faint, rgba(255, 255, 255, 0.45));
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  gap: 8px;
+}
+.thread-float-empty-tag {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* ── Composer · 1:1 mirror of the room's `.input-bar` chrome ─────
+   Two-row column layout matching `.input-bar` in index.html: row
+   one is the textarea (autosize 24-200px), row two is the controls
+   strip (send / stop on the right, future per-thread actions can
+   slot on the left). Earlier single-row inline placement read as a
+   different chrome family from the room — same border-radius +
+   typography but visually noisy with the send chip floating next
+   to the textarea. */
+.thread-float-composer {
+  /* Absolute-bottom + frosted-glass · scroll-under chrome, same
+     pattern as the room's floating `.input-bar`. Messages list
+     extends behind this card; the card's frosted glass softens
+     the prose behind so the visual hierarchy stays "compose >
+     read". 14px lateral inset = same gutter as the head's
+     padding-left so the composer left-edge aligns with the
+     room-head's title column. */
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+  background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid var(--line-strong);
+  border-radius: 14px;
+  transition: border-color 0.12s;
+}
+/* Top row · textarea sits flush with the card edges (same as
+   `.ib-text-row` in index.html). */
+.thread-float-composer-text-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 6px 8px 0;
+  min-height: 32px;
+}
+/* Bottom row · controls strip. Send / stop right-aligned via
+   `margin-left: auto` on the trailing slot (matches
+   `.ib-controls-row { gap: 6px; padding: 0 4px 0 4px }`). */
+.thread-float-composer-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 4px;
+  /* Push the lone send/stop button to the right edge of the
+     card so the row geometry mirrors the room's input-bar
+     (where pause / adjourn / vote cluster on the LEFT and
+     send chips on the RIGHT). Even though thread has no
+     left-cluster actions yet, the spacer keeps the right-side
+     button anchored to where the room input-bar's send sits. */
+}
+.thread-float-composer-controls-row > .thread-float-send,
+.thread-float-composer-controls-row > .thread-float-stop {
+  margin-left: auto;
+}
+.thread-float-composer:focus-within {
+  border-color: var(--lime, #6FB572);
+}
+.thread-float-textarea {
+  flex: 1;
+  width: 100%;
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 4px 0;
+  resize: none;
+  /* Match the room's autosize bounds exactly · room caps at 200px
+     before flipping into internal scroll. */
+  max-height: 200px;
+  min-height: 24px;
+  outline: none;
+  box-sizing: border-box;
+  /* Match the main bar's auto-hide scrollbar treatment. */
+  scrollbar-width: none;
+}
+.thread-float-textarea::-webkit-scrollbar { width: 0; height: 0; }
+.thread-float-textarea::placeholder {
+  color: var(--text-faint);
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 14px;
+}
+
+/* Send / Stop · icon-only circular buttons matching the main
+   room's input-bar send button (`.ib-controls-row .send-btn` in
+   index.html · 32×32 lime circle with an arrow-up glyph mask).
+   Visible text ("Send" / "Stop") is hidden via font-size:0 but
+   stays in the accessibility tree for screen-reader names. The
+   glyph itself is a CSS mask painted by `::before` so we don't
+   pay an extra DOM node. */
+.thread-float-send,
+.thread-float-stop {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: flex-end;
+  position: relative;
+  /* Hide text content visually; ::before draws the glyph mask. */
+  font-size: 0;
+  line-height: 0;
+  overflow: hidden;
+  transition: background 0.12s, color 0.12s, transform 0.12s;
+}
+.thread-float-send {
+  background: var(--lime, #6FB572);
+  color: var(--bg);
+}
+.thread-float-send::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='19' x2='12' y2='5'/><polyline points='5 12 12 5 19 12'/></svg>");
+          mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='19' x2='12' y2='5'/><polyline points='5 12 12 5 19 12'/></svg>");
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 16px 16px;
+          mask-size: 16px 16px;
+}
+.thread-float-send:hover { transform: scale(1.04); }
+.thread-float-send:active { transform: scale(0.96); }
+.thread-float-send[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Stop · same circle geometry, amber-tinted so the user reads
+   "interrupting an action in flight" rather than "primary send". */
+.thread-float-stop {
+  background: color-mix(in srgb, var(--amber, #C99B4F) 22%, var(--panel-3));
+  color: var(--amber, #C99B4F);
+}
+.thread-float-stop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 10px;
+  height: 10px;
+  background-color: currentColor;
+  /* Square glyph · universal "stop" indicator. Drawn as a CSS
+     square (no SVG mask needed) since the shape is flat. */
+  border-radius: 1px;
+}
+.thread-float-stop:hover {
+  background: color-mix(in srgb, var(--amber, #C99B4F) 32%, var(--panel-3));
+  transform: scale(1.04);
+}
+.thread-float-stop:active { transform: scale(0.96); }
+
+/* The legacy glyph span inside the button is no longer needed —
+   the ::before mask above paints the icon. Keep the rule so any
+   leftover DOM nodes don't render as a stray block. */
+.thread-float-stop-glyph { display: none; }
+
+/* Toggle visibility · the composer always carries both buttons in
+   the DOM; we flip a state class on the composer to swap them. */
+.thread-float-composer .thread-float-stop { display: none; }
+.thread-float-composer.is-streaming .thread-float-send { display: none; }
+.thread-float-composer.is-streaming .thread-float-stop { display: inline-flex; }
+
+/* Head icon · "All threads in this room" trigger. Mirrors the
+   masking-via-CSS-variable convention used by .head-add-cast /
+   .head-divergence in room-settings.css (the parent
+   `.head-icon-btn` rule already masks `--icon` onto a fixed-size
+   button shape). The glyph is Lucide MessagesSquare · two chat
+   bubbles stacked to read as "multiple private threads". */
+.head-threads {
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/><path d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/></svg>");
+}
+/* Threads stay accessible in adjourned rooms — the user often
+   wants to dig into a finished session's perspectives privately
+   while the main transcript is now read-only. No `display: none`
+   on adjourned status here. */
+
+/* Popover anchored under the head-threads icon. Lists every thread
+   spawned from this main room with the director's avatar + name +
+   last-updated time. Click a row to mount the thread float window.
+   Mirrors the `.cast-edit-pop` style (composer-pick rows) so the
+   visual vocabulary inside the room head stays one family. */
+.thread-list-pop {
+  position: fixed;
+  z-index: 9000;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong);
+  border-radius: 6px;
+  width: 320px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow:
+    0 8px 24px -8px rgba(0, 0, 0, 0.5),
+    0 4px 12px -4px rgba(0, 0, 0, 0.3);
+}
+.thread-list-head {
+  padding: 12px 14px 8px;
+  border-bottom: 0.5px solid var(--line-bright, rgba(255, 255, 255, 0.18));
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, rgba(255, 255, 255, 0.5));
+}
+.thread-list-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.thread-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 18px 28px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint, rgba(255, 255, 255, 0.5));
+  text-align: center;
+  line-height: 1.55;
+}
+.thread-list-empty-icon {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-bright, rgba(255, 255, 255, 0.18));
+  border-radius: 50%;
+  color: var(--text-faint, rgba(255, 255, 255, 0.4));
+  flex-shrink: 0;
+}
+.thread-list-empty-icon svg {
+  width: 22px;
+  height: 22px;
+}
+/* List rows · positioned as the relative anchor for the hover-
+   revealed delete button. Switched off a <button> (which was the
+   single click target) to a flex container with two distinct
+   click targets — the body and the trash chip. Click handlers in
+   app.js look at [data-thread-open] for the row body and
+   [data-thread-delete] for the trash. */
+.thread-list-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  font-family: var(--mono);
+  transition: background 0.12s;
+}
+.thread-list-row-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  min-width: 0;
+  text-align: left;
+}
+.thread-list-row:hover {
+  background: var(--panel-2);
+}
+.thread-list-row-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--panel-3);
+}
+.thread-list-row-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Delete trash chip · hover-only on its row. Click triggers a
+   confirm() dialog · destructive action so we want the extra
+   guard rail. */
+.thread-list-row-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-faint, rgba(255, 255, 255, 0.45));
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.thread-list-row-delete svg {
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
+}
+.thread-list-row:hover .thread-list-row-delete,
+.thread-list-row-delete:focus-visible {
+  opacity: 1;
+}
+.thread-list-row-delete:hover {
+  color: var(--red, #B5706A);
+  background: color-mix(in srgb, var(--red, #B5706A) 14%, transparent);
+  outline: none;
+}
+.thread-list-row-name {
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-list-row-time {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint, rgba(255, 255, 255, 0.45));
+}
+.thread-list-row-active {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime, #6FB572);
+  flex-shrink: 0;
+}
+
+/* ── Dock bar · holds minimized threads at the bottom-right of
+       the viewport ─────────────────────────────────────────────── */
+
+.thread-dock {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 8400;
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 8px;
+  pointer-events: none;
+}
+.thread-dock > .thread-float {
+  pointer-events: auto;
+}
+
+/* ── Thread trigger affordance · per-bubble + head-cast ────────
+   Two surfaces, ONE icon vocabulary so the user reads "this opens
+   a private 1:1" regardless of which surface they click.
+
+   Per-bubble · Discord-style message hover toolbar. A floating
+   chrome bar pinned to the top-right of the message that appears
+   on hover and overlaps the message's upper edge. Icon-only (no
+   text label) — Discord uses pure icons for the reaction / reply /
+   pin / more row, on the assumption that the action vocabulary is
+   small and discoverable on hover. The toolbar's outer chrome is
+   the wrapper; the reply icon is one of its slots (future per-
+   message actions slot into the same row). */
+/* Toolbar wrapper · Discord-style hover container floating at the
+   top-right of the message. Houses one (or more, future) per-message
+   actions. Hidden by default, slides in on article hover. */
+.msg-toolbar {
+  position: absolute;
+  /* Sits at the RIGHT END of the meta row (the timestamp no longer
+     pins to the right — see `.msg-time` — so the far-right is free),
+     vertically aligned with that line rather than floating above the
+     message. The small negative top centres the ~26px chip on the
+     ~16px meta line; right:0 puts it flush with the content column's
+     right edge. */
+  top: -4px;
+  right: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--panel);
+  border: 0.5px solid var(--line-strong, rgba(255, 255, 255, 0.32));
+  border-radius: 999px;
+  padding: 2px;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  box-shadow:
+    0 3px 10px -3px rgba(0, 0, 0, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.22);
+}
+article.msg:hover .msg-toolbar,
+.msg-toolbar:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Reply chip · icon + "Thread" label as a compact rounded pill.
+   Tag-style — Slack-like reply affordance with the action name
+   spelled out next to the icon so the user reads it as a button,
+   not just a glyph. */
+.msg-thread-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  background: transparent;
+  border: 0;
+  color: var(--text-soft, rgba(255, 255, 255, 0.68));
+  cursor: pointer;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  transition: color 0.12s, background 0.12s;
+}
+.msg-thread-trigger svg {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+.msg-thread-trigger span {
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.msg-thread-trigger:hover,
+.msg-thread-trigger:focus-visible {
+  color: var(--lime, #6FB572);
+  background: var(--panel-2);
+  outline: none;
+}
+
+/* Anchor target · the toolbar is `position: absolute`; the .msg
+   article needs an explicit positioning context so the toolbar
+   pins to the message corner instead of escaping up to the chat
+   scroll container. Inert when no toolbar is present (non-director
+   bubbles), so safe to apply globally. */
+article.msg {
+  position: relative;
+}
+
+/* Head-cast trigger · the same reply icon as a hover badge on each
+   director avatar in the room header. Click of avatar still opens
+   the agent profile overlay (existing behavior · data-agent), so
+   the badge gets its own click target via the wrapping <span>.
+   Lets users open a thread with a director who hasn't spoken yet
+   — without this, the per-bubble trigger was the only entry and it
+   only existed on directors who'd already taken a turn. */
+.head-cast-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.head-cast-thread {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong, rgba(255, 255, 255, 0.32));
+  color: var(--text);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.12s, transform 0.12s, color 0.12s, background 0.12s;
+}
+.head-cast-thread svg {
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+}
+.head-cast-wrap:hover .head-cast-thread {
+  opacity: 1;
+  transform: scale(1);
+}
+.head-cast-thread:hover {
+  color: var(--lime, #6FB572);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Docked mode · the thread expands into a 420px right side panel
+   sitting next to the chat-col instead of floating bottom-right.
+   ═══════════════════════════════════════════════════════════════════
+
+   Layout strategy:
+   - `body.has-thread-dock` flips `.main-view[data-main-view="room"]`
+     to a 2-column grid: chat-col on the left (1fr), docked panel on
+     the right (420px fixed).
+   - The thread element gets `.is-docked` which (a) resets its
+     fixed-positioning anchors so it lays out as a grid child, and
+     (b) flattens its border-radius / shadow so it reads as part of
+     the room chrome, not a floating overlay.
+   - Drag handles, resize edges, and the minimize button are
+     `display: none` in docked mode — none of them make sense for a
+     full-height side panel.
+   - Below 1200px viewport width the dock falls back to floating
+     (the chat-col gets too narrow otherwise). The JS guard
+     `_canDockHere()` already prevents NEW docks at narrow widths;
+     this CSS catches the case where a docked thread is open and
+     the window is resized down.
+   ═══════════════════════════════════════════════════════════════════ */
+
+body.has-thread-dock .main-view[data-main-view="room"] {
+  display: grid;
+  /* Width is variable-driven · `--thread-dock-w` is set inline by
+     the resize handler on body, defaulting to 360px. Min/max clamp
+     guards against the user dragging into uncomfortable extremes:
+     the chat-col (1fr) would otherwise compress below the input-bar
+     content width or the dock would balloon past two-thirds of the
+     viewport. */
+  grid-template-columns: 1fr clamp(320px, var(--thread-dock-w, 360px), 720px);
+  grid-template-rows: 1fr;
+}
+
+.thread-float.is-docked {
+  /* `position: relative` (not static) so the absolute-positioned
+     left-edge resize handle, head, messages, and composer all
+     anchor to the panel itself. */
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  max-height: none;
+  min-height: 0;
+  border: 0;
+  border-left: 0.5px solid var(--line-bright);
+  border-radius: 0;
+  box-shadow: none;
+  z-index: auto;
+  transform: none !important;
+  /* The left-edge resize handle sits at `left: -3px` (straddling
+     the chat ↔ panel seam). The float-mode `overflow: hidden`
+     would otherwise clip it; allow overflow on the docked variant
+     since the rounded-corner scrollbar concern doesn't apply when
+     the panel has flat edges. */
+  overflow: visible;
+}
+/* Docked · header drops below the room's own .room-head strip so
+   the room's icons (// Threads / divergence / etc on the right
+   side of head-actions) stay reachable. The room-head is
+   `position: absolute; top: 0` on the main-view at z-index 40 and
+   spans full main-view width; the thread head needs to start
+   BELOW it instead of overlapping. */
+.thread-float.is-docked .thread-float-head {
+  cursor: default;
+  border-radius: 0;
+  top: var(--room-head-h, 56px);
+}
+/* Docked messages list · clear BOTH room-head and the thread's
+   own head before content starts. */
+.thread-float.is-docked .thread-float-messages {
+  padding-top: calc(var(--room-head-h, 56px) + var(--thread-head-h, 50px) + 14px);
+}
+/* Hide affordances that have no docked-mode meaning */
+.thread-float.is-docked .thread-float-resize,
+.thread-float.is-docked [data-thread-minimize] {
+  display: none !important;
+}
+
+/* Left-edge resize handle · only visible in docked mode. A thin
+   vertical strip the user can drag to widen / narrow the side
+   panel. The handle sits ON the panel's left border (slightly
+   negative left offset so it straddles the seam between chat-col
+   and dock panel), with `col-resize` cursor. The visible track
+   only blooms on hover so the resting state stays clean. JS in
+   `_wireThreadDockResize` reads pointer-x and writes
+   `--thread-dock-w` on body. */
+.thread-dock-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
+  display: none;
+  user-select: none;
+}
+.thread-dock-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  background: var(--line-strong);
+  border-radius: 1px;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}
+.thread-dock-resize-handle:hover::after,
+body.is-thread-dock-resizing .thread-dock-resize-handle::after {
+  opacity: 0.6;
+}
+body.is-thread-dock-resizing .thread-dock-resize-handle::after {
+  background: var(--lime, #6FB572);
+}
+/* Only the docked variant shows the handle. The element stays in
+   the DOM in floating mode (so we don't have to re-render the
+   thread on every maximize toggle) — just keep it `display:
+   none` until the panel docks. */
+.thread-float.is-docked .thread-dock-resize-handle { display: block; }
+body.is-thread-dock-resizing { cursor: col-resize; user-select: none; }
+body.is-thread-dock-resizing .thread-float.is-docked,
+body.is-thread-dock-resizing .chat-col {
+  /* Suppress text selection across both columns while dragging so
+     the user doesn't accidentally highlight messages. */
+  user-select: none;
+}
+
+/* Narrow-viewport fallback · the 420px side panel + chat-col
+   becomes unreadable below 1200px (chat-col gets ~< 600px which
+   eats the input-bar's 960px max-width content rhythm). Force the
+   docked panel back to floating geometry so the chat keeps its
+   full real estate. The grid override on the room view also
+   reverts here so the layout doesn't fight the float positioning. */
+@media (max-width: 1200px) {
+  body.has-thread-dock .main-view[data-main-view="room"] {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  .thread-float.is-docked {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: 420px;
+    height: 520px;
+    max-height: calc(100vh - 96px);
+    border: 0.5px solid var(--line-strong);
+    border-radius: 6px;
+    box-shadow:
+      0 8px 24px -8px rgba(0, 0, 0, 0.45),
+      0 4px 12px -4px rgba(0, 0, 0, 0.3);
+  }
+  .thread-float.is-docked .thread-float-head {
+    cursor: grab;
+    border-radius: 6px 6px 0 0;
+  }
+  /* Resize handle has no purpose when the dock is fixed-positioned
+     (it would drag a non-existent grid column). Hide. */
+  .thread-float.is-docked .thread-dock-resize-handle { display: none; }
+}

@@ -1,5 +1,6 @@
 /** User preferences (single-row table). */
 import { isLlmProvider, type LlmProvider } from "../ai/providers.js";
+import { parseAvatar3d, type Avatar3dConfig } from "./agents.js";
 import { getDb } from "./db.js";
 
 /** Which configured search API backs Web Search when both Brave and
@@ -13,6 +14,12 @@ export interface Prefs {
   name: string;
   intro: string;
   avatarSeed: string | null;
+  /** 3D "捏 avatar" config for the user (host). NULL → no 3D avatar (falls
+   *  back to the 8-bit seed avatar). Mirrors `Agent.avatar3d`. */
+  avatar3d: Avatar3dConfig | null;
+  /** Rendered PNG portrait (data URL) from the 3D editor. Preferred over the
+   *  seed-generated SVG by the sidebar / room / settings when present. */
+  avatarUrl: string | null;
   defaultModelV: string | null;
   /** Active search backend preference (honoured only when both keys exist). */
   webSearchProvider: WebSearchProviderPref;
@@ -48,6 +55,8 @@ interface Row {
   name: string;
   intro: string;
   avatar_seed: string | null;
+  avatar3d_json: string | null;
+  avatar_url: string | null;
   default_model_v: string | null;
   web_search_provider: string;
   minimax_region: string;
@@ -73,6 +82,8 @@ function mapRow(row: Row): Prefs {
     name: row.name,
     intro: row.intro,
     avatarSeed: row.avatar_seed,
+    avatar3d: parseAvatar3d(row.avatar3d_json),
+    avatarUrl: row.avatar_url,
     defaultModelV: row.default_model_v,
     webSearchProvider: normalizeWebSearchProviderPref(row.web_search_provider),
     minimaxRegion: normalizeMinimaxRegion(row.minimax_region),
@@ -88,7 +99,7 @@ function mapRow(row: Row): Prefs {
 export function getPrefs(): Prefs {
   const row = getDb()
     .prepare(
-      `SELECT name, intro, avatar_seed, default_model_v,
+      `SELECT name, intro, avatar_seed, avatar3d_json, avatar_url, default_model_v,
               COALESCE(web_search_provider, 'brave') AS web_search_provider,
               COALESCE(minimax_region, 'cn') AS minimax_region,
               active_llm_provider,
@@ -109,6 +120,8 @@ export interface PrefsPatch {
   name?: string;
   intro?: string;
   avatarSeed?: string | null;
+  avatar3d?: Avatar3dConfig | null;
+  avatarUrl?: string | null;
   defaultModelV?: string | null;
   webSearchProvider?: WebSearchProviderPref;
   minimaxRegion?: MinimaxRegion;
@@ -124,6 +137,8 @@ export function updatePrefs(patch: PrefsPatch): Prefs {
   if (patch.name !== undefined)           { fields.push("name = ?");            values.push(patch.name); }
   if (patch.intro !== undefined)          { fields.push("intro = ?");           values.push(patch.intro); }
   if (patch.avatarSeed !== undefined)     { fields.push("avatar_seed = ?");     values.push(patch.avatarSeed); }
+  if (patch.avatar3d !== undefined)       { fields.push("avatar3d_json = ?");   values.push(patch.avatar3d ? JSON.stringify(patch.avatar3d) : null); }
+  if (patch.avatarUrl !== undefined)      { fields.push("avatar_url = ?");      values.push(patch.avatarUrl); }
   if (patch.defaultModelV !== undefined)  { fields.push("default_model_v = ?"); values.push(patch.defaultModelV); }
   if (patch.webSearchProvider !== undefined) {
     fields.push("web_search_provider = ?");

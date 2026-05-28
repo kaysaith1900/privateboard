@@ -1,11 +1,11 @@
 /**
  * /api/avatar — server-side avatar seed generation.
  *
- * The pixel-art SVG itself is generated client-side by the AvatarSkill
- * (public/avatar-skill.js) so the visual style stays consistent across
- * surfaces. This endpoint just turns a director's name+bio into a
- * "vibe seed" via the LLM so the resulting avatar reflects the
- * persona instead of being a hash of name+bio.
+ * The 3D portrait itself is rendered client-side by Avatar3DSnap
+ * (public/avatar-3d-snap.js) so the visual style stays consistent
+ * across surfaces. This endpoint just turns a director's name+bio
+ * into a "vibe seed" via the LLM so the resulting avatar reflects
+ * the persona instead of being a hash of name+bio.
  *
  * No LLM key configured? Falls back to a deterministic seed so the UI
  * always works even without API keys.
@@ -66,7 +66,7 @@ export function avatarRouter() {
       });
       vibe = String(out || "").trim().replace(/\s+/g, " ").slice(0, VIBE_MAX);
       if (vibe) {
-        // The vibe becomes the deterministic seed for AvatarSkill on
+        // The vibe becomes the deterministic seed for Avatar3DSnap on
         // the client. Same vibe → same avatar; LLM gives the variation.
         seed = `${name}::${vibe}`;
         usedLLM = true;

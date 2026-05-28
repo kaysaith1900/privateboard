@@ -1,5 +1,6 @@
 import { getKey } from "../storage/keys.js";
 import { getPrefs } from "../storage/prefs.js";
+import { getVoiceLabelMap } from "../storage/voice-labels.js";
 import {
   getActiveVoiceKeyPlaintext,
   getActiveVoiceProvider,
@@ -266,6 +267,11 @@ async function fetchAllElevenLabsV2Voices(apiKey: string): Promise<ElevenLabsFet
         next_page_token?: unknown;
       };
       const rows = elevenLabsV2VoiceRows(json.voices);
+      // Sort so user-owned voices (cloned / professional) land before
+      // platform-supplied premade ones. ElevenLabs v2 returns them
+      // mixed; the picker UX is much better when "your voices" are at
+      // the top of the dropdown.
+      rows.sort((a, b) => elevenLabsCategoryRank(a.category) - elevenLabsCategoryRank(b.category));
       for (const r of rows) {
         out.push({
           provider: "elevenlabs",
@@ -300,6 +306,12 @@ async function fetchAllElevenLabsV2Voices(apiKey: string): Promise<ElevenLabsFet
     `[voice-registry] elevenlabs /v2/voices · ${out.length} voices total across all pages\n`,
   );
   return { voices: out, error: lastError };
+}
+
+function elevenLabsCategoryRank(category: string): number {
+  if (category === "cloned" || category === "professional") return 0;
+  if (category === "generated") return 2;
+  return 1; // premade / voice / unknown
 }
 
 function elevenLabsV2VoiceRows(
@@ -402,9 +414,12 @@ async function fetchAllMiniMaxVoices(apiKey: string): Promise<VoiceOption[]> {
       return MINIMAX_SYSTEM_VOICES.map((v) => ({ ...v, configured: true }));
     }
     const json = (await res.json()) as Record<string, unknown>;
+    // Cloned voices first so the user's recently-added customs land at
+    // the top of the picker (we re-render this catalogue right after a
+    // successful clone). System voices follow; generated stays last.
     const rows = [
-      ...voiceRows(json.system_voice, "system"),
       ...voiceRows(json.voice_cloning, "clone"),
+      ...voiceRows(json.system_voice, "system"),
       ...voiceRows(json.voice_generation, "generated"),
     ];
     if (rows.length === 0) {
@@ -488,7 +503,7 @@ export async function listVoicesPage(
   if (activeProvider === "elevenlabs") {
     const { voices: all, error } = await getElevenLabsVoicesCached(activeKey);
     const offset = cursor && cursor.src === "el" ? (cursor.offset ?? 0) : 0;
-    const slice = all.slice(offset, offset + size);
+    const slice = mergeCustomLabels(all.slice(offset, offset + size));
     const next = offset + slice.length;
     const hasMore = next < all.length;
     const nextCursor = hasMore ? encodeCursor({ src: "el", offset: next }) : null;
@@ -510,7 +525,7 @@ export async function listVoicesPage(
   if (activeProvider === "minimax") {
     const all = await getMiniMaxVoicesCached(activeKey);
     const offset = cursor && cursor.src === "mm" ? (cursor.offset ?? 0) : 0;
-    const slice = all.slice(offset, offset + size);
+    const slice = mergeCustomLabels(all.slice(offset, offset + size));
     const next = offset + slice.length;
     const hasMore = next < all.length;
     const nextCursor = hasMore ? encodeCursor({ src: "mm", offset: next }) : null;
@@ -527,6 +542,28 @@ export async function listVoicesPage(
     provider: activeProvider,
     configured: true,
   };
+}
+
+/** Overlay user-typed voice labels (from the `voice_labels` table)
+ *  onto the catalogue rows. Provider-side names win when distinct
+ *  from voice_id (user renamed in MiniMax / ElevenLabs dashboard);
+ *  otherwise the persisted label from our clone modal takes over so
+ *  the picker shows "Chloe" instead of `Chloe_l5xqf0`. */
+function mergeCustomLabels(voices: VoiceOption[]): VoiceOption[] {
+  // Lazy import to avoid a top-level dep cycle (registry ← labels ← db).
+  // Returning the same array shape lets callers stay agnostic.
+  const ids = voices.map((v) => v.voiceId).filter((id): id is string => !!id);
+  if (ids.length === 0) return voices;
+  const labelMap = getVoiceLabelMap(ids);
+  if (labelMap.size === 0) return voices;
+  return voices.map((v) => {
+    const custom = v.voiceId ? labelMap.get(v.voiceId) : undefined;
+    if (!custom) return v;
+    // Provider-side rename wins · their label is distinct from
+    // voice_id and the user clearly edited it on the dashboard.
+    if (v.label && v.label !== v.voiceId) return v;
+    return { ...v, label: custom };
+  });
 }
 
 /** Manually drop cached voice catalogues · called when a credential is

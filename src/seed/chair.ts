@@ -25,7 +25,23 @@ export const SEED_CHAIR: AgentInsert = {
   roleKind: "moderator",
   bio: "Runs the room. Asks one clarifying question at the open, summarises each round, and files the brief at adjourn. Never argues, never proposes — keeps the conversation legible.",
   coverQuote: "Before the directors weigh in — what specifically are we deciding?",
-  avatarPath: "/avatars/chair.svg",
+  avatarPath: "/avatars/3d/chair.png",
+  // Chair's canonical 3D look · ported from the production "杨天真"
+  // avatar so every install boots with the same moderator portrait.
+  // Persisted to `agents.avatar3d_json` on seed (see insertAgent +
+  // run.ts backfill). Users CAN still override via the customizer.
+  avatar3d: {
+    model: "classic",
+    hairStyle: "glasses",
+    outfitStyle: "casual",
+    accessory: "glasses",
+    skin: "#f7d7b8",
+    hair: "#6f4e37",
+    brow: "#7a3b28",
+    outfit: "#d8392b",
+    browStyle: "default",
+    tieStyle: "none",
+  },
   // Opus 4.7 is the boardroom default for the chair · the chair runs the
   // room (clarify question, round-end summary, settings announcements)
   // and benefits from strong instruction following. Brief writing also

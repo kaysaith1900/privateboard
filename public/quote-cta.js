@@ -160,8 +160,8 @@
     cta.className = "qcta";
     cta.setAttribute("role", "toolbar");
     const t = lang() === "zh"
-      ? { ask: "追问", love: "附议", save: "收藏" }
-      : { ask: "Probe", love: "Second", save: "Save" };
+      ? { ask: "追问", love: "附议", save: "收藏", thread: "私聊" }
+      : { ask: "Probe", love: "Second", save: "Save", thread: "Thread" };
     // Inline chat-bubble SVG · uses currentColor so it inherits the
     // hover lime / base text colour like the ★ glyph does.
     const askIcon = `
@@ -176,12 +176,26 @@
         <path d="M3.5 1.5 H10.5 V12.5 L7 9.5 L3.5 12.5 Z"/>
       </svg>
     `;
+    // Reply curve · matches `_threadTriggerIconSvg` in app.js so the
+    // selection bar's Thread button reads as the same action as the
+    // per-bubble msg-toolbar reply icon. Both surfaces route into
+    // `openThreadWith` — selection bar additionally seeds the
+    // composer with a quote of the selected text.
+    const threadIcon = `
+      <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 10 L2 7 L5 4"/>
+        <path d="M2 7 H10 a2 2 0 0 1 2 2 V11"/>
+      </svg>
+    `;
     cta.innerHTML = `
       <button type="button" class="qcta-btn" data-qcta="ask">
         <span class="ico">${askIcon}</span><span>${t.ask}</span>
       </button>
       <button type="button" class="qcta-btn" data-qcta="second">
         <span class="ico">★</span><span>${t.love}</span>
+      </button>
+      <button type="button" class="qcta-btn qcta-btn-thread" data-qcta="thread" title="${t.thread}">
+        <span class="ico">${threadIcon}</span><span>${t.thread}</span>
       </button>
       <button type="button" class="qcta-btn qcta-btn-save" data-qcta="save" title="Save to Notes · S">
         <span class="ico">${saveIcon}</span><span>${t.save}</span>
@@ -197,15 +211,18 @@
       if (!btn) return;
       const action = btn.getAttribute("data-qcta");
       // Read-only state (adjourned rooms) blocks Probe / Second since
-      // they post messages to a closed room. Save is exempt — the
-      // user is bookmarking for personal review, not interacting.
-      if (cta.classList.contains("qcta-readonly") && action !== "save") return;
+      // they post messages to the closed parent room. Save and Thread
+      // are exempt — Save is a personal bookmark, and a Thread spawns
+      // its own live 1:1 room (server doesn't gate thread-create on the
+      // parent's status), so review-mode follow-ups stay possible.
+      if (cta.classList.contains("qcta-readonly") && action !== "save" && action !== "thread") return;
       const sel = lastSelection;
       hideCTA();
       if (!sel || !sel.text) return;
       if (action === "ask") openAskOverlay(sel);
       else if (action === "second") submitSecond(sel);
       else if (action === "save") submitSave(sel);
+      else if (action === "thread") openSelectionThread(sel);
     });
     document.body.appendChild(cta);
     return cta;
@@ -432,6 +449,34 @@
     const body = quoteBlock(sel.text, sel.directorName) + "\n\n" + userText;
     const mentions = sel.directorId ? [sel.directorId] : [];
     routeSend(body, mentions);
+  }
+
+  // ── Selection → private thread ──────────────────────────────
+  // Opens (or restores) a 1:1 thread window with the quoted director
+  // and pre-seeds the thread's composer textarea with the markdown
+  // blockquote of the selected text + a blank line. The user then
+  // types their follow-up question and sends; the director's reply
+  // sees the quote inline as the user's first thread message.
+  // Threads stay private to the user + this one director — the rest
+  // of the room never sees what was selected or discussed below.
+  async function openSelectionThread(sel) {
+    const app = window.app;
+    if (!app || typeof app.openThreadWith !== "function") return;
+    if (!sel.directorId) return;
+    // Stash the selected quote so the thread window mount can find
+    // it AFTER the async POST + DOM build settle. Keyed by director
+    // id so concurrent clicks on different bubbles don't overwrite
+    // each other. Consumed (and cleared) by mountThreadWindow.
+    app._threadPendingQuote = app._threadPendingQuote || {};
+    app._threadPendingQuote[sel.directorId] = {
+      text: sel.text,
+      directorName: sel.directorName || "",
+    };
+    try {
+      await app.openThreadWith(sel.directorId);
+    } catch (e) {
+      try { console.warn("[qcta-thread] open failed:", e); } catch (_) {}
+    }
   }
 
   // ── Save to Notes ─────────────────────────────────────────────
