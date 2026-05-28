@@ -37,14 +37,17 @@
      mount fails (caller falls back to a static poster img). */
 
 (function () {
-  /* Brainstorm-tone floor · same CSS values as
-     `index.html:.roundtable-stage[data-floor="brainstorm"]` (line
-     8671). Inlined here so the host DOM doesn't need any data
-     attribute or app CSS · we just write the CSS vars directly
-     onto the mount element and `voice-3d.js:rebuildFloor` reads
-     them via `getComputedStyle(host)`. */
-  const BRAINSTORM_FLOOR_BG = "#5E6B47";
-  const BRAINSTORM_FLOOR_IMAGE = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'><rect width='128' height='128' fill='%235E6B47'/><rect x='0' y='8' width='20' height='16' fill='%234F5C3D'/><rect x='104' y='20' width='20' height='20' fill='%234F5C3D'/><rect x='88' y='64' width='24' height='16' fill='%234F5C3D'/><rect x='0' y='64' width='12' height='20' fill='%234F5C3D'/><rect x='44' y='64' width='16' height='8' fill='%234F5C3D'/><rect x='72' y='8' width='12' height='8' fill='%236E7A52'/><rect x='120' y='80' width='8' height='12' fill='%236E7A52'/><rect x='48' y='84' width='8' height='8' fill='%236E7A52'/><rect x='48' y='24' width='32' height='32' fill='%235C4838'/><rect x='44' y='28' width='4' height='24' fill='%235C4838'/><rect x='80' y='28' width='4' height='24' fill='%235C4838'/><rect x='52' y='20' width='24' height='4' fill='%235C4838'/><rect x='52' y='56' width='20' height='4' fill='%235C4838'/><rect x='56' y='16' width='12' height='4' fill='%235C4838'/><rect x='56' y='32' width='8' height='8' fill='%234A3A28'/><rect x='68' y='40' width='4' height='8' fill='%234A3A28'/><rect x='60' y='24' width='4' height='4' fill='%236E5A48'/><rect x='68' y='48' width='4' height='4' fill='%236E5A48'/><rect x='58' y='44' width='2' height='2' fill='%236B6258'/><rect x='72' y='32' width='2' height='2' fill='%236B6258'/><rect x='50' y='38' width='2' height='2' fill='%236B6258'/><rect x='16' y='96' width='24' height='20' fill='%235C4838'/><rect x='12' y='100' width='4' height='12' fill='%235C4838'/><rect x='40' y='100' width='4' height='12' fill='%235C4838'/><rect x='20' y='92' width='16' height='4' fill='%235C4838'/><rect x='22' y='104' width='8' height='4' fill='%234A3A28'/><rect x='20' y='100' width='4' height='4' fill='%236E5A48'/><rect x='24' y='108' width='2' height='2' fill='%236B6258'/><rect x='32' y='98' width='2' height='2' fill='%236B6258'/><rect x='8' y='40' width='1' height='2' fill='%238FA068'/><rect x='24' y='72' width='1' height='2' fill='%238FA068'/><rect x='104' y='56' width='1' height='2' fill='%238FA068'/><rect x='120' y='104' width='1' height='2' fill='%238FA068'/><rect x='88' y='44' width='1' height='2' fill='%238FA068'/><rect x='4' y='88' width='1' height='2' fill='%238FA068'/><rect x='64' y='88' width='1' height='2' fill='%238FA068'/><rect x='92' y='24' width='1' height='2' fill='%238FA068'/><rect x='44' y='62' width='1' height='2' fill='%238FA068'/><rect x='80' y='120' width='1' height='2' fill='%238FA068'/><rect x='12' y='12' width='1' height='2' fill='%238FA068'/><rect x='112' y='60' width='1' height='2' fill='%238FA068'/></svg>\")";
+  /* Brainstorm-tone floor · MUST stay in sync with
+     `index.html:.roundtable-stage[data-floor="brainstorm"]` (warm-
+     oak plank, ~line 8367). Inlined here so the host DOM doesn't
+     need any data attribute or app CSS · we just write the CSS vars
+     directly onto the mount element and `voice-3d.js:rebuildFloor`
+     reads them via `getComputedStyle(host)`. The earlier soil +
+     grass + flower tile was stale (brainstorm was redesigned to a
+     cozy warm-oak interior); the banner was still showing the old
+     ground while the actual room had switched. */
+  const BRAINSTORM_FLOOR_BG = "#B0976E";
+  const BRAINSTORM_FLOOR_IMAGE = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='64' shape-rendering='crispEdges'><rect width='128' height='64' fill='%23B0976E'/><rect y='16' width='128' height='16' fill='%23A68C62'/><rect y='48' width='128' height='16' fill='%23A68C62'/><rect y='0' width='128' height='1' fill='%23C2A87E'/><rect y='16' width='128' height='1' fill='%23C2A87E'/><rect y='32' width='128' height='1' fill='%23C2A87E'/><rect y='48' width='128' height='1' fill='%23C2A87E'/><rect y='15' width='128' height='1' fill='%23877045'/><rect y='31' width='128' height='1' fill='%23877045'/><rect y='47' width='128' height='1' fill='%23877045'/><rect y='63' width='128' height='1' fill='%23877045'/><rect x='40' y='0' width='1' height='16' fill='%23877045'/><rect x='96' y='16' width='1' height='16' fill='%23877045'/><rect x='20' y='32' width='1' height='16' fill='%23877045'/><rect x='72' y='48' width='1' height='16' fill='%23877045'/><rect x='10' y='6' width='14' height='1' fill='%23A38755'/><rect x='60' y='22' width='18' height='1' fill='%23A38755'/><rect x='100' y='40' width='14' height='1' fill='%23A38755'/><rect x='30' y='56' width='16' height='1' fill='%23A38755'/></svg>\")";
 
   /* Marketing camera framing · matches `home-3d-loader.js` so the
      in-app banner reads as the same scene the homepage shows.
@@ -149,8 +152,14 @@
       host.style.setProperty("--floor-image", BRAINSTORM_FLOOR_IMAGE);
 
       // VS3D.mount returns false on WebGL init failure. Bail to
-      // the poster fallback if so.
-      if (!VS3D.mount(host, { camera: CAMERA_OPTS })) return null;
+      // the poster fallback if so. `loading: false` suppresses the
+      // built-in dark "rgba(0,0,0,0.42)" loading overlay · the
+      // caller (onboarding.js / voice-onboarding.js) paints its
+      // own brainstorm-themed placeholder that fades on mount, so
+      // we don't want voice-3d.js's overlay stacking on top of it
+      // (the result was an opaque-looking black box during the
+      // first ~300 ms).
+      if (!VS3D.mount(host, { camera: CAMERA_OPTS, loading: false })) return null;
     } catch (_) {
       return null;
     }

@@ -158,15 +158,17 @@ export const AVATAR_MODELS = [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },   // short side-parted hair
       { c: [0.000, 0.117, 0.127], role: "top" },    // teal long-sleeve top
-      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white shorts
     ],
-    // The wine cloth mask has a unique colour that doesn't collide with any
-    // role; tag it explicitly so it can be toggled as an accessory. The
-    // "Wood.001" mesh is wood-orange shoes — include them as "bottom" so the
-    // bottom swap carries the full lower kit.
+    // The wine cloth mask gets its own accessory role. For the bottom, only
+    // claim the UPPER white mesh (the actual shorts at cy≈0.40); the lower
+    // white sock cuffs (cy≈0.09) and the Wood.001 sandal sole (cy≈0.03)
+    // would otherwise tag as "bottom" too and render as floating brown
+    // rings around the ankles when this outfit gets overlaid on another
+    // body whose bind pose doesn't match. Those low meshes drop to "other"
+    // → not painted, not borrowed in the overlay.
     partTags: [
       { role: "mask", color: [0.543, 0.251, 0.367] },
-      { role: "bottom", name: "wood" },
+      { role: "bottom", color: [0.913, 0.913, 0.913], minY: 0.2 },
     ],
   },
   {
@@ -211,14 +213,44 @@ export const AVATAR_MODELS = [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },   // short side hair
       { c: [0.527, 0.527, 0.527], role: "bottom" }, // grey jumpsuit (legs + low torso)
-      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white sock cuffs at ankles
     ],
-    // Red anger marks → their own accessory role. Wood.001 sole joins the
-    // rest of the bottom kit so picking style9 as the bottom brings the
-    // full lower body (jumpsuit + socks + shoes) in one swap.
+    // Red anger marks → their own accessory role. The white sock cuffs
+    // (cy≈0.37 / 0.09) and the Wood.001 sandal sole (cy≈0.03) are
+    // deliberately NOT tagged "bottom": their geometry is shaped for
+    // style9's bind pose and renders as floating brown bands around the
+    // ankles when overlaid on a different body. They drop to "other" →
+    // not painted, not borrowed in the swap. The clean grey jumpsuit is
+    // the single piece the bottom-swap carries.
     partTags: [
       { role: "anger", color: [0.816, 0.031, 0.031] },
-      { role: "bottom", name: "wood" },
+    ],
+  },
+  {
+    // Parts source only · pikachu onesie. The yellow textured "Pika"
+    // costume + black "BlackMatt" tail / ear-tips form the body suit
+    // (both marked noPaint so the costume stays its baked yellow + black
+    // regardless of the top-colour picker). Red cheek dots are a
+    // separate accessory role ("redcheek"). Short brown hair under the
+    // hood, plus a small dark mustache split out via tagModelParts'
+    // sizeYMax matcher (the larger dark mesh is the brows; the
+    // smaller-volume one is the mustache → "beard").
+    id: "style10", label: "皮卡丘 · 黄外衣", partsOnly: true,
+    url: "/icons/new-style10.glb",
+    accessory: "redcheek",
+    colorRoles: [
+      { c: [0.913, 0.565, 0.376], role: "skin" },
+      { c: [0.147, 0.076, 0.031], role: "hair" }, // short brown hair under the hood
+    ],
+    partTags: [
+      { role: "top", textured: true, color: [1.0, 1.0, 1.0], noPaint: true }, // Pika yellow body
+      { role: "top", name: "blackmatt", noPaint: true },                      // tail + ear tips
+      { role: "redcheek", color: [0.816, 0.031, 0.031] },                     // red cheek dots
+      // The mustache and the brows share the same dark colour AND
+      // similar (small) Y spans — they're only separated by position.
+      // Raw centroid Y: brows ≈ 1.84 (forehead), mustache ≈ 1.51
+      // (mouth). A maxY threshold of 1.7 claims only the mustache as
+      // beard; the brow mesh stays for tagEyebrows to pick up.
+      { role: "beard", color: [0.025, 0.011, 0.009], maxY: 1.7 },
     ],
   },
 ];
@@ -437,7 +469,17 @@ function tagModelParts(root, model) {
   root.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    // Facial-feature materials should never be retagged by partTag rules ·
+    // their near-black colours (BlackShiny eyes [0,0,0], InsideMouth
+    // [0.031,0,0.001]) drift into the brow-colour tolerance and silently
+    // hijack rules like style10's mustache (`color:[0.025,...]`) →
+    // mouth + eyes end up in the beard overlay. "white"-named meshes
+    // intentionally stay open here because some models name dress trims
+    // / clothing "White.001" (style6).
+    const nm = (m.name || "").toLowerCase();
+    if (/insidemouth|mouth|tongue|gum|nail|teeth|tooth|blackshiny|glass/.test(nm)) return;
     let cy = null;
+    let sy = null; // bbox y span cache
     for (const rule of model.partTags) {
       if (rule.textured && !m.map) continue;
       if (rule.name && !(m.name || "").toLowerCase().includes(rule.name.toLowerCase())) continue;
@@ -450,7 +492,20 @@ function tagModelParts(root, model) {
         if (rule.minY != null && cy < rule.minY) continue;
         if (rule.maxY != null && cy > rule.maxY) continue;
       }
+      if (rule.sizeYMin != null || rule.sizeYMax != null) {
+        if (sy == null) {
+          const b = new THREE.Box3().setFromObject(o);
+          sy = b.max.y - b.min.y;
+        }
+        if (rule.sizeYMin != null && sy < rule.sizeYMin) continue;
+        if (rule.sizeYMax != null && sy > rule.sizeYMax) continue;
+      }
       o.userData.avatarRole = rule.role;
+      // `noPaint:true` pins the mesh's baked colour/texture · paintInstance
+      // honours `avatarColorLocked` and skips the role-keyed material.color
+      // set. Used for textured costumes (e.g. style10 Pikachu) where the
+      // texture pattern IS the look and any tint would muddy it.
+      if (rule.noPaint) o.userData.avatarColorLocked = true;
       break;
     }
   });
@@ -648,8 +703,8 @@ function swapHair(group, inst, bodyModel, hairStyle) {
 }
 
 /** Which model supplies each accessory (it's baked into that model). */
-const ACCESSORY_SRC = { glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas", tophat: "style6", mask: "style7", blindfold: "style8", star: "style8", anger: "style9" };
-const ACCESSORY_ROLES = ["glasses", "headphones", "cap", "crown", "santa", "shades", "tophat", "mask", "blindfold", "star", "anger"];
+const ACCESSORY_SRC = { glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas", tophat: "style6", mask: "style7", blindfold: "style8", star: "style8", anger: "style9", redcheek: "style10" };
+const ACCESSORY_ROLES = ["glasses", "headphones", "cap", "crown", "santa", "shades", "tophat", "mask", "blindfold", "star", "anger", "redcheek"];
 
 /** Swap the avatar's accessory · independent of body style. Hides the
  *  body's OWN accessory, then (if `accStyle` isn't "none" and isn't the
@@ -732,6 +787,11 @@ function paintInstance(inst, model, colors, doTint) {
     const out = mats.map((m) => {
       const r = pre || resolveRole(m, model);
       if (r !== "other") role = r;
+      // Colour-locked meshes (partTag noPaint:true) preserve their baked
+      // texture / colour even when their role would normally take a paint
+      // pass. The role tag still rides so overlay visibility still works.
+      const colorLocked = o.userData && o.userData.avatarColorLocked;
+      if (colorLocked) return m;
       if (doTint) {
         if (r === "skin")   { m.color.set(colors.skin);   return applyFinish(m, FINISH.skin); }
         if (r === "hair")   { m.color.set(colors.hair);   return applyFinish(m, FINISH.hair); }
@@ -783,6 +843,7 @@ export const BEARD_STYLES = [
   { id: "none", label: "无" },
   { id: "style8", label: "络腮胡" },
   { id: "style9", label: "八字胡" },
+  { id: "style10", label: "皮卡丘小胡" },
 ];
 
 /** Neckwear dimension · independent toggle (overlaid from its source, role
@@ -800,10 +861,10 @@ export const TIE_STYLES = [
 export const TOP_STYLES = [
   { id: "glasses", label: "蓝色上衣" },
   { id: "casual", label: "黑T" },
-  { id: "street", label: "街头黑T" },
   { id: "style6", label: "背心裙" },
   { id: "style7", label: "长袖" },
   { id: "style8", label: "熊熊连体" },
+  { id: "style10", label: "皮卡丘外衣" },
 ];
 
 /** Bottom (裤子 / 裙子) dimension · model ids whose role "bottom" meshes
@@ -814,8 +875,6 @@ export const TOP_STYLES = [
 export const BOTTOM_STYLES = [
   { id: "casual", label: "白短裤" },
   { id: "street", label: "街头白短裤" },
-  { id: "style7", label: "白短裤·配长袖" },
-  { id: "style9", label: "灰色长裤" },
 ];
 
 /** Accessory styles offered by the customizer · an independent dimension.
@@ -833,6 +892,7 @@ export const ACCESSORY_STYLES = [
   { id: "blindfold", label: "眼罩" },
   { id: "star", label: "星星" },
   { id: "anger", label: "怒火" },
+  { id: "redcheek", label: "腮红" },
 ];
 
 /** Live-recolour an existing avatar Group without rebuilding (customizer

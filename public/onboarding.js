@@ -20,7 +20,7 @@
   const FIRST_HINT_KEY = "boardroom.onb.firstHint";
 
   /** Sample of the bench shown on step 3. Avatar files live in
-   *  public/avatars/<slug>.svg — only slugs that have a real SVG
+   *  public/avatars/3d/<slug>.png — only slugs that have a real PNG
    *  there should appear, otherwise the broken-image glyph shows
    *  through. chair leads (always first), then five directors. */
   const CAST_PREVIEW = [
@@ -642,7 +642,7 @@
       `;
       const cells = CAST_PREVIEW.map((c) => `
         <span class="onb-cast-cell" title="${escape(c.name)} · ${escape(c.role)}">
-          <img class="onb-cast-av" src="avatars/${escape(c.slug)}.svg" alt="${escape(c.name)}">
+          <img class="onb-cast-av" src="avatars/3d/${escape(c.slug)}.png" alt="${escape(c.name)}">
           <span class="onb-cast-name">${escape(c.name)}</span>
           <span class="onb-cast-role">${escape(c.role)}</span>
         </span>
@@ -689,12 +689,27 @@
   function mountVoiceBanner() {
     const slot = overlay && overlay.querySelector("[data-onb-voice-banner]");
     if (!slot) return;
-    slot.innerHTML = `<div class="onb-voice-banner-stage" data-onb-voice-banner-stage></div>`;
+    // Loading veil sits above the stage until VS3D.mount returns.
+    // Three.js bundle + shader compile + mesh upload take a beat on
+    // first visit; without the veil the canvas reads as a flat black
+    // box for ~200-500 ms before the first paint lands.
+    slot.classList.remove("is-3d-mounted");
+    slot.innerHTML = `
+      <div class="onb-voice-banner-stage" data-onb-voice-banner-stage></div>
+      <div class="onb-voice-banner-loading" data-onb-voice-banner-loading aria-hidden="true">
+        <span class="onb-voice-banner-loading-spinner"></span>
+        <span class="onb-voice-banner-loading-label">Rendering the round table…</span>
+      </div>
+    `;
     const stage = slot.querySelector("[data-onb-voice-banner-stage]");
     if (stage && typeof window.mountVoice3dBanner === "function") {
       const stop = window.mountVoice3dBanner(stage);
       if (stop) {
         _voice3dBannerStop = stop;
+        // Mark the wrapper so the CSS transition fades the veil out
+        // on the next frame · waiting a tick lets the canvas paint
+        // its first populated frame before the veil starts dissolving.
+        requestAnimationFrame(() => slot.classList.add("is-3d-mounted"));
         return;
       }
     }

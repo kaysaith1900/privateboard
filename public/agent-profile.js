@@ -3913,14 +3913,6 @@
       v.agent.setAttribute("hidden", "");
       v.agent.innerHTML = "";
     }
-    // The room view is back · re-arm the voice-room layout flag if the
-    // underlying room is voice (kept off while the agent profile was
-    // visible). Read from window.app since this file has no direct
-    // reference to the app instance.
-    try {
-      const cr = window.app && window.app.currentRoom;
-      document.body.classList.toggle("voice-room", !!(cr && cr.deliveryMode === "voice"));
-    } catch (_) { /* defensive */ }
     // Hide every other top-level pane so its content / placeholder
     // doesn't bleed through under the room view. Each view is just
     // the same `.main-view` CSS box — without explicitly hiding the
@@ -3996,13 +3988,6 @@
 
   function open(slug) {
     currentlyOpenSlug = slug;
-    // The agent view is about to replace the room view as the visible
-    // main-view — drop the `voice-room` body class (set by app.js when
-    // a voice room is current) so the collapsed-sidebar overlay rules
-    // stop applying. Otherwise the mini-rail stays floating on top of
-    // the profile and clips its content. showRoom() below re-toggles
-    // the class on the way back if the underlying room is voice.
-    document.body.classList.remove("voice-room");
     let p = PROFILES[slug];
     // Live agent record (DB row · includes seeded directors too,
     // since they live in the agents table). Custom directors created

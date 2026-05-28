@@ -831,27 +831,8 @@
         // is loaded; chat resolution still flips it on room load.
         if (j.chair) this.currentChair = j.chair;
         if (this.currentChair) this.agentsById[this.currentChair.id] = this.currentChair;
-        this._updateMiniLogoAvatar();
         this.renderSidebarAgents();
       } catch (e) { /* ignore */ }
-    },
-
-    /** Paint the collapsed-sidebar mini-logo with the chair's portrait
-     *  as the default-state background (chin-up crop via CSS). Adds
-     *  `.has-avatar` so the hover-swap rule activates the fold glyph
-     *  on hover. Idempotent; safe to call on every chair refresh. */
-    _updateMiniLogoAvatar() {
-      const av = document.querySelector(".mini-logo .mini-logo-av");
-      if (!av) return;
-      const logo = av.closest(".mini-logo");
-      const path = this.currentChair && this.currentChair.avatarPath;
-      if (path) {
-        av.style.backgroundImage = `url("${String(path).replace(/"/g, "\\\"")}")`;
-        if (logo) logo.classList.add("has-avatar");
-      } else {
-        av.style.backgroundImage = "";
-        if (logo) logo.classList.remove("has-avatar");
-      }
     },
 
     async loadInitial() {
@@ -902,7 +883,6 @@
           this.currentChair = j.chair;
           this.agentsById[j.chair.id] = j.chair;
         }
-        this._updateMiniLogoAvatar();
       }
       if (roomsRes.ok)  {
         const j = await roomsRes.json();
@@ -1043,6 +1023,32 @@
       location.hash = "#/r/" + roomId;
     },
 
+    /** Debounce-arm the top-of-viewport room-switch loading bar. Cancels
+     *  any prior timer so the timer reflects the LATEST openRoom only.
+     *  The bar shows 150 ms after the call; faster loads (cached SSE
+     *  handoff + tiny chats) clear via `_clearRoomLoadingBar` before
+     *  the timer fires and the user never sees a flash. */
+    _scheduleRoomLoadingBar() {
+      if (this._roomLoadingBarTimer) {
+        clearTimeout(this._roomLoadingBarTimer);
+      }
+      this._roomLoadingBarTimer = setTimeout(() => {
+        this._roomLoadingBarTimer = 0;
+        try { document.body.classList.add("is-room-loading"); } catch (_) { /* noop */ }
+      }, 150);
+    },
+
+    /** Tear down the room-switch loading bar in all exit paths
+     *  (success after paint, fetch failure, thread redirect, close).
+     *  Idempotent. */
+    _clearRoomLoadingBar() {
+      if (this._roomLoadingBarTimer) {
+        clearTimeout(this._roomLoadingBarTimer);
+        this._roomLoadingBarTimer = 0;
+      }
+      try { document.body.classList.remove("is-room-loading"); } catch (_) { /* noop */ }
+    },
+
     // ── Room lifecycle ────────────────────────────────────────
     async openRoom(roomId) {
       // Recording guard · switching to a DIFFERENT room while a
@@ -1082,6 +1088,13 @@
       if (window.MentionPicker && typeof window.MentionPicker.close === "function") {
         window.MentionPicker.close();
       }
+      // Top-of-viewport loading bar · debounced so an instant load
+      // never flashes the indicator. The cleanup is owned by
+      // `_clearRoomLoadingBar` which is called from every openRoom
+      // exit path (success after paint, room-fetch failure, thread
+      // redirect, closeRoom). Without the debounce the bar would
+      // tick on every same-room re-open (cached → ~10ms paint).
+      this._scheduleRoomLoadingBar();
       // Hand off SSE to a background tracker BEFORE closing the
       // foreground · openRoom is the room-to-room nav path
       // (closeRoom only fires when going back to "no room") so
@@ -1255,7 +1268,6 @@
         ? data.historicalMembers
         : (data.members || []).map((m) => ({ ...m, removedAt: null }));
       this.currentChair = data.chair || null;
-      this._updateMiniLogoAvatar();
       this.currentQueue = data.queue || [];
       // Reset to null on room open · the queue-update SSE will push
       // the real value if a director is currently speaking. The
@@ -1375,11 +1387,6 @@
       } catch (_) { /* network · render count = 0 */ }
 
       document.documentElement.setAttribute("data-status", data.room.status);
-      // Voice-room flag · drives the collapsed-sidebar OVERLAY treatment
-      // (see CSS scoped to `body.voice-room.sidebar-collapsed`). Toggled
-      // on every room open so navigating from a voice room to a text
-      // room (or vice versa) updates the layout immediately.
-      document.body.classList.toggle("voice-room", data.room.deliveryMode === "voice");
 
       // Wrap the render path so a future error in any sub-render
       // (renderHeader / renderChat / renderQueue / renderBrief /
@@ -1431,6 +1438,11 @@
         if (stage) stage.hidden = true;
         if (chat)  chat.hidden = false;
       }
+      // Room view + stage decision are both painted now · drop the
+      // top loading bar. If renderRoom finished within the 150 ms
+      // debounce window, the bar was never shown and this is just
+      // the timer cancel.
+      this._clearRoomLoadingBar();
       requestAnimationFrame(() => {
         if (this.currentRoomId === roomId) {
           try { this.applyRoundTableVisibility(roomId); }
@@ -1477,6 +1489,10 @@
     },
 
     async closeRoom() {
+      // Drop the room-switch loading bar in case openRoom hand-offs
+      // (auth failure / thread redirect / SSE error) routed through
+      // here before the bar could clear itself.
+      this._clearRoomLoadingBar();
       // Thread cleanup · route through `closeThreadWindow` so the
       // localStorage persistence entry is dropped too. Per the
       // updated UX rule, leaving a room means the thread chat is
@@ -1528,10 +1544,6 @@
       this.currentMessages = [];
       this.currentMembers = [];
       this.currentHistoricalMembers = [];
-      // Leaving a room · drop the voice-room layout flag so the
-      // mini-rail returns to its grid track for composer / reports /
-      // notes / agent-profile views.
-      document.body.classList.remove("voice-room");
       // `currentChair` is NOT reset · the chair is a structural
       // singleton (one moderator agent in the catalog, same across
       // every room), and the sidebar's Chair section keys off it
@@ -9864,10 +9876,6 @@
       // they have to navigate back to a room view to recover. Same
       // reasoning for openAllNotes / openAgentProfile.
       document.documentElement.classList.add("no-room");
-      // The reports view replaces the room view as the visible main-view
-      // · drop the voice-room layout flag so the collapsed-sidebar
-      // overlay rules stop applying for non-room destinations.
-      document.body.classList.remove("voice-room");
       // If we're inside a room or on the agent profile, leave them.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -10362,8 +10370,6 @@
       // Set the no-room flag for the same reason openAllReports does
       // — the floating sidebar-expand button is gated on this class.
       document.documentElement.classList.add("no-room");
-      // Drop the voice-room layout flag (see openAllReports).
-      document.body.classList.remove("voice-room");
       // Same view-leaving routine as openAllReports.
       if (this.currentRoomId) {
         this.disconnectSSE?.();

@@ -288,22 +288,25 @@
           sel[role] = hex;
           markOn(c, b);
           av.recolorAvatar(group, { [role]: hex }); // instant, no rebuild
-          // Update the module's current-colour chip and collapse the palette.
+          // Update the module's current-colour chip but DON'T auto-collapse
+          // the palette · the user requested colour rows stay open after
+          // selection; only an explicit click on the chip head toggles.
           const mod = c.closest(".av3d-mod");
           if (mod) {
             const chip = mod.querySelector(`[data-cgrp-chip][data-cgrp-for="${role}"]`);
             if (chip) chip.style.background = hex;
-            mod.classList.remove("is-open");
           }
         });
         c.appendChild(b);
       });
-      // Seed the module header's chip with the current colour so the user
-      // can read each role's value without opening the palette.
+      // Seed the module header's chip with the current colour + open the
+      // palette by default so the swatches are visible without the user
+      // having to drill in. Manual collapse via the chip head still works.
       const mod = c.closest(".av3d-mod");
       if (mod) {
         const chip = mod.querySelector(`[data-cgrp-chip][data-cgrp-for="${role}"]`);
         if (chip) chip.style.background = sel[role];
+        mod.classList.add("is-open");
       }
     }
     // Bind the colour-palette toggle on every module's header chip button

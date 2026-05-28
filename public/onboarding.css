@@ -39,7 +39,7 @@
   flex-direction: column;
   min-height: 0;
   /* Cap modal height — body inside scrolls. */
-  max-height: min(calc(100vh - 48px), 620px);
+  max-height: min(calc(100vh - 48px), 760px);
   /* Soft outer separation from the blurred dashboard. */
   box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.25);
   animation: onb-rise 0.24s ease-out;
@@ -308,6 +308,66 @@
    Mirrors `.hero-3d .rt-name-director { display: none !important }`
    on the marketing homepage. */
 .onb-voice-banner-stage .rt-name-director { display: none !important; }
+/* Loading veil · the WebGL pipeline takes a beat to compile shaders,
+   upload GLB meshes, and paint the first populated frame on cold
+   load. Without a placeholder the banner reads as a flat black box
+   for ~200-500 ms (canvas clear is transparent, slot background is
+   --bg ≈ #0A0A0A). We paint a brainstorm-room-themed placeholder
+   instead — sky-blue wall gradient over warm-oak floor band — so
+   the first-paint gap looks like "the room is materialising" rather
+   than a black void. Hidden the moment `voice-3d-banner.js`
+   finishes `VS3D.mount + paint`. */
+.onb-voice-banner-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  /* Two-band gradient · sky-blue wall (top ~62%) → warm-oak floor
+     (bottom ~38%). Colours match the brainstorm tone palette in
+     voice-3d.js (WALL_PALETTE_BY_TONE.brainstorm.wall = #A3B8C4,
+     floor base = #B0976E). The hard stop reads as "wall / floor
+     seam" instead of a blurry blend. */
+  background:
+    linear-gradient(
+      180deg,
+      #A3B8C4 0%,
+      #A3B8C4 62%,
+      #B0976E 62%,
+      #B0976E 100%
+    );
+  transition: opacity 0.36s ease-out;
+  pointer-events: none;
+}
+.onb-voice-banner.is-3d-mounted .onb-voice-banner-loading {
+  opacity: 0;
+}
+.onb-voice-banner-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  animation: onb-voice-banner-spin 0.8s linear infinite;
+}
+@keyframes onb-voice-banner-spin { to { transform: rotate(360deg); } }
+.onb-voice-banner-loading-label {
+  font-family: var(--mono, "Inter", system-ui, sans-serif);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  /* Dark caption on the sky-blue band reads cleanly · using a
+     hardcoded rgba (not var(--text-faint)) because the placeholder
+     palette is fixed regardless of the active theme tokens. */
+  color: rgba(0, 0, 0, 0.55);
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-voice-banner-loading { transition: none; }
+  .onb-voice-banner-loading-spinner { animation: none; }
+}
 /* 3D round-table poster · static fallback when WebGL/motion is
    unavailable. Matches the marketing homepage hero scene so the
    visual is consistent across surfaces. <picture> chooses WebP /
