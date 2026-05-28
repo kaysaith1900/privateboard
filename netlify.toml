@@ -6,15 +6,17 @@
 [build]
   command = """
     rm -rf _site &&
-    mkdir -p _site/fonts _site/avatars/3d _site/vendor &&
+    mkdir -p _site/fonts _site/avatars/3d _site/vendor/draco _site/icons &&
     cp public/home.html _site/index.html &&
     cp public/favicon.svg public/themes.css public/agent-overlay.css public/agent-overlay.js _site/ &&
-    cp public/voice-3d.js public/home-3d-loader.js public/home-3d-mock.js _site/ &&
+    cp public/voice-3d.js public/home-3d-loader.js public/home-3d-mock.js public/avatar-3d.js _site/ &&
     if [ -f public/home-3d-poster.webp ]; then cp public/home-3d-poster.webp _site/; fi &&
     if [ -f public/home-3d-poster.jpg ];  then cp public/home-3d-poster.jpg  _site/; fi &&
-    cp public/vendor/three.module.min.js public/vendor/three.core.min.js public/vendor/OrbitControls.js _site/vendor/ &&
+    cp public/vendor/*.js _site/vendor/ &&
+    cp public/vendor/draco/* _site/vendor/draco/ &&
     cp public/fonts/human-sans.woff2 public/fonts/agent-Italic.woff2 _site/fonts/ &&
-    cp public/avatars/3d/*.png _site/avatars/3d/
+    cp public/avatars/3d/*.png _site/avatars/3d/ &&
+    cp public/icons/*.glb _site/icons/
   """
   publish = "_site"
 
