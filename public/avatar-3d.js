@@ -31,16 +31,12 @@ import { clone as cloneSkeleton } from "/vendor/SkeletonUtils.js";
    that style carries. */
 export const AVATAR_MODELS = [
   {
-    id: "classic", label: "经典 · 帽子",
-    url: "/icons/avatar_1779855104027.glb",
-    accessory: "hat",
-    colorRoles: [
-      { c: [0.745, 0.413, 0.141], role: "skin" },
-      { c: [0.025, 0.011, 0.009], role: "hair" },
-      { c: [0.913, 0.913, 0.913], role: "outfit" },
-    ],
-  },
-  {
+    // The blue mesh is actually a one-piece uniform that spans torso AND
+    // legs (raw y=0.18..0.85), so it's tagged "top" only — there's no
+    // separable bottom on this body. The "white" mesh sits at feet level
+    // (raw y=0.00..0.14) and is the shoe mesh, NOT shorts — it's tagged
+    // "shoes" so picking glasses in BOTTOM_STYLES wouldn't put white at
+    // ankle level.
     id: "glasses", label: "眼镜 · 丸子头",
     url: "/icons/new-style.glb",
     accessory: "glasses",
@@ -48,8 +44,8 @@ export const AVATAR_MODELS = [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },
       { c: [0.565, 0.021, 0.021], role: "glasses" }, // red frame
-      { c: [0.010, 0.181, 0.644], role: "outfit" },  // blue top
-      { c: [0.913, 0.913, 0.913], role: "outfit" },  // white bottom
+      { c: [0.010, 0.181, 0.644], role: "top" },     // blue one-piece uniform
+      { c: [0.913, 0.913, 0.913], role: "bottom" },  // small white floor mesh (shoes)
     ],
   },
   {
@@ -60,8 +56,8 @@ export const AVATAR_MODELS = [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },       // shaggy hair
       { c: [0.119, 0.119, 0.119], role: "headphones" }, // over-ear cans
-      { c: [0.054, 0.054, 0.054], role: "outfit" },     // t-shirt
-      { c: [0.913, 0.913, 0.913], role: "outfit" },     // shorts
+      { c: [0.054, 0.054, 0.054], role: "top" },        // t-shirt
+      { c: [0.913, 0.913, 0.913], role: "bottom" },     // shorts
     ],
   },
   {
@@ -74,8 +70,8 @@ export const AVATAR_MODELS = [
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },   // short hair
-      { c: [0.054, 0.054, 0.054], role: "outfit" }, // black tee
-      { c: [0.913, 0.913, 0.913], role: "outfit" }, // white shorts + shoes
+      { c: [0.054, 0.054, 0.054], role: "top" },    // black tee
+      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white shorts + shoes
     ],
     // The cap + shorts + shoes are all white, and the only textured mesh is
     // the "deal-with-it" sunglasses (NOT a hat). Tag by geometry/texture so
@@ -95,8 +91,8 @@ export const AVATAR_MODELS = [
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },   // mid-length hair
-      { c: [0.054, 0.054, 0.054], role: "outfit" }, // black tee
-      { c: [0.913, 0.913, 0.913], role: "outfit" }, // white shorts + shoes
+      { c: [0.054, 0.054, 0.054], role: "top" },    // black tee
+      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white shorts + shoes
     ],
     // The crown (gold + orange) sits above the head; the tie is white and
     // collides with the white shorts/shoes, so split it out by its chest-level
@@ -115,8 +111,8 @@ export const AVATAR_MODELS = [
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },   // long hair
-      { c: [0.054, 0.054, 0.054], role: "outfit" }, // black tee
-      { c: [0.913, 0.913, 0.913], role: "outfit" }, // white shorts + shoes
+      { c: [0.054, 0.054, 0.054], role: "top" },    // black tee
+      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white shorts + shoes
     ],
     // Santa hat = red body + white pom, both above the head; the white pom is
     // named "White" (would mis-tag as eyewhite) so split it out by height. The
@@ -130,25 +126,99 @@ export const AVATAR_MODELS = [
   },
   {
     // Parts source only · supplies a top hat ("礼帽"), a low-ponytail
-    // hairstyle, distinct eyes, and a sleeveless dress. Not a standalone
-    // body (partsOnly).
+    // hairstyle, distinct eyes, and a sleeveless dress. The dress is a single
+    // piece spanning torso + thighs — tagged entirely as "top" since it can't
+    // be cleanly split at the waist. Not offered in BOTTOM_STYLES.
     id: "style6", label: "礼帽 · 背心裙", partsOnly: true,
     url: "/icons/new-style6.glb",
     accessory: "tophat",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
       { c: [0.147, 0.076, 0.031], role: "hair" },   // long ponytail hair
-      { c: [0.054, 0.054, 0.054], role: "outfit" }, // dark dress
-      { c: [0.913, 0.913, 0.913], role: "outfit" }, // light dress trim
+      { c: [0.054, 0.054, 0.054], role: "top" },    // dark dress body
+      { c: [0.913, 0.913, 0.913], role: "top" },    // dress trim
     ],
     // The top hat is the only textured mesh → tag it as its own accessory
     // role so it doesn't collide with classic's "hat". The dress's second
     // white mesh is named "White.001", which the name rule would mis-tag as
-    // eyewhite (it sits at torso level, not the eyes) — force it to outfit so
-    // the outfit swap carries the whole dress.
+    // eyewhite (it sits at torso level, not the eyes) — keep it as "top".
     partTags: [
       { role: "tophat", textured: true },
-      { role: "outfit", name: "white" },
+      { role: "top", name: "white" },
+    ],
+  },
+  {
+    // Parts source only · side-parted short hair, calm closed-eye expression,
+    // a teal long-sleeve top + white shorts, and a wine cloth face mask.
+    // Not a standalone body (partsOnly).
+    id: "style7", label: "口罩 · 长袖", partsOnly: true,
+    url: "/icons/new-style7.glb",
+    accessory: "mask",
+    colorRoles: [
+      { c: [0.913, 0.565, 0.376], role: "skin" },
+      { c: [0.147, 0.076, 0.031], role: "hair" },   // short side-parted hair
+      { c: [0.000, 0.117, 0.127], role: "top" },    // teal long-sleeve top
+      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white shorts
+    ],
+    // The wine cloth mask has a unique colour that doesn't collide with any
+    // role; tag it explicitly so it can be toggled as an accessory. The
+    // "Wood.001" mesh is wood-orange shoes — include them as "bottom" so the
+    // bottom swap carries the full lower kit.
+    partTags: [
+      { role: "mask", color: [0.543, 0.251, 0.367] },
+      { role: "bottom", name: "wood" },
+    ],
+  },
+  {
+    // Parts source only · brown bear-suit onesie, dark "blindfold" glasses
+    // band, dark beard + matching brows, yellow star face decals. The suit
+    // is a one-piece (textured "Bear" white) — tagged entirely as "top",
+    // not offered in BOTTOM_STYLES. `hasBeard:true` tells tagEyebrows to
+    // split the two dark meshes into beard (larger, lower) + brow (smaller).
+    id: "style8", label: "熊熊 · 络腮胡", partsOnly: true,
+    hasBeard: true,
+    url: "/icons/new-style8.glb",
+    accessory: "blindfold",
+    colorRoles: [
+      { c: [0.913, 0.565, 0.376], role: "skin" },
+      { c: [0.147, 0.076, 0.031], role: "hair" }, // short hair under the hood
+    ],
+    // Both textured meshes would auto-classify as "hat" via the textured
+    // rule — claim them explicitly. The bear suit is the white textured
+    // "Bear" mesh → tag as "top". The dark textured "Color_.001" is the
+    // glasses / eye band → tag as "blindfold" (its own accessory role). The
+    // yellow stars are decals → tag as "star" (also accessory).
+    partTags: [
+      { role: "top", textured: true, color: [1.0, 1.0, 1.0] },
+      { role: "blindfold", textured: true, color: [0.054, 0.054, 0.054] },
+      { role: "star", color: [1.0, 0.637, 0.0] },
+    ],
+  },
+  {
+    // Parts source only · short side hair on a bald top, handlebar mustache
+    // (+ small chin beard), red anger marks on the temple, a grey high-
+    // waisted jumpsuit that reads as "long pants" (the mesh actually
+    // extends from thighs up to mid-torso, so it isn't separable into a
+    // distinct shirt + pants), white sock cuffs at the ankles, and a
+    // wood-tone shoe sole. The white + wood meshes together form the
+    // shoes layer. `hasBeard:true` splits the two dark (brow-coloured)
+    // meshes into beard (larger handlebar) + brow.
+    id: "style9", label: "络腮胡 · 长裤", partsOnly: true,
+    hasBeard: true,
+    url: "/icons/new-style9.glb",
+    accessory: "anger",
+    colorRoles: [
+      { c: [0.913, 0.565, 0.376], role: "skin" },
+      { c: [0.147, 0.076, 0.031], role: "hair" },   // short side hair
+      { c: [0.527, 0.527, 0.527], role: "bottom" }, // grey jumpsuit (legs + low torso)
+      { c: [0.913, 0.913, 0.913], role: "bottom" }, // white sock cuffs at ankles
+    ],
+    // Red anger marks → their own accessory role. Wood.001 sole joins the
+    // rest of the bottom kit so picking style9 as the bottom brings the
+    // full lower body (jumpsuit + socks + shoes) in one swap.
+    partTags: [
+      { role: "anger", color: [0.816, 0.031, 0.031] },
+      { role: "bottom", name: "wood" },
     ],
   },
 ];
@@ -187,8 +257,12 @@ export function loadAvatar3D(idOrUrl) {
             o.frustumCulled = false; // skinned meshes mis-cull when posed
           }
         });
-        tagEyebrows(root, model); // tag brow meshes once on the template
-        tagModelParts(root, model); // model-specific mesh→role overrides (cap / glasses)
+        // tagModelParts FIRST so explicit partTag rules (e.g. style8's
+        // textured bear suit → "top", textured "Color_.001" → "blindfold")
+        // pre-claim meshes BEFORE colour classification + tagEyebrows run.
+        // tagEyebrows then skips any mesh whose role is already set.
+        tagModelParts(root, model);
+        tagEyebrows(root, model);
         _templates.set(model.id, root);
         resolve(root);
       },
@@ -239,7 +313,16 @@ const BROW_COLORS = HAIR_COLORS;
 const EYE_COLORS = [
   "#0d0d0d", "#241c16", "#3a2a1e", "#5a3a22", "#6f4e37", "#3a5a3a", "#2f5a78", "#4a4a55",
 ];
-export const AVATAR_PALETTES = { skin: SKIN_TONES, hair: HAIR_COLORS, outfit: OUTFIT_COLORS, brow: BROW_COLORS, tie: OUTFIT_COLORS, eye: EYE_COLORS };
+export const AVATAR_PALETTES = {
+  skin: SKIN_TONES, hair: HAIR_COLORS, brow: BROW_COLORS, eye: EYE_COLORS,
+  // Outfit-related palettes all share OUTFIT_COLORS (same swatches for
+  // shirts, pants, ties, beards, and the legacy combined "outfit" entry).
+  top: OUTFIT_COLORS, bottom: OUTFIT_COLORS, tie: OUTFIT_COLORS,
+  // Beard tints from the hair palette so it reads as a hair-family colour.
+  beard: BROW_COLORS,
+  // Legacy alias kept for any caller still reading `palettes.outfit`.
+  outfit: OUTFIT_COLORS,
+};
 
 /* ── Role resolution · name rules first, then per-model colour match ──── */
 function colorNear(c, rgb) {
@@ -292,7 +375,16 @@ function cloneMaterialsInPlace(root) {
  *  in every model. In most models the hair is a distinct lighter colour, so
  *  the single dark mesh is unambiguously the brows; in models where the hair
  *  shares that dark colour (e.g. classic), the LARGER dark mesh is the hair
- *  and the smaller one(s) are the brows. */
+ *  and the smaller one(s) are the brows.
+ *
+ *  When `model.hasBeard` is true, the model has both brow + beard meshes
+ *  sharing the same dark colour — the LARGEST candidate is the beard (chin
+ *  whiskers are geometrically much bigger than eyebrows) and the rest are
+ *  brows. Beard becomes its own role so it's tinted by 胡子色 and not hidden
+ *  by hair swaps.
+ *
+ *  Runs AFTER tagModelParts, so it skips any mesh whose role is already
+ *  claimed by a partTag rule. */
 function tagEyebrows(root, model) {
   const BROW = [0.025, 0.011, 0.009];
   const hairEntry = (model.colorRoles || []).find((e) => e.role === "hair");
@@ -305,6 +397,8 @@ function tagEyebrows(root, model) {
   root.updateMatrixWorld(true);
   root.traverse((o) => {
     if (!o.isMesh || !o.material) return;
+    // Skip meshes already claimed by tagModelParts.
+    if (o.userData && o.userData.avatarRole) return;
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
     if (m.map) return; // textured (hat) — never a brow
     // Exclude facial features whose near-black colour also falls inside the
@@ -321,7 +415,12 @@ function tagEyebrows(root, model) {
   if (!cands.length) return;
   cands.sort((a, b) => b.vol - a.vol);
   // Drop the largest dark mesh (= hair) only when hair shares the colour.
-  const brows = hairSharesBrowColor ? cands.slice(1) : cands;
+  let brows = hairSharesBrowColor ? cands.slice(1) : cands;
+  // Models with a beard split the largest remaining dark mesh off as "beard".
+  if (model.hasBeard && brows.length > 0) {
+    brows[0].o.userData.avatarRole = "beard";
+    brows = brows.slice(1);
+  }
   for (const c of brows) c.o.userData.avatarRole = "brow";
 }
 
@@ -365,7 +464,10 @@ const FINISH = {
   skin:   { roughness: 0.48, metalness: 0.0,  envMapIntensity: 1.15 },
   hair:   { roughness: 0.30, metalness: 0.05, envMapIntensity: 1.5 },
   brow:   { roughness: 0.45, metalness: 0.0,  envMapIntensity: 0.8 },
+  beard:  { roughness: 0.45, metalness: 0.0,  envMapIntensity: 0.85 },
   outfit: { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9 },
+  top:    { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9 },
+  bottom: { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9 },
   eye:    { roughness: 0.06, metalness: 0.0,  envMapIntensity: 1.7 },
 };
 function applyFinish(m, f) {
@@ -422,10 +524,20 @@ export function buildAvatar3D(seed, opts = {}) {
   const hairStyle = opts.hairStyle || model.id;
   if (hairStyle !== model.id) swapHair(group, inst, model, hairStyle);
 
-  // Clothing dimension · independent of body style. `opts.outfitStyle` is
-  // a model id whose clothing to wear; default / own id keeps the built-in.
-  const outfitStyle = opts.outfitStyle || model.id;
-  if (outfitStyle !== model.id) swapOutfitStyle(group, inst, model, outfitStyle);
+  // Clothing dimensions · split into independent top (上衣) + bottom (裤子)
+  // overlays. `opts.topStyle` / `opts.bottomStyle` are model ids; "default"
+  // / own id keeps the body's own. Legacy `opts.outfitStyle` (single combined
+  // dimension, kept for old saved configs) falls through to BOTH when the
+  // newer fields are absent.
+  const legacyOutfit = opts.outfitStyle;
+  const topStyle = (opts.topStyle && opts.topStyle !== "default") ? opts.topStyle
+                 : (legacyOutfit && legacyOutfit !== "default") ? legacyOutfit
+                 : model.id;
+  if (topStyle !== model.id) overlayRole(group, inst, model, topStyle, "top");
+  const bottomStyle = (opts.bottomStyle && opts.bottomStyle !== "default") ? opts.bottomStyle
+                    : (legacyOutfit && legacyOutfit !== "default") ? legacyOutfit
+                    : model.id;
+  if (bottomStyle !== model.id) overlayRole(group, inst, model, bottomStyle, "bottom");
 
   // Eyebrow-shape dimension · `opts.browStyle` is a model id whose brows to
   // wear; "default" / omitted / own id keeps the body's built-in brows.
@@ -433,16 +545,17 @@ export function buildAvatar3D(seed, opts = {}) {
   const browStyle = opts.browStyle || "default";
   if (browStyle !== "default" && browStyle !== model.id) overlayRole(group, inst, model, browStyle, "brow");
 
+  // Beard-shape dimension · `opts.beardStyle` is a model id supplying a
+  // beard (role "beard"), or "none" / omitted for no beard. Only models
+  // with `hasBeard:true` actually carry a beard mesh; selecting one that
+  // doesn't is a no-op.
+  const beardStyle = opts.beardStyle && opts.beardStyle !== "none" ? opts.beardStyle : null;
+  if (beardStyle) overlayRole(group, inst, model, beardStyle, "beard");
+
   // Tie dimension · `opts.tieStyle` is a model id supplying a tie, or
   // "none"/omitted for no tie.
   const tieStyle = opts.tieStyle && opts.tieStyle !== "none" ? opts.tieStyle : null;
   if (tieStyle) overlayRole(group, inst, model, tieStyle, "tie");
-
-  // Eye-shape dimension · `opts.eyeStyle` is a model id whose eyes (role
-  // "eye") to wear; "default" / omitted / own id keeps the body's own eyes.
-  // Overlaid BEFORE painting so the swapped-in eyes still pick up 瞳色.
-  const eyeStyle = opts.eyeStyle && opts.eyeStyle !== "default" ? opts.eyeStyle : null;
-  if (eyeStyle) overlayRole(group, inst, model, eyeStyle, "eye");
 
   // Accessory dimension · independent of body style. `opts.accessory` is a
   // style id ("none" / "glasses" / "hat"); back-compat: false → "none",
@@ -455,11 +568,17 @@ export function buildAvatar3D(seed, opts = {}) {
   const colors = {
     skin: opts.skin || pick(SKIN_TONES, rng),
     hair: opts.hair || pick(HAIR_COLORS, rng),
-    outfit: opts.outfit || pick(OUTFIT_COLORS, rng),
   };
+  // Top / bottom colours · independently adjustable (上衣色 / 裤子色).
+  // Legacy `opts.outfit` (single combined colour) falls through to both.
+  colors.top    = opts.top    || opts.outfit || pick(OUTFIT_COLORS, rng);
+  colors.bottom = opts.bottom || opts.outfit || pick(OUTFIT_COLORS, rng);
   // Eyebrows default to the hair colour (natural), but are independently
   // overridable via opts.brow / the customizer's 眉色 row.
   colors.brow = opts.brow || colors.hair;
+  // Beard tints with its own colour · defaults to the brow colour so a model
+  // that has a beard but no explicit colour still looks coherent.
+  colors.beard = opts.beard || colors.brow;
   // Neckwear (tie / bow) colour · independently adjustable (颈饰色).
   colors.tie = opts.tie || OUTFIT_COLORS[0];
   // Iris / pupil colour · defaults to near-black (the original look).
@@ -469,10 +588,11 @@ export function buildAvatar3D(seed, opts = {}) {
   group.userData.avatarSeed = seed;
   group.userData.avatarModel = model.id;
   group.userData.avatarHairStyle = hairStyle;
-  group.userData.avatarOutfitStyle = outfitStyle;
+  group.userData.avatarTopStyle = topStyle;
+  group.userData.avatarBottomStyle = bottomStyle;
   group.userData.avatarBrowStyle = browStyle || "default";
+  group.userData.avatarBeardStyle = beardStyle || "none";
   group.userData.avatarTieStyle = tieStyle || "none";
-  group.userData.avatarEyeStyle = eyeStyle || "default";
   group.userData.avatarAccessory = accStyle;
   return group;
 }
@@ -528,8 +648,8 @@ function swapHair(group, inst, bodyModel, hairStyle) {
 }
 
 /** Which model supplies each accessory (it's baked into that model). */
-const ACCESSORY_SRC = { hat: "classic", glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas", tophat: "style6" };
-const ACCESSORY_ROLES = ["hat", "glasses", "headphones", "cap", "crown", "santa", "shades", "tophat"];
+const ACCESSORY_SRC = { glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas", tophat: "style6", mask: "style7", blindfold: "style8", star: "style8", anger: "style9" };
+const ACCESSORY_ROLES = ["glasses", "headphones", "cap", "crown", "santa", "shades", "tophat", "mask", "blindfold", "star", "anger"];
 
 /** Swap the avatar's accessory · independent of body style. Hides the
  *  body's OWN accessory, then (if `accStyle` isn't "none" and isn't the
@@ -563,39 +683,6 @@ function swapAccessory(group, inst, bodyModel, accStyle) {
       o.visible = true;
     } else {
       o.visible = false; // only borrow the accessory from this clone
-    }
-  });
-  group.add(clone);
-}
-
-/** Swap the avatar's clothing · independent of body style. `outfitStyle`
- *  is a model id whose outfit (role "outfit") meshes get borrowed. Same
- *  sibling-clone overlay as hair / accessory: hide the body's own outfit,
- *  then overlay the source model's outfit at the body transform. Passing
- *  the body's own id (or null) keeps the built-in clothing. */
-function swapOutfitStyle(group, inst, bodyModel, outfitStyle) {
-  if (!outfitStyle || outfitStyle === bodyModel.id) return; // keep own clothing
-  const srcModel = resolveModel(outfitStyle);
-  const tpl = _templates.get(srcModel.id);
-  if (!tpl) return; // source not loaded → keep own rather than go nude
-
-  // Hide the body's own outfit only once we know we can replace it.
-  inst.traverse((o) => {
-    if (o.isMesh && o.material && meshRole(o, bodyModel) === "outfit") o.visible = false;
-  });
-
-  const clone = cloneSkeleton(tpl);
-  cloneMaterialsInPlace(clone); // isolate from the cached template
-  clone.scale.copy(inst.scale);
-  clone.position.copy(inst.position);
-  clone.quaternion.copy(inst.quaternion);
-  clone.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
-    if (meshRole(o, srcModel) === "outfit") {
-      o.userData.avatarRole = "outfit";
-      o.visible = true;
-    } else {
-      o.visible = false; // only borrow the clothing from this clone
     }
   });
   group.add(clone);
@@ -649,8 +736,14 @@ function paintInstance(inst, model, colors, doTint) {
         if (r === "skin")   { m.color.set(colors.skin);   return applyFinish(m, FINISH.skin); }
         if (r === "hair")   { m.color.set(colors.hair);   return applyFinish(m, FINISH.hair); }
         if (r === "brow")   { m.color.set(colors.brow);   return applyFinish(m, FINISH.brow); }
+        if (r === "beard")  { m.color.set(colors.beard);  return applyFinish(m, FINISH.beard); }
         if (r === "tie")    { m.color.set(colors.tie);    return applyFinish(m, FINISH.outfit); }
-        if (r === "outfit") { m.color.set(colors.outfit); return applyFinish(m, FINISH.outfit); }
+        if (r === "top")    { m.color.set(colors.top);    return applyFinish(m, FINISH.top); }
+        if (r === "bottom") { m.color.set(colors.bottom); return applyFinish(m, FINISH.bottom); }
+        // Legacy `outfit` role · should no longer appear on freshly-built
+        // avatars (all current models tag top/bottom), but if a stale config
+        // somehow keeps a mesh on that role just tint with the top colour.
+        if (r === "outfit") { m.color.set(colors.top);    return applyFinish(m, FINISH.outfit); }
         if (r === "eye")    { m.color.set(colors.eye);    return applyFinish(m, FINISH.eye); }
       }
       return m; // teeth / mouth / eyewhite / glasses / hat / other → untouched
@@ -663,13 +756,15 @@ function paintInstance(inst, model, colors, doTint) {
 /** Hair styles offered by the customizer · one per loaded model GLB, plus
  *  "none". Each id maps to the model whose hair to borrow. */
 export const HAIR_STYLES = [
-  { id: "classic", label: "短发" },
   { id: "glasses", label: "丸子头" },
   { id: "casual", label: "蓬松/乱发" },
   { id: "street", label: "街头短发" },
   { id: "royal", label: "中长发/刘海" },
   { id: "xmas", label: "披肩长发" },
   { id: "style6", label: "低马尾" },
+  { id: "style7", label: "短发偏分" },
+  { id: "style8", label: "熊熊短发" },
+  { id: "style9", label: "光头侧发" },
   { id: "none", label: "无 (光头)" },
 ];
 
@@ -681,6 +776,15 @@ export const BROW_STYLES = [
   { id: "xmas", label: "自然眉" },
 ];
 
+/** Beard dimension · independent toggle (overlaid from its source, role
+ *  "beard"). Only models with hasBeard:true carry a beard mesh; the rest are
+ *  no-ops when picked. */
+export const BEARD_STYLES = [
+  { id: "none", label: "无" },
+  { id: "style8", label: "络腮胡" },
+  { id: "style9", label: "八字胡" },
+];
+
 /** Neckwear dimension · independent toggle (overlaid from its source, role
  *  "tie"): a tie or a bow. */
 export const TIE_STYLES = [
@@ -689,23 +793,29 @@ export const TIE_STYLES = [
   { id: "xmas", label: "蝴蝶结" },
 ];
 
-/** Eye-shape dimension · "default" keeps the body's own eyes; each model id
- *  overlays that model's eye mesh (role "eye"), still tinted by 瞳色. The
- *  pupil COLOUR is a separate dimension (AVATAR_PALETTES.eye). */
-export const EYE_STYLES = [
-  { id: "default", label: "默认" },
-  { id: "style6", label: "圆亮眼" },
+/** Top (上衣) dimension · model ids whose role "top" meshes get overlaid.
+ *  Independent of bottom; the body keeps its own top when none / its own id
+ *  is picked. Dresses / onesies are tagged entirely as "top" so they show
+ *  up here. */
+export const TOP_STYLES = [
+  { id: "glasses", label: "蓝色上衣" },
+  { id: "casual", label: "黑T" },
+  { id: "street", label: "街头黑T" },
+  { id: "style6", label: "背心裙" },
+  { id: "style7", label: "长袖" },
+  { id: "style8", label: "熊熊连体" },
 ];
 
-/** Clothing styles offered by the customizer · an independent dimension.
- *  Each id is a model whose outfit (role "outfit") is overlaid onto the
- *  body. The body's own clothing is the default for each style. */
-export const OUTFIT_STYLES = [
-  { id: "classic", label: "西装" },
-  { id: "glasses", label: "蓝白校园" },
-  { id: "casual", label: "T恤短裤" },
-  { id: "street", label: "黑T短裤·街头" },
-  { id: "style6", label: "背心裙" },
+/** Bottom (裤子 / 裙子) dimension · model ids whose role "bottom" meshes
+ *  get overlaid. Models with no separable bottom (style6 dress, style8
+ *  onesie, glasses uniform) are omitted from this list — picking them as
+ *  a body still uses their built-in bottom, but the "swap bottom from X"
+ *  surface only lists models that actually carry a distinct bottom mesh. */
+export const BOTTOM_STYLES = [
+  { id: "casual", label: "白短裤" },
+  { id: "street", label: "街头白短裤" },
+  { id: "style7", label: "白短裤·配长袖" },
+  { id: "style9", label: "灰色长裤" },
 ];
 
 /** Accessory styles offered by the customizer · an independent dimension.
@@ -714,12 +824,15 @@ export const ACCESSORY_STYLES = [
   { id: "none", label: "无" },
   { id: "glasses", label: "眼镜" },
   { id: "shades", label: "墨镜" },
-  { id: "hat", label: "帽子" },
   { id: "headphones", label: "耳机" },
   { id: "cap", label: "鸭舌帽" },
   { id: "crown", label: "王冠" },
   { id: "santa", label: "圣诞帽" },
   { id: "tophat", label: "礼帽" },
+  { id: "mask", label: "口罩" },
+  { id: "blindfold", label: "眼罩" },
+  { id: "star", label: "星星" },
+  { id: "anger", label: "怒火" },
 ];
 
 /** Live-recolour an existing avatar Group without rebuilding (customizer
@@ -744,8 +857,8 @@ export function recolorAvatar(group, colors = {}) {
 export function deriveDefaultAvatarConfig(seed) {
   const rng = makeRng("av3d:" + String(seed == null ? "default" : seed));
   const pickId = (list) => list[Math.floor(rng() * list.length) % list.length].id;
-  // Only full bodies can be the base model · `partsOnly` entries (e.g. the
-  // street cap/outfit source) contribute parts but aren't standalone bodies.
+  // Only full bodies can be the base model · `partsOnly` entries (parts
+  // source GLBs) contribute parts but aren't standalone bodies.
   const bodies = AVATAR_MODELS.filter((m) => !m.partsOnly);
   const model = bodies[Math.floor(rng() * bodies.length) % bodies.length];
   const hairChoices = HAIR_STYLES.filter((h) => h.id !== "none"); // not bald by default
@@ -753,15 +866,18 @@ export function deriveDefaultAvatarConfig(seed) {
   return {
     model: model.id,
     hairStyle: hairChoices[Math.floor(rng() * hairChoices.length) % hairChoices.length].id,
-    outfitStyle: pickId(OUTFIT_STYLES),
+    topStyle: pickId(TOP_STYLES),
+    bottomStyle: pickId(BOTTOM_STYLES),
     accessory: pickId(ACCESSORY_STYLES),
     browStyle: "default", // keep the body's own brows by default
+    beardStyle: "none",   // no beard by default
     tieStyle: "none",     // no tie by default
-    eyeStyle: "default",  // keep the body's own eyes by default
     skin: pick(SKIN_TONES, rng),
     hair,
     brow: hair,
-    outfit: pick(OUTFIT_COLORS, rng),
+    beard: hair, // beard tinted to the hair-family colour by default
+    top: pick(OUTFIT_COLORS, rng),
+    bottom: pick(OUTFIT_COLORS, rng),
     tie: pick(OUTFIT_COLORS, rng), // neckwear colour (only shows when a tie/bow is on)
     eye: pick(EYE_COLORS, rng),    // iris / pupil colour
   };
@@ -830,7 +946,7 @@ if (typeof window !== "undefined") {
     loadAvatar3D, buildAvatar3D, isAvatar3DReady, recolorAvatar, setAvatarPartVisible,
     deriveDefaultAvatarConfig,
     getFaceBox, applyFaceFraming,
-    DEFAULT_AVATAR_URL, AVATAR_MODELS, AVATAR_PALETTES, HAIR_STYLES, OUTFIT_STYLES, ACCESSORY_STYLES,
-    BROW_STYLES, TIE_STYLES, EYE_STYLES,
+    DEFAULT_AVATAR_URL, AVATAR_MODELS, AVATAR_PALETTES, HAIR_STYLES, TOP_STYLES, BOTTOM_STYLES,
+    ACCESSORY_STYLES, BROW_STYLES, BEARD_STYLES, TIE_STYLES,
   };
 }

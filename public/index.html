@@ -716,10 +716,34 @@
     -webkit-app-region: drag;
     z-index: 50;
   }
-  html.is-electron-mac .reports-page-head,
-  html.is-electron-mac .notes-page-head,
-  html.is-electron-mac .ap-cover {
+  /* Window-drag strip across the top of the reports / notes main
+     column. Without this, the title-bar zone above `.reports-page-head`
+     / `.notes-page-head` is non-draggable — the user clicks the top
+     edge and the window doesn't move. A 36px fixed strip (a REAL DOM
+     element at body root — `::before` pseudos were tried first but
+     Chromium's drag-region computation handles them unreliably,
+     missing re-evaluations after layout changes) provides a draggable
+     band across the top of the main column in BOTH sidebar states.
+     `pointer-events: none` lets clicks fall through; `left` skips the
+     sidebar's footprint. */
+  .page-drag-strip { display: none; }
+  html.is-electron-mac body:has(.main-view[data-main-view="reports"]:not([hidden])) .page-drag-strip,
+  html.is-electron-mac body:has(.main-view[data-main-view="notes"]:not([hidden])) .page-drag-strip,
+  html.is-electron-mac body:has(.main-view[data-main-view="agent"]:not([hidden])) .page-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: calc(var(--sidebar-w) + 1px);
+    right: 0;
+    height: 36px;
+    pointer-events: none;
     -webkit-app-region: drag;
+    z-index: 60;
+  }
+  html.is-electron-mac body.sidebar-collapsed:has(.main-view[data-main-view="reports"]:not([hidden])) .page-drag-strip,
+  html.is-electron-mac body.sidebar-collapsed:has(.main-view[data-main-view="notes"]:not([hidden])) .page-drag-strip,
+  html.is-electron-mac body.sidebar-collapsed:has(.main-view[data-main-view="agent"]:not([hidden])) .page-drag-strip {
+    left: var(--mini-sidebar-w);
   }
   html.is-electron-mac .reports-page-head button,
   html.is-electron-mac .reports-page-head a,
@@ -838,6 +862,13 @@
      mini icon rail takes column 1. Source order [sidebar, resizer,
      mini, main] + both hidden siblings → grid auto-places mini in
      col 1, main in col 2. */
+  /* Collapsed · the full sidebar + resizer drop out and a fixed-width
+     mini icon rail takes column 1. Source order [sidebar, resizer,
+     mini, main] + both hidden siblings → grid auto-places mini in
+     col 1, main in col 2. This is the DEFAULT for every collapsed
+     view (new-room / new-agent / agent profile / reports / notes /
+     text rooms); the voice-room overlay treatment is a special case
+     scoped to `body.voice-room.sidebar-collapsed` further down. */
   body.sidebar-collapsed .body-grid {
     grid-template-columns: var(--mini-sidebar-w) 1fr !important;
   }
@@ -847,6 +878,63 @@
   }
   body.sidebar-collapsed .mini-sidebar {
     display: flex;
+  }
+  /* ─── Voice-room overlay · float the mini-rail as frosted glass ───
+     Only when a voice room is open (app.js toggles `body.voice-room`
+     on openRoom / closeRoom based on room.deliveryMode) do we drop
+     the rail out of its grid track and float it absolutely over the
+     main column. The 3D stage extends edge-to-edge underneath so the
+     glass has something interesting to blur; text chrome (room-head /
+     chat / input-bar / HUD) is shifted past the rail so it isn't
+     hidden by the overlay. */
+  body.voice-room.sidebar-collapsed .body-grid {
+    grid-template-columns: 1fr !important;
+  }
+  body.voice-room.sidebar-collapsed .mini-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--mini-sidebar-w);
+    /* Frosted glass · IDENTICAL recipe to `.room-head` (~3815-3834) so
+       the rail + the header read as one chrome family. Two declarations
+       · first is the opaque fallback for browsers that can't parse the
+       nested color-mix; second is the real 88%-tint-over-12%-
+       transparency value. */
+    background: color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%);
+    background: color-mix(in srgb, color-mix(in srgb, var(--panel-3) 78%, var(--bg) 22%) 88%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-right: 0.5px solid var(--line-bright);
+    z-index: 100; /* over .main, under peek sidebar (220) */
+  }
+  body.voice-room.sidebar-collapsed .room-head {
+    /* .room-head is `position: absolute; left: 0` inside .main-view;
+       move its left edge past the rail so the title isn't hidden. */
+    left: var(--mini-sidebar-w);
+  }
+  body.voice-room.sidebar-collapsed .chat {
+    padding-left: var(--mini-sidebar-w);
+  }
+  body.voice-room.sidebar-collapsed .ib-stack {
+    /* .ib-stack is `position: absolute; left: 0; right: 0; bottom: 0`
+       inside .chat-col; pin its left edge past the rail. */
+    left: var(--mini-sidebar-w);
+  }
+  body.voice-room.sidebar-collapsed .rt-hud {
+    /* HUD floats at .main-view's top-left (`left: 12px`); push it
+       past the rail so the LED + title stay fully visible. */
+    left: calc(12px + var(--mini-sidebar-w));
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body.voice-room.sidebar-collapsed .mini-sidebar { background: var(--panel-2); }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    body.voice-room.sidebar-collapsed .mini-sidebar {
+      background: var(--panel-2);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
   /* ─── Hover peek · floating sidebar while collapsed ───
      When the cursor reaches the viewport's left edge (over the mini
@@ -1106,11 +1194,36 @@
      fold glyph (overlaid, currentColor) fades in. The explicit fold
      mask here also overrides the generic .mini-btn::before, which —
      lacking an --icon — would otherwise paint a solid square. */
-  .mini-logo { position: relative; }
+  .mini-logo { position: relative; margin: 5px 0; }
+  /* Chair-avatar layer · fills the 32×32 button as a background-image
+     · zoomed + top-shifted so only the head (chin and up) shows, the
+     32px slot is too small for the full portrait to read. JS sets the
+     background-image from `currentChair.avatarPath` on agents load
+     (see `_updateMiniLogoAvatar` in app.js). The `.has-avatar` class
+     toggles the visibility cross-fade with the hover fold glyph. */
+  .mini-logo-av {
+    position: absolute;
+    inset: 2px;
+    border-radius: 6px;
+    background-repeat: no-repeat;
+    /* Crop to "chin and above" · 135% zoom narrows the visible window
+       to ~74% of the source height, anchored ~16% from its top — so
+       the bottom edge lands around the chin (~80% of source) and the
+       neck / shoulders are cut entirely. */
+    background-size: 135% auto;
+    background-position: center 16%;
+    /* Default hidden · JS reveals it (`.has-avatar`) once the chair
+       avatar is known so the brief boot window shows the fold glyph
+       instead of an empty square. */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease;
+  }
   /* Fold glyph · same Lucide PanelLeft mark the in-sidebar collapse
-     button uses. Always visible (no chair avatar / hover swap),
-     mirrored on X so the rows flip to the right edge — telegraphs
-     "the panel expands out from here". */
+     button uses. Shown by default until the chair avatar is ready,
+     then it fades out and reappears on hover so the "click to expand"
+     affordance is still discoverable. Mirrored on X so the rows flip
+     to the right edge — telegraphs "the panel expands out from here". */
   .mini-logo::before {
     content: "";
     position: absolute;
@@ -1119,7 +1232,16 @@
     transform: translate(-50%, -50%) scaleX(-1);
     -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
             mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/><path d='M5 8h2'/><path d='M5 12h2'/><path d='M5 16h2'/></svg>");
+    transition: opacity 0.14s ease;
   }
+  /* Avatar-known steady state · chair avatar dominates; hover swaps in
+     the fold glyph so the user still gets a "click to expand" cue. */
+  .mini-logo.has-avatar .mini-logo-av { opacity: 1; margin-top: -8px; }
+  .mini-logo.has-avatar::before { opacity: 0; }
+  .mini-logo.has-avatar:hover .mini-logo-av,
+  .mini-logo.has-avatar:focus-visible .mini-logo-av { opacity: 0; }
+  .mini-logo.has-avatar:hover::before,
+  .mini-logo.has-avatar:focus-visible::before { opacity: 1; }
   /* Divider between the action group and the rooms/agents switchers. */
   .mini-sep {
     width: 20px;
@@ -1307,9 +1429,10 @@
      `.ap-id-menu-item-danger` in agent-profile.css). The sidebar row
      is purely a navigate-to-profile target. */
   .agent-row .agent-row-av {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     margin-top: -10px;
+    margin-left: -3px;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     flex-shrink: 0;
@@ -5090,7 +5213,7 @@
   .brief-versions {
     display: flex;
     align-items: stretch;
-    border-bottom: 0.5px solid var(--line);
+    border-bottom: 0.5px solid var(--line-bright);
     overflow-x: auto;
     scrollbar-width: thin;
   }
@@ -5195,7 +5318,7 @@
      on the left; "delete this report" sits on the right as a
      subordinate destructive affordance. */
   .brief-supplement-row {
-    border-top: 0.5px solid var(--line);
+    border-top: 0.5px solid var(--line-bright);
     padding: 8px 14px;
     display: flex;
     justify-content: space-between;
@@ -5959,7 +6082,7 @@
     align-items: center;
     gap: 12px;
     font-family: var(--mono);
-    border-bottom: 0.5px solid var(--line);
+    border-bottom: 0.5px solid var(--line-bright);
     background: var(--panel-3);
   }
   .sa-banner-tag {
@@ -6248,7 +6371,7 @@
     margin: 0;
     padding: 7px 12px;
     background: transparent;
-    border: 0.5px solid var(--line-bright);
+    border: 0.5px solid var(--line-strong);
     color: var(--text-soft);
     text-decoration: none;
     font-family: var(--mono);
@@ -11431,26 +11554,14 @@
        doesn't claim a grid row that throws off the centring. */
     display: none !important;
   }
-  /* Overflow mode · when .cmp's natural height exceeds .chat's height,
-     centring the entire composer block would clip the title above the
-     scroll area. Instead, push the .cmp's top down with a viewport-
-     relative padding-top so hero + input sit at the visual centre of
-     the viewport on initial paint; .cmp-starters fall below the input
-     in normal document flow with the SAME spacing as the fits case
-     (no `justify-content: center` void zone). Approximation: hero +
-     input combined ≈ 220px tall, so half ≈ 110px; padding-top of
-     `50vh - 110px` puts the hero+input vertical midpoint at 50vh.
-     `max(32px, …)` keeps the original padding floor on tiny viewports
-     where the calc would go negative.
-     Toggled by JS (updateComposerOverflow) on render + resize.
-     Scoped to NOT apply when the new-agent composer (`.ag-cmp`) is
-     mounted — the agent composer keeps the default grid-centre
-     layout regardless of natural height (per user spec). */
-  .chat.chat--composer.chat--composer-overflow:not(:has(.ag-cmp)) {
-    display: block !important;
-    align-content: initial !important;
-    overflow-y: auto;
-  }
+  /* Overflow mode rule retired (per user spec) · both the new-room
+     and the new-agent composers now keep the default grid-centre
+     layout regardless of natural height. If the composer is taller
+     than the viewport, the parent `.chat` scroll-y still handles
+     the overflow gracefully; no need to flip to block flow with a
+     viewport-relative padding-top. The `chat--composer-overflow`
+     class may still be toggled by JS, but it intentionally has no
+     visual effect. */
   .cmp-hero {
     text-align: center;
     margin-bottom: 22px;
@@ -15893,6 +16004,13 @@
 </head>
 <body>
 
+<!-- Window-drag strip for reports / notes views · a real DOM element
+     (not a pseudo) so Electron's drag-region calculation picks it up
+     reliably. Visibility is gated by `body:has(.main-view[...]:not(
+     [hidden]))` in CSS; pointer-events stay off so clicks fall
+     through. -->
+<div class="page-drag-strip" data-page-drag-strip aria-hidden="true"></div>
+
 <!-- ═══════════════ SYSTEM NOTICE BANNER ═══════════════
      Surfaces "storage upgraded" notices when the user opens a build
      that ran new schema migrations against their existing DB. Hidden
@@ -16077,7 +16195,7 @@
          sidebar uses); only the logo + rooms + agents expand. -->
     <aside class="mini-sidebar" aria-label="Collapsed sidebar navigation">
       <div class="mini-top">
-        <button type="button" class="mini-btn mini-logo" data-sidebar-expand data-i18n-tip="sidebar_expand" data-tip="Expand sidebar" aria-label="Expand sidebar"></button>
+        <button type="button" class="mini-btn mini-logo" data-sidebar-expand data-i18n-tip="sidebar_expand" data-tip="Expand sidebar" aria-label="Expand sidebar"><span class="mini-logo-av" aria-hidden="true"></span></button>
         <button type="button" class="mini-btn mini-new-room" data-convene-trigger data-i18n-tip="sidebar_new_room" data-tip="New room" aria-label="New room"></button>
         <button type="button" class="mini-btn mini-new-agent" data-agent-composer-trigger data-i18n-tip="sidebar_new_agent" data-tip="New agent" aria-label="New agent"></button>
         <button type="button" class="mini-btn mini-search" data-search-trigger data-tip="Search" aria-label="Search"></button>

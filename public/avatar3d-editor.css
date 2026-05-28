@@ -154,6 +154,84 @@ html.is-electron-mac .avatar3d-overlay * {
 }
 .av3d-sw { display: flex; flex-wrap: wrap; gap: 7px; }
 
+/* ─── Section + module layout ──────────────────────────────────────
+   Panel is split into top-level sections (头部 / 服饰) and each section
+   carries module rows. A module bundles its style picker with its colour
+   picker — the colour palette stays collapsed by default behind a chip
+   in the module's header, so the eye scans labels + current colours at
+   a glance without a wall of swatches. */
+.av3d-section { padding-top: 14px; }
+.av3d-section + .av3d-section {
+  border-top: 0.5px solid var(--line-bright);
+  margin-top: 4px;
+}
+.av3d-section-head {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 12px;
+}
+.av3d-section-head::before { content: "— "; color: var(--text-dim); }
+
+.av3d-mod { margin-bottom: 14px; }
+.av3d-mod-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.av3d-mod-head .av3d-lab { margin: 0; flex: 1 1 auto; }
+
+/* Colour-palette toggle · lives in each module's header. Compact: chip
+   shows current colour, caret indicates expandable. Click the button to
+   reveal the palette below. */
+.av3d-cgrp-head {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+.av3d-cgrp-head:hover { background: rgba(255,255,255,0.04); }
+.av3d-cgrp-chip {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 0.5px solid var(--line-bright);
+  background: var(--panel-2);
+}
+.av3d-cgrp-caret {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+  line-height: 1;
+}
+.av3d-mod.is-open .av3d-cgrp-caret { transform: rotate(180deg); }
+/* Palette stays hidden until the user expands the module · max-height
+   transition gives a smooth open/close without measuring content. */
+.av3d-mod .av3d-sw.is-color {
+  max-height: 0;
+  overflow: hidden;
+  margin-top: 0;
+  transition: max-height 0.18s ease, margin-top 0.18s ease;
+}
+.av3d-mod.is-open .av3d-sw.is-color {
+  max-height: 220px;
+  margin-top: 8px;
+}
+
 /* Colour swatches · round chips. */
 .av3d-sw.is-color button {
   width: 26px;

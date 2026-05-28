@@ -831,8 +831,27 @@
         // is loaded; chat resolution still flips it on room load.
         if (j.chair) this.currentChair = j.chair;
         if (this.currentChair) this.agentsById[this.currentChair.id] = this.currentChair;
+        this._updateMiniLogoAvatar();
         this.renderSidebarAgents();
       } catch (e) { /* ignore */ }
+    },
+
+    /** Paint the collapsed-sidebar mini-logo with the chair's portrait
+     *  as the default-state background (chin-up crop via CSS). Adds
+     *  `.has-avatar` so the hover-swap rule activates the fold glyph
+     *  on hover. Idempotent; safe to call on every chair refresh. */
+    _updateMiniLogoAvatar() {
+      const av = document.querySelector(".mini-logo .mini-logo-av");
+      if (!av) return;
+      const logo = av.closest(".mini-logo");
+      const path = this.currentChair && this.currentChair.avatarPath;
+      if (path) {
+        av.style.backgroundImage = `url("${String(path).replace(/"/g, "\\\"")}")`;
+        if (logo) logo.classList.add("has-avatar");
+      } else {
+        av.style.backgroundImage = "";
+        if (logo) logo.classList.remove("has-avatar");
+      }
     },
 
     async loadInitial() {
@@ -883,6 +902,7 @@
           this.currentChair = j.chair;
           this.agentsById[j.chair.id] = j.chair;
         }
+        this._updateMiniLogoAvatar();
       }
       if (roomsRes.ok)  {
         const j = await roomsRes.json();
@@ -1235,6 +1255,7 @@
         ? data.historicalMembers
         : (data.members || []).map((m) => ({ ...m, removedAt: null }));
       this.currentChair = data.chair || null;
+      this._updateMiniLogoAvatar();
       this.currentQueue = data.queue || [];
       // Reset to null on room open · the queue-update SSE will push
       // the real value if a director is currently speaking. The
@@ -1340,7 +1361,25 @@
         }
       }
 
+      // Thread count · drives the badge on the .head-threads icon.
+      // Same pattern as currentBriefs — fetched once per room open,
+      // kept fresh via increment / decrement at the create / delete
+      // call sites so we don't re-hit the endpoint on every change.
+      this._threadCount = 0;
+      try {
+        const tr = await fetch("/api/rooms/" + encodeURIComponent(roomId) + "/threads");
+        if (tr.ok) {
+          const j = await tr.json();
+          this._threadCount = Array.isArray(j.threads) ? j.threads.length : 0;
+        }
+      } catch (_) { /* network · render count = 0 */ }
+
       document.documentElement.setAttribute("data-status", data.room.status);
+      // Voice-room flag · drives the collapsed-sidebar OVERLAY treatment
+      // (see CSS scoped to `body.voice-room.sidebar-collapsed`). Toggled
+      // on every room open so navigating from a voice room to a text
+      // room (or vice versa) updates the layout immediately.
+      document.body.classList.toggle("voice-room", data.room.deliveryMode === "voice");
 
       // Wrap the render path so a future error in any sub-render
       // (renderHeader / renderChat / renderQueue / renderBrief /
@@ -1489,6 +1528,10 @@
       this.currentMessages = [];
       this.currentMembers = [];
       this.currentHistoricalMembers = [];
+      // Leaving a room · drop the voice-room layout flag so the
+      // mini-rail returns to its grid track for composer / reports /
+      // notes / agent-profile views.
+      document.body.classList.remove("voice-room");
       // `currentChair` is NOT reset · the chair is a structural
       // singleton (one moderator agent in the catalog, same across
       // every room), and the sidebar's Chair section keys off it
@@ -5359,6 +5402,14 @@
         // back to the floating mode since the chat-col would
         // otherwise be squeezed below readable width.
         this.mountThreadWindow(data.room, director, { docked: this._canDockHere() });
+        // Bump the header thread-count badge · only when the thread
+        // belongs to the currently-visible room (the click that triggered
+        // this might've fired from a room the user has since navigated
+        // away from — `parentRoomId` is captured at click time).
+        if (parentRoomId && parentRoomId === this.currentRoomId) {
+          this._threadCount = (Number(this._threadCount) || 0) + 1;
+          if (typeof this.renderHeader === "function") this.renderHeader();
+        }
       } catch (e) {
         alert((e && e.message) || "Failed to open thread");
       } finally {
@@ -6034,6 +6085,11 @@
       if (this._threads && this._threads[threadId]) {
         this.closeThreadWindow(threadId);
       }
+      // Decrement the header thread-count badge · the popover only
+      // lists / deletes threads for the currently-visible room, so the
+      // current room's count is the one to update.
+      this._threadCount = Math.max(0, (Number(this._threadCount) || 0) - 1);
+      if (typeof this.renderHeader === "function") this.renderHeader();
       // Refresh the popover so the row disappears. Reuse the
       // original trigger as the anchor — it's still on screen since
       // we never navigated away.
@@ -7342,14 +7398,29 @@
       // before start() locks the composite size. Force the stage view
       // and collapse the floating replay player so it doesn't bleed
       // into the captured region.
+      const wasReplaying = !isLive && this._isReplayActiveForRoom(room.id);
       if (!isLive) this._ensureStageVisibleForRecording();
       try {
-        await rec.start(room.id, room.subject || room.title || "Meeting");
+        // Prefer the LLM-distilled room name over the raw user query
+        // — the saved .mp4 should read like a meeting title, not a
+        // verbatim chat prompt. Falls back to the subject (then to
+        // "Meeting") if the title hasn't been auto-generated yet
+        // (cold-start, before the first round closes).
+        await rec.start(room.id, room.name || room.subject || "Meeting");
         // Recorder is now capturing chunks · play the cinematic
         // Ready/3/2/1 countdown inside the stage so the video opens
         // with a movie-trailer intro card. Fire-and-forget · the
         // countdown is purely visual, recording proceeds in parallel.
         this._playRecordCountdown().catch(() => {});
+        // If a replay was already running when the user hit record, the
+        // currently-playing message's <audio> was created OFF-DOM via
+        // `new Audio(dataUrl)` before the recorder's AudioContext was
+        // up — so its samples were never routed into the capture chain
+        // and that director shows up silent in the file. Restart the
+        // replay from message 1 so the recording captures every
+        // director cleanly. Subsequent per-message audios get tapped
+        // via voice-replay's own attachAudioElement hook.
+        if (wasReplaying) this._restartReplayForRecording();
       } catch (e) {
         console.error("[recorder] start failed", e);
         const reason = (e && (e.message || String(e))) || this._t("rec_error_toast");
@@ -7375,6 +7446,34 @@
           });
         } catch (_) { /* toast best-effort */ }
       }
+    },
+
+    /** Reopen the active voice replay from message 1 so the recorder
+     *  captures every director's audio. Used right after the recorder
+     *  starts when a replay was already running — see the comment in
+     *  handleRecordToggle. Recollapses the (cold-open expanded) player
+     *  so it doesn't appear inside the captured stage region. */
+    _restartReplayForRecording() {
+      const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+      if (!vr || typeof vr.open !== "function") return;
+      if (!this.currentRoomId) return;
+      const replayMembers = Array.isArray(this.currentHistoricalMembers) && this.currentHistoricalMembers.length > 0
+        ? this.currentHistoricalMembers.slice()
+        : (Array.isArray(this.currentMembers) ? this.currentMembers.slice() : []);
+      try {
+        vr.open({
+          roomId: this.currentRoomId,
+          messages: Array.isArray(this.currentMessages) ? this.currentMessages.slice() : [],
+          members: replayMembers,
+          chair: this.currentChair || null,
+        });
+      } catch (e) { console.warn("[recorder] replay restart failed", e); return; }
+      // vr.open() unconditionally cold-mounts the overlay expanded
+      // (clears the persisted collapsed flag). Push it back to
+      // collapsed so it stays out of the recorded stage region.
+      setTimeout(() => {
+        try { if (typeof vr.collapse === "function") vr.collapse(); } catch (_) { /* noop */ }
+      }, 80);
     },
 
     /** Reveal the round-table stage (opt-in for adjourned rooms) so
@@ -9765,6 +9864,10 @@
       // they have to navigate back to a room view to recover. Same
       // reasoning for openAllNotes / openAgentProfile.
       document.documentElement.classList.add("no-room");
+      // The reports view replaces the room view as the visible main-view
+      // · drop the voice-room layout flag so the collapsed-sidebar
+      // overlay rules stop applying for non-room destinations.
+      document.body.classList.remove("voice-room");
       // If we're inside a room or on the agent profile, leave them.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -10259,6 +10362,8 @@
       // Set the no-room flag for the same reason openAllReports does
       // — the floating sidebar-expand button is gated on this class.
       document.documentElement.classList.add("no-room");
+      // Drop the voice-room layout flag (see openAllReports).
+      document.body.classList.remove("voice-room");
       // Same view-leaving routine as openAllReports.
       if (this.currentRoomId) {
         this.disconnectSSE?.();
@@ -15628,7 +15733,12 @@
             : ""}
           <div class="head-cast">${castHtml}</div>
           <a href="#" class="head-icon-btn head-add-cast" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"></a>
-          <a href="#" class="head-icon-btn head-threads" data-threads-trigger data-tip="${this.escape(this._t("head_threads_tip") || "All private threads in this room")}" aria-label="${this.escape(this._t("head_threads_label") || "All threads")}"></a>
+          ${(() => {
+            const tc = Number(this._threadCount) || 0;
+            const cls = "head-icon-btn head-threads" + (tc > 0 ? " has-count" : "");
+            const badge = tc > 0 ? `<span class="head-icon-count">${tc}</span>` : "";
+            return `<a href="#" class="${cls}" data-threads-trigger data-tip="${this.escape(this._t("head_threads_tip") || "All private threads in this room")}" aria-label="${this.escape(this._t("head_threads_label") || "All threads")}">${badge}</a>`;
+          })()}
           <a href="#" class="head-icon-btn head-divergence" data-divergence-open data-tip="See how widely the room has explored your question" aria-label="Coverage check"></a>
           ${this.currentBrief
             ? (() => {
@@ -18666,26 +18776,13 @@
     },
 
     /** Decide whether the speaking-queue strip should be collapsed
-     *  given the current room state. The rule: collapse by default
-     *  (one-liner is enough when a single director is streaming),
-     *  expand when the user benefits from seeing the full cast:
-     *    · awaitingClarify · cast preview before chair releases them
-     *    · awaitingContinue · vote pending, next-round preview
-     *    · pendingUserMessage · user just queued, show what comes
-     *      before / after their message
-     *  Empty queue + idle stays collapsed (nothing to expand to).
-     *
-     *  This is the "auto" baseline; manual user clicks on the
-     *  chevron inverse it until the next significant state shift
-     *  (see `_applyQueueAutoState`). */
+     *  given the current room state. Per user direction, the queue
+     *  ALWAYS defaults to collapsed — the previous auto-expand on
+     *  awaitingClarify / awaitingContinue / pendingUserMessage was
+     *  noisy ("老自动弹起"). The one-liner summary is the right
+     *  shape; users who want the full cast click the chevron to
+     *  expand it explicitly. */
     _computeQueueAutoCollapsed() {
-      const room = this.currentRoom;
-      if (!room) return true;
-      if (room.awaitingClarify) return false;
-      if (room.awaitingContinue) return false;
-      if (this.pendingUserMessage) return false;
-      // Default collapsed otherwise · the one-liner summary is the
-      // right shape when a director is streaming or queued.
       return true;
     },
 

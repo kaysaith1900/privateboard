@@ -273,6 +273,15 @@
     for (const audio of document.querySelectorAll("audio")) {
       attachAudioElement(audio); walked++;
     }
+    // Voice replay constructs its current clip via `new Audio(dataUrl)`
+    // and never appends to the DOM, so the document walk above misses
+    // it. Pull the live element directly from voice-replay's public API
+    // so a mid-replay record start still captures the first director.
+    try {
+      const vr = (typeof window !== "undefined") ? window.boardroomVoiceReplay : null;
+      const a = vr && typeof vr.getActiveAudio === "function" ? vr.getActiveAudio() : null;
+      if (a) { attachAudioElement(a); walked++; }
+    } catch (_) { /* api missing · web build · noop */ }
     console.log("[recorder] audio attach pass · walked=" + walked
       + " attached=" + _attachedAudioCount + " failed=" + _attachedAudioFailures);
 

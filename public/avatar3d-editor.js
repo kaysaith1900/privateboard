@@ -53,18 +53,78 @@
             <button type="button" class="av3d-close" data-av3d-close aria-label="Close">✕</button>
           </div>
           <div class="av3d-body">
-            <div class="av3d-grp"><div class="av3d-lab">发型 Hair</div><div class="av3d-sw is-pill" data-row="hairStyle"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">眼眉 Brow</div><div class="av3d-sw is-pill" data-row="browStyle"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">眼睛 Eyes</div><div class="av3d-sw is-pill" data-row="eyeStyle"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">衣服款式 Outfit</div><div class="av3d-sw is-pill" data-row="outfitStyle"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">领带 Tie</div><div class="av3d-sw is-pill" data-row="tieStyle"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">装饰 Accessory</div><div class="av3d-sw is-pill" data-row="accessory"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">肤色 Skin</div><div class="av3d-sw is-color" data-row="skin"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">发色 Hair</div><div class="av3d-sw is-color" data-row="hair"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">眉色 Brow</div><div class="av3d-sw is-color" data-row="brow"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">瞳色 Eye</div><div class="av3d-sw is-color" data-row="eye"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">衣色 Outfit color</div><div class="av3d-sw is-color" data-row="outfit"></div></div>
-            <div class="av3d-grp"><div class="av3d-lab">颈饰色 Tie/Bow</div><div class="av3d-sw is-color" data-row="tie"></div></div>
+            <div class="av3d-section">
+              <div class="av3d-section-head">头部 · Head</div>
+              <div class="av3d-mod">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">发型 Hair</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="hair"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-pill" data-row="hairStyle"></div>
+                <div class="av3d-sw is-color" data-row="hair"></div>
+              </div>
+              <div class="av3d-mod">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">眼眉 Brow</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="brow"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-pill" data-row="browStyle"></div>
+                <div class="av3d-sw is-color" data-row="brow"></div>
+              </div>
+              <div class="av3d-mod">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">胡子 Beard</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="beard"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-pill" data-row="beardStyle"></div>
+                <div class="av3d-sw is-color" data-row="beard"></div>
+              </div>
+              <div class="av3d-mod is-color-only">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">肤色 Skin</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="skin"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-color" data-row="skin"></div>
+              </div>
+              <div class="av3d-mod is-color-only">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">瞳色 Eye</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="eye"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-color" data-row="eye"></div>
+              </div>
+            </div>
+            <div class="av3d-section">
+              <div class="av3d-section-head">服饰 · Outfit</div>
+              <div class="av3d-mod">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">上衣 Top</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="top"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-pill" data-row="topStyle"></div>
+                <div class="av3d-sw is-color" data-row="top"></div>
+              </div>
+              <div class="av3d-mod">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">裤子 Bottom</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="bottom"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-pill" data-row="bottomStyle"></div>
+                <div class="av3d-sw is-color" data-row="bottom"></div>
+              </div>
+              <div class="av3d-mod">
+                <div class="av3d-mod-head">
+                  <span class="av3d-lab">领带 Tie</span>
+                  <button type="button" class="av3d-cgrp-head" data-cgrp-toggle><span class="av3d-cgrp-chip" data-cgrp-chip data-cgrp-for="tie"></span><span class="av3d-cgrp-caret" aria-hidden="true">▾</span></button>
+                </div>
+                <div class="av3d-sw is-pill" data-row="tieStyle"></div>
+                <div class="av3d-sw is-color" data-row="tie"></div>
+              </div>
+              <div class="av3d-mod is-pill-only">
+                <div class="av3d-mod-head"><span class="av3d-lab">装饰 Accessory</span></div>
+                <div class="av3d-sw is-pill" data-row="accessory"></div>
+              </div>
+            </div>
           </div>
           <div class="av3d-foot">
             <button type="button" class="av3d-btn-rand" data-av3d-rand title="随机">🎲</button>
@@ -160,23 +220,27 @@
   function rebuild() {
     if (group) { scene.remove(group); group = null; }
     group = av.buildAvatar3D(buildSeed || "editor", {
-      model: sel.model, hairStyle: sel.hairStyle, outfitStyle: sel.outfitStyle,
-      browStyle: sel.browStyle, tieStyle: sel.tieStyle, eyeStyle: sel.eyeStyle,
+      model: sel.model, hairStyle: sel.hairStyle,
+      topStyle: sel.topStyle, bottomStyle: sel.bottomStyle,
+      browStyle: sel.browStyle, beardStyle: sel.beardStyle,
+      tieStyle: sel.tieStyle,
       accessory: sel.accessory, height: AVATAR_HEIGHT,
-      skin: sel.skin, hair: sel.hair, brow: sel.brow, outfit: sel.outfit, tie: sel.tie, eye: sel.eye,
+      skin: sel.skin, hair: sel.hair, brow: sel.brow, beard: sel.beard,
+      top: sel.top, bottom: sel.bottom, tie: sel.tie, eye: sel.eye,
     });
     if (group) scene.add(group);
   }
 
   /* ── panel population ────────────────────────────────────────────── */
   // Body style ("model") is intentionally NOT user-selectable — it's fixed by
-  // the saved/derived config; the user shapes the look via hair / outfit /
+  // the saved/derived config; the user shapes the look via hair / clothing /
   // accessory / colours instead.
   const PILL_LISTS = () => ({
     hairStyle: av.HAIR_STYLES,
     browStyle: av.BROW_STYLES,
-    eyeStyle: av.EYE_STYLES,
-    outfitStyle: av.OUTFIT_STYLES,
+    beardStyle: av.BEARD_STYLES,
+    topStyle: av.TOP_STYLES,
+    bottomStyle: av.BOTTOM_STYLES,
     tieStyle: av.TIE_STYLES,
     accessory: av.ACCESSORY_STYLES,
   });
@@ -184,8 +248,10 @@
     skin: av.AVATAR_PALETTES.skin,
     hair: av.AVATAR_PALETTES.hair,
     brow: av.AVATAR_PALETTES.brow,
+    beard: av.AVATAR_PALETTES.beard,
     eye: av.AVATAR_PALETTES.eye,
-    outfit: av.AVATAR_PALETTES.outfit,
+    top: av.AVATAR_PALETTES.top,
+    bottom: av.AVATAR_PALETTES.bottom,
     tie: av.AVATAR_PALETTES.tie,
   });
 
@@ -222,10 +288,36 @@
           sel[role] = hex;
           markOn(c, b);
           av.recolorAvatar(group, { [role]: hex }); // instant, no rebuild
+          // Update the module's current-colour chip and collapse the palette.
+          const mod = c.closest(".av3d-mod");
+          if (mod) {
+            const chip = mod.querySelector(`[data-cgrp-chip][data-cgrp-for="${role}"]`);
+            if (chip) chip.style.background = hex;
+            mod.classList.remove("is-open");
+          }
         });
         c.appendChild(b);
       });
+      // Seed the module header's chip with the current colour so the user
+      // can read each role's value without opening the palette.
+      const mod = c.closest(".av3d-mod");
+      if (mod) {
+        const chip = mod.querySelector(`[data-cgrp-chip][data-cgrp-for="${role}"]`);
+        if (chip) chip.style.background = sel[role];
+      }
     }
+    // Bind the colour-palette toggle on every module's header chip button
+    // (idempotent · re-runs of buildPanel reach the same elements via the
+    // marker flag that survives innerHTML re-population of the palette).
+    panelBody.querySelectorAll("[data-cgrp-toggle]").forEach((head) => {
+      if (head._av3dToggleBound) return;
+      head._av3dToggleBound = true;
+      head.addEventListener("click", (e) => {
+        e.preventDefault();
+        const mod = head.closest(".av3d-mod");
+        if (mod) mod.classList.toggle("is-open");
+      });
+    });
   }
 
   function markOn(container, btn) {
@@ -236,26 +328,74 @@
   function randomize() {
     const P = av.AVATAR_PALETTES;
     const r = (a) => a[Math.floor(Math.random() * a.length)];
-    sel.skin = r(P.skin); sel.hair = r(P.hair); sel.brow = r(P.brow); sel.outfit = r(P.outfit); sel.tie = r(P.tie); sel.eye = r(P.eye);
+    sel.skin = r(P.skin); sel.hair = r(P.hair); sel.brow = r(P.brow); sel.beard = r(P.beard);
+    sel.top = r(P.top); sel.bottom = r(P.bottom); sel.tie = r(P.tie); sel.eye = r(P.eye);
     av.recolorAvatar(group, sel);
-    // re-mark the colour swatches
-    for (const role of ["skin", "hair", "brow", "outfit", "tie", "eye"]) {
+    // re-mark the colour swatches + the collapsible chips
+    for (const role of ["skin", "hair", "brow", "beard", "top", "bottom", "tie", "eye"]) {
       const c = panelBody.querySelector(`[data-row="${role}"]`);
+      if (!c) continue;
       c.querySelectorAll("button").forEach((x) =>
         x.classList.toggle("on", x.title.toLowerCase() === String(sel[role]).toLowerCase()));
+      const chip = panelBody.querySelector(`[data-cgrp-chip][data-cgrp-for="${role}"]`);
+      if (chip) chip.style.background = sel[role];
     }
   }
 
   /* ── config normalization · saved blob → editor sel ──────────────── */
   function normalizeConfig(cfg) {
     if (!cfg || typeof cfg !== "object") return null;
-    const need = ["model", "hairStyle", "outfitStyle", "accessory", "skin", "hair", "brow", "outfit"];
+    // Required identity fields. Outfit + clothing fields are checked below
+    // with legacy fallback (old saves had outfitStyle/outfit; new ones have
+    // top/bottom split).
+    const need = ["model", "hairStyle", "accessory", "skin", "hair", "brow"];
     for (const k of need) if (typeof cfg[k] !== "string" || !cfg[k]) return null;
     const out = { ...cfg };
     // Newer dimensions · default when absent (configs saved before they existed).
     if (typeof out.browStyle !== "string" || !out.browStyle) out.browStyle = "default";
     if (typeof out.tieStyle !== "string" || !out.tieStyle) out.tieStyle = "none";
-    if (typeof out.eyeStyle !== "string" || !out.eyeStyle) out.eyeStyle = "default";
+    if (typeof out.beardStyle !== "string" || !out.beardStyle) out.beardStyle = "none";
+    // The shoes dimension was removed (shoes ride along with bottom now).
+    delete out.shoesStyle;
+    // The eye-shape dimension was removed (different bind poses caused
+    // misaligned overlays). Drop any legacy `eyeStyle` field from saves.
+    delete out.eyeStyle;
+    // Validate every pill-style id against the active list and reset to
+    // the list head when stale. Without this, a config saved before
+    // an option was renamed / removed (e.g. `bottomStyle: "glasses"`
+    // from before the glasses-shoes retag) would render with an empty
+    // overlay and look broken — the option also wouldn't appear in the
+    // pill row, so the user couldn't fix it from the UI.
+    const validateAgainst = (key, list, fallback) => {
+      const ids = list.map((x) => x.id);
+      if (!ids.includes(out[key])) out[key] = fallback;
+    };
+    validateAgainst("hairStyle", av.HAIR_STYLES, av.HAIR_STYLES[0].id);
+    validateAgainst("browStyle", av.BROW_STYLES, "default");
+    validateAgainst("beardStyle", av.BEARD_STYLES, "none");
+    validateAgainst("topStyle", av.TOP_STYLES, av.TOP_STYLES[0].id);
+    validateAgainst("bottomStyle", av.BOTTOM_STYLES, av.BOTTOM_STYLES[0].id);
+    validateAgainst("tieStyle", av.TIE_STYLES, "none");
+    validateAgainst("accessory", av.ACCESSORY_STYLES, "none");
+    // Top + bottom dimensions · split from the legacy single `outfitStyle`.
+    // When a saved config predates the split, fall back to `outfitStyle` for
+    // both (so the avatar looks identical to before).
+    if (typeof out.topStyle !== "string" || !out.topStyle) {
+      out.topStyle = (typeof out.outfitStyle === "string" && out.outfitStyle) ? out.outfitStyle : av.TOP_STYLES[0].id;
+    }
+    if (typeof out.bottomStyle !== "string" || !out.bottomStyle) {
+      out.bottomStyle = (typeof out.outfitStyle === "string" && out.outfitStyle) ? out.outfitStyle : av.BOTTOM_STYLES[0].id;
+    }
+    if (typeof out.top !== "string" || !out.top) {
+      out.top = (typeof out.outfit === "string" && out.outfit) ? out.outfit : (av.AVATAR_PALETTES.top || ["#3b5b78"])[0];
+    }
+    if (typeof out.bottom !== "string" || !out.bottom) {
+      out.bottom = (typeof out.outfit === "string" && out.outfit) ? out.outfit : (av.AVATAR_PALETTES.bottom || ["#3b5b78"])[0];
+    }
+    // Stop persisting the legacy combined fields once the new ones exist —
+    // future saves carry top/bottom only, no outfitStyle/outfit.
+    delete out.outfitStyle; delete out.outfit;
+    if (typeof out.beard !== "string" || !out.beard) out.beard = out.brow;
     if (typeof out.tie !== "string" || !out.tie) out.tie = (av.AVATAR_PALETTES.tie || ["#3b5b78"])[0];
     if (typeof out.eye !== "string" || !out.eye) out.eye = (av.AVATAR_PALETTES.eye || ["#0d0d0d"])[0];
     return out;
@@ -457,9 +597,15 @@
     let url = null;
     try {
       const g = av.buildAvatar3D("portrait", {
-        model: cfg.model, hairStyle: cfg.hairStyle, outfitStyle: cfg.outfitStyle,
-        browStyle: cfg.browStyle, tieStyle: cfg.tieStyle, eyeStyle: cfg.eyeStyle, accessory: cfg.accessory, height: AVATAR_HEIGHT,
-        skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit, tie: cfg.tie, eye: cfg.eye,
+        model: cfg.model, hairStyle: cfg.hairStyle,
+        // Both new split fields AND the legacy `outfit*` fall through inside
+        // buildAvatar3D, so passing every key the cfg might carry is safe.
+        topStyle: cfg.topStyle, bottomStyle: cfg.bottomStyle, outfitStyle: cfg.outfitStyle,
+        browStyle: cfg.browStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
+        accessory: cfg.accessory, height: AVATAR_HEIGHT,
+        skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, beard: cfg.beard,
+        top: cfg.top, bottom: cfg.bottom, outfit: cfg.outfit,
+        tie: cfg.tie, eye: cfg.eye,
       });
       if (g) {
         sc.add(g);

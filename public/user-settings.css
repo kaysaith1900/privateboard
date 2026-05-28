@@ -461,6 +461,7 @@
    (face-anchored, identical to the agent profile avatar), so just cover-fit. */
 .us-avatar-frame img {
   width: 100%; height: 100%;
+  margin-top: -10px;
   object-fit: cover;
   display: block;
 }

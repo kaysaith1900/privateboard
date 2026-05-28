@@ -1630,17 +1630,13 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 18px;
   padding: 8px 32px 12px;
 }
 .ap-avatar {
   position: relative;
-  width: 96px;
-  height: 96px;
-  /* Straddles the 84px cover · margin-top scaled with the size bump
-     (was 76px/-46px) so the avatar keeps the same ~60% overlap into
-     the cover and ~40% dropping into the body row. */
-  margin-top: -58px;
+  width: 120px;
+  height: 120px;
+  margin-top: -78px;
   margin-bottom: 0;
   overflow: hidden;
   display: flex;
@@ -2466,6 +2462,18 @@
   overflow-y: auto;
   max-height: 60vh;
   border-radius: 4px;
+  /* Electron drag region opt-out · the macOS chrome strip + the
+     room-head drag region span the top ~56px of the window. When
+     the picker flips upward and pins to the viewport top, those
+     drag regions silently swallow clicks on the top items (the
+     hit is captured at the OS level before the renderer sees it).
+     Forcing `no-drag` on every cell — including the popover's own
+     padding — keeps the top rows clickable regardless of where
+     the dropdown lands. See feedback_electron_drag_region_blocks_img. */
+  -webkit-app-region: no-drag;
+}
+.ap-model-picker * {
+  -webkit-app-region: no-drag;
 }
 .ap-model-picker::-webkit-scrollbar { width: 6px; }
 .ap-model-picker::-webkit-scrollbar-thumb { background: var(--line-strong); }
@@ -2920,7 +2928,7 @@
   text-transform: uppercase;
   padding: 5px 10px;
   background: transparent;
-  border: 0.5px solid var(--line-bright);
+  border: 0.5px solid var(--line-strong);
   color: var(--text-soft);
   cursor: pointer;
   transition: border-color 0.1s, color 0.1s;

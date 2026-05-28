@@ -30,20 +30,30 @@ function parseCarrierPref(raw: string | null): AgentCarrierPref | null {
 export interface Avatar3dConfig {
   model: string;
   hairStyle: string;
-  outfitStyle: string;
   accessory: string;
   skin: string;
   hair: string;
   brow: string;
-  outfit: string;
+  /** Legacy combined outfit fields. Kept optional for back-compat with
+   *  configs saved before the outfit split — the frontend treats them as
+   *  fallbacks for top/bottom when those are absent. New saves no longer
+   *  include them. */
+  outfitStyle?: string;
+  outfit?: string;
+  /** Top / bottom split (上衣 / 裤子). Each is a model id whose role "top"
+   *  or "bottom" meshes get overlaid. Optional only for back-compat. */
+  topStyle?: string;
+  bottomStyle?: string;
+  top?: string;
+  bottom?: string;
   /** Optional · eyebrow-shape source ("default" = own) and tie source
    *  ("none" = no tie). Absent on configs saved before these dimensions
    *  existed — treated as "default" / "none". */
   browStyle?: string;
   tieStyle?: string;
-  /** Optional · eye-shape source ("default" = own). Absent on configs saved
-   *  before this dimension existed — treated as "default". */
-  eyeStyle?: string;
+  /** Optional · beard source ("none" = no beard) + beard colour. */
+  beardStyle?: string;
+  beard?: string;
   /** Optional · neckwear (tie / bow) colour `#rrggbb`. */
   tie?: string;
   /** Optional · iris / pupil colour `#rrggbb`. */
@@ -688,18 +698,34 @@ export function parseAvatar3d(json: string | null | undefined): Avatar3dConfig |
   try {
     const o = JSON.parse(json);
     if (!o || typeof o !== "object") return null;
-    const ids = ["model", "hairStyle", "outfitStyle", "accessory"] as const;
-    const cols = ["skin", "hair", "brow", "outfit"] as const;
+    // Required identity / palette fields. Top + bottom and the legacy
+    // outfit are validated below as a unit: a config is valid as long as
+    // it carries EITHER the new split (top + bottom) OR the legacy
+    // outfitStyle/outfit pair.
+    const ids = ["model", "hairStyle", "accessory"] as const;
+    const cols = ["skin", "hair", "brow"] as const;
     for (const k of ids) if (typeof o[k] !== "string" || !o[k]) return null;
     for (const k of cols) if (typeof o[k] !== "string" || !HEX6_RE.test(o[k])) return null;
+    const hasSplit = typeof o.topStyle === "string" && typeof o.bottomStyle === "string"
+                    && typeof o.top === "string" && HEX6_RE.test(o.top)
+                    && typeof o.bottom === "string" && HEX6_RE.test(o.bottom);
+    const hasLegacy = typeof o.outfitStyle === "string" && o.outfitStyle
+                    && typeof o.outfit === "string" && HEX6_RE.test(o.outfit);
+    if (!hasSplit && !hasLegacy) return null;
     const cfg: Avatar3dConfig = {
-      model: o.model, hairStyle: o.hairStyle, outfitStyle: o.outfitStyle, accessory: o.accessory,
-      skin: o.skin, hair: o.hair, brow: o.brow, outfit: o.outfit,
+      model: o.model, hairStyle: o.hairStyle, accessory: o.accessory,
+      skin: o.skin, hair: o.hair, brow: o.brow,
     };
+    if (hasSplit) {
+      cfg.topStyle = o.topStyle; cfg.bottomStyle = o.bottomStyle;
+      cfg.top = o.top; cfg.bottom = o.bottom;
+    }
+    if (hasLegacy) { cfg.outfitStyle = o.outfitStyle; cfg.outfit = o.outfit; }
     // Optional newer dimensions · kept only when present + valid (back-compat).
     if (typeof o.browStyle === "string" && o.browStyle) cfg.browStyle = o.browStyle;
     if (typeof o.tieStyle === "string" && o.tieStyle) cfg.tieStyle = o.tieStyle;
-    if (typeof o.eyeStyle === "string" && o.eyeStyle) cfg.eyeStyle = o.eyeStyle;
+    if (typeof o.beardStyle === "string" && o.beardStyle) cfg.beardStyle = o.beardStyle;
+    if (typeof o.beard === "string" && HEX6_RE.test(o.beard)) cfg.beard = o.beard;
     if (typeof o.tie === "string" && HEX6_RE.test(o.tie)) cfg.tie = o.tie;
     if (typeof o.eye === "string" && HEX6_RE.test(o.eye)) cfg.eye = o.eye;
     return cfg;

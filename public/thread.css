@@ -211,7 +211,6 @@
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   cursor: pointer;
-  transition: opacity 0.12s;
 }
 .thread-float-head-avatar:hover { opacity: 0.78; }
 

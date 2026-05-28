@@ -2412,8 +2412,10 @@
   }
 
   /* ─── Profile · ⋯ menu (top-right of the cover) ─────
-     Small popover anchored to the menu button with one or more
-     actions. v1 ships a single "regenerate 8-bit avatar" item. */
+     Small popover anchored to the menu button. For non-chair
+     directors: "Customize 3D avatar" (opens the avatar editor),
+     plus the optional persona.md download + delete-director rows
+     below depending on the agent's provenance. */
   function openProfileIdMenu(anchor) {
     closeProfileIdMenu();
     const slug = anchor.getAttribute("data-slug");
@@ -2440,11 +2442,6 @@
           <span>Avatar locked · chair identity is fixed</span>
         </div>`);
     } else {
-      parts.push(`
-        <button type="button" class="ap-id-menu-item" data-ap-menu-action="regen-avatar">
-          <span class="ap-id-menu-mark">◆</span>
-          <span>Regenerate 8-bit avatar</span>
-        </button>`);
       parts.push(`
         <button type="button" class="ap-id-menu-item" data-ap-menu-action="edit-avatar3d">
           <span class="ap-id-menu-mark">◈</span>
@@ -2486,56 +2483,6 @@
   function closeProfileIdMenu() {
     const el = document.getElementById("ap-id-menu-pop");
     if (el) el.remove();
-  }
-
-  /** Render a fresh 3D voxel portrait and persist it as the agent's
-   *  avatar. Updates the live store so subsequent renders use the
-   *  new image, then repaints the profile in place. Uses the shared
-   *  Avatar3DSnap helper (same pipeline the agent-profile capture
-   *  and home / new-agent flows go through) — no more 8-bit SVG.
-   *  Seeded directors fall back to a localStorage override (the
-   *  server only stores user-created agents). */
-  async function regenerateProfileAvatar(slug) {
-    const snap = window.Avatar3DSnap;
-    if (!snap || typeof snap.generate !== "function") return;
-    const seed = snap.randomSeed();
-    const dataUrl = await snap.generate(seed);
-    if (!dataUrl) return;
-    const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
-    if (live) {
-      try {
-        const res = await fetch("/api/agents/" + encodeURIComponent(slug), {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ avatarPath: dataUrl }),
-        });
-        if (!res.ok) throw new Error("avatar update failed");
-        const updated = await res.json();
-        // Refresh the in-memory roster so the sidebar + room views
-        // pick up the new avatar.
-        live.avatarPath = updated.avatarPath || dataUrl;
-        if (typeof window.app.refreshAgents === "function") {
-          await window.app.refreshAgents();
-        } else if (typeof window.app.renderSidebarAgents === "function") {
-          window.app.renderSidebarAgents();
-        }
-      } catch (e) {
-        console.error("[profile] regenerate avatar failed", e);
-        alert("Couldn't save the new avatar: " + (e && e.message ? e.message : e));
-        return;
-      }
-    } else {
-      // Seeded profile · stash an override locally so the profile
-      // view shows the new look on this device.
-      try {
-        localStorage.setItem("boardroom.agent.avatar." + slug, dataUrl);
-      } catch (_) {}
-      const seeded = PROFILES[slug];
-      if (seeded) seeded.avatar = dataUrl;
-    }
-    // Repaint the profile in-place so the new avatar shows.
-    const v = getMainViews();
-    if (v.agent && !v.agent.hasAttribute("hidden")) open(slug);
   }
 
   /** Resolve a profile object from a slug · seeded first, then live. */
@@ -3966,6 +3913,14 @@
       v.agent.setAttribute("hidden", "");
       v.agent.innerHTML = "";
     }
+    // The room view is back · re-arm the voice-room layout flag if the
+    // underlying room is voice (kept off while the agent profile was
+    // visible). Read from window.app since this file has no direct
+    // reference to the app instance.
+    try {
+      const cr = window.app && window.app.currentRoom;
+      document.body.classList.toggle("voice-room", !!(cr && cr.deliveryMode === "voice"));
+    } catch (_) { /* defensive */ }
     // Hide every other top-level pane so its content / placeholder
     // doesn't bleed through under the room view. Each view is just
     // the same `.main-view` CSS box — without explicitly hiding the
@@ -4041,6 +3996,13 @@
 
   function open(slug) {
     currentlyOpenSlug = slug;
+    // The agent view is about to replace the room view as the visible
+    // main-view — drop the `voice-room` body class (set by app.js when
+    // a voice room is current) so the collapsed-sidebar overlay rules
+    // stop applying. Otherwise the mini-rail stays floating on top of
+    // the profile and clips its content. showRoom() below re-toggles
+    // the class on the way back if the underlying room is voice.
+    document.body.classList.remove("voice-room");
     let p = PROFILES[slug];
     // Live agent record (DB row · includes seeded directors too,
     // since they live in the agents table). Custom directors created
@@ -4155,19 +4117,98 @@
     return (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, "") + "M";
   }
 
-  /** Generate a stable two-stop gradient from the slug. Same slug →
-   *  same colourway every reload, so the cover acts like a sigil. */
+  /** Procedurally paint a per-agent ORGANIC GRADIENT into the cover.
+   *  Design brief: soft flowing colour fields, natural liquid-like
+   *  transitions, subtle grain texture, dreamy ambient light, abstract
+   *  biomorphic shapes, smooth depth, translucent layers — elegant,
+   *  minimal, no hard edges. Same slug → same gradient every open
+   *  (FNV-1a hash seeds an xorshift32 PRNG), so the cover acts as a
+   *  stable visual identity for each director.
+   *
+   *  Implementation: a 600×100 SVG with four large translucent ellipses
+   *  in harmonious HSL hues, all run through a heavy gaussian-blur
+   *  filter so the individual ellipse outlines dissolve into liquid
+   *  colour masses; layered over a backdrop gradient; finished with a
+   *  fine fractal-noise grain on top. Encoded as a data: URL so no
+   *  network round-trip, no asset to host. A static fallback gradient
+   *  sits underneath in the background-image stack so a parse failure
+   *  still leaves a polished surface. */
   function paintCoverArt(node) {
     if (!node) return;
-    const seed = node.getAttribute("data-cover-seed") || "";
-    let h = 0;
-    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-    const a = h % 360;
-    const b = (a + 50 + (h % 80)) % 360;
-    node.style.background = `
-      linear-gradient(120deg, hsl(${a} 32% 22%) 0%, hsl(${b} 28% 14%) 100%),
-      radial-gradient(circle at 30% 40%, hsl(${a} 40% 28%) 0%, transparent 55%)
-    `;
+    const seed = node.getAttribute("data-cover-seed") || "anonymous";
+
+    // FNV-1a hash of the slug → stable 32-bit seed.
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < seed.length; i++) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    // xorshift32 · cheap deterministic stream from the seed hash.
+    let s = h || 0x9E3779B9;
+    const rand = () => {
+      s ^= s << 13; s >>>= 0;
+      s ^= s >>> 17;
+      s ^= s << 5;  s >>>= 0;
+      return (s % 100000) / 100000;
+    };
+
+    // Palette · base hue + analogous neighbours + one ~complementary
+    // accent. Spread keeps the cover reading as colour FIELDS rather
+    // than monochrome, while the muted lightness / moderate saturation
+    // band keeps the whole register elegant rather than garish.
+    const baseHue = Math.floor(rand() * 360);
+    const hues = [
+      baseHue,
+      (baseHue + 30 + Math.floor(rand() * 30)) % 360,
+      (baseHue + 75 + Math.floor(rand() * 40)) % 360,
+      (baseHue + 165 + Math.floor(rand() * 30)) % 360,
+    ];
+
+    // Four large translucent blobs scattered across a 600×100 viewBox.
+    // Wide radii so neighbours overlap and bleed once the heavy
+    // gaussian-blur runs — that's where the "liquid" read comes from.
+    const blobs = hues.map((hue) => {
+      const cx = Math.round(rand() * 600);
+      const cy = Math.round(rand() * 100);
+      const rx = 180 + Math.round(rand() * 160);
+      const ry = 80 + Math.round(rand() * 70);
+      const sat = 36 + Math.floor(rand() * 24);        // 36–60%
+      const light = 30 + Math.floor(rand() * 18);       // 30–48%
+      const alpha = (0.55 + rand() * 0.30).toFixed(2);  // 0.55–0.85
+      return `<ellipse cx='${cx}' cy='${cy}' rx='${rx}' ry='${ry}' fill='hsl(${hue} ${sat}% ${light}%)' fill-opacity='${alpha}'/>`;
+    }).join("");
+
+    // Backdrop · slightly darker than the blobs so the colour mass
+    // reads as floating layers rather than fighting a flat field.
+    const bgLight = 11 + Math.floor(rand() * 7);        // 11–18%
+    const turbSeed = h & 0xffff;
+
+    // Note · single-quoted attributes so encodeURIComponent doesn't
+    // bloat the data URL re-encoding double quotes. The `fill='url(#bg)'`
+    // fragment reference survives encoding intact (# → %23) and the
+    // browser decodes it back before handing the bytes to the SVG parser.
+    const svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 100' preserveAspectRatio='xMidYMid slice'>"
+      + "<defs>"
+      +   "<linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>"
+      +     `<stop offset='0%' stop-color='hsl(${baseHue} 26% ${bgLight}%)'/>`
+      +     `<stop offset='100%' stop-color='hsl(${hues[3]} 30% ${bgLight + 4}%)'/>`
+      +   "</linearGradient>"
+      +   "<filter id='liquid' x='-20%' y='-20%' width='140%' height='140%'><feGaussianBlur stdDeviation='38'/></filter>"
+      +   `<filter id='grain'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='${turbSeed}'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1 0 0 0 0'/></filter>`
+      + "</defs>"
+      + "<rect width='600' height='100' fill='url(#bg)'/>"
+      + `<g filter='url(#liquid)'>${blobs}</g>`
+      + "<rect width='600' height='100' filter='url(#grain)' opacity='0.16'/>"
+      + "</svg>";
+
+    const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+    // Stack the procedural SVG over a static fallback gradient so a
+    // parse failure still leaves a polished surface (browsers skip a
+    // broken background layer rather than the whole stack).
+    node.style.backgroundImage = `${url}, linear-gradient(120deg, var(--panel-3) 0%, var(--panel-2) 100%)`;
+    node.style.backgroundSize = "cover, cover";
+    node.style.backgroundPosition = "center, center";
+    node.style.backgroundRepeat = "no-repeat, no-repeat";
   }
 
   /* ─── Profile · skill picker popover ──────────────
@@ -4407,7 +4448,6 @@
         }
         e.preventDefault();
         closeProfileIdMenu();
-        if (action === "regen-avatar" && slug) regenerateProfileAvatar(slug);
         if (action === "edit-avatar3d" && slug && typeof window.openAvatar3DEditor === "function") {
           window.openAvatar3DEditor(slug);
         }

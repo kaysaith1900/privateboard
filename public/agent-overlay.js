@@ -872,9 +872,18 @@
       pop.style.left = popLeft + "px";
       pop.style.top = popTop + "px";
       // After mount the pop has measured height; if it would overflow
-      // the viewport bottom, flip it ABOVE the trigger instead.
-      const popH = pop.getBoundingClientRect().height;
+      // the viewport bottom, flip it ABOVE the trigger instead. When
+      // there isn't enough space above either, cap the popover's
+      // height to the available space (`max-height`) so it scrolls
+      // internally rather than clamping to top=8 and overlapping
+      // the trigger / top chrome.
+      let popH = pop.getBoundingClientRect().height;
       if (popTop + popH > vh - 8) {
+        const spaceAbove = r.top - 8 - 4; // 8 viewport margin + 4 gap
+        if (popH > spaceAbove) {
+          pop.style.maxHeight = Math.max(120, spaceAbove) + "px";
+          popH = pop.getBoundingClientRect().height;
+        }
         popTop = Math.max(8, r.top - popH - 4);
         pop.style.top = popTop + "px";
       }

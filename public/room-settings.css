@@ -1101,11 +1101,11 @@ html.is-electron-mac .room-settings-overlay * {
    text-soft tone (lime only on hover, like every other head icon)
    so it doesn't read as a yellow/gold highlight (`--lime` is the
    warm gold #C9A46B in the default theme). */
-/* Count chip for multi-brief popover trigger · pinned to the icon's
-   top-right corner so the user sees "there's more than one report"
-   without taking horizontal space. Mono pill, same micro-tag register
-   as the sidebar .nav-count. */
-.head-view-report .head-icon-count {
+/* Count chip pinned to a head-icon-btn's top-right corner · used by
+   the multi-brief popover trigger AND the threads icon (thread count).
+   Mono pill, same micro-tag register as the sidebar .nav-count. */
+.head-view-report .head-icon-count,
+.head-threads .head-icon-count {
   position: absolute;
   top: -2px;
   right: -4px;

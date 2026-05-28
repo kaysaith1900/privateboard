@@ -225,7 +225,14 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   let _lastPositions = null;
   let _lastMode = null;
   const AVATAR_FIG_HEIGHT = 1.55; // feet at y=0; head clears the chair back
-  const AVATAR_SEAT_LIFT = 0.4;   // raise 3D figures so the body clears the seat cushion
+  // Raise 3D figures so the body clears the seat cushion. The sheen
+  // chair's cushion top sits at y=0.60, so a lift of 0.45 keeps the
+  // figure's feet 15cm below the cushion — most of the legs tuck
+  // behind it but the upper-thigh just pokes above, giving the
+  // "seated with a sliver of leg showing" silhouette. Tuned for the
+  // head-heavy voxel chibis (head ≈ 60% of total height, legs ≈
+  // 10–15%). Adjust ±0.05 to expose more / less leg.
+  const AVATAR_SEAT_LIFT = 0.45;
   const MOUTH_OPEN = 0.062;       // mouth-overlay max height (fully open) while talking
   const MOUTH_MIN = 0.014;        // mouth-overlay min height (closed-mouth line) while talking
   /** Table materials · created fresh in buildTable() each mount and
@@ -3126,10 +3133,16 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       if (cfg && isAvatar3DReady(cfg.model)) {
         try {
           const a = buildAvatar3D(member.id, {
-            model: cfg.model, hairStyle: cfg.hairStyle, outfitStyle: cfg.outfitStyle,
-            browStyle: cfg.browStyle, tieStyle: cfg.tieStyle, eyeStyle: cfg.eyeStyle,
+            model: cfg.model, hairStyle: cfg.hairStyle,
+            // Pass both new split (top/bottom) AND legacy (outfit*) fields ·
+            // buildAvatar3D falls through to the legacy ones when the new
+            // ones are absent, so older saved configs still render correctly.
+            topStyle: cfg.topStyle, bottomStyle: cfg.bottomStyle, outfitStyle: cfg.outfitStyle,
+            browStyle: cfg.browStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
             accessory: cfg.accessory, height: AVATAR_FIG_HEIGHT,
-            skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit, tie: cfg.tie, eye: cfg.eye,
+            skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, beard: cfg.beard,
+            top: cfg.top, bottom: cfg.bottom, outfit: cfg.outfit,
+            tie: cfg.tie, eye: cfg.eye,
           });
           if (a) { a.userData.isAvatar3d = true; return a; }
         } catch (e) {
