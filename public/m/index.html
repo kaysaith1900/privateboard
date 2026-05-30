@@ -1327,8 +1327,7 @@ function restoreMobileView() {
     // Only re-open if the room still exists (avoid a stale/deleted room
     // landing on a "加载失败" screen). openRoom picks chat vs boardroom.
     if (cachedRooms.some(r => r && r.id === saved.roomId)) {
-      openRoom(saved.roomId);
-      return;
+      return openRoom(saved.roomId); // awaited by bootstrapAll so onboarding mounts above it
     }
     // Only treat the saved room as stale when we have an authoritative room
     // list. If /api/rooms failed to load (cachedRooms empty by error, not by
@@ -5032,7 +5031,12 @@ async function bootstrapAll() {
     loadBoardroomFor(appState.activeRoomId || null);
   }
   // Restore the last room/tab on a plain reload (no ?screen / ?roomId).
-  restoreMobileView();
+  // Awaited so a restored room's screen switch completes before onboarding mounts.
+  await restoreMobileView();
+  // First-run onboarding (no LLM key) overlays on top of the restored view —
+  // dismissing/finishing it reveals wherever the user left off, so no session
+  // is stranded on the default screen.
+  if (await mobileShouldOnboard()) showMobileOnboarding();
 }
 function syncBottomChromeHeights() {
   const tb = document.querySelector('.tabbar');
@@ -6012,7 +6016,67 @@ async function submitAddCredential(kind) {
   }
 }
 
-// ── briefs · client-side filter (search prompt) ───────────
+// ── first-run onboarding ─────────────────────────────────
+// Parity with PC onboarding.js: shown whenever no LLM credential is
+// configured (the gate for a usable room). Focused single-screen flow —
+// name + provider + key — reusing the same /api/prefs + /api/credentials
+// contracts. The themed multi-step carousel on PC is UI-shell only.
+const MOBILE_ONBOARDED_KEY = 'boardroom.onboarded';
+async function mobileShouldOnboard() {
+  try {
+    const r = await fetch('/api/credentials');
+    if (!r.ok) return false; // can't tell · don't trap the user behind onboarding
+    const d = await r.json();
+    if (Array.isArray(d.credentials) && d.credentials.length > 0) {
+      try { localStorage.setItem(MOBILE_ONBOARDED_KEY, 'true'); } catch {}
+      return false;
+    }
+  } catch { return false; }
+  return true;
+}
+function showMobileOnboarding() {
+  if (document.getElementById('mobile-onboarding')) return;
+  const opts = (CRED_PROVIDERS.llm || []).map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
+  const inp = 'width:100%;padding:10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--rule);color:var(--ink);';
+  openMobilePanel({
+    id: 'mobile-onboarding',
+    kicker: '00 — 入席',
+    title: '欢迎来到你的董事会',
+    body: `
+      <label class="dv-purpose" style="display:block;margin-bottom:6px;">董事们怎么称呼你？</label>
+      <input id="onb-name" maxlength="32" placeholder="例如：Kay" style="${inp}margin-bottom:12px;">
+      <label class="dv-purpose" style="display:block;margin-bottom:6px;">LLM 供应商</label>
+      <select id="onb-provider" style="${inp}margin-bottom:12px;">${opts}</select>
+      <label class="dv-purpose" style="display:block;margin-bottom:6px;">API Key</label>
+      <input id="onb-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴一个 LLM key（董事发言需要）" style="${inp}">
+      <p class="dv-purpose" style="margin-top:12px;">推荐 OpenRouter / B.AI：一个 key 用所有模型。key 只发送到本机服务。</p>`,
+    foot: `<button onclick="closeMobileOverlay('mobile-onboarding')">稍后</button><button class="gold" onclick="submitMobileOnboarding()">开始</button>`,
+  });
+}
+async function submitMobileOnboarding() {
+  const root = document.getElementById('mobile-onboarding');
+  if (!root) return;
+  const name = (root.querySelector('#onb-name')?.value || '').trim();
+  const provider = root.querySelector('#onb-provider')?.value;
+  const key = (root.querySelector('#onb-key')?.value || '').trim();
+  if (!key) { alert('请填入一个 LLM key（或点「稍后」，之后在「我的 → 凭据」里添加）。'); return; }
+  const btns = root.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+  try {
+    if (name) {
+      await fetch('/api/prefs', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }).catch(() => {});
+    }
+    const r = await fetch('/api/credentials', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, key, label: null }) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    try { localStorage.setItem(MOBILE_ONBOARDED_KEY, 'true'); } catch {}
+    mobileModelKeySnapshot = null;
+    closeMobileOverlay('mobile-onboarding');
+    await bootstrapAgents().catch(() => {});
+  } catch (e) {
+    btns.forEach(b => b.disabled = false);
+    alert('配置失败：' + e.message);
+  }
+}
 </script>
 </body>
 </html>
