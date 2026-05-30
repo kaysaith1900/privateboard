@@ -3479,9 +3479,17 @@ function updateBoardroomVoiceCaption(q, caption) {
   if (document.querySelector('.screen.on')?.dataset.screen !== 'boardroom') return;
   if (!q || !q.messageId) return;
   if (appState.voicePlaying?.messageId && appState.voicePlaying.messageId !== q.messageId) return;
+  // `caption` is ALREADY the audio-windowed current segment from the shared
+  // controller's currentCaption(q) (it tracks audio.currentTime against the
+  // timed caption segments). Show it directly — re-running the no-audio
+  // compactCaptionText here dropped the audio cursor, so the line stopped
+  // following the voice (PC keeps the windowed segment via renderRtSubtitle).
   const text = cleanBoardroomCaptionText(caption);
   if (!text) return;
-  setBoardroomSpeakerCaption(text);
+  const subText = document.getElementById('bd-sub-text');
+  if (subText) subText.textContent = text;
+  setBoardroomTableQuote(text, { tail: true });
+  return;
 }
 
 // ── boardroom round-wrap banner ───────────────────────────
