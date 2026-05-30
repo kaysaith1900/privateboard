@@ -2911,6 +2911,27 @@ function sseAppendMessage(payload) {
     appState.activeRoomModeShiftProposal = payload.meta?.modeShiftProposal || appState.activeRoomModeShiftProposal || null;
     renderRoomActions();
   }
+  // Round-boundary action triage · parity with PC's message-appended
+  // handler (app.js: isRoundPrompt → maybeStartContinueCountdown, any
+  // other non-chair-settings message → cancel). Without this, the
+  // round-prompt's countdown / round-end's "✓ 确认继续" prompt never
+  // surfaced the instant the chair posted it — mobile relied solely on
+  // the voice onDone / 5s poll to re-arm, so in voice mode the 10s
+  // window was eaten behind the hidden bar and the round-end button
+  // lagged a poll cycle. Re-evaluate + repaint right at the boundary.
+  const isChairSettings =
+    (payload.authorKind === 'agent' || payload.authorKind === 'chair') &&
+    payload.authorId === appState.activeChair?.id &&
+    kind === 'settings';
+  if (kind === 'round-prompt') {
+    maybeStartAutoContinue();
+    renderRoomActions();
+  } else if (!isChairSettings) {
+    // A non-prompt message means the round moved on · drop any stale
+    // countdown and repaint so a spent round-prompt button clears.
+    cancelAutoContinue();
+    renderRoomActions();
+  }
   const msgsEl = document.getElementById('rc-msgs');
   if (!msgsEl) return;
   // Remove any "thinking"/convening placeholder(s) — both share the
@@ -3171,6 +3192,13 @@ const roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackControlle
     // boardroomVoiceLeading()). Without this the bar stayed visible because
     // nothing re-rendered when voicePlaying flipped on.
     renderRoomActions();
+    // Cancel any countdown that armed at round-prompt message-appended
+    // before the chair's voice started (voicePlaying was still null then,
+    // so canAutoContinue passed). Parity with PC (app.js): the countdown
+    // is cancelled when the round-prompt's voice begins and re-armed
+    // cleanly from onDone, so the user gets the full 10s with the prompt
+    // visible instead of a window eaten behind the spoken line.
+    maybeStartAutoContinue();
   },
   onTimeUpdate: (q, caption) => {
     updateBoardroomVoiceCaption(q, caption);
