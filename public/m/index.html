@@ -4324,6 +4324,7 @@ async function cancelBuild() {
   } catch {}
   if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
   try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
+  clearBuildElapsed();
   appState.activeBuildJobId = null;
   goto('agents');
 }
@@ -4466,7 +4467,13 @@ function renderBuildPhases(currentPhase, subDetail, voiceDistillPhase) {
   }).join('');
 }
 
+// Elapsed-time ticker for the build screen (parity with PC's build elapsed
+// counter). Stored on appState so every stream-close path can stop it.
+function clearBuildElapsed() {
+  if (appState.buildElapsedTimer) { clearInterval(appState.buildElapsedTimer); appState.buildElapsedTimer = null; }
+}
 function subscribeBuildStream(jobId) {
+  clearBuildElapsed();
   if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
   if (!jobId) return;
   const phaseEl = document.querySelector('[data-screen="build-progress"] .build-progress .title');
@@ -4507,6 +4514,17 @@ function subscribeBuildStream(jobId) {
   // already playing. Stopped in cancelBuild() / on terminal events.
   try { window.boardroomAgentBuildBgm?.start?.(); } catch {}
 
+  // Live elapsed counter on the topbar title (paint() never touches titleEl,
+  // so it won't be clobbered). Stopped on every terminal/close path via
+  // clearBuildElapsed().
+  const buildStartedAt = Date.now();
+  const tickElapsed = () => {
+    const s = Math.floor((Date.now() - buildStartedAt) / 1000);
+    if (titleEl) titleEl.textContent = '构建中 · 已用 ' + s + 's';
+  };
+  tickElapsed();
+  appState.buildElapsedTimer = setInterval(tickElapsed, 1000);
+
   // Tick the typing-sfx on every SSE event the user can see · gives
   // the build screen the same "something is happening" pulse PC has
   // (PC ticks on every LLM streaming chunk; mobile doesn't see raw
@@ -4541,6 +4559,7 @@ function subscribeBuildStream(jobId) {
 
     const stopBgm = () => {
       try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
+      clearBuildElapsed();
     };
 
     es.addEventListener('persona-final', (ev) => {
@@ -4583,7 +4602,12 @@ function subscribeBuildStream(jobId) {
       appState.buildStream = null;
       stopBgm();
     };
-  } catch {}
+  } catch {
+    // EventSource construction/setup failed · stop the elapsed ticker (and
+    // bgm) so a thrown setup can't leak the 1s interval mutating the title.
+    clearBuildElapsed();
+    try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
+  }
 }
 
 // ── agent profile ─────────────────────────────────────────
