@@ -832,6 +832,10 @@
             <div class="lbl"><span class="ic">⚒</span> 技能 (Skills)</div>
             <div class="val">›</div>
           </div>
+          <div class="row" onclick="openAgentRules()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">📏</span> 硬规则 (Rules)</div>
+            <div class="val">›</div>
+          </div>
           <div class="row" onclick="triggerDream()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">💭</span> 触发反思 (Dream)</div>
             <div class="val">›</div>
@@ -5697,6 +5701,96 @@ async function deleteAgentSkill(skillId) {
     await agentApi.deleteSkill(id, skillId);
     await renderAgentSkills();
   } catch (e) { mgrError('删除失败：' + e.message); }
+}
+
+// ── agent: user-authored hard rules ──────────────────────
+// Parity with PC AgentProfile rules: user rules persist server-side as
+// agent.userRules and are injected into the director's turn prompt. Mirrors
+// PC's design — a per-agent WORKING COPY (`_rulesWorking[id]`) is the edit
+// source of truth, isolated from the shared agent cache so a wholesale
+// /api/agents refresh (bootstrapAgents) can't clobber an in-progress edit.
+const AGENT_RULES_MAX = 5;
+const _rulesWorking = Object.create(null); // agentId -> string[] working copy
+const _rulesSaving = {};                    // agentId -> save-loop running
+function seedAgentRules(id) {
+  if (_rulesWorking[id]) return _rulesWorking[id];
+  const a = cachedAgentsById[id];
+  _rulesWorking[id] = (a && Array.isArray(a.userRules)) ? a.userRules.slice() : [];
+  return _rulesWorking[id];
+}
+async function openAgentRules() {
+  await renderAgentRules();
+}
+async function renderAgentRules() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  const rules = seedAgentRules(id);
+  const actBtn = 'margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;';
+  openManager({
+    title: '硬规则',
+    items: rules.map((text, i) => ({ text, i })),
+    render: (r) => `
+      <div style="color:var(--ink);">${escapeHtml(r.text)}</div>
+      <button onclick="deleteAgentRule(${r.i})" style="${actBtn}">删除</button>
+    `,
+    onAdd: rules.length >= AGENT_RULES_MAX ? null : addAgentRule,
+    addLabel: '＋ 加一条规则',
+  });
+  if (rules.length >= AGENT_RULES_MAX) mgrError(`规则已达上限（${AGENT_RULES_MAX} 条）`);
+}
+function persistAgentRules(id) {
+  if (!id) return;
+  const clean = (_rulesWorking[id] || []).map(s => String(s).trim()).filter(Boolean).slice(0, AGENT_RULES_MAX);
+  _rulesWorking[id] = clean; // working copy stays canonical for the editor
+  // Reflect into the display cache too (best-effort; the working copy, not the
+  // cache, is what the editor + save loop read, so a refresh can't lose edits).
+  if (cachedAgentsById[id]) cachedAgentsById[id].userRules = clean.slice();
+  const i = cachedAgents.findIndex(x => x && x.id === id);
+  if (i >= 0 && cachedAgents[i]) cachedAgents[i].userRules = clean.slice();
+  flushAgentRules(id);
+}
+// Serialized save loop reading the isolated working copy: one PATCH per agent
+// in flight; after each it re-reads _rulesWorking[id] and re-sends if it
+// changed during the await, so the last edit always wins and neither
+// out-of-order responses nor unrelated /api/agents refreshes can clobber it.
+// Uses the raw shared api so the response doesn't overwrite the working copy.
+async function flushAgentRules(id) {
+  if (!id || _rulesSaving[id]) return;
+  _rulesSaving[id] = true;
+  try {
+    let lastSent = null;
+    while (true) {
+      const arr = Array.isArray(_rulesWorking[id]) ? _rulesWorking[id].slice() : [];
+      const sig = JSON.stringify(arr);
+      if (sig === lastSent) break;
+      lastSent = sig;
+      try { await agentApi.patchAgent(id, { userRules: arr }); }
+      catch { break; /* offline · working copy keeps the edit */ }
+    }
+  } finally {
+    _rulesSaving[id] = false;
+  }
+}
+async function addAgentRule() {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  const rules = seedAgentRules(id);
+  if (rules.length >= AGENT_RULES_MAX) { mgrError(`最多 ${AGENT_RULES_MAX} 条规则`); return; }
+  const text = prompt('一条硬规则（会注入到该董事的发言提示，例如「不要谈论 X」）');
+  const t = (text || '').trim();
+  if (!t) return;
+  rules.push(t);
+  persistAgentRules(id);
+  await renderAgentRules();
+}
+async function deleteAgentRule(idx) {
+  const id = appState.activeAgentId;
+  if (!id) return;
+  const rules = seedAgentRules(id);
+  if (idx < 0 || idx >= rules.length) return;
+  rules.splice(idx, 1);
+  persistAgentRules(id);
+  await renderAgentRules();
 }
 
 // ── agent: dream ─────────────────────────────────────────
