@@ -3607,8 +3607,15 @@ function handleVoiceChunk(payload) {
 
 function handleVoiceFinal(payload) {
   if (!payload || !payload.messageId) return;
-  const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
-  if (!onBoardroom) return;
+  // PC parity: voice AUDIO must play in BOTH room views (boardroom stage
+  // AND room-chat transcript), so this handler is NOT gated on screen.
+  // `voice-final` is the event that finalizes the queue (endOfStream) and
+  // pumps playback — gating it to boardroom left room-chat completely
+  // silent. The stage chrome (caption / speaker highlight) stays
+  // boardroom-specific because the controller callbacks (onPlaying /
+  // onTimeUpdate → updateBoardroomVoiceCaption) self-guard on the active
+  // screen; in room-chat the voice-paced text reveal happens via
+  // repaintVoicePacedMessage against the chat bubble instead.
   // PC parity: foreground `voice-final` only finalizes an existing
   // queue. It must not recreate a queue after hard-pause/message-
   // removal has already cleared it, otherwise an old final event can
