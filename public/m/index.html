@@ -910,6 +910,7 @@
         <div class="room-head-sub" id="bd-sub">—</div>
       </div>
       <div class="actions">
+        <button id="bd-speed" onclick="cycleBoardroomVoiceRate()" title="语音播放速度">1×</button>
         <button onclick="setRoomViewPreference('chat');goto('room-chat')" title="文字视图">≡</button>
       </div>
     </div>
@@ -2979,6 +2980,10 @@ const roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackControlle
   useMediaSource: true,
   playOnFirstChunk: true,
   onPlaying: (q) => {
+    // Re-apply the chosen playback rate: setting a fresh clip src resets
+    // playbackRate to 1.0, so we restore it as each line starts (parity
+    // with PC's per-clip rate reapplication).
+    applyBoardroomVoiceRate();
     appState.voicePlaying = { messageId: q.messageId, authorId: q.authorId || null };
     highlightSpeaker(q.authorId, q.messageId);
     const cap = roomVoiceController.currentCaption(q);
@@ -3010,6 +3015,47 @@ const roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackControlle
   },
 });
 window.roomVoiceController = roomVoiceController;
+
+// Voice playback speed · same presets + localStorage key as PC
+// (VOICE_RATE_PRESETS / "pb.voiceRate"), so the user's choice is consistent
+// and pitch is preserved by the browser at these multipliers.
+const BD_VOICE_RATE_PRESETS = [0.75, 1.0, 1.25, 1.5, 2.0];
+// In-memory cache (parity with PC's _voicePlaybackRate) so the control still
+// works when localStorage writes throw (private mode / quota).
+let _bdVoiceRate = null;
+function bdVoiceRate() {
+  if (_bdVoiceRate != null) return _bdVoiceRate;
+  let v = 1.0;
+  try {
+    const raw = localStorage.getItem('pb.voiceRate');
+    if (raw != null) {
+      const n = parseFloat(raw);
+      if (isFinite(n) && BD_VOICE_RATE_PRESETS.includes(n)) v = n;
+    }
+  } catch {}
+  _bdVoiceRate = v;
+  return v;
+}
+function applyBoardroomVoiceRate() {
+  const audio = document.getElementById('bd-audio');
+  if (audio) { try { audio.playbackRate = bdVoiceRate(); } catch {} }
+}
+function refreshBoardroomSpeedLabel() {
+  const btn = document.getElementById('bd-speed');
+  if (btn) {
+    const r = bdVoiceRate();
+    btn.textContent = (r === 1 ? '1' : String(r)) + '×';
+  }
+}
+function cycleBoardroomVoiceRate() {
+  const cur = bdVoiceRate();
+  const idx = BD_VOICE_RATE_PRESETS.indexOf(cur);
+  const next = BD_VOICE_RATE_PRESETS[(idx + 1) % BD_VOICE_RATE_PRESETS.length];
+  _bdVoiceRate = next; // update in-memory first so a storage failure can't strand us at 1.0
+  try { localStorage.setItem('pb.voiceRate', String(next)); } catch {}
+  applyBoardroomVoiceRate();
+  refreshBoardroomSpeedLabel();
+}
 
 function syncRoomVoiceController() {
   roomVoiceController.setAudio(document.getElementById('bd-audio'));
@@ -4875,6 +4921,7 @@ function renderBoardroomSeats(agents, opts = {}) {
 }
 
 async function loadBoardroomFor(roomId) {
+  refreshBoardroomSpeedLabel();
   const titleEl = document.getElementById('bd-title');
   const subEl = document.getElementById('bd-sub');
   const quoteEl = document.getElementById('bd-table-quote');
