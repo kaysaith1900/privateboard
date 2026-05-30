@@ -968,7 +968,7 @@
     <div class="topbar">
       <div style="width: 32px;"></div>
       <div class="title">报告</div>
-      <div class="actions"><button onclick="filterBriefs()">🔍</button></div>
+      <div style="width: 32px;"></div>
     </div>
 
     <div id="briefs-list" data-state="loading">
@@ -5826,15 +5826,6 @@ function addCredential(kind) {
 }
 
 // ── briefs · client-side filter (search prompt) ───────────
-function filterBriefs() {
-  const q = prompt('搜索报告标题 / 摘要')?.trim();
-  if (q === null || q === undefined) return;
-  document.querySelectorAll('#briefs-list .brief-card').forEach((el) => {
-    if (!q) { el.style.display = ''; return; }
-    const text = el.textContent.toLowerCase();
-    el.style.display = text.includes(q.toLowerCase()) ? '' : 'none';
-  });
-}
 </script>
 </body>
 </html>
