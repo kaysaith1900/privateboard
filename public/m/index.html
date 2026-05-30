@@ -5927,7 +5927,7 @@ async function openCredentialMgr(kind) {
         <button onclick="deleteCredential('${kind}', '${escapeHtml(c.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
       `,
       onAdd: () => addCredential(kind),
-      addLabel: '＋ 添加凭据 (在桌面端粘 key)',
+      addLabel: '＋ 添加凭据',
     });
   } catch (e) {
     openManager({ title: titleMap[kind], items: [], render: () => '' });
@@ -5955,8 +5955,61 @@ async function deleteCredential(kind, id) {
     await openCredentialMgr(kind);
   } catch (e) { mgrError('删除失败：' + e.message); }
 }
+const CRED_PROVIDERS = {
+  llm: [['openrouter', 'OpenRouter'], ['bai', 'B.AI'], ['anthropic', 'Anthropic'], ['openai', 'OpenAI'], ['google', 'Google'], ['xai', 'xAI'], ['moonshot', 'Moonshot'], ['zhipu', 'Zhipu']],
+  voice: [['minimax', 'MiniMax'], ['elevenlabs', 'ElevenLabs']],
+  search: [['brave', 'Brave'], ['tavily', 'Tavily']],
+};
+function credEndpoint(kind) {
+  return kind === 'llm' ? '/api/credentials' : kind === 'voice' ? '/api/voice-credentials' : '/api/search-credentials';
+}
+// Add a credential from mobile (key entry enabled per product decision).
+// Reuses the same POST contract as PC ({provider, label?, key}); the plaintext
+// key never leaves the server in responses (only a preview).
 function addCredential(kind) {
-  mgrError('凭据 key 在移动端不安全粘贴。请在桌面端 (http://127.0.0.1:3030/) 添加，添加后这里可看到 / 激活 / 删除。');
+  const providers = CRED_PROVIDERS[kind] || [];
+  const opts = providers.map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
+  const inp = 'width:100%;padding:10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--rule);color:var(--ink);';
+  openMobilePanel({
+    id: 'mobile-cred-add',
+    kicker: 'CREDENTIAL',
+    title: '添加凭据',
+    body: `
+      <label class="dv-purpose" style="display:block;margin-bottom:6px;">供应商</label>
+      <select id="cred-provider" style="${inp}margin-bottom:12px;">${opts}</select>
+      <label class="dv-purpose" style="display:block;margin-bottom:6px;">API Key</label>
+      <input id="cred-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴你的 key" style="${inp}margin-bottom:12px;">
+      <label class="dv-purpose" style="display:block;margin-bottom:6px;">备注（可空）</label>
+      <input id="cred-label" type="text" placeholder="例如：我的 OpenRouter" style="${inp}">
+      <p class="dv-purpose" style="margin-top:12px;">key 只发送到本机服务，响应里不回传明文。</p>`,
+    foot: `<button onclick="closeMobileOverlay('mobile-cred-add')">取消</button><button class="gold" onclick="submitAddCredential('${kind}')">保存</button>`,
+  });
+}
+async function submitAddCredential(kind) {
+  const root = document.getElementById('mobile-cred-add');
+  if (!root) return;
+  const provider = root.querySelector('#cred-provider')?.value;
+  const key = (root.querySelector('#cred-key')?.value || '').trim();
+  const label = (root.querySelector('#cred-label')?.value || '').trim() || null;
+  if (!provider || !key) { alert('请选择供应商并填入 key。'); return; }
+  const btns = root.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+  try {
+    const r = await fetch(credEndpoint(kind), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider, label, key }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    closeMobileOverlay('mobile-cred-add');
+    // Invalidate cached key snapshots so gating re-reads the new credential.
+    mobileModelKeySnapshot = null;
+    mobileVoiceKeySnapshot = null;
+    await openCredentialMgr(kind);
+  } catch (e) {
+    btns.forEach(b => b.disabled = false);
+    alert('添加失败：' + e.message);
+  }
 }
 
 // ── briefs · client-side filter (search prompt) ───────────
