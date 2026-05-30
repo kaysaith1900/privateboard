@@ -2154,11 +2154,24 @@ function renderBriefs(briefs) {
         <div class="summary">${escapeHtml(preview)}</div>
         <div class="footer">
           <div class="lr">📖 打开报告</div>
-          <div>${escapeHtml(b.mode || 'report')}</div>
+          <div style="display:flex; gap:12px; align-items:center;">
+            <span>${escapeHtml(b.mode || 'report')}</span>
+            <button onclick="event.stopPropagation();deleteBriefCard('${escapeHtml(b.id)}')" style="background:none;border:0;padding:0;cursor:pointer;color:var(--ink-dim);font-size:11px;">删除</button>
+          </div>
         </div>
       </div>`;
   };
   return briefs.map(card).join('');
+}
+async function deleteBriefCard(briefId) {
+  if (!briefId) return;
+  // Parity with PC deleteBriefAt: confirm, DELETE /api/briefs/:id, re-render.
+  if (!confirm('删除这份报告？不可恢复。')) return;
+  try {
+    const r = await fetch('/api/briefs/' + encodeURIComponent(briefId), { method: 'DELETE' });
+    if (!r.ok && r.status !== 204) throw new Error('HTTP ' + r.status);
+    await bootstrapBriefs();
+  } catch (e) { alert('删除失败：' + e.message); }
 }
 
 async function fetchJson(url) {
