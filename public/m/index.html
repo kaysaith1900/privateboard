@@ -2838,6 +2838,11 @@ const roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackControlle
     updateBoardroomVoiceCaption(q, cap);
     repaintVoicePacedMessage(q, cap);
     vdbg(`voice playing ${q.messageId}`);
+    // Playback just started · re-render so the round-end "继续讨论/结束会议"
+    // prompt hides while this line is spoken (renderRoomActions gates on
+    // boardroomVoiceLeading()). Without this the bar stayed visible because
+    // nothing re-rendered when voicePlaying flipped on.
+    renderRoomActions();
   },
   onTimeUpdate: (q, caption) => {
     updateBoardroomVoiceCaption(q, caption);
