@@ -160,6 +160,54 @@
   }
   .round-divider .rd-mark { color: var(--gold-soft); }
   .round-divider .rd-label { color: var(--ink-dim); text-transform: none; letter-spacing: 0.02em; }
+
+  /* Chair note cards · parity with PC's .round-prompt-card / .round-end-card.
+     The chair's procedural beats (round-prompt "主席说明", round-end summary
+     with key points) render as bordered cards in the transcript rather than
+     plain director turns — they read as "moments of order", not opinions.
+     Actions (continue / vote) live in the rc-actions bar, so these cards are
+     informational only. */
+  .chair-note {
+    margin: 16px 2px;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: var(--panel-2);
+    padding: 14px 16px;
+  }
+  .chair-note .cn-eyebrow {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 8px;
+  }
+  .chair-note .cn-body {
+    color: var(--ink); font-size: 15px; line-height: 1.65;
+  }
+  .chair-note .cn-body strong { color: var(--gold-soft); font-weight: 600; }
+  .chair-note .cn-body em { font-style: italic; }
+  .chair-note .cn-body p { margin: 0 0 8px; }
+  .chair-note .cn-body p:last-child { margin-bottom: 0; }
+  .chair-note .cn-body ul { margin: 0 0 8px; padding-left: 18px; }
+  .chair-note .cn-body li { margin-bottom: 2px; }
+  .chair-note.round-end-note { border-color: rgba(122,184,122,0.35); }
+  .chair-note.round-end-note .cn-eyebrow { color: var(--green); }
+  .chair-note .cn-kps {
+    list-style: none; margin: 10px 0 0; padding: 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .chair-note .cn-kp {
+    display: flex; gap: 8px; align-items: baseline;
+    font-size: 14px; color: var(--ink); line-height: 1.5;
+  }
+  .chair-note .cn-kp .cn-kp-n {
+    flex: 0 0 auto;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; color: var(--green); letter-spacing: 0.04em;
+  }
+  .chair-note .cn-foot {
+    margin-top: 10px; font-size: 12px; color: var(--ink-dim);
+  }
   /* Director / chair message · avatar-gutter transcript (PC parity).
      A small avatar sits in a fixed left gutter, the meta header + body
      flow to its right with no card border or background box. */
@@ -3017,6 +3065,34 @@ if (typeof window.boardroomModelsOnUpdate === 'function') {
   });
 }
 
+// Chair note card · parity with PC's .round-prompt-card / .round-end-card.
+// round-prompt → "主席说明" card (gold accent). round-end / has key points →
+// round summary card (green accent) listing the chair's extracted key points
+// with a hint that voting lives in the action bar.
+function renderChairNoteCard(m, mid, aid, kind) {
+  const isEnd = m.meta?.kind === 'round-end' || !!m.meta?.keypoints;
+  const eyebrow = isEnd ? '◇ 本轮小结' : '◆ 主席说明';
+  const cls = isEnd ? 'chair-note round-end-note' : 'chair-note round-prompt-note';
+  // Key points · meta.keypoints may be strings or { body|text } objects.
+  const rawKps = Array.isArray(m.meta?.keypoints) ? m.meta.keypoints : [];
+  const kps = rawKps
+    .map((kp) => (typeof kp === 'string' ? kp : (kp && (kp.body || kp.text)) || ''))
+    .filter(Boolean);
+  const kpsHtml = kps.length
+    ? `<ul class="cn-kps">${kps.map((t, i) =>
+        `<li class="cn-kp"><span class="cn-kp-n">${String(i + 1).padStart(2, '0')}</span><span>${escapeHtml(t)}</span></li>`
+      ).join('')}</ul>`
+    : '';
+  const foot = (isEnd && kps.length) ? `<div class="cn-foot">在下方操作栏「🗳 投票关键点」表态</div>` : '';
+  const bodyHtml = (m.body || '').trim() ? `<div class="cn-body">${mobileRenderBody(m.body)}</div>` : '';
+  return `<div class="${cls}"${mid}${aid}${kind}>
+    <div class="cn-eyebrow">${eyebrow}</div>
+    ${bodyHtml}
+    ${kpsHtml}
+    ${foot}
+  </div>`;
+}
+
 function renderOneMessage(m, memberById) {
   const mid = m.id ? ` data-msg-id="${escapeHtml(m.id)}"` : '';
   const aid = m.authorId ? ` data-author-id="${escapeHtml(m.authorId)}"` : '';
@@ -3035,6 +3111,17 @@ function renderOneMessage(m, memberById) {
   // suppressed for the chair (procedural turn — count would mislead); role
   // tag reads "// chair". Directors carry model + ctx + their own roleTag.
   const isChair = agent?.roleKind === 'moderator';
+  // Chair note cards · parity with PC's .round-prompt-card / .round-end-card.
+  // A chair message tagged round-prompt renders as a "主席说明" card; a
+  // round-end (or one carrying key points) renders as a round summary card.
+  // Both are informational in the transcript — the continue / vote actions
+  // live in the rc-actions / bd-actions bar, not in the card.
+  const chairId = appState.activeChair?.id;
+  const metaKind = m.meta?.kind;
+  const isChairAuthor = m.authorKind === 'agent' && m.authorId && chairId && m.authorId === chairId;
+  if (isChairAuthor && (metaKind === 'round-prompt' || metaKind === 'round-end' || m.meta?.keypoints)) {
+    return renderChairNoteCard(m, mid, aid, kind);
+  }
   const roleTag = isChair ? 'chair' : (agent?.roleTag || 'director');
   const modelLabel = mobileModelLabel(agent?.modelV);
   const modelBadge = modelLabel
