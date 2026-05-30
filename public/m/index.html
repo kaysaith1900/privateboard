@@ -3746,6 +3746,10 @@ function renderRoomActions() {
   paintRoomActionSurface('rc-actions', 'rc-act-primary', 'rc-act-end', 'flex', state);
   paintRoomActionSurface('bd-actions', 'bd-act-primary', 'bd-act-end', 'block', state);
   renderRoomMoreMenu();
+  // The action bar's visibility just changed · re-measure so
+  // --bd-action-stack-h reflects bd-actions' height. Without this the var
+  // stays 0 and the round-wrap banner / subtitle overlap the action bar.
+  requestAnimationFrame(syncBottomChromeHeights);
 }
 
 function renderRoomMoreMenu() {
