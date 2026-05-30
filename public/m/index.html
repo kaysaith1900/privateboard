@@ -2798,6 +2798,13 @@ function handleConfigEvent(data) {
     // Parity with PC _showAutoSkipToast: explain WHY a turn was skipped so a
     // jump in the conversation doesn't look like a glitch.
     mobileToast(autoSkipLabel(payload.phase, payload.reason));
+  } else if (kind === 'key-point-voted') {
+    // Parity with PC vote-count sync: if the vote sheet is open, refresh it
+    // so the tallies reflect the new vote live.
+    const mgrOpen = document.querySelector('.sheet[data-sheet="mgr"]')?.classList.contains('on');
+    if (mgrOpen && document.getElementById('mgr-title')?.textContent === '关键点投票') {
+      openRoomVote();
+    }
   }
   if (kind === 'round-ended') appState.activeRoomVoteQueued = false;
   if (kind === 'round-resumed') appState.activeRoomVoteQueued = false;
