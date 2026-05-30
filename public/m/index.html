@@ -677,7 +677,8 @@
     font-size: 11px;
     color: var(--gold-soft);
     font-family: ui-monospace, monospace;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
     margin-bottom: 6px;
   }
   .bd-sub-text {
@@ -3517,7 +3518,7 @@ function showBoardroomChairPending(phase) {
     : '正在准备';
   const subWho = document.getElementById('bd-sub-who');
   const subText = document.getElementById('bd-sub-text');
-  if (subWho) subWho.textContent = `${chair.name || 'Chair'} · 主持`;
+  if (subWho) subWho.textContent = chair.name || 'Chair';
   if (subText) subText.textContent = label;
   setBoardroomTableQuote(label);
 }
@@ -3638,7 +3639,9 @@ function highlightSpeaker(authorId, messageId) {
   const subText = document.getElementById('bd-sub-text');
   const subWho = document.getElementById('bd-sub-who');
   const agent = (appState.activeMembersById && appState.activeMembersById[authorId]) || cachedAgentsById[authorId];
-  if (subWho && agent) subWho.textContent = `${agent.name} · ${agent.roleTag || ''}`;
+  // Name only (PC parity): the round-table caption label is a name kicker
+  // ("ZHANG YI N"), no "· roleTag" suffix. Uppercase is applied via CSS.
+  if (subWho && agent) subWho.textContent = agent.name || '';
   const domEl = messageId ? findMsgEl(messageId) : null;
   const domBody = domEl ? (domEl.querySelector('.text')?.textContent || domEl.querySelector('.bubble')?.textContent || '') : '';
   const paint = (body) => {
@@ -5352,7 +5355,7 @@ async function loadBoardroomFor(roomId) {
     if (roundEl) roundEl.textContent = 'round ' + roundStr;
     if (subWho) {
       const a = speakerId ? (agents.find(x => x.id === speakerId) || cachedAgentsById[speakerId]) : null;
-      subWho.textContent = a ? `${a.name} · ${a.roleTag || ''}` : '—';
+      subWho.textContent = a ? (a.name || '—') : '—'; // name-only kicker (PC parity)
     }
     if (subText) {
       subText.textContent = visibleLast || '等待发言';
