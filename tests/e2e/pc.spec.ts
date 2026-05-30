@@ -148,3 +148,33 @@ test("PC exposes settings / credentials + memory/skill/brief surfaces (mobile pa
   expect(probe.brief).toBe("function");
   expect(probe.requireModelKey).toBe("function");
 });
+
+// ── PC parity for the behaviors the mobile suite exercises (PC = standard).
+// These assert the PC controller exposes the same flows mobile tests, routed
+// through the shared runtimes, so the two ends stay logic-aligned.
+test("PC exposes the mobile-tested room/meeting behaviors", async ({ page }) => {
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app, null, { timeout: 8_000 });
+  const t = await page.evaluate(() => {
+    const a = (window as unknown as { app: Record<string, unknown> }).app;
+    const RT = (window as unknown as { RoomMeetingRuntime: Record<string, unknown> }).RoomMeetingRuntime;
+    const ty = (o: Record<string, unknown>, k: string) => typeof o[k];
+    return {
+      // send / mentions
+      sendMessage: ty(a, "sendMessage"), openSendChoiceModal: ty(a, "openSendChoiceModal"), handleSendChoice: ty(a, "handleSendChoice"),
+      // pause / resume choices
+      openPauseChoiceModal: ty(a, "openPauseChoiceModal"), openResumeChoiceModal: ty(a, "openResumeChoiceModal"), handleResumeChoice: ty(a, "handleResumeChoice"),
+      // round-end / keypoints / auto-continue
+      requestRoundEnd: ty(a, "requestRoundEnd"), voteKeyPoint: ty(a, "voteKeyPoint"), maybeStartContinueCountdown: ty(a, "maybeStartContinueCountdown"), continueRoom: ty(a, "continueRoom"), acceptModeShiftAndContinue: ty(a, "acceptModeShiftAndContinue"),
+      // voice queue
+      enqueueVoiceChunk: ty(a, "enqueueVoiceChunk"), drainVoiceQueue: ty(a, "drainVoiceQueue"), unlockAudioPlayback: ty(a, "unlockAudioPlayback"),
+      // cast / notes / brief mode
+      updateRoomSettings: ty(a, "updateRoomSettings"), loadRoomNotes: ty(a, "loadRoomNotes"), renderBriefModePicker: ty(a, "renderBriefModePicker"),
+      // shared pure helpers used by both ends
+      deriveRoomActionState: typeof RT.deriveRoomActionState, extractRoomVoteItems: typeof RT.extractRoomVoteItems, nextDeliveryMode: typeof RT.nextDeliveryMode,
+    };
+  });
+  for (const [k, v] of Object.entries(t)) {
+    expect(v, `PC missing ${k}`).toBe("function");
+  }
+});
