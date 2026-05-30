@@ -127,7 +127,7 @@
   /* room chat */
   .room-head-sub { color: var(--ink-mid); font-size: 11px; margin-top: 2px; }
   .msgs { padding: 16px; padding-bottom: 180px; }
-  .msg { margin-bottom: 16px; }
+  .msg { margin-bottom: 18px; }
   .msg.system { color: var(--ink-dim); font-size: 12px; text-align: center; padding: 6px 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
   .msg.user { display: flex; justify-content: flex-end; }
   .msg.user .bubble {
@@ -137,14 +137,39 @@
     padding: 10px 14px;
     border-radius: 14px 14px 4px 14px;
   }
-  .msg .who {
-    display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px;
+  /* Round divider · centred pill marking a round boundary in the chat
+     stream. Parity with PC's `.round-prompt-card.spent` chip (◇ 第 N 轮),
+     adapted to a self-contained hairline-flanked pill for mobile. Inserted
+     by renderMessages when the round number increments between turns. */
+  .round-divider {
+    display: flex; align-items: center; gap: 10px;
+    margin: 22px 2px 18px;
+    color: var(--ink-dim);
   }
-  .msg .av { width: 28px; height: 28px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); flex: 0 0 auto; }
+  .round-divider::before, .round-divider::after {
+    content: ""; flex: 1 1 auto; height: 1px; background: var(--rule);
+  }
+  .round-divider .rd-chip {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: baseline; gap: 6px;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-mid);
+    border: 1px solid var(--rule); border-radius: 999px;
+    padding: 3px 12px;
+  }
+  .round-divider .rd-mark { color: var(--gold-soft); }
+  .round-divider .rd-label { color: var(--ink-dim); text-transform: none; letter-spacing: 0.02em; }
+  /* Director / chair message · avatar-gutter transcript (PC parity).
+     A small avatar sits in a fixed left gutter, the meta header + body
+     flow to its right with no card border or background box. */
+  .msg.turn { display: flex; align-items: flex-start; gap: 10px; }
+  .msg .av { width: 26px; height: 26px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); flex: 0 0 auto; margin-top: 2px; }
+  .msg .msg-content { min-width: 0; flex: 1 1 auto; }
   /* Meta row · parity with PC's name · model · role · ctx · time. Wraps on
      mobile so a long model label + ctx count never overflows the column. */
   .msg .msg-meta {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; padding-top: 4px;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; margin-bottom: 6px;
   }
   .msg .name { font-size: 14px; font-weight: 600; }
   .msg .msg-model {
@@ -159,11 +184,11 @@
   }
   .msg .msg-context { font-size: 11px; color: var(--ink-dim); }
   .msg .msg-time { font-size: 11px; color: var(--ink-dim); }
-  .msg .text { color: var(--ink); font-size: 14px; line-height: 1.6; }
+  .msg .text { color: var(--ink); font-size: 15px; line-height: 1.65; }
   .msg .text strong { color: var(--gold-soft); font-weight: 600; }
   .msg .text em { font-style: italic; }
   .msg .text code { font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace); font-size: 12px; background: var(--panel-3); padding: 1px 4px; border-radius: 3px; }
-  .msg .text p { margin: 0 0 8px; }
+  .msg .text p { margin: 0 0 10px; }
   .msg .text p:last-child { margin-bottom: 0; }
   .msg .text ul { margin: 0 0 8px; padding-left: 18px; }
   .msg .text li { margin-bottom: 2px; }
@@ -2736,10 +2761,40 @@ async function loadActiveRoom() {
   }
 }
 
+// Round number for a message · the API may carry it top-level or on meta
+// (parity with PC, which reads `m.roundNum ?? m.meta.roundNum`). Returns
+// null when neither is a number so the divider logic can skip it.
+function msgRoundNum(m) {
+  if (!m) return null;
+  if (typeof m.roundNum === 'number') return m.roundNum;
+  if (m.meta && typeof m.meta.roundNum === 'number') return m.meta.roundNum;
+  return null;
+}
+// Centred round-boundary pill · parity with PC's spent round-prompt chip
+// (◇ 第 N 轮). Inserted in the chat stream when the round number increments
+// between consecutive turns; mobile has no backend round-prompt message in
+// the chat list, so the boundary is derived from the roundNum change.
+function roundDividerHtml(n) {
+  return `<div class="round-divider" data-round-divider="${n}" aria-hidden="true">`
+    + `<span class="rd-chip"><span class="rd-mark">◇</span><span class="rd-label">第 ${n} 轮</span></span>`
+    + `</div>`;
+}
 function renderMessages(messages, members) {
   // Members are agents — index by their id for authorId lookup.
   const memberById = Object.fromEntries(members.map(a => [a.id, a]));
-  return messages.map(m => renderOneMessage(m, memberById)).join('');
+  let lastRound = null;
+  const out = [];
+  for (const m of messages) {
+    const rn = msgRoundNum(m);
+    // Insert a divider when the round number advances. Skip the very
+    // first round (no prior content to divide from) and any non-increment.
+    if (rn != null && lastRound != null && rn > lastRound) {
+      out.push(roundDividerHtml(rn));
+    }
+    if (rn != null) lastRound = rn;
+    out.push(renderOneMessage(m, memberById));
+  }
+  return out.join('');
 }
 // Convening card · parity with PC conveneState: a live room with no messages
 // yet is mid-convene (chair is doing silent picker/LLM work for ~10s).
@@ -2926,9 +2981,9 @@ function renderOneMessage(m, memberById) {
     : '';
   const timeStr = mobileTimeFmt(m.createdAt);
   const timeBadge = timeStr ? `<span class="msg-time">${escapeHtml(timeStr)}</span>` : '';
-  return `<div class="msg"${mid}${aid}${kind}>
-    <div class="who">
-      <div class="av">${escapeHtml(initial)}</div>
+  return `<div class="msg turn"${mid}${aid}${kind}>
+    <div class="av">${escapeHtml(initial)}</div>
+    <div class="msg-content">
       <div class="msg-meta">
         <span class="name">${escapeHtml(name)}</span>
         ${modelBadge}
@@ -2936,8 +2991,8 @@ function renderOneMessage(m, memberById) {
         ${ctxBadge}
         ${timeBadge}
       </div>
+      <div class="text">${mobileRenderBody(m.body || '')}</div>
     </div>
-    <div class="text">${mobileRenderBody(m.body || '')}</div>
   </div>`;
 }
 
@@ -3118,6 +3173,20 @@ function sseAppendMessage(payload) {
     createdAt: payload.createdAt || Date.now(),
   }, memberById);
   const wasNearBottom = isPageNearBottom();
+  // Round-boundary divider · parity with the full-render path in
+  // renderMessages. SSE appends one turn at a time, so derive the prior
+  // round from the last divider already in the stream (or 1 if none) and
+  // insert a fresh divider when this turn advances the round number.
+  const appendRound = msgRoundNum({ roundNum: payload.roundNum, meta: payload.meta });
+  if (appendRound != null) {
+    const dividers = msgsEl.querySelectorAll('[data-round-divider]');
+    const lastDivRound = dividers.length
+      ? Number(dividers[dividers.length - 1].getAttribute('data-round-divider'))
+      : 1;
+    if (appendRound > lastDivRound) {
+      msgsEl.insertAdjacentHTML('beforeend', roundDividerHtml(appendRound));
+    }
+  }
   msgsEl.insertAdjacentHTML('beforeend', html);
   if (wasNearBottom) scrollToBottom();
   // Arm the first-token watchdog for streaming director turns with no body yet.
