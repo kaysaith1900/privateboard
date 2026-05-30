@@ -30,6 +30,7 @@
  *     voteTrigger:    'auto' | 'manual',
  *     queueLen:       number,          // pending speakers in the queue
  *     round:          { spoken: number, total: number } | null,
+ *     activeRoundPromptId: string | null,
  *     lastAgentMsg:   { streaming: boolean, voicePlaying: boolean } | null,
  *     chairPending:   boolean          // chair is mid-vote / mid-prompt
  *   }
@@ -42,6 +43,31 @@
  * painted, what the beep sounds like) stay in the surfaces.
  */
 (function (global) {
+  function isRoundPromptSpent(messages, chairId, messageId) {
+    if (!messageId) return true;
+    var list = Array.isArray(messages) ? messages : [];
+    var idx = list.findIndex(function (m) { return m && m.id === messageId; });
+    if (idx < 0) return true;
+    for (var i = idx + 1; i < list.length; i++) {
+      var m = list[i];
+      if (!m) continue;
+      if (m.authorKind === "agent" && m.authorId === chairId && m.meta && m.meta.kind === "settings") continue;
+      return true;
+    }
+    return false;
+  }
+
+  function activeRoundPromptId(messages, chairId) {
+    var list = Array.isArray(messages) ? messages : [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      var m = list[i];
+      if (m && m.authorKind === "agent" && m.authorId === chairId && m.meta && m.meta.kind === "round-prompt") {
+        return isRoundPromptSpent(list, chairId, m.id) ? null : m.id;
+      }
+    }
+    return null;
+  }
+
   /** Pure decision · `true` iff the supplied snapshot describes a room
    *  in the resting "round complete, nothing in flight" state where the
    *  10-second timer is allowed to spin. Mirrors PC `App.canAutoContinue`
@@ -49,6 +75,7 @@
    *  migration to this module). */
   function canAutoContinue(room) {
     if (!room) return false;
+    if (!room.id) return false;
     if (room.status !== "live") return false;
     if (room.awaitingClarify) return false;
     if (room.awaitingContinue) return false;
@@ -56,6 +83,7 @@
     if ((room.queueLen || 0) > 0) return false;
     if (!room.round || (room.round.total || 0) === 0) return false;
     if ((room.round.spoken || 0) < (room.round.total || 0)) return false;
+    if (!room.activeRoundPromptId) return false;
     if (room.lastAgentMsg && room.lastAgentMsg.streaming) return false;
     if (room.lastAgentMsg && room.lastAgentMsg.voicePlaying) return false;
     if (room.chairPending) return false;
@@ -168,5 +196,5 @@
 
   function noop() {}
 
-  global.RoomAutoContinue = { canAutoContinue, AutoContinueController };
+  global.RoomAutoContinue = { canAutoContinue, activeRoundPromptId, isRoundPromptSpent, AutoContinueController };
 })(typeof window !== "undefined" ? window : typeof globalThis !== "undefined" ? globalThis : this);

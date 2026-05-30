@@ -14,7 +14,18 @@ export default defineConfig({
   },
   projects: [
     {
+      // Desktop / PC app (public/index.html, served at "/"). PC is the
+      // reference implementation; mobile must match its logic/behavior.
+      name: "pc-chromium",
+      testMatch: /pc\.spec\.ts/,
+      use: {
+        browserName: "chromium",
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
       name: "mobile-chromium",
+      testMatch: /mobile\.spec\.ts/,
       use: {
         browserName: "chromium",
         viewport: { width: 390, height: 844 },

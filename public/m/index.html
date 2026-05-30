@@ -22,6 +22,9 @@
     --red: #d97a6c;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --composer-h: 58px;
+    --bd-voice-stack-h: 0px;
+    --bd-action-stack-h: 0px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
@@ -85,6 +88,15 @@
   /* screen */
   .screen { display: none; padding-bottom: calc(var(--safe-bottom) + 76px); min-height: 100vh; }
   .screen.on { display: block; }
+  .screen[data-screen="boardroom"] {
+    padding-bottom: calc(
+      var(--tabbar-h, calc(var(--safe-bottom) + 64px))
+      + var(--composer-h, 58px)
+      + var(--bd-voice-stack-h, 0px)
+      + var(--bd-action-stack-h, 0px)
+      + 24px
+    );
+  }
 
   /* rooms list */
   .room-card {
@@ -257,6 +269,156 @@
     border-radius: 12px; font-weight: 600; font-size: 14px;
     margin-top: 20px;
   }
+
+  /* in-app prompt / confirm modal · replaces browser native dialogs
+     on mobile, which render a glaring white box against the dark
+     theme and break the chrome / wallpaper boundary. */
+  .app-modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.62);
+    z-index: 200; display: none;
+    align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .app-modal-bg.on { display: flex; }
+  .app-modal-box {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 18px;
+    padding: 22px 22px 18px;
+    width: 100%; max-width: 420px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+  }
+  .app-modal-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--ink); }
+  .app-modal-sub { font-size: 12px; color: var(--ink-mid); margin-bottom: 14px; line-height: 1.5; }
+  .app-modal-input {
+    width: 100%; box-sizing: border-box;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--ink);
+    font: inherit; font-size: 14px;
+    min-height: 80px; resize: vertical;
+  }
+  .app-modal-input:focus { outline: none; border-color: var(--gold-soft); }
+  .app-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+  .app-modal-actions button {
+    padding: 10px 18px; border-radius: 999px;
+    font-size: 13px; font-weight: 500;
+    background: var(--panel-3); color: var(--ink);
+    border: 1px solid var(--rule);
+  }
+  .app-modal-actions .ok { background: var(--gold); color: #0A0A0A; border-color: var(--gold); }
+
+  .mobile-overlay {
+    position: fixed; inset: 0; z-index: 1200;
+    display: none; align-items: flex-end;
+    background: rgba(0,0,0,0.72);
+    backdrop-filter: blur(10px);
+    padding: 16px;
+  }
+  .mobile-overlay.on { display: flex; }
+  .mobile-panel {
+    width: 100%; max-width: 420px; margin: 0 auto;
+    max-height: calc(100vh - var(--safe-top, 0px) - 32px);
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 16px 16px 10px 10px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.65);
+  }
+  .mobile-panel-head {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--rule-soft);
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  }
+  .mobile-panel-kicker {
+    font-family: ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--gold-soft); margin-bottom: 6px;
+  }
+  .mobile-panel-title { font-size: 18px; line-height: 1.25; font-weight: 700; color: var(--ink); }
+  .mobile-panel-close {
+    width: 36px; height: 36px; border-radius: 8px;
+    border: 1px solid var(--rule); color: var(--ink-mid);
+    display: grid; place-items: center; font-size: 18px;
+  }
+  .mobile-panel-body { padding: 14px 16px 18px; }
+  .choice-stack { display: flex; flex-direction: column; gap: 10px; }
+  .choice-card {
+    text-align: left;
+    width: 100%;
+    padding: 13px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    color: var(--ink);
+  }
+  .choice-card.primary { border-color: rgba(196,169,106,0.75); }
+  .choice-card.danger { border-color: rgba(255,139,126,0.42); color: #FFB4AA; }
+  .choice-card .mark { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
+  .choice-card .deck { font-size: 12px; color: var(--ink-mid); line-height: 1.45; }
+  .brief-mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .brief-mode-card {
+    padding: 12px 10px;
+    min-height: 96px;
+    border: 1px solid var(--rule);
+    background: var(--panel-2);
+    color: var(--ink-mid);
+    border-radius: 10px;
+    text-align: left;
+  }
+  .brief-mode-card.on { border-color: var(--gold); color: var(--gold-soft); background: rgba(196,169,106,0.08); }
+  .brief-mode-card .icon { font-size: 22px; margin-bottom: 8px; }
+  .brief-mode-card .title { color: var(--ink); font-weight: 700; font-size: 14px; }
+  .brief-mode-card .deck { font-size: 11px; line-height: 1.4; color: var(--ink-dim); margin-top: 4px; }
+  .mobile-form-section {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .mobile-form-label {
+    font-family: ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 8px;
+  }
+  .mobile-radio-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mobile-radio-row label {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px;
+    color: var(--ink-mid); font-size: 12px;
+  }
+  .mobile-radio-row input { accent-color: var(--gold); }
+  .mobile-panel-foot {
+    position: sticky; bottom: 0;
+    display: flex; gap: 10px; padding: 12px 16px;
+    background: rgba(20,20,18,0.96);
+    border-top: 1px solid var(--rule);
+  }
+  .mobile-panel-foot button {
+    flex: 1; padding: 11px 10px; border-radius: 10px;
+    border: 1px solid var(--rule); color: var(--ink);
+    background: var(--panel-2); font-weight: 700; font-size: 12px;
+  }
+  .mobile-panel-foot .gold { background: var(--gold); color: #0A0A0A; border-color: var(--gold); }
+  .mobile-panel-foot .danger { color: #FFB4AA; border-color: rgba(255,139,126,0.45); }
+  .dv-panel { display: flex; flex-direction: column; gap: 16px; }
+  .dv-purpose, .dv-section-deck { color: var(--ink-mid); font-size: 12px; line-height: 1.55; margin: 0; }
+  .dv-section-title { margin: 0; font-size: 15px; color: var(--ink); }
+  .dv-verdict { padding: 12px; border: 1px solid rgba(196,169,106,0.28); background: var(--panel-2); }
+  .dv-verdict-pill { display: inline-block; color: var(--gold-soft); font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 8px; }
+  .dv-verdict-body { margin: 0; color: var(--ink-mid); font-size: 13px; line-height: 1.55; }
+  .dv-branch-list, .dv-unexplored-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .dv-branch-row {
+    position: relative; overflow: hidden;
+    display: grid; grid-template-columns: 1fr max-content; gap: 8px;
+    padding: 8px 10px; background: var(--panel-2);
+    color: var(--ink); font-size: 12px;
+  }
+  .dv-branch-bar { position: absolute; inset: 0 auto 0 0; background: rgba(196,169,106,0.18); z-index: 0; }
+  .dv-branch-label, .dv-branch-count { position: relative; z-index: 1; }
+  .dv-branch-count { color: var(--ink-dim); }
+  .dv-unexplored-row { padding: 8px 10px; background: var(--panel-2); color: var(--ink); font-size: 12px; line-height: 1.45; }
 
   /* build progress */
   .build-progress { padding: 20px 16px; }
@@ -448,6 +610,22 @@
     z-index: 1;
   }
   .bd-seat { z-index: 2; }
+  .bd-seat.chair .bd-name {
+    color: var(--gold-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.04em;
+  }
+  .bd-role-pill {
+    display: inline-block;
+    margin-right: 4px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(196,169,106,0.14);
+    border: 1px solid rgba(196,169,106,0.28);
+    color: var(--gold-soft);
+    font-size: 8px;
+    letter-spacing: 0;
+  }
 
   .bd-name {
     font-size: 10px;
@@ -470,11 +648,30 @@
   @keyframes bd-w { 0%,100% { height: 3px; } 50% { height: 12px; } }
 
   .bd-subtitle {
-    margin: 8px 16px 12px;
+    position: fixed;
+    left: 50%;
+    bottom: calc(
+      var(--tabbar-h, calc(var(--safe-bottom) + 64px))
+      + var(--composer-h, 58px)
+      + var(--bd-voice-stack-h, 0px)
+      + var(--bd-action-stack-h, 0px)
+      + 8px
+    );
+    transform: translateX(-50%);
+    z-index: 6;
+    width: calc(100% - 32px);
+    max-width: 388px;
+    box-sizing: border-box;
+    margin: 0;
     padding: 14px 16px;
-    background: var(--panel);
+    background: rgba(8, 8, 10, 0.88);
     border: 1px solid var(--rule);
     border-radius: 12px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(6px);
+    max-height: calc((14px * 1.5 * 2) + 11px + 6px + 28px);
+    overflow: hidden;
+    pointer-events: none;
   }
   .bd-sub-who {
     font-size: 11px;
@@ -486,8 +683,12 @@
   .bd-sub-text {
     font-size: 14px;
     color: var(--ink);
-    line-height: 1.55;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    max-height: calc(14px * 1.5 * 2);
+    overflow: hidden;
   }
 
   /* helpers */
@@ -524,8 +725,8 @@
         <div class="room-head-sub" id="rc-sub">—</div>
       </div>
       <div class="actions">
-        <button onclick="goto('boardroom')" title="圆桌视图">▦</button>
-        <button onclick="adjournActiveRoom()" title="结束并归档">⋯</button>
+        <button onclick="enterRoundTableView()" title="圆桌视图">▦</button>
+        <button onclick="openSheet('room-more')" title="更多动作">⋯</button>
       </div>
     </div>
 
@@ -537,11 +738,12 @@
          Heights: tab bar (~56) + composer (~58) → bar bottom = 56 + 58. -->
     <!-- primary action · gold pill above the composer; hidden when no
          action makes sense (e.g. while the room is mid-stream) -->
-    <div id="rc-actions" style="display:none; position:fixed; left:0; right:0; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + 58px); max-width:420px; margin:0 auto; padding:6px 12px 0; background:rgba(10,10,10,0.92); backdrop-filter:blur(20px); z-index:5;">
+    <div id="rc-actions" style="display:none; position:fixed; left:0; right:0; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + var(--composer-h, 58px)); max-width:420px; margin:0 auto; padding:6px 12px 0; background:rgba(10,10,10,0.92); backdrop-filter:blur(20px); z-index:5;">
       <button id="rc-act-primary" style="width:100%; padding:10px; border-radius:10px; background:var(--gold); color:#0A0A0A; font-weight:600; font-size:13px;">—</button>
+      <button id="rc-act-end" style="display:none; width:100%; margin-top:6px; padding:8px; border-radius:10px; background:transparent; border:1px solid var(--rule); color:var(--ink-dim); font-size:12px;">⏹ 结束会议</button>
     </div>
 
-    <div id="rc-mention-picker" style="display:none; position:fixed; left:8px; right:8px; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + 52px); max-width:420px; margin:0 auto; background:var(--panel); border:1px solid var(--rule); border-radius:12px; padding:6px; z-index:10; max-height:240px; overflow-y:auto;"></div>
+    <div id="rc-mention-picker" style="display:none; position:fixed; left:8px; right:8px; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + var(--composer-h, 58px)); max-width:420px; margin:0 auto; background:var(--panel); border:1px solid var(--rule); border-radius:12px; padding:6px; z-index:10; max-height:240px; overflow-y:auto;"></div>
     <div class="composer" id="rc-composer">
       <input id="rc-input" type="text" placeholder="你的回应..." oninput="onComposerInput(this, 'rc-input')" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMessage('rc-input');}" />
       <div class="send" onclick="submitMessage('rc-input')">↑</div>
@@ -702,13 +904,13 @@
   <!-- ─── SCREEN 6.5 · BOARDROOM (roundtable view) ────────── -->
   <section class="screen" data-screen="boardroom">
     <div class="topbar">
-      <button class="back" onclick="goto('room-chat')">‹</button>
+      <button class="back" onclick="setRoomViewPreference('chat');goto('room-chat')">‹</button>
       <div class="title">
         <div id="bd-title">圆桌</div>
         <div class="room-head-sub" id="bd-sub">—</div>
       </div>
       <div class="actions">
-        <button onclick="goto('room-chat')" title="文字视图">≡</button>
+        <button onclick="setRoomViewPreference('chat');goto('room-chat')" title="文字视图">≡</button>
       </div>
     </div>
 
@@ -728,19 +930,35 @@
       <div class="bd-sub-text" id="bd-sub-text">选择一个房间，看董事们围坐讨论。</div>
     </div>
 
-    <!-- boardroom voice toggle · always visible. Tap to (1) unlock
-         the AudioContext if it hasn't been, (2) flip the room's
-         delivery mode between voice and text. -->
-    <div id="bd-audio-unlock" onclick="onBoardroomVoiceToggle()" style="margin:0 16px 10px; padding:10px 14px; background:rgba(196,169,106,0.08); border:1px solid rgba(196,169,106,0.3); border-radius:10px; color:var(--gold-soft); font-size:12px; text-align:center; cursor:pointer;">
-      🔊 点这里开启语音 · 让董事们说出来
+    <!-- round-wrap banner · the chair's per-round summary / round-prompt
+         text, surfaced in the voice view so the round boundary is
+         visible (room-chat shows it as a chat bubble; the stage has no
+         scroll). Shown when a round-prompt / round-end chair message
+         lands, cleared when a director resumes speaking. -->
+    <div id="bd-roundwrap" style="display:none; position:fixed; left:0; right:0; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + var(--composer-h, 58px) + var(--bd-voice-stack-h, 0px) + var(--bd-action-stack-h, 0px) + 8px); max-width:420px; margin:0 auto; padding:0 12px; z-index:5;">
+      <div style="padding:10px 14px; background:rgba(20,18,14,0.96); backdrop-filter:blur(20px); border:1px solid rgba(196,169,106,0.28); border-radius:10px;">
+        <div style="font-family:var(--mono,monospace); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--gold-soft); margin-bottom:4px;">// 本轮小结 · chair</div>
+        <div id="bd-roundwrap-text" style="font-size:12px; line-height:1.55; color:var(--ink); max-height:min(26vh, 180px); overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+      </div>
     </div>
 
     <audio id="bd-audio" preload="auto" style="display:none;"></audio>
+
+    <!-- round-boundary action bar · boardroom-resident twin of
+         #rc-actions (which is trapped inside the display:none room-chat
+         section while the stage is up). Painted by the SAME
+         renderRoomActions() state machine, so the auto-continue
+         countdown / 确认继续 / 投票关键点 affordances appear here too. -->
+    <div id="bd-actions" style="display:none; position:fixed; left:0; right:0; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + var(--composer-h, 58px) + var(--bd-voice-stack-h, 0px) + 8px); max-width:420px; margin:0 auto; padding:6px 12px 0; background:rgba(10,10,10,0.92); backdrop-filter:blur(20px); z-index:5;">
+      <button id="bd-act-primary" style="width:100%; padding:11px; border-radius:10px; background:var(--gold); color:#0A0A0A; font-weight:600; font-size:13px;">—</button>
+      <button id="bd-act-end" style="display:none; width:100%; margin-top:6px; padding:8px; border-radius:10px; background:transparent; border:1px solid var(--rule); color:var(--ink-dim); font-size:12px;">⏹ 结束会议</button>
+    </div>
 
     <!-- composer bar (compact) -->
     <div class="composer">
       <input id="bd-input" type="text" placeholder="加入讨论..." oninput="onComposerInput(this, 'bd-input')" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMessage('bd-input');}" />
       <div class="send" onclick="submitMessage('bd-input')">↑</div>
+      <button onclick="openSheet('room-more')" style="padding:0; width:40px; height:40px; border-radius:50%; background:var(--panel-3); color:var(--ink-mid); font-size:18px;">⋯</button>
     </div>
   </section>
 
@@ -858,6 +1076,20 @@
 
   <!-- ─── SHEET · NEW ROOM ───────────────────────────────── -->
   <div class="sheet-bg" onclick="closeSheet()"></div>
+
+  <!-- ─── IN-APP PROMPT / CONFIRM MODAL ──────────────────── -->
+  <div class="app-modal-bg" id="app-modal-bg">
+    <div class="app-modal-box">
+      <div class="app-modal-title" id="app-modal-title">…</div>
+      <div class="app-modal-sub" id="app-modal-sub" style="display:none;"></div>
+      <textarea class="app-modal-input" id="app-modal-input" rows="3"></textarea>
+      <div class="app-modal-actions">
+        <button id="app-modal-cancel">取消</button>
+        <button class="ok" id="app-modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
   <div class="sheet" data-sheet="new-room">
     <div class="grab"></div>
     <div class="sh-head">
@@ -883,8 +1115,8 @@
 
       <label>发声</label>
       <div class="opts" id="sh-delivery">
-        <div class="opt on" data-delivery="voice">🔊 真人声音</div>
-        <div class="opt" data-delivery="text">静默 (仅文字)</div>
+        <div class="opt" data-delivery="voice">🔊 真人声音</div>
+        <div class="opt on" data-delivery="text">静默 (仅文字)</div>
       </div>
 
       <div id="sh-error" style="display:none; padding:10px 14px; margin-top:12px; background:rgba(220,80,80,0.12); border:1px solid rgba(220,80,80,0.3); border-radius:10px; color:#FF8B7E; font-size:12px;"></div>
@@ -903,43 +1135,47 @@
     <div class="sh-body">
       <div class="settings" style="padding:0;">
         <div class="group">
-          <div class="row" onclick="closeSheet();continueDiscussion()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="continue" onclick="closeSheet();continueDiscussion()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">▶</span> 继续讨论 (下一轮)</div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();endRound()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="round-end" onclick="closeSheet();endRound()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">⏹</span> 结束本轮 (出关键点)</div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();togglePauseRoom()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="pause" onclick="closeSheet();togglePauseRoom()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">⏸</span> <span id="rc-pause-label">暂停 / 恢复</span></div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();toggleDeliveryMode()" style="cursor:pointer;">
-            <div class="lbl"><span class="ic">🔊</span> 语音 / 静默</div>
-            <div class="val" id="rc-delivery-label">—</div>
-          </div>
-          <div class="row" onclick="closeSheet();toggleVoteTrigger()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="vote-trigger" onclick="closeSheet();toggleVoteTrigger()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">⏱</span> 自动 / 手动 推进</div>
             <div class="val" id="rc-vote-trigger-label">—</div>
           </div>
-          <div class="row" onclick="closeSheet();openRoomNotes()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="cast" onclick="closeSheet();openRoomCastEditor()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">👥</span> 加入 / 移除董事</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" data-room-more-row="divergence" onclick="closeSheet();openDivergenceReport()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⌁</span> Divergence report</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" data-room-more-row="notes" onclick="closeSheet();openRoomNotes()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">📒</span> 房间旁注 / 高亮</div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();openRoomVote()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="keypoints" onclick="closeSheet();openRoomVote()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">🗳</span> 关键点投票</div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();regenerateBrief()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="brief" onclick="closeSheet();regenerateBrief()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">📝</span> 重新生成报告</div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();exportRoomMarkdown()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="export" onclick="closeSheet();exportRoomMarkdown()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">📄</span> 导出 Markdown</div>
             <div class="val">›</div>
           </div>
-          <div class="row" onclick="closeSheet();adjournActiveRoom()" style="cursor:pointer;">
+          <div class="row" data-room-more-row="adjourn" onclick="closeSheet();adjournActiveRoom()" style="cursor:pointer;">
             <div class="lbl"><span class="ic" style="color:#FF8B7E;">⊘</span> <span style="color:#FF8B7E;">结束并归档</span></div>
             <div class="val">›</div>
           </div>
@@ -998,6 +1234,8 @@
      used type=module and broke first-render because module scripts
      are implicitly deferred and lost the race with the inline body. -->
 <script src="/room-auto-continue.js"></script>
+<script src="/room-meeting-runtime.js"></script>
+<script src="/agent-runtime.js"></script>
 <script>
 function $$(sel) { return document.querySelectorAll(sel); }
 function $(sel) { return document.querySelector(sel); }
@@ -1005,7 +1243,37 @@ function $(sel) { return document.querySelector(sel); }
 function setTab(name) {
   $$('.tabbar .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   $$('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === name));
+  requestAnimationFrame(syncBottomChromeHeights);
   window.scrollTo(0, 0);
+}
+
+// ▦ round-table button · mirrors PC's toggleRoomViewMode:
+//  · text-mode room → ENABLE voice (convert deliveryMode→voice via the shared
+//    RoomActionController.setDeliveryMode, same path PC uses), gated on a voice
+//    credential, then enter the stage so it auto-plays.
+//  · voice room → just enter the stage view.
+// (The ▦ tap itself is the autoplay-unlock gesture via installGlobalAudioUnlock.)
+async function enterRoundTableView() {
+  const id = appState.activeRoomId;
+  if (!id) { setRoomViewPreference('stage'); goto('boardroom'); return; }
+  if ((appState.activeRoomDelivery || 'text') !== 'voice') {
+    if (!hasAnyMobileVoiceKey()) await refreshMobileVoiceKeySnapshot();
+    if (!hasAnyMobileVoiceKey()) {
+      const open = await appConfirm({
+        title: '需要配置语音凭据',
+        sub: '圆桌用真人声音需要已激活的语音(TTS)凭据。先配置后再开启。',
+        okLabel: '查看凭据',
+      });
+      if (open) await openCredentialMgr('voice');
+      return;
+    }
+    try {
+      const result = await roomActionController.setDeliveryMode(id, 'voice');
+      if (result && result.ok) appState.activeRoomDelivery = result.next;
+    } catch (e) { alert('开启语音失败：' + e.message); return; }
+  }
+  setRoomViewPreference('stage');
+  goto('boardroom');
 }
 
 function goto(screen) {
@@ -1015,16 +1283,551 @@ function goto(screen) {
   if (tabMap[screen]) {
     $$('.tabbar .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tabMap[screen]));
   }
+  if (screen === 'new-agent') restoreAgentDraft();
+  requestAnimationFrame(syncBottomChromeHeights);
   window.scrollTo(0, 0);
 }
 
+// New-agent composer draft · persists across view switches AND full reloads
+// (mobile goto() only toggles CSS so DOM survives nav, but a reload would
+// otherwise lose the description). Shares PC's localStorage key so the
+// "drafts persist" project rule holds on both surfaces. Cleared on submit.
+const AGENT_DRAFT_KEY = 'boardroom.agent-composer.draft';
+function saveAgentDraft(v) {
+  try {
+    if (v && v.trim()) localStorage.setItem(AGENT_DRAFT_KEY, v);
+    else localStorage.removeItem(AGENT_DRAFT_KEY);
+  } catch {}
+}
+function clearAgentDraft() { try { localStorage.removeItem(AGENT_DRAFT_KEY); } catch {} }
+function restoreAgentDraft() {
+  const ta = document.getElementById('new-agent-desc');
+  if (!ta || ta.value) return;
+  let d = '';
+  try { d = localStorage.getItem(AGENT_DRAFT_KEY) || ''; } catch {}
+  if (d) { ta.value = d; onNewAgentDescInput(d); }
+}
+
+function roomViewPreferenceKey(roomId = appState.activeRoomId) {
+  return roomId ? `rt-view-${roomId}` : '';
+}
+function getRoomViewPreference(roomId = appState.activeRoomId) {
+  const key = roomViewPreferenceKey(roomId);
+  if (!key) return null;
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function setRoomViewPreference(view, roomId = appState.activeRoomId) {
+  const key = roomViewPreferenceKey(roomId);
+  if (!key) return;
+  try { localStorage.setItem(key, view === 'chat' ? 'chat' : 'stage'); } catch {}
+}
+
 function openSheet(name) {
+  if (name === 'room-more') renderRoomMoreMenu();
   $('.sheet-bg').classList.add('on');
   $('.sheet[data-sheet="' + name + '"]').classList.add('on');
 }
 function closeSheet() {
   $('.sheet-bg').classList.remove('on');
   $$('.sheet').forEach(s => s.classList.remove('on'));
+}
+
+// In-app prompt — replaces window.prompt() so the dialog matches the
+// dark theme. Resolves with the entered text on confirm, or `null` on
+// cancel (matching native prompt semantics).
+function appPrompt({ title, sub = '', placeholder = '', value = '', okLabel = '确定', cancelLabel = '取消' } = {}) {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('app-modal-bg');
+    const titleEl = document.getElementById('app-modal-title');
+    const subEl = document.getElementById('app-modal-sub');
+    const input = document.getElementById('app-modal-input');
+    const okBtn = document.getElementById('app-modal-ok');
+    const cancelBtn = document.getElementById('app-modal-cancel');
+    titleEl.textContent = title || '';
+    if (sub) { subEl.textContent = sub; subEl.style.display = ''; }
+    else { subEl.textContent = ''; subEl.style.display = 'none'; }
+    input.style.display = '';
+    input.placeholder = placeholder || '';
+    input.value = value || '';
+    okBtn.textContent = okLabel;
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.style.display = '';
+    bg.classList.add('on');
+    setTimeout(() => input.focus(), 60);
+    const cleanup = (val) => {
+      bg.classList.remove('on');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      bg.removeEventListener('click', onBgClick);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onOk = () => cleanup(input.value);
+    const onCancel = () => cleanup(null);
+    const onBgClick = (e) => { if (e.target === bg) cleanup(null); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cleanup(null);
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) cleanup(input.value);
+    };
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    bg.addEventListener('click', onBgClick);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+// In-app confirm — resolves true / false. Reuses the prompt modal
+// chrome but hides the textarea.
+function appConfirm({ title, sub = '', okLabel = '确定', cancelLabel = '取消' } = {}) {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('app-modal-bg');
+    const titleEl = document.getElementById('app-modal-title');
+    const subEl = document.getElementById('app-modal-sub');
+    const input = document.getElementById('app-modal-input');
+    const okBtn = document.getElementById('app-modal-ok');
+    const cancelBtn = document.getElementById('app-modal-cancel');
+    titleEl.textContent = title || '';
+    if (sub) { subEl.textContent = sub; subEl.style.display = ''; }
+    else { subEl.textContent = ''; subEl.style.display = 'none'; }
+    input.style.display = 'none';
+    okBtn.textContent = okLabel;
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.style.display = '';
+    bg.classList.add('on');
+    const cleanup = (val) => {
+      bg.classList.remove('on');
+      input.style.display = '';
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      bg.removeEventListener('click', onBgClick);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onBgClick = (e) => { if (e.target === bg) cleanup(false); };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    bg.addEventListener('click', onBgClick);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+function appSendChoice({ speaker = '当前董事' } = {}) {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('app-modal-bg');
+    const titleEl = document.getElementById('app-modal-title');
+    const subEl = document.getElementById('app-modal-sub');
+    const input = document.getElementById('app-modal-input');
+    const okBtn = document.getElementById('app-modal-ok');
+    const cancelBtn = document.getElementById('app-modal-cancel');
+    const interruptBtn = document.createElement('button');
+    titleEl.textContent = `${speaker} 正在发言`;
+    subEl.textContent = '选择立即插入，或等当前发言结束后再派发。';
+    subEl.style.display = '';
+    input.style.display = 'none';
+    cancelBtn.textContent = '取消';
+    okBtn.textContent = '等他说完';
+    interruptBtn.textContent = '立即插入';
+    interruptBtn.style.borderColor = 'var(--gold-soft)';
+    interruptBtn.style.color = 'var(--gold-soft)';
+    okBtn.parentElement.insertBefore(interruptBtn, okBtn);
+    bg.classList.add('on');
+    const cleanup = (val) => {
+      bg.classList.remove('on');
+      input.style.display = '';
+      interruptBtn.remove();
+      interruptBtn.removeEventListener('click', onInterrupt);
+      okBtn.removeEventListener('click', onQueue);
+      cancelBtn.removeEventListener('click', onCancel);
+      bg.removeEventListener('click', onBgClick);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onInterrupt = () => cleanup('interrupt');
+    const onQueue = () => cleanup('queue');
+    const onCancel = () => cleanup('cancel');
+    const onBgClick = (e) => { if (e.target === bg) cleanup('cancel'); };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup('cancel'); };
+    interruptBtn.addEventListener('click', onInterrupt);
+    okBtn.addEventListener('click', onQueue);
+    cancelBtn.addEventListener('click', onCancel);
+    bg.addEventListener('click', onBgClick);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+function appPauseChoice({ speaker = '当前董事' } = {}) {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('app-modal-bg');
+    const titleEl = document.getElementById('app-modal-title');
+    const subEl = document.getElementById('app-modal-sub');
+    const input = document.getElementById('app-modal-input');
+    const okBtn = document.getElementById('app-modal-ok');
+    const cancelBtn = document.getElementById('app-modal-cancel');
+    const hardBtn = document.createElement('button');
+    titleEl.textContent = `${speaker} 正在发言`;
+    subEl.textContent = '选择立即暂停，或等当前发言结束后暂停。';
+    subEl.style.display = '';
+    input.style.display = 'none';
+    cancelBtn.textContent = '取消';
+    okBtn.textContent = '等他说完';
+    hardBtn.textContent = '立即暂停';
+    hardBtn.style.borderColor = 'var(--gold-soft)';
+    hardBtn.style.color = 'var(--gold-soft)';
+    okBtn.parentElement.insertBefore(hardBtn, okBtn);
+    bg.classList.add('on');
+    const cleanup = (val) => {
+      bg.classList.remove('on');
+      input.style.display = '';
+      hardBtn.remove();
+      hardBtn.removeEventListener('click', onHard);
+      okBtn.removeEventListener('click', onSoft);
+      cancelBtn.removeEventListener('click', onCancel);
+      bg.removeEventListener('click', onBgClick);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onHard = () => cleanup('hard');
+    const onSoft = () => cleanup('soft');
+    const onCancel = () => cleanup('cancel');
+    const onBgClick = (e) => { if (e.target === bg) cleanup('cancel'); };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup('cancel'); };
+    hardBtn.addEventListener('click', onHard);
+    okBtn.addEventListener('click', onSoft);
+    cancelBtn.addEventListener('click', onCancel);
+    bg.addEventListener('click', onBgClick);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+function appResumeChoice() {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('app-modal-bg');
+    const titleEl = document.getElementById('app-modal-title');
+    const subEl = document.getElementById('app-modal-sub');
+    const input = document.getElementById('app-modal-input');
+    const okBtn = document.getElementById('app-modal-ok');
+    const cancelBtn = document.getElementById('app-modal-cancel');
+    titleEl.textContent = '语音凭据不可用';
+    subEl.textContent = '这个语音房间恢复后会继续生成 TTS。请先配置并激活语音凭据。';
+    subEl.style.display = '';
+    input.style.display = 'none';
+    cancelBtn.textContent = '取消';
+    okBtn.textContent = '查看凭据';
+    bg.classList.add('on');
+    const cleanup = (val) => {
+      bg.classList.remove('on');
+      input.style.display = '';
+      okBtn.removeEventListener('click', onConfigure);
+      cancelBtn.removeEventListener('click', onCancel);
+      bg.removeEventListener('click', onBgClick);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onConfigure = () => cleanup('configure');
+    const onCancel = () => cleanup('cancel');
+    const onBgClick = (e) => { if (e.target === bg) cleanup('cancel'); };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup('cancel'); };
+    okBtn.addEventListener('click', onConfigure);
+    cancelBtn.addEventListener('click', onCancel);
+    bg.addEventListener('click', onBgClick);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+function appRoundEndChoice({ speaker = '当前董事' } = {}) {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('app-modal-bg');
+    const titleEl = document.getElementById('app-modal-title');
+    const subEl = document.getElementById('app-modal-sub');
+    const input = document.getElementById('app-modal-input');
+    const okBtn = document.getElementById('app-modal-ok');
+    const cancelBtn = document.getElementById('app-modal-cancel');
+    const nowBtn = document.createElement('button');
+    titleEl.textContent = `${speaker} 正在发言`;
+    subEl.textContent = '选择立即请 chair 总结本轮，或等当前发言结束后再总结。';
+    subEl.style.display = '';
+    input.style.display = 'none';
+    cancelBtn.textContent = '取消';
+    okBtn.textContent = '等他说完';
+    nowBtn.textContent = '立即总结';
+    nowBtn.style.borderColor = 'var(--gold-soft)';
+    nowBtn.style.color = 'var(--gold-soft)';
+    okBtn.parentElement.insertBefore(nowBtn, okBtn);
+    bg.classList.add('on');
+    const cleanup = (val) => {
+      bg.classList.remove('on');
+      input.style.display = '';
+      nowBtn.remove();
+      nowBtn.removeEventListener('click', onNow);
+      okBtn.removeEventListener('click', onAfterSpeaker);
+      cancelBtn.removeEventListener('click', onCancel);
+      bg.removeEventListener('click', onBgClick);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onNow = () => cleanup('now');
+    const onAfterSpeaker = () => cleanup('after-speaker');
+    const onCancel = () => cleanup('cancel');
+    const onBgClick = (e) => { if (e.target === bg) cleanup('cancel'); };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup('cancel'); };
+    nowBtn.addEventListener('click', onNow);
+    okBtn.addEventListener('click', onAfterSpeaker);
+    cancelBtn.addEventListener('click', onCancel);
+    bg.addEventListener('click', onBgClick);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+function closeMobileOverlay(id = 'mobile-overlay') {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+  document.body.style.overflow = '';
+}
+
+function openMobilePanel({ id = 'mobile-overlay', kicker = '', title = '', body = '', foot = '' } = {}) {
+  closeMobileOverlay(id);
+  const wrap = document.createElement('div');
+  wrap.id = id;
+  wrap.className = 'mobile-overlay on';
+  wrap.innerHTML = `
+    <div class="mobile-panel" role="dialog" aria-modal="true">
+      <div class="mobile-panel-head">
+        <div>
+          ${kicker ? `<div class="mobile-panel-kicker">${escapeHtml(kicker)}</div>` : ''}
+          <div class="mobile-panel-title">${escapeHtml(title)}</div>
+        </div>
+        <button class="mobile-panel-close" onclick="closeMobileOverlay('${escapeHtml(id)}')" aria-label="关闭">×</button>
+      </div>
+      <div class="mobile-panel-body">${body}</div>
+      ${foot ? `<div class="mobile-panel-foot">${foot}</div>` : ''}
+    </div>`;
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) closeMobileOverlay(id);
+  });
+  document.body.appendChild(wrap);
+  document.body.style.overflow = 'hidden';
+  return wrap;
+}
+
+function mobileBriefModeOptions(selected = 'research-note') {
+  const modes = [
+    ['research-note', '📄', '报告', '长文 Markdown · 结论、发现与建议。'],
+    ['magazine', '▦', '杂志刊画', '编辑大专题 · 封面标题、五张卡。'],
+    ['newspaper', '▤', '报纸', '大开本 · 报头横幅、三栏评论。'],
+    ['ppt', '▭', '幻灯片', '演示文稿 · 7-9 页方向键翻页。'],
+  ];
+  return modes.map(([value, icon, title, deck]) => `
+    <button type="button" class="brief-mode-card${selected === value ? ' on' : ''}" data-mobile-brief-mode="${escapeHtml(value)}">
+      <div class="icon">${icon}</div>
+      <div class="title">${escapeHtml(title)}</div>
+      <div class="deck">${escapeHtml(deck)}</div>
+    </button>
+  `).join('');
+}
+
+function selectedMobileBriefMode(root = document) {
+  const on = root.querySelector('.brief-mode-card.on[data-mobile-brief-mode]');
+  return on?.dataset.mobileBriefMode || 'research-note';
+}
+
+function wireMobileBriefModePicker(root) {
+  root.querySelectorAll('[data-mobile-brief-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      root.querySelectorAll('[data-mobile-brief-mode]').forEach(x => x.classList.remove('on'));
+      btn.classList.add('on');
+    });
+  });
+}
+
+async function submitMobileAdjourn(skipBrief = false) {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const root = document.getElementById('mobile-adjourn-overlay');
+  const mode = root ? selectedMobileBriefMode(root) : 'research-note';
+  if (!skipBrief && !(await requireModelKey())) return;
+  const btns = root ? root.querySelectorAll('button') : [];
+  btns.forEach(b => b.disabled = true);
+  try {
+    const result = await roomActionController.adjourn(id, skipBrief ? { skipBrief: true } : { mode });
+    applyActionRoomState(result.room || { id, status: 'adjourned' });
+    stopBoardroomVoicePlayback();
+    closeMobileOverlay('mobile-adjourn-overlay');
+    renderRoomActions();
+    await loadActiveRoomMessages();
+  } catch (e) {
+    btns.forEach(b => b.disabled = false);
+    alert('归档失败：' + e.message);
+  }
+}
+
+function openAdjournOverlay() {
+  const room = roomMeetingController.snapshot?.().room || {};
+  const members = Object.values(appState.activeMembersById || {}).filter(a => a.roleKind !== 'moderator');
+  const turns = document.querySelectorAll('#rc-msgs .msg').length || '—';
+  const subject = room.subject || room.name || document.getElementById('rc-title')?.textContent || '—';
+  const body = `
+    <div class="mobile-form-section" style="margin-top:0;padding-top:0;border-top:0;">
+      <div class="mobile-form-label">// 会议</div>
+      <div class="choice-card">
+        <div class="deck">主题</div>
+        <div class="mark" style="color:var(--ink);">${escapeHtml(subject)}</div>
+        <div class="deck">${members.length || 0} 个董事 · ${escapeHtml(String(turns))} 条记录</div>
+      </div>
+    </div>
+    <div class="mobile-form-section">
+      <div class="mobile-form-label">// 报告版式</div>
+      <div class="brief-mode-grid">${mobileBriefModeOptions()}</div>
+    </div>`;
+  const foot = `
+    <button class="danger" onclick="submitMobileAdjourn(true)">不生成简报</button>
+    <button onclick="closeMobileOverlay('mobile-adjourn-overlay')">取消</button>
+    <button class="gold" onclick="submitMobileAdjourn(false)">散会并归档</button>`;
+  const root = openMobilePanel({
+    id: 'mobile-adjourn-overlay',
+    kicker: '会议 · 散会',
+    title: '归档简报？',
+    body,
+    foot,
+  });
+  wireMobileBriefModePicker(root);
+}
+
+function computeMobileDivergenceVerdict(d) {
+  const branches = d.branches || [];
+  const totalTurns = branches.reduce((sum, b) => sum + (b.turnCount || 0), 0);
+  if (totalTurns < 4 || !branches.length) return ['Too early to tell', '再跑几轮后，这里会显示讨论是否足够分散。'];
+  const top = branches[0]?.turnCount || 0;
+  const topShare = totalTurns > 0 ? top / totalTurns : 0;
+  if (branches.length >= 4 && topShare < 0.5) return ['Healthy divergence', `${branches.length} 个角度覆盖了 ${totalTurns} 轮，没有单一主题垄断讨论。`];
+  if (branches.length >= 3 && topShare < 0.65) return ['Reasonably broad', `${branches.length} 个角度被触及，"${branches[0].label}" 是主线，但其他方向仍有发言。`];
+  if (topShare >= 0.65 || (branches.length <= 2 && totalTurns >= 6)) return ['Narrowing on one frame', `${Math.round(topShare * 100)}% 的发言围绕 "${branches[0]?.label || '一个角度'}"，可以主动引入新视角。`];
+  return ['Building up', `${branches.length} 个角度覆盖了 ${totalTurns} 轮，还在积累。`];
+}
+
+function renderMobileDivergenceHtml(data) {
+  const branches = Array.isArray(data?.branches) ? data.branches : [];
+  const unexplored = Array.isArray(data?.unexplored) ? data.unexplored : [];
+  const scored = typeof data?.messagesScored === 'number' ? data.messagesScored : 0;
+  if (!branches.length && scored === 0) {
+    return `<p class="dv-purpose">当前还没有足够的分支和行为评分。等董事跑过几轮后，这里会显示讨论覆盖了哪些角度、还漏了哪些角度。</p>`;
+  }
+  const [headline, verdictBody] = computeMobileDivergenceVerdict({ branches });
+  const max = Math.max(1, ...branches.map(b => b.turnCount || 0));
+  const rows = branches.map(b => {
+    const turns = b.turnCount || 0;
+    const width = Math.max(10, Math.round((turns / max) * 100));
+    return `<li class="dv-branch-row"><span class="dv-branch-bar" style="width:${width}%"></span><span class="dv-branch-label">${escapeHtml(b.label || '')}</span><span class="dv-branch-count">${turns} ${turns === 1 ? 'turn' : 'turns'}</span></li>`;
+  }).join('') || '<li class="dv-unexplored-row">no angles tagged yet</li>';
+  const unexploredHtml = unexplored.length ? `
+    <section class="dv-section">
+      <h3 class="dv-section-title">Angles worth exploring next</h3>
+      <p class="dv-section-deck">这些方向曾出现但没有展开，可以作为下一条追问。</p>
+      <ul class="dv-unexplored-list">${unexplored.map(u => `<li class="dv-unexplored-row">${escapeHtml(u.angle || '')}</li>`).join('')}</ul>
+    </section>` : '';
+  return `
+    <div class="dv-panel">
+      <p class="dv-purpose">快速检查这个房间有没有探索足够多的方向：哪些角度被覆盖，哪些角度还没展开。</p>
+      <section class="dv-verdict"><div class="dv-verdict-pill">${escapeHtml(headline)}</div><p class="dv-verdict-body">${escapeHtml(verdictBody)}</p></section>
+      <section class="dv-section">
+        <h3 class="dv-section-title">Angles the room has explored</h3>
+        <p class="dv-section-deck">每一行是一条讨论方向，条形表示它拿到的发言量。</p>
+        <ul class="dv-branch-list">${rows}</ul>
+      </section>
+      ${unexploredHtml}
+    </div>`;
+}
+
+async function openDivergenceReport() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  const root = openMobilePanel({
+    id: 'mobile-divergence-overlay',
+    kicker: 'ROOM · DIVERGENCE REPORT',
+    title: 'Divergence report',
+    body: '<div class="dv-loading">loading…</div>',
+    foot: `<button onclick="closeMobileOverlay('mobile-divergence-overlay')">关闭</button>`,
+  });
+  try {
+    const data = await roomRuntimeApi.getDiversity(id);
+    const body = root.querySelector('.mobile-panel-body');
+    if (body) body.innerHTML = renderMobileDivergenceHtml(data);
+  } catch {
+    const body = root.querySelector('.mobile-panel-body');
+    if (body) body.innerHTML = '<p class="dv-purpose">暂时无法读取 divergence report。</p>';
+  }
+}
+
+function currentRoomDirectorIds() {
+  return Object.values(appState.activeMembersById || {})
+    .filter(a => a && a.roleKind !== 'moderator')
+    .map(a => a.id);
+}
+
+function openRoomCastEditor() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  if (appState.activeRoomStatus === 'adjourned') {
+    alert('房间已归档，不能再调整董事。');
+    return;
+  }
+  const directors = (cachedAgents || [])
+    .filter(a => a.roleKind !== 'moderator')
+    .slice()
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const current = new Set(currentRoomDirectorIds());
+  const rows = directors.map(a => {
+    const checked = current.has(a.id);
+    return `
+      <label class="choice-card${checked ? ' primary' : ''}" data-mobile-cast-row="${escapeHtml(a.id)}">
+        <input type="checkbox" data-mobile-cast-id="${escapeHtml(a.id)}" ${checked ? 'checked' : ''} style="float:right;accent-color:var(--gold);">
+        <div class="mark">${escapeHtml(a.name || '')}</div>
+        <div class="deck">${escapeHtml(a.roleTag || '')}</div>
+      </label>`;
+  }).join('') || '<div class="dv-purpose">还没有可加入的董事。</div>';
+  const root = openMobilePanel({
+    id: 'mobile-cast-overlay',
+    kicker: 'ROOM · CAST',
+    title: '加入 / 移除董事',
+    body: `<div class="choice-stack">${rows}</div><p class="dv-purpose" style="margin-top:12px;">至少保留 1 位董事。确认后会调用和 PC 相同的成员更新接口。</p>`,
+    foot: `<button onclick="closeMobileOverlay('mobile-cast-overlay')">取消</button><button class="gold" onclick="submitRoomCastEditor()">确认调整</button>`,
+  });
+  root.querySelectorAll('[data-mobile-cast-id]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      cb.closest('[data-mobile-cast-row]')?.classList.toggle('primary', cb.checked);
+    });
+  });
+}
+
+async function submitRoomCastEditor() {
+  const id = appState.activeRoomId;
+  const root = document.getElementById('mobile-cast-overlay');
+  if (!id || !root) return;
+  const ids = Array.from(root.querySelectorAll('[data-mobile-cast-id]:checked')).map(x => x.dataset.mobileCastId).filter(Boolean);
+  if (!ids.length) {
+    alert('至少保留 1 位董事。');
+    return;
+  }
+  root.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    const result = await roomActionController.patchMembers(id, ids);
+    if (Array.isArray(result.members)) {
+      appState.activeMembersById = Object.fromEntries(result.members.map(m => {
+        const aid = m.id || m.agentId;
+        const agent = cachedAgentsById[aid] || m;
+        return [aid, { ...agent, id: aid }];
+      }).filter(([aid]) => !!aid));
+    }
+    closeMobileOverlay('mobile-cast-overlay');
+    await refreshRoomRuntime(id).catch(() => {});
+    await loadActiveRoomMessages();
+    if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom') refreshBoardroomFromState();
+  } catch (e) {
+    root.querySelectorAll('button').forEach(b => b.disabled = false);
+    alert('调整董事失败：' + e.message);
+  }
 }
 
 function openVoiceCall() {
@@ -1037,6 +1840,9 @@ function closeVoiceCall() {
 // quick keyboard nav for desktop preview
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    closeMobileOverlay('mobile-adjourn-overlay');
+    closeMobileOverlay('mobile-divergence-overlay');
+    closeMobileOverlay('mobile-cast-overlay');
     closeSheet();
     closeVoiceCall();
   }
@@ -1111,20 +1917,23 @@ document.addEventListener('click', (e) => {
 
 // ── data binding ──────────────────────────────────────────
 const SEED_SPRITES = [
-  '/avatars/value-investor.svg',
-  '/avatars/long-horizon.svg',
-  '/avatars/historian.svg',
-  '/avatars/user-empathy.svg',
-  '/avatars/phenomenologist.svg',
-  '/avatars/first-principles.svg',
-  '/avatars/socrates.svg',
+  '/avatars/3d/value-investor.png',
+  '/avatars/3d/long-horizon.png',
+  '/avatars/3d/historian.png',
+  '/avatars/3d/user-empathy.png',
+  '/avatars/3d/phenomenologist.png',
+  '/avatars/3d/first-principles.png',
+  '/avatars/3d/socrates.png',
 ];
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 function spriteFor(agent) {
   if (!agent) return SEED_SPRITES[0];
-  if (typeof agent.avatarPath === 'string' && agent.avatarPath.startsWith('/avatars/') && agent.avatarPath !== '/avatars/chair.svg') {
+  if (agent.roleKind === 'moderator') {
+    return agent.avatarPath || '/avatars/3d/chair.png';
+  }
+  if (typeof agent.avatarPath === 'string' && agent.avatarPath.startsWith('/avatars/')) {
     return agent.avatarPath;
   }
   const h = agent.handle || agent.id || agent.name || '';
@@ -1236,6 +2045,7 @@ async function fetchJson(url) {
 
 let cachedAgents = [];
 let cachedAgentsById = {};
+let cachedChair = null;
 
 async function bootstrapAgents() {
   const host = document.getElementById('agents-list');
@@ -1243,8 +2053,10 @@ async function bootstrapAgents() {
   try {
     const data = await fetchJson('/api/agents');
     const agents = (data.agents || []).filter(a => a.roleKind !== 'moderator');
+    cachedChair = data.chair || null;
     cachedAgents = agents;
     cachedAgentsById = Object.fromEntries(agents.map(a => [a.id, a]));
+    if (cachedChair && cachedChair.id) cachedAgentsById[cachedChair.id] = cachedChair;
     host.innerHTML = renderAgents(agents);
     host.dataset.state = 'ready';
   } catch (e) {
@@ -1287,12 +2099,247 @@ const appState = {
   activeBuildJobId: null,
   selectedCastIds: new Set(),
   selectedMode: 'debate',
-  selectedDelivery: 'voice',
+  selectedDelivery: 'text',
   rcStream: null,
   buildStream: null,
 };
 // exposed so e2e + DevTools can introspect runtime state
 window.appState = appState;
+
+function currentMobileScreen() {
+  return document.querySelector('.screen.on')?.dataset.screen || '';
+}
+
+function isRoomSurface(screen = currentMobileScreen()) {
+  return screen === 'room-chat' || screen === 'boardroom';
+}
+
+function leaveRoomSurface() {
+  if (appState.activeRoomId) {
+    const keepId = appState.activeRoomId;
+    resetActiveRoomState({ preserveVoicePlayback: true });
+    // Keep the id for direct re-entry / deep-link continuity. Live
+    // timers and foreground SSE are dropped, but the paused voice clip
+    // stays attached so returning to the same room can resume exactly
+    // like PC instead of requiring a fresh queue.
+    appState.activeRoomId = keepId;
+  } else {
+    detachAutoContinue();
+    pauseBoardroomVoicePlayback();
+  }
+}
+
+const roomRuntimeApi = window.RoomMeetingRuntime.createApiClient();
+// Shared agent / voice / persona logic (public/agent-runtime.js) · the single
+// home for these contracts so mobile no longer maintains its own copy.
+const agentApi = window.AgentRuntime.createAgentApi();
+let mobileModelKeySnapshot = null;
+let mobileVoiceKeySnapshot = null;
+
+function hasAnyMobileModelKey(snapshot = mobileModelKeySnapshot) {
+  if (snapshot && typeof snapshot.modelsHasKey === 'boolean') return snapshot.modelsHasKey;
+  const activeId = snapshot && typeof snapshot.activeId === 'string' ? snapshot.activeId : null;
+  const credentials = snapshot && Array.isArray(snapshot.credentials) ? snapshot.credentials : [];
+  return !!activeId && credentials.some(c => c && c.id === activeId);
+}
+
+async function refreshMobileModelKeySnapshot() {
+  const next = { modelsHasKey: null, credentials: [], activeId: null };
+  try {
+    const r = await fetch('/api/models');
+    if (r.ok) {
+      const data = await r.json();
+      if (typeof data.hasAnyKey === 'boolean') next.modelsHasKey = data.hasAnyKey;
+    }
+  } catch {}
+  try {
+    const r = await fetch('/api/credentials');
+    if (r.ok) {
+      const data = await r.json();
+      next.credentials = Array.isArray(data.credentials) ? data.credentials : [];
+      next.activeId = typeof data.activeId === 'string' ? data.activeId : null;
+    }
+  } catch {}
+  mobileModelKeySnapshot = next;
+  return next;
+}
+
+async function requireModelKey() {
+  if (hasAnyMobileModelKey()) return true;
+  const snapshot = await refreshMobileModelKeySnapshot();
+  if (hasAnyMobileModelKey(snapshot)) return true;
+  const open = await appConfirm({
+    title: '需要配置 LLM 凭据',
+    sub: '这个动作会触发 chair / directors 的模型调用。先添加并激活 LLM 凭据后再继续。',
+    okLabel: '查看凭据',
+  });
+  if (open) await openCredentialMgr('llm');
+  return false;
+}
+
+function hasAnyMobileVoiceKey(snapshot = mobileVoiceKeySnapshot) {
+  const credentials = snapshot && Array.isArray(snapshot.credentials) ? snapshot.credentials : [];
+  const activeId = snapshot && typeof snapshot.activeId === 'string' ? snapshot.activeId : null;
+  return !!activeId && credentials.some(c => c && c.id === activeId);
+}
+
+async function refreshMobileVoiceKeySnapshot() {
+  const next = { credentials: [], activeId: null };
+  try {
+    const r = await fetch('/api/voice-credentials');
+    if (r.ok) {
+      const data = await r.json();
+      next.credentials = Array.isArray(data.credentials) ? data.credentials : [];
+      next.activeId = typeof data.activeId === 'string' ? data.activeId : null;
+    }
+  } catch {}
+  mobileVoiceKeySnapshot = next;
+  return next;
+}
+
+function applyActionRoomState(room) {
+  if (!room) return;
+  if (room.id) appState.activeRoomId = room.id;
+  if (room.status) appState.activeRoomStatus = room.status;
+  if (room.deliveryMode) appState.activeRoomDelivery = room.deliveryMode;
+  if (room.voteTrigger) appState.activeRoomVoteTrigger = room.voteTrigger;
+  if (Object.prototype.hasOwnProperty.call(room, 'awaitingClarify')) {
+    appState.activeRoomAwaitingClarify = !!room.awaitingClarify;
+  }
+  if (Object.prototype.hasOwnProperty.call(room, 'awaitingContinue')) {
+    appState.activeRoomAwaitingContinue = !!room.awaitingContinue;
+  }
+  const dl = document.getElementById('rc-delivery-label');
+  if (dl) dl.textContent = appState.activeRoomDelivery === 'voice' ? '🔊 语音 ›' : '🔇 静默 ›';
+}
+
+async function ensureVoiceResumeReady() {
+  if (appState.activeRoomDelivery !== 'voice') return true;
+  if (hasAnyMobileVoiceKey()) return true;
+  const snapshot = await refreshMobileVoiceKeySnapshot();
+  if (hasAnyMobileVoiceKey(snapshot)) return true;
+  const choice = await appResumeChoice();
+  if (choice === 'configure') {
+    await openCredentialMgr('voice');
+  }
+  return false;
+}
+
+window.requireModelKey = requireModelKey;
+
+const roomSendController = new window.RoomMeetingRuntime.SendController({
+  api: roomRuntimeApi,
+  requireModelKey,
+  onFollowUp: async ({ subject, roomId }) => {
+    const ok = await appConfirm({
+      title: '创建后续房间？',
+      sub: '当前房间已归档。会沿用本房间上下文和董事阵容继续讨论。',
+      okLabel: '创建后续房间',
+    });
+    if (!ok) {
+      const input = document.getElementById('rc-input');
+      if (input && subject) input.value = subject;
+      return;
+    }
+    try {
+      const state = await roomRuntimeApi.getRoom(roomId);
+      const data = await roomRuntimeApi.createRoom({
+        subject,
+        agentIds: (state.members || []).map(a => a.id),
+        mode: state.room?.mode || 'constructive',
+        intensity: state.room?.intensity || 'sharp',
+        briefStyle: state.room?.briefStyle || 'auto',
+        deliveryMode: state.room?.deliveryMode || 'text',
+        parentRoomId: roomId,
+      });
+      const nextId = data.room?.id;
+      if (nextId) openRoom(nextId);
+    } catch (e) {
+      alert('创建后续房间失败：' + e.message);
+    }
+  },
+});
+const roomActionController = new window.RoomMeetingRuntime.RoomActionController({
+  api: roomRuntimeApi,
+});
+const roomMeetingController = new window.RoomMeetingRuntime.MeetingController({
+  api: roomRuntimeApi,
+  onState: syncRoomRuntimeState,
+  onEvent: routeRoomRuntimeEvent,
+  onError: () => {},
+});
+window.roomRuntimeApi = roomRuntimeApi;
+window.roomActionController = roomActionController;
+window.roomMeetingController = roomMeetingController;
+
+function syncRoomRuntimeState(snapshot) {
+  if (!snapshot) return;
+  const room = snapshot.room || {};
+  if (room.id) appState.activeRoomId = room.id;
+  if (room.status) appState.activeRoomStatus = room.status;
+  appState.activeRoomAwaitingClarify = !!(snapshot.awaitingClarify || room.awaitingClarify);
+  appState.activeRoomAwaitingContinue = !!(snapshot.awaitingContinue || room.awaitingContinue);
+  appState.activeRoomQueueLen = (snapshot.queue || []).length;
+  appState.activeRoomRound = snapshot.round || appState.activeRoomRound || { spoken: 0, total: 0 };
+  appState.activeRoomDelivery = room.deliveryMode || appState.activeRoomDelivery || 'text';
+  appState.activeRoomVoteTrigger = room.voteTrigger || appState.activeRoomVoteTrigger || 'auto';
+  appState.activeRoomChairPending = !!snapshot.chairPending;
+  appState.activeRoomChairPendingPhase = snapshot.chairPendingPhase || '';
+  appState.pendingVoteMessageId = snapshot.pendingVoteMessageId || null;
+  appState.activeRoomModeShiftProposal = snapshot.modeShiftProposal || null;
+  if (snapshot.chair) appState.activeChair = snapshot.chair;
+  if (snapshot.membersById) appState.activeMembersById = snapshot.membersById;
+}
+
+async function refreshRoomRuntime(roomId) {
+  const st = await roomMeetingController.load(roomId);
+  syncRoomRuntimeState(roomMeetingController.snapshot());
+  return st;
+}
+
+function routeRoomRuntimeEvent(type, payload) {
+  if (!payload || typeof payload === 'string') return;
+  if (type === 'message-appended') sseAppendMessage(payload);
+  else if (type === 'message-token') sseAppendToken(payload);
+  else if (type === 'message-updated') sseUpdateMessage(payload);
+  else if (type === 'message-removed') sseRemoveMessage(payload);
+  else if (type === 'message-error') sseErrorMessage(payload);
+  else if (type === 'message-final') sseFinalizeMessage(payload);
+  else if (type === 'voice-chunk') handleVoiceChunk(payload);
+  else if (type === 'voice-final') handleVoiceFinal(payload);
+  else if (type === 'voice-error') handleVoiceError(payload);
+  else if (type === 'queue-update') handleQueueUpdate(payload);
+  else if (type === 'config-event') handleConfigEvent(payload);
+}
+
+// ── voice debug overlay · append ?debug=voice (or ?debug) to the URL ──
+// Surfaces the otherwise-invisible voice playback state machine on the
+// device (iOS has no console). Shows unlock state, queue, the clip we
+// THINK is playing, and the actual <audio> element state + the last
+// play() outcome (incl. the rejection error name — NotAllowedError ==
+// autoplay still blocked). Tap the panel to dismiss.
+const VOICE_DEBUG = new URLSearchParams(location.search).has('debug');
+function vdbg(evt) {
+  if (!VOICE_DEBUG) return;
+  let el = document.getElementById('voice-dbg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'voice-dbg';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.92);color:#5f5;font:10px/1.35 monospace;padding:6px 8px;white-space:pre-wrap;max-height:46vh;overflow:auto;border-bottom:1px solid #0a0;';
+    el.onclick = () => { el.style.display = el.style.display === 'none' ? 'block' : 'none'; };
+    (document.body || document.documentElement).appendChild(el);
+    el._log = [];
+  }
+  const a = document.getElementById('bd-audio');
+  const head = `unlocked=${appState.voiceUnlocked} delivery=${appState.activeRoomDelivery} queue=${roomVoiceController.queue?.length || 0} playing=${appState.voicePlaying?.messageId || '-'}`;
+  const audioLine = a
+    ? `audio paused=${a.paused} ended=${a.ended} muted=${a.muted} rs=${a.readyState} ns=${a.networkState} err=${a.error ? a.error.code : '-'} t=${(a.currentTime || 0).toFixed(1)} src=…${(a.src || '').split('/').slice(-1)[0].slice(0, 22)}`
+    : 'no #bd-audio';
+  el._log.unshift(`▸ ${evt}`);
+  el._log.length = Math.min(el._log.length, 14);
+  el.textContent = `${head}\n${audioLine}\n──────────\n${el._log.join('\n')}`;
+}
+window.vdbg = vdbg;
 
 // ── briefs: open the right viewer per mode ────────────────
 function briefViewerHref(b) {
@@ -1314,14 +2361,7 @@ async function forceRoomRefresh() {
   const id = appState.activeRoomId;
   if (!id) return;
   try {
-    const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
-    appState.activeRoomStatus = st.room?.status || appState.activeRoomStatus;
-    appState.activeRoomAwaitingClarify = !!st.room?.awaitingClarify;
-    appState.activeRoomAwaitingContinue = !!st.room?.awaitingContinue;
-    appState.activeRoomQueueLen = (st.queue || []).length;
-    appState.activeRoomRound = st.round || appState.activeRoomRound;
-    appState.activeRoomDelivery = st.room?.deliveryMode || appState.activeRoomDelivery;
-    appState.activeRoomVoteTrigger = st.room?.voteTrigger || appState.activeRoomVoteTrigger;
+    const st = await refreshRoomRuntime(id);
     // If the round actually finished, clear the in-flight guard so the
     // primary button lights up on the next render.
     if (appState.activeRoomQueueLen === 0
@@ -1354,21 +2394,29 @@ function stopRoomPoll() {
   }
 }
 
-function resetActiveRoomState() {
+function resetActiveRoomState(options = {}) {
+  const preserveVoicePlayback = !!options.preserveVoicePlayback;
   stopRoomPoll();
   // Close any open SSE stream
   if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
-  // Stop + reset audio · detachAutoContinue drops the controller's
-  // room reference so a stale tick can't restart on the old data.
+  roomMeetingController.disconnect();
+  // Stop auto-continue every time we leave the room surface. For same-
+  // room exits keep the paused audio element/controller alive, matching
+  // PC's re-entry semantics without allowing background playback.
   detachAutoContinue();
-  const audio = document.getElementById('bd-audio');
-  if (audio) { try { audio.pause(); } catch {} audio.removeAttribute('src'); audio.load?.(); }
-  // Voice queues + caches scoped to a single room
-  appState.voiceQueue = [];
-  appState.voicePlaying = null;
-  appState.voicePlayedIds = new Set();
-  appState.voiceChunks = {};
+  if (preserveVoicePlayback) pauseBoardroomVoicePlayback();
+  else stopBoardroomVoicePlayback();
+  clearBoardroomRoundWrap();
+	  if (!preserveVoicePlayback) {
+	    // Voice queues + caches scoped to a single room.
+	    appState.voicePlaying = null;
+	    appState.voicePlayedIds = new Set();
+	  }
   appState.activeRoomLastAuthor = null;
+  appState.activeRoomChairPending = false;
+  appState.activeRoomChairPendingPhase = '';
+  appState.activeRoomModeShiftProposal = null;
+  appState.activeRoomVoteQueued = false;
   // Room-level flags
   appState.continuePending = false;
   clearTimeout(appState._continuePendingTo);
@@ -1393,8 +2441,18 @@ function resetActiveRoomState() {
 async function openRoom(id) {
   if (appState.activeRoomId && appState.activeRoomId !== id) resetActiveRoomState();
   appState.activeRoomId = id;
-  goto('room-chat');
-  await loadActiveRoom();
+  let target = 'room-chat';
+  try {
+    const state = await refreshRoomRuntime(id);
+    const room = state.room || {};
+    const pref = getRoomViewPreference(id);
+    if (room.deliveryMode === 'voice' && room.status !== 'adjourned' && pref !== 'chat') {
+      target = 'boardroom';
+    }
+  } catch {}
+  goto(target);
+  if (target === 'boardroom') await loadBoardroomFor(id);
+  else await loadActiveRoom();
 }
 
 async function loadActiveRoom() {
@@ -1406,10 +2464,11 @@ async function loadActiveRoom() {
   if (!msgsEl) return;
   msgsEl.innerHTML = '<div class="msg system">— 加载中... —</div>';
   try {
-    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    const state = await refreshRoomRuntime(id);
     const room = state.room || {};
     // API returns full Agent objects in `members`, not relation rows.
     const members = state.members || [];
+    const chair = state.chair || null;
     const messages = state.messages || [];
     if (title) title.textContent = room.name || room.subject || '房间';
     const roundLabel = state.round && typeof state.round === 'object'
@@ -1420,20 +2479,12 @@ async function loadActiveRoom() {
       : room.awaitingClarify ? '等你回答'
       : room.awaitingContinue ? '等你确认'
       : 'LIVE';
-    if (sub) sub.textContent = `${statusLabel} · ${members.length} directors · round ${roundLabel}`;
-    appState.activeRoomStatus = room.status;
-    appState.activeRoomAwaitingClarify = !!room.awaitingClarify;
-    appState.activeRoomAwaitingContinue = !!room.awaitingContinue;
-    appState.activeRoomDelivery = room.deliveryMode || 'text';
-    appState.activeRoomVoteTrigger = room.voteTrigger || 'auto';
-    appState.activeRoomQueueLen = (state.queue || []).length;
-    appState.activeRoomRound = state.round || { spoken: 0, total: 0 };
+    if (sub) sub.textContent = `${statusLabel} · ${chair ? '1 主持 · ' : ''}${members.length} directors · round ${roundLabel}`;
     // Reset first-landing guard whenever we open a (different) room.
     if (appState._roomLandedId !== id) {
       appState._roomLandedId = id;
     }
-    // Cache members for SSE-driven incremental rendering.
-    appState.activeMembersById = Object.fromEntries(members.map(a => [a.id, a]));
+    // Member cache is maintained by MeetingController; keep this path UI-only.
     startRoomPoll();
     const dl = document.getElementById('rc-delivery-label');
     if (dl) dl.textContent = appState.activeRoomDelivery === 'voice' ? '🔊 语音 ›' : '🔇 静默 ›';
@@ -1441,7 +2492,7 @@ async function loadActiveRoom() {
     if (vl) vl.textContent = appState.activeRoomVoteTrigger === 'manual' ? '手动 ›' : '自动 ›';
     renderRoomActions();
     maybeStartAutoContinue();
-    msgsEl.innerHTML = renderMessages(messages, members);
+    msgsEl.innerHTML = renderMessages(messages, chair ? [chair, ...members] : members);
     scrollToBottom();
     subscribeRoomStream(id);
   } catch (e) {
@@ -1481,55 +2532,44 @@ function renderOneMessage(m, memberById) {
 function subscribeRoomStream(id) {
   if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
   try {
-    const es = new EventSource(`/api/rooms/${encodeURIComponent(id)}/stream`);
-    appState.rcStream = es;
-    const refreshStatus = async () => {
-      try {
-        const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
-        const next = st.room?.status;
-        if (next && next !== appState.activeRoomStatus) {
-          appState.activeRoomStatus = next;
-        }
-        appState.activeRoomAwaitingClarify = !!st.room?.awaitingClarify;
-        appState.activeRoomAwaitingContinue = !!st.room?.awaitingContinue;
-        appState.activeRoomVoteTrigger = st.room?.voteTrigger || appState.activeRoomVoteTrigger;
-        appState.activeRoomQueueLen = (st.queue || []).length;
-        appState.activeRoomRound = st.round || appState.activeRoomRound;
-        renderRoomActions();
-        maybeStartAutoContinue();
-      } catch {}
-    };
-    // Streaming-first DOM updates · we no longer full-refresh the
-    // message list on every SSE tick. Instead each event mutates the
-    // matching <div data-msg-id="..."> in place. Falls back to a
-    // full reload only when a message can't be located (defensive).
-    es.addEventListener('message-appended', (ev) => {
-      try { sseAppendMessage(JSON.parse(ev.data)); } catch {}
-    });
-    es.addEventListener('message-token', (ev) => {
-      try { sseAppendToken(JSON.parse(ev.data)); } catch {}
-    });
-    es.addEventListener('message-updated', (ev) => {
-      try { sseUpdateMessage(JSON.parse(ev.data)); } catch {}
-    });
-    es.addEventListener('message-removed', (ev) => {
-      try { sseRemoveMessage(JSON.parse(ev.data)); } catch {}
-    });
-    es.addEventListener('message-error', (ev) => {
-      try { sseErrorMessage(JSON.parse(ev.data)); } catch {}
-    });
-    es.addEventListener('message-final', (ev) => {
-      try { sseFinalizeMessage(JSON.parse(ev.data)); } catch {}
-    });
-    es.addEventListener('voice-chunk', (ev) => {
-      try { handleVoiceChunk(JSON.parse(ev.data)); } catch {}
-    });
-    // Generic fallthrough for legacy `message` events (some events come
-    // through without a typed name when relayed); resync as a safety net.
-    es.addEventListener('message', () => loadActiveRoomMessages());
-    es.addEventListener('config-event', () => refreshStatus());
-    es.onerror = () => { try { es.close(); } catch {} appState.rcStream = null; };
+    appState.rcStream = roomMeetingController.connect(id);
   } catch {}
+}
+
+function handleQueueUpdate(payload) {
+  if (!payload) return;
+  syncRoomRuntimeState(roomMeetingController.snapshot?.());
+  if (payload.activeMessageId) {
+    const el = findMsgEl(payload.activeMessageId);
+    const authorId = el?.dataset.authorId || null;
+    if (authorId && document.querySelector('.screen.on')?.dataset.screen === 'boardroom' && !boardroomVoiceLeading()) {
+      highlightSpeaker(authorId, payload.activeMessageId);
+    }
+  }
+  renderRoomActions();
+  maybeStartAutoContinue();
+}
+
+function handleConfigEvent(data) {
+  const kind = data?.kind;
+  const payload = data?.payload || {};
+  syncRoomRuntimeState(roomMeetingController.snapshot?.());
+  if (kind === 'room-paused') {
+    if (payload.mode === 'hard') stopBoardroomVoicePlayback();
+  } else if (kind === 'settings-changed') {
+    const dl = document.getElementById('rc-delivery-label');
+    if (dl) dl.textContent = appState.activeRoomDelivery === 'voice' ? '🔊 语音 ›' : '🔇 静默 ›';
+    const vl = document.getElementById('rc-vote-trigger-label');
+    if (vl) vl.textContent = appState.activeRoomVoteTrigger === 'manual' ? '手动 ›' : '自动 ›';
+  } else if (kind === 'chair-pending') {
+    showBoardroomChairPending(appState.activeRoomChairPendingPhase);
+  } else if (kind === 'members-changed' || kind === 'member-added' || kind === 'auto-pick-complete') {
+    forceRoomRefresh();
+  }
+  if (kind === 'round-ended') appState.activeRoomVoteQueued = false;
+  if (kind === 'round-resumed') appState.activeRoomVoteQueued = false;
+  renderRoomActions();
+  maybeStartAutoContinue();
 }
 
 function findMsgEl(messageId) {
@@ -1560,11 +2600,29 @@ function sseAppendMessage(payload) {
       appState.activeRoomLastAuthor = payload.authorId;
     }
   }
+  const clearChairPending = window.RoomMeetingRuntime.shouldClearChairPendingOnMessage(payload, {
+    chair: appState.activeChair,
+    room: { deliveryMode: appState.activeRoomDelivery },
+  });
+  if (clearChairPending) {
+    appState.activeRoomChairPending = false;
+    appState.activeRoomChairPendingPhase = '';
+  }
   // Chair gavel · PC fires this when the chair posts a round-prompt /
   // round-end / intervention. These are the "moment of order" beats.
   const kind = payload.meta?.kind;
   if (kind === 'round-prompt' || kind === 'round-end' || kind === 'intervention') {
     try { window.boardroomTypingSfx?.gavel?.(); } catch {}
+  }
+  // Round-wrap banner · surface the chair's per-round summary text in
+  // the boardroom voice view (the round boundary has no chat scroll
+  // there). round-prompt / round-end are the wrap beats; a plain
+  // director turn (no special kind) clears the banner so it doesn't
+  // linger into the next round.
+  if (kind === 'round-prompt' || kind === 'round-end') {
+    showBoardroomRoundWrap(payload.messageId, payload.body || '');
+  } else if (payload.authorKind === 'agent' || payload.authorKind === 'director') {
+    clearBoardroomRoundWrap();
   }
   // Auto vote popover · chair just dropped key points (round-end with
   // meta.keypoints). PC pops a vote UI inline. Mobile: stash the
@@ -1572,6 +2630,7 @@ function sseAppendMessage(payload) {
   // "🗳 投票关键点".
   if (kind === 'round-end' && payload.meta?.keypoints) {
     appState.pendingVoteMessageId = payload.messageId;
+    appState.activeRoomModeShiftProposal = payload.meta?.modeShiftProposal || appState.activeRoomModeShiftProposal || null;
     renderRoomActions();
   }
   const msgsEl = document.getElementById('rc-msgs');
@@ -1590,13 +2649,49 @@ function sseAppendMessage(payload) {
   const wasNearBottom = isPageNearBottom();
   msgsEl.insertAdjacentHTML('beforeend', html);
   if (wasNearBottom) scrollToBottom();
-  // Boardroom: highlight this speaker immediately, not waiting for audio.
+  // Boardroom: highlight this speaker immediately ONLY when voice mode
+  // isn't running. In voice mode the seat / subtitle must follow the
+  // AUDIBLE speaker — and there's a real gap between "clip A's onended
+  // fires" and "clip B's onplaying fires" where boardroomVoiceLeading()
+  // briefly returns false (voicePlaying = null, B not yet in the queue).
+  // The old `!boardroomVoiceLeading()` guard let message-appended for
+  // B sneak in during that gap and flip the seat to B while A's tail
+  // was still audible ("avatar already moved, voice still on the
+  // previous director"). When voice is unlocked, always wait for
+  // pumpVoiceQueue's onplaying to own seat + subtitle.
   if (payload.authorKind === 'agent' || payload.authorKind === 'director' || payload.authorKind === 'chair') {
-    if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom') {
+    const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
+    const voiceActive = appState.activeRoomDelivery === 'voice' && appState.voiceUnlocked;
+    if (onBoardroom && !voiceActive) {
       highlightSpeaker(payload.authorId, payload.messageId);
     }
   }
   handleMessageAppended(payload);
+}
+
+function msgTextEl(el) { return el ? (el.querySelector('.text') || el.querySelector('.bubble')) : null; }
+function setMsgHtmlText(textEl, raw) { if (textEl) textEl.innerHTML = escapeHtml(raw || '').replace(/\n+/g, '<br>'); }
+// True when voice is leading AND this exact message is the one currently audible.
+function voicePacedActiveFor(messageId) {
+  return boardroomVoiceLeading() && appState.voicePlaying && appState.voicePlaying.messageId === messageId;
+}
+// During voice playback the message being spoken reveals its text
+// sentence-by-sentence at the AUDIBLE pace (PC parity, via the shared
+// caption) instead of flooding the raw token stream. Driven by the
+// VoicePlaybackController onPlaying/onTimeUpdate callbacks.
+function repaintVoicePacedMessage(q, caption) {
+  if (!q || !q.messageId || !boardroomVoiceLeading()) return;
+  const el = findMsgEl(q.messageId);
+  if (!el) return;
+  setMsgHtmlText(msgTextEl(el), caption);
+}
+// Voice for this message finished (or turn ended in text mode) · restore the
+// full body so the complete line stays readable in the transcript.
+function restoreFullMessageText(messageId) {
+  if (!messageId) return;
+  const el = findMsgEl(messageId);
+  if (!el) return;
+  if (typeof el.dataset.fb === 'string') setMsgHtmlText(msgTextEl(el), el.dataset.fb);
 }
 
 function sseAppendToken(payload) {
@@ -1607,25 +2702,55 @@ function sseAppendToken(payload) {
   if (!textEl) return;
   // Typing-keystroke SFX · same module + cadence as PC.
   try { window.boardroomTypingSfx?.tick?.(); } catch {}
-  // Append text + auto-linebreak; safer than innerHTML += to avoid HTML injection.
-  const node = document.createTextNode(payload.delta);
-  textEl.appendChild(node);
-  // If we have a delta with line breaks, replace last text node breaks
-  // with <br>. Cheap enough to do on every token (small string).
-  if (payload.delta.includes('\n')) {
-    textEl.innerHTML = textEl.innerHTML.replace(/\n/g, '<br>');
+  // Always accumulate the complete body — it's the source of truth for the
+  // voice-paced reveal below and the final restore, even when we suppress the
+  // raw token flood.
+  el.dataset.fb = (el.dataset.fb || textEl.textContent || '') + payload.delta;
+  if (voicePacedActiveFor(payload.messageId)) {
+    // Voice owns the cadence for the message being spoken: show the sentence
+    // slice synced to audio (onTimeUpdate keeps repainting as audio advances),
+    // not the token stream racing ahead of the speech.
+    setMsgHtmlText(textEl, roomVoiceController.currentCaption({ messageId: payload.messageId, body: el.dataset.fb, authorId: el.dataset.authorId || payload.authorId || null }));
+  } else if (boardroomVoiceLeading()) {
+    // Voice mode, but this message isn't the one currently audible (the
+    // orchestrator pre-warms the next director's text). Hold it back until its
+    // own audio starts — PC reveals text only when the voice reaches it.
+  } else {
+    // Text mode · stream tokens as before.
+    const node = document.createTextNode(payload.delta);
+    textEl.appendChild(node);
+    // If we have a delta with line breaks, replace last text node breaks
+    // with <br>. Cheap enough to do on every token (small string).
+    if (payload.delta.includes('\n')) {
+      textEl.innerHTML = textEl.innerHTML.replace(/\n/g, '<br>');
+    }
   }
   const msgsEl = document.getElementById('rc-msgs');
   if (msgsEl) {
     if (isPageNearBottom()) scrollToBottom();
   }
-  // Live-sync boardroom subtitle while director is still typing.
-  if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom') {
+  // Live-sync boardroom subtitle while director is still typing — BUT
+  // ONLY when voice is NOT leading. Even for the message currently
+  // being voiced, tokens race ahead of TTS playback (network speed vs
+  // speech speed): by the time audio is reading sentence 1, the token
+  // stream has already pushed the subtitle to sentence 3's tail, so
+  // the user reads "...therefore" while hearing "Looking at...". When
+  // voice leads, let `audio.onplaying` (highlightSpeaker) own the
+  // subtitle, then voice timeupdate replaces it with the chunk that is
+  // actually audible. When voice is off / locked / drained, fall back
+  // to live-typing so first impressions still track the stream.
+  if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom' && !boardroomVoiceLeading()) {
     const subText = document.getElementById('bd-sub-text');
-    const quoteEl = document.getElementById('bd-table-quote');
     const body = textEl.textContent || '';
-    if (subText) subText.textContent = body.slice(-120);
-    if (quoteEl) quoteEl.textContent = `"${body.slice(-36)}…"`;
+    const visible = visibleBoardroomCaptionText(body);
+    if (subText) subText.textContent = visible;
+    setBoardroomTableQuote(visible || body, { tail: true });
+  }
+  // Keep the round-wrap banner text in sync while the chair's round-end
+  // summary is still streaming.
+  if (appState.bdRoundWrapMsgId === payload.messageId) {
+    const wrapText = document.getElementById('bd-roundwrap-text');
+    if (wrapText) wrapText.textContent = textEl.textContent || '';
   }
 }
 
@@ -1633,20 +2758,31 @@ function sseUpdateMessage(payload) {
   if (!payload || !payload.messageId) return;
   const el = findMsgEl(payload.messageId);
   if (!el) return;
-  const textEl = el.querySelector('.text') || el.querySelector('.bubble');
-  if (textEl) {
-    textEl.innerHTML = escapeHtml(payload.body || '').replace(/\n+/g, '<br>');
+  const textEl = msgTextEl(el);
+  if (!textEl) return;
+  el.dataset.fb = payload.body || '';
+  if (voicePacedActiveFor(payload.messageId)) {
+    // Voice-paced: show only the audible slice (onTimeUpdate keeps it current).
+    setMsgHtmlText(textEl, roomVoiceController.currentCaption({ messageId: payload.messageId, body: el.dataset.fb, authorId: el.dataset.authorId || null }));
+  } else if (boardroomVoiceLeading()) {
+    // Hold until this message's own audio starts.
+  } else {
+    setMsgHtmlText(textEl, el.dataset.fb);
   }
 }
 
 function sseRemoveMessage(payload) {
   if (!payload || !payload.messageId) return;
+  dropVoiceForMessage(payload.messageId);
   const el = findMsgEl(payload.messageId);
   if (el) el.remove();
+  maybeStartAutoContinue();
+  renderRoomActions();
 }
 
 function sseErrorMessage(payload) {
   if (!payload || !payload.messageId) return;
+  dropVoiceForMessage(payload.messageId);
   const el = findMsgEl(payload.messageId);
   if (el) {
     el.classList.add('msg-error');
@@ -1654,6 +2790,8 @@ function sseErrorMessage(payload) {
     const textEl = el.querySelector('.text');
     if (textEl) textEl.innerHTML += `<div style="color:#FF8B7E; font-size:11px; margin-top:6px;">⚠ ${escapeHtml(payload.message || '该轮失败')}</div>`;
   }
+  maybeStartAutoContinue();
+  renderRoomActions();
 }
 
 function sseFinalizeMessage(payload) {
@@ -1662,6 +2800,10 @@ function sseFinalizeMessage(payload) {
   if (el) {
     el.classList.remove('streaming');
     el.classList.add('final');
+    // Text stream finished. If voice is still pacing this message, leave the
+    // paced reveal alone (onDone restores the full body when the audio ends);
+    // otherwise (text mode, or voice already done) show the complete line.
+    if (!voicePacedActiveFor(payload.messageId)) restoreFullMessageText(payload.messageId);
   }
   // Director finished a turn → the "in-flight" guard can lift; the next
   // SSE refresh below will re-evaluate the queue + round state.
@@ -1674,12 +2816,7 @@ function sseFinalizeMessage(payload) {
   // the auto-continue eligibility (PC parity: countdown starts once the
   // queue empties + spoken matches total).
   if (appState.activeRoomId) {
-    fetchJson(`/api/rooms/${encodeURIComponent(appState.activeRoomId)}`).then(st => {
-      appState.activeRoomQueueLen = (st.queue || []).length;
-      appState.activeRoomRound = st.round || appState.activeRoomRound;
-      appState.activeRoomStatus = st.room?.status || appState.activeRoomStatus;
-      appState.activeRoomAwaitingClarify = !!st.room?.awaitingClarify;
-      appState.activeRoomAwaitingContinue = !!st.room?.awaitingContinue;
+    refreshRoomRuntime(appState.activeRoomId).then(() => {
       maybeStartAutoContinue();
       renderRoomActions();
     }).catch(() => {});
@@ -1687,51 +2824,161 @@ function sseFinalizeMessage(payload) {
 }
 
 // ── boardroom voice queue ─────────────────────────────────
-appState.voiceQueue = [];
 appState.voicePlaying = null;
 appState.voiceUnlocked = false;
 appState.voicePlayedIds = new Set();
+const roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackController({
+  api: roomRuntimeApi,
+  useMediaSource: true,
+  playOnFirstChunk: true,
+  onPlaying: (q) => {
+    appState.voicePlaying = { messageId: q.messageId, authorId: q.authorId || null };
+    highlightSpeaker(q.authorId, q.messageId);
+    const cap = roomVoiceController.currentCaption(q);
+    updateBoardroomVoiceCaption(q, cap);
+    repaintVoicePacedMessage(q, cap);
+    vdbg(`voice playing ${q.messageId}`);
+  },
+  onTimeUpdate: (q, caption) => {
+    updateBoardroomVoiceCaption(q, caption);
+    repaintVoicePacedMessage(q, caption);
+  },
+  onDone: (q) => {
+    restoreFullMessageText(q && q.messageId);
+    appState.voicePlaying = null;
+    vdbg(`voice done ${q.messageId}`);
+    maybeStartAutoContinue();
+  },
+  onError: (q, err) => {
+    vdbg(`voice runtime error ${q?.messageId || '-'} ${err?.name || ''}`);
+  },
+});
+window.roomVoiceController = roomVoiceController;
+
+function syncRoomVoiceController() {
+  roomVoiceController.setAudio(document.getElementById('bd-audio'));
+  roomVoiceController.setUnlocked(!!appState.voiceUnlocked);
+}
+
+function stopBoardroomVoicePlayback() {
+  roomVoiceController.stop();
+  appState.voicePlaying = null;
+}
+
+function dropVoiceForMessage(messageId) {
+  if (!messageId) return;
+  roomVoiceController.drop?.(messageId);
+  if (appState.voicePlaying?.messageId === messageId) appState.voicePlaying = null;
+}
+
+function pauseBoardroomVoicePlayback() {
+  syncRoomVoiceController();
+  roomVoiceController.pause();
+  appState.voicePlaying = null;
+}
+
+function pauseAllMobileAudio() {
+  pauseBoardroomVoicePlayback();
+  const preview = document.getElementById('ap-preview-audio');
+  if (preview && !preview.paused) {
+    try { preview.pause(); } catch {}
+  }
+}
+
+function resumePausedBoardroomAudio(audio) {
+  if (!audio || !audio.src || audio.ended || !audio.dataset.messageId) return false;
+  try {
+    const playPromise = audio.play();
+    const restorePlaying = () => {
+      const mid = audio.dataset.messageId;
+      const aid = audio.dataset.authorId;
+      if (mid) appState.voicePlaying = { messageId: mid, authorId: aid || null };
+    };
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise.then(restorePlaying).catch((err) => vdbg(`resume paused clip failed ${err?.name || ''}`));
+    } else {
+      restorePlaying();
+    }
+    return true;
+  } catch (err) {
+    vdbg(`resume paused clip threw ${err?.name || ''}`);
+    return false;
+  }
+}
+
+async function ensureBoardroomVoicePlayback(options = {}) {
+  const allowCatchUp = options.allowCatchUp !== false;
+  if (currentMobileScreen() !== 'boardroom') return;
+  if (!appState.activeRoomId) return;
+  updateBoardroomVoiceBanner();
+  if (!appState.voiceUnlocked) return;
+  syncRoomVoiceController();
+  const audio = document.getElementById('bd-audio');
+  if (resumePausedBoardroomAudio(audio)) return;
+  if (appState.activeRoomDelivery !== 'voice') return;
+  pumpVoiceQueue();
+  if (!allowCatchUp) return;
+  if (roomVoiceController.playing || roomVoiceController.queue?.length) return;
+  if (!appState._voiceCatchUpPromise) {
+    appState._voiceCatchUpPromise = catchUpBoardroomAudio()
+      .finally(() => { appState._voiceCatchUpPromise = null; });
+  }
+  await appState._voiceCatchUpPromise;
+}
 
 async function catchUpBoardroomAudio() {
   const id = appState.activeRoomId;
   if (!id) return;
   try {
-    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    const state = await roomRuntimeApi.getRoom(id);
+    if (appState.activeRoomId !== id || currentMobileScreen() !== 'boardroom') return;
+    roomMeetingController.adoptRoomState?.(state);
+    syncRoomRuntimeState(roomMeetingController.snapshot?.());
+    const room = state.room || {};
+    if (room.deliveryMode !== 'voice') return;
+    if (room.status !== 'live') return;
+    if (room.awaitingClarify || room.awaitingContinue) return;
     const dirMsgs = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director' || m.authorKind === 'chair');
     const last = dirMsgs[dirMsgs.length - 1];
     if (!last) return;
-    // CatchUp = "rewind into live audio". Don't dedupe — the user just
-    // came back to the boardroom and expects the most recent message
-    // to play, even if voicePlayedIds remembers it from before.
+    // CatchUp = "jump into live audio". Reset the queue to JUST the
+    // latest message — replaying a backlog of clips on every re-entry
+    // is not what the user wants (they expect to rejoin the current
+    // discussion). Don't dedupe · the user came back expecting the
+    // most recent line to play even if voicePlayedIds remembers it.
     appState.voicePlayedIds.add(last.id);
-    appState.voiceQueue.push({ messageId: last.id, authorId: last.authorId });
     appState.voicePlaying = null;
+	    roomVoiceController.markFinal({
+	      roomId: id,
+	      messageId: last.id,
+	      authorId: last.authorId,
+	      body: last.body || '',
+	      mimeType: 'audio/mpeg',
+	    });
     pumpVoiceQueue();
   } catch {}
 }
 
-function updateBoardroomVoiceBanner() {
-  const banner = document.getElementById('bd-audio-unlock');
-  if (!banner) return;
-  banner.style.display = 'block';
-  if (!appState.voiceUnlocked) {
-    banner.textContent = '🔊 点这里开启语音 · 让董事们说出来';
-    return;
-  }
-  banner.textContent = appState.activeRoomDelivery === 'voice'
-    ? '🔊 语音模式 · 点击切到静默'
-    : '🔇 静默模式 · 点击切到语音';
+/** TTS synthesis failed server-side (billing / provider error). The
+ *  shared runtime reports this through the same SSE channel as PC; mobile
+ *  stores it for debugging but does not add a mobile-only status control. */
+function handleVoiceError(payload) {
+  if (!payload) return;
+  const provider = payload.provider ? `${payload.provider} ` : '';
+  const raw = payload.message || '语音合成失败';
+  const isBilling = /balance|insufficient|余额|top up/i.test(raw);
+  appState.voiceError = isBilling
+    ? `语音不可用 · ${provider}余额不足，请在控制台充值后重试`
+    : `语音不可用 · ${provider}${raw}`.slice(0, 80);
+  vdbg('voice-error: ' + raw.slice(0, 50));
+  updateBoardroomVoiceBanner();
 }
 
-async function onBoardroomVoiceToggle() {
-  if (!appState.voiceUnlocked) {
-    await unlockBoardroomAudio();
-    updateBoardroomVoiceBanner();
-    return;
-  }
-  // unlocked → toggle deliveryMode (uses the existing PATCH path)
-  await toggleDeliveryMode();
-  updateBoardroomVoiceBanner();
+function updateBoardroomVoiceBanner() {
+  // PC has no persistent voice/silent-mode banner in the boardroom.
+  // Keep this compatibility hook because several runtime paths call it
+  // after voice state changes, but only resync bottom layout.
+  requestAnimationFrame(syncBottomChromeHeights);
 }
 
 /** Unlock HTMLAudioElement autoplay policy on iOS Safari / Chrome.
@@ -1748,32 +2995,42 @@ async function onBoardroomVoiceToggle() {
 function unlockBoardroomAudio() {
   if (appState.voiceUnlocked) return;
   try {
-    const silence = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+    const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    const silence = new Audio(SILENCE);
     silence.volume = 0;
     const p = silence.play();
     if (p && typeof p.then === 'function') {
       p.then(() => { try { silence.pause(); } catch {} }).catch(() => {});
     }
+    // NOTE · we deliberately DON'T issue a silent play() on #bd-audio here.
+    // A previous "per-element iOS unlock" did `bd.src = SILENCE; bd.play()`
+    // inside this gesture — but pumpVoiceQueue() / ensureBoardroomVoicePlayback()
+    // below immediately swap bd.src to the real clip, and that load ABORTS the
+    // still-pending SILENCE play(), which propagated as an AbortError that also
+    // killed the real clip's playback ("text, no sound"). PC never touches the
+    // streaming element in its unlock (throwaway Audio only); the real
+    // bd-audio.play() driven by pumpVoiceQueue runs inside THIS same gesture, so
+    // it both starts playback AND satisfies the per-element unlock — no ping,
+    // no race.
     // Optimistic flip · the silent ping inside the gesture is what
     // matters for unlocking subsequent <audio>.play() calls. Don't
     // gate `voiceUnlocked` behind the promise resolving — by the
     // time it does, the user gesture has expired and any "retry"
     // alert is just noise.
     appState.voiceUnlocked = true;
-    const banner = document.getElementById('bd-audio-unlock');
-    if (banner) banner.style.display = 'none';
+    syncRoomVoiceController();
     updateBoardroomVoiceBanner();
     pumpVoiceQueue();
+    ensureBoardroomVoicePlayback({ allowCatchUp: true });
   } catch (e) {
-    // No blocking alert · just leave the banner visible so the user
-    // can tap again. Surface the cause in console for debugging.
+    // No blocking alert; surface the cause in console for debugging.
     console.warn('[voice] mobile unlock failed:', e);
   }
 }
 
 /** Global one-shot · attempts to unlock audio playback on the first
  *  user gesture anywhere on the page, so the user usually never has
- *  to tap the explicit unlock banner. Mirrors the PC listener pair
+ *  to think about browser autoplay policy. Mirrors the PC listener pair
  *  at the bottom of public/app.js. iOS counts `touchstart` and
  *  `click` as separate gesture types — listen for both. */
 function installGlobalAudioUnlock() {
@@ -1793,6 +3050,107 @@ document.addEventListener('DOMContentLoaded', installGlobalAudioUnlock);
 // the listener is armed for the very first tap.
 installGlobalAudioUnlock();
 
+/** True when boardroom voice playback is the source of truth for the
+ *  stage's "who is speaking" / subtitle. The orchestrator pre-warms the
+ *  next director (its text streams + its message-appended fires) while
+ *  the prior director's audio is still playing — when that happens the
+ *  stage must follow the AUDIBLE speaker, not the streaming one, or the
+ *  user reads/sees one director while hearing another. False when voice
+ *  is off / locked / nothing queued, so the first line still tracks the
+ *  live stream. */
+function boardroomVoiceLeading() {
+  return appState.activeRoomDelivery === 'voice'
+    && appState.voiceUnlocked
+    && (!!appState.voicePlaying || (roomVoiceController.queue?.length || 0) > 0);
+}
+
+function cleanBoardroomCaptionText(raw) {
+  return window.RoomMeetingRuntime.cleanCaptionText(raw);
+}
+
+function visibleBoardroomCaptionText(raw, opts = {}) {
+  return window.RoomMeetingRuntime.compactCaptionText(raw, { maxChars: 54, ...opts });
+}
+
+function formatBoardroomTableQuote(raw, opts = {}) {
+  const text = cleanBoardroomCaptionText(raw);
+  if (!text) return '“…”';
+  const dense = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(text);
+  const max = dense ? 38 : 78;
+  const chars = Array.from(text);
+  if (chars.length <= max) return `“${text}”`;
+  if (opts.tail) {
+    return `“…${chars.slice(Math.max(0, chars.length - max + 1)).join('')}”`;
+  }
+  return `“${chars.slice(0, Math.max(1, max - 1)).join('')}…”`;
+}
+
+function setBoardroomTableQuote(raw, opts = {}) {
+  const quoteEl = document.getElementById('bd-table-quote');
+  if (quoteEl) quoteEl.textContent = formatBoardroomTableQuote(raw, opts);
+}
+
+function setBoardroomSpeakerCaption(raw) {
+  const text = visibleBoardroomCaptionText(raw);
+  if (!text) return;
+  const subText = document.getElementById('bd-sub-text');
+  if (subText) subText.textContent = text;
+}
+
+function updateBoardroomVoiceCaption(q, caption) {
+  if (document.querySelector('.screen.on')?.dataset.screen !== 'boardroom') return;
+  if (!q || !q.messageId) return;
+  if (appState.voicePlaying?.messageId && appState.voicePlaying.messageId !== q.messageId) return;
+  const text = cleanBoardroomCaptionText(caption);
+  if (!text) return;
+  setBoardroomSpeakerCaption(text);
+}
+
+// ── boardroom round-wrap banner ───────────────────────────
+// Surfaces the chair's per-round summary (round-prompt / round-end)
+// in the voice view, where there's no chat scroll to read it from.
+appState.bdRoundWrapMsgId = null;
+function showBoardroomRoundWrap(messageId, text) {
+  appState.bdRoundWrapMsgId = messageId || null;
+  const banner = document.getElementById('bd-roundwrap');
+  const textEl = document.getElementById('bd-roundwrap-text');
+  if (textEl) textEl.textContent = (text || '').trim();
+  if (banner) banner.style.display = 'block';
+}
+
+function showBoardroomChairPending(phase) {
+  const chair = appState.activeChair || cachedChair || null;
+  if (!chair || document.querySelector('.screen.on')?.dataset.screen !== 'boardroom') return;
+  document.querySelectorAll('#bd-stage .bd-pix.speaking').forEach(el => el.classList.remove('speaking'));
+  document.querySelectorAll('#bd-stage .bd-wave').forEach(el => el.remove());
+  const seat = document.querySelector(`#bd-stage .bd-seat[data-agent-id="${CSS.escape(chair.id)}"]`);
+  if (seat) {
+    seat.querySelector('.bd-pix')?.classList.add('speaking');
+    if (!seat.querySelector('.bd-wave')) {
+      const wave = document.createElement('div');
+      wave.className = 'bd-wave';
+      wave.innerHTML = '<span></span><span></span><span></span><span></span><span></span>';
+      seat.appendChild(wave);
+    }
+  }
+  const label = phase === 'round-end' ? '正在总结本轮'
+    : phase === 'next-speaker' ? '正在安排下一位董事'
+    : phase === 'chair-direct' ? '正在回应你'
+    : phase === 'clarify' || phase === 'clarify-deciding' ? '正在确认问题'
+    : '正在准备';
+  const subWho = document.getElementById('bd-sub-who');
+  const subText = document.getElementById('bd-sub-text');
+  if (subWho) subWho.textContent = `${chair.name || 'Chair'} · 主持`;
+  if (subText) subText.textContent = label;
+  setBoardroomTableQuote(label);
+}
+
+function clearBoardroomRoundWrap() {
+  appState.bdRoundWrapMsgId = null;
+  const banner = document.getElementById('bd-roundwrap');
+  if (banner) banner.style.display = 'none';
+}
+
 function handleMessageAppended(payload) {
   if (!payload || !payload.messageId) return;
   if (payload.authorKind === 'user') return;
@@ -1807,83 +3165,83 @@ function handleMessageFinal(payload) {
   if (!payload || !payload.messageId) return;
   const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
   if (!onBoardroom) return;
-  if (appState.voicePlayedIds.has(payload.messageId)) return;
-  appState.voicePlayedIds.add(payload.messageId);
-  appState.voiceQueue.push({ messageId: payload.messageId, authorId: payload.authorId });
-  if (!appState.voicePlaying) pumpVoiceQueue();
+  // PC parity: message-final means the LLM text stream is done, not
+  // that TTS is playable. Voice playback is gated by voice-final below.
+  vdbg(`message-final ${payload.messageId}`);
 }
 
 // Voice-chunk streaming (PC parity): server emits base64 mp3 chunks
-// while TTS is still synthesising. We cache them per-message; when the
-// queue pump dequeues this message it plays the inline data: URL
-// (assembled from chunks) instead of fetching the whole file. Empty
-// payloads (text-only ping) are ignored.
-appState.voiceChunks = {};
+// while TTS is still synthesising. The shared voice controller owns
+// chunk caching, queueing, caption timing, and playback; mobile only
+// updates the stage chrome from the controller callbacks.
 function handleVoiceChunk(payload) {
   if (!payload || !payload.messageId || !payload.audioBase64) return;
-  let entry = appState.voiceChunks[payload.messageId];
-  if (!entry) {
-    entry = { mime: payload.mimeType || 'audio/mpeg', parts: [] };
-    appState.voiceChunks[payload.messageId] = entry;
+  // Real audio is flowing again · clear any prior TTS-failure notice.
+  if (appState.voiceError) { appState.voiceError = null; updateBoardroomVoiceBanner(); }
+  const fresh = !roomVoiceController.has?.(payload.messageId);
+  const accepted = roomVoiceController.enqueueChunk({
+    ...payload,
+    roomId: payload.roomId || appState.activeRoomId,
+    authorId: payload.authorId || findMsgEl(payload.messageId)?.dataset.authorId || null,
+  });
+  if (!accepted) return;
+  if (fresh && appState.activeRoomChairPending) {
+    appState.activeRoomChairPending = false;
+    appState.activeRoomChairPendingPhase = '';
   }
-  entry.parts.push(payload.audioBase64);
+}
+
+function handleVoiceFinal(payload) {
+  if (!payload || !payload.messageId) return;
+  const onBoardroom = document.querySelector('.screen.on')?.dataset.screen === 'boardroom';
+  if (!onBoardroom) return;
+  // PC parity: foreground `voice-final` only finalizes an existing
+  // queue. It must not recreate a queue after hard-pause/message-
+  // removal has already cleared it, otherwise an old final event can
+  // resurrect aborted audio.
+  if (!roomVoiceController.has?.(payload.messageId)) {
+    vdbg(`voice-final ignored missing queue ${payload.messageId}`);
+    return;
+  }
+  if (appState.voicePlayedIds.has(payload.messageId)) return;
+  appState.voicePlayedIds.add(payload.messageId);
+	  const authorId = payload.authorId
+	    || findMsgEl(payload.messageId)?.dataset.authorId
+	    || null;
+	  const msgEl = findMsgEl(payload.messageId);
+	  const body = msgEl
+	    ? (msgEl.querySelector('.text')?.textContent || msgEl.querySelector('.bubble')?.textContent || '')
+	    : '';
+		  const item = {
+		    roomId: payload.roomId || appState.activeRoomId,
+		    messageId: payload.messageId,
+		    authorId,
+		    body,
+		    mimeType: payload.mimeType || roomVoiceController.queues[payload.messageId]?.mime || 'audio/mpeg',
+		  };
+  roomVoiceController.markFinal(item);
+  vdbg(`voice-final→queue ${item.messageId} author=${authorId || '?'}`);
+  pumpVoiceQueue();
 }
 
 async function pumpVoiceQueue() {
   if (!appState.voiceUnlocked) {
-    const banner = document.getElementById('bd-audio-unlock');
-    if (banner) banner.style.display = 'block';
+    vdbg('pump: BAIL not unlocked');
     return;
   }
-  // Self-heal · if voicePlaying is stuck but the audio element is
-  // actually idle (ended/paused with no src or beyond duration),
-  // clear it so the queue can advance. This prevents the "no sound
-  // after several toggles" lockup users hit when voicePlaying never
-  // got reset between voice/text switches.
-  if (appState.voicePlaying) {
-    const a = document.getElementById('bd-audio');
-    const idle = !a || !a.src || a.ended || (a.paused && a.currentTime === 0);
-    if (idle) appState.voicePlaying = null; else return;
-  }
-  const next = appState.voiceQueue.shift();
-  if (!next) return;
-  appState.voicePlaying = next;
-  highlightSpeaker(next.authorId, next.messageId);
-  const audio = document.getElementById('bd-audio');
-  if (!audio) return;
-  // Prefer cached SSE voice-chunks (assembled locally) so we start
-  // playing the moment message-final lands — no extra GET round trip.
-  const cached = appState.voiceChunks[next.messageId];
-  if (cached && cached.parts.length) {
-    audio.src = `data:${cached.mime};base64,${cached.parts.join('')}`;
-    delete appState.voiceChunks[next.messageId];
-  } else {
-    audio.src = `/api/voices/message/${encodeURIComponent(next.messageId)}/audio?ts=${Date.now()}`;
-  }
-  audio.onended = () => {
-    appState.voicePlaying = null;
-    pumpVoiceQueue();
-    // When the queue drains in boardroom voice mode, the round is done
-    // playing — re-evaluate auto-continue so the next round can fire.
-    if (!appState.voiceQueue.length) maybeStartAutoContinue();
-  };
-  audio.onerror = () => {
-    appState.voicePlaying = null;
-    pumpVoiceQueue();
-    if (!appState.voiceQueue.length) maybeStartAutoContinue();
-  };
-  try { await audio.play(); }
-  catch (e) {
-    // some browsers throw when called too quickly — try again next tick
-    appState.voicePlaying = null;
-    setTimeout(pumpVoiceQueue, 200);
-  }
+  syncRoomVoiceController();
+  roomVoiceController.pump();
 }
 
 function highlightSpeaker(authorId, messageId) {
   if (!authorId) return;
+  // Clear the prior speaker FIRST · the wave element is a child of
+  // `.bd-seat` (sibling of `.bd-pix`, see seatHtml), so the cleanup
+  // selector must match `.bd-wave` anywhere under the stage — the old
+  // `.bd-pix .bd-wave` descendant query never matched, leaving stale
+  // waves on every seat that ever spoke (multiple "speaking" seats).
   document.querySelectorAll('#bd-stage .bd-pix.speaking').forEach(el => el.classList.remove('speaking'));
-  document.querySelectorAll('#bd-stage .bd-pix .bd-wave').forEach(el => el.remove());
+  document.querySelectorAll('#bd-stage .bd-wave').forEach(el => el.remove());
   const seat = document.querySelector(`#bd-stage .bd-seat[data-agent-id="${CSS.escape(authorId)}"]`);
   if (seat) {
     seat.querySelector('.bd-pix')?.classList.add('speaking');
@@ -1894,19 +3252,31 @@ function highlightSpeaker(authorId, messageId) {
       seat.appendChild(wave);
     }
   }
-  // Update subtitle from latest message body (best-effort, async fetch).
-  fetchJson(`/api/rooms/${encodeURIComponent(appState.activeRoomId)}`).then(state => {
-    const m = (state.messages || []).find(x => x.id === messageId);
-    if (m) {
-      const subText = document.getElementById('bd-sub-text');
-      const subWho = document.getElementById('bd-sub-who');
-      const quoteEl = document.getElementById('bd-table-quote');
-      const agent = (state.members || []).find(a => a.id === authorId) || cachedAgentsById[authorId];
-      if (subWho && agent) subWho.textContent = `${agent.name} · ${agent.roleTag || ''}`;
-      if (subText) subText.textContent = (m.body || '').replace(/\s+/g, ' ').slice(0, 120);
-      if (quoteEl) quoteEl.textContent = `"${(m.body || '').replace(/\s+/g, ' ').slice(0, 36)}…"`;
-    }
-  }).catch(() => {});
+  // Update the subtitle to the speaker now being voiced. Read the body
+  // from the DOM synchronously (the bubble already exists) so the
+  // subtitle flips in lockstep with the audio; only fall back to a
+  // fetch when the bubble isn't in the DOM yet. The previous always-
+  // async fetch could resolve AFTER the clip ended and the next speaker
+  // started — re-introducing the very desync we're fixing.
+  const subText = document.getElementById('bd-sub-text');
+  const subWho = document.getElementById('bd-sub-who');
+  const agent = (appState.activeMembersById && appState.activeMembersById[authorId]) || cachedAgentsById[authorId];
+  if (subWho && agent) subWho.textContent = `${agent.name} · ${agent.roleTag || ''}`;
+  const domEl = messageId ? findMsgEl(messageId) : null;
+  const domBody = domEl ? (domEl.querySelector('.text')?.textContent || domEl.querySelector('.bubble')?.textContent || '') : '';
+  const paint = (body) => {
+    const visible = visibleBoardroomCaptionText(body);
+    if (subText) subText.textContent = visible;
+    setBoardroomTableQuote(visible || body);
+  };
+  if (domBody) {
+    paint(domBody);
+  } else {
+    roomRuntimeApi.getRoom(appState.activeRoomId).then(state => {
+      const m = (state.messages || []).find(x => x.id === messageId);
+      if (m) paint(m.body);
+    }).catch(() => {});
+  }
 }
 async function loadActiveRoomMessages() {
   const id = appState.activeRoomId;
@@ -1914,7 +3284,7 @@ async function loadActiveRoomMessages() {
   const msgsEl = document.getElementById('rc-msgs');
   if (!msgsEl) return;
   try {
-    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+    const state = await roomRuntimeApi.getRoom(id);
     const wasAtBottom = isPageNearBottom();
     msgsEl.innerHTML = renderMessages(state.messages || [], state.members || []);
     if (wasAtBottom) scrollToBottom();
@@ -1952,12 +3322,63 @@ function insertMention(inputId, handle) {
   if (picker) picker.style.display = 'none';
 }
 
+function roomIsSpeaking() {
+  const q = roomMeetingController.snapshot().queue || [];
+  return q.length > 0 && q[0]?.status === 'speaking';
+}
+
+function currentSpeakerName() {
+  const q = roomMeetingController.snapshot().queue || [];
+  const agentId = q[0]?.agentId;
+  const agent = agentId ? appState.activeMembersById?.[agentId] : null;
+  return agent?.name || '当前董事';
+}
+
+function shouldAskPauseBeforeLeavingRoom(targetScreen) {
+  return isRoomSurface()
+    && !isRoomSurface(targetScreen)
+    && !!appState.activeRoomId
+    && appState.activeRoomStatus === 'live'
+    && roomIsSpeaking();
+}
+
+async function prepareLeaveRoomSurface(targetScreen) {
+  if (!shouldAskPauseBeforeLeavingRoom(targetScreen)) return true;
+  const mode = await appPauseChoice({ speaker: currentSpeakerName() });
+  if (mode === 'cancel') return false;
+  try {
+    const result = await roomActionController.pause(appState.activeRoomId, mode);
+    if (result.room) applyActionRoomState(result.room);
+    if (mode === 'hard' && !result.pending && !result.benignRace) {
+      appState.activeRoomStatus = result.room?.status || 'paused';
+      stopBoardroomVoicePlayback();
+      renderRoomActions();
+    }
+    return true;
+  } catch (e) {
+    alert('暂停失败：' + e.message);
+    return false;
+  }
+}
+
+function navigateAfterLeaveGuard(targetScreen, navigate) {
+  if (!shouldAskPauseBeforeLeavingRoom(targetScreen)) {
+    navigate();
+    return;
+  }
+  prepareLeaveRoomSurface(targetScreen).then((ok) => {
+    if (ok) navigate();
+  });
+}
+
 async function submitMessage(inputId = 'rc-input') {
   const input = document.getElementById(inputId);
   if (!input) return;
   const text = String(input.value || '').trim();
   if (!text) return;
   if (!appState.activeRoomId) { alert('请先打开一个房间'); return; }
+  const roomStatus = appState.activeRoomStatus;
+  if (roomStatus !== 'paused' && roomStatus !== 'adjourned' && !(await requireModelKey())) return;
   input.value = '';
   // Mirror input to the sibling composer (room-chat ↔ boardroom share state).
   const mirrorId = inputId === 'rc-input' ? 'bd-input' : 'rc-input';
@@ -1974,14 +3395,27 @@ async function submitMessage(inputId = 'rc-input') {
         if (a && !mentions.includes(a.id)) mentions.push(a.id);
       });
     }
-    const r = await fetch(`/api/rooms/${encodeURIComponent(appState.activeRoomId)}/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(mentions.length ? { body: text, mentions } : { body: text }),
+    let sendMode;
+    if (roomIsSpeaking()) {
+      const choice = await appSendChoice({ speaker: currentSpeakerName() });
+      if (choice === 'cancel') {
+        input.value = text;
+        if (mirror) mirror.value = text;
+        return;
+      }
+      if (choice === 'queue') sendMode = 'after-speaker';
+    }
+    const result = await roomSendController.submit({
+      roomId: appState.activeRoomId,
+      roomStatus,
+      body: text,
+      mentions,
+      mode: sendMode,
     });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
+    if (!result.consumed) {
+      input.value = text;
+      if (mirror) mirror.value = text;
+      return;
     }
     await loadActiveRoomMessages();
     // Also bump the boardroom subtitle/title freshness if we're on it.
@@ -1997,16 +3431,7 @@ async function submitMessage(inputId = 'rc-input') {
 async function adjournActiveRoom() {
   const id = appState.activeRoomId;
   if (!id) return;
-  if (!confirm('结束本次会议并归档？')) return;
-  try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/adjourn`, { method: 'POST' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    appState.activeRoomStatus = 'adjourned';
-    renderRoomActions();
-    await loadActiveRoomMessages();
-  } catch (e) {
-    alert('归档失败：' + e.message);
-  }
+  openAdjournOverlay();
 }
 
 // ── auto-continue countdown · delegated to shared controller ──
@@ -2037,24 +3462,30 @@ const autoContinueController = new window.RoomAutoContinue.AutoContinueControlle
 });
 
 function buildRoomSnapshot() {
+  const onRoomSurface = isRoomSurface();
+  const promptId = window.RoomAutoContinue.activeRoundPromptId(
+    roomMeetingController.snapshot?.().messages || [],
+    appState.activeChair?.id,
+  );
   return {
-    id: appState.activeRoomId,
+    id: onRoomSurface ? appState.activeRoomId : null,
     status: appState.activeRoomStatus,
     awaitingClarify: appState.activeRoomAwaitingClarify,
     awaitingContinue: appState.activeRoomAwaitingContinue,
     voteTrigger: appState.activeRoomVoteTrigger,
     queueLen: appState.activeRoomQueueLen || 0,
     round: appState.activeRoomRound,
+    activeRoundPromptId: promptId,
     lastAgentMsg: {
       // Mobile doesn't track a per-message `streaming` flag the way PC
       // does; the proxy that matters here is "is a voice clip from the
       // last director still playing" — auto-continuing on top of that
       // talks over them. Voice queue length covers the streamed-but-
       // not-yet-played case.
-      streaming: (appState.voiceQueue?.length || 0) > 0,
+      streaming: (roomVoiceController.queue?.length || 0) > 0,
       voicePlaying: !!appState.voicePlaying,
     },
-    chairPending: false,
+    chairPending: !!appState.activeRoomChairPending,
   };
 }
 
@@ -2063,6 +3494,10 @@ function buildRoomSnapshot() {
  *  `maybeStartAutoContinue()`. Idempotent · the controller no-ops if
  *  the answer didn't change. */
 function syncAutoContinue() {
+  if (!isRoomSurface()) {
+    detachAutoContinue();
+    return;
+  }
   autoContinueController.setRoom(buildRoomSnapshot());
 }
 
@@ -2092,8 +3527,10 @@ function detachAutoContinue() {
 
 async function continueDiscussion() {
   cancelAutoContinue();
+  if (!isRoomSurface()) return;
   const id = appState.activeRoomId;
   if (!id) return;
+  if (!(await requireModelKey())) return;
   // Pending flag · cleared by SSE when a new director starts speaking,
   // OR by a 30s safety timeout. While true, renderRoomActions keeps
   // the primary button disabled with "推进中..." copy.
@@ -2112,11 +3549,9 @@ async function continueDiscussion() {
     let status = appState.activeRoomStatus;
     let awaitingClarify = appState.activeRoomAwaitingClarify;
     try {
-      const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
+      const st = await refreshRoomRuntime(id);
       status = st.room?.status || status;
       awaitingClarify = !!st.room?.awaitingClarify;
-      appState.activeRoomStatus = status;
-      appState.activeRoomAwaitingClarify = awaitingClarify;
     } catch {}
     if (awaitingClarify) {
       throw new Error('主席正在等你回答上面的问题，先在输入框回复一下再继续');
@@ -2126,18 +3561,24 @@ async function continueDiscussion() {
     }
     // Paused room must be resumed before /continue accepts it.
     if (status === 'paused') {
-      const rr = await fetch(`/api/rooms/${encodeURIComponent(id)}/resume`, { method: 'POST' });
-      if (!rr.ok) {
-        const j = await rr.json().catch(() => ({}));
-        throw new Error(j.error || `恢复失败 HTTP ${rr.status}`);
+      const canResume = await ensureVoiceResumeReady();
+      if (!canResume) {
+        appState.continuePending = false;
+        clearTimeout(appState._continuePendingTo);
+        renderRoomActions();
+        return;
       }
-      appState.activeRoomStatus = 'live';
+      const resumeResult = await roomActionController.resume(id);
+      applyActionRoomState(resumeResult.room || { id, status: 'live' });
+      status = appState.activeRoomStatus;
     }
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/continue`, { method: 'POST' });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
+    const continueResult = await roomActionController.continue(id);
+    if (continueResult.benignRace) {
+      appState.continuePending = false;
+      clearTimeout(appState._continuePendingTo);
+      return;
     }
+    if (continueResult.room) applyActionRoomState(continueResult.room);
     await loadActiveRoomMessages();
     // Append a transient "thinking" placeholder so the user knows the
     // chair is queueing the next speaker. SSE message-appended will
@@ -2153,8 +3594,7 @@ async function continueDiscussion() {
       scrollToBottom();
     }
     try {
-      const st = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
-      appState.activeRoomStatus = st.room?.status || appState.activeRoomStatus;
+      await refreshRoomRuntime(id);
     } catch {}
   } catch (e) {
     appState.continuePending = false;
@@ -2168,28 +3608,39 @@ async function continueDiscussion() {
 async function regenerateBrief() {
   const id = appState.activeRoomId;
   if (!id) return;
+  if (!(await requireModelKey())) return;
   const status = appState.activeRoomStatus;
   if (status !== 'adjourned') {
-    if (!confirm('房间还没归档。先归档再生成报告？')) return;
-    try {
-      const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/adjourn`, { method: 'POST' });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      appState.activeRoomStatus = 'adjourned';
-    } catch (e) { alert('归档失败：' + e.message); return; }
-  }
-  const supplement = prompt('追加给 chair 的指示（可空）', '') || '';
-  try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/brief`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(supplement ? { supplement } : {}),
+    const ok = await appConfirm({
+      title: '先归档再生成报告？',
+      sub: '房间还没归档。报告需要基于已归档的会议生成。',
+      okLabel: '归档并生成',
     });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
+    if (!ok) return;
+  }
+  const raw = await appPrompt({
+    title: '追加给 chair 的指示',
+    sub: '可空。引导报告侧重点，例如「重点突出风险点」「给出投资建议」。',
+    placeholder: '直接确定 = 默认风格',
+    okLabel: '生成报告',
+  });
+  if (raw === null) return; // user cancelled
+  const supplement = (raw || '').trim();
+  try {
+    // Single path mirrors PC: when not yet adjourned, the shared controller
+    // adjourns with skipBrief:true (no server auto-brief) THEN files exactly
+    // one brief — no double generation.
+    const result = await roomActionController.generateBrief(id, {
+      ensureAdjourned: true,
+      status,
+      supplement,
+    });
+    if (result.adjourned && result.adjourned.room) {
+      applyActionRoomState(result.adjourned.room);
+    } else if (status !== 'adjourned') {
+      applyActionRoomState({ id, status: 'adjourned' });
     }
-    const data = await r.json();
-    alert(`报告生成中（briefId=${(data.briefId || '').slice(0, 8)}…）。完成后会出现在「报告」tab。`);
+    alert(`报告生成中（briefId=${(result.briefId || '').slice(0, 8)}…）。完成后会出现在「报告」tab。`);
     setTimeout(() => bootstrapBriefs(), 1500);
   } catch (e) {
     alert('生成失败：' + e.message);
@@ -2203,88 +3654,146 @@ function exportRoomMarkdown() {
   window.open(`/api/rooms/${encodeURIComponent(id)}/export.md`, '_blank');
 }
 
-function renderRoomActions() {
-  const bar = document.getElementById('rc-actions');
-  const btn = document.getElementById('rc-act-primary');
-  const moreBtn = document.getElementById('rc-act-more');
-  const input = document.getElementById('rc-input');
+/** Compute the single primary-action state shared by every surface.
+ *  Returns either `{ hidden: true }` (no sensible action · bar hidden,
+ *  composer placeholder reframed) or a fully-specified button spec.
+ *  The decision tree is identical to PC's queue-strip / round-prompt
+ *  affordance — surfaces only differ in WHERE the button paints. */
+function computeRoomActionState() {
+  const base = window.RoomMeetingRuntime.deriveRoomActionState({
+    roomId: appState.activeRoomId,
+    status: appState.activeRoomStatus,
+    awaitingClarify: appState.activeRoomAwaitingClarify,
+    awaitingContinue: appState.activeRoomAwaitingContinue,
+    pendingVoteMessageId: appState.pendingVoteMessageId,
+    voteQueued: appState.activeRoomVoteQueued,
+    continuePending: appState.continuePending,
+    queueLen: appState.activeRoomQueueLen,
+    round: appState.activeRoomRound,
+    secondsLeft: appState.autoContinue?.secondsLeft || 0,
+  });
+  const defaults = { bg: 'var(--gold)', color: '#0A0A0A' };
+  const map = {
+    none: { hidden: true, placeholder: '你的回应...' },
+    clarify: { hidden: true, placeholder: '主席等你回答上面的问题...' },
+    'vote-queued': { kind: 'busy', label: '⏳ 等本轮结束后总结...', onClick: () => forceRoomRefresh(), bg: 'var(--panel)', color: 'var(--ink-dim)', opacity: '0.65' },
+    busy: { kind: 'busy', label: '⏳ 等讲完... (点击刷新)', onClick: () => forceRoomRefresh(), bg: 'var(--panel)', color: 'var(--ink-dim)', opacity: '0.55' },
+    keypoints: { ...defaults, label: '🗳 投票关键点', onClick: () => { openRoomVote(); appState.pendingVoteMessageId = null; renderRoomActions(); } },
+    'awaiting-continue': { ...defaults, label: '✓ 确认继续', onClick: continueDiscussion },
+    'live-continue': { ...defaults, label: base.secondsLeft > 0 ? `▶ 继续讨论 · ${base.secondsLeft}s` : '▶ 继续讨论', onClick: continueDiscussion },
+    'paused-resume': { ...defaults, label: '⏯ 恢复并继续', onClick: continueDiscussion },
+    'adjourned-brief': { ...defaults, label: '📝 生成报告', onClick: regenerateBrief },
+    unknown: { label: '—', onClick: null, bg: 'var(--panel)', color: 'var(--ink-mid)' },
+  };
+  return { ...base, ...(map[base.kind] || map.unknown) };
+}
+
+/** Paint one action surface (bar + button) from a computed state. The
+ *  bar uses `displayMode` (rc-actions is a flex pill bar; bd-actions is
+ *  a plain block in the stage column). */
+function paintRoomActionSurface(barId, btnId, endBtnId, displayMode, state) {
+  const bar = document.getElementById(barId);
+  const btn = document.getElementById(btnId);
   if (!bar || !btn) return;
-  // "⋯ 更多" always visible once a room is active.
-  if (moreBtn) moreBtn.style.display = appState.activeRoomId ? 'block' : 'none';
-  const status = appState.activeRoomStatus;
-  // Chair-clarify · the only sensible action is to type into the composer.
-  // Hide the action bar and reframe the input placeholder.
-  if (appState.activeRoomAwaitingClarify) {
+  const endBtn = endBtnId ? document.getElementById(endBtnId) : null;
+  // Boardroom already has the visible speaker, subtitle, and voice
+  // toggle; a disabled "waiting" bar competes with those controls and
+  // overlaps the composer on short/mobile viewports. Keep the busy
+  // refresh affordance in chat only, where it replaces the transcript
+  // action bar and has enough fixed space.
+  const hiddenOnThisSurface = state.hidden || (barId === 'bd-actions' && state.kind === 'busy');
+  if (hiddenOnThisSurface) {
     bar.style.display = 'none';
-    if (input) input.placeholder = '主席等你回答上面的问题...';
+    if (endBtn) endBtn.style.display = 'none';
+    requestAnimationFrame(syncBottomChromeHeights);
     return;
   }
-  if (input) input.placeholder = '你的回应...';
-  bar.style.display = appState.activeRoomId ? 'flex' : 'none';
-  if (!appState.activeRoomId) return;
-  if (status === 'live') {
-    // PC parity · the action bar (with "继续讨论") only makes sense
-    // when the room is idle (a round-prompt is awaiting the user).
-    // Hide it whenever directors are still speaking, the chair is mid-
-    // turn, or a continue we triggered hasn't produced a director
-    // round yet. The bar reappears when canAutoContinue() conditions
-    // resolve back to true via SSE / queue updates.
-    const round = appState.activeRoomRound || { spoken: 0, total: 0 };
-    // Room is "busy" when directors are still speaking. An empty round
-    // (total === 0, e.g. just-resumed paused room with no prompt yet)
-    // is treated as IDLE so the user can still see the action bar.
-    const roomBusy = appState.continuePending
-      || (appState.activeRoomQueueLen || 0) > 0
-      || (round.total > 0 && round.spoken < round.total);
-    const showSpecial = appState.pendingVoteMessageId || appState.activeRoomAwaitingContinue;
-    if (roomBusy && !showSpecial) {
-      bar.style.display = 'flex';
-      btn.textContent = '⏳ 等讲完... (点击刷新)';
-      // Click = force re-sync. Covers the case where SSE missed a
-      // final event and the local round/queue cache is stale.
-      btn.onclick = () => { forceRoomRefresh(); };
-      btn.disabled = false;
-      btn.style.opacity = '0.55';
-      btn.style.background = 'var(--panel)';
-      btn.style.color = 'var(--ink-dim)';
-      return;
+  bar.style.display = displayMode;
+  btn.textContent = state.label;
+  btn.onclick = state.onClick;
+  btn.disabled = false;
+  btn.style.opacity = state.opacity || '';
+  btn.style.background = state.bg;
+  btn.style.color = state.color;
+  // Secondary "结束会议" affordance · shown at round boundaries so the
+  // user can adjourn instead of being forced to continue.
+  if (endBtn) {
+    if (state.showEnd) {
+      endBtn.style.display = 'block';
+      endBtn.onclick = adjournActiveRoom;
+    } else {
+      endBtn.style.display = 'none';
     }
-    btn.disabled = false; btn.style.opacity = '';
-    if (appState.pendingVoteMessageId) {
-      btn.textContent = '🗳 投票关键点';
-      btn.onclick = () => { openRoomVote(); appState.pendingVoteMessageId = null; renderRoomActions(); };
-      btn.style.background = 'var(--gold)';
-      btn.style.color = '#0A0A0A';
-      return;
-    }
-    if (appState.activeRoomAwaitingContinue) {
-      btn.textContent = '✓ 确认继续';
-      btn.onclick = continueDiscussion;
-      btn.style.background = 'var(--gold)';
-      btn.style.color = '#0A0A0A';
-      return;
-    }
-    const left = appState.autoContinue?.secondsLeft || 0;
-    btn.textContent = left > 0 ? `▶ 继续讨论 · ${left}s` : '▶ 继续讨论';
-    btn.onclick = continueDiscussion;
-    btn.style.background = 'var(--gold)';
-    btn.style.color = '#0A0A0A';
-  } else if (status === 'paused') {
-    btn.textContent = '⏯ 恢复并继续';
-    btn.onclick = continueDiscussion;
-    btn.style.background = 'var(--gold)';
-    btn.style.color = '#0A0A0A';
-  } else if (status === 'adjourned') {
-    btn.textContent = '📝 生成报告';
-    btn.onclick = regenerateBrief;
-    btn.style.background = 'var(--gold)';
-    btn.style.color = '#0A0A0A';
-  } else {
-    btn.textContent = '—';
-    btn.onclick = null;
-    btn.style.background = 'var(--panel)';
-    btn.style.color = 'var(--ink-mid)';
   }
+  requestAnimationFrame(syncBottomChromeHeights);
+}
+
+function renderRoomActions() {
+  const moreBtn = document.getElementById('rc-act-more');
+  // "⋯ 更多" always visible once a room is active.
+  if (moreBtn) moreBtn.style.display = appState.activeRoomId ? 'block' : 'none';
+  const state = computeRoomActionState();
+  // Composer placeholders track the clarify / normal phase on both
+  // the chat input and the boardroom input.
+  const placeholder = state.placeholder || '你的回应...';
+  const rcInput = document.getElementById('rc-input');
+  if (rcInput) rcInput.placeholder = placeholder;
+  const bdInput = document.getElementById('bd-input');
+  if (bdInput) bdInput.placeholder = placeholder === '你的回应...' ? '加入讨论...' : placeholder;
+  // Paint both surfaces · only one is visible at a time (the inactive
+  // screen is display:none) but painting both keeps them in lockstep
+  // so switching views never shows a stale button.
+  paintRoomActionSurface('rc-actions', 'rc-act-primary', 'rc-act-end', 'flex', state);
+  paintRoomActionSurface('bd-actions', 'bd-act-primary', 'bd-act-end', 'block', state);
+  renderRoomMoreMenu();
+}
+
+function renderRoomMoreMenu() {
+  const sheet = document.querySelector('.sheet[data-sheet="room-more"]');
+  if (!sheet) return;
+  const status = appState.activeRoomStatus || 'live';
+  const state = computeRoomActionState();
+  const row = (key) => sheet.querySelector(`[data-room-more-row="${key}"]`);
+  const show = (key, visible) => {
+    const el = row(key);
+    if (el) el.style.display = visible ? '' : 'none';
+  };
+  const isLive = status === 'live';
+  const isPaused = status === 'paused';
+  const isAdjourned = status === 'adjourned';
+  const canPrimary = !!(state && state.onClick && state.kind !== 'busy' && !state.hidden);
+  const canContinue = canPrimary && (
+    isPaused
+    || !!state.showEnd
+    || /^▶/.test(String(state.label || ''))
+    || /^✓/.test(String(state.label || ''))
+  );
+  const canEndRound = isLive && (appState.activeRoomVoteTrigger === 'manual' || !!state.showEnd);
+  const hasVotePhase = !!(
+    appState.pendingVoteMessageId
+    || appState.activeRoomAwaitingContinue
+    || appState.activeRoomModeShiftProposal
+  );
+  show('continue', canContinue && !isAdjourned);
+  show('round-end', canEndRound);
+  show('pause', isLive || isPaused);
+  show('vote-trigger', isLive || isPaused);
+  show('cast', !!appState.activeRoomId);
+  show('divergence', !!appState.activeRoomId);
+  show('notes', !!appState.activeRoomId);
+  show('keypoints', hasVotePhase);
+  show('brief', isAdjourned);
+  show('export', isAdjourned);
+  show('adjourn', isLive || isPaused);
+
+  const pauseLabel = document.getElementById('rc-pause-label');
+  if (pauseLabel) pauseLabel.textContent = isPaused ? '恢复讨论' : '暂停讨论';
+  const continueLbl = row('continue')?.querySelector('.lbl');
+  if (continueLbl && state && state.label) {
+    continueLbl.innerHTML = `<span class="ic">▶</span> ${escapeHtml(String(state.label).replace(/^[▶✓⏯]\s*/, ''))}`;
+  }
+  const vl = document.getElementById('rc-vote-trigger-label');
+  if (vl) vl.textContent = appState.activeRoomVoteTrigger === 'manual' ? '手动 ›' : '自动 ›';
 }
 
 // ── new room sheet ────────────────────────────────────────
@@ -2323,37 +3832,62 @@ function flashSheetError(msg) {
   clearTimeout(flashSheetError._t);
   flashSheetError._t = setTimeout(() => { err.style.display = 'none'; }, 3000);
 }
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const opt = e.target.closest('#sh-modes .opt');
-  if (opt) { appState.selectedMode = opt.dataset.mode || 'debate'; return; }
+  if (opt) {
+    appState.selectedMode = opt.dataset.mode || 'debate';
+    document.querySelectorAll('#sh-modes .opt').forEach(el => el.classList.toggle('on', el === opt));
+    return;
+  }
   const optD = e.target.closest('#sh-delivery .opt');
-  if (optD) { appState.selectedDelivery = optD.dataset.delivery || 'voice'; }
+  if (optD) {
+    const next = optD.dataset.delivery || 'voice';
+    if (next === 'voice') {
+      if (!hasAnyMobileVoiceKey()) await refreshMobileVoiceKeySnapshot();
+      if (!hasAnyMobileVoiceKey()) {
+        appState.selectedDelivery = 'text';
+        document.querySelectorAll('#sh-delivery .opt').forEach(el => {
+          el.classList.toggle('on', el.dataset.delivery === 'text');
+        });
+        const open = await appConfirm({
+          title: '需要配置语音凭据',
+          sub: 'PC 端没有 TTS 凭据时不会启用语音房间。先配置并激活语音凭据后再选择真人声音。',
+          okLabel: '查看凭据',
+        });
+        if (open) await openCredentialMgr('voice');
+        return;
+      }
+    }
+    appState.selectedDelivery = next;
+    document.querySelectorAll('#sh-delivery .opt').forEach(el => el.classList.toggle('on', el === optD));
+  }
 });
 
 async function submitNewRoom() {
   const subjectEl = document.getElementById('sh-subject');
   const subject = String(subjectEl?.value || '').trim();
   if (!subject) { flashSheetError('讨论主题不能为空'); return; }
+  if (!(await requireModelKey())) return;
+  if (appState.selectedDelivery === 'voice') {
+    if (!hasAnyMobileVoiceKey()) await refreshMobileVoiceKeySnapshot();
+    if (!hasAnyMobileVoiceKey()) {
+      flashSheetError('需要先配置并激活语音凭据，才能创建语音房间');
+      return;
+    }
+  }
   const agentIds = Array.from(appState.selectedCastIds);
-  if (agentIds.length === 0) { flashSheetError('至少选 1 位董事'); return; }
   const btn = document.getElementById('sh-submit');
   if (btn) { btn.textContent = '开会中...'; btn.style.opacity = '0.5'; btn.disabled = true; }
   try {
-    const r = await fetch('/api/rooms', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        subject,
-        agentIds,
-        mode: appState.selectedMode,
-        deliveryMode: appState.selectedDelivery,
-      }),
+    const data = await roomRuntimeApi.createRoom({
+      subject,
+      agentIds,
+      mode: appState.selectedMode,
+      intensity: 'sharp',
+      briefStyle: 'auto',
+      deliveryMode: appState.selectedDelivery,
+      autoPick: agentIds.length === 0,
     });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
-    }
-    const data = await r.json();
     const newRoomId = data.room?.id;
     closeSheet();
     if (subjectEl) subjectEl.value = '';
@@ -2378,6 +3912,7 @@ openSheet = function(name) {
 // ── new agent build ───────────────────────────────────────
 const VOICE_URL_RE = /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|bilibili\.com|b23\.tv|vimeo\.com|x\.com|twitter\.com|weibo\.com|tiktok\.com|douyin\.com|xiaohongshu\.com|xhslink\.com)\/\S+/i;
 function onNewAgentDescInput(value) {
+  saveAgentDraft(String(value || ''));
   const hint = document.getElementById('new-agent-url-hint');
   if (!hint) return;
   hint.style.display = VOICE_URL_RE.test(String(value || '')) ? 'flex' : 'none';
@@ -2388,27 +3923,29 @@ async function submitNewAgent() {
   const raw = String(ta?.value || '').trim();
   const err = document.getElementById('new-agent-error');
   if (err) err.style.display = 'none';
-  if (raw.length < 6) {
+  // Align the min-length gate with PC/backend (description.length < 2). The
+  // backend (POST /generate-persona) also enforces >= 2, so this just mirrors
+  // it instead of imposing a stricter mobile-only 6-char floor.
+  if (raw.length < 2) {
     if (err) { err.textContent = '描述太短，多写几句'; err.style.display = 'block'; }
     return;
   }
   const urlMatch = raw.match(VOICE_URL_RE);
-  const voiceSourceUrl = urlMatch ? urlMatch[0] : '';
   const description = raw.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
   const btn = document.getElementById('new-agent-submit');
   if (btn) { btn.textContent = '启动中...'; btn.disabled = true; btn.style.opacity = '0.5'; }
   try {
-    const r = await fetch('/api/agents/generate-persona', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ description, voiceSourceUrl, locale: 'zh' }),
+    // Shared start-payload builder · only attaches voiceSourceUrl when a video
+    // link was actually extracted (matches PC).
+    const payload = window.AgentRuntime.buildPersonaStartPayload(description, {
+      locale: 'zh',
+      voiceSourceUrl: urlMatch ? urlMatch[0] : '',
     });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
-    }
-    const data = await r.json();
+    const data = await agentApi.generatePersona(payload);
     appState.activeBuildJobId = data.jobId || data.id;
+    // Build kicked off successfully · the draft is now committed, clear it.
+    clearAgentDraft();
+    if (ta) ta.value = '';
     goto('build-progress');
     subscribeBuildStream(appState.activeBuildJobId);
   } catch (e) {
@@ -2423,12 +3960,78 @@ async function cancelBuild() {
   if (!jobId) { goto('agents'); return; }
   if (!confirm('取消正在进行的董事构建？这一步无法撤销。')) return;
   try {
-    await fetch(`/api/agents/generate-persona/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
+    await agentApi.abortPersona(jobId);
   } catch {}
   if (appState.buildStream) { try { appState.buildStream.close(); } catch {} appState.buildStream = null; }
   try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
   appState.activeBuildJobId = null;
   goto('agents');
+}
+
+// persona-final lands the finished spec but does NOT persist a director —
+// the backend's POST /generate-persona/:jobId/save is the only path that
+// inserts the agent (mirrors PC's openPersonaConfirmOverlay → save). Without
+// this, mobile builds completed but created nothing. We confirm the name
+// (pre-filled with the server's guessName) and save with the presentation
+// fields the stream route already attached to the persona-final payload.
+// Backend name bounds for POST /save (src/routes/agents.ts NAME_MIN/NAME_MAX).
+const AGENT_NAME_MIN = 2;
+const AGENT_NAME_MAX = 32;
+async function finishNewAgentBuild(jobId, payload) {
+  appState.activeBuildJobId = null;
+  if (!jobId) { goto('agents'); await bootstrapAgents(); return; }
+  const data = payload || {};
+  // Retain the finished build so a cancelled or failed save can be retried
+  // rather than silently lost (the job stays `done` server-side).
+  appState.pendingBuildSave = { jobId, payload: data };
+  let suggested = (typeof data.guessName === 'string' && data.guessName.trim()) ? data.guessName.trim() : '';
+  // Loop until the director is saved, or the user explicitly abandons it.
+  // We only navigate away (and clear pendingBuildSave) on a confirmed save.
+  while (true) {
+    const name = await appPrompt({
+      title: '为这位董事命名',
+      sub: `构建完成。确认名字（${AGENT_NAME_MIN}–${AGENT_NAME_MAX} 字）后即可加入董事会。`,
+      placeholder: '例如：Warren Buffett',
+      value: suggested,
+      okLabel: '保存董事',
+    });
+    if (name === null) {
+      alert('未保存这位董事。构建结果已保留，可重新进入「董事 → 新建」再次保存。');
+      goto('agents');
+      await bootstrapAgents();
+      return;
+    }
+    const trimmed = name.trim();
+    suggested = trimmed; // keep the user's input across a retry
+    if (trimmed.length < AGENT_NAME_MIN || trimmed.length > AGENT_NAME_MAX) {
+      alert(`名字需为 ${AGENT_NAME_MIN}–${AGENT_NAME_MAX} 个字符`);
+      continue;
+    }
+    try {
+      const avatarPath = SEED_SPRITES[Math.floor(Math.random() * SEED_SPRITES.length)];
+      // Shared save-payload builder (AgentRuntime.buildPersonaSavePayload).
+      const body = window.AgentRuntime.buildPersonaSavePayload(data, { name: trimmed, avatarPath });
+      await agentApi.savePersona(jobId, body);
+      // Saved · only now is it safe to leave the build behind.
+      appState.pendingBuildSave = null;
+      goto('agents');
+      await bootstrapAgents();
+      return;
+    } catch (e) {
+      const retry = await appConfirm({
+        title: '保存失败',
+        sub: (e && e.message ? e.message : String(e)) + '\n构建结果已保留，可重试。',
+        okLabel: '重试',
+        cancelLabel: '稍后再说',
+      });
+      if (!retry) {
+        goto('agents');
+        await bootstrapAgents();
+        return;
+      }
+      // loop: re-prompt (suggested keeps their last input) and retry the save
+    }
+  }
 }
 
 // Persona-build phase labels · mapped 1:1 to the backend's
@@ -2525,6 +4128,12 @@ function subscribeBuildStream(jobId) {
   // + progressPct but not detail). `voiceDistillPhase` is sticky
   // within Phase 5 only · clear on transition out.
   const state = { phase: 1, detail: '', progressPct: 0, voiceDistillPhase: 0 };
+  // Set once a terminal event (final / aborted / error) arrives. Until then,
+  // a dropped connection must NOT tear the stream down — native EventSource
+  // auto-reconnects (backend replays via `hello`), which both keeps progress
+  // live on flaky mobile networks AND ensures persona-final still lands to
+  // trigger the save. PC reconnects for the same reason.
+  let terminal = false;
 
   const paint = () => {
     if (phaseEl) phaseEl.textContent = `${state.phase} / ${PERSONA_PHASE_LABELS.length}`;
@@ -2554,90 +4163,46 @@ function subscribeBuildStream(jobId) {
     // Useful when the user reopens the build screen mid-flight: we
     // hydrate from {currentPhase, progressPct} on the job row before
     // the live bus pumps its first event.
-    es.addEventListener('hello', (ev) => {
-      try {
-        const j = JSON.parse(ev.data);
-        if (typeof j.currentPhase === 'number') state.phase = Math.max(1, j.currentPhase);
-        if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
-        paint();
-      } catch {}
-    });
-
-    // `persona-phase-start` · earliest signal that a new phase has
-    // begun. Flip the row classes immediately so there's no lag
-    // before the first reportProgress lands.
-    es.addEventListener('persona-phase-start', (ev) => {
-      try {
-        const j = JSON.parse(ev.data);
-        if (typeof j.phase === 'number') {
-          // Clear nested voice-distill state when leaving Phase 5
-          // so we don't carry stale substep highlight into Phase 6+.
-          if (state.phase === 5 && j.phase !== 5) state.voiceDistillPhase = 0;
-          state.phase = j.phase;
-        }
-        // Use label as a starter detail · reportProgress will overwrite
-        // it almost immediately with the more specific "drafting…" text.
-        if (typeof j.label === 'string') state.detail = j.label;
-        tickSfx();
-        paint();
-      } catch {}
-    });
-
-    // `persona-phase-progress` · mid-phase. Carries `phase`, `detail`,
-    // `progressPct`. Backend uses `detail`, NOT `phaseDetail`. When
-    // Phase 5's voice-clone sub-task is running, `voiceDistillPhase`
-    // rides along (1-10) so we can render the nested substep list.
-    es.addEventListener('persona-phase-progress', (ev) => {
-      try {
-        const j = JSON.parse(ev.data);
-        if (typeof j.phase === 'number') state.phase = j.phase;
-        if (typeof j.detail === 'string') state.detail = j.detail;
-        if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
-        if (typeof j.voiceDistillPhase === 'number') {
-          state.voiceDistillPhase = j.voiceDistillPhase;
-        }
-        tickSfx();
-        paint();
-      } catch {}
-    });
-
-    // `persona-phase-end` · phase N finished. Bumping phase here is
-    // belt-and-braces · phase-start for N+1 normally fires right
-    // after, but if the next phase's first event is slow this keeps
-    // the UI from stranding on the just-finished row.
-    es.addEventListener('persona-phase-end', (ev) => {
-      try {
-        const j = JSON.parse(ev.data);
-        if (typeof j.phase === 'number' && j.phase >= state.phase) {
-          // Leaving Phase 5 · drop nested voice-distill state.
-          if (j.phase === 5) state.voiceDistillPhase = 0;
-          state.phase = Math.min(PERSONA_PHASE_LABELS.length, j.phase + 1);
-          state.detail = '';
-        }
-        if (typeof j.progressPct === 'number') state.progressPct = j.progressPct;
-        tickSfx();
-        paint();
-      } catch {}
-    });
+    // Phase bookkeeping (hello / phase-start / phase-progress / phase-end) is
+    // reduced by the shared AgentRuntime.reducePersonaEvent — one reducer
+    // instead of four near-identical inline handlers. (Display cadence matches
+    // the mobile shell's prior behavior; see the helper's note re: PC.)
+    const applyPhaseEvent = (type, tick) => (ev) => {
+      let d = {};
+      try { d = JSON.parse(ev.data); } catch { return; }
+      Object.assign(state, window.AgentRuntime.reducePersonaEvent(type, d, state, PERSONA_PHASE_LABELS.length));
+      if (tick) tickSfx();
+      paint();
+    };
+    es.addEventListener('hello', applyPhaseEvent('hello', false));
+    es.addEventListener('persona-phase-start', applyPhaseEvent('persona-phase-start', true));
+    es.addEventListener('persona-phase-progress', applyPhaseEvent('persona-phase-progress', true));
+    es.addEventListener('persona-phase-end', applyPhaseEvent('persona-phase-end', true));
 
     const stopBgm = () => {
       try { window.boardroomAgentBuildBgm?.stop?.(); } catch {}
     };
 
-    es.addEventListener('persona-final', () => {
+    es.addEventListener('persona-final', (ev) => {
+      terminal = true;
       try { es.close(); } catch {}
       appState.buildStream = null;
       stopBgm();
-      goto('agents');
-      bootstrapAgents();
+      let payload = null;
+      try { payload = JSON.parse(ev.data); } catch {}
+      // Persist the director (name confirmation + POST /save). Without this
+      // the build finishes but no agent is ever created.
+      finishNewAgentBuild(jobId, payload);
     });
     es.addEventListener('persona-aborted', () => {
+      terminal = true;
       try { es.close(); } catch {}
       appState.buildStream = null;
       stopBgm();
       goto('agents');
     });
     es.addEventListener('persona-error', (ev) => {
+      terminal = true;
       try {
         const j = JSON.parse(ev.data);
         if (subEl) subEl.textContent = `构建失败：${j.message || '未知错误'}`;
@@ -2647,6 +4212,13 @@ function subscribeBuildStream(jobId) {
       stopBgm();
     });
     es.onerror = () => {
+      // Only a terminal event tears the stream down. On a transient drop we
+      // leave the EventSource in its CONNECTING state so the browser retries
+      // automatically (backend `hello` replays the latest phase, and a drop
+      // right at completion still re-delivers persona-final → save). Closing
+      // here — as the old code did — permanently froze the build and skipped
+      // the save trigger.
+      if (!terminal) return;
       try { es.close(); } catch {}
       appState.buildStream = null;
       stopBgm();
@@ -2692,7 +4264,7 @@ async function loadActiveAgent() {
   const avEl = document.getElementById('ap-avatar');
   if (avEl) {
     avEl.innerHTML = '';
-    if (a.avatarPath?.startsWith('/avatars/') && a.avatarPath !== '/avatars/chair.svg') {
+    if (a.avatarPath?.startsWith('/avatars/') && a.avatarPath !== '/avatars/chair.svg' && a.avatarPath !== '/avatars/3d/chair.png') {
       avEl.innerHTML = `<img src="${escapeHtml(a.avatarPath)}" style="width:88px;height:96px;image-rendering:pixelated;">`;
       avEl.style.background = 'linear-gradient(135deg,var(--panel-2),var(--panel-3))';
     } else if (a.avatarPath?.startsWith('data:image/')) {
@@ -2725,37 +4297,37 @@ async function playVoicePreview() {
     try { await audio.play(); icon.textContent = '⏸'; sub.textContent = '播放中…'; } catch {}
     return;
   }
+  // Shared payload builder (AgentRuntime.buildVoicePreviewPayload): forwards
+  // the full shaping params and returns null when the director has no own
+  // voiceId — in which case we refuse rather than play a default voice that
+  // misrepresents the director (matches PC previewVoice).
+  const sampleText = a.coverQuote || `你好，我是${a.name}。${a.roleTag || ''}。`;
+  const body = window.AgentRuntime.buildVoicePreviewPayload(a.voice, sampleText);
+  if (!body) {
+    icon.textContent = '▶';
+    sub.textContent = '该董事还没有专属音色，先去克隆/指定声音';
+    return;
+  }
   // Fresh play · synth new audio.
   icon.textContent = '…';
   sub.textContent = '正在合成...';
   try {
-    const sampleText = a.coverQuote || `你好，我是${a.name}。${a.roleTag || ''}。`;
-    const body = {
-      text: sampleText.slice(0, 120),
-      provider: a.voice?.provider || 'minimax',
-      model: a.voice?.model || 'speech-2.8-hd',
-      voiceId: a.voice?.voiceId || 'male-qn-qingse',
-    };
-    const r = await fetch('/api/voices/preview', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
-    }
-    const j = await r.json();
-    if (j.audioBase64) {
-      audio.src = `data:${j.mimeType || 'audio/mpeg'};base64,${j.audioBase64}`;
-      audio.onended = () => { icon.textContent = '▶'; sub.textContent = '试听完毕，再点重听'; };
-      audio.onpause = () => { if (!audio.ended) { icon.textContent = '▶'; sub.textContent = '已暂停 · 点击继续'; } };
-      audio.onplay = () => { icon.textContent = '⏸'; sub.textContent = '播放中…'; };
-      await audio.play();
-    }
+    const j = await agentApi.previewVoice(body);
+    if (!j.audioBase64) throw new Error(j.error || '没有返回音频');
+    audio.src = `data:${j.mimeType || 'audio/mpeg'};base64,${j.audioBase64}`;
+    audio.onended = () => { icon.textContent = '▶'; sub.textContent = '试听完毕，再点重听'; };
+    audio.onpause = () => { if (!audio.ended) { icon.textContent = '▶'; sub.textContent = '已暂停 · 点击继续'; } };
+    audio.onplay = () => { icon.textContent = '⏸'; sub.textContent = '播放中…'; };
+    await audio.play();
   } catch (e) {
     icon.textContent = '▶';
-    sub.textContent = '试听失败：' + e.message;
+    // Structured paywall failure surfaces via err.code (propagated by the
+    // shared api client) · show the billing message instead of a generic error.
+    if (e && e.code === 'paid-plan-required') {
+      sub.textContent = `需升级${e.provider ? '（' + e.provider + '）' : ''}套餐：${e.message || '语音额度不足'}`;
+    } else {
+      sub.textContent = '试听失败：' + (e && e.message ? e.message : e);
+    }
   }
 }
 
@@ -2778,33 +4350,90 @@ async function redistillVoice() {
   const id = appState.activeAgentId;
   const a = id ? cachedAgentsById[id] : null;
   if (!a) return;
-  const url = prompt(
-    `重新蒸馏 ${a.name} 的声音\n\n` +
-    '粘贴一个 YouTube / B站 / TikTok / 微博等视频地址 (推荐时长 ≤ 30 min)：',
-    ''
-  );
-  if (!url || !/^https?:\/\//i.test(url)) {
-    if (url !== null) alert('请提供合法的视频 URL');
+  // Parity with PC startVoiceDistill: the video URL is OPTIONAL. Leave it
+  // blank to let the server auto-search a candidate clip by the director's
+  // name; only validate the format when the user actually pastes one.
+  const url = await appPrompt({
+    title: `重新蒸馏 ${a.name} 的声音`,
+    sub: '可留空 → 服务器按名字自动搜索候选视频；或粘贴 YouTube / B站 / TikTok / 微博 等视频地址（建议 ≤ 30 min）。',
+    placeholder: '留空＝自动搜索，或粘贴视频链接',
+    okLabel: '开始蒸馏',
+  });
+  if (url === null) return; // cancelled
+  const trimmed = (url || '').trim();
+  if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+    alert('链接格式不对（需以 http(s):// 开头）；留空则自动搜索。');
     return;
   }
   try {
-    const r = await fetch('/api/voices/clone-from-video', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        videoUrl: url.trim(),
-        celebrity: a.name,
-        agentId: a.id,
-      }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
-    }
-    alert(`蒸馏任务已提交。处理需要 3-10 分钟，完成后 voice_id 会自动绑定到 ${a.name}。`);
+    const body = { celebrity: a.name, agentId: a.id };
+    if (trimmed) body.videoUrl = trimmed; // omit → server auto-search
+    const data = await agentApi.cloneFromVideo(body);
+    if (data.jobId) subscribeVoiceDistillStream(data.jobId, a.name, !!trimmed);
+    else alert('蒸馏任务已提交。');
   } catch (e) {
     alert('提交失败：' + e.message);
   }
+}
+
+// Live progress for a voice-distill job · mirrors PC's _openVoiceDistillSse
+// (was fire-and-forget on mobile, so the user never saw progress / completion
+// / failure). Renders into a mobile panel and refreshes the agent on success
+// so the freshly-bound voiceId surfaces.
+function subscribeVoiceDistillStream(jobId, celebrity, hadUrl) {
+  const PANEL = 'vd-progress-overlay';
+  const st = { status: 'starting', phase: 1, progressPct: 0, detail: '', error: null };
+  const render = () => {
+    const pct = Math.max(0, Math.min(100, st.progressPct || 0));
+    let line = st.detail || (hadUrl ? '正在处理视频…' : '正在搜索候选视频…');
+    if (st.status === 'done') line = `✓ 完成，已绑定声音到 ${celebrity}`;
+    else if (st.status === 'failed') line = `✗ 失败：${st.error || '未知错误'}`;
+    else if (st.status === 'aborted') line = '已取消';
+    const active = st.status === 'starting' || st.status === 'running';
+    const bar = active
+      ? `<div style="height:6px;background:var(--panel-2);border-radius:3px;overflow:hidden;margin:10px 0;"><div style="height:100%;width:${pct}%;background:var(--gold);transition:width .3s;"></div></div>`
+      : '';
+    const html = `<div id="vd-progress-body">`
+      + `<div style="font-size:13px;color:var(--ink);">${escapeHtml(line)}</div>`
+      + bar
+      + `<div style="font-size:11px;color:var(--ink-dim);">阶段 ${st.phase || 1} · ${pct}%</div>`
+      + `</div>`;
+    const cur = document.getElementById('vd-progress-body');
+    if (cur) cur.outerHTML = html;
+    else openMobilePanel({ id: PANEL, kicker: '声音蒸馏', title: `${celebrity} 的声音`, body: html });
+  };
+  render();
+  let terminal = false;
+  const es = new EventSource(`/api/voices/clone-from-video/${encodeURIComponent(jobId)}/stream`);
+  // All distill SSE events fold through the shared reducer so mobile/PC track
+  // identical job state; terminal events (final/error/aborted) set `terminal`.
+  const DISTILL_EVENTS = ['hello', 'voice-distill-phase-start', 'voice-distill-phase-progress', 'voice-distill-phase-end', 'voice-distill-warning', 'voice-distill-final', 'voice-distill-error', 'voice-distill-aborted'];
+  DISTILL_EVENTS.forEach((type) => {
+    es.addEventListener(type, (e) => {
+      let d = {};
+      try { d = JSON.parse(e.data); } catch {}
+      const patch = window.AgentRuntime.reduceVoiceDistillEvent(type, d);
+      if (patch.terminal) {
+        terminal = true;
+        try { es.close(); } catch {}
+        Object.assign(st, patch);
+        render();
+        // On success, refresh so the freshly-bound voiceId shows on the profile.
+        if (patch.status === 'done') {
+          bootstrapAgents().then(() => { if (appState.activeAgentId) loadActiveAgent(); }).catch(() => {});
+        }
+        return;
+      }
+      Object.assign(st, patch);
+      render();
+    });
+  });
+  es.onerror = () => {
+    // Let native EventSource auto-retry on transient drops (backend replays
+    // via hello). Only give up if we never even got going.
+    if (terminal) { try { es.close(); } catch {} return; }
+    if (st.status === 'starting') { st.status = 'failed'; st.error = '与蒸馏流的连接中断'; try { es.close(); } catch {} render(); }
+  };
 }
 
 async function pickModel() {
@@ -2812,22 +4441,28 @@ async function pickModel() {
   const a = id ? cachedAgentsById[id] : null;
   if (!a) return;
   try {
-    const data = await fetchJson('/api/models');
-    const models = (data.models || data || []).map(m => typeof m === 'string' ? m : (m.id || m.modelV || m.name)).filter(Boolean);
-    if (!models.length) { alert('未拿到可选模型列表'); return; }
+    // Shared resolution (AgentRuntime.resolveModelPicker): reachable-only,
+    // hasAnyKey gate, carrierPref pinned null — identical logic to PC.
+    const { hasKey, entries } = window.AgentRuntime.resolveModelPicker(await agentApi.models());
+    if (!hasKey) {
+      alert('还没有配置可用的 LLM 凭据，请先在「我 → 凭据」里添加。');
+      return;
+    }
+    if (!entries.length) { alert('当前凭据没有可达的模型。'); return; }
+    const curIdx = entries.findIndex(e => e.modelV === a.modelV);
     const choice = prompt(
       `选择 ${a.name} 使用的模型 (当前: ${a.modelV})\n\n` +
-      models.map((m, i) => `${i + 1}. ${m}`).join('\n') +
-      '\n\n输入序号或直接粘贴模型 ID：',
-      String(models.indexOf(a.modelV) + 1 || 1)
+      entries.map((e, i) => `${i + 1}. ${e.label}`).join('\n') +
+      '\n\n输入序号：',
+      String((curIdx >= 0 ? curIdx : 0) + 1)
     );
     if (!choice) return;
-    let target = choice.trim();
-    const num = Number(target);
-    if (Number.isInteger(num) && num >= 1 && num <= models.length) target = models[num - 1];
-    if (target === a.modelV) return;
-    await patchAgent(a.id, { modelV: target });
-    alert(`已切换至 ${target}`);
+    const num = Number(choice.trim());
+    if (!Number.isInteger(num) || num < 1 || num > entries.length) { alert('请输入有效序号'); return; }
+    const target = entries[num - 1];
+    if (target.modelV === a.modelV && (target.carrierPref || null) === (a.carrierPref || null)) return;
+    await patchAgent(a.id, { modelV: target.modelV, carrierPref: target.carrierPref });
+    alert(`已切换至 ${target.label}`);
   } catch (e) {
     alert('切换失败：' + e.message);
   }
@@ -2837,27 +4472,42 @@ async function toggleWebSearch() {
   const id = appState.activeAgentId;
   const a = id ? cachedAgentsById[id] : null;
   if (!a) return;
-  const next = !(a.webSearchEnabled !== false);
+  const wasEnabled = a.webSearchEnabled !== false;
+  const next = !wasEnabled;
+  const el = document.getElementById('ap-websearch');
+  // Parity with PC (agent-profile.js): enabling Web Search requires a Brave /
+  // Tavily search credential. Without one the toggle would silently no-op at
+  // runtime, so we gate on it and route the user to add a key instead of
+  // flipping the flag.
+  if (next) {
+    let keyConfigured = false;
+    try {
+      const sc = await fetchJson('/api/search-credentials');
+      keyConfigured = !!(sc && (sc.activeId || (Array.isArray(sc.credentials) && sc.credentials.length)));
+    } catch { /* treat as not configured */ }
+    if (!keyConfigured) {
+      const ok = await appConfirm({
+        title: '网页搜索需要搜索凭据',
+        sub: '需要 Brave Search 或 Tavily 的 API key 才能联网检索。现在去添加？',
+        okLabel: '去配置',
+      });
+      if (ok) openCredentialMgr('search');
+      return; // stay OFF until a key is configured
+    }
+  }
+  // Optimistic flip + revert on failure (matches PC).
+  if (el) el.textContent = next ? '已开启' : '已关闭';
   try {
     await patchAgent(a.id, { webSearchEnabled: next });
-    const el = document.getElementById('ap-websearch');
-    if (el) el.textContent = next ? '已开启' : '已关闭';
   } catch (e) {
+    if (el) el.textContent = wasEnabled ? '已开启' : '已关闭';
     alert('切换失败：' + e.message);
   }
 }
 
 async function patchAgent(id, patch) {
-  const r = await fetch(`/api/agents/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(patch),
-  });
-  if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
-    throw new Error(j.error || `HTTP ${r.status}`);
-  }
-  const updated = await r.json();
+  // Network via the shared contract; the cache update below is mobile view-state.
+  const updated = await agentApi.patchAgent(id, patch);
   // Refresh cache.
   if (updated.agent) {
     cachedAgentsById[id] = updated.agent;
@@ -2895,13 +4545,16 @@ async function deleteActiveAgent() {
   const id = appState.activeAgentId;
   const a = id ? cachedAgentsById[id] : null;
   if (!a) return;
-  if (!confirm(`删除董事「${a.name}」？\n这位董事不会再被任何房间召唤，已发言的历史保留。`)) return;
+  // Shared deletion gate (AgentRuntime.agentDeletionGate) mirrors the backend
+  // 403s + PC guard: moderator + seeded directors cannot be deleted.
+  const gate = window.AgentRuntime.agentDeletionGate(a);
+  if (!gate.ok) {
+    alert(gate.reason === 'moderator' ? '主席是结构性角色，不能删除。' : '内置核心董事不能删除。');
+    return;
+  }
+  if (!confirm(`删除董事「${a.name}」？\n这会永久移除该董事、其长期记忆、已安装技能，以及在各房间中的席位。已发言的历史保留，且不可撤销。`)) return;
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${r.status}`);
-    }
+    await agentApi.deleteAgent(id);
     goto('agents');
     await bootstrapAgents();
   } catch (e) {
@@ -2950,22 +4603,41 @@ async function bootstrapAll() {
   const active = document.querySelector('.screen.on')?.dataset.screen;
   if (active === 'boardroom') {
     loadBoardroomFor(appState.activeRoomId || null);
-    if (!appState.voiceUnlocked) {
-      const banner = document.getElementById('bd-audio-unlock');
-      if (banner) banner.style.display = 'block';
-    }
   }
 }
-function syncTabbarHeight() {
+function syncBottomChromeHeights() {
   const tb = document.querySelector('.tabbar');
-  if (!tb) return;
-  // Measure actual rendered height + breathing strip (4px) so the
-  // composer/action-bar bottom offsets never overlap the tabbar.
-  const h = tb.offsetHeight + 4;
-  document.documentElement.style.setProperty('--tabbar-h', h + 'px');
+  if (tb) {
+    // Measure actual rendered height + breathing strip (4px) so the
+    // composer/action-bar bottom offsets never overlap the tabbar.
+    const h = tb.offsetHeight + 4;
+    document.documentElement.style.setProperty('--tabbar-h', h + 'px');
+  }
+  const activeScreen = document.querySelector('.screen.on')?.dataset.screen || '';
+  const composer = document.querySelector('.screen.on .composer');
+  const composerH = composer ? Math.ceil(composer.getBoundingClientRect().height) : 58;
+  document.documentElement.style.setProperty('--composer-h', composerH + 'px');
+
+  document.documentElement.style.setProperty('--bd-voice-stack-h', '0px');
+
+  const actions = document.getElementById('bd-actions');
+  const actionVisible = activeScreen === 'boardroom'
+    && actions
+    && getComputedStyle(actions).display !== 'none';
+  const actionH = actionVisible ? Math.ceil(actions.getBoundingClientRect().height + 8) : 0;
+  document.documentElement.style.setProperty('--bd-action-stack-h', actionH + 'px');
+}
+
+function syncTabbarHeight() {
+  syncBottomChromeHeights();
 }
 window.addEventListener('resize', syncTabbarHeight);
 document.addEventListener('DOMContentLoaded', () => { syncTabbarHeight(); bootstrapAll(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pauseAllMobileAudio();
+});
+window.addEventListener('pagehide', pauseAllMobileAudio);
+window.addEventListener('beforeunload', pauseAllMobileAudio);
 
 // When user lands directly via ?screen=room-chat or similar, attempt to
 // reload the active room view if id is in URL (?roomId=...).
@@ -2988,16 +4660,25 @@ document.addEventListener('DOMContentLoaded', () => { syncTabbarHeight(); bootst
 function seatHtml(agent, opts = {}) {
   const klass = ['bd-pix', opts.speaking ? 'speaking' : '', opts.next ? 'next' : '', opts.isMe ? 'me' : ''].filter(Boolean).join(' ');
   const sprite = spriteFor(agent);
-  const name = (agent?.name || 'director').replace(/\s+2026.*$/, '');
+  const isChair = opts.isChair || agent?.roleKind === 'moderator';
+  const name = (agent?.name || (isChair ? 'Chair' : 'director')).replace(/\s+2026.*$/, '');
+  const nameHtml = isChair
+    ? `<span class="bd-role-pill">主持</span>${escapeHtml(name)}`
+    : escapeHtml(name);
   const waveHtml = opts.speaking ? '<div class="bd-wave"><span></span><span></span><span></span><span></span><span></span></div>' : '';
   const aid = agent?.id || '';
   const onclickAttr = aid ? `onclick="openAgent('${escapeHtml(aid)}')"` : '';
-  return `<div class="bd-seat" data-agent-id="${escapeHtml(aid)}" ${onclickAttr} style="cursor:pointer;">
+  // Seat used to stack a chair sprite under each character (8-bit
+  // chibi style). After v0.1.41 swapped /avatars/*.svg for full 3D
+  // portraits, the chair PNG is itself a full character (the
+  // moderator avatar), so stacking would render two people overlapping.
+  // 3D portraits already include their own posture/seat, so we just
+  // render the character layer.
+  return `<div class="bd-seat${isChair ? ' chair' : ''}" data-agent-id="${escapeHtml(aid)}" data-role-kind="${escapeHtml(agent?.roleKind || '')}" ${onclickAttr} style="cursor:pointer;">
     <div class="${klass}">
-      <img class="chair" src="/avatars/chair.svg" alt="">
       <img class="char" src="${escapeHtml(sprite)}" alt="${escapeHtml(name)}">
     </div>
-    <div class="bd-name">${escapeHtml(name)}</div>
+    <div class="bd-name">${nameHtml}</div>
     ${waveHtml}
   </div>`;
 }
@@ -3009,7 +4690,7 @@ function renderBoardroomSeats(agents, opts = {}) {
   stage.querySelectorAll('.bd-seat').forEach(el => el.remove());
   const html = agents.map((a, i) => seatHtml(a, {
     speaking: opts.speakingId ? a.id === opts.speakingId : i === 0,
-    isMe: a.id === 'chair-self',
+    isChair: a.roleKind === 'moderator',
   })).join('');
   stage.insertAdjacentHTML('beforeend', html);
   requestAnimationFrame(layoutBoardroomSeats);
@@ -3024,7 +4705,8 @@ async function loadBoardroomFor(roomId) {
   const subText = document.getElementById('bd-sub-text');
   if (!roomId) {
     const demo = (cachedAgents || []).filter(a => a.roleKind === 'director').slice(0, 6);
-    if (demo.length) renderBoardroomSeats(demo, { speakingId: demo[0].id });
+    const demoSeats = cachedChair ? [cachedChair, ...demo] : demo;
+    if (demoSeats.length) renderBoardroomSeats(demoSeats, { speakingId: cachedChair?.id || demoSeats[0].id });
     if (titleEl) titleEl.textContent = '圆桌';
     if (subEl) subEl.textContent = '— 演示视图 —';
     if (quoteEl) quoteEl.textContent = '"打开一个房间看圆桌动起来"';
@@ -3034,21 +4716,44 @@ async function loadBoardroomFor(roomId) {
     return;
   }
   try {
-    const state = await fetchJson(`/api/rooms/${encodeURIComponent(roomId)}`);
-    // API returns full Agent objects in `members`.
-    const agents = state.members || [];
+    const state = await roomRuntimeApi.getRoom(roomId);
+    roomMeetingController.adoptRoomState?.(state);
+    syncRoomRuntimeState(roomMeetingController.snapshot?.());
+    if (!appState.rcStream || roomMeetingController.roomId !== roomId) {
+      subscribeRoomStream(roomId);
+    }
+    // API returns the chair separately from director `members`, matching
+    // PC's currentChair/currentMembers contract. Keep that split in data,
+    // but render the chair as the first visible roundtable seat.
+    const chair = state.chair || appState.activeChair || cachedChair || null;
+    const directors = state.members || [];
+    const agents = chair ? [chair, ...directors] : directors;
+    if (chair) {
+      appState.activeChair = chair;
+      cachedAgentsById[chair.id] = chair;
+    }
     // Latest director/agent message for subtitle + speaking highlight.
+    // If a voice clip is currently playing, prefer THAT message's
+    // speaker/body for the initial paint — the snapshot's `last` may
+    // be a pre-warmed message the orchestrator started while the prior
+    // clip is still audible, so painting from `last` would highlight
+    // (and subtitle) the wrong director on re-entry. pumpVoiceQueue's
+    // own `onplaying` callback will keep the highlight in step from
+    // here on.
     const dirMsgs = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director' || m.authorKind === 'chair');
-    const last = dirMsgs[dirMsgs.length - 1];
+    const fallbackLast = dirMsgs[dirMsgs.length - 1];
+    const audibleId = appState.voicePlaying?.messageId;
+    const last = (audibleId && dirMsgs.find(m => m.id === audibleId)) || fallbackLast;
     const speakerId = last?.authorId;
     if (titleEl) titleEl.textContent = state.room?.name || state.room?.subject || '房间';
     const roundStr = state.round && typeof state.round === 'object'
       ? `${state.round.spoken ?? 0} / ${state.round.total ?? 0}`
       : (state.round ?? 0);
-    if (subEl) subEl.textContent = `圆桌 · round ${roundStr} · ${agents.length} directors`;
+    if (subEl) subEl.textContent = `圆桌 · round ${roundStr} · ${chair ? '1 主持 · ' : ''}${directors.length} directors`;
+    const visibleLast = last?.body ? visibleBoardroomCaptionText(last.body) : '';
     if (quoteEl) {
-      quoteEl.textContent = last?.body
-        ? `"${last.body.replace(/\s+/g, ' ').slice(0, 36)}…"`
+      quoteEl.textContent = visibleLast
+        ? formatBoardroomTableQuote(visibleLast)
         : '"等待第一位董事开口…"';
     }
     if (roundEl) roundEl.textContent = 'round ' + roundStr;
@@ -3057,9 +4762,20 @@ async function loadBoardroomFor(roomId) {
       subWho.textContent = a ? `${a.name} · ${a.roleTag || ''}` : '—';
     }
     if (subText) {
-      subText.textContent = (last?.body || '等待发言').replace(/\s+/g, ' ').slice(0, 120);
+      subText.textContent = visibleLast || '等待发言';
     }
+    // Round-wrap banner · if the room is resting on a chair round-prompt
+    // / round-end, surface it so a user landing into the stage mid-wrap
+    // sees the round boundary. A live director turn clears it.
+    if (last && (last.meta?.kind === 'round-prompt' || last.meta?.kind === 'round-end')) {
+      showBoardroomRoundWrap(last.id, last.body || '');
+    } else {
+      clearBoardroomRoundWrap();
+    }
+    const msgsEl = document.getElementById('rc-msgs');
+    if (msgsEl) msgsEl.innerHTML = renderMessages(state.messages || [], agents);
     renderBoardroomSeats(agents, { speakingId: speakerId });
+    await ensureBoardroomVoicePlayback({ allowCatchUp: true });
   } catch (e) {
     if (subText) subText.textContent = '加载房间失败：' + e.message;
   }
@@ -3073,10 +4789,15 @@ async function refreshBoardroomFromState() {
 // also reload from active room (overrides demo state).
 const __prevGoto = goto;
 goto = function(screen) {
+  navigateAfterLeaveGuard(screen, () => {
   __prevGoto(screen);
   if (screen === 'boardroom') {
     if (appState.activeRoomId) {
       loadBoardroomFor(appState.activeRoomId);
+      // Paint the boardroom action bar (countdown / 确认继续 / 投票) from
+      // current room state · its rc-actions twin is hidden with the
+      // room-chat section while the stage is up.
+      renderRoomActions();
     } else {
       loadBoardroomFor(null);
     }
@@ -3088,40 +4809,46 @@ goto = function(screen) {
       audio.play().then(() => {
         appState.voiceUnlocked = true;
         updateBoardroomVoiceBanner();
-        pumpVoiceQueue();
+        ensureBoardroomVoicePlayback({ allowCatchUp: true });
       }).catch(() => {
         updateBoardroomVoiceBanner();
       });
     } else if (audio && appState.voiceUnlocked) {
       updateBoardroomVoiceBanner();
-      // Mid-discussion · resume the in-flight clip if we have one paused,
-      // otherwise fetch & play the most recent director message so the
-      // user lands into live audio immediately.
-      if (audio.src && audio.currentTime > 0 && audio.currentTime < (audio.duration || Infinity)) {
-        audio.play().catch(() => {});
-      } else {
-        catchUpBoardroomAudio();
-      }
+      // Resume an already-paused clip synchronously while the tap
+      // gesture is still active. loadBoardroomFor() will catch up to
+      // the latest line after its room snapshot arrives if there is no
+      // paused clip to resume.
+      ensureBoardroomVoicePlayback({ allowCatchUp: false });
     }
   } else {
-    const audio = document.getElementById('bd-audio');
-    if (audio && !audio.paused) { try { audio.pause(); } catch {} }
+    // Leaving the stage · pause the clip AND drop the playing pointer.
+    // Leaving it set made pumpVoiceQueue treat the queue as busy on
+    // return (paused-but-not-idle), permanently stalling playback.
+    pauseBoardroomVoicePlayback();
   }
-  // Leaving the room view entirely · drop ALL room-scoped state so a
-  // future open never sees stale data from this session.
-  if (screen !== 'room-chat' && screen !== 'boardroom') {
-    if (appState.activeRoomId) {
-      const keepId = appState.activeRoomId; // keep id so direct re-entry still works
-      resetActiveRoomState();
-      appState.activeRoomId = keepId;
-    }
-  }
+  // Leaving the room view entirely · drop ALL room-scoped live work so
+  // a future open never sees stale data and no background countdown can
+  // advance a room the user is no longer watching.
+  if (!isRoomSurface(screen)) leaveRoomSurface();
   // Leaving agent-profile · always pause the preview clip so the
   // sample doesn't keep playing after the user navigated away.
   if (screen !== 'agent-profile') {
     const preview = document.getElementById('ap-preview-audio');
     if (preview && !preview.paused) { try { preview.pause(); preview.currentTime = 0; } catch {} }
   }
+  });
+};
+
+// Bottom tab navigation bypasses goto(), so route it through the same
+// room-surface exit policy. This is the path that could previously let
+// the auto-continue timer keep ticking after the user left the room.
+const __prevSetTabRoomSurface = setTab;
+setTab = function(name) {
+  navigateAfterLeaveGuard(name, () => {
+    __prevSetTabRoomSurface(name);
+    if (!isRoomSurface(name)) leaveRoomSurface();
+  });
 };
 
 // ── settings handlers (me tab) ────────────────────────────
@@ -3199,7 +4926,7 @@ async function renderRoomNotes() {
       items: notes,
       render: (n) => `
         <div style="color:var(--ink-mid); font-size:11px; margin-bottom:4px;">${escapeHtml(n.authorName || '?')}</div>
-        <div style="color:var(--ink); border-left:2px solid var(--gold-soft); padding-left:8px;">${escapeHtml(n.quoteText || '')}</div>
+        <div style="color:var(--ink); border-top:1px solid var(--gold-soft); padding-top:8px;">${escapeHtml(n.quoteText || '')}</div>
         <button onclick="deleteNote('${escapeHtml(n.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
       `,
       onAdd: addNote,
@@ -3216,11 +4943,16 @@ async function addNote() {
   // Get last director/agent message as a default target
   let lastMsg = null;
   try {
-    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
-    lastMsg = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director').pop();
+    const state = await roomRuntimeApi.getRoom(id);
+    lastMsg = (state.messages || []).filter(m => m.authorKind === 'agent' || m.authorKind === 'director' || m.authorKind === 'chair').pop();
   } catch {}
   if (!lastMsg) { mgrError('房间还没消息可引述'); return; }
-  const quote = prompt(`引述一段文字（来自最近一条 ${lastMsg.authorKind} 消息）`, (lastMsg.body || '').slice(0, 80));
+  const quote = await appPrompt({
+    title: `引述一段文字`,
+    sub: `来自最近一条 ${lastMsg.authorKind} 消息`,
+    value: (lastMsg.body || '').slice(0, 80),
+    okLabel: '保存旁注',
+  });
   if (!quote || !quote.trim()) return;
   try {
     const r = await fetch('/api/notes', {
@@ -3245,33 +4977,57 @@ async function openRoomVote() {
   const id = appState.activeRoomId;
   if (!id) return;
   try {
-    const state = await fetchJson(`/api/rooms/${encodeURIComponent(id)}`);
-    // Key-points messages are emitted by the chair at round-end.
-    const kpMsgs = (state.messages || []).filter(m =>
-      m.authorKind === 'chair-system' || (m.meta && (m.meta.kind === 'keypoints' || m.meta.keypoints))
-    );
-    const items = [];
-    kpMsgs.forEach(m => {
-      const pts = m.meta?.keypoints || m.meta?.points;
-      if (Array.isArray(pts)) {
-        pts.forEach(p => items.push({ id: p.id || p.kpId, text: p.text || p.title, msgId: m.id }));
-      } else if (typeof m.body === 'string') {
-        // fallback: each line is a key point
-        m.body.split('\n').filter(l => l.trim().length > 4).slice(0, 6).forEach((l, i) => {
-          items.push({ id: `${m.id}-${i}`, text: l.trim(), msgId: m.id });
-        });
+    const state = await roomRuntimeApi.getRoom(id);
+    // Real keypoints are persisted separately and returned as state.keyPoints
+    // (PC reads data.keyPoints the same way). Each row is { id, body, vote,
+    // position, ... }. Round-end MESSAGE meta only carries keypoints in tests /
+    // legacy chair-system messages, so fall back to message extraction only
+    // when the authoritative keyPoints list is empty.
+    const kps = Array.isArray(state.keyPoints) ? state.keyPoints : [];
+    let items;
+    if (kps.length) {
+      items = kps
+        .slice()
+        .sort((a, b) => (a.position || 0) - (b.position || 0))
+        .map((kp) => ({
+          id: kp.id,
+          text: kp.body || kp.text || '',
+          vote: kp.vote === 'up' || kp.vote === 'down' ? kp.vote : null,
+        }));
+      const ms = appState.activeRoomModeShiftProposal;
+      if (ms && ms.to) {
+        items.unshift({ type: 'mode-shift', id: 'mode-shift', to: ms.to, because: ms.because || '' });
       }
-    });
+    } else {
+      items = window.RoomMeetingRuntime.extractRoomVoteItems(
+        state.messages || [],
+        appState.activeRoomModeShiftProposal || null,
+      );
+    }
     openManager({
       title: '关键点投票',
       items,
-      render: (kp) => `
-        <div style="font-size:13px;">${escapeHtml(kp.text || '').slice(0, 200)}</div>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <button onclick="voteKp('${escapeHtml(kp.id)}', 1)" style="flex:1; padding:6px; border-radius:6px; background:var(--gold); color:#0A0A0A; font-size:12px;">👍 +1</button>
-          <button onclick="voteKp('${escapeHtml(kp.id)}', -1)" style="flex:1; padding:6px; border-radius:6px; background:var(--panel-2); border:1px solid var(--rule); color:var(--ink-mid); font-size:12px;">👎 -1</button>
-        </div>
-      `,
+      render: (kp) => {
+        if (kp.type === 'mode-shift') {
+          return `
+            <div style="font-size:11px; color:var(--gold-soft); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:4px;">// chair 建议切换模式</div>
+            <div style="font-size:13px;">${escapeHtml(kp.because || '主持建议调整下一轮讨论方式。').slice(0, 200)}</div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button onclick="acceptModeShiftAndContinue('${escapeHtml(kp.to)}')" style="flex:1; padding:7px; border-radius:6px; background:var(--gold); color:#0A0A0A; font-size:12px;">切换到 ${escapeHtml(kp.to)}</button>
+              <button onclick="closeSheet();continueDiscussion()" style="flex:1; padding:7px; border-radius:6px; background:var(--panel-2); border:1px solid var(--rule); color:var(--ink-mid); font-size:12px;">保持当前</button>
+            </div>
+          `;
+        }
+        const up = kp.vote === 'up';
+        const down = kp.vote === 'down';
+        return `
+          <div style="font-size:13px;">${escapeHtml(kp.text || '').slice(0, 200)}</div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button onclick="voteKp('${escapeHtml(kp.id)}', 'up', '${escapeHtml(kp.vote || '')}')" style="flex:1; padding:6px; border-radius:6px; background:${up ? 'var(--gold)' : 'var(--panel-2)'}; ${up ? 'color:#0A0A0A;' : 'border:1px solid var(--rule); color:var(--ink-mid);'} font-size:12px;">👍 赞同</button>
+            <button onclick="voteKp('${escapeHtml(kp.id)}', 'down', '${escapeHtml(kp.vote || '')}')" style="flex:1; padding:6px; border-radius:6px; background:${down ? 'var(--gold)' : 'var(--panel-2)'}; ${down ? 'color:#0A0A0A;' : 'border:1px solid var(--rule); color:var(--ink-mid);'} font-size:12px;">👎 反对</button>
+          </div>
+        `;
+      },
     });
     if (!items.length) mgrError('还没有可投的关键点。先用「结束本轮」让 chair 输出关键点。');
   } catch (e) {
@@ -3279,17 +5035,32 @@ async function openRoomVote() {
     mgrError('加载失败：' + e.message);
   }
 }
-async function voteKp(kpId, score) {
+async function acceptModeShiftAndContinue(toMode) {
+  const id = appState.activeRoomId;
+  const mode = String(toMode || '').trim();
+  if (!id || !mode) return;
+  if (!(await requireModelKey())) return;
+  try {
+    await roomActionController.acceptModeShiftAndContinue(id, mode);
+    appState.activeRoomModeShiftProposal = null;
+    closeSheet();
+    await refreshRoomRuntime(id).then(st => {
+      applyActionRoomState(st.room || { id, status: appState.activeRoomStatus });
+    }).catch(() => {});
+  } catch (e) {
+    mgrError('切换失败：' + e.message);
+  }
+}
+async function voteKp(kpId, requested, prevVote) {
   const id = appState.activeRoomId;
   if (!id) return;
   try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/keypoints/${encodeURIComponent(kpId)}/vote`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ score }),
-    });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
-    mgrError(`已投: ${score > 0 ? '👍' : '👎'}`);
+    const result = await roomActionController.voteKeyPoint(id, kpId, requested, prevVote || null);
+    const v = result && result.vote;
+    mgrError(v === 'up' ? '已投：👍 赞同' : v === 'down' ? '已投：👎 反对' : '已取消投票');
+    // Re-open with fresh server state so the selected chip reflects the vote
+    // (and a subsequent tap on the same direction toggles it off).
+    await openRoomVote();
   } catch (e) { mgrError('投票失败：' + e.message); }
 }
 
@@ -3297,52 +5068,13 @@ async function voteKp(kpId, score) {
 async function toggleVoteTrigger() {
   const id = appState.activeRoomId;
   if (!id) return;
-  const next = appState.activeRoomVoteTrigger === 'auto' ? 'manual' : 'auto';
   try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ voteTrigger: next }),
-    });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
-    appState.activeRoomVoteTrigger = next;
+    const result = await roomActionController.toggleVoteTrigger(id, appState.activeRoomVoteTrigger);
+    appState.activeRoomVoteTrigger = result.room?.voteTrigger || result.next;
     const lbl = document.getElementById('rc-vote-trigger-label');
-    if (lbl) lbl.textContent = next === 'auto' ? '自动 ›' : '手动 ›';
-    if (next === 'manual') cancelAutoContinue();
+    if (lbl) lbl.textContent = appState.activeRoomVoteTrigger === 'auto' ? '自动 ›' : '手动 ›';
+    if (appState.activeRoomVoteTrigger === 'manual') cancelAutoContinue();
     renderRoomActions();
-  } catch (e) { alert('切换失败：' + e.message); }
-}
-
-async function toggleDeliveryMode() {
-  const id = appState.activeRoomId;
-  if (!id) return;
-  const next = appState.activeRoomDelivery === 'voice' ? 'text' : 'voice';
-  try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deliveryMode: next }),
-    });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
-    appState.activeRoomDelivery = next;
-    const dl = document.getElementById('rc-delivery-label');
-    if (dl) dl.textContent = next === 'voice' ? '🔊 语音 ›' : '🔇 静默 ›';
-    if (next === 'text') {
-      appState.voiceQueue.length = 0;
-      const audio = document.getElementById('bd-audio');
-      if (audio && !audio.paused) { try { audio.pause(); } catch {} }
-    } else {
-      // Switched back to voice · re-engage the queue from a clean slot.
-      // Without resetting voicePlaying, pumpVoiceQueue early-returns
-      // forever because the previous "playing" item never got cleared
-      // when we paused the audio on the way out.
-      appState.voicePlayedIds.clear();
-      appState.voicePlaying = null;
-      appState.voiceQueue.length = 0;
-      const audio = document.getElementById('bd-audio');
-      if (audio) { try { audio.pause(); } catch {} audio.currentTime = 0; }
-      catchUpBoardroomAudio();
-    }
   } catch (e) { alert('切换失败：' + e.message); }
 }
 
@@ -3350,11 +5082,26 @@ async function togglePauseRoom() {
   const id = appState.activeRoomId;
   if (!id) return;
   const isPaused = appState.activeRoomStatus === 'paused';
-  const ep = isPaused ? 'resume' : 'pause';
   try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/${ep}`, { method: 'POST' });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
-    appState.activeRoomStatus = isPaused ? 'live' : 'paused';
+    if (isPaused) {
+      const canResume = await ensureVoiceResumeReady();
+      if (!canResume) return;
+      const result = await roomActionController.resume(id);
+      applyActionRoomState(result.room || { id, status: 'live' });
+    } else {
+      let mode = 'hard';
+      if (roomIsSpeaking()) {
+        mode = await appPauseChoice({ speaker: currentSpeakerName() });
+        if (mode === 'cancel') return;
+      }
+      const result = await roomActionController.pause(id, mode);
+      if (result.pending || result.benignRace) {
+        renderRoomActions();
+        return;
+      }
+      applyActionRoomState(result.room || { id, status: 'paused' });
+      if (mode === 'hard') stopBoardroomVoicePlayback();
+    }
     renderRoomActions();
     await loadActiveRoomMessages();
   } catch (e) { alert((isPaused ? '恢复' : '暂停') + '失败：' + e.message); }
@@ -3362,12 +5109,39 @@ async function togglePauseRoom() {
 async function endRound() {
   const id = appState.activeRoomId;
   if (!id) return;
-  if (!confirm('结束本轮并请 chair 出关键点？')) return;
+  if (!(await requireModelKey())) return;
+  let mode = 'now';
+  if (roomIsSpeaking()) {
+    const choice = await appRoundEndChoice({ speaker: currentSpeakerName() });
+    if (choice === 'cancel') return;
+    mode = choice === 'after-speaker' ? 'after-speaker' : 'now';
+  } else {
+    const ok = await appConfirm({
+      title: '结束本轮并请 chair 出关键点？',
+      sub: '这会触发和 PC 一样的 round-end 流程：主持人总结本轮并生成关键点。',
+      okLabel: '结束本轮',
+    });
+    if (!ok) return;
+  }
   try {
-    const r = await fetch(`/api/rooms/${encodeURIComponent(id)}/round-end`, { method: 'POST' });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    if (mode === 'now') {
+      appState.activeRoomAwaitingContinue = true;
+      appState.activeRoomVoteQueued = false;
+      renderRoomActions();
+    }
+    const result = await roomActionController.endRound(id, mode);
+    if (result.deferred) {
+      appState.activeRoomVoteQueued = true;
+      renderRoomActions();
+    }
     setTimeout(loadActiveRoomMessages, 800);
-  } catch (e) { alert('结束本轮失败：' + e.message); }
+  } catch (e) {
+    if (mode === 'now') {
+      appState.activeRoomAwaitingContinue = false;
+      renderRoomActions();
+    }
+    alert('结束本轮失败：' + e.message);
+  }
 }
 
 // ── agent: memories ──────────────────────────────────────
@@ -3379,8 +5153,8 @@ async function openAgentMemories() {
 async function renderAgentMemories() {
   const id = appState.activeAgentId;
   try {
-    const data = await fetchJson(`/api/agents/${encodeURIComponent(id)}/memories`);
-    const memories = data.memories || data || [];
+    const data = await agentApi.listMemories(id);
+    const memories = data.memories || [];
     openManager({
       title: '长期记忆',
       items: memories,
@@ -3403,12 +5177,7 @@ async function addAgentMemory() {
   const content = prompt('一条新记忆（4-280 字符）');
   if (!content || content.trim().length < 4) return;
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/memories`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content: content.trim(), kind: 'fact' }),
-    });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await agentApi.addMemory(id, { content: content.trim(), kind: 'fact' });
     await renderAgentMemories();
   } catch (e) { mgrError('添加失败：' + e.message); }
 }
@@ -3416,8 +5185,7 @@ async function deleteAgentMemory(memId) {
   const id = appState.activeAgentId;
   if (!id) return;
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/memories/${encodeURIComponent(memId)}`, { method: 'DELETE' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await agentApi.deleteMemory(id, memId);
     await renderAgentMemories();
   } catch (e) { mgrError('删除失败：' + e.message); }
 }
@@ -3431,7 +5199,7 @@ async function openAgentSkills() {
 async function renderAgentSkills() {
   const id = appState.activeAgentId;
   try {
-    const data = await fetchJson(`/api/agents/${encodeURIComponent(id)}/skills`);
+    const data = await agentApi.listSkills(id);
     const skills = data.skills || [];
     openManager({
       title: '技能',
@@ -3439,7 +5207,7 @@ async function renderAgentSkills() {
       render: (sk) => `
         <div style="font-weight:600;">${escapeHtml(sk.name || sk.slug || '?')}</div>
         <div style="color:var(--ink-mid); font-size:11px; margin-top:2px;">${escapeHtml((sk.description || '').slice(0, 100))}</div>
-        ${sk.source === 'user' || sk.kind === 'user' ? `<button onclick="deleteAgentSkill('${escapeHtml(sk.id || sk.slug)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>` : '<div style="margin-top:4px; font-size:10px; color:var(--ink-dim);">系统内置</div>'}
+        ${window.AgentRuntime.isDeletableSkill(sk) ? `<button onclick="deleteAgentSkill('${escapeHtml(sk.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>` : '<div style="margin-top:4px; font-size:10px; color:var(--ink-dim);">系统内置</div>'}
       `,
       onAdd: addAgentSkill,
       addLabel: '＋ 安装 Skill.md',
@@ -3455,12 +5223,7 @@ async function addAgentSkill() {
   const md = prompt('粘贴完整 Skill.md 内容（含 frontmatter）');
   if (!md || md.trim().length < 20) { mgrError('Skill.md 内容太短'); return; }
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/skills`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ md: md.trim() }),
-    });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await agentApi.addSkill(id, md.trim());
     await renderAgentSkills();
   } catch (e) { mgrError('安装失败：' + e.message); }
 }
@@ -3468,8 +5231,7 @@ async function deleteAgentSkill(skillId) {
   const id = appState.activeAgentId;
   if (!id) return;
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(skillId)}`, { method: 'DELETE' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await agentApi.deleteSkill(id, skillId);
     await renderAgentSkills();
   } catch (e) { mgrError('删除失败：' + e.message); }
 }
@@ -3480,8 +5242,7 @@ async function triggerDream() {
   if (!id) return;
   if (!confirm('触发反思：让 agent 对最近的发言做一次自我反省、提炼 1-3 条记忆。这会花几十秒。')) return;
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(id)}/dream`, { method: 'POST' });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    await agentApi.triggerDream(id);
     alert('反思已触发。完成后，新记忆会出现在「长期记忆」里。');
   } catch (e) { alert('触发失败：' + e.message); }
 }
@@ -3492,14 +5253,14 @@ async function openChairLongMemory() {
 }
 async function renderChairLongMemory() {
   try {
-    const data = await fetchJson('/api/agents/chair/user-long-memory');
-    const items = data.memories || data || [];
+    // Shared contract: { items: UserLongMemory[] } with { id, label, claim, ... }.
+    const items = window.AgentRuntime.chairMemoryItems(await agentApi.chairLongMemory());
     openManager({
       title: '主席关于我的记忆',
       items,
       render: (m) => `
-        <div style="color:var(--ink-mid); font-size:10px; margin-bottom:4px;">${escapeHtml(m.kind || '')} · ${escapeHtml(relativeTime(m.createdAt))}</div>
-        <div style="color:var(--ink);">${escapeHtml(m.content || '')}</div>
+        <div style="color:var(--ink-mid); font-size:10px; margin-bottom:4px;">[${escapeHtml(m.label || '')}] · ${escapeHtml(relativeTime(m.createdAt))}</div>
+        <div style="color:var(--ink);">${escapeHtml(m.claim || '')}</div>
         <button onclick="deleteChairMemory('${escapeHtml(m.id)}')" style="margin-top:8px; padding:4px 10px; background:transparent; border:1px solid var(--rule); border-radius:6px; color:var(--ink-dim); font-size:11px;">删除</button>
       `,
     });
@@ -3510,8 +5271,7 @@ async function renderChairLongMemory() {
 }
 async function deleteChairMemory(memId) {
   try {
-    const r = await fetch(`/api/agents/chair/user-long-memory/${encodeURIComponent(memId)}`, { method: 'DELETE' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await agentApi.deleteChairMemory(memId);
     await renderChairLongMemory();
   } catch (e) { mgrError('删除失败：' + e.message); }
 }
@@ -3554,6 +5314,7 @@ async function activateCredential(kind, id) {
   try {
     const r = await fetch(endpoint, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
     if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || `HTTP ${r.status}`); }
+    mobileModelKeySnapshot = null;
     await openCredentialMgr(kind);
   } catch (e) { mgrError('激活失败：' + e.message); }
 }
@@ -3563,6 +5324,7 @@ async function deleteCredential(kind, id) {
   try {
     const r = await fetch(endpoint + encodeURIComponent(id), { method: 'DELETE' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    mobileModelKeySnapshot = null;
     await openCredentialMgr(kind);
   } catch (e) { mgrError('删除失败：' + e.message); }
 }

@@ -1628,14 +1628,10 @@
           // chair-pending visible during that window; the voice-chunk
           // handler clears _chairVoiceAwaiting and the next render
           // takes over from there.
-          const isTemplatedChairVote = !!(
-            data.authorKind === "agent"
-            && this.currentChair && data.authorId === this.currentChair.id
-            && data.meta
-            && data.meta.streaming === false
-            && (data.meta.kind === "round-prompt" || data.meta.kind === "round-end" || data.meta.kind === "intervention")
-            && this.currentRoom && this.currentRoom.deliveryMode === "voice"
-          );
+          const isTemplatedChairVote = !!window.RoomMeetingRuntime?.shouldPreserveChairPendingForMessage?.(data, {
+            chair: this.currentChair,
+            room: this.currentRoom,
+          });
           if (data.authorKind === "agent" && !isTemplatedChairVote) {
             this.hideChairPending();
           }
@@ -1902,11 +1898,13 @@
         }
         const vq = this.voiceQueues[data.messageId];
         if (vq) {
-          if (vq.audio) {
+          if (this._roomVoiceController) {
+            this._roomVoiceController.drop(data.messageId);
+            this.voiceQueues = this._roomVoiceController.queues;
+          } else if (vq.audio) {
             try { vq.audio.pause(); } catch (_) {}
             try { URL.revokeObjectURL(vq.audio.src); } catch (_) {}
           }
-          delete this.voiceQueues[data.messageId];
         }
         // Director (and some chair) failures emit message-error but not
         // always message-final · without clearing streaming + repaint the
@@ -1931,9 +1929,14 @@
         // Stop any voice playback for this message (e.g. READY control token)
         const vq = this.voiceQueues[data.messageId];
         if (vq) {
-          if (vq.watchdogId) { try { clearInterval(vq.watchdogId); } catch(_) {} vq.watchdogId = null; }
-          if (vq.audio) { try { vq.audio.pause(); } catch(_) {} }
-          delete this.voiceQueues[data.messageId];
+          if (this._roomVoiceController) {
+            this._roomVoiceController.drop(data.messageId);
+            this.voiceQueues = this._roomVoiceController.queues;
+          } else {
+            if (vq.watchdogId) { try { clearInterval(vq.watchdogId); } catch(_) {} vq.watchdogId = null; }
+            if (vq.audio) { try { vq.audio.pause(); } catch(_) {} }
+            delete this.voiceQueues[data.messageId];
+          }
           this.refreshMiniPlayer();
         }
         // Also disarm first-token watchdog · message gone means no
@@ -2949,6 +2952,11 @@
       es.addEventListener("voice-final", (e) => {
         try {
           const data = JSON.parse(e.data);
+          if (this._roomVoiceController) {
+            if (!this._roomVoiceController.has(data.messageId)) return;
+            this.drainVoiceQueue(roomId, data.messageId);
+            return;
+          }
           const q = this.voiceQueues[data.messageId]
             || (this.voiceQueues[data.messageId] = { chunks: [], final: false, scheduled: false, roomId, messageId: data.messageId });
           q.final = true;
@@ -3159,40 +3167,84 @@
       } catch (e) { /* ignore — sidebar keeps last known state */ }
     },
 
+    ensureRoomSendController() {
+      if (this._roomSendController) return this._roomSendController;
+      this._roomSendController = new window.RoomMeetingRuntime.SendController({
+        api: window.RoomMeetingRuntime.createApiClient(),
+        requireModelKey: () => this.requireModelKey(),
+        onFollowUp: ({ subject }) => this.openFollowUpOverlay({ subject }),
+      });
+      this._roomSendController.lastSendAt = this.lastSendAt || 0;
+      return this._roomSendController;
+    },
+
+    ensureRoomVoiceController() {
+      if (this._roomVoiceController) return this._roomVoiceController;
+      let host = document.getElementById("boardroom-voice-audio-host");
+      if (!host) {
+        host = document.createElement("div");
+        host.id = "boardroom-voice-audio-host";
+        host.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none;";
+        document.body.appendChild(host);
+      }
+      const audio = document.createElement("audio");
+      audio.preload = "auto";
+      host.appendChild(audio);
+      try { window.BoardroomRecorder?.attachAudioElement(audio); } catch (_) {}
+      this._roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackController({
+        api: window.RoomMeetingRuntime.createApiClient(),
+        audio,
+        useMediaSource: true,
+        playOnFirstChunk: true,
+        onPlaying: (q) => {
+          this._activeVoiceRoomId = q.roomId || this.currentRoomId;
+          this._revealPrewarmedBubble(q.messageId);
+          this.renderRoundTable();
+          this.renderRtSubtitle();
+          this.renderQueue();
+          this.refreshMiniPlayer();
+        },
+        onTimeUpdate: () => {
+          this.renderRtSubtitle();
+          this.refreshMiniPlayer();
+        },
+        onDone: (q) => {
+          const finishedMsg = this.currentMessages
+            ? this.currentMessages.find((m) => m.id === q.messageId)
+            : null;
+          this.updateMessageBodyDom(q.messageId, finishedMsg ? finishedMsg.body : "", false);
+          this.renderRoundTable();
+          this.renderRtSubtitle();
+          this.renderQueue();
+          this.refreshMiniPlayer();
+          this.maybeStartContinueCountdown();
+        },
+        onError: (_q, err) => {
+          if (err) console.warn("[voice] shared controller error:", err);
+        },
+      });
+      this._roomVoiceController.setUnlocked(true);
+      this.voiceQueues = this._roomVoiceController.queues;
+      return this._roomVoiceController;
+    },
+
     async sendMessage(text, mentions, mode) {
       if (!this.currentRoomId) return;
       const trimmed = (text || "").trim();
       if (!trimmed) return;
-      // Pre-flight · sending a message triggers director responses or
-      // chair clarify · both need a model key. Block and prompt the
-      // user to configure one when missing.
-      if (!(await this.requireModelKey())) return;
-      // Rapid-fire guard · ignore re-entrant or near-instant repeats so
-      // a fast Enter-key burst or a frantic Send-button mash collapses
-      // into one POST.
-      if (this.sendInFlight) return;
-      const now = Date.now();
-      if (now - this.lastSendAt < this.SEND_THROTTLE_MS) return;
-      this.lastSendAt = now;
-      this.sendInFlight = true;
+      const sendCtrl = this.ensureRoomSendController();
       try {
-        const payload = { body: trimmed, mentions: mentions || [] };
-        if (mode === "after-speaker") payload.mode = "after-speaker";
-        const r = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/messages",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || "send failed");
-        }
+        await sendCtrl.submit({
+          roomId: this.currentRoomId,
+          roomStatus: this.currentRoom?.status,
+          body: trimmed,
+          mentions: mentions || [],
+          mode,
+        });
         // SSE will push the message-appended; nothing to do locally.
       } finally {
-        this.sendInFlight = false;
+        this.lastSendAt = sendCtrl.lastSendAt;
+        this.sendInFlight = sendCtrl.sendInFlight;
       }
     },
 
@@ -3209,8 +3261,9 @@
       if (!text || !text.trim()) return false;
       // Already in-flight or just sent · swallow this attempt so the
       // burst doesn't double-fire.
-      if (this.sendInFlight) return false;
-      if (Date.now() - this.lastSendAt < this.SEND_THROTTLE_MS) return false;
+      const sendCtrl = this.ensureRoomSendController();
+      if (sendCtrl.sendInFlight) return false;
+      if (Date.now() - sendCtrl.lastSendAt < window.RoomMeetingRuntime.SEND_THROTTLE_MS) return false;
       // Paused-room path · the textarea stays usable while the
       // room is paused (no more dedicated "Add input" modal).
       // Send routes through the supplement endpoint so the
@@ -3221,9 +3274,15 @@
         if (input.matches?.(".ib-textarea[data-send-input]")) {
           this.autosizeRoomInputTextarea();
         }
-        this.lastSendAt = Date.now();
-        this.submitPausedInput(text.trim()).catch((err) => {
+        sendCtrl.submit({
+          roomId: this.currentRoomId,
+          roomStatus: "paused",
+          body: text.trim(),
+        }).catch((err) => {
           alert("Add input failed: " + (err && err.message ? err.message : err));
+        }).finally(() => {
+          this.lastSendAt = sendCtrl.lastSendAt;
+          this.sendInFlight = sendCtrl.sendInFlight;
         });
         return true;
       }
@@ -3237,8 +3296,16 @@
         if (input.matches?.(".ib-textarea[data-send-input]")) {
           this.autosizeRoomInputTextarea();
         }
-        this.lastSendAt = Date.now();
-        this.openFollowUpOverlay({ subject: text.trim() });
+        sendCtrl.submit({
+          roomId: this.currentRoomId,
+          roomStatus: "adjourned",
+          body: text.trim(),
+        }).catch((err) => {
+          alert("Follow-up failed: " + (err && err.message ? err.message : err));
+        }).finally(() => {
+          this.lastSendAt = sendCtrl.lastSendAt;
+          this.sendInFlight = sendCtrl.sendInFlight;
+        });
         return true;
       }
       // If a director is mid-turn AND we don't already have a queued
@@ -4057,18 +4124,8 @@
       if (skipBrief) body = { skipBrief: true };
       else if (renderPrefs) body = { mode, renderPrefs };
       else body = { mode };
-      const r = await fetch(
-        "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/adjourn",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.error || "adjourn failed");
-      }
+      // Shared room api (same client mobile uses) · throws on non-2xx.
+      await this._ensureRoomApi().adjourn(this.currentRoomId, body);
       // SSE will push room-adjourned + brief-* events.
     },
 
@@ -6669,22 +6726,12 @@
       const busy = btn ? btn.getAttribute("data-busy-label") : "";
       if (btn) { btn.disabled = true; btn.textContent = busy || "…"; }
       try {
-        const r = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(
-              themePrefs
-                ? { supplement: text, mode: briefMode, renderPrefs: themePrefs }
-                : { supplement: text, mode: briefMode },
-            ),
-          },
+        await this._ensureRoomApi().generateBrief(
+          this.currentRoomId,
+          themePrefs
+            ? { supplement: text, mode: briefMode, renderPrefs: themePrefs }
+            : { supplement: text, mode: briefMode },
         );
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || ("HTTP " + r.status));
-        }
         // DO NOT mutate the existing currentBrief — the route ALWAYS
         // inserts a new brief row, so wiping the prior brief's bodyMd
         // and title in-place corrupts a perfectly good finished brief
@@ -6917,18 +6964,7 @@
         if (failed && typeof failed.supplement === "string" && failed.supplement.trim()) {
           retryBody.supplement = failed.supplement;
         }
-        const r = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(retryBody),
-          },
-        );
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || ("HTTP " + r.status));
-        }
+        await this._ensureRoomApi().generateBrief(this.currentRoomId, retryBody);
         // Flip the on-screen card from error → generating immediately so
         // the click has visible feedback before brief-started SSE lands
         // and replaces currentBrief with the real new placeholder.
@@ -7023,18 +7059,7 @@
       if (renderPrefs && typeof renderPrefs === "object" && !Array.isArray(renderPrefs)) {
         payload.renderPrefs = renderPrefs;
       }
-      const r = await fetch(
-        "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/brief",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-        },
-      );
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.error || "brief generation failed");
-      }
+      await this._ensureRoomApi().generateBrief(this.currentRoomId, payload);
     },
 
     async toggleDeliveryMode() {
@@ -7043,15 +7068,10 @@
       // Unlock audio if switching to voice
       if (next === "voice") this.unlockAudioPlayback();
       try {
-        const r = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId),
-          {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ deliveryMode: next }),
-          },
-        );
-        if (r.ok) {
+        // Shared delivery switch (same RoomActionController mobile uses) so the
+        // { deliveryMode } contract lives in one place.
+        const result = await this.ensureRoomActionController().setDeliveryMode(this.currentRoomId, next);
+        if (result && result.ok) {
           this.currentRoom.deliveryMode = next;
           this.renderHeader();
           // Voice mode just toggled · sync the round-table stage's
@@ -7071,54 +7091,39 @@
       } catch (_) { /* offline */ }
     },
 
+    /** Cached shared agent/voice/persona api client (public/agent-runtime.js).
+     *  The single home for those HTTP contracts; mobile uses the same client. */
+    _ensureAgentApi() {
+      return this._agentApiInst || (this._agentApiInst = window.AgentRuntime.createAgentApi());
+    },
+
+    /** Cached shared ROOM api client (public/room-meeting-runtime.js) for the
+     *  adjourn / brief HTTP contracts — same client mobile uses. */
+    _ensureRoomApi() {
+      return this._roomApiInst || (this._roomApiInst = window.RoomMeetingRuntime.createApiClient());
+    },
+
+    ensureRoomActionController() {
+      if (this._roomActionController) return this._roomActionController;
+      this._roomActionController = new window.RoomMeetingRuntime.RoomActionController({
+        api: window.RoomMeetingRuntime.createApiClient(),
+        onPausePending: (active) => {
+          document.documentElement.classList.toggle("pause-pending", !!active);
+        },
+      });
+      return this._roomActionController;
+    },
+
     async pauseRoom(mode) {
       if (!this.currentRoomId) return;
-      // Soft pause: flip the input bar to a "pausing after current turn"
-      // overlay immediately, even before the request resolves. The SSE
-      // room-paused event will clear the class once the orchestrator
-      // actually transitions the room.
-      if (mode === "soft") {
-        document.documentElement.classList.add("pause-pending");
-      }
-      let r;
-      try {
-        r = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/pause",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ mode: mode || "hard" }),
-          },
-        );
-      } catch (err) {
-        document.documentElement.classList.remove("pause-pending");
-        throw err;
-      }
-      if (!r.ok) {
-        document.documentElement.classList.remove("pause-pending");
-        const e = await r.json().catch(() => ({}));
-        // 409 "room is not live" · benign race · the user clicked
-        // Pause at a moment when the room had already auto-transitioned
-        // out of `live` (e.g. the auto-continue countdown fired and
-        // started a director turn just before the click landed, or the
-        // room was already paused by another tab). The user's INTENT —
-        // "don't run another round automatically" — is already
-        // satisfied, so no alert / no throw. Leave the UI as-is and
-        // return silently; the next SSE will reconcile the visible
-        // state.
-        if (r.status === 409 && /not live|already.*paused/i.test(e.error || "")) {
-          return;
-        }
-        throw new Error(e.error || "pause failed");
-      }
-      const data = await r.json();
+      const result = await this.ensureRoomActionController().pause(this.currentRoomId, mode);
       // Soft pause is pending — the SSE room-paused event will flip the UI
       // when the current speaker actually finishes. Don't transition now.
-      if (data.pending) return;
+      if (result.pending || result.benignRace) return;
       // Server resolved synchronously (hard pause, or soft with no speaker).
       document.documentElement.classList.remove("pause-pending");
-      if (data.room) {
-        this.currentRoom = data.room;
+      if (result.room) {
+        this.currentRoom = result.room;
         document.documentElement.setAttribute("data-status", "paused");
         this.renderHeader();
         this.renderPausedBar();
@@ -7833,18 +7838,11 @@
       // edit above is enough; no separate state mutation needed.
       this.renderRoundTableHud();
       try {
-        const r = await fetch(
-          `/api/rooms/${encodeURIComponent(this.currentRoomId)}/keypoints/${encodeURIComponent(kpId)}/vote`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ vote }),
-          },
-        );
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || "vote failed");
-        }
+        // Network + toggle via the shared RoomActionController (same path
+        // mobile uses) so the { vote } contract lives in one place. The
+        // controller recomputes the toggle from (requested, prev) and the
+        // result matches the optimistic `vote` above.
+        await this.ensureRoomActionController().voteKeyPoint(this.currentRoomId, kpId, requested, prev);
       } catch (e) {
         // Revert local optimism on failure.
         existing.vote = prev;
@@ -7860,22 +7858,12 @@
        10-second countdown. On timeout it auto-fires; any user action
        cancels the countdown and the user can restart by waiting
        through another idle moment. */
-    continueCountdown: { interval: null, deadline: 0, secondsLeft: 0, autoFiring: false },
+    continueCountdown: { secondsLeft: 0, autoFiring: false },
+    _autoContinueController: null,
     /** Total seconds the auto-continue waits before firing. */
     AUTO_CONTINUE_SECONDS: 10,
 
-    /** True if the room is in the right shape for an auto-continue.
-     *  Requires an active round-prompt in the chat — the in-chat
-     *  Continue button is now the affordance (the queue strip's
-     *  buttons were removed). */
-    canAutoContinue() {
-      const r = this.currentRoom;
-      if (!r) return false;
-      if (r.status !== "live") return false;
-      if (r.awaitingClarify) return false;
-      if (r.awaitingContinue) return false;
-      if (!this.isRoundComplete()) return false;
-      if (!this.activeRoundPromptId()) return false;
+    autoContinueRoomSnapshot() {
       // Don't start the 10s auto-continue countdown while the chair
       // is still mid-presenting (streaming text or playing voice
       // for the round-prompt). The chair-prompt voice runs ~5-10s;
@@ -7887,71 +7875,72 @@
       // from `_fireVoiceDone` once playback ends, giving the user
       // the full 10s window with the popover visible.
       const msgs = this.currentMessages || [];
+      let lastAgentMsg = null;
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
         if (!m || m.authorKind !== "agent") continue;
-        if (m.meta && m.meta.streaming === true) return false;
-        if (this.voiceQueues && this.voiceQueues[m.id]) return false;
+        lastAgentMsg = {
+          streaming: !!(m.meta && m.meta.streaming === true),
+          voicePlaying: !!(this.voiceQueues && this.voiceQueues[m.id]),
+        };
         break;
       }
-      if (this.chairPending === true) return false;
-      return true;
+      return {
+        id: this.currentRoomId,
+        status: this.currentRoom?.status,
+        awaitingClarify: !!this.currentRoom?.awaitingClarify,
+        awaitingContinue: !!this.currentRoom?.awaitingContinue,
+        voteTrigger: this.currentRoom?.voteTrigger || "auto",
+        queueLen: (this.currentQueue || []).length,
+        round: this.currentRound,
+        activeRoundPromptId: this.activeRoundPromptId(),
+        lastAgentMsg,
+        chairPending: this.chairPending === true,
+      };
+    },
+
+    /** True if the room is in the right shape for an auto-continue.
+     *  Requires an active round-prompt in the chat — the in-chat
+     *  Continue button is now the affordance (the queue strip's
+     *  buttons were removed). */
+    canAutoContinue() {
+      if (!this.isRoundComplete()) return false;
+      return !!window.RoomAutoContinue?.canAutoContinue?.(this.autoContinueRoomSnapshot());
+    },
+
+    ensureAutoContinueController() {
+      if (this._autoContinueController) return this._autoContinueController;
+      this._autoContinueController = new window.RoomAutoContinue.AutoContinueController({
+        totalSeconds: this.AUTO_CONTINUE_SECONDS,
+        onTick: (left) => {
+          this.continueCountdown.secondsLeft = left;
+          this.refreshContinueButton();
+        },
+        onBeep: (left) => {
+          try { window.boardroomTypingSfx?.countdownTick?.(left); } catch { /* ignore */ }
+        },
+        onFire: () => {
+          this.continueCountdown.autoFiring = true;
+          this.continueRoom().catch((err) => {
+            alert("Auto-continue failed: " + err.message);
+          });
+        },
+      });
+      return this._autoContinueController;
     },
 
     /** Spin up the countdown if conditions are met; otherwise cancel. */
     maybeStartContinueCountdown() {
-      if (!this.canAutoContinue()) {
-        this.cancelContinueCountdown();
-        this.refreshContinueButton();
-        return;
-      }
-      // Already counting — leave alone.
-      if (this.continueCountdown.interval) {
-        this.refreshContinueButton();
-        return;
-      }
-      const total = this.AUTO_CONTINUE_SECONDS;
-      this.continueCountdown.deadline = Date.now() + total * 1000;
-      this.continueCountdown.secondsLeft = total;
       this.continueCountdown.autoFiring = false;
-      this.continueCountdown.interval = setInterval(() => this.tickContinueCountdown(), 1000);
+      this.ensureAutoContinueController().setRoom(this.autoContinueRoomSnapshot());
       this.refreshContinueButton();
-      // First audible beep fires immediately so the 10-tick cadence
-      // (10, 9, 8 … 1) starts at the same instant the visible "10"
-      // appears on the button — without this the first beep would
-      // land 1s later at 9 and the user's mental "10!" cue would be
-      // silent. Subsequent beeps come from tickContinueCountdown.
-      try { window.boardroomTypingSfx?.countdownTick?.(total); } catch { /* ignore */ }
     },
 
     cancelContinueCountdown() {
-      if (this.continueCountdown.interval) {
-        clearInterval(this.continueCountdown.interval);
-        this.continueCountdown.interval = null;
-      }
+      if (this._autoContinueController) this._autoContinueController.cancel();
       this.continueCountdown.secondsLeft = 0;
-      this.continueCountdown.deadline = 0;
+      this.continueCountdown.autoFiring = false;
       this.refreshContinueButton();
-    },
-
-    tickContinueCountdown() {
-      const left = Math.max(0, Math.ceil((this.continueCountdown.deadline - Date.now()) / 1000));
-      this.continueCountdown.secondsLeft = left;
-      this.refreshContinueButton();
-      // Audible countdown · square-wave beep on each visible tick so
-      // the user feels the timer urgency build up (last 3s flip to a
-      // higher / louder "alarm" register inside countdownTick). User-
-      // settings sound toggle controls all SFX uniformly.
-      try { window.boardroomTypingSfx?.countdownTick?.(left); } catch { /* ignore */ }
-      if (left <= 0 && !this.continueCountdown.autoFiring) {
-        this.continueCountdown.autoFiring = true;
-        clearInterval(this.continueCountdown.interval);
-        this.continueCountdown.interval = null;
-        // Auto-continue fires the same action as the manual click.
-        this.continueRoom().catch((err) => {
-          alert("Auto-continue failed: " + err.message);
-        });
-      }
     },
 
     /** Repaint the Continue button in the queue strip. Disabled when
@@ -7986,7 +7975,7 @@
       const idle = this.canAutoContinue();
       const total = this.AUTO_CONTINUE_SECONDS;
       const left = this.continueCountdown.secondsLeft;
-      const counting = this.continueCountdown.interval && idle;
+      const counting = !!(this._autoContinueController?.active && idle);
       const pct = Math.max(0, Math.min(100, ((total - left) / total) * 100));
 
       for (const btn of btns) {
@@ -8036,38 +8025,22 @@
       this.refreshRoundEndButton();
       this.refreshContinueButton();
       this.renderQueue();
-      let res;
       try {
-        res = await fetch(
-          "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/round-end",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: m }),
-          },
-        );
+        const result = await this.ensureRoomActionController().endRound(this.currentRoomId, m);
+        // Deferred path · server stashed the request and will fire the
+        // chair after the current speaker finalises. Surface a light UI
+        // hint (voteQueued) so the bottom-bar button can show a queued
+        // state. Cleared on the SSE awaitingContinue=true flip.
+        if (result && result.deferred && this.currentRoom) {
+          this.currentRoom.voteQueued = true;
+          this.refreshManualVoteButton();
+          this.refreshRoundEndButton();
+        }
       } catch (err) {
         if (m === "now" && this.currentRoom) this.currentRoom.awaitingContinue = false;
         this.refreshRoundEndButton();
         alert("Couldn't wrap the round: " + (err && err.message ? err.message : err));
         return;
-      }
-      if (!res.ok) {
-        if (m === "now" && this.currentRoom) this.currentRoom.awaitingContinue = false;
-        this.refreshRoundEndButton();
-        const e = await res.json().catch(() => ({}));
-        alert("Couldn't wrap the round: " + (e.error || res.statusText));
-        return;
-      }
-      // Deferred path · server stashed the request and will fire the
-      // chair after the current speaker finalises. Surface a light UI
-      // hint (voteQueued) so the bottom-bar button can show a queued
-      // state. Cleared on the SSE awaitingContinue=true flip.
-      const data = await res.json().catch(() => ({}));
-      if (data && data.deferred && this.currentRoom) {
-        this.currentRoom.voteQueued = true;
-        this.refreshManualVoteButton();
-        this.refreshRoundEndButton();
       }
     },
 
@@ -8111,47 +8084,22 @@
           return;
         }
       }
-      const r = await fetch(
-        "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/continue",
-        { method: "POST" },
-      );
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        // 409 "room is not live" / "already paused" / "already adjourned"
-        // is a benign race — the user (or another tab) transitioned the
-        // room off `live` between when the Continue button surfaced and
-        // when the request landed. Auto-fire from the countdown timer
-        // is the most visible offender: timer ticks to zero after the
-        // user has already paused / adjourned, the API returns 409, and
-        // the alert pops up unprompted ("莫名其妙的提出来一个 alert").
-        // Same swallow pattern as `pauseRoom` for the pause-vs-continue
-        // race (see the 409 handling around line 2740). All other 4xx /
-        // 5xx still alert.
-        const benignRace = r.status === 409 && /not\s*live|already\s*(paused|adjourned)/i.test(e.error || "");
-        if (!benignRace) {
-          alert("Continue failed: " + (e.error || r.statusText));
+      try {
+        const result = await this.ensureRoomActionController().continue(this.currentRoomId);
+        if (result.benignRace) return;
+        if (result.room) {
+          this.currentRoom = result.room;
         }
-        return;
-      }
-      const data = await r.json();
-      if (data.room) {
-        this.currentRoom = data.room;
+      } catch (err) {
+        alert("Continue failed: " + (err && err.message ? err.message : err));
       }
     },
 
     async resumeRoom() {
       if (!this.currentRoomId) return;
-      const r = await fetch(
-        "/api/rooms/" + encodeURIComponent(this.currentRoomId) + "/resume",
-        { method: "POST" },
-      );
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.error || "resume failed");
-      }
-      const data = await r.json();
-      if (data.room) {
-        this.currentRoom = data.room;
+      const result = await this.ensureRoomActionController().resume(this.currentRoomId);
+      if (result.room) {
+        this.currentRoom = result.room;
         document.documentElement.setAttribute("data-status", "live");
         this.renderHeader();
       }
@@ -13443,20 +13391,11 @@
         // persona prompt isn't polluted. Phase 5 uses it directly for
         // voice cloning, skipping the YouTube auto-search step.
         const voiceSourceUrl = voiceSourceUrlInline;
-        const r = await fetch("/api/agents/generate-persona", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            description,
-            locale,
-            ...(voiceSourceUrl ? { voiceSourceUrl } : {}),
-          }),
+        const j = await this._ensureAgentApi().generatePersona({
+          description,
+          locale,
+          ...(voiceSourceUrl ? { voiceSourceUrl } : {}),
         });
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || ("HTTP " + r.status));
-        }
-        const j = await r.json();
         if (!j || !j.jobId) throw new Error("server returned no jobId");
         this.personaJob.jobId = j.jobId;
         this.personaJob.status = "running";
@@ -13720,9 +13659,8 @@
         if (!ok) return;
       }
       if (job.status === "running") {
-        try {
-          fetch(`/api/agents/generate-persona/${encodeURIComponent(job.jobId)}/abort`, { method: "POST" });
-        } catch { /* swallow · the SSE will close anyway when the job hits its abort path */ }
+        // Fire-and-forget · the SSE closes anyway when the job hits its abort path.
+        this._ensureAgentApi().abortPersona(job.jobId).catch(() => {});
       }
       if (silent) {
         this._closePersonaSse();
@@ -13932,20 +13870,11 @@
       };
       this.renderEmptyState();
       try {
-        const r = await fetch("/api/voices/clone-from-video", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            ...(url ? { videoUrl: url } : {}),
-            celebrity: name,
-            agentId: agentId || null,
-          }),
+        const data = await this._ensureAgentApi().cloneFromVideo({
+          ...(url ? { videoUrl: url } : {}),
+          celebrity: name,
+          agentId: agentId || null,
         });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-          throw new Error(err.error || `HTTP ${r.status}`);
-        }
-        const data = await r.json();
         this.voiceDistillJob.jobId = data.jobId;
         this.voiceDistillJob.status = "running";
         this._openVoiceDistillSse(data.jobId);
@@ -14054,8 +13983,7 @@
         this.renderEmptyState();
         return;
       }
-      fetch(`/api/voices/clone-from-video/${encodeURIComponent(job.jobId)}/abort`, { method: "POST" })
-        .catch(() => { /* idempotent server-side */ });
+      this._ensureAgentApi().abortClone(job.jobId).catch(() => { /* idempotent server-side */ });
     },
 
     resetVoiceDistill() {
@@ -14512,30 +14440,21 @@
           const ability = (job.finalAbility && Object.keys(job.finalAbility).length > 0)
             ? job.finalAbility
             : null;
-          const r = await fetch(`/api/agents/generate-persona/${encodeURIComponent(job.jobId)}/save`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              name: data.name,
-              handle,
-              roleTag: (job.finalGuessRoleTag || "director").trim() || "director",
-              bio: data.bio,
-              coverQuote: (job.finalCoverQuote || "").trim(),
-              instruction: data.instruction,
-              modelV: data.modelV,
-              avatarPath: data.avatarPath,
-              ...(ability ? { ability } : {}),
-            }),
+          // Shared save contract (throws on non-2xx with the server error).
+          // The new agent id drives (a) a best-effort 3D portrait screenshot
+          // and (b) attaching any pending distilled voice before the roster
+          // refresh below picks the new director up.
+          const savedAgent = await this._ensureAgentApi().savePersona(job.jobId, {
+            name: data.name,
+            handle,
+            roleTag: (job.finalGuessRoleTag || "director").trim() || "director",
+            bio: data.bio,
+            coverQuote: (job.finalCoverQuote || "").trim(),
+            instruction: data.instruction,
+            modelV: data.modelV,
+            avatarPath: data.avatarPath,
+            ...(ability ? { ability } : {}),
           });
-          if (!r.ok) {
-            const e = await r.json().catch(() => ({}));
-            throw new Error(e.error || ("HTTP " + r.status));
-          }
-          // Read the persona save response once · we need (a) the new
-          // agent id to apply a 3D portrait screenshot (best-effort)
-          // and (b) the same id to attach any pending distilled voice
-          // before the roster refresh below picks the new director up.
-          const savedAgent = await r.json().catch(() => null);
           const newId = savedAgent && (savedAgent.id || (savedAgent.agent && savedAgent.agent.id));
           if (newId) {
             await this.apply3dPortrait(newId);
@@ -16398,6 +16317,21 @@
 
     enqueueVoiceChunk(roomId, chunk) {
       if (!chunk || !chunk.messageId || !chunk.audioBase64 || !chunk.mimeType) return;
+      const voiceCtrl = this.ensureRoomVoiceController();
+      const freshShared = !voiceCtrl.has(chunk.messageId);
+      const qShared = voiceCtrl.enqueueChunk({ ...chunk, roomId });
+      if (!qShared) return;
+      const liveMsg = (this.currentMessages || []).find((m) => m.id === chunk.messageId);
+      const bgMsg = (this._bgMessages && this._bgMessages[chunk.messageId]) || null;
+      qShared.authorId = (liveMsg && liveMsg.authorId) || (bgMsg && bgMsg.authorId) || qShared.authorId || null;
+      qShared.cachedBody = (liveMsg && liveMsg.body) || (bgMsg && bgMsg.body) || qShared.body || "";
+      this.voiceQueues = voiceCtrl.queues;
+      if (freshShared) {
+        this._activeVoiceRoomId = roomId;
+        this.refreshMiniPlayer();
+        this.renderQueue();
+      }
+      return;
       // Dedupe by seq · the bg-SSE handoff briefly overlaps the
       // foreground subscription. Both deliver the same events
       // during that window. Without this guard, every chunk in
@@ -17301,6 +17235,19 @@
 
     async drainVoiceQueue(roomId, messageId) {
       // Called from voice-final handler — mark final and flush
+      if (this._roomVoiceController) {
+        const msg = (this.currentMessages || []).find((m) => m.id === messageId)
+          || (this._bgMessages && this._bgMessages[messageId])
+          || null;
+        this._roomVoiceController.markFinal({
+          roomId,
+          messageId,
+          authorId: msg ? msg.authorId : null,
+          body: msg ? msg.body : "",
+        });
+        this.voiceQueues = this._roomVoiceController.queues;
+        return;
+      }
       const q = this.voiceQueues[messageId];
       if (!q) return;
       if (q.final && !q.doneSent) {
@@ -17311,6 +17258,16 @@
     /** Immediately stop all voice playback and discard pending queues.
      *  Used on hard-pause to silence mid-stream audio. */
     stopVoicePlayback() {
+      if (this._roomVoiceController) {
+        this._roomVoiceController.stop();
+        this.voiceQueues = this._roomVoiceController.queues;
+        this._voiceCurrentMessageId = null;
+        try {
+          if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "none";
+        } catch (_) {}
+        this.refreshMiniPlayer();
+        return;
+      }
       for (const messageId of Object.keys(this.voiceQueues)) {
         const q = this.voiceQueues[messageId];
         if (q && q.watchdogId) { try { clearInterval(q.watchdogId); } catch (_) {} q.watchdogId = null; }
@@ -17921,15 +17878,11 @@
      *  round of directors), or interjected a message. Chair settings
      *  pings don't count, since they're informational. */
     isRoundPromptSpent(messageId) {
-      const idx = this.currentMessages.findIndex((m) => m.id === messageId);
-      if (idx < 0) return true;
-      const chairId = this.currentChair?.id;
-      for (let i = idx + 1; i < this.currentMessages.length; i++) {
-        const m = this.currentMessages[i];
-        if (m.authorKind === "agent" && m.authorId === chairId && m.meta?.kind === "settings") continue;
-        return true;
-      }
-      return false;
+      return window.RoomAutoContinue?.isRoundPromptSpent?.(
+        this.currentMessages || [],
+        this.currentChair?.id,
+        messageId,
+      ) ?? true;
     },
 
     /** In-chat round-prompt card: chair offers End-round (vote) or
@@ -18044,14 +17997,10 @@
      *  if none. Used to gate the auto-continue countdown so it only
      *  runs when the in-chat Continue button is actually live. */
     activeRoundPromptId() {
-      const chairId = this.currentChair?.id;
-      for (let i = this.currentMessages.length - 1; i >= 0; i--) {
-        const m = this.currentMessages[i];
-        if (m.authorKind === "agent" && m.authorId === chairId && m.meta?.kind === "round-prompt") {
-          return this.isRoundPromptSpent(m.id) ? null : m.id;
-        }
-      }
-      return null;
+      return window.RoomAutoContinue?.activeRoundPromptId?.(
+        this.currentMessages || [],
+        this.currentChair?.id,
+      ) || null;
     },
 
     /** Repaint a single round-prompt card from current state. Mirrors
@@ -20240,12 +20189,15 @@
       // the words, not the syntax. Then keep only the tail (the
       // most recent ~240 chars) so the line-clamp lands on the
       // freshest content.
-      const text = String(body || "")
-        .replace(/\*+/g, "")
-        .replace(/^#+\s*/gm, "")
-        .replace(/^[-*]\s+/gm, "")
-        .replace(/\s+/g, " ")
-        .trim();
+      const captionRuntime = (typeof window !== "undefined" && window.RoomMeetingRuntime) ? window.RoomMeetingRuntime : null;
+      const text = captionRuntime && typeof captionRuntime.cleanCaptionText === "function"
+        ? captionRuntime.cleanCaptionText(body)
+        : String(body || "")
+          .replace(/\*+/g, "")
+          .replace(/^#+\s*/gm, "")
+          .replace(/^[-*]\s+/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
       if (!text) {
         if (isStreaming) {
           // Empty body but the speaker placeholder IS streaming ·
@@ -20317,23 +20269,8 @@
       // uniform across a single message, so this approximation
       // tracks well enough for a caption to feel synced.
       if (!visible && replayAudio && isFinite(replayAudio.duration) && replayAudio.duration > 0) {
-        const parts = [];
-        const re = /[^。！？.!?；;\n]+[。！？.!?；;\n]?/g;
-        let mtch;
-        while ((mtch = re.exec(text)) !== null) {
-          const s = mtch[0].trim();
-          if (s) parts.push(s);
-        }
-        if (parts.length > 0) {
-          const progress = Math.max(0, Math.min(1, replayAudio.currentTime / replayAudio.duration));
-          const cursor = Math.floor(text.length * progress);
-          let acc = 0;
-          let pickIdx = parts.length - 1;
-          for (let i = 0; i < parts.length; i++) {
-            acc += parts[i].length;
-            if (acc >= cursor) { pickIdx = i; break; }
-          }
-          visible = parts[pickIdx];
+        if (captionRuntime && typeof captionRuntime.pickVisibleCaptionText === "function") {
+          visible = captionRuntime.pickVisibleCaptionText(text, { audio: replayAudio });
         } else {
           visible = text;
         }
@@ -20342,14 +20279,9 @@
       // final punctuation, pick the last sentence we have so the
       // caption stays current as tokens arrive.
       if (!visible) {
-        const parts = [];
-        const re = /[^。！？.!?；;\n]+[。！？.!?；;\n]?/g;
-        let mtch;
-        while ((mtch = re.exec(text)) !== null) {
-          const s = mtch[0].trim();
-          if (s) parts.push(s);
-        }
-        visible = parts.length ? parts[parts.length - 1] : text;
+        visible = captionRuntime && typeof captionRuntime.pickVisibleCaptionText === "function"
+          ? captionRuntime.pickVisibleCaptionText(text)
+          : text;
       }
       const visTrim = visible.trim();
       const sig =

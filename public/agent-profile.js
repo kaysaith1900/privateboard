@@ -11,6 +11,14 @@
 */
 (function () {
 
+  // Shared agent / voice / persona contracts (public/agent-runtime.js). Lazy
+  // accessor: agent-runtime.js loads via <script defer> too, but every consumer
+  // here runs on user interaction, long after all deferred scripts evaluate.
+  let _agentApi = null;
+  function agentApi() {
+    return _agentApi || (_agentApi = window.AgentRuntime.createAgentApi());
+  }
+
   function uiT(key, vars) {
     return (window.I18n && window.I18n.t(key, vars)) || key;
   }
@@ -804,11 +812,7 @@
     const arr = _cleanRules(slug);
     const live = _liveAgentFor(slug);
     if (live) live.userRules = arr.slice();   // optimistic
-    fetch("/api/agents/" + encodeURIComponent(slug), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userRules: arr }),
-    }).then((r) => (r.ok ? r.json() : null)).then((updated) => {
+    agentApi().patchAgent(slug, { userRules: arr }).then((updated) => {
       if (updated && Array.isArray(updated.userRules) && live) {
         live.userRules = updated.userRules.slice();
       }
@@ -1055,16 +1059,7 @@
     if (trimmed.length < BIO_MIN || trimmed.length > BIO_MAX) {
       throw new Error(`description must be ${BIO_MIN}–${BIO_MAX} chars`);
     }
-    const r = await fetch("/api/agents/" + encodeURIComponent(slug), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ bio: trimmed }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
-    const updated = await r.json();
+    const updated = await agentApi().patchAgent(slug, { bio: trimmed });
     if (window.app) {
       const live = window.app.agentsById && window.app.agentsById[slug];
       if (live) live.bio = updated.bio || trimmed;
@@ -1429,14 +1424,7 @@
     const list = block.querySelector("[data-ap-ulm-list]");
     if (!list) return;
     try {
-      const r = await fetch("/api/agents/chair/user-long-memory");
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        list.innerHTML = `<div class="ap-empty">${escape(j.error || ("HTTP " + r.status))}</div>`;
-        return;
-      }
-      const j = await r.json();
-      const items = Array.isArray(j.items) ? j.items : [];
+      const items = window.AgentRuntime.chairMemoryItems(await agentApi().chairLongMemory());
       if (items.length === 0) {
         list.innerHTML = ulmEmptyStageHTML();
         return;
@@ -1448,26 +1436,12 @@
   }
 
   async function patchUserLongMemory(id, claim) {
-    const r = await fetch("/api/agents/chair/user-long-memory/" + encodeURIComponent(id), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ claim }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
-    return r.json();
+    // Shared contract (AgentRuntime) so the chair-memory endpoints live in one place.
+    return agentApi().patchChairMemory(id, claim);
   }
 
   async function deleteUserLongMemoryRow(id) {
-    const r = await fetch("/api/agents/chair/user-long-memory/" + encodeURIComponent(id), {
-      method: "DELETE",
-    });
-    if (!r.ok && r.status !== 204) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
+    await agentApi().deleteChairMemory(id);
   }
 
   /** Render the MEMORY block · live, per-agent long-term notes about
@@ -1502,13 +1476,7 @@
     const list = block.querySelector("[data-ap-memory-list]");
     if (!list) return;
     try {
-      const r = await fetch("/api/agents/" + encodeURIComponent(slug) + "/memories");
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        list.innerHTML = `<div class="ap-empty">couldn't load memory: ${escape(j.error || ("HTTP " + r.status))}</div>`;
-        return;
-      }
-      const j = await r.json();
+      const j = await agentApi().listMemories(slug);
       const memories = Array.isArray(j.memories) ? j.memories : [];
       if (memories.length === 0) {
         list.innerHTML = `<div class="ap-empty">no memory yet · the agent will accumulate notes after each room (or add one above)</div>`;
@@ -1569,32 +1537,11 @@
 
   /** POST /api/agents/:slug/memories · used by the manual add form. */
   async function addMemoryFor(slug, content) {
-    const r = await fetch("/api/agents/" + encodeURIComponent(slug) + "/memories", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content, kind: "fact" }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
-    return r.json();
+    return agentApi().addMemory(slug, { content, kind: "fact" });
   }
   /** PATCH /api/agents/:slug/memories/:id · supports pin toggle + content edit. */
   async function patchMemory(slug, id, patch) {
-    const r = await fetch(
-      "/api/agents/" + encodeURIComponent(slug) + "/memories/" + encodeURIComponent(id),
-      {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
-      },
-    );
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
-    return r.json();
+    return agentApi().patchMemory(slug, id, patch);
   }
   /** Spawn the dream-cycle modal overlay · returns the overlay
    *  element so the caller can mount its body content. Idempotent
@@ -1660,14 +1607,7 @@
 
   /** DELETE /api/agents/:slug/memories/:id */
   async function deleteMemoryFor(slug, id) {
-    const r = await fetch(
-      "/api/agents/" + encodeURIComponent(slug) + "/memories/" + encodeURIComponent(id),
-      { method: "DELETE" },
-    );
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
+    await agentApi().deleteMemory(slug, id);
   }
 
   /* ─── Skills v2 · uploaded Skill.md files ────────────────────────────
@@ -1937,13 +1877,7 @@
     const drop = block.querySelector("[data-ap-skills-drop]");
     const cap = parseInt(block.getAttribute("data-cap") || "5", 10);
     try {
-      const r = await fetch("/api/agents/" + encodeURIComponent(slug) + "/skills");
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        list.innerHTML = `<div class="ap-empty">${escape(uiT("ap_skills_load_fail", { detail: String(j.error || ("HTTP " + r.status)) }))}</div>`;
-        return;
-      }
-      const { skills } = await r.json();
+      const { skills } = await agentApi().listSkills(slug);
       // System skills don't count toward the user-installable cap — they
       // ride along on top.
       const userSkills = skills.filter((s) => !s.system);
@@ -1981,16 +1915,7 @@
   }
 
   async function installSkillFromText(slug, mdText) {
-    const r = await fetch("/api/agents/" + encodeURIComponent(slug) + "/skills", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ md: mdText }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
-    return r.json();
+    return agentApi().addSkill(slug, mdText);
   }
   /** Open a fixed-position popover anchored above the trigger button.
    *  Reads serialized skill payload from the trigger's data-tip JSON.
@@ -2081,14 +2006,7 @@
   }
 
   async function uninstallSkillReq(slug, skillId) {
-    const r = await fetch(
-      "/api/agents/" + encodeURIComponent(slug) + "/skills/" + encodeURIComponent(skillId),
-      { method: "DELETE" },
-    );
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("HTTP " + r.status));
-    }
+    await agentApi().deleteSkill(slug, skillId);
   }
 
   /** Split "Room #047" → { label: "ROOM", id: "#047" }. Falls back to
@@ -2192,11 +2110,7 @@
     // Fetch + render. Same-origin so credentials default. The
     // fetch path returns text/markdown; we feed it straight into
     // the existing renderMarkdown helper.
-    fetch(`/api/agents/${encodeURIComponent(slug)}/persona.md`, { credentials: "same-origin" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.text();
-      })
+    agentApi().personaMarkdown(slug)
       .then((md) => {
         const body = overlay.querySelector("[data-ap-persona-body]");
         if (!body) return;
@@ -2504,13 +2418,7 @@
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     if (live) {
       try {
-        const res = await fetch("/api/agents/" + encodeURIComponent(slug), {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ avatarPath: dataUrl }),
-        });
-        if (!res.ok) throw new Error("avatar update failed");
-        const updated = await res.json();
+        const updated = await agentApi().patchAgent(slug, { avatarPath: dataUrl });
         // Refresh the in-memory roster so the sidebar + room views
         // pick up the new avatar.
         live.avatarPath = updated.avatarPath || dataUrl;
@@ -2791,21 +2699,8 @@
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     if (!live) return;
     const body = { modelV: v, carrierPref: entry.carrier ?? null };
-    fetch("/api/agents/" + encodeURIComponent(slug), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then(async (r) => {
-        if (r.ok) return r.json();
-        // Surface the SERVER's actual error string. Previously this
-        // path threw a hardcoded "model save failed" which made bugs
-        // (e.g. running server hadn't picked up a new model in the
-        // registry) impossible to diagnose from the alert.
-        const j = await r.json().catch(() => ({}));
-        const detail = j && typeof j.error === "string" ? j.error : `HTTP ${r.status}`;
-        throw new Error(detail);
-      })
+    // Shared api surfaces the server's actual error string on failure.
+    agentApi().patchAgent(slug, body)
       .then((updated) => {
         // Reflect both fields in the in-memory roster so re-rendering
         // the trigger picks up the new carrier badge immediately.
@@ -3593,12 +3488,7 @@
   function setVoiceFor(slug, voice) {
     const live = window.app && window.app.agentsById ? window.app.agentsById[slug] : null;
     if (!live) return;
-    fetch("/api/agents/" + encodeURIComponent(slug), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ voice }),
-    })
-      .then((r) => r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error || `HTTP ${r.status}`))))
+    agentApi().patchAgent(slug, { voice })
       .then((updated) => {
         const nv = updated.voice != null ? updated.voice : voice;
         live.voice = nv;
@@ -3657,43 +3547,28 @@
       // falls back to a hardcoded Chinese phrase, which surfaced in
       // EN/JA/ES locales as the wrong language being read.
       const customText = (loadPreviewText(slug) || "").trim();
-      const r = await fetch("/api/voices/preview", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text: customText || uiT("ap_voice_preview_sample"),
-          provider: v.provider,
-          model: v.model,
-          voiceId: v.voiceId,
-          speed: v.speed,
-          pitch: v.pitch,
-          emotion: v.emotion,
-          modifyPitch: v.modifyPitch,
-          modifyIntensity: v.modifyIntensity,
-          modifyTimbre: v.modifyTimbre,
-        }),
-      });
-      const data = await r.json();
-      if (!r.ok || !data.audioBase64) {
-        // Structured failure · the server tags `code: "paid-plan-required"`
-        // when ElevenLabs returns 402 paid_plan_required or MiniMax
-        // reports insufficient balance. Route into the upgrade overlay
-        // (title + explanation + CTA to the provider's billing page)
-        // instead of an alert() so the user gets a clear next step.
-        if (data.code === "paid-plan-required") {
-          openVoicePaidOverlay({
-            provider: typeof data.provider === "string" ? data.provider : v.provider,
-            upgradeUrl: typeof data.upgradeUrl === "string" ? data.upgradeUrl : "",
-            message: data.error || "",
-          });
-          return;
-        }
+      // Shared payload builder + api (single contract). `v.voiceId` is
+      // guaranteed above, so the payload is never null here.
+      const payload = window.AgentRuntime.buildVoicePreviewPayload(v, customText || uiT("ap_voice_preview_sample"));
+      const data = await agentApi().previewVoice(payload);
+      if (!data.audioBase64) {
         alert(uiT("ap_voice_preview_failed", { msg: data.error || "no audio" }));
         return;
       }
       const audio = new Audio(`data:${data.mimeType};base64,${data.audioBase64}`);
       audio.play().catch((e) => alert(uiT("ap_voice_preview_playback_blocked", { msg: e.message || String(e) })));
     } catch (e) {
+      // Structured paywall failure · the shared api throws with err.code set
+      // (ElevenLabs 402 / MiniMax balance). Route into the upgrade overlay
+      // instead of a generic error, exactly as before.
+      if (e && e.code === "paid-plan-required") {
+        openVoicePaidOverlay({
+          provider: typeof e.provider === "string" ? e.provider : v.provider,
+          upgradeUrl: typeof e.upgradeUrl === "string" ? e.upgradeUrl : "",
+          message: e.message || "",
+        });
+        return;
+      }
       alert(uiT("ap_voice_preview_err", { msg: e.message || String(e) }));
     } finally {
       if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
@@ -4128,8 +4003,7 @@
   function loadTrackRecord(slug) {
     const grid = document.querySelector(`[data-ap-stats][data-slug="${slug}"]`);
     if (!grid) return;
-    fetch("/api/agents/" + encodeURIComponent(slug) + "/stats")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+    agentApi().agentStats(slug)
       .then((s) => {
         const rooms = grid.querySelector("[data-ap-stat-rooms]");
         const rounds = grid.querySelector("[data-ap-stat-rounds]");
@@ -4663,16 +4537,7 @@
         // also clear it (user can dismiss mid-run via ✕ / ESC /
         // backdrop and we shouldn't keep the interval ticking).
         overlay.__dreamPhaseTimer = phaseTimer;
-        fetch("/api/agents/" + encodeURIComponent(slug) + "/dream", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
-        })
-          .then(async (r) => {
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
-            return j;
-          })
+        agentApi().triggerDream(slug)
           .then((j) => {
             const s = j.summary || {};
             const before = s.beforeCount ?? 0;
@@ -4923,17 +4788,11 @@
         if (txt) txt.textContent = next ? "enabled" : "disabled";
         wsToggle.title = next ? "Disable Web Search for this director" : "Enable Web Search for this director";
         try {
-          const r = await fetch("/api/agents");
-          const j = await r.json();
+          const j = await agentApi().listAgents();
           const agent = (j.agents || []).find((a) => a.handle === ("@" + agentSlug) || a.handle === ("/" + agentSlug) || a.handle === agentSlug || a.id === agentSlug)
             || (j.chair && (j.chair.handle === ("@" + agentSlug) || j.chair.handle === ("/" + agentSlug) || j.chair.id === agentSlug) ? j.chair : null);
           if (!agent) throw new Error("agent not found");
-          const p = await fetch("/api/agents/" + encodeURIComponent(agent.id), {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ webSearchEnabled: next }),
-          });
-          if (!p.ok) throw new Error("HTTP " + p.status);
+          await agentApi().patchAgent(agent.id, { webSearchEnabled: next });
         } catch (err) {
           // Revert visual on failure.
           wsToggle.classList.toggle("on", wasEnabled);

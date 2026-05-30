@@ -1,7 +1,6 @@
 /**
  * Unit coverage for the shared auto-continue controller that powers
- * the mobile shell (public/m/index.html) — and is intended to power
- * PC (public/app.js) once PC's inline copy is migrated in a follow-up.
+ * both PC (public/app.js) and the mobile shell (public/m/index.html).
  *
  * The module is plain JS (browser-loadable as ES module) so vitest can
  * import the named exports directly. Tests focus on:
@@ -20,6 +19,8 @@ import "../public/room-auto-continue.js";
 const RoomAutoContinue = (globalThis as unknown as {
   RoomAutoContinue: {
     canAutoContinue: (room: unknown) => boolean;
+    activeRoundPromptId: (messages: unknown[], chairId: string) => string | null;
+    isRoundPromptSpent: (messages: unknown[], chairId: string, messageId: string) => boolean;
     AutoContinueController: new (opts: Record<string, unknown>) => {
       setRoom(room: unknown): void;
       cancel(): void;
@@ -30,7 +31,7 @@ const RoomAutoContinue = (globalThis as unknown as {
   };
 }).RoomAutoContinue;
 
-const { canAutoContinue, AutoContinueController } = RoomAutoContinue;
+const { canAutoContinue, activeRoundPromptId, isRoundPromptSpent, AutoContinueController } = RoomAutoContinue;
 
 function liveRoom(overrides: Record<string, unknown> = {}) {
   return {
@@ -41,6 +42,7 @@ function liveRoom(overrides: Record<string, unknown> = {}) {
     voteTrigger: "auto",
     queueLen: 0,
     round: { spoken: 3, total: 3 },
+    activeRoundPromptId: "prompt-1",
     lastAgentMsg: { streaming: false, voicePlaying: false },
     chairPending: false,
     ...overrides,
@@ -54,6 +56,11 @@ describe("canAutoContinue", () => {
 
   it("returns false when room is null", () => {
     expect(canAutoContinue(null)).toBe(false);
+  });
+
+  it("returns false when room has no active id", () => {
+    expect(canAutoContinue(liveRoom({ id: null }))).toBe(false);
+    expect(canAutoContinue(liveRoom({ id: "" }))).toBe(false);
   });
 
   it("returns false when status is not live", () => {
@@ -80,6 +87,10 @@ describe("canAutoContinue", () => {
     expect(canAutoContinue(liveRoom({ round: null }))).toBe(false);
   });
 
+  it("returns false until a live round-prompt exists", () => {
+    expect(canAutoContinue(liveRoom({ activeRoundPromptId: null }))).toBe(false);
+  });
+
   it("returns false while the last agent message is still streaming or speaking", () => {
     expect(canAutoContinue(liveRoom({ lastAgentMsg: { streaming: true, voicePlaying: false } }))).toBe(false);
     expect(canAutoContinue(liveRoom({ lastAgentMsg: { streaming: false, voicePlaying: true } }))).toBe(false);
@@ -87,6 +98,27 @@ describe("canAutoContinue", () => {
 
   it("returns false while the chair is mid-vote / mid-prompt", () => {
     expect(canAutoContinue(liveRoom({ chairPending: true }))).toBe(false);
+  });
+});
+
+describe("round-prompt helpers", () => {
+  it("returns the latest unspent chair round-prompt", () => {
+    const messages = [
+      { id: "settings", authorKind: "agent", authorId: "chair", meta: { kind: "settings" } },
+      { id: "prompt-1", authorKind: "agent", authorId: "chair", meta: { kind: "round-prompt" } },
+      { id: "settings-2", authorKind: "agent", authorId: "chair", meta: { kind: "settings" } },
+    ];
+    expect(activeRoundPromptId(messages, "chair")).toBe("prompt-1");
+    expect(isRoundPromptSpent(messages, "chair", "prompt-1")).toBe(false);
+  });
+
+  it("marks a round-prompt spent once any non-settings event follows it", () => {
+    const messages = [
+      { id: "prompt-1", authorKind: "agent", authorId: "chair", meta: { kind: "round-prompt" } },
+      { id: "director-1", authorKind: "agent", authorId: "director", meta: { streaming: true } },
+    ];
+    expect(activeRoundPromptId(messages, "chair")).toBeNull();
+    expect(isRoundPromptSpent(messages, "chair", "prompt-1")).toBe(true);
   });
 });
 
