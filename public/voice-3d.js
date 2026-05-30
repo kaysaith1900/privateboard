@@ -3138,7 +3138,7 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
             // buildAvatar3D falls through to the legacy ones when the new
             // ones are absent, so older saved configs still render correctly.
             topStyle: cfg.topStyle, bottomStyle: cfg.bottomStyle, outfitStyle: cfg.outfitStyle,
-            browStyle: cfg.browStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
+            browStyle: cfg.browStyle, eyeStyle: cfg.eyeStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
             accessory: cfg.accessory, height: AVATAR_FIG_HEIGHT,
             skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, beard: cfg.beard,
             top: cfg.top, bottom: cfg.bottom, outfit: cfg.outfit,

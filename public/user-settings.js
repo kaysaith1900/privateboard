@@ -749,8 +749,10 @@
         <div class="us-model-row">
           <div class="us-model-info">
             <span class="us-model-dot" style="background:var(${color})"></span>
-            <span class="us-model-name">${escape(m.displayName)}</span>
-            <span class="us-model-provider">${escape(m.provider)}</span>
+            <div class="us-model-text">
+              <span class="us-model-name">${escape(m.displayName)}</span>
+              <span class="us-model-provider">${escape(m.provider)}</span>
+            </div>
           </div>
           <div class="us-model-bar">
             <span style="width:${pct.toFixed(2)}%;background:var(${color})"></span>

@@ -706,10 +706,24 @@
       const stop = window.mountVoice3dBanner(stage);
       if (stop) {
         _voice3dBannerStop = stop;
-        // Mark the wrapper so the CSS transition fades the veil out
-        // on the next frame · waiting a tick lets the canvas paint
-        // its first populated frame before the veil starts dissolving.
-        requestAnimationFrame(() => slot.classList.add("is-3d-mounted"));
+        // Wait a few RAF ticks before fading the placeholder out.
+        // The first RAF after mount paints the pre-warm frame
+        // (walls + table only, no floor / seats yet). The second
+        // RAF paints the populated frame (after VS3D.update's
+        // floor / seat build). We delay the fade until ~3 ticks
+        // (~50 ms) so the populated frame lands behind the veil
+        // and the cross-fade reveals the room — not an empty
+        // walls-only chrome.
+        let tick = 0;
+        const reveal = () => {
+          tick++;
+          if (tick < 3) {
+            requestAnimationFrame(reveal);
+            return;
+          }
+          slot.classList.add("is-3d-mounted");
+        };
+        requestAnimationFrame(reveal);
         return;
       }
     }

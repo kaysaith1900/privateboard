@@ -495,13 +495,11 @@
        `.agents-scroll`, sticky `.section-header`, `.sidebar-foot`
        fade) reads the same token. */
     background: var(--sidebar-bg);
-    /* Right edge owns the region divider · brighter than the other
-       three sides (--line-bright vs --line) so the sidebar reads as
-       visually distinct from the main column. Pairs with
-       `.main { border-left: none }` and `.col-resizer`'s panel-fill
-       at rest so the divider lands as a single crisp hairline
-       instead of a stack of seams plus a 1 px gap. */
-    border: 0.5px solid var(--line);
+    /* Right edge owns the region divider (--line-bright) so the sidebar
+       reads as visually distinct from the main column. Pairs with
+       `.main` (no border) and `.col-resizer`'s panel-fill at rest so the
+       divider lands as a single crisp hairline instead of a stack of
+       seams plus a 1 px gap. */
     border-right: 0.5px solid var(--line-bright);
     display: flex;
     flex-direction: column;
@@ -1987,11 +1985,6 @@
     grid-template-rows: 1fr;
     overflow: hidden;
     background: var(--panel);
-    /* No left border · pairs with `.sidebar { border-right: none }`
-       so the seam at the col-resizer column reads as a continuous
-       panel surface instead of a doubled hairline. */
-    border: 0.5px solid var(--line);
-    border-left: none;
     position: relative;
   }
   .main-view {
@@ -3945,6 +3938,39 @@
     font-weight: 700;
     letter-spacing: 0;
   }
+  /* Editable variant · the chip doubles as the "add director" button.
+     Default shows the count; on hover it fills with the accent and the
+     count swaps to a + (the standalone .head-add-cast icon was retired). */
+  .head-cast .cast-count.cast-count-editable {
+    position: relative;
+    /* Strict square · drop the horizontal padding so the 26×26 box can't
+       stretch wider than it is tall. The label sits in an absolutely-
+       positioned overlay below, so it doesn't need padding to breathe. */
+    padding: 0;
+    width: 26px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  /* Number + plus are each an absolutely-positioned, flex-centred overlay
+     filling the chip — so the glyph lands dead-centre regardless of its
+     own inline baseline / font-size (the + at 14px was sitting low). */
+  .cast-count-editable .cast-count-num,
+  .cast-count-editable .cast-count-plus {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cast-count-editable .cast-count-plus { display: none; font-size: 14px; line-height: 1; }
+  .cast-count-editable:hover {
+    background: var(--lime);
+    color: var(--bg);
+    border-color: var(--lime);
+  }
+  .cast-count-editable:hover .cast-count-num { display: none; }
+  .cast-count-editable:hover .cast-count-plus { display: flex; }
 
   .live-pill {
     display: inline-flex;
@@ -8343,6 +8369,8 @@
   .roundtable-stage.is-3d {
     background-image: none;
     background-color: transparent;
+    border-top-left-radius: 50px;
+    border-top-right-radius: 50px;
   }
   /* Inner wrapper for all stage content (table / plants / HUD /
      seats / subtitle). Becomes the containing block for the stage's

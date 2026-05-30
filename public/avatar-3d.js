@@ -38,7 +38,11 @@ export const AVATAR_MODELS = [
     // "shoes" so picking glasses in BOTTOM_STYLES wouldn't put white at
     // ankle level.
     id: "glasses", label: "眼镜 · 丸子头",
-    url: "/icons/new-style.glb",
+    // The blue one-piece uniform spans torso → legs · when worn as a TOP on
+    // another body it covers the hip/leg region, so a separate bottom would
+    // only clip through it (see `coversBottom` handling in buildAvatar3D).
+    coversBottom: true,
+    url: "/avatars/models/glasses.glb",
     accessory: "glasses",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -50,7 +54,7 @@ export const AVATAR_MODELS = [
   },
   {
     id: "casual", label: "休闲 · 耳机",
-    url: "/icons/new-style2.glb",
+    url: "/avatars/models/casual.glb",
     accessory: "headphones",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -65,7 +69,7 @@ export const AVATAR_MODELS = [
     // outfit. Not offered as a body style (partsOnly) — its cap, hair, and
     // clothing are mixed onto the other bodies via the swap dimensions.
     id: "street", label: "街头 · 鸭舌帽", partsOnly: true,
-    url: "/icons/new-style3.glb",
+    url: "/avatars/models/street.glb",
     accessory: "cap",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -86,7 +90,7 @@ export const AVATAR_MODELS = [
     // Parts source only · supplies a gold crown, mid-length hair, a tie, and
     // distinct (thicker) eyebrows. Not a standalone body (partsOnly).
     id: "royal", label: "皇室 · 王冠", partsOnly: true,
-    url: "/icons/new-style4.glb",
+    url: "/avatars/models/royal.glb",
     accessory: "crown",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -106,7 +110,7 @@ export const AVATAR_MODELS = [
     // Parts source only · supplies a Santa hat, long hair, pixel sunglasses
     // ("墨镜"), a bow ("蝴蝶结"), and eyebrows. Not a standalone body.
     id: "xmas", label: "圣诞 · 圣诞帽", partsOnly: true,
-    url: "/icons/new-style5.glb",
+    url: "/avatars/models/xmas.glb",
     accessory: "santa",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -130,7 +134,11 @@ export const AVATAR_MODELS = [
     // piece spanning torso + thighs — tagged entirely as "top" since it can't
     // be cleanly split at the waist. Not offered in BOTTOM_STYLES.
     id: "style6", label: "礼帽 · 背心裙", partsOnly: true,
-    url: "/icons/new-style6.glb",
+    // The pinafore dress spans torso → thighs · worn as a top it covers the
+    // hip region, so white shorts under it would clip through (see
+    // `coversBottom` handling in buildAvatar3D — the bottom is suppressed).
+    coversBottom: true,
+    url: "/avatars/models/dress.glb",
     accessory: "tophat",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -152,7 +160,7 @@ export const AVATAR_MODELS = [
     // a teal long-sleeve top + white shorts, and a wine cloth face mask.
     // Not a standalone body (partsOnly).
     id: "style7", label: "口罩 · 长袖", partsOnly: true,
-    url: "/icons/new-style7.glb",
+    url: "/avatars/models/mask.glb",
     accessory: "mask",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -179,7 +187,11 @@ export const AVATAR_MODELS = [
     // split the two dark meshes into beard (larger, lower) + brow (smaller).
     id: "style8", label: "熊熊 · 络腮胡", partsOnly: true,
     hasBeard: true,
-    url: "/icons/new-style8.glb",
+    // One-piece suit that encloses the legs · when worn as a top it must
+    // suppress the bottom (otherwise the previous shorts/pants clip through
+    // the suit at the legs). See the `fullBody` handling in buildAvatar3D.
+    fullBody: true,
+    url: "/avatars/models/bear.glb",
     accessory: "blindfold",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -191,7 +203,9 @@ export const AVATAR_MODELS = [
     // glasses / eye band → tag as "blindfold" (its own accessory role). The
     // yellow stars are decals → tag as "star" (also accessory).
     partTags: [
-      { role: "top", textured: true, color: [1.0, 1.0, 1.0] },
+      // The bear suit keeps its baked white fur · noPaint so the top-colour
+      // picker (and recolorAvatar) don't tint the costume off its own look.
+      { role: "top", textured: true, color: [1.0, 1.0, 1.0], noPaint: true },
       { role: "blindfold", textured: true, color: [0.054, 0.054, 0.054] },
       { role: "star", color: [1.0, 0.637, 0.0] },
     ],
@@ -207,7 +221,7 @@ export const AVATAR_MODELS = [
     // meshes into beard (larger handlebar) + brow.
     id: "style9", label: "络腮胡 · 长裤", partsOnly: true,
     hasBeard: true,
-    url: "/icons/new-style9.glb",
+    url: "/avatars/models/mustache.glb",
     accessory: "anger",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -235,7 +249,10 @@ export const AVATAR_MODELS = [
     // sizeYMax matcher (the larger dark mesh is the brows; the
     // smaller-volume one is the mustache → "beard").
     id: "style10", label: "皮卡丘 · 黄外衣", partsOnly: true,
-    url: "/icons/new-style10.glb",
+    // One-piece pikachu suit that encloses the legs · suppresses the bottom
+    // when worn as a top (see `fullBody` handling in buildAvatar3D).
+    fullBody: true,
+    url: "/avatars/models/pikachu.glb",
     accessory: "redcheek",
     colorRoles: [
       { c: [0.913, 0.565, 0.376], role: "skin" },
@@ -522,13 +539,31 @@ const FINISH = {
   beard:  { roughness: 0.45, metalness: 0.0,  envMapIntensity: 0.85 },
   outfit: { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9 },
   top:    { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9 },
-  bottom: { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9 },
-  eye:    { roughness: 0.06, metalness: 0.0,  envMapIntensity: 1.7 },
+  // The bottom (white shorts) is pushed back in the depth buffer so that where
+  // it overlaps a cross-model top at the waist, the top wins and hides the
+  // shorts' protruding band — fixes shorts clipping through the shirt without
+  // moving geometry (which would risk exposing skin / poking legs out). Only
+  // masks small overlaps; a top that should fully cover the bottom uses
+  // `coversBottom` instead.
+  bottom: { roughness: 0.72, metalness: 0.0,  envMapIntensity: 0.9, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 6 },
+  // Eyes were near-mirror (roughness 0.06 · envMap 1.7), which washed the iris
+  // albedo out with reflection — dark colours (#0d0d0d/#241c16/#3a2a1e) all
+  // read as the same glossy black, so picking the dark browns looked like a
+  // no-op. Softer + less env reflection lets the iris colour actually show,
+  // while a low-ish roughness keeps a small catch-light.
+  eye:    { roughness: 0.25, metalness: 0.0,  envMapIntensity: 0.9 },
 };
 function applyFinish(m, f) {
   if (typeof f.roughness === "number") m.roughness = f.roughness;
   if (typeof f.metalness === "number") m.metalness = f.metalness;
   if ("envMapIntensity" in m && typeof f.envMapIntensity === "number") m.envMapIntensity = f.envMapIntensity;
+  // Optional depth-bias · lets a layer (e.g. the bottom under a cross-model
+  // top) lose the depth test where it overlaps so the outer layer covers it.
+  if (f.polygonOffset) {
+    m.polygonOffset = true;
+    m.polygonOffsetFactor = f.polygonOffsetFactor || 0;
+    m.polygonOffsetUnits = f.polygonOffsetUnits || 0;
+  }
   m.needsUpdate = true;
   return m;
 }
@@ -585,20 +620,66 @@ export function buildAvatar3D(seed, opts = {}) {
   // dimension, kept for old saved configs) falls through to BOTH when the
   // newer fields are absent.
   const legacyOutfit = opts.outfitStyle;
+  // A full-body COSTUME (bear / pikachu onesie) is chosen from the accessory
+  // dimension now, not the top dimension. When one is selected it overrides
+  // the top and renders as a hooded full-body suit. The legacy path where
+  // these were `topStyle`s still resolves (old saves / the voice room).
+  const costumeTop = (typeof opts.accessory === "string") ? COSTUME_TOPS[opts.accessory] : undefined;
   const topStyle = (opts.topStyle && opts.topStyle !== "default") ? opts.topStyle
                  : (legacyOutfit && legacyOutfit !== "default") ? legacyOutfit
                  : model.id;
-  if (topStyle !== model.id) overlayRole(group, inst, model, topStyle, "top");
+  const effectiveTop = costumeTop || topStyle;
+  if (effectiveTop !== model.id) overlayRole(group, inst, model, effectiveTop, "top");
   const bottomStyle = (opts.bottomStyle && opts.bottomStyle !== "default") ? opts.bottomStyle
                     : (legacyOutfit && legacyOutfit !== "default") ? legacyOutfit
                     : model.id;
-  if (bottomStyle !== model.id) overlayRole(group, inst, model, bottomStyle, "bottom");
+  // When an OVERLAID top extends over the hip/leg region — a full-body onesie
+  // (`fullBody`), the one-piece uniform, or the dress (`coversBottom`) — a
+  // separate bottom only clips through it, so suppress the bottom. A hooded
+  // onesie (`fullBody`) also encloses the head, so suppress the hair too
+  // (otherwise the chosen hairstyle pokes through the hood). Traverse the
+  // whole group so a swapped-in hair clone (sibling of `inst`) is caught too.
+  const topSrc = effectiveTop !== model.id ? resolveModel(effectiveTop) : null;
+  const topCoversBottom = !!topSrc && (topSrc.fullBody || topSrc.coversBottom);
+  const topCoversHead = !!topSrc && topSrc.fullBody;
+  if (topCoversBottom) {
+    group.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const r = meshRole(o, model);
+      if (r === "bottom" || (topCoversHead && r === "hair")) o.visible = false;
+    });
+  } else if (bottomStyle !== model.id) {
+    overlayRole(group, inst, model, bottomStyle, "bottom");
+  }
 
   // Eyebrow-shape dimension · `opts.browStyle` is a model id whose brows to
   // wear; "default" / omitted / own id keeps the body's built-in brows.
   // Swapped BEFORE painting so the overlaid brow (role "brow") gets 眉色.
   const browStyle = opts.browStyle || "default";
   if (browStyle !== "default" && browStyle !== model.id) overlayRole(group, inst, model, browStyle, "brow");
+
+  // Eye-shape dimension · `opts.eyeStyle` is a model id whose eyes (role "eye",
+  // the dark BlackShiny pupils) to wear; "default"/omitted/own id keeps the
+  // body's built-in eyes. Only the eye mesh is borrowed — the sclera/eyewhite
+  // stays the body's own. Overlaid BEFORE painting so the borrowed eye still
+  // gets 瞳色.
+  const eyeStyle = opts.eyeStyle || "default";
+  if (eyeStyle !== "default" && eyeStyle !== model.id) {
+    overlayRole(group, inst, model, eyeStyle, "eye");
+    // Solid beady eyes carry no sclera · hide the body's face eyewhite so it
+    // doesn't poke out around the smaller pupils. The midY guard skips any
+    // foot-level mesh that resolves to "eyewhite" by a white material name.
+    if (EYE_HIDE_SCLERA.has(eyeStyle)) {
+      inst.updateMatrixWorld(true);
+      const ebox = new THREE.Box3().setFromObject(inst);
+      const midY = (ebox.min.y + ebox.max.y) / 2;
+      inst.traverse((o) => {
+        if (!o.isMesh || !o.material || meshRole(o, model) !== "eyewhite") return;
+        const b = new THREE.Box3().setFromObject(o);
+        if ((b.min.y + b.max.y) / 2 > midY) o.visible = false;
+      });
+    }
+  }
 
   // Beard-shape dimension · `opts.beardStyle` is a model id supplying a
   // beard (role "beard"), or "none" / omitted for no beard. Only models
@@ -618,8 +699,19 @@ export function buildAvatar3D(seed, opts = {}) {
   let accStyle = opts.accessory;
   if (accStyle === false) accStyle = "none";
   else if (accStyle === true || accStyle == null) accStyle = model.accessory || "none";
-  swapAccessory(group, inst, model, accStyle);
-
+  // A costume (bear / pikachu) IS the whole outfit, not a small accessory ·
+  // it's already rendered as the top above, so don't also run the accessory
+  // swap for it — clear any body accessory instead. The logical selection is
+  // still stored in userData below so it round-trips.
+  swapAccessory(group, inst, model, costumeTop ? "none" : accStyle);
+  // A face mask covers the mouth / chin · hide the beard so its (3D, voluminous)
+  // whiskers don't poke through the mask cloth. Traverse the whole group so an
+  // overlaid beard clone (sibling of `inst`) is caught too.
+  if (!costumeTop && accStyle === "mask") {
+    group.traverse((o) => {
+      if (o.isMesh && o.material && meshRole(o, model) === "beard") o.visible = false;
+    });
+  }
   const colors = {
     skin: opts.skin || pick(SKIN_TONES, rng),
     hair: opts.hair || pick(HAIR_COLORS, rng),
@@ -646,6 +738,7 @@ export function buildAvatar3D(seed, opts = {}) {
   group.userData.avatarTopStyle = topStyle;
   group.userData.avatarBottomStyle = bottomStyle;
   group.userData.avatarBrowStyle = browStyle || "default";
+  group.userData.avatarEyeStyle = eyeStyle || "default";
   group.userData.avatarBeardStyle = beardStyle || "none";
   group.userData.avatarTieStyle = tieStyle || "none";
   group.userData.avatarAccessory = accStyle;
@@ -705,6 +798,15 @@ function swapHair(group, inst, bodyModel, hairStyle) {
 /** Which model supplies each accessory (it's baked into that model). */
 const ACCESSORY_SRC = { glasses: "glasses", headphones: "casual", cap: "street", crown: "royal", santa: "xmas", shades: "xmas", tophat: "style6", mask: "style7", blindfold: "style8", star: "style8", anger: "style9", redcheek: "style10" };
 const ACCESSORY_ROLES = ["glasses", "headphones", "cap", "crown", "santa", "shades", "tophat", "mask", "blindfold", "star", "anger", "redcheek"];
+/** Flat face decals (blush / anger marks / star) borrowed cross-model · they
+ *  sit right on the cheek/temple, so a slightly different bind pose buries them
+ *  in the face and they clip through. A negative depth-bias renders them on
+ *  top of the face surface (see swapAccessory) without moving geometry. */
+const FACE_DECAL_ACCESSORIES = new Set(["anger", "star"]);
+/** Full-body COSTUMES offered in the accessory dimension · each maps to the
+ *  model whose full-body suit (role "top", `fullBody`) to wear. Selecting one
+ *  overrides the top + suppresses the bottom & hair (see buildAvatar3D). */
+export const COSTUME_TOPS = { bearsuit: "style8", pikasuit: "style10" };
 
 /** Swap the avatar's accessory · independent of body style. Hides the
  *  body's OWN accessory, then (if `accStyle` isn't "none" and isn't the
@@ -731,11 +833,31 @@ function swapAccessory(group, inst, bodyModel, accStyle) {
   clone.scale.copy(inst.scale);
   clone.position.copy(inst.position);
   clone.quaternion.copy(inst.quaternion);
+  const decal = FACE_DECAL_ACCESSORIES.has(accStyle);
+  // A cap sits on the scalp and hair bulges through its dome · bias the cap
+  // toward the camera so it covers the intersecting hair (keeping the hair
+  // visible at the sides / back / under the brim, unlike hiding it). Lighter
+  // bias than the face decals so front hair isn't swallowed.
+  const cap = accStyle === "cap";
   clone.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     if (meshRole(o, srcModel) === accStyle) {
       o.userData.avatarRole = accStyle;
       o.visible = true;
+      // Depth-bias toward the camera · flat face decals win against the face,
+      // the cap wins against the hair it intersects.
+      if (decal || cap) {
+        o.renderOrder = 5;
+        const factor = decal ? -8 : -4;
+        const units = decal ? -40 : -16;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          m.polygonOffset = true;
+          m.polygonOffsetFactor = factor;
+          m.polygonOffsetUnits = units;
+          m.needsUpdate = true;
+        }
+      }
     } else {
       o.visible = false; // only borrow the accessory from this clone
     }
@@ -828,13 +950,50 @@ export const HAIR_STYLES = [
   { id: "none", label: "无 (光头)" },
 ];
 
-/** Eyebrow-shape dimension · "default" keeps the body's own brows; each model
- *  id overlays that model's brow mesh (role "brow"), still tinted by 眉色. */
+/** Eyebrow-shape dimension · "default" keeps the body's own brows; each other
+ *  id overlays JUST that model's brow mesh (role "brow", isolated by
+ *  tagEyebrows at load · beard/hair/eyes are never borrowed), still tinted by
+ *  眉色. The ten source GLBs collapse to a handful of DISTINCT designs — many
+ *  only differed in position — so each entry below is one representative
+ *  source model for its design family:
+ *    · default  (= glasses / casual / street brows · the natural everyday shape)
+ *    · royal    (= xmas · the thicker royal shape)
+ *    · style6, style7 · their own shapes
+ *    · style8   (= style9 / style10 · the heavy bearded-model shape)
+ *  Stale ids from older saves are migrated to these in normalizeConfig. */
 export const BROW_STYLES = [
-  { id: "default", label: "默认" },
+  { id: "default", label: "标准" },
   { id: "royal", label: "浓眉" },
-  { id: "xmas", label: "自然眉" },
+  { id: "style6", label: "细眉" },
+  { id: "style7", label: "柔眉" },
+  { id: "style8", label: "粗眉" },
 ];
+
+/** Eye-shape dimension · "default" keeps the body's own eyes; each model id
+ *  overlays JUST that model's eye mesh (role "eye" · the dark BlackShiny
+ *  pupils, isolated by overlayRole — the sclera/mouth/brows are never
+ *  borrowed), still tinted by 瞳色. The sclera (eyewhite) is intentionally NOT
+ *  swapped: it's the body's own, which also dodges the shoe-"White" mis-tag.
+ *  Numbered because shapes are picked by preview, not by name.
+ *  NOTE · cross-model eye overlays are position-sensitive (an earlier
+ *  eye-shape dimension was dropped for bind-pose misalignment); each entry
+ *  needs a visual check, and clearly-broken ones should be merged out like
+ *  the brow families were. */
+export const EYE_STYLES = [
+  { id: "default", label: "默认" },
+  { id: "casual", label: "圆眼" },
+  { id: "street", label: "细眼" },
+  { id: "royal", label: "杏眼" },
+  { id: "style7", label: "笑眼" },
+  { id: "style8", label: "豆豆眼" },
+  { id: "style9", label: "锐眼" },
+  { id: "style10", label: "圆豆眼" },
+];
+// Beady cartoon eyes (bear / pikachu) are solid — they carry no sclera, so the
+// body's own eyewhite pokes out around the smaller borrowed pupils as stray
+// white dots. For these eye styles the body's FACE eyewhite is suppressed
+// (see buildAvatar3D · a midY guard keeps any foot-level white mesh).
+const EYE_HIDE_SCLERA = new Set(["street", "royal", "style8", "style9", "style10"]);
 
 /** Beard dimension · independent toggle (overlaid from its source, role
  *  "beard"). Only models with hasBeard:true carry a beard mesh; the rest are
@@ -863,8 +1022,8 @@ export const TOP_STYLES = [
   { id: "casual", label: "黑T" },
   { id: "style6", label: "背心裙" },
   { id: "style7", label: "长袖" },
-  { id: "style8", label: "熊熊连体" },
-  { id: "style10", label: "皮卡丘外衣" },
+  // style8 (bear) + style10 (pikachu) are full-body costumes · they live in
+  // ACCESSORY_STYLES now (rendered via COSTUME_TOPS), not the top dimension.
 ];
 
 /** Bottom (裤子 / 裙子) dimension · model ids whose role "bottom" meshes
@@ -892,7 +1051,12 @@ export const ACCESSORY_STYLES = [
   { id: "blindfold", label: "眼罩" },
   { id: "star", label: "星星" },
   { id: "anger", label: "怒火" },
-  { id: "redcheek", label: "腮红" },
+  // blush (redcheek) removed · the pikachu-sourced flat cheek decal clips into
+  // other face shapes (incomplete circle) and can't map cleanly cross-model.
+  // Full-body costumes · rendered as a hooded one-piece (COSTUME_TOPS) rather
+  // than a small accessory; grouped here in 装饰 instead of 上衣.
+  { id: "bearsuit", label: "熊熊连体" },
+  { id: "pikasuit", label: "皮卡丘外衣" },
 ];
 
 /** Live-recolour an existing avatar Group without rebuilding (customizer
@@ -901,6 +1065,11 @@ export function recolorAvatar(group, colors = {}) {
   if (!group) return;
   group.traverse((o) => {
     if (!o.isMesh || !o.material) return;
+    // Colour-locked meshes (partTag noPaint:true · e.g. the pikachu / bear
+    // costume) keep their baked look · skip them here too, otherwise live
+    // recolour would tint the suit off its own colour (paintInstance already
+    // honours this on build).
+    if (o.userData && o.userData.avatarColorLocked) return;
     const hex = colors[o.userData && o.userData.avatarRole];
     if (!hex) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -922,13 +1091,16 @@ export function deriveDefaultAvatarConfig(seed) {
   const bodies = AVATAR_MODELS.filter((m) => !m.partsOnly);
   const model = bodies[Math.floor(rng() * bodies.length) % bodies.length];
   const hairChoices = HAIR_STYLES.filter((h) => h.id !== "none"); // not bald by default
+  // Don't default a director into a full-body costume · the onesies are an
+  // opt-in accessory, not a random starting look.
+  const accChoices = ACCESSORY_STYLES.filter((a) => !COSTUME_TOPS[a.id]);
   const hair = pick(HAIR_COLORS, rng);
   return {
     model: model.id,
     hairStyle: hairChoices[Math.floor(rng() * hairChoices.length) % hairChoices.length].id,
     topStyle: pickId(TOP_STYLES),
     bottomStyle: pickId(BOTTOM_STYLES),
-    accessory: pickId(ACCESSORY_STYLES),
+    accessory: accChoices[Math.floor(rng() * accChoices.length) % accChoices.length].id,
     browStyle: "default", // keep the body's own brows by default
     beardStyle: "none",   // no beard by default
     tieStyle: "none",     // no tie by default
@@ -1007,6 +1179,6 @@ if (typeof window !== "undefined") {
     deriveDefaultAvatarConfig,
     getFaceBox, applyFaceFraming,
     DEFAULT_AVATAR_URL, AVATAR_MODELS, AVATAR_PALETTES, HAIR_STYLES, TOP_STYLES, BOTTOM_STYLES,
-    ACCESSORY_STYLES, BROW_STYLES, BEARD_STYLES, TIE_STYLES,
+    ACCESSORY_STYLES, BROW_STYLES, EYE_STYLES, BEARD_STYLES, TIE_STYLES, COSTUME_TOPS,
   };
 }

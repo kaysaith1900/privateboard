@@ -12494,11 +12494,12 @@
           figure = av.buildAvatar3D(id, {
             model: cfg.model,
             hairStyle: cfg.hairStyle,
-            outfitStyle: cfg.outfitStyle,
+            topStyle: cfg.topStyle, bottomStyle: cfg.bottomStyle, outfitStyle: cfg.outfitStyle,
             accessory: cfg.accessory,
             height: 1.7,
             skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit,
-            browStyle: cfg.browStyle, tieStyle: cfg.tieStyle,
+            browStyle: cfg.browStyle, eyeStyle: cfg.eyeStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
+            top: cfg.top, bottom: cfg.bottom, beard: cfg.beard,
             tie: cfg.tie, eye: cfg.eye,
           });
         } catch (_) { figure = null; }
@@ -15640,27 +15641,15 @@
       // (instead of relying on agent-overlay's autoTagAvatars regex) is
       // required for custom agents whose avatarPath is a data: URL —
       // the regex only matches `/avatars/*.svg`.
-      // Head-cast avatars · each director wrapped in a span so a
-      // small thread-trigger badge can pin to the avatar's bottom-
-      // right. Avatar click stays as the agent-overlay open (existing
-      // data-agent behavior); the badge gets its own click target
-      // (data-thread-trigger) so the two affordances don't fight.
-      // Chair is never threadable — filter on roleKind. Allow every
-      // status (live, paused, adjourned) — threads are independent
-      // rooms; the parent's status doesn't gate them. Only block
-      // when this room itself is a thread (no nested threads).
-      const canThreadHere = r.kind !== "thread";
-      const threadTipBase = this._t("thread_trigger") || "// thread";
-      const threadIcon = this._threadTriggerIconSvg();
+      // Head-cast avatars · each director's portrait opens the lightweight
+      // agent overlay (data-agent). A hover thread-trigger badge used to pin
+      // to the avatar's bottom-right corner; it was removed — threads are
+      // still started from the per-message reply trigger (.msg-thread-trigger).
       const castImgs = this.currentMembers
         .map((a) => {
           const id = this.escape(a.id);
           const img = `<img class="head-cast-av" data-agent="${id}" src="${this.escape(a.avatarPath)}" alt="${this.escape(a.name)}" title="${this.escape(a.name)}">`;
-          const showBadge = canThreadHere && a.roleKind !== "moderator";
-          const badge = showBadge
-            ? `<button type="button" class="head-cast-thread" data-thread-trigger="${id}" data-no-agent-overlay title="${this.escape(this._t("thread_trigger_tip", { name: a.name || "" }) || threadTipBase)}" aria-label="${this.escape(this._t("thread_trigger_tip", { name: a.name || "" }) || threadTipBase)}">${threadIcon}</button>`
-            : "";
-          return `<span class="head-cast-wrap">${img}${badge}</span>`;
+          return `<span class="head-cast-wrap">${img}</span>`;
         })
         .join("");
       const castCount = this.currentMembers.length;
@@ -15668,9 +15657,19 @@
         castCount <= 1
           ? this._t("room_cast_title_1")
           : this._t("room_cast_n", { n: castCount });
+      // The cast-count chip doubles as the "add director" control: it shows
+      // the member count by default and a + on hover (CSS swaps the two
+      // inner spans), and carries data-cast-edit-trigger so a click opens
+      // the cast-edit popover — replacing the former standalone
+      // `.head-add-cast` icon button. On adjourned rooms the cast is frozen,
+      // so it renders as a plain, non-interactive count (matching the old
+      // rule that hid `.head-add-cast` once the brief was filed).
+      const castEditable = r.status !== "adjourned";
       const castHtml = castImgs +
         (castCount > 0
-          ? `<span class="cast-count" title="${this.escape(castTitle)}">${castCount}</span>`
+          ? (castEditable
+              ? `<a href="#" class="cast-count cast-count-editable" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"><span class="cast-count-num">${castCount}</span><span class="cast-count-plus" aria-hidden="true">+</span></a>`
+              : `<span class="cast-count" title="${this.escape(castTitle)}">${castCount}</span>`)
           : "");
 
       const tone = r.mode || "constructive";
@@ -15738,7 +15737,6 @@
             ? `<a href="#" class="replay-stop-btn" data-vr-header-stop aria-label="${this.escape(this._t("head_replay_stop_label") || "Stop")}">[ <span class="replay-stop-icon">■</span> ${this.escape(this._t("head_replay_stop_label") || "Stop")} ]</a>`
             : ""}
           <div class="head-cast">${castHtml}</div>
-          <a href="#" class="head-icon-btn head-add-cast" data-cast-edit-trigger data-tip="${this.escape(this._t("head_add_cast_tip"))}" aria-label="${this.escape(this._t("head_add_cast_label"))}"></a>
           ${(() => {
             const tc = Number(this._threadCount) || 0;
             const cls = "head-icon-btn head-threads" + (tc > 0 ? " has-count" : "");

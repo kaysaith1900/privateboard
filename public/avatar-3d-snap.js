@@ -132,11 +132,12 @@
         figure = av.buildAvatar3D(seed, {
           model: cfg.model,
           hairStyle: cfg.hairStyle,
-          outfitStyle: cfg.outfitStyle,
+          topStyle: cfg.topStyle, bottomStyle: cfg.bottomStyle, outfitStyle: cfg.outfitStyle,
           accessory: cfg.accessory,
           height: 1.7,
           skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, outfit: cfg.outfit,
-          browStyle: cfg.browStyle, tieStyle: cfg.tieStyle,
+          browStyle: cfg.browStyle, eyeStyle: cfg.eyeStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
+          top: cfg.top, bottom: cfg.bottom, beard: cfg.beard,
           tie: cfg.tie, eye: cfg.eye,
         });
       } catch (e) {

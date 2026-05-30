@@ -709,8 +709,8 @@
 .thread-float-composer.is-streaming .thread-float-stop { display: inline-flex; }
 
 /* Head icon · "All threads in this room" trigger. Mirrors the
-   masking-via-CSS-variable convention used by .head-add-cast /
-   .head-divergence in room-settings.css (the parent
+   masking-via-CSS-variable convention used by .head-divergence
+   in room-settings.css (the parent
    `.head-icon-btn` rule already masks `--icon` onto a fixed-size
    button shape). The glyph is Lucide MessagesSquare · two chat
    bubbles stacked to read as "multiple private threads". */
@@ -998,48 +998,14 @@ article.msg {
   position: relative;
 }
 
-/* Head-cast trigger · the same reply icon as a hover badge on each
-   director avatar in the room header. Click of avatar still opens
-   the agent profile overlay (existing behavior · data-agent), so
-   the badge gets its own click target via the wrapping <span>.
-   Lets users open a thread with a director who hasn't spoken yet
-   — without this, the per-bubble trigger was the only entry and it
-   only existed on directors who'd already taken a turn. */
+/* Head-cast avatar wrapper · the hover thread-trigger badge that used to
+   pin to each director avatar's bottom-right was removed (threads start
+   from the per-message reply trigger now). The wrapper is kept so the
+   header cast layout stays unchanged. */
 .head-cast-wrap {
   position: relative;
   display: inline-block;
   line-height: 0;
-}
-.head-cast-thread {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--panel-2);
-  border: 0.5px solid var(--line-strong, rgba(255, 255, 255, 0.32));
-  color: var(--text);
-  border-radius: 50%;
-  cursor: pointer;
-  padding: 0;
-  opacity: 0;
-  transform: scale(0.85);
-  transition: opacity 0.12s, transform 0.12s, color 0.12s, background 0.12s;
-}
-.head-cast-thread svg {
-  width: 9px;
-  height: 9px;
-  pointer-events: none;
-}
-.head-cast-wrap:hover .head-cast-thread {
-  opacity: 1;
-  transform: scale(1);
-}
-.head-cast-thread:hover {
-  color: var(--lime, #6FB572);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

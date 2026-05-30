@@ -1129,25 +1129,6 @@ html.is-electron-mac .room-settings-overlay * {
 .head-followup {
   --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11 L3 6 Q3 4 5 4 L11 4'/><polyline points='8.5,2 11,4 8.5,6'/></svg>");
 }
-/* Edit cast · Lucide UserPlus. Sits between the cast avatars and the
-   primary state action so the user reads it as a direct affordance on
-   the cast strip ("add a member to this group"). Hidden on adjourned
-   rooms (the cast is frozen once the brief is filed).
-   The glyph (user silhouette + plus) sits in opposite quadrants of
-   the 24×24 viewBox · at the shared 16×16 mask size the symbol reads
-   visually smaller than dense siblings like `.head-divergence`. Bump
-   the mask + ::before box to 18×18 so it sits at the same perceived
-   weight as the cast avatars (26px) next to it. */
-.head-add-cast {
-  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='19' x2='19' y1='8' y2='14'/><line x1='22' x2='16' y1='11' y2='11'/></svg>");
-}
-.head-add-cast::before {
-  width: 18px;
-  height: 18px;
-  -webkit-mask-size: 18px 18px;
-          mask-size: 18px 18px;
-}
-html[data-status="adjourned"] .head-add-cast { display: none; }
 /* Adjourn · identical glyph to the input-bar's `.ib-adjourn` (Lucide
    log-out: door + arrow exit). The head and input-bar icons share the
    action vocabulary so the user reads them as the same control. */

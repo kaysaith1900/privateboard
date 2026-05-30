@@ -36,7 +36,7 @@ html.is-electron-mac .avatar3d-overlay * {
 .avatar3d-modal {
   position: relative;
   width: 100%;
-  max-width: 880px;
+  max-width: 908px;
   height: 560px;
   max-height: calc(100vh - 48px);
   background: var(--panel);
@@ -73,6 +73,40 @@ html.is-electron-mac .avatar3d-overlay * {
   overflow: hidden;
 }
 .av3d-stage canvas { display: block; }
+/* Centered loading overlay · visible until the 3D scene + models mount,
+   then `.av3d-stage:not(.is-loading)` fades it out. */
+.av3d-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 3;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  pointer-events: none;
+}
+.av3d-stage.is-loading .av3d-loading { opacity: 1; visibility: visible; }
+.av3d-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--border, rgba(255,255,255,0.14));
+  border-top-color: var(--text-dim);
+  animation: av3d-spin 0.8s linear infinite;
+}
+.av3d-loading-txt {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+@keyframes av3d-spin { to { transform: rotate(360deg); } }
 .av3d-status {
   position: absolute;
   left: 14px;
@@ -98,7 +132,7 @@ html.is-electron-mac .avatar3d-overlay * {
 
 /* Right · control panel. */
 .av3d-panel {
-  flex: 0 0 264px;
+  flex: 0 0 296px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -109,7 +143,7 @@ html.is-electron-mac .avatar3d-overlay * {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 13px 16px 11px;
+  padding: 14px 18px 12px;
   background: var(--strip-bg);
   border-bottom: 0.5px dashed var(--line-bright);
 }
@@ -117,144 +151,201 @@ html.is-electron-mac .avatar3d-overlay * {
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--lime);
   margin: 0;
 }
-.av3d-kicker::before { content: "▸ "; }
+.av3d-kicker::before { content: "▸ "; color: var(--lime-deep); }
 .av3d-close {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   background: transparent;
   border: 0.5px solid var(--line-bright);
   color: var(--text-dim);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  padding: 3px 7px;
-  border-radius: 3px;
+  border-radius: 4px;
   transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
-.av3d-close:hover { border-color: var(--lime); color: var(--lime); }
+.av3d-close:hover { border-color: var(--lime); color: var(--lime); background: rgba(201,164,107,0.06); }
 
 .av3d-body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 16px 18px 18px;
+  /* Scrollbar hidden by default · appears only while scrolling (the
+     `is-scrolling` class is toggled in JS) or on hover. Firefox. */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
-.av3d-grp { margin-bottom: 16px; }
-.av3d-lab {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--text-dim);
-  margin-bottom: 8px;
+.av3d-body.is-scrolling,
+.av3d-body:hover { scrollbar-color: var(--line-bright) transparent; }
+/* Webkit / Electron · keep the 8px gutter reserved (transparent) so the
+   layout doesn't shift when the thumb fades in. */
+.av3d-body::-webkit-scrollbar { width: 8px; }
+.av3d-body::-webkit-scrollbar-track { background: transparent; }
+.av3d-body::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
 }
-.av3d-sw { display: flex; flex-wrap: wrap; gap: 7px; }
+.av3d-body.is-scrolling::-webkit-scrollbar-thumb,
+.av3d-body:hover::-webkit-scrollbar-thumb { background: var(--line-bright); background-clip: padding-box; }
+.av3d-sw { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ─── Section + module layout ──────────────────────────────────────
-   Panel is split into top-level sections (头部 / 服饰) and each section
-   carries module rows. A module bundles its style picker with its colour
-   picker — the colour palette stays collapsed by default behind a chip
-   in the module's header, so the eye scans labels + current colours at
-   a glance without a wall of swatches. */
-.av3d-section { padding-top: 14px; }
+   Panel splits into top-level sections (Head / Outfit), each carrying
+   module cards. A module bundles its style picker with its colour
+   picker — the colour palette opens behind a chip in the module's
+   header. The module's current style shows as a muted readout next to
+   its label so the eye scans state at a glance. */
 .av3d-section + .av3d-section {
   border-top: 0.5px solid var(--line-bright);
-  margin-top: 4px;
+  margin-top: 18px;
+  padding-top: 16px;
 }
 .av3d-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--lime);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
-.av3d-section-head::before { content: "— "; color: var(--text-dim); }
+.av3d-section-head::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 0.5px;
+  background: var(--line-bright);
+}
 
-.av3d-mod { margin-bottom: 14px; }
+/* Module · a flat row (label + current style + colour toggle, then the
+   style pills, then the collapsible palette). No card chrome — the
+   sections already group them, so wrapping each in a box read as noise. */
+.av3d-mod { margin-bottom: 16px; }
+.av3d-mod:last-child { margin-bottom: 0; }
 .av3d-mod-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  min-height: 18px;
 }
-.av3d-mod-head .av3d-lab { margin: 0; flex: 1 1 auto; }
+.av3d-mod .av3d-sw.is-pill { margin-top: 9px; }
+.av3d-lab {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+}
+/* Current-style readout · the chosen pill's label, muted, right-aligned,
+   truncates rather than wrapping the header. */
+.av3d-cur {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Colour-palette toggle · lives in each module's header. Compact: chip
-   shows current colour, caret indicates expandable. Click the button to
-   reveal the palette below. */
+   shows current colour, caret indicates expandable. */
 .av3d-cgrp-head {
   appearance: none;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 4px;
-  background: transparent;
-  border: 0;
+  padding: 3px 5px 3px 6px;
+  background: var(--bg);
+  border: 0.5px solid var(--line-strong);
   cursor: pointer;
   color: inherit;
   font: inherit;
-  border-radius: 3px;
-  transition: background 0.12s;
+  border-radius: 999px;
+  transition: border-color 0.12s, background 0.12s;
 }
-.av3d-cgrp-head:hover { background: rgba(255,255,255,0.04); }
+.av3d-cgrp-head:hover { border-color: var(--lime-dim); }
 .av3d-cgrp-chip {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  border: 0.5px solid var(--line-bright);
+  border: 0.5px solid rgba(255,255,255,0.18);
   background: var(--panel-2);
 }
 .av3d-cgrp-caret {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-dim);
   transition: transform 0.15s ease;
   line-height: 1;
 }
-.av3d-mod.is-open .av3d-cgrp-caret { transform: rotate(180deg); }
+.av3d-mod.is-open .av3d-cgrp-head { border-color: var(--lime-dim); }
+.av3d-mod.is-open .av3d-cgrp-caret { transform: rotate(180deg); color: var(--lime); }
 /* Palette stays hidden until the user expands the module · max-height
    transition gives a smooth open/close without measuring content. */
 .av3d-mod .av3d-sw.is-color {
   max-height: 0;
   overflow: hidden;
-  margin-top: 0;
-  transition: max-height 0.18s ease, margin-top 0.18s ease;
+  /* Horizontal pad (offset by negative margin so swatches stay flush-left)
+     gives edge chips room for the hover scale; vertical pad animates 0→4px
+     on open so the collapse stays a true 0 (border-box would otherwise keep
+     a padding-height sliver when collapsed). */
+  margin: 0 -4px;
+  padding: 0 4px;
+  transition: max-height 0.2s ease, margin-top 0.2s ease, padding 0.2s ease;
 }
 .av3d-mod.is-open .av3d-sw.is-color {
   max-height: 220px;
-  margin-top: 8px;
+  margin-top: 7px;
+  padding: 4px;
 }
 
-/* Colour swatches · round chips. */
+/* Colour swatches · round chips. Selected draws its accent ring INSIDE
+   the chip (accent border + an inset gap to the colour) so nothing
+   extends past the 24px footprint — otherwise the collapsible palette's
+   overflow:hidden clips the ring on edge swatches. */
 .av3d-sw.is-color button {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: 0.5px solid rgba(255,255,255,0.12);
   cursor: pointer;
   padding: 0;
   outline: none;
-  transition: transform 0.1s, border-color 0.1s, box-shadow 0.1s;
+  transition: transform 0.1s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.av3d-sw.is-color button:hover { transform: scale(1.12); }
+.av3d-sw.is-color button:hover { transform: scale(1.14); }
 .av3d-sw.is-color button.on {
-  border-color: var(--lime);
-  box-shadow: 0 0 0 2px rgba(201, 164, 107, 0.3);
+  border: 2px solid var(--lime);
+  box-shadow: inset 0 0 0 2px var(--panel-2);
 }
 
-/* Style / hair / outfit / accessory pills · mirror the .rs-chip-mini
-   register (square hairline chip, ghost by default, lime-filled when
-   active). Body-size 12px since labels are descriptive, not meta. */
+/* Style / hair / outfit / accessory pills · ghost hairline chip by
+   default, accent-filled when active. 12px mono — descriptive labels. */
 .av3d-sw.is-pill button {
   appearance: none;
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 5px 10px;
   font-family: var(--mono);
   font-size: 12px;
@@ -270,24 +361,29 @@ html.is-electron-mac .avatar3d-overlay * {
   background: var(--lime);
   color: var(--bg);
   border-color: var(--lime);
+  font-weight: 700;
 }
 
 .av3d-foot {
   display: flex;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 12px 18px;
   background: var(--panel-2);
   border-top: 0.5px solid var(--line-bright);
 }
 .av3d-foot button {
   flex: 1;
-  padding: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
   border: 0.5px solid var(--line-strong);
   transition: color 0.12s, border-color 0.12s, background 0.12s;
@@ -296,9 +392,10 @@ html.is-electron-mac .avatar3d-overlay * {
   background: transparent;
   color: var(--text-soft);
   flex: 0 0 auto;
-  padding: 8px 11px;
+  padding: 9px 12px;
   letter-spacing: 0;
 }
+.av3d-btn-rand svg { display: block; }
 .av3d-btn-rand:hover { border-color: var(--lime); color: var(--lime); }
 .av3d-btn-cancel { background: transparent; color: var(--text-soft); }
 .av3d-btn-cancel:hover { border-color: var(--lime); color: var(--lime); }

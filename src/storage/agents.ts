@@ -50,6 +50,9 @@ export interface Avatar3dConfig {
    *  ("none" = no tie). Absent on configs saved before these dimensions
    *  existed — treated as "default" / "none". */
   browStyle?: string;
+  /** Optional · eye-shape source ("default" = own). Overlays that model's
+   *  eye mesh. Absent on older configs — treated as "default". */
+  eyeStyle?: string;
   tieStyle?: string;
   /** Optional · beard source ("none" = no beard) + beard colour. */
   beardStyle?: string;
@@ -723,6 +726,7 @@ export function parseAvatar3d(json: string | null | undefined): Avatar3dConfig |
     if (hasLegacy) { cfg.outfitStyle = o.outfitStyle; cfg.outfit = o.outfit; }
     // Optional newer dimensions · kept only when present + valid (back-compat).
     if (typeof o.browStyle === "string" && o.browStyle) cfg.browStyle = o.browStyle;
+    if (typeof o.eyeStyle === "string" && o.eyeStyle) cfg.eyeStyle = o.eyeStyle;
     if (typeof o.tieStyle === "string" && o.tieStyle) cfg.tieStyle = o.tieStyle;
     if (typeof o.beardStyle === "string" && o.beardStyle) cfg.beardStyle = o.beardStyle;
     if (typeof o.beard === "string" && HEX6_RE.test(o.beard)) cfg.beard = o.beard;

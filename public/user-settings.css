@@ -1215,6 +1215,7 @@
   text-transform: uppercase;
   color: var(--text-faint);
   font-weight: 600;
+  padding-top: 20px;
   padding-bottom: 6px;
   border-bottom: 0.5px solid var(--line-bright);
 }
@@ -1230,14 +1231,20 @@
   border-bottom: 0.5px dashed var(--line);
 }
 .us-model-row:last-child { border-bottom: none; }
-.us-model-info { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.us-model-info { display: inline-flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .us-model-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
   flex: 0 0 auto;
+  /* Align the dot with the model-name line now that name + provider stack
+     into two rows (otherwise it floats to the centre of the pair). */
+  margin-top: 5px;
 }
+/* Name on top, provider on the line below · stacked column beside the dot. */
+.us-model-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .us-model-name {
   font-size: 14px;
+  line-height: 1.2;
   color: var(--text);
   font-weight: 600;
   letter-spacing: -0.005em;

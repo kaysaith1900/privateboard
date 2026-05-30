@@ -1638,7 +1638,6 @@
   height: 100px;
   margin-top: -58px;
   margin-bottom: 0;
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1648,6 +1647,7 @@
 .ap-avatar img {
   width: 110px;
   height: 110px;
+  margin-top: -15px;
   margin-left: -20px;
   object-fit: cover;
   /* The 3D-avatar portrait is a smooth downscaled PNG · keep it smooth

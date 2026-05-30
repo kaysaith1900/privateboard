@@ -100,7 +100,13 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = v;
   });
 
-  async function createWindow(url: string): Promise<void> {
+  // `url` omitted → load the boot splash (public/splash.html) instead of
+  // the server URL. The whenReady path creates the window with the splash
+  // BEFORE bootApp() runs, then swaps in the real URL once the server is
+  // listening — so the launch shows the chair logo rather than a blank
+  // vibrancy pane. The `activate` re-open path passes the live server URL
+  // directly (server is already up by then).
+  async function createWindow(url?: string): Promise<void> {
     const isMac = process.platform === "darwin";
     win = new BrowserWindow({
       width: 1280,
@@ -218,7 +224,11 @@ if (!app.requestSingleInstanceLock()) {
       process.stderr.write(`[electron] setDisplayMediaRequestHandler failed: ${e instanceof Error ? e.message : String(e)}\n`);
     }
 
-    await win.loadURL(url);
+    if (url) {
+      await win.loadURL(url);
+    } else {
+      await win.loadFile(path.join(__dirname, "..", "public", "splash.html"));
+    }
   }
 
   app.on("second-instance", () => {
@@ -467,10 +477,13 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     try {
+      // Show the branded splash immediately, then boot the server. Once
+      // it's listening, swap the same window over to the real URL.
+      await createWindow();
       const result = await bootApp({ host: "127.0.0.1" });
       server = result.server;
       buildAppMenu(result.dirs.base);
-      await createWindow(result.server.url);
+      if (win && !win.isDestroyed()) await win.loadURL(result.server.url);
       startAutoUpdater();
     } catch (err) {
       // bootApp may have started the server before a later step (createWindow,

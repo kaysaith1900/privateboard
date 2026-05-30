@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Private Board</title>
+  <style>
+    /* Boot splash · shown by the Electron main process while the local
+       server boots and the renderer loads. Without it the window sits
+       blank (transparent vibrancy on macOS / solid #0d0d0d elsewhere)
+       for the ~1-2s of `bootApp()`. The chair avatar + wordmark give the
+       launch a branded surface instead of an empty pane. See
+       electron/main.ts → createWindow(). */
+    @font-face {
+      font-family: "Human Sans";
+      src: url("fonts/human-sans.woff2") format("woff2-variations"),
+           url("fonts/human-sans.woff2") format("woff2");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      --bg: #0A0A0A;
+      --text: #C8C5BE;
+      --text-dim: #5C5A52;
+      --accent: #C9A46B;
+      --sans: "Human Sans", "Inter", -apple-system, BlinkMacSystemFont,
+              "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      /* Transparent so macOS vibrancy shows through, matching the app
+         shell. The window's own backgroundColor (#0d0d0d on Win/Linux,
+         transparent on macOS) covers the non-vibrancy platforms. */
+      background: transparent;
+      font-family: var(--sans);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      /* Whole surface is draggable so the launch window can be moved,
+         like the rest of the chrome-less app shell. */
+      -webkit-app-region: drag;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .splash {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      /* Gentle one-shot fade so the logo eases in rather than popping. */
+      animation: splash-in 480ms ease both;
+    }
+
+    .splash-avatar {
+      width: 108px;
+      height: 108px;
+      border-radius: 28px;
+      object-fit: cover;
+      /* Single-dim opacity breathing — no shadow / glow animation, per
+         the project's no-shadow-animation rule. */
+      animation: splash-breathe 2.4s ease-in-out infinite;
+    }
+
+    .splash-title {
+      font-size: 21px;
+      font-weight: 560;
+      letter-spacing: 0.01em;
+      color: var(--text);
+    }
+
+    .splash-sub {
+      margin-top: -8px;
+      font-size: 12px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    @keyframes splash-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes splash-breathe {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.74; }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <img class="splash-avatar" src="avatars/3d/chair.png" alt="" />
+    <div class="splash-title">Private Board</div>
+    <div class="splash-sub">Convening</div>
+  </div>
+</body>
+</html>
