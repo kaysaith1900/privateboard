@@ -2726,6 +2726,10 @@ function handleConfigEvent(data) {
     showBoardroomChairPending(appState.activeRoomChairPendingPhase);
   } else if (kind === 'members-changed' || kind === 'member-added' || kind === 'auto-pick-complete') {
     forceRoomRefresh();
+  } else if (kind === 'auto-skipped') {
+    // Parity with PC _showAutoSkipToast: explain WHY a turn was skipped so a
+    // jump in the conversation doesn't look like a glitch.
+    mobileToast(autoSkipLabel(payload.phase, payload.reason));
   }
   if (kind === 'round-ended') appState.activeRoomVoteQueued = false;
   if (kind === 'round-resumed') appState.activeRoomVoteQueued = false;
@@ -5184,6 +5188,38 @@ function mgrError(msg) {
   el.textContent = msg;
   el.style.display = 'block';
   setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
+// Transient bottom toast (3s) · mobile equivalent of PC's .auto-skip-toast.
+function mobileToast(msg) {
+  if (!msg) return;
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed; left:50%; transform:translateX(-50%); bottom:calc(var(--tabbar-h, 80px) + var(--composer-h, 58px) + 16px); max-width:88vw; padding:10px 16px; background:rgba(10,10,10,0.94); color:var(--ink); border:1px solid var(--rule); border-radius:10px; font-size:14px; z-index:50; opacity:0; transition:opacity 0.2s; pointer-events:none; text-align:center;';
+  document.body.appendChild(t);
+  void t.offsetHeight;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => { try { t.remove(); } catch {} }, 250); }, 3000);
+}
+function autoSkipLabel(phase, reason) {
+  // Values match the server contract (src/orchestrator/auto-skip.ts):
+  // phase ∈ {tts, llm, picker, clarify, voice}; reason e.g.
+  // llm-first-token-timeout / llm-timeout / picker-timeout /
+  // pickRoundWrap-timeout / clarify-timeout. Reason-specific first, then
+  // phase fallback (the stable axis).
+  const r = String(reason || '');
+  if (r === 'llm-first-token-timeout') return '模型迟迟没有开口，已自动跳过本轮';
+  if (r === 'llm-timeout') return '模型响应超时，已自动跳过本轮';
+  if (r === 'picker-timeout' || r === 'pickRoundWrap-timeout') return '选人超时，已按顺序继续';
+  if (r === 'clarify-timeout') return '主持人澄清超时，已跳过提问';
+  switch (String(phase || '')) {
+    case 'tts': return '语音合成超时，本段改为文字';
+    case 'llm': return '模型响应超时，已自动跳过';
+    case 'picker': return '选人超时，已按顺序继续';
+    case 'clarify': return '已跳过主持人澄清';
+    case 'voice': return '已跳过当前语音';
+    default: return '已自动跳过一步';
+  }
 }
 
 // ── room: notes (旁注) ────────────────────────────────────
