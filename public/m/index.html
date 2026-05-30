@@ -2810,6 +2810,10 @@ function sseAppendMessage(payload) {
   const wasNearBottom = isPageNearBottom();
   msgsEl.insertAdjacentHTML('beforeend', html);
   if (wasNearBottom) scrollToBottom();
+  // Arm the first-token watchdog for streaming director turns with no body yet.
+  if (payload.authorKind === 'agent' && payload.meta?.streaming === true && !(payload.body || '').trim()) {
+    startLlmWarmWatchdog(payload.messageId);
+  }
   // Boardroom: highlight this speaker immediately ONLY when voice mode
   // isn't running. In voice mode the seat / subtitle must follow the
   // AUDIBLE speaker — and there's a real gap between "clip A's onended
@@ -2832,6 +2836,36 @@ function sseAppendMessage(payload) {
 
 function msgTextEl(el) { return el ? (el.querySelector('.text') || el.querySelector('.bubble')) : null; }
 function setMsgHtmlText(textEl, raw) { if (textEl) textEl.innerHTML = escapeHtml(raw || '').replace(/\n+/g, '<br>'); }
+
+// LLM first-token watchdog · parity with PC _startLlmFirstTokenWatchdog.
+// A streaming agent message just landed but no token arrived within the
+// window → show a "预热中…" hint so a slow first token doesn't read as frozen.
+const _llmWarmTimers = {};
+const LLM_WARM_DELAY_MS = 8000;
+function startLlmWarmWatchdog(messageId) {
+  if (!messageId) return;
+  clearLlmWarmWatchdog(messageId);
+  _llmWarmTimers[messageId] = setTimeout(() => {
+    delete _llmWarmTimers[messageId];
+    const el = findMsgEl(messageId);
+    if (!el) return;
+    if (typeof el.dataset.fb === 'string' && el.dataset.fb.length > 0) return; // tokens already arrived
+    const textEl = msgTextEl(el);
+    if (textEl && !textEl.textContent.trim()) {
+      textEl.innerHTML = '<span class="warming" style="color:var(--ink-dim);">预热中…</span>';
+    }
+  }, LLM_WARM_DELAY_MS);
+}
+function clearLlmWarmWatchdog(messageId) {
+  if (_llmWarmTimers[messageId]) { clearTimeout(_llmWarmTimers[messageId]); delete _llmWarmTimers[messageId]; }
+  // Strip the "预热中…" hint if it was painted, so it can never leak into the
+  // token accumulator (sseAppendToken falls back to textEl.textContent when
+  // dataset.fb is empty). Runs before that fallback because clear is called
+  // at the very top of sseAppendToken / finalize / error / remove.
+  const el = findMsgEl(messageId);
+  const textEl = el && msgTextEl(el);
+  if (textEl && textEl.querySelector('.warming')) textEl.innerHTML = '';
+}
 // True when voice is leading AND this exact message is the one currently audible.
 function voicePacedActiveFor(messageId) {
   return boardroomVoiceLeading() && appState.voicePlaying && appState.voicePlaying.messageId === messageId;
@@ -2857,6 +2891,7 @@ function restoreFullMessageText(messageId) {
 
 function sseAppendToken(payload) {
   if (!payload || !payload.messageId || typeof payload.delta !== 'string') return;
+  clearLlmWarmWatchdog(payload.messageId); // first token landed
   const el = findMsgEl(payload.messageId);
   if (!el) return;
   const textEl = el.querySelector('.text') || el.querySelector('.bubble');
@@ -2934,6 +2969,7 @@ function sseUpdateMessage(payload) {
 
 function sseRemoveMessage(payload) {
   if (!payload || !payload.messageId) return;
+  clearLlmWarmWatchdog(payload.messageId);
   dropVoiceForMessage(payload.messageId);
   const el = findMsgEl(payload.messageId);
   if (el) el.remove();
@@ -2943,6 +2979,7 @@ function sseRemoveMessage(payload) {
 
 function sseErrorMessage(payload) {
   if (!payload || !payload.messageId) return;
+  clearLlmWarmWatchdog(payload.messageId);
   dropVoiceForMessage(payload.messageId);
   const el = findMsgEl(payload.messageId);
   if (el) {
@@ -2957,6 +2994,7 @@ function sseErrorMessage(payload) {
 
 function sseFinalizeMessage(payload) {
   if (!payload || !payload.messageId) return;
+  clearLlmWarmWatchdog(payload.messageId);
   const el = findMsgEl(payload.messageId);
   if (el) {
     el.classList.remove('streaming');
