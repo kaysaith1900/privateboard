@@ -2848,6 +2848,10 @@ const roomVoiceController = new window.RoomMeetingRuntime.VoicePlaybackControlle
     appState.voicePlaying = null;
     vdbg(`voice done ${q.messageId}`);
     maybeStartAutoContinue();
+    // Playback for this line finished · re-render the action surface so the
+    // round-end "继续讨论 / 结束会议" prompt reappears once nothing is speaking
+    // (renderRoomActions hides it while boardroomVoiceLeading()).
+    renderRoomActions();
   },
   onError: (q, err) => {
     vdbg(`voice runtime error ${q?.messageId || '-'} ${err?.name || ''}`);
@@ -3746,9 +3750,17 @@ function renderRoomActions() {
   paintRoomActionSurface('rc-actions', 'rc-act-primary', 'rc-act-end', 'flex', state);
   paintRoomActionSurface('bd-actions', 'bd-act-primary', 'bd-act-end', 'block', state);
   renderRoomMoreMenu();
+  // While a line is being SPOKEN on the boardroom stage, suppress the
+  // round-end continue/end prompt + round-wrap banner — the user wants to
+  // just hear the speaker, not see "继续讨论" mid-playback. They reappear when
+  // playback finishes (the voice onDone re-calls renderRoomActions).
+  if (document.querySelector('.screen.on')?.dataset.screen === 'boardroom' && boardroomVoiceLeading()) {
+    const bda = document.getElementById('bd-actions'); if (bda) bda.style.display = 'none';
+    const rw = document.getElementById('bd-roundwrap'); if (rw) rw.style.display = 'none';
+  }
   // The action bar's visibility just changed · re-measure so
-  // --bd-action-stack-h reflects bd-actions' height. Without this the var
-  // stays 0 and the round-wrap banner / subtitle overlap the action bar.
+  // --bd-action-stack-h reflects bd-actions' height (0 when hidden during
+  // playback, full height otherwise) and nothing overlaps it.
   requestAnimationFrame(syncBottomChromeHeights);
 }
 
