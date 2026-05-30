@@ -93,3 +93,58 @@ test("PC agent composer (new director) renders its form", async ({ page }) => {
   });
   expect(ok).toBe(true);
 });
+
+test("PC room-action surface reuses the shared RoomActionController (pause/resume/vote/delivery)", async ({ page }) => {
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app, null, { timeout: 8_000 });
+  const probe = await page.evaluate(() => {
+    const w = window as unknown as { app: Record<string, unknown>; RoomMeetingRuntime: { RoomActionController?: unknown } };
+    const ctrl = (w.app.ensureRoomActionController as () => Record<string, unknown>)?.call(w.app);
+    return {
+      ensureRoomActionController: typeof w.app.ensureRoomActionController,
+      pause: typeof ctrl?.pause,
+      resume: typeof ctrl?.resume,
+      voteKeyPoint: typeof ctrl?.voteKeyPoint,
+      setDeliveryMode: typeof ctrl?.setDeliveryMode,
+      sharedClass: typeof w.RoomMeetingRuntime.RoomActionController,
+    };
+  });
+  expect(probe.ensureRoomActionController).toBe("function");
+  expect(probe.pause).toBe("function");
+  expect(probe.resume).toBe("function");
+  expect(probe.voteKeyPoint).toBe("function");
+  expect(probe.setDeliveryMode).toBe("function");
+  expect(probe.sharedClass).toBe("function");
+});
+
+test("PC voice playback uses the shared VoicePlaybackController", async ({ page }) => {
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app, null, { timeout: 8_000 });
+  const ok = await page.evaluate(() => {
+    const w = window as unknown as { app: { ensureRoomVoiceController?: () => unknown }; RoomMeetingRuntime: { VoicePlaybackController?: unknown } };
+    return typeof w.app.ensureRoomVoiceController === "function" && typeof w.RoomMeetingRuntime.VoicePlaybackController === "function";
+  });
+  expect(ok).toBe(true);
+});
+
+test("PC exposes settings / credentials + memory/skill/brief surfaces (mobile parity)", async ({ page }) => {
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app, null, { timeout: 8_000 });
+  const probe = await page.evaluate(() => {
+    const w = window as unknown as { app: Record<string, unknown>; openUserSettings?: unknown; openAgentProfile?: unknown };
+    return {
+      userSettings: typeof w.openUserSettings,
+      agentProfile: typeof w.openAgentProfile,
+      adjourn: typeof w.app.adjournRoom,
+      divergence: typeof w.app.openDivergenceOverlay,
+      brief: typeof w.app.generateBriefForAdjournedRoom,
+      requireModelKey: typeof w.app.requireModelKey,
+    };
+  });
+  expect(probe.userSettings).toBe("function");
+  expect(probe.agentProfile).toBe("function");
+  expect(probe.adjourn).toBe("function");
+  expect(probe.divergence).toBe("function");
+  expect(probe.brief).toBe("function");
+  expect(probe.requireModelKey).toBe("function");
+});
