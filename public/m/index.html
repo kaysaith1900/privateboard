@@ -203,6 +203,7 @@
     bottom: var(--tabbar-h, calc(var(--safe-bottom) + 64px));
     background: rgba(10,10,10,0.92);
     backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     padding: 8px 12px;
     display: flex; align-items: center; gap: 8px;
     max-width: 420px; margin: 0 auto;
@@ -216,9 +217,62 @@
     width: 40px; height: 40px; border-radius: 50%;
     background: var(--panel-3);
     display: grid; place-items: center;
-    font-size: 18px;
+    font-size: 18px; flex: none;
   }
   .composer .send { background: var(--gold); color: #0A0A0A; }
+
+  /* Room-chat composer · PC-parity 3-row block. Scoped to #rc-composer so
+     the boardroom composer (bare .composer) keeps its horizontal row. */
+  #rc-composer {
+    flex-direction: column; align-items: stretch; gap: 8px;
+    border-top: 1px solid var(--rule);
+  }
+  /* Row 1 · status chip — current/next speaker context. Parity with PC's
+     queue-strip chip ("◆ CHAIR · 主持中" + speaker name). Hidden
+     gracefully when no active speaker (cmp-status[hidden]). */
+  #rc-composer .cmp-status {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 18px; padding: 0 2px;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; letter-spacing: 0.08em;
+    color: var(--ink-mid);
+  }
+  #rc-composer .cmp-status[hidden] { display: none; }
+  #rc-composer .cmp-chair {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: var(--gold); text-transform: uppercase;
+    white-space: nowrap;
+  }
+  #rc-composer .cmp-spk {
+    color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    font-size: 12px; letter-spacing: 0; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #rc-composer .cmp-hint {
+    margin-left: auto; color: var(--ink-dim);
+    white-space: nowrap;
+  }
+  /* Row 2 · the input pill (full width in the column). */
+  #rc-composer input {
+    flex: none; width: 100%; padding: 11px 16px;
+    font-size: 14px;
+  }
+  /* Row 3 · toolbar (left icons) + send (right). */
+  #rc-composer .cmp-toolbar {
+    display: flex; align-items: center; gap: 6px;
+  }
+  #rc-composer .cmp-tool {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 32px; padding: 0 10px; border-radius: 8px;
+    background: transparent; color: var(--ink-mid);
+    font-size: 14px;
+  }
+  #rc-composer .cmp-tool-ico { font-size: 15px; line-height: 1; }
+  #rc-composer .cmp-tool-lbl {
+    font-size: 12px; color: var(--ink-dim); letter-spacing: 0.02em;
+  }
+  #rc-composer .cmp-tool:active { background: var(--panel-3); color: var(--ink); }
+  #rc-composer .cmp-spacer { flex: 1; }
 
   /* voice call mode */
   .voice-call { position: fixed; inset: 0; background: linear-gradient(180deg,#1A1A18 0%, #0A0A0A 100%); z-index: 100; display: none; flex-direction: column; padding: calc(var(--safe-top) + 20px) 16px calc(var(--safe-bottom) + 20px); }
@@ -794,9 +848,20 @@
 
     <div id="rc-mention-picker" style="display:none; position:fixed; left:8px; right:8px; bottom:calc(var(--tabbar-h, calc(var(--safe-bottom) + 64px)) + var(--composer-h, 58px)); max-width:420px; margin:0 auto; background:var(--panel); border:1px solid var(--rule); border-radius:12px; padding:6px; z-index:10; max-height:240px; overflow-y:auto;"></div>
     <div class="composer" id="rc-composer">
-      <input id="rc-input" type="text" placeholder="你的回应..." oninput="onComposerInput(this, 'rc-input')" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMessage('rc-input');}" />
-      <div class="send" onclick="submitMessage('rc-input')">↑</div>
-      <button id="rc-act-more" onclick="openSheet('room-more')" style="display:none; padding:0; width:40px; height:40px; border-radius:50%; background:var(--panel-3); color:var(--ink-mid); font-size:18px;">⋯</button>
+      <div class="cmp-status" id="rc-cmp-status" hidden>
+        <span class="cmp-chair">◆ CHAIR · 主持中</span>
+        <span class="cmp-spk" id="rc-cmp-spk"></span>
+        <span class="cmp-hint" id="rc-cmp-hint"></span>
+      </div>
+      <input id="rc-input" type="text" placeholder="随时插话 · @handle 指定某位董事…" oninput="onComposerInput(this, 'rc-input')" onkeydown="if(event.key==='Enter'){event.preventDefault();submitMessage('rc-input');}" />
+      <div class="cmp-toolbar">
+        <button class="cmp-tool" onclick="addNote()" aria-label="旁注"><span class="cmp-tool-ico">✎</span><span class="cmp-tool-lbl">旁注</span></button>
+        <button class="cmp-tool" onclick="addNote()" aria-label="引述"><span class="cmp-tool-ico">❝</span><span class="cmp-tool-lbl">引述</span></button>
+        <button class="cmp-tool" onclick="openRoomSettingsEditor()" aria-label="设置"><span class="cmp-tool-ico">⚙</span><span class="cmp-tool-lbl">设置</span></button>
+        <button class="cmp-tool" id="rc-act-more" onclick="openSheet('room-more')" aria-label="更多"><span class="cmp-tool-ico">⋯</span><span class="cmp-tool-lbl">更多</span></button>
+        <span class="cmp-spacer"></span>
+        <div class="send" onclick="submitMessage('rc-input')">↑</div>
+      </div>
     </div>
   </section>
 
@@ -4512,7 +4577,7 @@ function computeRoomActionState() {
   });
   const defaults = { bg: 'var(--gold)', color: '#0A0A0A' };
   const map = {
-    none: { hidden: true, placeholder: '你的回应...' },
+    none: { hidden: true, placeholder: '随时插话 · @handle 指定某位董事…' },
     clarify: { hidden: true, placeholder: '主席等你回答上面的问题...' },
     'vote-queued': { kind: 'busy', label: '⏳ 等本轮结束后总结...', onClick: () => forceRoomRefresh(), bg: 'var(--panel)', color: 'var(--ink-dim)', opacity: '0.65' },
     busy: { kind: 'busy', label: '⏳ 等讲完... (点击刷新)', onClick: () => forceRoomRefresh(), bg: 'var(--panel)', color: 'var(--ink-dim)', opacity: '0.55' },
@@ -4566,18 +4631,51 @@ function paintRoomActionSurface(barId, btnId, endBtnId, displayMode, state) {
   requestAnimationFrame(syncBottomChromeHeights);
 }
 
+// Composer status chip · parity with PC's queue-strip context line.
+// Shows "◆ CHAIR · 主持中" + the current (speaking) or next-up director
+// name, with a faint hint. Hidden gracefully when no active speaker
+// (no room, adjourned, or empty queue).
+function renderComposerStatus(state) {
+  const el = document.getElementById('rc-cmp-status');
+  if (!el) return;
+  const spkEl = document.getElementById('rc-cmp-spk');
+  const hintEl = document.getElementById('rc-cmp-hint');
+  const snap = roomMeetingController.snapshot?.() || {};
+  const q = snap.queue || [];
+  const head = q[0] || null;
+  const noActiveSpeaker = !appState.activeRoomId
+    || appState.activeRoomStatus === 'adjourned'
+    || !head
+    || !head.agentId;
+  if (noActiveSpeaker) {
+    el.hidden = true;
+    if (spkEl) spkEl.textContent = '';
+    if (hintEl) hintEl.textContent = '';
+    return;
+  }
+  const agent = appState.activeMembersById?.[head.agentId] || null;
+  const name = agent?.name || '当前董事';
+  const speaking = head.status === 'speaking';
+  if (spkEl) spkEl.textContent = name;
+  if (hintEl) hintEl.textContent = speaking ? '发言中' : '下一位发言…';
+  el.hidden = false;
+}
+
 function renderRoomActions() {
   const moreBtn = document.getElementById('rc-act-more');
   // "⋯ 更多" always visible once a room is active.
-  if (moreBtn) moreBtn.style.display = appState.activeRoomId ? 'block' : 'none';
+  if (moreBtn) moreBtn.style.display = appState.activeRoomId ? 'inline-flex' : 'none';
   const state = computeRoomActionState();
   // Composer placeholders track the clarify / normal phase on both
-  // the chat input and the boardroom input.
-  const placeholder = state.placeholder || '你的回应...';
+  // the chat input and the boardroom input. The normal-phase default is
+  // the "随时插话" prompt; clarify / paused phases override it.
+  const NORMAL_PLACEHOLDER = '随时插话 · @handle 指定某位董事…';
+  const placeholder = state.placeholder || NORMAL_PLACEHOLDER;
   const rcInput = document.getElementById('rc-input');
   if (rcInput) rcInput.placeholder = placeholder;
   const bdInput = document.getElementById('bd-input');
-  if (bdInput) bdInput.placeholder = placeholder === '你的回应...' ? '加入讨论...' : placeholder;
+  if (bdInput) bdInput.placeholder = placeholder === NORMAL_PLACEHOLDER ? '加入讨论...' : placeholder;
+  renderComposerStatus(state);
   // Paint both surfaces · only one is visible at a time (the inactive
   // screen is display:none) but painting both keeps them in lockstep
   // so switching views never shows a stale button.
