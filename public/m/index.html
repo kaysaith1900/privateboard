@@ -2601,6 +2601,10 @@ function stopRoomPoll() {
 function resetActiveRoomState(options = {}) {
   const preserveVoicePlayback = !!options.preserveVoicePlayback;
   appState.queuedUserMessage = null; // queued after-speaker line is room-specific
+  // Brief generation is room-scoped; fully clear the live viewer on leave (the
+  // brief still completes server-side and appears in the 报告 list).
+  appState.briefGen = null;
+  closeMobileOverlay('mobile-brief-gen');
   stopRoomPoll();
   // Close any open SSE stream
   if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
@@ -2828,6 +2832,16 @@ function handleConfigEvent(data) {
     if (mgrOpen && document.getElementById('mgr-title')?.textContent === '关键点投票') {
       openRoomVote();
     }
+  } else if (kind === 'brief-started') {
+    const g = briefGenEnsure(payload.briefId);
+    g.mode = payload.mode || g.mode || '';
+    renderBriefGenViewer();
+  } else if (kind === 'brief-stage') {
+    updateBriefGenStage(payload);
+  } else if (kind === 'brief-final') {
+    briefGenFinal(payload);
+  } else if (kind === 'brief-error') {
+    briefGenError(payload);
   }
   if (kind === 'round-ended') appState.activeRoomVoteQueued = false;
   if (kind === 'round-resumed') appState.activeRoomVoteQueued = false;
@@ -4029,10 +4043,155 @@ async function regenerateBrief() {
     } else if (status !== 'adjourned') {
       applyActionRoomState({ id, status: 'adjourned' });
     }
-    alert(`报告生成中（briefId=${(result.briefId || '').slice(0, 8)}…）。完成后会出现在「报告」tab。`);
-    setTimeout(() => bootstrapBriefs(), 1500);
+    // Open the live progress viewer immediately; the brief-* SSE events
+    // (brief-started/stage/final/error on the room stream) drive it. Use
+    // briefGenEnsure (idempotent) so an early brief-started/stage that already
+    // arrived during the await isn't reset, and stash the supplement for retry.
+    closeSheet();
+    const g = briefGenEnsure(result.briefId || null);
+    g.supplement = supplement;
+    renderBriefGenViewer();
   } catch (e) {
     alert('生成失败：' + e.message);
+  }
+}
+
+// ── in-app brief generation progress (parity with PC brief stages) ──
+// Driven by brief-* config-events on the room SSE (brief.ts emits via
+// roomBus). Event-driven dynamic stage list (no mode→pipeline mapping
+// needed): stages appear as their events arrive, active one shows
+// detail/progress/ETA. brief-final → done+refresh; brief-error → retry.
+const BRIEF_STAGE_LABELS = {
+  'extract': '提取各董事要点',
+  'compose': '综合成稿',
+  'scaffold-anchor': '框架 · 锚点',
+  'scaffold-findings': '框架 · 关键发现',
+  'scaffold-cluster': '框架 · 聚类',
+  'scaffold-actions': '框架 · 行动项',
+  'write': '撰写报告',
+};
+function briefStageLabel(k) { return BRIEF_STAGE_LABELS[k] || k; }
+function briefGenViewHtml(g) {
+  let body;
+  if (g.error) {
+    body = `<p class="dv-purpose" style="color:#FF8B7E;">生成失败：${escapeHtml(g.error)}</p>`;
+  } else {
+    const rows = g.order.map(k => {
+      const s = g.stages[k] || {};
+      const done = s.status === 'done';
+      const col = done ? 'var(--gold-soft)' : 'var(--ink)';
+      let extra = '';
+      if (!done && s.detail) extra += `<div style="font-size:12px;color:var(--ink-mid);margin-top:2px;">${escapeHtml(s.detail)}</div>`;
+      if (!done && s.progress && s.progress.total) {
+        const pct = Math.max(0, Math.min(100, Math.round(100 * (s.progress.current || 0) / s.progress.total)));
+        extra += `<div style="height:4px;background:var(--panel-2);border-radius:2px;margin-top:6px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:var(--gold);"></div></div>`;
+      }
+      if (!done && s.eta && typeof s.eta.lo === 'number') extra += `<div style="font-size:11px;color:var(--ink-dim);margin-top:4px;">预计还需 ${s.eta.lo}-${s.eta.hi}s</div>`;
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--rule-soft);"><span style="color:${col};">${done ? '✓' : '▸'}</span> <span style="color:${col};">${escapeHtml(briefStageLabel(k))}</span>${extra}</div>`;
+    }).join('') || '<p class="dv-purpose">正在准备…</p>';
+    const head = g.done ? `<p class="dv-purpose" style="color:var(--gold-soft);margin-bottom:8px;">✓ 报告已生成${g.title ? '：' + escapeHtml(g.title) : ''}</p>` : '';
+    body = head + rows;
+  }
+  let foot;
+  if (g.error) foot = `<button onclick="closeBriefGenViewer()">关闭</button><button class="gold" onclick="retryBriefGen()">重试</button>`;
+  else if (g.done) foot = `<button onclick="closeBriefGenViewer()">关闭</button><button class="gold" onclick="openBriefFromGen()">查看报告</button>`;
+  else foot = `<button onclick="closeBriefGenViewer()">后台运行</button>`;
+  return { body, foot };
+}
+function briefGenEnsure(briefId) {
+  let g = appState.briefGen;
+  // Fresh state only when there's none, or the brief id genuinely changed
+  // (a new/retried generation). Same-id calls are idempotent so an early SSE
+  // stage that arrived before regenerateBrief's POST resolved isn't wiped.
+  if (!g || (briefId && g.briefId && g.briefId !== briefId)) {
+    g = appState.briefGen = { briefId: briefId || (g && g.briefId) || null, order: [], stages: {}, error: null, done: false, title: '', mode: '', supplement: '', hidden: false };
+  }
+  if (briefId && !g.briefId) g.briefId = briefId;
+  return g;
+}
+function renderBriefGenViewer() {
+  const g = appState.briefGen;
+  // Closed/dismissed → keep the panel shut even as background stage events
+  // keep updating g (so "后台运行" / X / backdrop actually stay dismissed).
+  if (!g || g.hidden) { closeMobileOverlay('mobile-brief-gen'); return; }
+  const { body, foot } = briefGenViewHtml(g);
+  const existing = document.getElementById('mobile-brief-gen');
+  if (existing) {
+    const b = existing.querySelector('.mobile-panel-body'); if (b) b.innerHTML = body;
+    const f = existing.querySelector('.mobile-panel-foot'); if (f) f.innerHTML = foot;
+    return;
+  }
+  const wrap = openMobilePanel({ id: 'mobile-brief-gen', kicker: 'BRIEF', title: '正在生成报告', body, foot });
+  // Route the generic X / backdrop dismiss through closeBriefGenViewer so the
+  // dismissal sticks (otherwise the next stage event would reopen the panel).
+  const x = wrap && wrap.querySelector('.mobile-panel-close');
+  if (x) x.onclick = (e) => { e.preventDefault(); closeBriefGenViewer(); };
+  if (wrap) wrap.onclick = (e) => { if (e.target === wrap) closeBriefGenViewer(); };
+}
+// Idempotent open: reuses existing same-brief state (no reset mid-stream).
+function openBriefGenViewer(briefId) {
+  briefGenEnsure(briefId);
+  renderBriefGenViewer();
+}
+// Dismiss to background — keep g (stages keep accumulating) but mark hidden so
+// it won't reopen. Full clear happens on room leave (resetActiveRoomState).
+function closeBriefGenViewer() {
+  if (appState.briefGen) appState.briefGen.hidden = true;
+  closeMobileOverlay('mobile-brief-gen');
+}
+function updateBriefGenStage(payload) {
+  if (!payload || !payload.stage) return;
+  const g = briefGenEnsure(payload.briefId);
+  if (!g.order.includes(payload.stage)) g.order.push(payload.stage);
+  g.stages[payload.stage] = {
+    status: payload.status === 'done' ? 'done' : 'active',
+    detail: payload.detail || '',
+    progress: payload.progress || null,
+    eta: payload.etaSec || null,
+  };
+  renderBriefGenViewer();
+}
+function briefGenFinal(payload) {
+  const g = briefGenEnsure(payload && payload.briefId);
+  g.done = true;
+  g.title = (payload && payload.title) || '';
+  g.order.forEach(k => { if (g.stages[k]) g.stages[k].status = 'done'; });
+  if (g.hidden) mobileToast('报告已生成');
+  renderBriefGenViewer();
+  bootstrapBriefs().catch(() => {});
+}
+function briefGenError(payload) {
+  const g = briefGenEnsure(payload && payload.briefId);
+  g.error = (payload && payload.message) || '生成失败';
+  if (g.hidden) { g.hidden = false; } // surface failures even if backgrounded
+  renderBriefGenViewer();
+}
+function openBriefFromGen() {
+  const g = appState.briefGen;
+  const id = g && g.briefId;
+  closeBriefGenViewer();
+  if (id && typeof openBrief === 'function') openBrief(id);
+  else { setTab('briefs'); }
+}
+async function retryBriefGen() {
+  const id = appState.activeRoomId;
+  const g = appState.briefGen;
+  if (!id) return;
+  // Preserve the original mode + supplement so a failed magazine/ppt retry
+  // doesn't silently fall back to the default research-note.
+  const mode = (g && g.mode) || undefined;
+  const supplement = (g && g.supplement) || '';
+  try {
+    if (g && g.briefId) { await fetch('/api/briefs/' + encodeURIComponent(g.briefId), { method: 'DELETE' }).catch(() => {}); }
+    const result = await roomActionController.generateBrief(id, { ensureAdjourned: true, status: appState.activeRoomStatus, supplement, mode });
+    const ng = briefGenEnsure(result.briefId || null);
+    ng.mode = mode || ''; ng.supplement = supplement;
+    ng.error = null; ng.done = false; ng.hidden = false;
+    renderBriefGenViewer();
+  } catch (e) {
+    const gg = briefGenEnsure(null);
+    gg.error = e.message;
+    renderBriefGenViewer();
   }
 }
 
