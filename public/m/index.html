@@ -1250,6 +1250,10 @@ function setTab(name) {
   $$('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === name));
   requestAnimationFrame(syncBottomChromeHeights);
   window.scrollTo(0, 0);
+  // Tabbar navigation bypasses goto(), so persist here too — otherwise leaving
+  // a room to a tab wouldn't update the saved view and a reload would wrongly
+  // re-open the old room.
+  persistMobileView(name);
 }
 
 // ▦ round-table button · mirrors PC's toggleRoomViewMode:
@@ -1291,6 +1295,46 @@ function goto(screen) {
   if (screen === 'new-agent') restoreAgentDraft();
   requestAnimationFrame(syncBottomChromeHeights);
   window.scrollTo(0, 0);
+  persistMobileView(screen);
+}
+
+// View persistence · parity with PC's hash/last-view restore so a refresh or
+// re-open returns to the room/tab you were on (mobile previously dropped to
+// the default rooms screen). Room screens persist the active room id; tabs
+// persist null so navigating away from a room doesn't wrongly re-open it.
+const RT_LAST_VIEW_KEY = 'boardroom.m.lastView';
+function persistMobileView(screen) {
+  try {
+    const isRoomScreen = screen === 'room-chat' || screen === 'boardroom';
+    localStorage.setItem(RT_LAST_VIEW_KEY, JSON.stringify({
+      screen: screen || 'rooms',
+      roomId: isRoomScreen ? (appState.activeRoomId || null) : null,
+    }));
+  } catch {}
+}
+function restoreMobileView() {
+  // Explicit deep-links win · don't override ?screen / ?roomId.
+  const p = new URLSearchParams(location.search);
+  if (p.get('screen') || p.get('roomId')) return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(RT_LAST_VIEW_KEY) || 'null'); } catch {}
+  if (!saved || !saved.screen) return;
+  if ((saved.screen === 'room-chat' || saved.screen === 'boardroom') && saved.roomId) {
+    // Only re-open if the room still exists (avoid a stale/deleted room
+    // landing on a "加载失败" screen). openRoom picks chat vs boardroom.
+    if (cachedRooms.some(r => r && r.id === saved.roomId)) {
+      openRoom(saved.roomId);
+      return;
+    }
+    // Only treat the saved room as stale when we have an authoritative room
+    // list. If /api/rooms failed to load (cachedRooms empty by error, not by
+    // truth), preserve the saved entry for the next reload instead of wiping it.
+    if (cachedRoomsLoaded) {
+      try { localStorage.setItem(RT_LAST_VIEW_KEY, JSON.stringify({ screen: 'rooms', roomId: null })); } catch {}
+    }
+    return;
+  }
+  if (['rooms', 'agents', 'briefs', 'me'].includes(saved.screen)) goto(saved.screen);
 }
 
 // New-agent composer draft · persists across view switches AND full reloads
@@ -2183,6 +2227,8 @@ async function fetchJson(url) {
 let cachedAgents = [];
 let cachedAgentsById = {};
 let cachedChair = null;
+let cachedRooms = [];
+let cachedRoomsLoaded = false; // true only after a successful /api/rooms load
 
 async function bootstrapAgents() {
   const host = document.getElementById('agents-list');
@@ -2208,6 +2254,8 @@ async function bootstrapRooms() {
   try {
     const data = await fetchJson('/api/rooms');
     const rooms = data.rooms || [];
+    cachedRooms = rooms; // used by restoreMobileView to validate a saved room still exists
+    cachedRoomsLoaded = true;
     host.innerHTML = renderRooms(rooms, cachedAgentsById);
     host.dataset.state = 'ready';
   } catch (e) {
@@ -4908,6 +4956,8 @@ async function bootstrapAll() {
   if (active === 'boardroom') {
     loadBoardroomFor(appState.activeRoomId || null);
   }
+  // Restore the last room/tab on a plain reload (no ?screen / ?roomId).
+  restoreMobileView();
 }
 function syncBottomChromeHeights() {
   const tb = document.querySelector('.tabbar');
