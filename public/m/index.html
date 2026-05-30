@@ -795,7 +795,7 @@
       <div class="settings" style="padding-left:0; padding-right:0; margin-top:16px;">
         <div class="group">
           <h4>// 角色定位</h4>
-          <div class="row" onclick="editRoleTag()" style="cursor:pointer;">
+          <div class="row">
             <div class="lbl"><span class="ic">🎭</span> <span id="ap-role-tag">—</span></div>
             <div class="val" id="ap-role-val">director</div>
           </div>
@@ -1153,6 +1153,10 @@
           </div>
           <div class="row" data-room-more-row="cast" onclick="closeSheet();openRoomCastEditor()" style="cursor:pointer;">
             <div class="lbl"><span class="ic">👥</span> 加入 / 移除董事</div>
+            <div class="val">›</div>
+          </div>
+          <div class="row" data-room-more-row="settings" onclick="closeSheet();openRoomSettingsEditor()" style="cursor:pointer;">
+            <div class="lbl"><span class="ic">⚙</span> 会议设置（模式 / 强度 / 隐身）</div>
             <div class="val">›</div>
           </div>
           <div class="row" data-room-more-row="divergence" onclick="closeSheet();openDivergenceReport()" style="cursor:pointer;">
@@ -1838,6 +1842,78 @@ async function submitRoomCastEditor() {
   } catch (e) {
     root.querySelectorAll('button').forEach(b => b.disabled = false);
     alert('调整董事失败：' + e.message);
+  }
+}
+
+// Mid-room meeting settings editor (mode / intensity / incognito), parity
+// with PC room-settings. Reuses the shared patchSettings contract; the
+// backend emits settings-changed which refreshes the in-room labels/title.
+const ROOM_MODE_OPTIONS = [['constructive', '协作'], ['debate', '辩论'], ['research', '研究'], ['critique', '批判'], ['brainstorm', '发散']];
+const ROOM_INTENSITY_OPTIONS = [['calm', '克制'], ['sharp', '犀利'], ['terse', '简练']];
+function openRoomSettingsEditor() {
+  const id = appState.activeRoomId;
+  if (!id) return;
+  if (appState.activeRoomStatus === 'adjourned') {
+    alert('房间已归档，不能再调整会议设置。');
+    return;
+  }
+  const room = (roomMeetingController.snapshot?.() || {}).room || {};
+  const curMode = room.mode || 'constructive';
+  const curIntensity = room.intensity || 'sharp';
+  const curIncognito = !!room.incognito;
+  const radioCard = (group, v, l, cur) => `
+    <label class="choice-card${v === cur ? ' primary' : ''}" data-rs-row="${group}">
+      <input type="radio" name="rs-${group}" value="${v}" ${v === cur ? 'checked' : ''} style="float:right;accent-color:var(--gold);">
+      <div class="mark">${l}</div>
+    </label>`;
+  const modeCards = ROOM_MODE_OPTIONS.map(([v, l]) => radioCard('mode', v, l, curMode)).join('');
+  const intensCards = ROOM_INTENSITY_OPTIONS.map(([v, l]) => radioCard('intensity', v, l, curIntensity)).join('');
+  const root = openMobilePanel({
+    id: 'mobile-roomset-overlay',
+    kicker: 'ROOM · SETTINGS',
+    title: '会议设置',
+    body: `
+      <div class="dv-purpose" style="margin-bottom:6px;">讨论模式</div>
+      <div class="choice-stack">${modeCards}</div>
+      <div class="dv-purpose" style="margin:14px 0 6px;">强度</div>
+      <div class="choice-stack">${intensCards}</div>
+      <label class="choice-card" style="margin-top:14px;" data-rs-row="incognito">
+        <input type="checkbox" id="rs-incognito" ${curIncognito ? 'checked' : ''} style="float:right;accent-color:var(--gold);">
+        <div class="mark">隐身模式</div>
+        <div class="deck">本房间不写入主席的长期记忆</div>
+      </label>
+      <p class="dv-purpose" style="margin-top:12px;">调用和 PC 相同的房间设置接口。</p>`,
+    foot: `<button onclick="closeMobileOverlay('mobile-roomset-overlay')">取消</button><button class="gold" onclick="submitRoomSettingsEditor()">保存</button>`,
+  });
+  root.querySelectorAll('input[type=radio]').forEach(rb => {
+    rb.addEventListener('change', () => {
+      root.querySelectorAll(`[data-rs-row="${rb.name === 'rs-mode' ? 'mode' : 'intensity'}"]`)
+        .forEach(r => r.classList.remove('primary'));
+      rb.closest('[data-rs-row]')?.classList.add('primary');
+    });
+  });
+}
+async function submitRoomSettingsEditor() {
+  const id = appState.activeRoomId;
+  const root = document.getElementById('mobile-roomset-overlay');
+  if (!id || !root) return;
+  const room = (roomMeetingController.snapshot?.() || {}).room || {};
+  const mode = root.querySelector('input[name=rs-mode]:checked')?.value;
+  const intensity = root.querySelector('input[name=rs-intensity]:checked')?.value;
+  const incognito = !!root.querySelector('#rs-incognito')?.checked;
+  const patch = {};
+  if (mode && mode !== room.mode) patch.mode = mode;
+  if (intensity && intensity !== room.intensity) patch.intensity = intensity;
+  if (incognito !== !!room.incognito) patch.incognito = incognito;
+  if (!Object.keys(patch).length) { closeMobileOverlay('mobile-roomset-overlay'); return; }
+  root.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    await roomRuntimeApi.patchSettings(id, patch);
+    closeMobileOverlay('mobile-roomset-overlay');
+    forceRoomRefresh();
+  } catch (e) {
+    root.querySelectorAll('button').forEach(b => b.disabled = false);
+    alert('保存失败：' + e.message);
   }
 }
 
@@ -4639,26 +4715,9 @@ async function patchAgent(id, patch) {
   return updated;
 }
 
-async function editRoleTag() {
-  const id = appState.activeAgentId;
-  const a = id ? cachedAgentsById[id] : null;
-  if (!a) return;
-  const next = prompt(
-    `修改 ${a.name} 的角色标签\n(显示在头像下方 + 圆桌字幕)`,
-    a.roleTag || ''
-  );
-  if (next === null || next.trim() === a.roleTag) return;
-  try {
-    // PATCH /api/agents/:id accepts bio updates; roleTag is part of agent
-    // spec — fall back to local mutate + UI hint if server rejects.
-    await patchAgent(a.id, { bio: a.bio || '', roleTag: next.trim() });
-    const set = (eid, v) => { const e = document.getElementById(eid); if (e) e.textContent = v; };
-    if (cachedAgentsById[id]) cachedAgentsById[id].roleTag = next.trim();
-    set('ap-role-tag', next.trim());
-  } catch (e) {
-    alert('修改失败：' + e.message + '\n\n注：角色标签的编辑需要桌面端支持，移动端目前只是回显。');
-  }
-}
+// roleTag is read-only after creation (parity with PC, which has no
+// roleTag editor; the backend PATCH /api/agents/:id intentionally drops
+// roleTag). The profile row shows it but no longer offers a broken editor.
 
 async function deleteActiveAgent() {
   const id = appState.activeAgentId;
