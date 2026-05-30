@@ -2646,6 +2646,7 @@ async function loadActiveRoom() {
     renderRoomActions();
     maybeStartAutoContinue();
     msgsEl.innerHTML = renderMessages(messages, chair ? [chair, ...members] : members);
+    maybeShowConveningCard(msgsEl, messages, room, members);
     scrollToBottom();
     subscribeRoomStream(id);
   } catch (e) {
@@ -2657,6 +2658,25 @@ function renderMessages(messages, members) {
   // Members are agents — index by their id for authorId lookup.
   const memberById = Object.fromEntries(members.map(a => [a.id, a]));
   return messages.map(m => renderOneMessage(m, memberById)).join('');
+}
+// Convening card · parity with PC conveneState: a live room with no messages
+// yet is mid-convene (chair is doing silent picker/LLM work for ~10s).
+// Show an informative card instead of a blank screen. Uses the
+// #rc-thinking-ph id so sseAppendMessage clears it on the first message.
+function renderConveningCard(members) {
+  const list = (members || []).slice(0, 6).map(m => escapeHtml(m.name || '')).filter(Boolean).join(' · ');
+  const n = (members || []).length;
+  return `<div class="msg system" id="rc-thinking-ph">
+    <div style="font-weight:600; margin-bottom:6px;">正在召集董事会…</div>
+    <div style="color:var(--ink-mid); font-size:14px; line-height:1.6;">分析议题 · 安排席位 · 准备首轮发言</div>
+    ${n ? `<div style="color:var(--ink-dim); font-size:12px; margin-top:6px;">${n} 位董事${list ? '：' + list : ''}</div>` : ''}
+  </div>`;
+}
+function maybeShowConveningCard(msgsEl, messages, room, members) {
+  if (!msgsEl || (messages || []).length) return;
+  const status = room && room.status;
+  if (status === 'adjourned' || status === 'paused') return;
+  msgsEl.insertAdjacentHTML('beforeend', renderConveningCard(members));
 }
 
 function renderOneMessage(m, memberById) {
@@ -2800,8 +2820,9 @@ function sseAppendMessage(payload) {
   }
   const msgsEl = document.getElementById('rc-msgs');
   if (!msgsEl) return;
-  // Remove the "thinking" placeholder if present (continueDiscussion paints it).
-  const ph = document.getElementById('rc-thinking-ph'); if (ph) ph.remove();
+  // Remove any "thinking"/convening placeholder(s) — both share the
+  // rc-thinking-ph id, so clear all matches, not just the first.
+  document.querySelectorAll('#rc-thinking-ph').forEach(el => el.remove());
   const memberById = appState.activeMembersById || {};
   const html = renderOneMessage({
     id: payload.messageId,
@@ -3544,6 +3565,7 @@ async function loadActiveRoomMessages() {
     const state = await roomRuntimeApi.getRoom(id);
     const wasAtBottom = isPageNearBottom();
     msgsEl.innerHTML = renderMessages(state.messages || [], state.members || []);
+    maybeShowConveningCard(msgsEl, state.messages || [], state.room, state.members || []);
     if (wasAtBottom) scrollToBottom();
   } catch {}
 }
@@ -3851,6 +3873,9 @@ async function continueDiscussion() {
     // refresh the list and overwrite this once the LLM lands.
     const msgsEl = document.getElementById('rc-msgs');
     if (msgsEl) {
+      // Drop any existing placeholder (e.g. the convening card, same id) so
+      // we never end up with two #rc-thinking-ph nodes.
+      msgsEl.querySelectorAll('#rc-thinking-ph').forEach(el => el.remove());
       const ph = document.createElement('div');
       ph.className = 'msg system';
       ph.id = 'rc-thinking-ph';
