@@ -138,13 +138,36 @@
     border-radius: 14px 14px 4px 14px;
   }
   .msg .who {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px;
   }
-  .msg .av { width: 28px; height: 28px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); }
+  .msg .av { width: 28px; height: 28px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); flex: 0 0 auto; }
+  /* Meta row · parity with PC's name · model · role · ctx · time. Wraps on
+     mobile so a long model label + ctx count never overflows the column. */
+  .msg .msg-meta {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; padding-top: 4px;
+  }
   .msg .name { font-size: 14px; font-weight: 600; }
-  .msg .name .h { color: var(--ink-dim); font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .msg .msg-model {
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; letter-spacing: 0.04em; color: var(--gold-soft);
+    background: var(--panel-3); border: 1px solid var(--rule);
+    border-radius: 4px; padding: 1px 6px; line-height: 1.5;
+  }
+  .msg .msg-tag {
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; color: var(--ink-dim); letter-spacing: 0.02em;
+  }
+  .msg .msg-context { font-size: 11px; color: var(--ink-dim); }
+  .msg .msg-time { font-size: 11px; color: var(--ink-dim); }
   .msg .text { color: var(--ink); font-size: 14px; line-height: 1.6; }
   .msg .text strong { color: var(--gold-soft); font-weight: 600; }
+  .msg .text em { font-style: italic; }
+  .msg .text code { font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace); font-size: 12px; background: var(--panel-3); padding: 1px 4px; border-radius: 3px; }
+  .msg .text p { margin: 0 0 8px; }
+  .msg .text p:last-child { margin-bottom: 0; }
+  .msg .text ul { margin: 0 0 8px; padding-left: 18px; }
+  .msg .text li { margin-bottom: 2px; }
+  .msg .text h2, .msg .text h3, .msg .text h4 { font-size: 15px; font-weight: 600; margin: 8px 0 4px; }
 
   /* composer · sits flush above the tab bar. We measure the tab bar's
      actual rendered height in JS (see syncTabbarHeight) and write it to
@@ -1243,6 +1266,7 @@
      inline script below constructs its controller. Earlier iteration
      used type=module and broke first-render because module scripts
      are implicitly deferred and lost the race with the inline body. -->
+<script src="/models-cache.js"></script>
 <script src="/room-auto-continue.js"></script>
 <script src="/room-meeting-runtime.js"></script>
 <script src="/agent-runtime.js"></script>
@@ -2755,6 +2779,124 @@ function maybeShowQueuedPlaceholder(msgsEl, messages) {
     `<div class="msg user" id="rc-queued-ph" style="opacity:0.6;"><div class="bubble">${escapeHtml(q.text)}<div style="font-size:11px; color:var(--ink-dim); margin-top:4px;">⏳ 排队中 · 等当前董事说完</div></div></div>`);
 }
 
+// Model badge label · parity with PC's `MODEL_LABELS[modelV] || modelV`.
+// The shared /api/models snapshot (models-cache.js singleton) carries
+// `models[].displayName` straight from the same registry that feeds PC's
+// MODEL_LABELS — so we reuse it instead of hardcoding a second map. Falls
+// back to the raw modelV string when the snapshot hasn't loaded yet or the
+// model isn't in the registry (matches PC's fallback exactly).
+function mobileModelLabel(modelV) {
+  if (!modelV) return '';
+  const snap = (typeof window.boardroomModels === 'function') ? window.boardroomModels() : null;
+  const list = (snap && Array.isArray(snap.models)) ? snap.models : [];
+  const hit = list.find(m => m && m.modelV === modelV);
+  return (hit && hit.displayName) || modelV;
+}
+// Count of prior non-empty messages this speaker saw as context · parity
+// with PC's contextCountAt. Reads the live snapshot's message list so a
+// single sse-appended message can compute its own count without the full
+// array threaded in.
+function mobileContextCount(messageId) {
+  if (!messageId) return 0;
+  const snap = roomMeetingController.snapshot?.() || {};
+  const msgs = Array.isArray(snap.messages) ? snap.messages : [];
+  const idx = msgs.findIndex(m => m && m.id === messageId);
+  if (idx <= 0) return 0;
+  let n = 0;
+  for (let i = 0; i < idx; i++) {
+    const m = msgs[i];
+    if (m && m.body && String(m.body).trim().length > 0) n++;
+  }
+  return n;
+}
+// Absolute timestamp · parity with PC timeFmt ("May 30, 9:01 PM", year
+// prepended for prior years). en-US locale pins short month + 12-hour
+// meridiem regardless of UI language.
+function mobileTimeFmt(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const timePart = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const base = `${datePart}, ${timePart}`;
+  const yr = d.getFullYear();
+  return yr === new Date().getFullYear() ? base : `${yr} ${base}`;
+}
+// Lightweight markdown body renderer · reasonable parity with PC renderBody
+// (paragraphs preserved, bold/italic/code inline, bullet lists). Always
+// escapes first, so it is XSS-safe on already-escaped input.
+function mobileInlineMd(s) {
+  return String(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+function mobileRenderBody(body) {
+  if (!body) return '';
+  const esc = escapeHtml(body);
+  const blocks = esc.split(/\n\s*\n/);
+  const out = [];
+  for (const raw of blocks) {
+    const lines = raw.split('\n');
+    if (lines.length === 1) {
+      const h = /^(#{2,4})\s+(.+)$/.exec(lines[0]);
+      if (h) { const lvl = Math.min(h[1].length, 4); out.push(`<h${lvl}>${mobileInlineMd(h[2])}</h${lvl}>`); continue; }
+    }
+    if (lines.every(l => /^\s*[-*]\s+/.test(l) || l.trim() === '')) {
+      const items = lines.filter(l => l.trim()).map(l => `<li>${mobileInlineMd(l.replace(/^\s*[-*]\s+/, ''))}</li>`);
+      out.push(`<ul>${items.join('')}</ul>`);
+      continue;
+    }
+    out.push(`<p>${mobileInlineMd(lines.join('<br>'))}</p>`);
+  }
+  return out.join('');
+}
+
+// Repaint the room-chat transcript in place from the current snapshot ·
+// used as a one-shot when the shared /api/models cache resolves AFTER the
+// first room render, so model badges that fell back to the raw modelV get
+// upgraded to the registry displayName. No network round-trip — reads the
+// already-fetched snapshot. Skips the boardroom (圆桌) view and any room
+// that is mid-voice-reveal (it would clobber the paced caption).
+function repaintRoomChatMessages() {
+  const msgsEl = document.getElementById('rc-msgs');
+  if (!msgsEl || !appState.activeRoomId) return;
+  if (document.querySelector('.screen.on')?.dataset.screen !== 'room-chat') return;
+  // Never repaint while voice is leading — boardroomVoiceLeading() stays true
+  // across the gap between one clip's onended and the next clip's onplaying,
+  // where a full rebuild could clobber a paced caption or reveal a message
+  // that should still be held back.
+  if (typeof boardroomVoiceLeading === 'function' && boardroomVoiceLeading()) return;
+  if (appState.voicePlaying) return;
+  const snap = roomMeetingController.snapshot?.() || {};
+  const messages = snap.messages;
+  if (!Array.isArray(messages) || !messages.length) return;
+  // Bail if any message is mid-stream OR lacks a createdAt — those are
+  // SSE-appended turns whose live DOM (warming hint, accumulated tokens,
+  // synthesised timestamp) the snapshot can't reproduce, so a rebuild would
+  // lose state. The one-shot model-cache repaint only needs to run on the
+  // initial GET messages (which all carry createdAt) anyway.
+  for (const m of messages) {
+    if (!m) continue;
+    if (m.meta && m.meta.streaming === true) return;
+    if (!m.createdAt) return;
+  }
+  // membersById already includes the chair (room-meeting-runtime merges it
+  // in), so its values are the full member roster renderMessages expects.
+  const members = Object.values(snap.membersById || {});
+  msgsEl.innerHTML = renderMessages(messages, members);
+}
+// When the model cache first lands, repaint once so raw-modelV badges
+// upgrade to their display labels. boardroomModelsOnUpdate fires on every
+// refresh; we only need the first non-null snapshot.
+if (typeof window.boardroomModelsOnUpdate === 'function') {
+  let _modelCacheSeen = false;
+  window.boardroomModelsOnUpdate((snap) => {
+    if (_modelCacheSeen || !snap) return;
+    _modelCacheSeen = true;
+    try { repaintRoomChatMessages(); } catch {}
+  });
+}
+
 function renderOneMessage(m, memberById) {
   const mid = m.id ? ` data-msg-id="${escapeHtml(m.id)}"` : '';
   const aid = m.authorId ? ` data-author-id="${escapeHtml(m.authorId)}"` : '';
@@ -2767,14 +2909,35 @@ function renderOneMessage(m, memberById) {
   }
   const agent = (m.authorId && (memberById[m.authorId] || cachedAgentsById[m.authorId])) || null;
   const name = agent?.name || m.authorName || 'director';
-  const handle = agent?.handle ? `<span class="h">${escapeHtml(agent.handle)}</span>` : '';
   const initial = initialFor(name);
+  // Chair (moderator) parity with PC · model badge shown for chair too
+  // (PC only gates the badge on modelV, not on chair-ness); ctx count is
+  // suppressed for the chair (procedural turn — count would mislead); role
+  // tag reads "// chair". Directors carry model + ctx + their own roleTag.
+  const isChair = agent?.roleKind === 'moderator';
+  const roleTag = isChair ? 'chair' : (agent?.roleTag || 'director');
+  const modelLabel = mobileModelLabel(agent?.modelV);
+  const modelBadge = modelLabel
+    ? `<span class="msg-model" title="模型 · ${escapeHtml(modelLabel)}">${escapeHtml(modelLabel)}</span>`
+    : '';
+  const ctxCount = !isChair ? mobileContextCount(m.id) : 0;
+  const ctxBadge = ctxCount > 0
+    ? `<span class="msg-context" title="已向 ${escapeHtml(name)} 附 ${ctxCount} 轮上文">· ${ctxCount} 上文</span>`
+    : '';
+  const timeStr = mobileTimeFmt(m.createdAt);
+  const timeBadge = timeStr ? `<span class="msg-time">${escapeHtml(timeStr)}</span>` : '';
   return `<div class="msg"${mid}${aid}${kind}>
     <div class="who">
       <div class="av">${escapeHtml(initial)}</div>
-      <div class="name">${escapeHtml(name)} ${handle}</div>
+      <div class="msg-meta">
+        <span class="name">${escapeHtml(name)}</span>
+        ${modelBadge}
+        <span class="msg-tag">// ${escapeHtml(roleTag)}</span>
+        ${ctxBadge}
+        ${timeBadge}
+      </div>
     </div>
-    <div class="text">${escapeHtml(m.body || '').replace(/\n+/g, '<br>')}</div>
+    <div class="text">${mobileRenderBody(m.body || '')}</div>
   </div>`;
 }
 
@@ -2952,6 +3115,7 @@ function sseAppendMessage(payload) {
     body: payload.body || '',
     meta: payload.meta || {},
     roundNum: payload.roundNum,
+    createdAt: payload.createdAt || Date.now(),
   }, memberById);
   const wasNearBottom = isPageNearBottom();
   msgsEl.insertAdjacentHTML('beforeend', html);
@@ -3027,12 +3191,23 @@ function repaintVoicePacedMessage(q, caption) {
   setMsgHtmlText(msgTextEl(el), caption);
 }
 // Voice for this message finished (or turn ended in text mode) · restore the
-// full body so the complete line stays readable in the transcript.
+// full body so the complete line stays readable in the transcript. This is
+// the finalised text, so render it through the markdown body renderer for PC
+// parity (paragraphs/bold/italic/code/bullets) rather than the plain <br>
+// form used for live token / voice-caption streaming. User bubbles (.bubble)
+// keep the plain treatment — PC renders user messages without markdown too.
 function restoreFullMessageText(messageId) {
   if (!messageId) return;
   const el = findMsgEl(messageId);
   if (!el) return;
-  if (typeof el.dataset.fb === 'string') setMsgHtmlText(msgTextEl(el), el.dataset.fb);
+  if (typeof el.dataset.fb !== 'string') return;
+  const textEl = msgTextEl(el);
+  if (!textEl) return;
+  if (textEl.classList.contains('text')) {
+    textEl.innerHTML = mobileRenderBody(el.dataset.fb);
+  } else {
+    setMsgHtmlText(textEl, el.dataset.fb);
+  }
 }
 
 function sseAppendToken(payload) {
