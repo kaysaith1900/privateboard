@@ -2601,6 +2601,7 @@ function stopRoomPoll() {
 
 function resetActiveRoomState(options = {}) {
   const preserveVoicePlayback = !!options.preserveVoicePlayback;
+  appState.queuedUserMessage = null; // queued after-speaker line is room-specific
   stopRoomPoll();
   // Close any open SSE stream
   if (appState.rcStream) { try { appState.rcStream.close(); } catch {} appState.rcStream = null; }
@@ -2699,6 +2700,7 @@ async function loadActiveRoom() {
     maybeStartAutoContinue();
     msgsEl.innerHTML = renderMessages(messages, chair ? [chair, ...members] : members);
     maybeShowConveningCard(msgsEl, messages, room, members);
+    maybeShowQueuedPlaceholder(msgsEl, messages);
     scrollToBottom();
     subscribeRoomStream(id);
   } catch (e) {
@@ -2729,6 +2731,24 @@ function maybeShowConveningCard(msgsEl, messages, room, members) {
   const status = room && room.status;
   if (status === 'adjourned' || status === 'paused') return;
   msgsEl.insertAdjacentHTML('beforeend', renderConveningCard(members));
+}
+// Local placeholder for an after-speaker queued user message (parity with PC's
+// pendingUserMessage). The queued line isn't in server state until the current
+// speaker finishes, so show it locally; cleared when the real user message
+// lands (sseAppendMessage) or the room is left. Re-added on re-render/poll.
+function maybeShowQueuedPlaceholder(msgsEl, messages) {
+  if (!msgsEl) return;
+  const q = appState.queuedUserMessage;
+  if (!q || !q.text) return;
+  // Landed only when the count of matching user messages EXCEEDS the baseline
+  // captured at queue time — so an identical older message in history doesn't
+  // trigger a false early clear.
+  const matches = (messages || []).filter(m =>
+    m && m.authorKind === 'user' && String(m.body || '').trim() === q.text).length;
+  if (matches > q.baseline) { appState.queuedUserMessage = null; return; }
+  if (msgsEl.querySelector('#rc-queued-ph')) return;
+  msgsEl.insertAdjacentHTML('beforeend',
+    `<div class="msg user" id="rc-queued-ph" style="opacity:0.6;"><div class="bubble">${escapeHtml(q.text)}<div style="font-size:11px; color:var(--ink-dim); margin-top:4px;">⏳ 排队中 · 等当前董事说完</div></div></div>`);
 }
 
 function renderOneMessage(m, memberById) {
@@ -2882,6 +2902,13 @@ function sseAppendMessage(payload) {
   // Remove any "thinking"/convening placeholder(s) — both share the
   // rc-thinking-ph id, so clear all matches, not just the first.
   document.querySelectorAll('#rc-thinking-ph').forEach(el => el.remove());
+  // The queued after-speaker line posting drops the local "排队中" placeholder.
+  // A fresh user message-appended matching the queued text IS the landing.
+  if (payload.authorKind === 'user' && appState.queuedUserMessage
+      && String(payload.body || '').trim() === appState.queuedUserMessage.text) {
+    appState.queuedUserMessage = null;
+    document.getElementById('rc-queued-ph')?.remove();
+  }
   const memberById = appState.activeMembersById || {};
   const html = renderOneMessage({
     id: payload.messageId,
@@ -3625,6 +3652,7 @@ async function loadActiveRoomMessages() {
     const wasAtBottom = isPageNearBottom();
     msgsEl.innerHTML = renderMessages(state.messages || [], state.members || []);
     maybeShowConveningCard(msgsEl, state.messages || [], state.room, state.members || []);
+    maybeShowQueuedPlaceholder(msgsEl, state.messages || []);
     if (wasAtBottom) scrollToBottom();
   } catch {}
 }
@@ -3743,6 +3771,15 @@ async function submitMessage(inputId = 'rc-input') {
       }
       if (choice === 'queue') sendMode = 'after-speaker';
     }
+    // Set the queued-placeholder marker BEFORE awaiting submit, with a baseline
+    // count of identical existing user messages captured now. This way a fast
+    // SSE landing during the await still matches+clears it, and the baseline
+    // pre-dates the new message (no false "already landed" read).
+    if (sendMode === 'after-speaker') {
+      const msgs = roomMeetingController.snapshot?.().messages || [];
+      const baseline = msgs.filter(m => m && m.authorKind === 'user' && String(m.body || '').trim() === text).length;
+      appState.queuedUserMessage = { text, baseline };
+    }
     const result = await roomSendController.submit({
       roomId: appState.activeRoomId,
       roomStatus,
@@ -3751,6 +3788,7 @@ async function submitMessage(inputId = 'rc-input') {
       mode: sendMode,
     });
     if (!result.consumed) {
+      if (sendMode === 'after-speaker') appState.queuedUserMessage = null; // never sent
       input.value = text;
       if (mirror) mirror.value = text;
       return;
@@ -3761,6 +3799,8 @@ async function submitMessage(inputId = 'rc-input') {
       refreshBoardroomFromState();
     }
   } catch (e) {
+    // Roll back the queued placeholder if this send (the one that set it) threw.
+    if (appState.queuedUserMessage && appState.queuedUserMessage.text === text) appState.queuedUserMessage = null;
     input.value = text;
     alert('发送失败：' + e.message);
   }
