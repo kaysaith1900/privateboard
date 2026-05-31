@@ -208,11 +208,113 @@
   .chair-note .cn-foot {
     margin-top: 10px; font-size: 12px; color: var(--ink-dim);
   }
+  /* Round-prompt action card · PC parity with `.round-prompt-card` /
+     `.rp-*`. The chair's round-prompt carries the End-round / Continue /
+     Adjourn decision INLINE in the transcript (same shared handlers as PC:
+     endRound · continueDiscussion · adjournActiveRoom), not a separate
+     bottom action bar. Only the ACTIVE prompt renders these; older prompts
+     in scrollback stay informational. */
+  .rp-actions { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  /* Stacked vertically · narrow mobile can't fit two long Chinese labels
+     side-by-side without wrapping (PC has the width for a row; mobile
+     doesn't). Each button takes the full width so its label stays on one
+     line. */
+  .rp-primary { display: flex; flex-direction: column; gap: 8px; }
+  .rp-btn {
+    width: 100%; display: inline-flex; align-items: center; justify-content: center;
+    gap: 6px; padding: 11px 12px; border-radius: 10px;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
+    position: relative; overflow: hidden; cursor: pointer; text-align: center;
+  }
+  .rp-btn .rp-mark { font-size: 11px; line-height: 1; }
+  .rp-btn.vote { background: transparent; color: var(--gold); border: 1px solid var(--gold); }
+  .rp-btn.continue { background: var(--gold); color: #0A0A0A; border: 1px solid var(--gold); }
+  .rp-btn:active { opacity: 0.85; }
+  .rp-timer { margin-left: 4px; font-variant-numeric: tabular-nums; opacity: 0.85; }
+  .rp-timer:empty { display: none; }
+  /* Countdown sweep · fills left→right as the auto-continue timer drains,
+     mirroring PC's `.rp-btn.continue.counting::before`. */
+  .rp-btn.continue.counting::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: var(--qc-progress, 0%); background: rgba(10,10,10,0.18); pointer-events: none;
+  }
+  /* Chair recommendation · filled treatment swaps onto the recommended call. */
+  .rp-actions.has-recommendation .rp-btn:not(.recommended) { background: transparent; color: var(--gold); border-color: var(--gold); }
+  .rp-actions.has-recommendation .rp-btn.recommended { background: var(--gold); color: #0A0A0A; border-color: var(--gold); }
+  /* Recommendation footnote · sits directly under the recommended button
+     (stacked layout), arrow pointing up at it. */
+  .rp-rec-line {
+    display: inline-flex; align-items: center; gap: 5px; align-self: center;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    color: var(--gold); opacity: 0.85; margin: -2px 0 0;
+  }
+  .rp-rec-arrow { color: var(--gold); font-size: 12px; line-height: 1; }
+  .rp-rec-text { letter-spacing: 0.04em; font-weight: 600; }
+  .rp-adjourn {
+    align-self: center; background: transparent; border: none; padding: 4px 10px;
+    color: var(--ink-dim); font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+  }
+  .rp-adjourn:active { color: var(--red, #B5706A); }
+  /* Round-end vote card · PC parity with `.round-end-card` / `.kp-*`. The
+     chair's round-end summary carries the key-point up/down vote chips +
+     Continue / Adjourn INLINE (reusing voteKp · acceptModeShiftAndContinue ·
+     continueDiscussion · adjournActiveRoom), replacing the modal vote sheet. */
+  .re-vote { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .kp-list-vote { display: flex; flex-direction: column; gap: 8px; }
+  .kp-row {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 12px; border: 1px solid var(--rule); border-radius: 10px;
+    background: var(--panel-3);
+  }
+  .kp-row .kp-body { font-size: 14px; color: var(--ink); line-height: 1.5; }
+  .kp-actions { display: flex; gap: 8px; }
+  .kp-vote {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    padding: 7px 10px; border-radius: 8px; font-size: 12px; cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--rule); color: var(--ink-mid);
+  }
+  .kp-vote.active { background: var(--gold); color: #0A0A0A; border-color: var(--gold); }
+  .kp-vote:active { opacity: 0.85; }
+  .kp-loading { font-size: 12px; color: var(--ink-dim); padding: 4px 2px; }
+  /* Mode-shift proposal · the chair's optional tone-switch branch. */
+  .kp-mode-shift {
+    padding: 10px 12px; border: 1px solid var(--gold-soft); border-radius: 10px;
+    background: rgba(196,169,106,0.08);
+  }
+  .kp-shift-eyebrow {
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 11px; letter-spacing: 0.08em; color: var(--gold-soft); margin-bottom: 4px;
+  }
+  .kp-shift-because { font-size: 14px; color: var(--ink); line-height: 1.5; }
+  /* CTAs reuse the rp-* button grammar so the two cards read as one system.
+     Stacked vertically for the same no-wrap reason as .rp-primary. */
+  .kp-ctas { display: flex; flex-direction: column; gap: 8px; }
+  .kp-cta {
+    width: 100%; display: inline-flex; align-items: center; justify-content: center;
+    gap: 6px; padding: 11px 12px; border-radius: 10px;
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer;
+    text-align: center; white-space: nowrap;
+  }
+  .kp-cta.primary { background: var(--gold); color: #0A0A0A; border: 1px solid var(--gold); }
+  .kp-cta.ghost { background: transparent; color: var(--ink-mid); border: 1px solid var(--rule); }
+  .kp-cta:active { opacity: 0.85; }
+  .kp-ctas-spent { font-size: 12px; color: var(--ink-dim); }
   /* Director / chair message · avatar-gutter transcript (PC parity).
      A small avatar sits in a fixed left gutter, the meta header + body
      flow to its right with no card border or background box. */
   .msg.turn { display: flex; align-items: flex-start; gap: 10px; }
-  .msg .av { width: 26px; height: 26px; border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); flex: 0 0 auto; margin-top: 2px; }
+  /* Avatar · PC parity with `.msg-av` — a square 3D-portrait PNG sits in
+     the left gutter (transparent bg, no frame, pixel-crisp). The <div>
+     fallback (no resolvable sprite) keeps the rounded initial chip. */
+  .msg .av { width: 28px; height: 28px; flex: 0 0 auto; margin-top: 2px; align-self: flex-start; }
+  .msg img.av { image-rendering: pixelated; image-rendering: crisp-edges; background: transparent; object-fit: contain; opacity: 0.95; }
+  .msg img.av[data-agent] { cursor: pointer; }
+  .msg div.av { border-radius: 50%; background: var(--panel-3); display: grid; place-items: center; font-size: 11px; color: var(--ink); border: 1px solid var(--rule); }
   .msg .msg-content { min-width: 0; flex: 1 1 auto; }
   /* Meta row · parity with PC's name · model · role · ctx · time. Wraps on
      mobile so a long model label + ctx count never overflows the column. */
@@ -3083,14 +3185,182 @@ function renderChairNoteCard(m, mid, aid, kind) {
         `<li class="cn-kp"><span class="cn-kp-n">${String(i + 1).padStart(2, '0')}</span><span>${escapeHtml(t)}</span></li>`
       ).join('')}</ul>`
     : '';
-  const foot = (isEnd && kps.length) ? `<div class="cn-foot">在下方操作栏「🗳 投票关键点」表态</div>` : '';
   const bodyHtml = (m.body || '').trim() ? `<div class="cn-body">${mobileRenderBody(m.body)}</div>` : '';
+  // PC parity · the chair's procedural beats carry their actions INLINE:
+  //   · round-prompt → End-round / Continue / Adjourn (round-prompt-card)
+  //   · ACTIVE round-end → key-point vote chips + Continue / Adjourn (round-end-card)
+  //   · spent round-end → informational key-point list ("本轮已结束")
+  let tail;
+  if (!isEnd) {
+    tail = roundPromptActionsHtml(m);
+  } else if (roundEndIsActive(m)) {
+    tail = roundEndVoteHtml(m);                       // chips hydrate async
+  } else {
+    const spentFoot = kps.length ? `<div class="cn-foot">本轮已结束</div>` : '';
+    tail = kpsHtml + spentFoot;
+  }
   return `<div class="${cls}"${mid}${aid}${kind}>
     <div class="cn-eyebrow">${eyebrow}</div>
     ${bodyHtml}
-    ${kpsHtml}
-    ${foot}
+    ${tail}
   </div>`;
+}
+
+// Latest round-end message id (the only actionable one — older round-ends in
+// scrollback are spent). From the shared snapshot, mirroring PC's reliance on
+// awaitingContinue + the most-recent round-end.
+function latestRoundEndId() {
+  const msgs = roomMeetingController.snapshot?.().messages || [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i]?.meta?.kind === 'round-end') return msgs[i].id;
+  }
+  return null;
+}
+function roundEndIsActive(m) {
+  return !!m.id
+    && appState.activeRoomStatus !== 'adjourned'
+    && !!appState.activeRoomAwaitingContinue
+    && m.id === latestRoundEndId();
+}
+// Is the inline round-end vote card live? Gates the bottom-bar de-dup.
+function roundEndCardPresent() {
+  return appState.activeRoomStatus !== 'adjourned'
+    && !!appState.activeRoomAwaitingContinue
+    && !!latestRoundEndId();
+}
+// Inline round-end vote card · PC parity with `roundEndCardHtml`. The vote
+// chips need the persisted keyPoints (id + vote state) which load async, so we
+// render a host + Continue/Adjourn synchronously and fill the chips via
+// hydrateRoundEndVote(). Reuses voteKp · acceptModeShiftAndContinue ·
+// continueDiscussion · adjournActiveRoom — one shared logic set with PC.
+function roundEndVoteHtml(m) {
+  return `<div class="re-vote" data-round-end-card="${escapeHtml(m.id)}">
+    <div class="kp-list-vote" data-kp-host><div class="kp-loading">关键点加载中…</div></div>
+    <div class="kp-ctas">
+      <button type="button" class="kp-cta primary" onclick="continueDiscussion()">▶ 继续 · 下一回合</button>
+      <button type="button" class="kp-cta ghost" onclick="adjournActiveRoom()">⊘ 散会并归档简报</button>
+    </div>
+  </div>`;
+}
+function kpVoteRowHtml(kp) {
+  const up = kp.vote === 'up';
+  const down = kp.vote === 'down';
+  const prev = (up || down) ? kp.vote : '';
+  const kpId = escapeHtml(kp.id);
+  return `<div class="kp-row" data-kp-id="${kpId}">
+    <div class="kp-body">${escapeHtml(kp.body || kp.text || '')}</div>
+    <div class="kp-actions">
+      <button type="button" class="kp-vote up${up ? ' active' : ''}" onclick="voteKp('${kpId}','up','${prev}')">▲ 赞同</button>
+      <button type="button" class="kp-vote down${down ? ' active' : ''}" onclick="voteKp('${kpId}','down','${prev}')">▼ 反对</button>
+    </div>
+  </div>`;
+}
+function kpModeShiftHtml(ms) {
+  return `<div class="kp-mode-shift">
+    <div class="kp-shift-eyebrow">▸ 主席建议 · 切换为 ${escapeHtml(ms.to)}</div>
+    <div class="kp-shift-because">${escapeHtml(ms.because || '主持建议调整下一轮讨论方式。')}</div>
+    <div class="kp-ctas" style="margin-top:8px;">
+      <button type="button" class="kp-cta primary" onclick="acceptModeShiftAndContinue('${escapeHtml(ms.to)}')">切换到 ${escapeHtml(ms.to)}</button>
+      <button type="button" class="kp-cta ghost" onclick="continueDiscussion()">保持当前</button>
+    </div>
+  </div>`;
+}
+// Fill the inline vote card's chips from the authoritative keyPoints list.
+// Idempotent — only fetches when the card hasn't been hydrated for its current
+// message id (or `force` after a vote / key-point-voted SSE).
+let _kpHydrating = false;
+async function hydrateRoundEndVote(force) {
+  const card = document.querySelector('.re-vote[data-round-end-card]');
+  if (!card) return;
+  const cardId = card.getAttribute('data-round-end-card');
+  const host = card.querySelector('[data-kp-host]');
+  if (!host) return;
+  if (!force && host.getAttribute('data-hydrated') === cardId) return;
+  if (_kpHydrating) return;
+  _kpHydrating = true;
+  try {
+    const id = appState.activeRoomId;
+    if (!id) return;
+    const state = await roomRuntimeApi.getRoom(id);
+    const host2 = document.querySelector(`.re-vote[data-round-end-card="${CSS.escape(cardId)}"] [data-kp-host]`);
+    if (!host2) return;
+    const kps = (Array.isArray(state.keyPoints) ? state.keyPoints : [])
+      .slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+    const ms = appState.activeRoomModeShiftProposal;
+    const shiftHtml = (ms && ms.to) ? kpModeShiftHtml(ms) : '';
+    const chips = kps.length
+      ? kps.map(kpVoteRowHtml).join('')
+      : '<div class="kp-loading">本轮暂无关键点</div>';
+    host2.innerHTML = shiftHtml + chips;
+    host2.setAttribute('data-hydrated', cardId);
+  } catch (e) {
+    /* leave the loading placeholder; a later render retries */
+  } finally {
+    _kpHydrating = false;
+  }
+}
+
+// Inline round-prompt action buttons · PC parity with `roundPromptCardHtml`.
+// Renders End-round / Continue (+ countdown) / Adjourn ONLY on the ACTIVE
+// round-prompt (latest, room still live/paused) so historical prompts in
+// scrollback stay informational — mirrors PC's spent-card collapse. Wired to
+// the same shared handlers the bottom bar used, so the logic is one set.
+function activeRoundPromptIdNow() {
+  if (appState.activeRoomStatus === 'adjourned') return null;
+  const msgs = roomMeetingController.snapshot?.().messages || [];
+  return window.RoomAutoContinue?.activeRoundPromptId?.(msgs, appState.activeChair?.id) || null;
+}
+// Is the inline round-prompt action card currently live in the transcript?
+// Gates the bottom-bar de-dup so we never hide the bar with no card to
+// replace it.
+function roundPromptCardPresent() {
+  return !!activeRoundPromptIdNow();
+}
+function roundPromptActionsHtml(m) {
+  const status = appState.activeRoomStatus;
+  if (!m.id || status === 'adjourned') return '';
+  const activeId = activeRoundPromptIdNow();
+  if (m.id !== activeId) return '';
+  const rec = m.meta?.recommendation;
+  const recKind = rec && (rec.kind === 'end' || rec.kind === 'continue') ? rec.kind : null;
+  const endClass = recKind === 'end' ? ' recommended' : '';
+  const contClass = recKind === 'continue' ? ' recommended' : '';
+  const recLine = recKind
+    ? `<div class="rp-rec-line"><span class="rp-rec-arrow">↑</span><span class="rp-rec-text">主席建议</span></div>`
+    : '';
+  const endBtn = `<button type="button" class="rp-btn vote${endClass}" onclick="endRound()"><span class="rp-mark">▣</span><span class="rp-label">结束回合 · 开启关键点评投票</span></button>`;
+  const contBtn = `<button type="button" class="rp-btn continue${contClass}" onclick="continueDiscussion()"><span class="rp-mark">▶</span><span class="rp-label">继续 · 下一回合</span><span class="rp-timer" data-continue-timer></span></button>`;
+  // Buttons stack vertically on mobile · place the recommendation footnote
+  // directly under whichever button is recommended so the ↑ points at it.
+  const primary = recKind === 'end'
+    ? endBtn + recLine + contBtn
+    : recKind === 'continue'
+      ? endBtn + contBtn + recLine
+      : endBtn + contBtn;
+  return `<div class="rp-actions${recKind ? ' has-recommendation' : ''}" data-round-prompt-card="${escapeHtml(m.id)}">
+    <div class="rp-primary">${primary}</div>
+    <button type="button" class="rp-adjourn" onclick="adjournActiveRoom()">⊘ 散会并归档简报</button>
+  </div>`;
+}
+
+// Surgically update the inline continue-countdown without re-rendering the
+// transcript (called every auto-continue tick). Mirrors PC's repaint of the
+// `.rp-timer` + counting sweep on the active round-prompt card.
+function updateRoundPromptTimer(left) {
+  const btn = document.querySelector('.rp-actions .rp-btn.continue');
+  const t = btn?.querySelector('.rp-timer[data-continue-timer]');
+  if (!btn || !t) return;
+  if (left > 0) {
+    t.textContent = '· ' + left + 's';
+    btn.classList.add('counting');
+    const total = autoContinueController?.totalSeconds || 10;
+    const pct = Math.max(0, Math.min(100, (1 - left / total) * 100));
+    btn.style.setProperty('--qc-progress', pct + '%');
+  } else {
+    t.textContent = '';
+    btn.classList.remove('counting');
+    btn.style.removeProperty('--qc-progress');
+  }
 }
 
 function renderOneMessage(m, memberById) {
@@ -3133,8 +3403,30 @@ function renderOneMessage(m, memberById) {
     : '';
   const timeStr = mobileTimeFmt(m.createdAt);
   const timeBadge = timeStr ? `<span class="msg-time">${escapeHtml(timeStr)}</span>` : '';
+  // Avatar · PC parity. PC's transcript mounts the agent's 3D portrait PNG
+  // (`<img class="msg-av">`), not an initial chip. Reuse the same sprite
+  // resolver the boardroom seats use so directors / chair show their real
+  // face here too. `data-agent` opts the row's tap delegate into opening
+  // the profile, mirroring PC's `.msg-av[data-agent]`.
+  // Prefer a custom-rendered avatar (uploaded screenshot / remote URL) the
+  // way PC does — spriteFor only resolves `/avatars/…` + seed sprites, so a
+  // data:/http portrait would otherwise fall back to a generic seed face.
+  const customAv = (agent && typeof agent.avatarPath === 'string'
+    && (agent.avatarPath.startsWith('data:image/') || agent.avatarPath.startsWith('http')))
+    ? agent.avatarPath : null;
+  const portrait = customAv || spriteFor(agent);
+  // Only directors that resolve to a real profile get the tap-to-open
+  // affordance (PC's `.msg-av[data-agent]`). The chair has no profile page
+  // (loadActiveAgent bails on an uncached id → blank screen), so skip it.
+  const canProfile = !!(agent && agent.id && !isChair && cachedAgentsById[agent.id]);
+  const avTag = canProfile
+    ? ` data-agent="${escapeHtml(agent.id)}" onclick="openAgent('${escapeHtml(agent.id)}')"`
+    : '';
+  const avHtml = portrait
+    ? `<img class="av" src="${escapeHtml(portrait)}" alt=""${avTag}>`
+    : `<div class="av">${escapeHtml(initial)}</div>`;
   return `<div class="msg turn"${mid}${aid}${kind}>
-    <div class="av">${escapeHtml(initial)}</div>
+    ${avHtml}
     <div class="msg-content">
       <div class="msg-meta">
         <span class="name">${escapeHtml(name)}</span>
@@ -3197,8 +3489,12 @@ function handleConfigEvent(data) {
     // jump in the conversation doesn't look like a glitch.
     mobileToast(autoSkipLabel(payload.phase, payload.reason));
   } else if (kind === 'key-point-voted') {
-    // Parity with PC vote-count sync: if the vote sheet is open, refresh it
-    // so the tallies reflect the new vote live.
+    // Parity with PC vote-count sync: refresh whichever vote surface is live
+    // so tallies reflect the new vote. Inline round-end card first; the legacy
+    // sheet only if it happens to be open.
+    if (document.querySelector('.re-vote[data-round-end-card]')) {
+      hydrateRoundEndVote(true);
+    }
     const mgrOpen = document.querySelector('.sheet[data-sheet="mgr"]')?.classList.contains('on');
     if (mgrOpen && document.getElementById('mgr-title')?.textContent === '关键点投票') {
       openRoomVote();
@@ -4285,6 +4581,7 @@ const autoContinueController = new window.RoomAutoContinue.AutoContinueControlle
   onTick: (left) => {
     appState.autoContinue.secondsLeft = left;
     renderRoomActions();
+    updateRoundPromptTimer(left);
   },
   onFire: () => {
     continueDiscussion().catch(() => {});
@@ -4691,7 +4988,21 @@ function paintRoomActionSurface(barId, btnId, endBtnId, displayMode, state) {
   // overlaps the composer on short/mobile viewports. Keep the busy
   // refresh affordance in chat only, where it replaces the transcript
   // action bar and has enough fixed space.
-  const hiddenOnThisSurface = state.hidden || (barId === 'bd-actions' && state.kind === 'busy');
+  // Passive-wait states (a director is mid-stream / the round is wrapping)
+  // have no user action — PC shows NO action button here, only the
+  // left-aligned queue strip. Hide the full-width centered pill on every
+  // surface; the cmp-status strip carries the speaker context + a tappable
+  // "点击刷新" refresh affordance instead (see renderComposerStatus).
+  const isPassiveWait = state.kind === 'busy' || state.kind === 'vote-queued';
+  // Card-covered states · in the room-chat transcript the inline
+  // round-prompt-card now carries End-round / Continue / Adjourn (PC parity),
+  // so the redundant bottom-bar pill is suppressed there. The boardroom
+  // (bd-actions) has no transcript card, so it keeps the button.
+  const cardCovered = barId === 'rc-actions' && (
+    ((state.kind === 'live-continue' || state.kind === 'awaiting-continue' || state.kind === 'paused-resume') && roundPromptCardPresent())
+    || ((state.kind === 'keypoints' || state.kind === 'awaiting-continue') && roundEndCardPresent())
+  );
+  const hiddenOnThisSurface = state.hidden || isPassiveWait || cardCovered;
   if (hiddenOnThisSurface) {
     bar.style.display = 'none';
     if (endBtn) endBtn.style.display = 'none';
@@ -4736,6 +5047,8 @@ function renderComposerStatus(state) {
     || !head.agentId;
   if (noActiveSpeaker) {
     el.hidden = true;
+    el.onclick = null;
+    el.style.cursor = '';
     if (spkEl) spkEl.textContent = '';
     if (hintEl) hintEl.textContent = '';
     return;
@@ -4744,7 +5057,20 @@ function renderComposerStatus(state) {
   const name = agent?.name || '当前董事';
   const speaking = head.status === 'speaking';
   if (spkEl) spkEl.textContent = name;
-  if (hintEl) hintEl.textContent = speaking ? '发言中' : '下一位发言…';
+  // Passive-wait states (busy / vote-queued) no longer paint a centered
+  // action button — the refresh affordance lives here instead, so the
+  // strip becomes tappable and the hint advertises it. Matches PC, where
+  // the mid-stream queue strip is the only speaker indicator.
+  const isPassiveWait = state && (state.kind === 'busy' || state.kind === 'vote-queued');
+  if (isPassiveWait) {
+    if (hintEl) hintEl.textContent = (state.kind === 'vote-queued' ? '等本轮结束' : '发言中') + ' · 点击刷新';
+    el.onclick = () => { try { forceRoomRefresh(); } catch {} };
+    el.style.cursor = 'pointer';
+  } else {
+    if (hintEl) hintEl.textContent = speaking ? '发言中' : '下一位发言…';
+    el.onclick = null;
+    el.style.cursor = '';
+  }
   el.hidden = false;
 }
 
@@ -4768,6 +5094,9 @@ function renderRoomActions() {
   // so switching views never shows a stale button.
   paintRoomActionSurface('rc-actions', 'rc-act-primary', 'rc-act-end', 'flex', state);
   paintRoomActionSurface('bd-actions', 'bd-act-primary', 'bd-act-end', 'block', state);
+  // Fill the inline round-end vote chips once the card is in the DOM
+  // (idempotent — only fetches on first sight of a given round-end).
+  hydrateRoundEndVote();
   renderRoomMoreMenu();
   // While a line is being SPOKEN on the boardroom stage, suppress the
   // round-end continue/end prompt + round-wrap banner — the user wants to
@@ -6169,11 +6498,21 @@ async function voteKp(kpId, requested, prevVote) {
   try {
     const result = await roomActionController.voteKeyPoint(id, kpId, requested, prevVote || null);
     const v = result && result.vote;
-    mgrError(v === 'up' ? '已投：👍 赞同' : v === 'down' ? '已投：👎 反对' : '已取消投票');
-    // Re-open with fresh server state so the selected chip reflects the vote
-    // (and a subsequent tap on the same direction toggles it off).
-    await openRoomVote();
-  } catch (e) { mgrError('投票失败：' + e.message); }
+    const msg = v === 'up' ? '已投：👍 赞同' : v === 'down' ? '已投：👎 反对' : '已取消投票';
+    // Refresh with fresh server state so the selected chip reflects the vote
+    // (and a subsequent tap on the same direction toggles it off). Inline
+    // round-end card is the primary surface; fall back to the sheet.
+    if (document.querySelector('.re-vote[data-round-end-card]')) {
+      mobileToast(msg);
+      await hydrateRoundEndVote(true);
+    } else {
+      mgrError(msg);
+      await openRoomVote();
+    }
+  } catch (e) {
+    if (document.querySelector('.re-vote[data-round-end-card]')) mobileToast('投票失败：' + e.message);
+    else mgrError('投票失败：' + e.message);
+  }
 }
 
 // ── room: pause / resume / round-end ──────────────────────
