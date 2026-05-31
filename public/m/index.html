@@ -4282,6 +4282,12 @@ function handleMessageFinal(payload) {
 // updates the stage chrome from the controller callbacks.
 function handleVoiceChunk(payload) {
   if (!payload || !payload.messageId || !payload.audioBase64) return;
+  // Hard pause must actually silence the room. The server aborts generation,
+  // but a director's already-emitted voice chunks can still arrive over SSE in
+  // the brief window after abort — without this guard they'd be enqueued and
+  // played, so "立即暂停" looked like it did nothing. Drop late chunks while
+  // paused; resume re-fetches the latest line via catchUpBoardroomAudio.
+  if (appState.activeRoomStatus === 'paused') return;
   // Real audio is flowing again · clear any prior TTS-failure notice.
   if (appState.voiceError) { appState.voiceError = null; updateBoardroomVoiceBanner(); }
   const fresh = !roomVoiceController.has?.(payload.messageId);
