@@ -4029,7 +4029,10 @@ async function catchUpBoardroomAudio() {
   if (!id) return;
   try {
     const state = await roomRuntimeApi.getRoom(id);
-    if (appState.activeRoomId !== id || currentMobileScreen() !== 'boardroom') return;
+    // Audio catch-up works in BOTH room views (boardroom stage + room-chat
+    // transcript) — voice should play wherever the user is. The stage chrome
+    // (caption / speaker) self-guards on screen; the audio doesn't need to.
+    if (appState.activeRoomId !== id || !isRoomSurface()) return;
     roomMeetingController.adoptRoomState?.(state);
     syncRoomRuntimeState(roomMeetingController.snapshot?.());
     const room = state.room || {};
@@ -4120,6 +4123,16 @@ function unlockBoardroomAudio() {
     updateBoardroomVoiceBanner();
     pumpVoiceQueue();
     ensureBoardroomVoicePlayback({ allowCatchUp: true });
+    // ensureBoardroomVoicePlayback bails off the boardroom stage, leaving the
+    // room-chat transcript with no catch-up — so a fresh unlock there (e.g.
+    // after a page refresh dropped the iOS audio unlock mid-speech) would stay
+    // silent until the NEXT speaker. Catch up the current line here too, but
+    // only when nothing is already queued/playing.
+    if (isRoomSurface() && currentMobileScreen() !== 'boardroom'
+        && appState.activeRoomDelivery === 'voice'
+        && !roomVoiceController.playing && !(roomVoiceController.queue?.length)) {
+      catchUpBoardroomAudio();
+    }
   } catch (e) {
     // No blocking alert; surface the cause in console for debugging.
     console.warn('[voice] mobile unlock failed:', e);
