@@ -1,6 +1,6 @@
 {
   "name": "privateboard",
-  "version": "0.1.44",
+  "version": "0.1.45",
   "description": "PrivateBoard · your private board meeting, on call. Local-first, multi-agent thinking amplifier.",
   "type": "module",
   "main": "electron-entry.cjs",
@@ -28,7 +28,7 @@
     "node:rebuild": "npm rebuild better-sqlite3",
     "electron:rebuild": "node scripts/ensure-sqlite-abi.mjs electron",
     "electron:build-ts": "tsup && tsc -p electron/tsconfig.json",
-    "electron:build-icon": "node scripts/build-app-icon.mjs",
+    "electron:build-icon": "node scripts/build-logo.mjs build/icon.png && node scripts/build-logo.mjs public/icons/logo.png",
     "electron:dev": "npm run electron:rebuild && npm run electron:build-ts && electron .",
     "electron:dist": "electron-builder install-app-deps && npm run electron:build-ts && npm run electron:build-icon && electron-builder --mac --publish always && npm run release:mac:finalize",
     "release:mac:finalize": "node scripts/finalize-mac-release.mjs",

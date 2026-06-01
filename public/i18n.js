@@ -890,6 +890,7 @@
 
       rt_speaking: "Speaking",
       rt_thinking: "Thinking",
+      rt_loading: "Entering room…",
       rt_audio_stalled: "Audio stalled",
       // Phase signals · server chair-pending payload.phase
       rt_phase_clarify_deciding: "Considering clarify",
@@ -2320,6 +2321,7 @@ When the room ___, raise an objection.`,
 
       rt_speaking: "正在说话",
       rt_thinking: "思考中",
+      rt_loading: "进入房间…",
       rt_audio_stalled: "语音卡住",
       rt_phase_clarify_deciding: "判断是否追问",
       rt_phase_picker_deciding: "挑选下一位",
@@ -3548,6 +3550,7 @@ When the room ___, raise an objection.`,
 
       rt_speaking: "発言中",
       rt_thinking: "考え中",
+      rt_loading: "入室中…",
       rt_audio_stalled: "音声停止",
       rt_phase_clarify_deciding: "確認可否を判断中",
       rt_phase_picker_deciding: "次の話者を選択",
@@ -4568,6 +4571,7 @@ When the room ___, raise an objection.`,
 
       rt_speaking: "Hablando",
       rt_thinking: "Pensando",
+      rt_loading: "Entrando…",
       rt_audio_stalled: "Audio detenido",
       rt_phase_clarify_deciding: "Evaluando aclaración",
       rt_phase_picker_deciding: "Eligiendo siguiente",

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Voice Room · mobile prototype</title>
+  <link rel="stylesheet" href="/mobile/voice-room.css" />
+  <!-- canonical seeded avatar configs · sets window.PB_CORE_AVATARS before the shell module runs -->
+  <script src="/core-avatars.js" defer></script>
+  <!-- 3D head-and-shoulders portrait helper · window.Avatar3DSnap.generate(seed) for the new-director flow -->
+  <script src="/avatar-3d-snap.js" defer></script>
+  <script type="module" src="/mobile/voice-room-shell.js"></script>
+</head>
+<body>
+  <div class="phone-frame">
+
+    <!-- ════ HOME · rooms + directors ════ -->
+    <section class="vr-home" data-view="home">
+      <header class="vr-home-top">
+        <div class="vr-home-brand">Private Board</div>
+        <div class="vr-home-actions">
+          <button type="button" class="vr-home-btn" data-act="prefs" aria-label="Settings"></button>
+        </div>
+      </header>
+      <div class="vr-home-body">
+        <div class="vr-rooms" data-rooms data-hpanel="rooms"></div>
+        <div class="vr-agents" data-agents data-hpanel="directors" hidden></div>
+      </div>
+      <!-- iOS-26 Photos-style floating dock · tab pill (left) + create (right) -->
+      <div class="vr-homedock">
+        <nav class="vr-tabpill">
+          <button type="button" class="vr-tabpill-btn is-active" data-htab="rooms" data-ti="rooms"><span>Rooms</span></button>
+          <button type="button" class="vr-tabpill-btn" data-htab="directors" data-ti="cast"><span>Directors</span></button>
+        </nav>
+        <button type="button" class="vr-create" data-act="new" aria-label="Create"></button>
+      </div>
+    </section>
+
+    <!-- ════ ROOM · 3D voice stage ════ -->
+    <section class="vr-room" data-view="room" hidden>
+    <!-- 3D stage · engine injects <canvas> + overlay here -->
+    <div class="vr-stage" data-mobile-stage></div>
+
+    <!-- Chat (text-delivery rooms) -->
+    <div class="vr-chat-view" data-chat-view>
+      <div class="vr-chat-msgs" data-chat></div>
+    </div>
+
+    <!-- Top bar -->
+    <header class="vr-topbar">
+      <button type="button" class="vr-back-btn" data-act="back" aria-label="Back to rooms"></button>
+      <span class="vr-title" data-vr-title>Voice Room</span>
+      <span class="vr-round" data-vr-round>R1</span>
+      <span class="vr-live" aria-label="Live"></span>
+      <button type="button" class="vr-menu-btn" data-act="menu" aria-label="Room menu"></button>
+    </header>
+
+    <!-- Caption band -->
+    <div class="vr-caption is-hidden" data-caption>
+      <div class="vr-cap-kicker" data-cap-kicker></div>
+      <div class="vr-cap-text" data-cap-text></div>
+    </div>
+
+    <!-- Cast rail -->
+    <nav class="vr-rail" data-rail aria-label="Participants"></nav>
+
+    <!-- Control dock -->
+    <div class="vr-dock">
+      <button type="button" data-act="interject" aria-label="Raise hand to interject"></button>
+      <button type="button" data-act="playpause" aria-label="Pause / play"></button>
+      <button type="button" data-act="rate" aria-label="Playback speed">1×</button>
+      <button type="button" data-act="sheet" aria-label="Open transcript"></button>
+    </div>
+
+    <!-- Composer · always shown in text rooms; in voice rooms revealed by interject -->
+    <div class="vr-composer" data-composer>
+      <button type="button" class="vr-composer-cancel" data-composer-cancel aria-label="Cancel"></button>
+      <input class="vr-composer-input" data-composer-input placeholder="Ask the board…" autocomplete="off">
+      <button type="button" class="vr-composer-send" data-composer-send aria-label="Send"></button>
+    </div>
+
+    <!-- Detail sheet · tabbed so the growing transcript never buries the
+         queue / vote. Each tab is its own independently-scrolling panel. -->
+    <section class="vr-sheet" data-sheet aria-label="Room detail">
+      <div class="vr-sheet-handle" data-sheet-handle></div>
+      <div class="vr-tabs" role="tablist">
+        <button type="button" class="vr-tab is-active" data-tab="transcript" role="tab">Transcript</button>
+        <button type="button" class="vr-tab" data-tab="queue" role="tab">Queue</button>
+        <button type="button" class="vr-tab" data-tab="vote" role="tab">Vote<span class="vr-tab-dot" data-vote-dot hidden></span></button>
+      </div>
+      <div class="vr-sheet-body">
+        <div class="vr-panel is-active" data-panel="transcript"><div data-transcript></div></div>
+        <div class="vr-panel" data-panel="queue"><div data-order></div></div>
+        <div class="vr-panel" data-panel="vote">
+          <div class="vr-vote-kicker">— Round 2 · open vote</div>
+          <div class="vr-vote">
+            <p>Prototype the voice stage before committing the quarter?</p>
+            <div class="vr-vote-btns">
+              <button type="button" class="primary">Prototype first</button>
+              <button type="button">Ship now</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Adjourned bar · replaces the dock once the meeting ends -->
+    <div class="vr-adjourned" data-adjourned-bar>
+      <button type="button" class="vr-adj-replay" data-act="replay" aria-label="Replay discussion"></button>
+      <button type="button" class="vr-adj-report" data-adj-report>View report</button>
+    </div>
+    </section><!-- /.vr-room -->
+
+    <!-- Room menu / settings / cast / report / new-room modal (shared) -->
+    <div class="vr-modal" data-modal hidden>
+      <div class="vr-modal-scrim" data-modal-scrim></div>
+      <div class="vr-modal-card">
+        <div class="vr-modal-head">
+          <button type="button" class="vr-modal-back" data-modal-back hidden aria-label="Back"></button>
+          <h2 class="vr-modal-title" data-modal-title>Room</h2>
+          <button type="button" class="vr-modal-close" data-modal-close aria-label="Close"></button>
+        </div>
+        <div class="vr-modal-body" data-modal-body></div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="vr-toast" data-toast></div>
+  </div>
+</body>
+</html>

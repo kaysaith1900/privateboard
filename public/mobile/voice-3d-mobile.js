@@ -41,7 +41,8 @@
    touch this file at all. */
 
 import * as THREE from "/vendor/three.module.min.js";
-import { OrbitControls } from "/vendor/OrbitControls.js";
+// (mobile prototype) OrbitControls removed — replaced by an auto-director
+// camera that frames the active speaker. No free user orbit.
 import { RoomEnvironment } from "/vendor/RoomEnvironment.js";
 import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig, AVATAR_MODELS } from "/avatar-3d.js";
 
@@ -235,17 +236,13 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   const AVATAR_SEAT_LIFT = 0.45;
   const MOUTH_OPEN = 0.062;       // legacy ellipsoid-overlay max height (fallback path only)
   const MOUTH_MIN = 0.014;        // legacy ellipsoid-overlay min height (fallback path only)
-  // ── Real lip-sync · viseme morph targets ──────────────────────────
-  // The rigged GLBs carry phoneme viseme morph targets (A–H, plus X = a
-  // duplicate of A) on the face / inside-mouth / teeth meshes. We drive
-  // them procedurally while a director speaks so the mouth actually opens,
-  // shapes, and shows depth — far more convincing than the old dark
-  // ellipsoid stuck over the lips. smile/sad/neutral are EXPRESSION morphs
-  // (they warp the whole face), so they're excluded from the talk set.
+  // ── Real lip-sync · viseme morph targets (ported from production
+  // voice-3d.js) ──────────────────────────────────────────────────
+  // The rigged GLBs carry phoneme viseme morph targets (A–H) on the
+  // face / inside-mouth / teeth meshes. We drive them procedurally while a
+  // director speaks so the mouth genuinely opens / shapes / shows depth —
+  // far better than the old dark ellipsoid stuck over the lips.
   const MOUTH_VISEMES = ["A", "B", "C", "D", "E", "F", "G", "H"];
-  // Weighted pick bag · biased toward open/mid shapes (A/E/H) with the
-  // wide-open F as occasional emphasis and B/C as near-closed consonant
-  // beats, so the mouth flaps through varied, speech-like shapes.
   const MOUTH_VISEME_BAG = ["A", "A", "E", "E", "H", "H", "D", "G", "F", "B", "C"];
   /** Table materials · created fresh in buildTable() each mount and
    *  retinted per tone by refreshTable(). Module-scope so refreshTable
@@ -395,6 +392,21 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
    *  in mount() after the resting camera is positioned. */
   let cameraRestPos = null;
 
+  /** ── Auto-director camera (mobile) ────────────────────────────
+   *  Portrait, no user orbit. The camera eases toward a "focus pose"
+   *  framing the active speaker, and falls back to a wider
+   *  "establishing" pose (the rest pose) when nobody is focused. Each
+   *  frame we critically-ease position + look-target toward the
+   *  desired pose (`k = 1 - exp(-dt/τ)`, frame-rate independent). */
+  const CAM_TAU = 0.34;          // ease time-constant (s) · ~cinematic glide
+  const FOCUS_DIST = 8.5;        // camera distance in front of the speaker
+  const FOCUS_LIFT = 2.2;        // camera height above the look target
+  let camCurTarget = null;       // eased look-at point (Vector3)
+  let camDesiredPos = null;      // desired camera position (Vector3)
+  let camDesiredTarget = null;   // desired look-at point (Vector3)
+  let focusSeatId = null;        // currently focused seat id (null = establishing)
+  let lastCamT = 0;              // perf timestamp of last director-cam tick
+
   /** ── Speaker-change camera pulse ──────────────────────────────
    *  Every time `activeSpeakerId` flips while the new speaker is
    *  actively `speaking`, the camera does one quick cinematic move:
@@ -429,12 +441,6 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   let _mountCamDistance = 18;
   let _mountCamElevDeg = 30;
   let _mountCamLookY = 0.5;
-  // Mouth-drive source · the in-app voice room syncs the talking mouth to the
-  // real TTS audio (so it doesn't flap silently). The marketing + onboarding
-  // demos have NO audio — they animate the mouth from the "speaking" stage
-  // state instead. mount({ mouthFromState: true }) flips a context into the
-  // state-driven path; default (the real room) stays audio-synced.
-  let _mouthFromState = false;
 
   /** (Removed) cylindrical billboard registry · with the head now a
    *  voxel sculpture (eyes/glasses/mustache as voxel features), the
@@ -563,11 +569,6 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     else _mountCamElevDeg = 30;
     if (typeof camOpts.lookAtY === "number") _mountCamLookY = camOpts.lookAtY;
     else _mountCamLookY = 0.5;
-    // Demo contexts (marketing / onboarding) drive the mouth off the speaking
-    // state since they have no TTS audio to sync to · default false = the real
-    // voice room stays audio-synced. Re-read every mount so the flag reflects
-    // the current host (the singleton VS3D is shared across both).
-    _mouthFromState = !!(opts && opts.mouthFromState);
 
     // Mark the stage so CSS can hide the legacy 2D children
     // (the `<svg.rt-table>`, the `[data-rt-seats]` grid, etc) without
@@ -693,7 +694,10 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     // the lower half (in front). FOV 28 is narrow (telephoto) which
     // flattens depth and approximates an orthographic look without
     // losing the parallax that gives the scene its weight.
-    camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
+    // FOV 40 (vs the desktop 28 telephoto) · a portrait frame needs a
+    // wider lens so a single speaker fills the tall frame without the
+    // camera having to shove into the table.
+    camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
     const camR = _mountCamDistance;
     const camTheta = Math.PI / 2;                                // 90° → camera on +Z axis (frontal)
     const camPhi = (90 - _mountCamElevDeg) * Math.PI / 180;      // elevation above horizon
@@ -713,29 +717,14 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     // (kicked off at the end of mount) can lerp INTO this view.
     cameraRestPos = camera.position.clone();
 
-    // OrbitControls · user-driven camera orbit + zoom. Damped for
-    // a smooth glide feel (rather than 1:1 jittery follow). Clamps:
-    //   · polarAngle ∈ [0.25, 1.35] rad · keeps camera above
-    //     horizon (no flipping under the floor) and below straight-
-    //     overhead (top-down view loses the 3D character).
-    //   · distance ∈ [10, 28] · prevents zooming into the table or
-    //     so far out the scene becomes a dot.
-    //   · enablePan: false · panning the target away from the
-    //     table breaks the "you're looking at the table" framing.
-    controls = new OrbitControls(camera, canvasEl);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.10;
-    controls.enablePan = false;
-    controls.target.set(0, _mountCamLookY, 0);
-    controls.minDistance = 10;
-    controls.maxDistance = 28;
-    controls.minPolarAngle = 0.25;     // ~14° from straight up (very high overhead)
-    controls.maxPolarAngle = 1.35;     // ~77° from straight up (just above floor)
-    controls.rotateSpeed = 0.6;
-    controls.zoomSpeed = 0.8;
-    // Reflect drag state in the cursor.
-    controls.addEventListener("start", () => { if (canvasEl) canvasEl.style.cursor = "grabbing"; });
-    controls.addEventListener("end",   () => { if (canvasEl) canvasEl.style.cursor = "grab"; });
+    // Auto-director camera · seed the desired pose to the establishing
+    // (rest) view. tickDirectorCamera eases toward whatever pose is set
+    // by setCameraFocus(); no OrbitControls, no user orbit.
+    camCurTarget = new THREE.Vector3(0, _mountCamLookY, 0);
+    camDesiredPos = cameraRestPos.clone();
+    camDesiredTarget = new THREE.Vector3(0, _mountCamLookY, 0);
+    focusSeatId = null;
+    lastCamT = (typeof performance !== "undefined" ? performance.now() : Date.now());
 
     // Lighting · warm key from front-top + cool fill from back-low +
     // ambient to lift shadow pits. Keeps the chunky voxel surfaces
@@ -835,16 +824,10 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     entryStartTime = (typeof performance !== "undefined" ? performance.now() : Date.now());
     entryActive = true;
 
-    // Picking listeners · mousedown captures start position, click
-    // does the actual raycast. Using `click` (rather than mouseup)
-    // means the browser already filtered out drags for us — the
-    // event only fires if mousedown + mouseup landed on the same
-    // element with minimal movement. Belt-and-braces with our own
-    // distance check, but click event is the primary gate.
+    // Touch tap-to-focus · pointer events cover both touch and mouse.
     if (!clickHandlersBound) {
-      canvasEl.addEventListener("mousedown", onCanvasMouseDown);
-      canvasEl.addEventListener("click", onCanvasClick);
-      console.log("[voice-3d] click handlers bound to canvas");
+      canvasEl.addEventListener("pointerdown", onCanvasPointerDown);
+      canvasEl.addEventListener("pointerup", onCanvasPointerUp);
       clickHandlersBound = true;
     }
 
@@ -902,60 +885,42 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     return true;
   }
 
-  function onCanvasMouseDown(e) {
-    clickStart = { x: e.clientX, y: e.clientY };
-    console.log("[voice-3d] mousedown at", e.clientX, e.clientY);
+  // Touch tap-to-focus · pointerdown records the start; pointerup
+  // within a small move + short time window counts as a tap (not a
+  // drag/long-press). A tap on a director raycasts to the seat and
+  // focuses the camera on it, and emits a `mvoice:focus` event so the
+  // shell (cast rail) can sync its highlight.
+  let _ptrStart = null;
+  let _ptrTime = 0;
+  function onCanvasPointerDown(e) {
+    _ptrStart = { x: e.clientX, y: e.clientY };
+    _ptrTime = (typeof performance !== "undefined" ? performance.now() : Date.now());
   }
-
-  function onCanvasClick(e) {
-    console.log("[voice-3d] click event fired", e.clientX, e.clientY,
-      "· clickStart?", clickStart);
-    if (!canvasEl || !raycaster || !pickerVec || !camera || !avatarGroup) {
-      console.log("[voice-3d] click skipped · missing refs",
-        { canvas: !!canvasEl, raycaster: !!raycaster, pickerVec: !!pickerVec, camera: !!camera, avatarGroup: !!avatarGroup });
-      return;
-    }
-    // If we have a mousedown reference, check drag distance · the
-    // browser already filters huge drags away from `click`, but for
-    // borderline cases (3-8 px wobbles after a slow drag start) we
-    // ALSO want to skip. If no mousedown was recorded, trust the
-    // browser's click filter.
-    if (clickStart) {
-      const dx = e.clientX - clickStart.x;
-      const dy = e.clientY - clickStart.y;
-      if (dx * dx + dy * dy > 100) {
-        console.log("[voice-3d] click skipped · drag move", dx, dy);
-        clickStart = null;
-        return;
-      }
-    }
-    clickStart = null;
-    // Raycast against the avatar group only · clicking the table,
-    // chairs, walls, plants, etc shouldn't open anything.
+  function onCanvasPointerUp(e) {
+    if (!_ptrStart) return;
+    const dx = e.clientX - _ptrStart.x;
+    const dy = e.clientY - _ptrStart.y;
+    const moved = dx * dx + dy * dy > 100;          // >10px ≈ drag
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const slow = (now - _ptrTime) > 500;            // long-press
+    _ptrStart = null;
+    if (moved || slow) return;
+    if (!canvasEl || !raycaster || !pickerVec || !camera || !avatarGroup) return;
     const rect = canvasEl.getBoundingClientRect();
     pickerVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pickerVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pickerVec, camera);
     const hits = raycaster.intersectObjects(avatarGroup.children, true);
-    console.log("[voice-3d] raycast · NDC", pickerVec.x.toFixed(2), pickerVec.y.toFixed(2),
-      "· hits", hits.length,
-      "· avatarGroup children", avatarGroup.children.length);
     if (!hits.length) return;
     let node = hits[0].object;
     while (node && node.parent !== avatarGroup) node = node.parent;
-    console.log("[voice-3d] hit type", hits[0].object.type,
-      "· walked up to fig?", !!node);
     if (!node) return;
     const seat = overlaySeats.find((s) => s.fig === node);
-    console.log("[voice-3d] resolved seat", seat ? seat.id : "(none)", "isUser?", seat && seat.isUser);
-    if (!seat) return;
-    if (seat.isUser) return;
-    if (typeof window.openAgentOverlay === "function") {
-      console.log("[voice-3d] opening agent overlay for", seat.id);
-      window.openAgentOverlay(seat.id);
-    } else {
-      console.warn("[voice-3d] window.openAgentOverlay not defined");
-    }
+    if (!seat || seat.isUser) return;
+    setCameraFocus(seat.id);
+    try {
+      document.dispatchEvent(new CustomEvent("mvoice:focus", { detail: { id: seat.id } }));
+    } catch (_) { /* */ }
   }
 
   function unmount() {
@@ -1001,8 +966,8 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     }
     if (canvasEl) {
       if (clickHandlersBound) {
-        canvasEl.removeEventListener("mousedown", onCanvasMouseDown);
-        canvasEl.removeEventListener("click", onCanvasClick);
+        canvasEl.removeEventListener("pointerdown", onCanvasPointerDown);
+        canvasEl.removeEventListener("pointerup", onCanvasPointerUp);
         clickHandlersBound = false;
       }
       if (canvasEl.parentNode) canvasEl.parentNode.removeChild(canvasEl);
@@ -1127,7 +1092,11 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       && activeSpeakerId !== prevSpeakerIdSnapshot
       && activeSpeakerState === "speaking"
     ) {
-      maybeTriggerSpeakerCameraPulse(activeSpeakerId);
+      // Auto-director: glide the camera to frame the new speaker.
+      setCameraFocus(activeSpeakerId);
+    } else if (!activeSpeakerId && prevSpeakerIdSnapshot && focusSeatId) {
+      // No active speaker → ease back to the establishing wide shot.
+      setCameraFocus(null);
     }
     activeUserWait = !!(state && state.userWait);
     activeUserBubble = (state && state.userBubble && typeof state.userBubble === "object"
@@ -3439,11 +3408,9 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       avatarGroup.add(fig);
 
       // Talking mouth (3D avatars only). PREFERRED · drive the GLB's real
-      // phoneme viseme morph targets so the mouth genuinely opens / shapes /
-      // shows depth while speaking (see driveMouthMorph in the tick).
-      // FALLBACK · only if a figure somehow carries no viseme morphs, fall
-      // back to the legacy dark-ellipsoid overlay so it still reads as
-      // talking. The morph path retires the "fake mouth stuck on the face".
+      // phoneme viseme morph targets so the mouth genuinely opens / shapes
+      // while speaking. FALLBACK · only if a figure carries no viseme morphs,
+      // use the legacy dark-ellipsoid overlay so it still reads as talking.
       let mouthMorph = null;
       let mouthOverlay = null;
       if (fig.userData && fig.userData.isAvatar3d) {
@@ -3741,77 +3708,55 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
    *  active flag. No-op when the entry animation is still running
    *  (entry owns the camera) or when the new speaker is the user
    *  (no seat figure to focus on). */
-  function maybeTriggerSpeakerCameraPulse(speakerId) {
-    if (entryActive) {
-      lastPulseSpeakerId = speakerId; // skip but record so we don't re-pulse later
-      return;
-    }
-    if (!camera || !cameraRestPos) return;
-    if (lastPulseSpeakerId === undefined) {
-      // First recognised speaker after mount · let entry animation
-      // be the cinematic arrival; record so the SECOND speaker is
-      // the first pulse target.
-      lastPulseSpeakerId = speakerId;
-      return;
-    }
-    if (lastPulseSpeakerId === speakerId) return;
-    const seat = (overlaySeats || []).find((s) => s.id === speakerId);
-    if (!seat || seat.isUser || !seat.worldPos) {
-      // User taking a turn / unknown seat · skip the pulse but
-      // remember the id so we don't keep retrying on every frame.
-      lastPulseSpeakerId = speakerId;
-      return;
-    }
-    // Direction from rest position toward the speaker's seat on
-    // the XZ plane (no vertical component · we add lift separately).
-    const dx = seat.worldPos.x - cameraRestPos.x;
-    const dz = seat.worldPos.z - cameraRestPos.z;
-    const mag = Math.hypot(dx, dz);
-    if (mag < 0.0001) {
-      // Seat is directly under the rest camera point — vanishingly
-      // rare, but bail to avoid NaN.
-      lastPulseSpeakerId = speakerId;
-      return;
-    }
-    cameraPulseDirX = dx / mag;
-    cameraPulseDirZ = dz / mag;
-    cameraPulseStart = (typeof performance !== "undefined" ? performance.now() : Date.now());
-    cameraPulseActive = true;
-    lastPulseSpeakerId = speakerId;
-    // Hand camera off from OrbitControls for the pulse window so
-    // the user's drag-orbit doesn't fight the lerp · restored in
-    // tickSpeakerCameraPulse() when the pulse completes.
-    if (controls) controls.enabled = false;
+  /** Establishing (wide) pose · the rest camera looking at table centre. */
+  function establishingPose() {
+    return {
+      pos: cameraRestPos ? cameraRestPos.clone() : new THREE.Vector3(0, 6, 16),
+      target: new THREE.Vector3(0, _mountCamLookY, 0),
+    };
   }
 
-  function tickSpeakerCameraPulse() {
-    if (!cameraPulseActive || !camera || !cameraRestPos) return;
-    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
-    const t = Math.max(0, Math.min(1, (now - cameraPulseStart) / CAMERA_PULSE_DURATION_MS));
-    // Bell curve: 0 at t=0, peaks at t=0.5, back to 0 at t=1.
-    // sin(πt) keeps the camera anchored at rest at both ends so
-    // there's no discontinuity when the pulse begins or ends.
-    const bell = Math.sin(Math.PI * t);
-    camera.position.set(
-      cameraRestPos.x + cameraPulseDirX * CAMERA_PULSE_FORWARD * bell,
-      cameraRestPos.y + CAMERA_PULSE_LIFT * bell,
-      cameraRestPos.z + cameraPulseDirZ * CAMERA_PULSE_FORWARD * bell,
-    );
-    camera.lookAt(0, _mountCamLookY, 0);
-    if (t >= 1) {
-      // Snap exactly back to rest and hand control back.
-      camera.position.copy(cameraRestPos);
-      camera.lookAt(0, _mountCamLookY, 0);
-      cameraPulseActive = false;
-      if (controls) {
-        controls.enabled = true;
-        // Re-anchor OrbitControls' internal target spherical so the
-        // next user drag starts from the rest pose, not from the
-        // mid-pulse pose we never let it observe.
-        if (controls.target) controls.target.set(0, _mountCamLookY, 0);
-        try { controls.update(); } catch (_) { /* */ }
-      }
+  /** Focus pose framing a seat · camera sits in FRONT of the speaker
+   *  (all figures face +Z toward the viewer), lifted above the look
+   *  target, partially panned toward the speaker's x so neighbours
+   *  stay in peripheral view. */
+  function focusPose(seat) {
+    const hp = seat.worldPos;
+    return {
+      pos: new THREE.Vector3(hp.x * 0.6, _mountCamLookY + FOCUS_LIFT, hp.z + FOCUS_DIST),
+      target: new THREE.Vector3(hp.x * 0.9, hp.y - 0.35, hp.z),
+    };
+  }
+
+  /** Set the auto-director camera focus. `seatId` null (or an
+   *  unresolvable / user seat) → establishing wide shot. Updates the
+   *  desired pose; tickDirectorCamera eases toward it. */
+  function setCameraFocus(seatId) {
+    focusSeatId = seatId || null;
+    let pose = null;
+    if (seatId) {
+      const seat = (overlaySeats || []).find((s) => s.id === seatId && s.worldPos && !s.isUser);
+      pose = seat ? focusPose(seat) : establishingPose();
+    } else {
+      pose = establishingPose();
     }
+    camDesiredPos = pose.pos;
+    camDesiredTarget = pose.target;
+  }
+
+  /** Per-frame · ease the camera + look-target toward the desired
+   *  pose. Yields to the entry animation while it owns the camera. */
+  function tickDirectorCamera() {
+    if (entryActive || !camera || !camDesiredPos || !camDesiredTarget || !camCurTarget) return;
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    let dt = (now - lastCamT) / 1000;
+    lastCamT = now;
+    if (!(dt > 0)) dt = 0.016;
+    if (dt > 0.05) dt = 0.05; // clamp after a backgrounded tab
+    const k = 1 - Math.exp(-dt / CAM_TAU);
+    camera.position.lerp(camDesiredPos, k);
+    camCurTarget.lerp(camDesiredTarget, k);
+    camera.lookAt(camCurTarget);
   }
 
   function tickEntryAnimation() {
@@ -3890,13 +3835,8 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   const BLINK_PERIOD = 4.2; // seconds between blinks
   const BLINK_DUR    = 0.18; // seconds the close+open takes
   const BLINK_DEPTH  = 0.12; // peak scaleY reduction (1 → 0.88)
-
-  /** Find the figure's viseme-morph meshes (face / inside-mouth / teeth)
-   *  and return a driver descriptor, or null if this figure carries no
-   *  mouth morphs (→ caller falls back to the ellipsoid overlay). The
-   *  cloned GLB meshes keep their `morphTargetDictionary` (name→index) +
-   *  `morphTargetInfluences` array, so we just collect every mesh that
-   *  exposes the phoneme visemes and drive them in lockstep. */
+  /** Collect a figure's viseme-morph meshes (face / inside-mouth / teeth),
+   *  or null if it carries no mouth morphs (→ caller uses the overlay). */
   function collectMouthMorph(fig) {
     const meshes = [];
     fig.traverse((o) => {
@@ -3916,13 +3856,9 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     return { meshes, infl, open: 0, targetOpen: 0, viseme: "A", nextSwitch: 0 };
   }
 
-  /** Procedural talk · while `talking`, switch to a fresh viseme every
-   *  ~70–160 ms with a varied amplitude (open syllables + the occasional
-   *  near-closed consonant beat), cross-fading the active viseme in and the
-   *  rest out so the mouth flaps through real, speech-like shapes. When not
-   *  talking, everything eases back to 0 (the baked closed smile). The same
-   *  per-viseme value is written to every morph mesh so the lips, inner
-   *  mouth, and teeth move together. */
+  /** Procedural talk · switch viseme every ~70–160ms with varied amplitude,
+   *  cross-fading active in / rest out so the mouth flaps through speech-like
+   *  shapes; eases to 0 (baked smile) when not talking. */
   function driveMouthMorph(mm, talking, t) {
     if (talking) {
       if (t >= mm.nextSwitch) {
@@ -3930,25 +3866,21 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
         if (v === mm.viseme) v = MOUTH_VISEME_BAG[(Math.random() * MOUTH_VISEME_BAG.length) | 0];
         mm.viseme = v;
         mm.targetOpen = Math.random() < 0.22
-          ? 0.08 + Math.random() * 0.16   // near-closed consonant beat
-          : 0.45 + Math.random() * 0.45;  // varied open syllable
+          ? 0.08 + Math.random() * 0.16
+          : 0.45 + Math.random() * 0.45;
         mm.nextSwitch = t + 0.07 + Math.random() * 0.09;
       }
     } else {
       mm.targetOpen = 0;
     }
-    // Overall open amount · fast attack, gentler release.
     mm.open += (mm.targetOpen - mm.open) * (mm.targetOpen > mm.open ? 0.45 : 0.3);
     if (mm.open < 1e-4) mm.open = 0;
-    // Cross-fade the shared per-viseme influence: active → open, rest → 0.
-    // Snap near-zero so a closed mouth lands exactly on the baked smile.
     for (const k of MOUTH_VISEMES) {
       const goal = (talking && k === mm.viseme) ? mm.open : 0;
       let v = mm.infl[k] + (goal - mm.infl[k]) * 0.34;
       if (v < 1e-4 && goal === 0) v = 0;
       mm.infl[k] = v;
     }
-    // Apply identically to every morph mesh (face / inner-mouth / teeth).
     for (const mesh of mm.meshes) {
       for (const k of MOUTH_VISEMES) {
         const i = mesh.idx[k];
@@ -3964,16 +3896,13 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     const canCheckAudio = !!(app && typeof app.isSpeakerAudible === "function");
     for (const seat of overlaySeats) {
       const isActive = activeSpeakerId && seat.id === activeSpeakerId;
-      // The mouth only moves while actually SPEAKING. In the real voice room
-      // we sync it to the live TTS audio (the "speaking" stage state can start
-      // before the audio does, which made mouths flap silently). In the
-      // marketing / onboarding demos there's no audio — `_mouthFromState`
-      // drives it straight off the stage state so the cast actually talks.
-      // Also fall back to state when no audio probe is available.
-      const useState = _mouthFromState || !canCheckAudio;
-      const isTalking = isActive && (useState
-        ? activeSpeakerState === "speaking"
-        : app.isSpeakerAudible(seat.id));
+      // The mouth only moves while actually SPEAKING — and synced to the real
+      // TTS audio when we can read it (the "speaking" stage state can start
+      // before the audio does, which made mouths move silently). Fall back to
+      // the stage state when no audio probe is available (e.g. older app).
+      const isTalking = isActive && (canCheckAudio
+        ? app.isSpeakerAudible(seat.id)
+        : activeSpeakerState === "speaking");
       const isSpeaking = isActive; // kept for the idle-bob suspension below
       // Idle bob · ±2.5 cm at ~0.4 Hz, suspended for the speaker. Relative to
       // the seat's base Y (3D avatars are lifted onto the cushion).
@@ -3983,11 +3912,10 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
 
         const is3d = !!(seat.fig.userData && seat.fig.userData.isAvatar3d);
         if (is3d) {
-          // 3D avatars · animate the REAL mouth (viseme morphs deform the
-          // face/teeth) while speaking, NOT a body squash. Keep body scale 1.
+          // 3D avatars · animate the REAL mouth while speaking (no body squash).
           if (seat.fig.scale.y !== 1) seat.fig.scale.y = 1;
           if (seat.mouthMorph) {
-            // Preferred · drive the real phoneme morphs.
+            // Preferred · drive the GLB's phoneme viseme morph targets.
             driveMouthMorph(seat.mouthMorph, isTalking && !prefersReducedMotion, t);
           } else if (seat.mouthOverlay) {
             // Fallback · legacy ellipsoid (figures with no viseme morphs).
@@ -4113,15 +4041,11 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       // positions / glow-ring opacity; projection AFTER render so
       // the overlay DOM transforms align with what was just drawn.
       tickEntryAnimation();
-      // Speaker-change pulse runs AFTER entry but BEFORE seat /
-      // controls update · entry owns the camera fully when active,
-      // then the pulse lerps freely (controls.enabled=false during
-      // the window), then controls take back over once the pulse
-      // settles. Seat animations don't touch the camera so order
-      // between them is interchangeable.
-      tickSpeakerCameraPulse();
+      // Auto-director camera runs AFTER entry (entry owns the camera
+      // fully while active, then this eases toward the focus pose).
+      // Seat animations don't touch the camera so order is free.
+      tickDirectorCamera();
       tickSeatAnimations();
-      if (controls) controls.update();
       renderer.render(scene, camera);
       projectOverlay();
     };
@@ -4141,17 +4065,19 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     visible = !document.hidden;
   });
 
-  /* ── Export ────────────────────────────────────────────────── */
-  window.VoiceStage3D = {
+  /* ── Export ────────────────────────────────────────────────────
+     RENAMED to MobileVoiceStage3D so this isolated prototype engine
+     can never collide with the production window.VoiceStage3D. Adds
+     focusSeat(id) for the cast rail / shell to drive the camera. */
+  window.MobileVoiceStage3D = {
     isSupported,
     mount,
     update,
     unmount,
+    focusSeat: (id) => setCameraFocus(id || null),
   };
-  // DIAGNOSTIC · expose internals so the user can inspect from
-  // DevTools without having to instrument the source. Remove
-  // before Phase-5 polish.
-  window.__voice3d = {
+  // DIAGNOSTIC · expose internals for DevTools inspection.
+  window.__mvoice3d = {
     THREE,
     get scene() { return scene; },
     get camera() { return camera; },
