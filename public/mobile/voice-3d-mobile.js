@@ -44,7 +44,7 @@ import * as THREE from "/vendor/three.module.min.js";
 // (mobile prototype) OrbitControls removed — replaced by an auto-director
 // camera that frames the active speaker. No free user orbit.
 import { RoomEnvironment } from "/vendor/RoomEnvironment.js";
-import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig, AVATAR_MODELS } from "/avatar-3d.js";
+import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig, applySeatedPose, AVATAR_MODELS } from "/avatar-3d.js";
 
 (function () {
   /* ── State held across mount lifecycle ─────────────────────── */
@@ -226,14 +226,17 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   let _lastPositions = null;
   let _lastMode = null;
   const AVATAR_FIG_HEIGHT = 1.55; // feet at y=0; head clears the chair back
-  // Raise 3D figures so the body clears the seat cushion. The sheen
-  // chair's cushion top sits at y=0.60, so a lift of 0.45 keeps the
-  // figure's feet 15cm below the cushion — most of the legs tuck
-  // behind it but the upper-thigh just pokes above, giving the
-  // "seated with a sliver of leg showing" silhouette. Tuned for the
-  // head-heavy voxel chibis (head ≈ 60% of total height, legs ≈
-  // 10–15%). Adjust ±0.05 to expose more / less leg.
-  const AVATAR_SEAT_LIFT = 0.45;
+  // Seat lift · the rigged figure is posed SITTING (applySeatedPose · hip + knee
+  // flexion) and then raised so the butt rests ON the cushion (top ≈ y=0.60).
+  // 0.56 lands the seated silhouette right · verified against a headless render
+  // of the actual GLBs + chair (legs bend forward over the seat, no longer the
+  // straight-leg "standing through the cushion" look). Nudge ±0.03 for height.
+  const AVATAR_SEAT_LIFT = 0.40;
+  // Forward nudge (+Z · toward the table/camera) so the seated figure's butt
+  // lands on the cushion instead of perched against the backrest. Verified vs
+  // a headless render of the real chair (back near the backrest, legs over the
+  // seat front).
+  const AVATAR_SEAT_FWD = 0.12;
   const MOUTH_OPEN = 0.062;       // legacy ellipsoid-overlay max height (fallback path only)
   const MOUTH_MIN = 0.014;        // legacy ellipsoid-overlay min height (fallback path only)
   // ── Real lip-sync · viseme morph targets (ported from production
@@ -399,8 +402,9 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
    *  frame we critically-ease position + look-target toward the
    *  desired pose (`k = 1 - exp(-dt/τ)`, frame-rate independent). */
   const CAM_TAU = 0.34;          // ease time-constant (s) · ~cinematic glide
-  const FOCUS_DIST = 8.5;        // camera distance in front of the speaker
-  const FOCUS_LIFT = 2.2;        // camera height above the look target
+  const FOCUS_DIST = 6.4;        // camera distance in front of the speaker · tighter close-up (was 8.5)
+  const FOCUS_LIFT = 0.35;       // camera height above the look target · near eye-level (直视, head-on) — was 2.0, which looked DOWN on the speaker (俯视)
+  const FOCUS_NAME_LIFT = 0.3;   // extra world-units the FOCUSED seat's name plate rises above its head anchor · just clears the crown so the tag hugs the head (0.6 sat it too far above · verified vs a headless render of the focus pose)
   let camCurTarget = null;       // eased look-at point (Vector3)
   let camDesiredPos = null;      // desired camera position (Vector3)
   let camDesiredTarget = null;   // desired look-at point (Vector3)
@@ -463,7 +467,7 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       [data-rt-3d-loading] {
         position: absolute; inset: 0; z-index: 3;
         display: flex; align-items: center; justify-content: center;
-        background: rgba(0, 0, 0, 0.42);
+        background: #0c0c0e;
         pointer-events: none;
         opacity: 1; transition: opacity 320ms ease;
         font-family: ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace;
@@ -631,6 +635,8 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       // Don't show the i-beam cursor over the canvas · grab cursor
       // reads as "I can drag this".
       "cursor: grab",
+      // Own all touch gestures (drag-orbit / pinch-zoom) so the page never scrolls/zooms.
+      "touch-action: none",
     ].join("; ");
     // Insert as the FIRST child of the stage so everything else paints
     // above it (subtitle, HUD log, vote pop, etc). Overlay goes right
@@ -722,6 +728,7 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     // by setCameraFocus(); no OrbitControls, no user orbit.
     camCurTarget = new THREE.Vector3(0, _mountCamLookY, 0);
     camDesiredPos = cameraRestPos.clone();
+    _autoPos = cameraRestPos.clone();
     camDesiredTarget = new THREE.Vector3(0, _mountCamLookY, 0);
     focusSeatId = null;
     lastCamT = (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -827,7 +834,10 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     // Touch tap-to-focus · pointer events cover both touch and mouse.
     if (!clickHandlersBound) {
       canvasEl.addEventListener("pointerdown", onCanvasPointerDown);
+      canvasEl.addEventListener("pointermove", onCanvasPointerMove);
       canvasEl.addEventListener("pointerup", onCanvasPointerUp);
+      canvasEl.addEventListener("pointercancel", onCanvasPointerUp);
+      canvasEl.addEventListener("wheel", onCanvasWheel, { passive: false });
       clickHandlersBound = true;
     }
 
@@ -892,15 +902,56 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   // shell (cast rail) can sync its highlight.
   let _ptrStart = null;
   let _ptrTime = 0;
+  // ── User camera control · drag to rotate, pinch / wheel to zoom. The offsets
+  //    below compose onto the auto-director pose (applied in tickDirectorCamera).
+  let _autoPos = null;                 // clean auto-director position (no user offset → no runaway)
+  let userYaw = 0, userPitch = 0, userZoom = 1;
+  const _ptrs = new Map();             // active pointers (drag + pinch)
+  let _orbitMoved = false, _pinchPrev = 0;
+  let _orbitVec = null, _orbitSph = null;   // reused THREE temporaries
   function onCanvasPointerDown(e) {
+    _ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     _ptrStart = { x: e.clientX, y: e.clientY };
     _ptrTime = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    _orbitMoved = false;
+    if (_ptrs.size === 2) { const p = [..._ptrs.values()]; _pinchPrev = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); }
+    try { canvasEl.setPointerCapture(e.pointerId); } catch (_) { /* */ }
+  }
+  /* Drag (1 finger) → orbit · pinch (2 fingers) → zoom. Updates the user
+     offsets that tickDirectorCamera composes onto the auto pose. */
+  function onCanvasPointerMove(e) {
+    const prev = _ptrs.get(e.pointerId);
+    if (!prev) return;
+    const ddx = e.clientX - prev.x, ddy = e.clientY - prev.y;
+    prev.x = e.clientX; prev.y = e.clientY;
+    if (_ptrs.size >= 2) {
+      const p = [..._ptrs.values()];
+      const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      if (_pinchPrev > 0 && d > 0) { userZoom = Math.max(0.5, Math.min(2.2, userZoom * (_pinchPrev / d))); _orbitMoved = true; }
+      _pinchPrev = d;
+      return;
+    }
+    if (!_orbitMoved) {
+      const tdx = e.clientX - _ptrStart.x, tdy = e.clientY - _ptrStart.y;
+      if (tdx * tdx + tdy * tdy <= 100) return;   // still inside the tap tolerance
+      _orbitMoved = true;
+    }
+    userYaw -= ddx * 0.006;
+    userPitch = Math.max(-0.55, Math.min(0.65, userPitch - ddy * 0.005));
+  }
+  /* Wheel / trackpad zoom (desktop preview). */
+  function onCanvasWheel(e) {
+    e.preventDefault();
+    userZoom = Math.max(0.5, Math.min(2.2, userZoom * Math.exp((e.deltaY || 0) * 0.0012)));
   }
   function onCanvasPointerUp(e) {
+    _ptrs.delete(e.pointerId);
+    try { canvasEl.releasePointerCapture(e.pointerId); } catch (_) { /* */ }
+    if (_ptrs.size < 2) _pinchPrev = 0;
     if (!_ptrStart) return;
     const dx = e.clientX - _ptrStart.x;
     const dy = e.clientY - _ptrStart.y;
-    const moved = dx * dx + dy * dy > 100;          // >10px ≈ drag
+    const moved = _orbitMoved || dx * dx + dy * dy > 100;   // orbit / >10px ≈ drag (not a tap)
     const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
     const slow = (now - _ptrTime) > 500;            // long-press
     _ptrStart = null;
@@ -967,9 +1018,13 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     if (canvasEl) {
       if (clickHandlersBound) {
         canvasEl.removeEventListener("pointerdown", onCanvasPointerDown);
+        canvasEl.removeEventListener("pointermove", onCanvasPointerMove);
         canvasEl.removeEventListener("pointerup", onCanvasPointerUp);
+        canvasEl.removeEventListener("pointercancel", onCanvasPointerUp);
+        canvasEl.removeEventListener("wheel", onCanvasWheel);
         clickHandlersBound = false;
       }
+      userYaw = 0; userPitch = 0; userZoom = 1; _autoPos = null; _pinchPrev = 0; _ptrs.clear();
       if (canvasEl.parentNode) canvasEl.parentNode.removeChild(canvasEl);
     }
     canvasEl = null;
@@ -1079,22 +1134,31 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     _lastPositions = state && state.positions ? state.positions : [];
     _lastMode = mode;
     rebuildSeats(_lastPositions, mode);
-    const prevSpeakerIdSnapshot = activeSpeakerId;
+    // Seats just re-laid out (e.g. a director joined / left mid-session) · if we
+    // are holding a close-up, re-resolve its pose against the NEW seat positions
+    // so the camera stays locked on the SAME director instead of gliding toward
+    // that seats stale pre-relayout spot (the "camera went crooked" bug). Falls
+    // back to the wide shot automatically if the focused seat no longer exists.
+    if (focusSeatId) setCameraFocus(focusSeatId);
     activeSpeakerId = (state && state.speakerId) || null;
     activeSpeakerState = (state && state.speakerState) || null;
-    // Trigger the "scene-cut to new director" camera pulse when the
-    // speaker actually changed AND the new turn is in `speaking`
-    // (not just `thinking` — thinking phase is transient and a
-    // pulse there would feel like camera jitter when the bubble
-    // flips text without an audible audio swap).
+    // Auto-director camera · glide to frame whoever is the active speaker the
+    // MOMENT their turn starts — i.e. as soon as they're `thinking`, not only
+    // once they're `speaking`. A turn arrives as `thinking` first (dots + cue,
+    // can run several seconds) then `speaking` for the SAME director; closing up
+    // only on `speaking` left the camera sitting on the wide establishing shot
+    // through the whole thinking window (most visible right after resuming a
+    // paused room, where the camera starts wide). Keyed on focusSeatId (the seat
+    // we're CURRENTLY framing), NOT the previous speakerId: the thinking update
+    // closes up, then `focusSeatId === activeSpeakerId` so the follow-up speaking
+    // update is a no-op — fires once per NEW director, no per-frame jitter.
     if (
       activeSpeakerId
-      && activeSpeakerId !== prevSpeakerIdSnapshot
-      && activeSpeakerState === "speaking"
+      && (activeSpeakerState === "thinking" || activeSpeakerState === "speaking")
+      && focusSeatId !== activeSpeakerId
     ) {
-      // Auto-director: glide the camera to frame the new speaker.
       setCameraFocus(activeSpeakerId);
-    } else if (!activeSpeakerId && prevSpeakerIdSnapshot && focusSeatId) {
+    } else if (!activeSpeakerId && focusSeatId) {
       // No active speaker → ease back to the establishing wide shot.
       setCameraFocus(null);
     }
@@ -3136,7 +3200,11 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
             top: cfg.top, bottom: cfg.bottom, outfit: cfg.outfit,
             tie: cfg.tie, eye: cfg.eye,
           });
-          if (a) { a.userData.isAvatar3d = true; return a; }
+          if (a) {
+            applySeatedPose(a);   // seat the rigged figure (hip + knee flexion) so it sits IN the chair, not standing on it
+            a.userData.isAvatar3d = true;
+            return a;
+          }
         } catch (e) {
           console.warn("[voice-3d] avatar build failed; sprite fallback", e);
         }
@@ -3404,7 +3472,8 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       // more of the body clears the cushion (feet stay hidden behind it). The
       // sprite billboards keep y=0 (they're already framed for the floor).
       const figBaseY = (fig.userData && fig.userData.isAvatar3d) ? AVATAR_SEAT_LIFT : 0;
-      fig.position.set(wx, figBaseY, wz);
+      const figFwd = (fig.userData && fig.userData.isAvatar3d) ? AVATAR_SEAT_FWD : 0;
+      fig.position.set(wx, figBaseY, wz + figFwd);
       avatarGroup.add(fig);
 
       // Talking mouth (3D avatars only). PREFERRED · drive the GLB's real
@@ -3482,6 +3551,13 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
           "transform: translate(-50%, -100%)",
           "pointer-events: none",
           "white-space: nowrap",
+          // Flex column · each child (nameplate, bubble) hugs its own content and
+          // sits horizontally CENTRED over the head anchor, regardless of which
+          // sibling is wider. (A plain block nameplate stretched to the wrapper's
+          // widest child and read as off-centre / over-wide.)
+          "display: flex",
+          "flex-direction: column",
+          "align-items: center",
         ].join("; ");
 
         // Nameplate · the existing `.rt-name` CSS gives mono caps,
@@ -3498,9 +3574,11 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
           ? "rt-name-chair"
           : "rt-name-director");
         namePlate.style.cssText = [
-          "position: static",   // override the .rt-name absolute
+          "position: relative",   // host for the .rt-name chamfer ::before frame
           "top: auto", "left: auto",
           "transform: none",    // we transform the wrapper
+          // The wrapper's `align-items: center` already hugs this to its content
+          // and centres it over the head — no width/margin hack needed.
         ].join("; ");
         namePlate.textContent = m.name || "—";
         wrapper.appendChild(namePlate);
@@ -3510,7 +3588,7 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
         const bubble = document.createElement("div");
         bubble.className = "rt-bubble";
         bubble.style.cssText = [
-          "position: static",
+          "position: relative",   // host for the .is-thinking chamfer ::before frame
           "top: auto", "left: auto",
           "transform: none",
           "margin-top: 4px",
@@ -3670,13 +3748,14 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
           );
         }
       }
-      // Nameplate · always visible UNLESS this seat is the speaker
-      // (then the bubble takes its place, same logic as the 2D
-      // `.rt-seat-speaking .rt-name { display: none }` rule) OR the
-      // user seat has an active user-spoke bubble (which takes the
-      // nameplate's slot for its TTL window).
+      // Nameplate · show the name whenever this seat is the close-up focus
+      // (the camera is tight on it), INCLUDING the thinking phase — name sits
+      // under the thinking-dots bubble. The wide establishing shot and every
+      // non-focused seat hide it. Only the user seat's own spoke-bubble (which
+      // already carries "YOU") suppresses it. Plate is solid black / white text.
       const userBubbleActive = seat.isUser && !!activeUserBubble;
-      seat.namePlate.style.display = (isSpeaking || userBubbleActive) ? "none" : "";
+      const isFocused = focusSeatId === seat.id;
+      seat.namePlate.style.display = (isFocused && !userBubbleActive) ? "" : "none";
       if (!isSpeaking) {
         seat.bubble.style.display = "none";
         continue;
@@ -3719,12 +3798,25 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   /** Focus pose framing a seat · camera sits in FRONT of the speaker
    *  (all figures face +Z toward the viewer), lifted above the look
    *  target, partially panned toward the speaker's x so neighbours
-   *  stay in peripheral view. */
+   *  stay in peripheral view.
+   *
+   *  Back-row directors sit at NEGATIVE z (the fan arc recedes from the
+   *  lens · front chair is ~+1.8, the back arc reaches ~-2.8), so a fixed
+   *  distance frames them looser than the front chair. We push the close-up
+   *  in proportionally to how far back the seat is, pan a touch more onto
+   *  the speaker, and ease the down-angle — so a deep seat reads as a real
+   *  close-up instead of a distant wide. */
   function focusPose(seat) {
     const hp = seat.worldPos;
+    const depth = Math.max(0, -hp.z);                      // 0 = front · ~2.8 = back arc
+    const dist = Math.max(4.0, FOCUS_DIST - depth * 1.0);  // 6.4 front → ~4.0 back · tight close-up
+    // Back-row speakers sit behind the front rows large heads · LIFT the camera
+    // with depth so it looks DOWN over those heads instead of being blocked by
+    // them. Front seats (depth 0) keep the base lift.
+    const lift = FOCUS_LIFT + Math.min(1.1, depth * 0.32);
     return {
-      pos: new THREE.Vector3(hp.x * 0.6, _mountCamLookY + FOCUS_LIFT, hp.z + FOCUS_DIST),
-      target: new THREE.Vector3(hp.x * 0.9, hp.y - 0.35, hp.z),
+      pos: new THREE.Vector3(hp.x, (hp.y - 0.35) + lift, hp.z + dist),   // camera AT the speaker's eye level (look-target height + small lift) → head-on / 直视, NOT looking down from the mount height. Same x as the speaker → dead in front (seats face +Z).
+      target: new THREE.Vector3(hp.x, hp.y - 0.35, hp.z),   // look straight at the speaker x → director sits dead-centre horizontally
     };
   }
 
@@ -3744,19 +3836,60 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     camDesiredTarget = pose.target;
   }
 
+  /** Raycast at NORMALISED canvas coords (0..1, top-left origin) handed in from
+   *  the native tap overlay. The iOS WebView runs with hit-testing OFF (so the
+   *  SwiftUI chrome above stays tappable), which means the canvas's own
+   *  pointer/tap handlers never fire — this is the bridge equivalent. On a
+   *  director hit, focus the camera on that seat (same path as the in-canvas
+   *  tap-to-focus) and emit `mvoice:focus`. Returns the seat id, or null. */
+  function focusAtNorm(nx, ny) {
+    if (!raycaster || !pickerVec || !camera || !avatarGroup) return null;
+    pickerVec.x = nx * 2 - 1;
+    pickerVec.y = -(ny * 2 - 1);
+    raycaster.setFromCamera(pickerVec, camera);
+    const hits = raycaster.intersectObjects(avatarGroup.children, true);
+    if (!hits.length) return null;
+    let node = hits[0].object;
+    while (node && node.parent !== avatarGroup) node = node.parent;
+    if (!node) return null;
+    const seat = (overlaySeats || []).find((s) => s.fig === node);
+    if (!seat || seat.isUser) return null;
+    setCameraFocus(seat.id);
+    try { document.dispatchEvent(new CustomEvent("mvoice:focus", { detail: { id: seat.id } })); } catch (_) { /* */ }
+    return seat.id;
+  }
+
   /** Per-frame · ease the camera + look-target toward the desired
    *  pose. Yields to the entry animation while it owns the camera. */
   function tickDirectorCamera() {
     if (entryActive || !camera || !camDesiredPos || !camDesiredTarget || !camCurTarget) return;
+    if (!_autoPos) _autoPos = camera.position.clone();
     const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
     let dt = (now - lastCamT) / 1000;
     lastCamT = now;
     if (!(dt > 0)) dt = 0.016;
     if (dt > 0.05) dt = 0.05; // clamp after a backgrounded tab
     const k = 1 - Math.exp(-dt / CAM_TAU);
-    camera.position.lerp(camDesiredPos, k);
+    // _autoPos holds the clean director pose; camera.position is recomputed each
+    // frame as that pose orbited/zoomed by the user, so the user offset never
+    // pollutes the eased auto pose (which would make the rotation run away).
+    _autoPos.lerp(camDesiredPos, k);
     camCurTarget.lerp(camDesiredTarget, k);
+    applyUserOrbit();
     camera.lookAt(camCurTarget);
+  }
+  /* Compose the user drag-orbit + pinch-zoom onto the auto pose, around the
+     current look target. Identity when yaw/pitch are 0 and zoom is 1. */
+  function applyUserOrbit() {
+    if (!_orbitVec) { _orbitVec = new THREE.Vector3(); _orbitSph = new THREE.Spherical(); }
+    const off = _orbitVec.copy(_autoPos).sub(camCurTarget);
+    _orbitSph.setFromVector3(off);
+    _orbitSph.theta += userYaw;
+    _orbitSph.phi = Math.max(0.2, Math.min(1.5, _orbitSph.phi + userPitch));
+    _orbitSph.radius = Math.max(4.0, Math.min(34, _orbitSph.radius * userZoom));   // min lowered so the tighter close-up pose isn't clamped back out
+    _orbitSph.makeSafe();
+    off.setFromSpherical(_orbitSph);
+    camera.position.copy(camCurTarget).add(off);
   }
 
   function tickEntryAnimation() {
@@ -3966,22 +4099,50 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     if (!overlayEl || !camera || !canvasEl) return;
     const rect = canvasEl.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
+    // First pass · project every seat + collect its camera depth so the
+    // second pass can adapt to the live camera angle. (Name plates are DOM
+    // overlays drawn ON TOP of the WebGL canvas — they can't be occluded by
+    // 3D geometry — so when the camera orbits, a BACK director's plate would
+    // otherwise float over the head of the director in FRONT of it.)
+    let zMin = Infinity, zMax = -Infinity;
     for (const seat of overlaySeats) {
       projVec.copy(seat.worldPos).project(camera);
-      // NDC → pixel (relative to the overlay container which IS the
-      // canvas's parent + same size). x∈[-1,1] → [0, width].
-      const x = (projVec.x * 0.5 + 0.5) * rect.width;
-      const y = (1 - (projVec.y * 0.5 + 0.5)) * rect.height;
-      // Z behind camera (clip) · hide the wrapper.
-      if (projVec.z > 1) {
-        seat.wrapper.style.opacity = "0";
-        continue;
+      seat._px = (projVec.x * 0.5 + 0.5) * rect.width;   // NDC → pixel
+      seat._py = (1 - (projVec.y * 0.5 + 0.5)) * rect.height;
+      seat._behind = projVec.z > 1;                       // behind camera → clip
+      seat._pz = projVec.z;                               // NDC depth · smaller = nearer
+      if (!seat._behind) { if (seat._pz < zMin) zMin = seat._pz; if (seat._pz > zMax) zMax = seat._pz; }
+    }
+    const zRange = (zMax - zMin) || 1;
+    // Second pass · place + depth-adapt. Nearest plate: opaque, full size,
+    // top of the stack. Farther plates: fade + shrink + sink in z-order so a
+    // back-row name never masks the head of the director in front of it,
+    // whatever angle the camera is dragged to.
+    for (const seat of overlaySeats) {
+      if (seat._behind) { seat.wrapper.style.opacity = "0"; continue; }
+      const t = (seat._pz - zMin) / zRange;               // 0 = nearest, 1 = farthest
+      const scale = 1 - t * 0.20;                          // 1.0 → 0.80
+      // The close-up focus seat stays FULLY opaque — its nameplate must read as a
+      // solid black plate, not a depth-faded translucent one. Only non-focused
+      // depth peers fade back (so a back-row name never masks a front head).
+      seat.wrapper.style.opacity = (focusSeatId === seat.id)
+        ? "1"
+        : (1 - t * 0.62).toFixed(2);   // 1.0 → ~0.38
+      seat.wrapper.style.zIndex = String(1000 - Math.round(t * 1000));
+      // Focused seat · re-project a RAISED anchor so the plate clears the
+      // close-up head instead of sitting on the crown. The lift is in world
+      // units, so it scales correctly with the zoom (a fixed pixel nudge
+      // wouldn't). Non-focused seats keep their head-top anchor.
+      let px = seat._px, py = seat._py;
+      if (focusSeatId === seat.id) {
+        projVec.copy(seat.worldPos); projVec.y += FOCUS_NAME_LIFT; projVec.project(camera);
+        px = (projVec.x * 0.5 + 0.5) * rect.width;
+        py = (1 - (projVec.y * 0.5 + 0.5)) * rect.height;
       }
-      seat.wrapper.style.opacity = "1";
-      // Round to integer pixels so the DOM text doesn't sub-pixel
+      // Round position to integer pixels so the DOM text doesn't sub-pixel
       // shimmer as the camera nudges.
       seat.wrapper.style.transform =
-        `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
+        `translate(${Math.round(px)}px, ${Math.round(py)}px) scale(${scale.toFixed(3)}) translate(-50%, -100%)`;
     }
     // Chair vote pop · same projection but anchored on a separate
     // worldPos (above the chair's head). Skipped entirely when the
@@ -4075,6 +4236,19 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     update,
     unmount,
     focusSeat: (id) => setCameraFocus(id || null),
+    // Native tap-overlay → raycast at normalised canvas coords + focus the hit
+    // director (the iOS WebView's own canvas taps are disabled).
+    focusAt: (nx, ny) => focusAtNorm(Number(nx) || 0, Number(ny) || 0),
+    // Manual camera control from native gestures · drives the SAME user-orbit
+    // state the (dormant, hit-testing-off) pointer handlers use, so
+    // applyUserOrbit() composes it onto the auto-director pose each frame.
+    setOrbit: (yaw, pitch) => {
+      userYaw = Number(yaw) || 0;
+      userPitch = Math.max(-0.55, Math.min(0.65, Number(pitch) || 0));
+    },
+    setZoom: (z) => {                       // userZoom is a distance multiplier (lower = closer)
+      userZoom = Math.max(0.5, Math.min(2.2, Number(z) || 1));
+    },
   };
   // DIAGNOSTIC · expose internals for DevTools inspection.
   window.__mvoice3d = {

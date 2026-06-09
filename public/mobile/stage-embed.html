@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>Stage</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0d; overflow: hidden; }
+  #host { position: fixed; inset: 0; }
+  :root { --gold: #C9A46B; --ink: #ECE9E2; --mono: ui-monospace, "SF Mono", Menlo, monospace; }
+  /* Overlay chrome · ported from voice-room.css (not loaded in the embed).
+     Hide non-user bubbles (the native rail / caption owns them) but KEEP the
+     director name plates so the 3D stage labels each head like desktop. Also
+     keep the thinking-dots bubble, the user speech bubble + countdown, and the
+     wait-mark. */
+  [data-rt-3d-overlay] .rt-bubble:not(.rt-bubble-user):not(.is-thinking),
+  [data-rt-3d-vote-pop] { display: none !important; }
+  /* Name plate above each head · ported from desktop voice-3d (`.rt-name` in
+     index.html) so the 3D labels match desktop. voice-3d-mobile.js drives the
+     wrapper transform + toggles `display` per speaking state; these are the
+     visual-only rules the embed was missing (the `.rt-name` class isn't loaded
+     here). Mono caps on a fixed dark plate · light text (theme-independent for
+     legibility over the stage floor). */
+  /* Director nameplate · a chamfered game-HUD plate. The element's gradient IS the
+     1px gold bevel frame; the ::before (inset 1.3px, same chamfer) is the dark glass
+     fill, and ::after is a thin top sheen — together they read as a machined, lit
+     plate rather than a flat black box. Mono caps, premium + game-like. The two cut
+     corners (clip-path) give the sci-fi/RPG silhouette. */
+  [data-rt-3d-overlay] .rt-name {
+    position: relative; isolation: isolate;
+    font-family: var(--mono);
+    font-size: 16px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
+    color: #FFFFFF;
+    padding: 7px 17px;
+    text-align: center; white-space: nowrap;
+    /* Adapt to the name's length · hugs content (nowrap), caps near stage-width so a
+       long name still shows in a close-up instead of ellipsising at a fixed width. */
+    max-width: 86vw; overflow: hidden; text-overflow: ellipsis;
+    background: linear-gradient(135deg, var(--gold) 0%, rgba(201,164,107,0.5) 55%, rgba(201,164,107,0.32) 100%);
+    clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  }
+  [data-rt-3d-overlay] .rt-name::before {
+    content: ""; position: absolute; inset: 1.3px; z-index: -1;
+    background: linear-gradient(180deg, rgba(34,34,39,0.95) 0%, rgba(13,13,16,0.97) 100%);
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    -webkit-backdrop-filter: blur(12px) saturate(1.15); backdrop-filter: blur(12px) saturate(1.15);
+  }
+  [data-rt-3d-overlay] .rt-name::after {
+    content: ""; position: absolute; left: 9px; right: 3px; top: 1.3px; height: 1px; z-index: -1;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.32), transparent);
+  }
+  /* Chair plate · brighter gold bevel + gold text, so the moderator reads as the
+     ranked seat at the table. */
+  [data-rt-3d-overlay] .rt-name-chair {
+    color: var(--gold);
+    background: linear-gradient(135deg, #E6C684 0%, var(--gold) 60%, rgba(201,164,107,0.5) 100%);
+  }
+  /* Thinking indicator · the same chamfered glass-HUD chip as the nameplate (shared
+     visual language), sitting above the head while a director frames their reply.
+     No tail — it floats cleanly. The dots ride a smooth gold "wave" (translate +
+     scale + opacity, no shadow/glow) for a premium, deliberate processing feel. */
+  [data-rt-3d-overlay] .rt-bubble.is-thinking {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: relative; isolation: isolate;
+    margin: 0 0 9px !important; padding: 9px 15px;
+    background: linear-gradient(135deg, var(--gold) 0%, rgba(201,164,107,0.5) 55%, rgba(201,164,107,0.3) 100%);
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    border: 0; box-shadow: none;
+  }
+  [data-rt-3d-overlay] .rt-bubble.is-thinking::before {
+    content: ""; position: absolute; inset: 1.3px; z-index: -1;
+    background: linear-gradient(180deg, rgba(34,34,39,0.95) 0%, rgba(13,13,16,0.97) 100%);
+    clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  }
+  [data-rt-3d-overlay] .rt-bubble.is-thinking::after { display: none; }   /* drop the old tail */
+  [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-name,
+  [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-status { display: none; }
+  [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots { display: inline-flex; gap: 5px; }
+  [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots i {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--gold);
+    animation: vr-think-wave 1.15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots i:nth-child(2) { animation-delay: 0.14s; }
+  [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots i:nth-child(3) { animation-delay: 0.28s; }
+  @keyframes vr-think-wave {
+    0%, 65%, 100% { opacity: 0.32; transform: translateY(0) scale(0.7); }
+    32%           { opacity: 1;    transform: translateY(-4px) scale(1.08); }
+  }
+  .rt-bubble-user {
+    padding: 9px 13px 13px !important; border-radius: 14px !important;
+    background: rgba(10,10,12,0.92) !important; border: 1px solid var(--gold) !important;
+    max-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); overflow: visible;
+  }
+  .rt-bubble-user .rt-bubble-name { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); margin-bottom: 3px; }
+  .rt-bubble-user .rt-bubble-status { font-size: 14px; line-height: 1.4; color: var(--ink); }
+  .rt-bubble-user::after { content: ""; position: absolute; left: 11px; right: 11px; bottom: 6px; height: 2px; border-radius: 2px; background: var(--gold); transform-origin: left; animation: vr-countdown 6s linear forwards; }
+  @keyframes vr-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .rt-seat-wait-mark { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; color: var(--gold); }
+</style>
+</head>
+<body>
+<div id="host"></div>
+<script type="module">
+/* ════════════════════════════════════════════════════════════════════
+   stage-embed.html · the 3D round-table stage, isolated for embedding in
+   the native iOS app's WKWebView (BRIDGE.md). It owns the WebGL engine and
+   the cast; the native app only pushes the live, transient state (who is
+   speaking + who is audible) and reads tap events back out.
+
+   Loaded from the backend origin, so the engine module, three.js, the GLB
+   avatars and the /api/rooms fetch all resolve same-origin.
+   ════════════════════════════════════════════════════════════════════ */
+import "/mobile/voice-3d-mobile.js";              // side-effect: sets window.MobileVoiceStage3D
+
+const MV = window.MobileVoiceStage3D;
+const host = document.getElementById("host");
+const params = new URLSearchParams(location.search);
+const roomId = params.get("room") || "";
+
+let members = [];
+let audibleId = null;                              // single speaker whose TTS is playing (native-driven)
+const state = {
+  mode: params.get("mode") || "constructive",
+  positions: [],
+  speakerId: null,
+  speakerState: null,                              // "thinking" | "speaking" | null
+  userWait: false,
+  labels: { thinking: "thinking", speaking: "speaking" },
+  votePop: "",
+  userBubble: null,
+};
+
+/* Lip-sync seam · the engine calls this every frame to gate mouth visemes on
+   REAL audio. Audio plays natively, so native pushes the audible speaker in. */
+window.app = window.app || {};
+window.app.isSpeakerAudible = (id) => id != null && id === audibleId;
+
+function post(msg) { try { window.webkit?.messageHandlers?.stage?.postMessage(msg); } catch (_) { /* */ } }
+
+/* ── Seat-position calculator · ported verbatim from voice-room-shell.js so
+   the ring matches the in-app scene exactly. ───────────────────────────── */
+function computeSeatPositions(members) {
+  if (!members || !members.length) return [];
+  const cx = 50, cy = 50;
+  const rx = 42, ry = 23;
+  const chairRy = 15;
+  const SEAT_SCALE = 1.10;
+  const out = [];
+  const chair = members[0];
+  const user = members.find((m) => m && m.__isUser);
+  const directors = members.filter((m, i) => i > 0 && !(m && m.__isUser));
+  const chairY = cy + chairRy;
+  out.push({ member: chair, x: user ? 43 : cx, y: chairY, scaleHint: SEAT_SCALE, kind: "chair", thetaDeg: 90 });
+  const dc = directors.length;
+  if (dc > 0) {
+    const arcDeg = dc === 2 ? 60 : 180;
+    const arcStart = dc === 2 ? 240 : 180;
+    const stepDeg = dc === 1 ? 0 : arcDeg / dc;
+    for (let i = 0; i < dc; i++) {
+      const t = dc === 1 ? 270 : arcStart + (i + 0.5) * stepDeg;
+      const theta = (t * Math.PI) / 180;
+      out.push({ member: directors[i], x: cx + rx * Math.cos(theta), y: cy + ry * Math.sin(theta), scaleHint: SEAT_SCALE, kind: "director", thetaDeg: t });
+    }
+  }
+  if (user) out.push({ member: user, x: 57, y: chairY, scaleHint: SEAT_SCALE, kind: "user", thetaDeg: 90 });
+  return out;
+}
+
+function repaint() {
+  state.positions = computeSeatPositions(members);
+  if (MV) MV.update(state);
+}
+
+async function boot() {
+  if (!MV || !MV.isSupported || !MV.isSupported()) { post({ type: "unsupported" }); return; }
+  MV.mount(host, { camera: { distance: 13, elevationDeg: 24, lookAtY: 0.6 }, loadingLabel: "" });
+  // WebGL is up — tell native we're READY now (cancels its 7s load watchdog)
+  // BEFORE the cast fetch + avatar-GLB loads. Otherwise a slow snapshot / slow
+  // avatar load (real device, cold cache, big cast) lets the watchdog trip into
+  // a transcript fallback you can't return from, even though the stage is
+  // visibly rendering. The empty ring shows immediately; the cast fills in next.
+  post({ type: "ready" });
+  try {
+    const r = await fetch("/api/rooms/" + encodeURIComponent(roomId));
+    const snap = await r.json();
+    const raw = (snap && snap.members) || [];
+    const norm = (m, role) => ({ id: m.id, name: m.name, avatarPath: m.avatarPath || "", roleKind: role, avatar3d: m.avatar3d || null });
+    // The chair/moderator is a global agent, usually NOT a room member, so look
+    // for it in the members first, then fall back to GET /api/agents → {chair}.
+    let chair = raw.find((m) => m.roleKind === "moderator" || m.roleKind === "chair");
+    if (!chair) {
+      try { const ar = await fetch("/api/agents"); const ad = await ar.json(); if (ad && ad.chair) chair = ad.chair; } catch (_) { /* */ }
+    }
+    members = [];
+    if (chair) members.push(norm(chair, "chair"));
+    for (const m of raw) { if (!chair || m.id !== chair.id) members.push(norm(m, "director")); }
+    members.push({ id: "__user", name: "You", __isUser: true, avatar3d: { model: "casual" } });
+  } catch (_) { /* mount the empty ring anyway */ }
+  repaint();
+}
+
+/* ── Native → JS bridge (called via evaluateJavaScript) ───────────────── */
+window.StageBridge = {
+  setSpeaker(id, st) { state.speakerId = id || null; state.speakerState = st || null; if (MV) MV.update(state); },
+  setAudible(id) { audibleId = id || null; },              // drives lip-sync
+  setMode(m) { state.mode = m || "constructive"; if (MV) MV.update(state); },
+  setZoom(z) { if (MV && MV.setZoom) MV.setZoom(z); },     // pinch-zoom from native
+  setOrbit(yaw, pitch) { if (MV && MV.setOrbit) MV.setOrbit(yaw, pitch); },  // drag-rotate from native
+  tapAt(nx, ny) { if (MV && MV.focusAt) MV.focusAt(nx, ny); },  // native tap → raycast + close-up on the hit director
+  // User-spoke bubble · show the user's just-sent message above their seat with
+  // the 6s countdown bar (the CSS `vr-countdown` animates on appear), then auto-
+  // clear. A fresh call cancels the prior timer so back-to-back messages don't
+  // leave a stale bubble. Mirrors the mobile-web `pendingUserBubble`.
+  setUserBubble(text) {
+    if (this._userBubbleTimer) { clearTimeout(this._userBubbleTimer); this._userBubbleTimer = null; }
+    const t = (text || "").trim();
+    state.userBubble = t ? { text: t, progress: 1 } : null;
+    if (MV) MV.update(state);
+    if (t) {
+      this._userBubbleTimer = setTimeout(() => {
+        this._userBubbleTimer = null;
+        state.userBubble = null;
+        if (MV) MV.update(state);
+      }, 6000);
+    }
+  },
+  unmount() { try { if (MV) MV.unmount(); } catch (_) { /* */ } },
+};
+
+boot();
+</script>
+</body>
+</html>

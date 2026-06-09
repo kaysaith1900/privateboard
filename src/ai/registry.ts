@@ -34,6 +34,7 @@ export type Provider =
 
 export type ModelV =
   | "sonnet-4-6"
+  | "opus-4-8"
   | "opus-4-7"
   | "opus-4-6-fast"
   | "haiku-4-5"
@@ -42,7 +43,7 @@ export type ModelV =
   | "gpt-5-5"
   | "codex-5-4"
   | "gemini-3-1"
-  | "gemini-3-flash"
+  | "gemini-3-5-flash"
   | "gemini-3-1-flash"
   | "deepseek-v4-pro"
   | "deepseek-v4-flash"
@@ -107,6 +108,18 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     displayName: "Sonnet 4.6",
     contextBudget: 200_000,
     deck: "balanced · default",
+  },
+  "opus-4-8": {
+    v: "opus-4-8",
+    provider: "anthropic",
+    directApiId: "claude-opus-4-8",
+    openrouterId: "anthropic/claude-opus-4.8",
+    baiId: "claude-opus-4.8",
+    displayName: "Opus 4.8",
+    contextBudget: 200_000,
+    deck: "deepest reasoning · latest",
+    // Same Anthropic 4.x family policy as 4.7 — `temperature` is rejected.
+    noTemperature: true,
   },
   "opus-4-7": {
     v: "opus-4-7",
@@ -211,13 +224,13 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     contextBudget: 1_000_000,
     deck: "flagship · 1M ctx",
   },
-  "gemini-3-flash": {
-    v: "gemini-3-flash",
+  "gemini-3-5-flash": {
+    v: "gemini-3-5-flash",
     provider: "google",
-    directApiId: "gemini-3-flash-preview",
-    openrouterId: "google/gemini-3-flash-preview",
-    baiId: "gemini-3-flash",
-    displayName: "Gemini 3 Flash",
+    directApiId: "gemini-3.5-flash-preview",
+    openrouterId: "google/gemini-3.5-flash-preview",
+    baiId: "gemini-3.5-flash",
+    displayName: "Gemini 3.5 Flash",
     contextBudget: 1_000_000,
     deck: "frontier flash · 1M ctx",
   },
@@ -227,7 +240,7 @@ export const MODELS: Record<ModelV, ModelMeta> = {
     directApiId: "gemini-3.1-flash-lite-preview",
     openrouterId: "google/gemini-3.1-flash-lite-preview",
     // No baiId · B.AI's catalog only has `gemini-3-1-pro` and
-    // `gemini-3-flash` for the Gemini family — no 3.1 Flash Lite
+    // `gemini-3.5-flash` for the Gemini family — no 3.1 Flash Lite
     // channel. Earlier mapping to `gemini-3-1-flash` 503'd with
     // "no available channel for model gemini-3-1-flash". Direct
     // Google key or OR carries this preview model.

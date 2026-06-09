@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>avatar editor</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    #stage { position: absolute; inset: 0; }
+    #stage canvas { width: 100% !important; height: 100% !important; display: block; }
+  </style>
+</head>
+<body>
+  <!--
+    Live 3D-avatar customiser preview for the iOS app · the visible WKWebView in
+    the native editor sheet. Reuses the SAME avatar-3d.js system the desktop 捏脸
+    editor uses (buildAvatar3D / recolorAvatar / applyFaceFraming). Native drives
+    it through `AvatarBridge`: `catalog()` (style lists + palettes), `initConfig`
+    (derive-from-seed or load an existing avatar3d), `setConfig` (rebuild or
+    recolor live), `capture` (head-on PNG, rotationY 0). Touch-drag orbits the
+    preview; the saved PNG is always head-on regardless of orbit.
+  -->
+  <div id="stage"></div>
+  <script type="module">
+    const post = (m) => { try { window.webkit?.messageHandlers?.avatar?.postMessage(m); } catch (_) {} };
+
+    const stage = document.getElementById("stage");
+    let THREE, OrbitControls, RoomEnvironment, av;
+    let renderer, scene, camera, controls, group, pmrem;
+    let lastCfg = null;
+    const STYLE_KEYS = ["model", "hairStyle", "topStyle", "bottomStyle", "accessory", "browStyle", "eyeStyle", "beardStyle", "tieStyle"];
+    const COLOR_KEYS = ["skin", "hair", "brow", "beard", "top", "bottom", "tie", "eye"];
+    const HEIGHT = 1.6;
+
+    async function boot() {
+      try {
+        THREE = await import("/vendor/three.module.min.js");
+        ({ OrbitControls } = await import("/vendor/OrbitControls.js"));
+        ({ RoomEnvironment } = await import("/vendor/RoomEnvironment.js"));
+        av = await import("/avatar-3d.js");
+      } catch (e) { post({ type: "error", message: "deps: " + String(e && e.message || e) }); return; }
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.7;
+      renderer.setClearColor(0x000000, 0);
+      stage.appendChild(renderer.domElement);
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);    // fov 32 · matches applyFaceFraming
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true; controls.dampingFactor = 0.1;
+      controls.minDistance = 1.0; controls.maxDistance = 9;   // allow zooming out to the full body
+      controls.enablePan = false;
+
+      pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.35;
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x33384a, 0.18));
+      const key = new THREE.DirectionalLight(0xffffff, 0.7); key.position.set(3, 6, 4); scene.add(key);
+      const rim = new THREE.DirectionalLight(0xbfd4ff, 0.3); rim.position.set(-4, 3, -3); scene.add(rim);
+
+      resize();
+      new ResizeObserver(resize).observe(stage);
+      renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+
+      // Preload every model so hair/outfit/accessory swaps never silently fail.
+      try { await Promise.all(av.AVATAR_MODELS.map((m) => av.loadAvatar3D(m.id).catch(() => null))); } catch (_) {}
+
+      post({ type: "ready" });
+    }
+
+    function resize() {
+      const w = stage.clientWidth || 300, h = stage.clientHeight || 300;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+
+    function buildFrom(cfg) {
+      if (group) { scene.remove(group); group = null; }
+      group = av.buildAvatar3D(String(cfg.seed || "editor"), {
+        model: cfg.model, hairStyle: cfg.hairStyle,
+        topStyle: cfg.topStyle, bottomStyle: cfg.bottomStyle,
+        browStyle: cfg.browStyle, eyeStyle: cfg.eyeStyle, beardStyle: cfg.beardStyle, tieStyle: cfg.tieStyle,
+        accessory: cfg.accessory, height: HEIGHT,
+        skin: cfg.skin, hair: cfg.hair, brow: cfg.brow, beard: cfg.beard,
+        top: cfg.top, bottom: cfg.bottom, tie: cfg.tie, eye: cfg.eye,
+      });
+      if (group) { scene.add(group); frameBody(); }
+    }
+
+    // Live preview · frame the WHOLE figure with generous margin so it reads as a
+    // small full-body avatar on the full-screen canvas (not a head filling the
+    // width). The saved PNG still uses applyFaceFraming (head-on portrait).
+    function frameBody() {
+      if (!group) return;
+      group.updateMatrixWorld(true);
+      // Bound by VISIBLE meshes only · a borrowed-eye overlay (e.g. Dot/pikachu)
+      // carries a whole source skeleton scaled up to size its pupils; its other
+      // meshes are hidden but `Box3.setFromObject` would still count them and
+      // blow the box up → the camera dollies way back and the avatar shrinks.
+      const box = new THREE.Box3();
+      group.traverse((o) => { if (o.isMesh && o.visible) box.expandByObject(o); });
+      if (box.isEmpty()) return;
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const fov = camera.fov * Math.PI / 180;
+      const aspect = camera.aspect || 1;
+      const padding = 1.5;                                  // 50% breathing room → smaller figure
+      const fitH = (size.y / 2) / Math.tan(fov / 2);
+      const fitW = (size.x / 2) / Math.tan(fov / 2) / aspect;
+      const dist = Math.max(fitH, fitW) * padding;
+      camera.position.set(center.x, center.y, center.z + dist);
+      camera.lookAt(center);
+      controls.target.copy(center);
+      controls.update();
+    }
+
+    function styleChanged(a, b) {
+      if (!a || !b) return true;
+      return STYLE_KEYS.some((k) => a[k] !== b[k]);
+    }
+
+    window.AvatarBridge = {
+      catalog() {
+        const A = av;
+        post({ type: "catalog", data: {
+          models: A.AVATAR_MODELS.filter((m) => !m.partsOnly).map((m) => ({ id: m.id, label: m.label })),
+          hairStyles: A.HAIR_STYLES, topStyles: A.TOP_STYLES, bottomStyles: A.BOTTOM_STYLES,
+          browStyles: A.BROW_STYLES, eyeStyles: A.EYE_STYLES, beardStyles: A.BEARD_STYLES,
+          tieStyles: A.TIE_STYLES, accessories: A.ACCESSORY_STYLES,
+          palettes: A.AVATAR_PALETTES,
+        } });
+      },
+      // Derive a starting config from `seed`, or load `existing` (JSON string).
+      // Builds it and echoes the effective config back so native populates its
+      // selection state.
+      initConfig(seed, existingJson) {
+        let cfg = null;
+        try { if (existingJson) cfg = JSON.parse(existingJson); } catch (_) { cfg = null; }
+        if (!cfg || typeof cfg !== "object") cfg = av.deriveDefaultAvatarConfig(String(seed || "editor"));
+        cfg.seed = String(seed || "editor");
+        lastCfg = cfg;
+        buildFrom(cfg);
+        post({ type: "config", data: cfg });
+      },
+      setConfig(cfgJson) {
+        let cfg; try { cfg = JSON.parse(cfgJson); } catch (_) { return; }
+        if (lastCfg && !styleChanged(lastCfg, cfg)) {
+          // Colour-only change · mutate in place (instant, no rebuild).
+          const colors = {}; COLOR_KEYS.forEach((k) => { if (cfg[k]) colors[k] = cfg[k]; });
+          if (group) av.recolorAvatar(group, colors);
+        } else {
+          buildFrom(cfg);
+        }
+        lastCfg = cfg;
+      },
+      // Head-on square PNG (rotationY 0), independent of the live orbit.
+      capture(size) {
+        const px = size || 512;
+        if (!group) { post({ type: "captured", dataUrl: "" }); return; }
+        const pos = camera.position.clone(), tgt = controls.target.clone(), asp = camera.aspect;
+        const w = stage.clientWidth || px, h = stage.clientHeight || px, pr = renderer.getPixelRatio();
+        renderer.setPixelRatio(1);
+        renderer.setSize(px, px, false);
+        camera.aspect = 1; camera.up.set(0, 1, 0);
+        av.applyFaceFraming(camera, group);
+        renderer.render(scene, camera);
+        let url = "";
+        try { url = renderer.domElement.toDataURL("image/png"); } catch (_) {}
+        // restore live view
+        renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
+        camera.aspect = asp; camera.position.copy(pos); camera.updateProjectionMatrix();
+        controls.target.copy(tgt); controls.update();
+        post({ type: "captured", dataUrl: url });
+      },
+    };
+
+    boot();
+  </script>
+</body>
+</html>

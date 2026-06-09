@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>avatar render</title>
+  <style>html, body { margin: 0; background: transparent; overflow: hidden; }</style>
+</head>
+<body>
+  <!--
+    Headless 3D-avatar render target for the iOS app · hosted in a hidden
+    WKWebView. Reuses the SAME `Avatar3DSnap` pipeline the web profile / voice
+    room / app icon use (offscreen three.js → transparent PNG data-URL), so a
+    director's native avatar is identical to its desktop one. Native calls
+    `AvatarBridge.render(seed, size)` and reads the PNG back through the `avatar`
+    message handler. `avatar-3d-snap.js` is a classic IIFE that lazy-imports
+    three + avatar-3d on first generate(), so a plain <script> tag is enough.
+  -->
+  <script src="/avatar-3d-snap.js"></script>
+  <script>
+    function post(msg) {
+      try {
+        window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.avatar
+          && window.webkit.messageHandlers.avatar.postMessage(msg);
+      } catch (_) { /* */ }
+    }
+    window.AvatarBridge = {
+      randomSeed: function () { return (window.Avatar3DSnap && Avatar3DSnap.randomSeed()) || ""; },
+      render: async function (seed, size) {
+        var s = String(seed);
+        try {
+          if (!window.Avatar3DSnap) { post({ type: "error", seed: s, message: "no Avatar3DSnap" }); return; }
+          // rotationY: 0 · head-on portrait (the default -0.18 reads as a slight
+          // 3/4 turn, which looked "斜着" on the saved director avatar).
+          var url = await window.Avatar3DSnap.generate(s, { size: size || 256, rotationY: 0 });
+          // The seed's deterministic config travels back with the PNG so native can
+          // PERSIST it as avatar3d → the room renders exactly this portrait, not a
+          // different per-id default. configFor reuses the same derive the render used.
+          var cfg = null;
+          try { cfg = await window.Avatar3DSnap.configFor(s); } catch (_) { /* */ }
+          if (url) post({ type: "rendered", seed: s, dataUrl: url, config: cfg });
+          else post({ type: "error", seed: s, message: "no webgl / empty render" });
+        } catch (e) {
+          post({ type: "error", seed: s, message: String((e && e.message) || e) });
+        }
+      },
+    };
+    // Signal readiness once the snap helper is on window (it loads synchronously,
+    // but guard anyway so the native side never races the bridge).
+    (function ready() {
+      if (window.Avatar3DSnap && window.AvatarBridge) post({ type: "ready" });
+      else setTimeout(ready, 40);
+    })();
+  </script>
+</body>
+</html>

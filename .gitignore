@@ -46,3 +46,12 @@ _site/
 /director-v2.svg
 /seed-avatar-preview.svg
 /stylish-gallery.svg
+
+# iOS build artifacts (XcodeGen project is generated from project.yml;
+# SwiftPM .build + xcodebuild output + per-user state are never committed)
+ios/Boardroom.xcodeproj
+ios/build/
+ios/BoardroomKit/.build/
+**/xcuserdata/
+*.xcuserstate
+DerivedData/

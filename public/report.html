@@ -6449,7 +6449,10 @@
     }
 
     document.title = "BOARDROOM // " + (brief.title || "brief");
-    swapSpine(brief.spine || "boardroom-dark", brief);
+    // A `?spine=` URL param force-overrides the composer-picked spine (the iOS
+    // report-style picker passes the user's chosen spine this way; mirrors how
+    // magazine/newspaper honour `?v=`). Falls back to the brief's own spine.
+    swapSpine((params.get("spine") || "").trim() || brief.spine || "boardroom-dark", brief);
 
     // Author byline · name list with a thin middot separator. Earlier
     // we rendered avatar imgs here, but the cover already speaks in

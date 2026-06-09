@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getKey } from "../storage/keys.js";
 import { getPrefs } from "../storage/prefs.js";
 import { getVoiceLabelMap } from "../storage/voice-labels.js";
@@ -387,8 +389,12 @@ async function getElevenLabsVoicesCached(apiKey: string): Promise<ElevenLabsFetc
  * (returns the full catalogue in one response), so we cache the
  * normalised list for 5 minutes and serve paged slices from memory.
  * Subsequent picker opens within the TTL window pay zero network.
- * Cache key is the first 8 chars of the API key so a credential
- * swap invalidates naturally without holding plaintext in memory. */
+ * Cache key is a sha256 of region + the FULL API key — never a prefix:
+ * MiniMax keys are JWTs that all share the same `eyJhbGci…` header, so a
+ * prefix collides across the china/global keys and a credential swap would
+ * keep serving the prior region's stale list (the symptom that sent the
+ * picker showing the wrong region's voices, with previews then failing).
+ * The hash both discriminates the full key and avoids holding plaintext. */
 const MINIMAX_CACHE_TTL_MS = 5 * 60 * 1000;
 interface MiniMaxCacheEntry {
   voices: VoiceOption[];
@@ -397,7 +403,8 @@ interface MiniMaxCacheEntry {
 const miniMaxCache = new Map<string, MiniMaxCacheEntry>();
 
 function miniMaxCacheKey(apiKey: string): string {
-  return apiKey.slice(0, 8);
+  const region = getPrefs().minimaxRegion;
+  return createHash("sha256").update(`${region} ${apiKey}`).digest("hex");
 }
 
 async function fetchAllMiniMaxVoices(apiKey: string): Promise<VoiceOption[]> {

@@ -54,10 +54,33 @@ const path = require("node:path");
     return;
   }
 
+  const { execSync } = require("node:child_process");
+  // Guard · the rebuild below shells out to `npx @electron/rebuild`, which
+  // runs under the Node on PATH (the user's shell), NOT Electron's bundled
+  // Node. Building off the pinned major (.nvmrc · 22) yields a binary that
+  // SIGKILLs Electron at dlopen and poisons the cache, so refuse rather than
+  // silently bake a broken binary. (A cache HIT above already returned; this
+  // only fires on a true miss.) Override with ALLOW_ANY_NODE_ABI=1.
+  if (process.env.ALLOW_ANY_NODE_ABI !== "1") {
+    let want = null;
+    try { want = parseInt(String(fs.readFileSync(path.join(root, ".nvmrc"), "utf8")).trim().replace(/^v/i, ""), 10); } catch {}
+    let have = null;
+    try { have = parseInt(execSync("node -v", { encoding: "utf8" }).trim().replace(/^v/i, "").split(".")[0], 10); } catch {}
+    if (Number.isFinite(want) && Number.isFinite(have) && have !== want) {
+      process.stderr.write(
+        `\n[electron] Refusing to rebuild better-sqlite3 under Node ${have} (PATH).` +
+        `\n           This repo is pinned to Node ${want} (.nvmrc); building native` +
+        `\n           modules off-version crashes Electron at launch (SIGKILL) and` +
+        `\n           poisons the ABI cache.` +
+        `\n           → run:  nvm use ${want}  &&  npm run abi:electron` +
+        `\n           then relaunch. Override (not recommended): ALLOW_ANY_NODE_ABI=1\n`,
+      );
+      process.exit(1);
+    }
+  }
   process.stderr.write(
     `[electron] no cached ${wantAbi} binary; rebuilding (one-time)\n`,
   );
-  const { execSync } = require("node:child_process");
   // `electron-builder install-app-deps` is unreliable here: it sometimes
   // reuses a Node-ABI prebuilt for the same arch. Forcing from-source via
   // @electron/rebuild guarantees the binary links against Electron's

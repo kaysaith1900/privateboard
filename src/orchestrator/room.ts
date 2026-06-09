@@ -2082,6 +2082,10 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
   // primary-key lookup · trivial.
   const initialVoiceProfile = voiceMode ? voiceProfileForAgent(speaker) : null;
   let voiceSeq = 0;
+  // Per-sentence index · one `emitVoiceText` call == one synthesized sentence
+  // == one self-contained MP3. Native clients group voice-chunks by `seg` to
+  // play each sentence progressively (see stream.ts voice-chunk doc).
+  let voiceSegIdx = 0;
 
   /** Resolve the latest voice profile for this turn's agent.
    *  Reads fresh from DB so PATCH /api/agents/:id changes during
@@ -2116,6 +2120,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
     if (!spoken) return;
     const voiceProfile = currentVoiceProfile();
     if (!voiceProfile) return;
+    const seg = voiceSegIdx++;
     process.stderr.write(`[tts] emitVoiceText called: provider=${voiceProfile.provider} voiceId=${voiceProfile.voiceId} textLen=${spoken.length} text="${spoken.slice(0, 50)}"\n`);
 
     // Per-attempt timeout · MiniMax / ElevenLabs occasionally accept
@@ -2154,6 +2159,7 @@ async function streamSpeakerTurn(args: StreamArgs): Promise<string | null> {
             type: "voice-chunk",
             messageId: placeholder.id,
             seq: voiceSeq++,
+            seg,
             text: chunk.text,
             provider: chunk.provider,
             model: chunk.model,

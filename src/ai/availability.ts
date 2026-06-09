@@ -147,7 +147,7 @@ export function hasAnyModelKey(): boolean {
 const PROVIDER_FLAGSHIP: Record<Provider, ModelV | null> = {
   anthropic: "opus-4-7",
   openai: "gpt-5-5",
-  google: "gemini-3-flash",
+  google: "gemini-3-5-flash",
   // xai · no LLM modelV currently in the registry (all grok-* entries
   // removed 2026-05-17 when B.AI dropped xAI). Keep the key so the
   // Record type stays exhaustive; the resolver naturally skips it.
@@ -209,7 +209,7 @@ export const FAST_POOL_BY_CARRIER: Record<string, readonly ModelV[]> = {
     "opus-4-6-fast",
     "haiku-4-5",
     "gpt-5-4-mini",
-    "gemini-3-flash",
+    "gemini-3-5-flash",
     "gemini-3-1-flash",
     "deepseek-v4-flash",
   ],
@@ -223,13 +223,13 @@ export const FAST_POOL_BY_CARRIER: Record<string, readonly ModelV[]> = {
   bai: [
     "haiku-4-5",
     "gpt-5-4-mini",
-    "gemini-3-flash",
+    "gemini-3-5-flash",
     "gemini-3-1-flash",
     "deepseek-v4-flash",
   ],
   anthropic: ["opus-4-6-fast", "haiku-4-5"],
   openai: ["gpt-5-4-mini"],
-  google: ["gemini-3-flash", "gemini-3-1-flash"],
+  google: ["gemini-3-5-flash", "gemini-3-1-flash"],
   // xai · no fast pool (no LLM modelV in registry).
   // Moonshot / Zhipu · single-entry pools because the registry only
   // carries one LLM modelV per provider today. Every director on this
@@ -271,7 +271,7 @@ export const FLAGSHIP_TIER: ReadonlySet<ModelV> = new Set<ModelV>([
   // OpenAI
   "gpt-5-5", "gpt-5-4",
   // Google
-  "gemini-3-1", "gemini-3-flash",
+  "gemini-3-1", "gemini-3-5-flash",
   // xAI · no flagship in registry currently.
   // DeepSeek
   "deepseek-v4-pro",
@@ -332,7 +332,7 @@ export function defaultModelFor(keys: ProviderKeyState = getProviderKeyState()):
  *    1. haiku-4-5         (Anthropic, cheap + fast)
  *    2. gpt-5-4-mini      (OpenAI · 400k ctx, current cheap-tier)
  *    3. gemini-3-1-flash  (Google · 3.1 Flash Lite, cheapest)
- *    4. gemini-3-flash    (Google · 3 Flash, frontier mid-tier)
+ *    4. gemini-3-5-flash  (Google · 3.5 Flash, frontier mid-tier)
  *    5. grok-4-mini       (xAI)
  *    6. <user's default model> (last resort — pricy but reachable)
  *
@@ -364,7 +364,7 @@ const UTILITY_PREFERENCE: ModelV[] = [
   "haiku-4-5",
   "gpt-5-4-mini",
   "gemini-3-1-flash",
-  "gemini-3-flash",
+  "gemini-3-5-flash",
 ];
 
 export function utilityModelFor(fallback: ModelV | null = null): ModelV | null {

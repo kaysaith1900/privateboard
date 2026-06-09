@@ -665,6 +665,12 @@ export function buildAvatar3D(seed, opts = {}) {
   // gets 瞳色.
   const eyeStyle = opts.eyeStyle || "default";
   if (eyeStyle !== "default" && eyeStyle !== model.id) {
+    // Borrow the source's pupils via the SAME body-transform overlay used for
+    // brows/ties — every model shares the Mixamo rig, so the cloned source's
+    // eyes re-bind to the body's skeleton and land at the natural facial spot.
+    // (Do NOT normalise the source by its own bbox: a partsOnly source then
+    // grounds at a different proportion and the eyes sink behind the face — the
+    // face renders eyeless. Verified via headless render of every eye style.)
     overlayRole(group, inst, model, eyeStyle, "eye");
     // Solid beady eyes carry no sclera · hide the body's face eyewhite so it
     // doesn't poke out around the smaller pupils. The midY guard skips any
@@ -1165,6 +1171,35 @@ export function applyFaceFraming(cam, group) {
   cam.updateProjectionMatrix();
 }
 
+/** Pose the figure SITTING · the base GLBs ship a standard Mixamo humanoid rig
+ *  (mixamorig* bones), so a seated pose is just hip + knee flexion — no GLB
+ *  re-authoring. Rotates the thigh bones (`*UpLeg`) forward and the shin bones
+ *  (`*Leg`) back down, giving the classic "L" seated silhouette. Idempotent.
+ *
+ *  Only the voice-room seats call this (so the avatar editor / portraits stay
+ *  standing). The exact angles depend on the rig's bind orientation; `thigh` /
+ *  `shin` are exposed so the caller can tune sign / amount against the render
+ *  (flip a sign if the legs bend the wrong way). */
+export function applySeatedPose(group, opts = {}) {
+  if (!group) return;
+  // GENTLE seated bend · these are head-heavy chibis with very short legs, so a
+  // full 90°/90° sit folds the stubby legs into a "broken" blob on the lap. A
+  // soft forward thigh + small knee + relaxed foot reads as a natural seat (feet
+  // rest at the cushion front). Verified against a headless render of the real
+  // GLB + sheen chair. Flip a sign if a re-rigged model bends the wrong way.
+  const thigh = opts.thigh != null ? opts.thigh : -0.55;   // hip flexion · thighs tip forward + down
+  const shin  = opts.shin  != null ? opts.shin  :  0.55;   // knee flexion · shins angle back toward vertical
+  const foot  = opts.foot  != null ? opts.foot  :  0.2;    // ankle · feet rest forward, not pointed
+  group.traverse((o) => {
+    if (!o.isBone) return;
+    const n = o.name || "";
+    if (n.endsWith("UpLeg")) o.rotation.x = thigh;          // mixamorigLeft/RightUpLeg (thigh)
+    else if (n.endsWith("Leg")) o.rotation.x = shin;        // mixamorigLeft/RightLeg (shin)
+    else if (n.endsWith("Foot")) o.rotation.x = foot;       // mixamorigLeft/RightFoot (ankle)
+  });
+  group.userData.seated = true;
+}
+
 /** Toggle a part by role · "hat", "glasses" (frame + lens), or "headphones". */
 export function setAvatarPartVisible(group, part, visible) {
   if (!group) return;
@@ -1176,7 +1211,7 @@ export function setAvatarPartVisible(group, part, visible) {
 if (typeof window !== "undefined") {
   window.Avatar3D = {
     loadAvatar3D, buildAvatar3D, isAvatar3DReady, recolorAvatar, setAvatarPartVisible,
-    deriveDefaultAvatarConfig,
+    deriveDefaultAvatarConfig, applySeatedPose,
     getFaceBox, applyFaceFraming,
     DEFAULT_AVATAR_URL, AVATAR_MODELS, AVATAR_PALETTES, HAIR_STYLES, TOP_STYLES, BOTTOM_STYLES,
     ACCESSORY_STYLES, BROW_STYLES, EYE_STYLES, BEARD_STYLES, TIE_STYLES, COSTUME_TOPS,

@@ -97,6 +97,9 @@
       // Per-call renderer · the work is small (one frame) and tearing
       // down each time avoids leaking GPU buffers across many seeds.
       const SIZE = (opts && opts.size) || 128;
+      // Yaw of the figure · default a slight 3/4 turn (web thumbnails). Callers
+      // wanting a head-on portrait (e.g. the iOS capture) pass `rotationY: 0`.
+      const rotY = (opts && typeof opts.rotationY === "number") ? opts.rotationY : -0.18;
       const offCanvas = document.createElement("canvas");
       offCanvas.width = SIZE * 2;
       offCanvas.height = SIZE * 2;
@@ -148,7 +151,7 @@
         try { renderer.dispose(); } catch (_) {}
         return "";
       }
-      figure.rotation.y = -0.18;
+      figure.rotation.y = rotY;
       scene.add(figure);
       try {
         if (typeof av.applyFaceFraming === "function") av.applyFaceFraming(camera, figure);
@@ -202,5 +205,17 @@
     if (target.parentNode) target.parentNode.replaceChild(img, target);
   }
 
-  root.Avatar3DSnap = { randomSeed, generate, hydrateImg, cacheGet };
+  /** The deterministic avatar config for `seed` — the SAME config generate()
+   *  renders from (`deriveDefaultAvatarConfig`). Lets a caller PERSIST the rolled
+   *  look as `avatar3d` so the round-table renders exactly that portrait instead
+   *  of a different per-agent-id default. Async (lazy-loads avatar-3d); null on
+   *  no-WebGL / dep-load failure. */
+  async function configFor(seed) {
+    if (!seed) return null;
+    const m = await loadDeps();
+    if (!m) return null;
+    try { return m.av.deriveDefaultAvatarConfig(String(seed)); } catch (_) { return null; }
+  }
+
+  root.Avatar3DSnap = { randomSeed, generate, hydrateImg, cacheGet, configFor };
 })(typeof window !== "undefined" ? window : globalThis);

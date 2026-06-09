@@ -5,7 +5,7 @@
    full-bleed with safe-area insets.
    ═══════════════════════════════════════════════════════════════════ */
 :root {
-  --bg: #0A0A0A;
+  --bg: #0E0C0A;   /* warm near-black · a hair of brown so the cream ink + gold accent do not read as cold against a neutral void */
   --ink: #ECE9E2;
   --ink-dim: #9A958B;
   --ink-faint: #6A655C;
@@ -18,12 +18,19 @@
   --safe-b: max(env(safe-area-inset-bottom), 16px);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: var(--sans); color: var(--ink); }
+/* height: 100dvh (dynamic viewport) with a 100% fallback · on a real phone the
+   plain `height: 100%` resolves against a viewport that DOESN'T track the
+   collapsing URL bar, so the bottom of the full-bleed frame (and the inset:0
+   WebGL canvas inside it) ends up under the browser chrome — the 3D stage then
+   reads as "not reaching the bottom of the container". dvh follows the visible
+   viewport so the frame always fills exactly what's on screen. The ≥768px
+   desktop branch overrides .phone-frame back to a fixed 844px device. */
+html, body { width: 100%; height: 100%; height: 100dvh; overflow: hidden; background: var(--bg); font-family: var(--sans); color: var(--ink); }
 
 /* ── Phone frame ───────────────────────────────────────────────── */
 .phone-frame {
   position: relative;
-  width: 100%; height: 100%;
+  width: 100%; height: 100%; height: 100dvh;   /* dynamic viewport · see html,body note above */
   overflow: hidden;
   background: var(--bg);
   isolation: isolate;
@@ -55,8 +62,35 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
 .vr-stage [data-rt-3d-overlay] .rt-name,
 .vr-stage [data-rt-3d-overlay] .rt-name-director,
 .vr-stage [data-rt-3d-overlay] .rt-name-chair,
-.vr-stage [data-rt-3d-overlay] .rt-bubble:not(.rt-bubble-user),
+.vr-stage [data-rt-3d-overlay] .rt-bubble:not(.rt-bubble-user):not(.is-thinking),
 .vr-stage [data-rt-3d-vote-pop] { display: none !important; }
+
+/* Thinking bubble · a small dots indicator floating above the head of the
+   director who is framing their reply (mirrors the desktop round-table; the
+   engine already creates + projects + toggles .is-thinking on these). We
+   show ONLY the dots — the name lives on the rail and the caption band. */
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking {
+  /* display left to the engine's inline style (="" when active · "none" when
+     the seat stops thinking) so a stale .is-thinking bubble can't linger. */
+  display: inline-flex; align-items: center; justify-content: center;
+  position: relative; margin: 0 0 7px !important; padding: 7px 11px;
+  background: rgba(10,10,12,0.92); border: 1px solid var(--gold); border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-name,
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-status { display: none; }
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--gold);
+}
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots { display: inline-flex; gap: 3px; }
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots i {
+  width: 4px; height: 4px; border-radius: 50%; background: var(--gold);
+  animation: vr-think-dot 1.4s ease-in-out infinite;
+}
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots i:nth-child(2) { animation-delay: 0.18s; }
+.vr-stage [data-rt-3d-overlay] .rt-bubble.is-thinking .rt-bubble-dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes vr-think-dot { 0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); } 40% { opacity: 1; transform: scale(1); } }
 
 /* User speech bubble (over the "You" seat) + draining countdown bar */
 .rt-bubble-user {
@@ -76,26 +110,74 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
   position: absolute; top: 0; left: 0; right: 0; z-index: 8;
   display: flex; align-items: center; gap: 10px;
   padding: var(--safe-t) 18px 10px;
-  background: linear-gradient(to bottom, rgba(8,8,10,0.82), rgba(8,8,10,0));
   pointer-events: none;
 }
-.vr-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Top-bar status cluster · R2 pill + live dot + menu button — one glass
-   family, same 34px height, so they read as a consistent set. LIVE is
-   icon-only (a pulsing dot, no text); menu uses the same treatment. */
-.vr-round, .vr-live, .vr-menu-btn {
-  flex: 0 0 auto; height: 34px;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.42);
-  -webkit-backdrop-filter: blur(10px) saturate(120%); backdrop-filter: blur(10px) saturate(120%);
-  border: 1px solid rgba(255,255,255,0.16); color: var(--ink);
+/* Dark frosted-glass gradient behind the top buttons · all rooms (3D stage +
+   text). Frost fades out downward via a gradient mask (gaussian-blur fade, no
+   hard edge) so the buttons read on a darkened band over any background. */
+.vr-topbar::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: -28px; z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(8,8,10,0.92) 35%, rgba(8,8,10,0));
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-mask-image: linear-gradient(to bottom, #000 48%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 48%, transparent 100%);
 }
-.vr-round { padding: 0 12px; border-radius: 999px; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
-.vr-live { width: 34px; border-radius: 50%; }
-.vr-live::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); animation: vr-pulse 1.6s ease-in-out infinite; }
-.vr-live.is-done::before { background: var(--ink-faint); animation: none; }
-.vr-menu-btn { width: 34px; border-radius: 50%; pointer-events: auto; cursor: pointer; }
-.vr-menu-btn svg { width: 19px; height: 19px; }
+/* Title · wrapped in the same Liquid-Glass pill as the round / replay chip,
+   font-size matched to the replay chip (12px). Hugs its text but shrinks +
+   ellipsises when the room name is long. */
+.vr-title { flex: 0 1 auto; min-width: 0; margin-right: auto; padding: 0 14px; border-radius: 999px;
+  font-size: 14px; font-weight: 600; letter-spacing: -0.01em; opacity: 0.9;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Top-bar buttons · iOS-26 Liquid Glass · light translucent frost, heavy
+   blur + saturation, hairline rim + inner top sheen, soft float shadow.
+   38px circular icon buttons / pills. Back + round + live + menu share it.
+   (Icons get a faint drop-shadow so they stay legible over a bright floor.) */
+.vr-title, .vr-round, .vr-live, .vr-menu-btn, .vr-back-btn {
+  height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff;
+  background: rgba(255,255,255,0.14);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.30);
+}
+/* Title is a BLOCK (overriding the shared inline-flex) so text-overflow can
+   truncate a long room name · the shared inline-flex made ellipsis a no-op.
+   line-height centres the single line in the 38px (border-box) pill. */
+.vr-title { display: block; line-height: 36px; text-align: left; }
+.vr-round, .vr-live, .vr-menu-btn, .vr-back-btn { flex: 0 0 auto; transition: transform 0.12s ease; }
+.vr-back-btn:active, .vr-menu-btn:active { transform: scale(0.93); }
+.vr-topbar svg { filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.35)); }
+.vr-round { padding: 0 14px; border-radius: 999px; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.vr-round[hidden] { display: none; }   /* live rooms · the round number is hidden */
+/* Adjourned rooms repurpose this chip as the voice-replay toggle. */
+/* Replay chip · stays a Liquid-Glass pill. Idle = gold label on the frost.
+   Playing (is-active) = gold-tinted frost + gold label + gold rim (legible —
+   the old solid-gold fill made the text hard to read). */
+.vr-round.is-replay-btn { pointer-events: auto; cursor: pointer; gap: 6px; font-weight: 700; color: var(--gold); }
+.vr-round.is-replay-btn svg { width: 15px; height: 15px; }
+.vr-round.is-replay-btn:active { transform: scale(0.96); }
+.vr-round.is-active {
+  color: var(--gold);
+  background: rgba(201,164,107,0.22);
+  border-color: rgba(201,164,107,0.62);
+  box-shadow: 0 4px 14px rgba(201,164,107,0.28), inset 0 1px 0 rgba(255,255,255,0.22);
+}   /* playing · tap to exit */
+/* Status badge · live = blinking RED dot + LIVE · paused = PAUSED (amber).
+   Adjourned shows nothing (the badge is hidden). Auto-width pill. */
+.vr-live { width: auto; padding: 0 13px; gap: 6px; border-radius: 999px;
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; }
+.vr-live-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #ff3b30; animation: vr-pulse 1.4s ease-in-out infinite; }
+.vr-live.is-paused { color: #d9a441; }
+/* In-flight pause/resume · amber text + an amber pulsing dot so PAUSING /
+   RESUMING reads as a live transitional state, not the settled PAUSED. */
+.vr-live.is-pending { color: #d9a441; }
+.vr-live.is-pending .vr-live-dot { background: #d9a441; }
+.vr-live.is-done { display: none; }   /* adjourned · no status badge */
+.vr-menu-btn { width: 38px; border-radius: 50%; pointer-events: auto; cursor: pointer; }
+.vr-menu-btn svg { width: 20px; height: 20px; }
 @keyframes vr-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* ── Caption band ──────────────────────────────────────────────── */
@@ -104,22 +186,99 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
   padding: 22px 24px;
   pointer-events: none;
   background: linear-gradient(to top, rgba(8,8,10,0.92) 38%, rgba(8,8,10,0));
-  transition: opacity 0.25s ease;
+  transition: opacity 0.25s ease, bottom 0.34s cubic-bezier(0.4,0,0.2,1);
 }
 .vr-caption.is-hidden { opacity: 0; }
 .vr-cap-kicker { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin-bottom: 7px; }
-.vr-cap-text { font-size: 22px; line-height: 1.34; font-weight: 500; letter-spacing: -0.01em; min-height: 1.34em; }
+/* Single-sentence rolling subtitle · capped to ~2 lines, bottom-anchored
+   (flex-end clips overflow off the TOP) so a long turn never grows up the
+   screen — the newest words stay in view. */
+.vr-cap-text { font-size: 22px; line-height: 1.34; font-weight: 500; letter-spacing: -0.01em; min-height: 1.34em; max-height: 2.68em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
 .vr-caption.is-thinking .vr-cap-text::after { content: "···"; color: var(--ink-faint); letter-spacing: 0.15em; animation: vr-dots 1.2s steps(4) infinite; }
 @keyframes vr-dots { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
 
+/* ── Bottom group · cast rail + (dock | adjourned bar) ─────────────
+   The rail AND the bottom bar (dock in live, adjourned bar once the
+   meeting ends) live inside this one wrapper so a SINGLE dark frosted-
+   glass band sits behind both — identical in live and adjourned. The
+   wrapper has no layout box of its own (its children stay absolutely
+   positioned); it only owns the shared backdrop + stacking. z-index 10
+   in live; once adjourned it rises to z-22 above the transcript sheet
+   (z-20). The band (::before) paints in both states. */
+.vr-botgroup { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10; pointer-events: none; }
+.vr-botgroup > * { pointer-events: auto; }
+body.is-adjourned .vr-botgroup { z-index: 22; }
+/* One dark frosted-glass band behind the bottom group · IDENTICAL in live
+   (rail + dock) and adjourned (rail + adjourned bar). */
+.vr-botgroup::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 184px; z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(8,8,10,0.92) 40%, rgba(8,8,10,0));
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 55%, transparent 100%);
+  transition: opacity 0.3s ease;
+}
+/* Text-style rooms have no rail/dock · hide the whole group (and its band). */
+/* Text-DELIVERY rooms have no rail/dock · hide the whole group. A voice room
+   shown as text (is-vtext) KEEPS the dock (controls + toggle-back) — only its
+   rail is hidden (see the is-vtext rule below), so do NOT hide the group. */
+body.is-text .vr-botgroup { display: none; }
+
 /* ── Cast rail ─────────────────────────────────────────────────── */
 .vr-rail {
-  position: absolute; left: 0; right: 0; bottom: 92px; z-index: 7;
+  position: absolute; left: 0; right: 0; bottom: 92px;
   display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none;
-  padding: 8px 16px 4px;
+  padding: 8px 56px 4px 16px;   /* right inset keeps the last avatar clear of the collapse toggle */
   -webkit-overflow-scrolling: touch;
 }
 .vr-rail::-webkit-scrollbar { display: none; }
+
+/* ── Collapse toggle · fold the rail + dock away during playback ────
+   A round Liquid-Glass button that rides the right edge: at the rail's
+   level when open, in the bottom corner when folded. The chevron rotates
+   ↓ (fold) ↔ ↑ (expand). Lives in .vr-botgroup but is NOT one of the
+   elements that translate away, so it stays reachable when collapsed. */
+.vr-dock-toggle {
+  position: absolute; right: 14px; bottom: 112px; z-index: 3;
+  width: 38px; height: 38px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff;
+  background: rgba(255,255,255,0.14);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.30);
+  cursor: pointer; pointer-events: auto;
+  transition: bottom 0.34s cubic-bezier(0.4,0,0.2,1), transform 0.12s ease;
+}
+.vr-dock-toggle:active { transform: scale(0.93); }
+.vr-dock-toggle svg { width: 20px; height: 20px; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.35));
+  transform: rotate(90deg); transition: transform 0.34s cubic-bezier(0.4,0,0.2,1); }   /* chev → down = fold */
+body.is-dock-collapsed .vr-dock-toggle { bottom: calc(var(--safe-b) + 14px); }
+body.is-dock-collapsed .vr-dock-toggle svg { transform: rotate(-90deg); }              /* chev → up = expand */
+/* No rail/dock when shown as text · the toggle has nothing to fold. */
+body.is-vtext .vr-dock-toggle { display: none; }
+
+/* Folded · slide the rail + bottom bar down out of view and fade them. */
+.vr-rail, .vr-dock, .vr-adjourned { transition: transform 0.34s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease; }
+body.is-dock-collapsed .vr-rail,
+body.is-dock-collapsed .vr-dock,
+body.is-dock-collapsed .vr-adjourned { transform: translateY(150%); opacity: 0; pointer-events: none; }
+/* Folded · the frosted band fades out entirely (nothing left to back), and the
+   caption sinks to the very bottom. Its gradient runs edge-to-edge to the
+   screen bottom (bottom: 0 · no bare strip under it), while bottom padding
+   lifts the TEXT clear of the iOS home-indicator safe area. Extra right
+   padding keeps a long line from running under the collapse toggle. */
+body.is-dock-collapsed .vr-botgroup::before { opacity: 0; }
+body.is-dock-collapsed .vr-caption {
+  bottom: 0;
+  padding: 22px 62px calc(var(--safe-b) + 18px) 24px;
+}
+/* Subtitle belongs to the FOLDED state · expanding to reveal the rail + dock
+   fades it out (it would otherwise overlap the rail and crowd the controls);
+   folding brings it back. Live only — adjourned replay keeps its captions. */
+body:not(.is-dock-collapsed):not(.is-adjourned) .vr-caption { opacity: 0; }
 .vr-chip {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 3px;
   background: none; border: none; cursor: pointer; opacity: 0.55; transition: opacity 0.18s, transform 0.18s;
@@ -137,56 +296,26 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 9;
   display: flex; align-items: center; justify-content: space-around;
   padding: 10px 22px var(--safe-b);
-  background: linear-gradient(to top, rgba(8,8,10,0.92), rgba(8,8,10,0));
 }
+/* (Frosted band moved to .vr-botgroup::before · shared by live rail+dock and
+   adjourned rail+bar so both read identically.) */
 .vr-dock button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 50px; height: 50px; border-radius: 16px;
-  background: rgba(255,255,255,0.06); border: 1px solid var(--line); color: var(--ink);
+  color: #fff;
+  background: rgba(255,255,255,0.14);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.30);
   cursor: pointer; font-family: var(--mono); font-size: 14px; font-weight: 700;
   transition: background 0.15s, transform 0.1s;
 }
-.vr-dock button:active { transform: scale(0.92); background: rgba(255,255,255,0.12); }
-.vr-dock button svg { width: 22px; height: 22px; }
-.vr-dock [data-act="playpause"] { background: var(--gold); color: #1a1407; border-color: var(--gold); }
+.vr-dock button:active { transform: scale(0.92); background: rgba(255,255,255,0.22); }
+.vr-dock button svg { width: 22px; height: 22px; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.35)); }
+.vr-dock [data-act="playpause"] { background: var(--gold); color: #1a1407; border-color: var(--gold); box-shadow: 0 4px 14px rgba(201,164,107,0.32), inset 0 1px 0 rgba(255,255,255,0.35); }
+.vr-dock [data-act="playpause"] svg { filter: none; }
 
-/* ── Bottom sheet ──────────────────────────────────────────────── */
-.vr-sheet {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 20;
-  /* Near-full when expanded · rises to just below the top bar / notch so a
-     dragged-up sheet reads as (almost) full-screen, leaving the room title
-     bar peeking above for context. The drag snaps (full / half / closed)
-     are computed from offsetHeight in the shell, so they follow this. */
-  height: calc(100% - var(--safe-t) - 34px);
-  background: #131313; border-top: 1px solid var(--line);
-  border-radius: 20px 20px 0 0;
-  box-shadow: 0 -20px 50px rgba(0,0,0,0.5);
-  display: flex; flex-direction: column;
-  will-change: transform;
-}
-.vr-sheet-handle { padding: 12px 0 8px; display: grid; place-items: center; cursor: grab; touch-action: none; flex: 0 0 auto; }
-.vr-sheet-handle::before { content: ""; width: 38px; height: 4px; border-radius: 2px; background: var(--ink-faint); }
-/* Segmented control (iOS-style track + sliding thumb) · Transcript/Queue/Vote */
-.vr-tabs {
-  flex: 0 0 auto; display: flex; gap: 2px;
-  margin: 12px 16px 14px; padding: 3px;
-  background: rgba(255,255,255,0.055); border-radius: 12px;
-}
-.vr-tab {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 8px 6px; border: none; border-radius: 9px; background: transparent;
-  color: var(--ink-dim); font-family: var(--sans); font-size: 14px; font-weight: 600;
-  letter-spacing: -0.01em; cursor: pointer; transition: color 0.18s, background 0.18s;
-}
-.vr-tab.is-active { background: rgba(255,255,255,0.13); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.35); }
-.vr-tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
-
-/* Panels · each fills the sheet body and scrolls independently, so a long
-   transcript never buries the queue or the vote. */
-.vr-sheet-body { flex: 1; min-height: 0; position: relative; }
-.vr-panel { display: none; position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 20px calc(20px + var(--safe-b)); }
-.vr-panel.is-active { display: block; }
-/* Transcript · chat-style rows (avatar + name + line) */
+/* ── Transcript · chat-style rows (avatar + name + line) ─────────── */
 .vr-tr-row { display: flex; gap: 12px; align-items: flex-start; padding: 13px 0; border-bottom: 1px solid var(--line); }
 .vr-tr-row:last-child { border-bottom: none; }
 .vr-tr-av { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: #1a1a18; margin-top: 1px; }
@@ -194,22 +323,12 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
 .vr-tr-who { font-size: 12px; font-weight: 600; color: var(--gold); margin-bottom: 3px; letter-spacing: 0.01em; }
 .vr-tr-text { font-size: 15px; line-height: 1.5; color: var(--ink); }
 
-/* Queue · numbered order with live status */
-.vr-order-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; font-size: 15px; color: var(--ink-dim); border-bottom: 1px solid var(--line); }
-.vr-order-row:last-child { border-bottom: none; }
-.vr-order-n { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); min-width: 18px; }
-.vr-order-status { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
-.vr-order-row.is-done { opacity: 0.38; }
-.vr-order-row.is-current { color: var(--ink); font-weight: 500; }
-.vr-order-row.is-current .vr-order-n,
-.vr-order-row.is-current .vr-order-status { color: var(--gold); }
-
 /* Vote · single card */
 .vr-vote-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin: 2px 0 10px; }
 .vr-vote { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,0.04); }
 .vr-vote p { font-size: 16px; line-height: 1.45; margin-bottom: 16px; color: var(--ink); }
 .vr-vote-btns { display: flex; gap: 10px; }
-.vr-vote-btns button { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; transition: transform 0.1s, background 0.15s; }
+.vr-vote-btns button { flex: 1; padding: 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; transition: transform 0.1s, background 0.15s; }
 .vr-vote-btns button:active { transform: scale(0.96); }
 .vr-vote-btns button.primary { background: var(--gold); color: #1a1407; border-color: var(--gold); }
 
@@ -224,18 +343,43 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
 .vr-toast.is-shown { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ── Adjourned bar (replaces the dock once the meeting ends) ────── */
+/* The shared frosted band + the lift above the transcript sheet (z-20)
+   now live on the .vr-botgroup wrapper — on adjourn that group rises to
+   z-22 so this bar (replay / transcript / report) clears the half-snapped
+   sheet. The bar itself only handles its own layout. */
 .vr-adjourned {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 9;
-  display: none; align-items: center; gap: 12px;
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: none; align-items: center; justify-content: center; gap: 14px;
   padding: 12px 18px var(--safe-b);
-  background: linear-gradient(to top, rgba(8,8,10,0.95), rgba(8,8,10,0.35));
 }
 body.is-adjourned .vr-dock { display: none; }
+/* Interject · the composer slides up over the dock (both pinned bottom). Hide
+   the dock while composing so the buttons do not show through under the input;
+   it returns the moment is-composing is cleared (cancel / send). */
+body.is-composing .vr-dock { display: none; }
 body.is-adjourned .vr-adjourned { display: flex; }
-.vr-adj-replay { flex: 0 0 auto; width: 50px; height: 50px; border-radius: 16px; background: rgba(255,255,255,0.06); border: 1px solid var(--line); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.vr-adj-replay svg { width: 22px; height: 22px; }
-.vr-adj-report { flex: 1; height: 50px; border-radius: 16px; background: var(--gold); color: #1a1407; border: none; font-size: 15px; font-weight: 700; cursor: pointer; }
+/* Icon buttons · transcript toggle + follow-up (both share the .vr-adj-replay
+   chrome). Square 50px, sit either side of the report pill. */
+.vr-adj-replay { flex: 0 0 auto; width: 50px; height: 50px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  color: #fff;
+  background: rgba(255,255,255,0.14);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.30); }
+.vr-adj-replay svg { width: 22px; height: 22px; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.35)); }
+/* Report · same 50px icon chrome as the others, but gold-filled to stay the
+   primary action (shrunk from a text pill to an icon). */
+.vr-adj-report {
+  background: var(--gold); color: #1a1407;
+  border-color: rgba(201,164,107,0.6);
+  box-shadow: 0 4px 14px rgba(201,164,107,0.28), inset 0 1px 0 rgba(255,255,255,0.35);
+}
+.vr-adj-report svg { filter: none; }
+/* Replay speed · text ("1×"/"1.5×") rather than an icon, in the same chrome. */
+/* Speed buttons (dock + adjourned) · mono, sized to fit "1.25×" / "0.75×". */
+.vr-dock [data-act=rate], .vr-adj-rate { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0; }
 .vr-adj-report:active, .vr-adj-replay:active { transform: scale(0.97); }
+body.is-text .vr-adj-viewtext, body.is-text .vr-adj-rate { display: none; }   /* text rooms · no 3D stage / audio to speed */
 
 /* ── Modal (Room menu / settings / cast / report) ──────────────── */
 .vr-modal { position: absolute; inset: 0; z-index: 40; }
@@ -246,14 +390,22 @@ body.is-adjourned .vr-adjourned { display: flex; }
   background: #161616; border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
   display: flex; flex-direction: column; box-shadow: 0 -20px 60px rgba(0,0,0,0.6);
   animation: vr-slide-up 0.28s cubic-bezier(.22,.61,.36,1);
+  transition: height 0.32s cubic-bezier(.22,.61,.36,1), border-radius 0.28s ease;
 }
+/* Scroll-to-expand · once the body scrolls off its top the sheet grows to fill
+   the screen and the rounded top corners flatten; scrolling back to the very
+   top collapses it to the 80% sheet. Toggled by syncModalExpand() off the body
+   scrollTop — the native iOS bottom-sheet feel. */
+.vr-modal-card.is-expanded { height: 100%; border-top: none; border-radius: 0; }
+/* Fullscreen · the head now reaches the top of the screen, so pad it past the
+   notch / status bar (safe-area top) to keep the title clear of the camera. */
+.vr-modal-card.is-expanded .vr-modal-head { padding-top: calc(var(--safe-t) + 6px); }
 @keyframes vr-slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes vr-fade { from { opacity: 0; } to { opacity: 1; } }
-.vr-modal-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 16px 14px 12px; border-bottom: 1px solid var(--line); }
+.vr-modal-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 16px 14px 12px; border-bottom: 1px solid var(--line); transition: padding-top 0.28s ease; }
 .vr-modal-title { flex: 1; text-align: center; font-size: 16px; font-weight: 600; }
 .vr-modal-back, .vr-modal-close { width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(255,255,255,0.07); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
 .vr-modal-back svg, .vr-modal-close svg { width: 20px; height: 20px; }
-.vr-modal-back svg { transform: rotate(180deg); }
 .vr-modal-back[hidden] { display: inline-flex; visibility: hidden; } /* keep title centred */
 .vr-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px calc(20px + var(--safe-b)); }
 /* Scrollbar · hidden at rest, fades in only while scrolling. The
@@ -267,6 +419,13 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-modal-body::-webkit-scrollbar-thumb { background: transparent; border-radius: 99px; transition: background 0.3s ease; }
 .vr-modal-body.is-scrolling::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.24); }
 
+/* Scrollable surfaces · transparent track (no background bar), thin overlay
+   thumb only. Kills the default browser scrollbar's grey track gutter. */
+[data-hpanel], .vr-chat-msgs { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+[data-hpanel]::-webkit-scrollbar, .vr-chat-msgs::-webkit-scrollbar { width: 6px; height: 6px; }
+[data-hpanel]::-webkit-scrollbar-track, .vr-chat-msgs::-webkit-scrollbar-track { background: transparent; }
+[data-hpanel]::-webkit-scrollbar-thumb, .vr-chat-msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 99px; }
+
 /* Menu action rows */
 .vr-act-row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 15px 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.03); color: var(--ink); text-align: left; cursor: pointer; }
 .vr-act-row:active { background: rgba(255,255,255,0.07); }
@@ -275,6 +434,12 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-act-label em { display: block; font-style: normal; font-weight: 400; font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
 .vr-act-chev { color: var(--ink-faint); display: inline-flex; flex: 0 0 auto; }
 .vr-act-chev svg { width: 18px; height: 18px; }
+
+/* Toggle switch (Settings · Sound) */
+.vr-switch { flex: 0 0 auto; width: 42px; height: 26px; border-radius: 999px; background: rgba(255,255,255,0.12); border: 1px solid var(--line); position: relative; transition: background 0.2s, border-color 0.2s; }
+.vr-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--ink-dim); transition: transform 0.2s, background 0.2s; }
+.vr-switch.is-on { background: rgba(201,164,107,0.4); border-color: var(--gold); }
+.vr-switch.is-on::after { transform: translateX(16px); background: var(--gold); }
 .vr-act-row.is-danger > svg, .vr-act-row.is-danger .vr-act-label { color: var(--gold); }
 
 /* Grouped inset list (iOS-style) · shared by settings + manage-cast */
@@ -301,6 +466,25 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-cast-btn svg { width: 18px; height: 18px; }
 .vr-cast-btn.is-remove { color: var(--gold); border-color: rgba(201,164,107,0.4); }
 
+/* New-room · the single "Board" field · ONE tap target that opens the
+   picker. Auto-pick = sparkle + label; manual = overlapping avatar stack +
+   count. A trailing chevron makes it read as a drill-in row. */
+.vr-board-field { width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px 12px 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.04); color: var(--ink); cursor: pointer; text-align: left; transition: border-color 0.15s, background 0.15s, transform 0.08s; }
+.vr-board-field:active { transform: scale(0.99); background: rgba(255,255,255,0.06); }
+.vr-board-field > svg { flex: 0 0 auto; width: 18px; height: 18px; color: var(--ink-faint); }
+.vr-board-field.is-auto { border-color: rgba(201,164,107,0.45); background: rgba(201,164,107,0.10); }
+.vr-board-ic { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--gold); color: #1a1407; }
+.vr-board-ic svg { width: 17px; height: 17px; }
+.vr-board-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vr-board-tx b { font-size: 15px; font-weight: 600; }
+.vr-board-tx em { font-style: normal; font-size: 12px; color: var(--ink-dim); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.vr-board-count { flex: 0 0 auto; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: var(--gold); color: #1a1407; font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.vr-dirsum-avs { flex: 1; min-width: 0; display: flex; align-items: center; }
+.vr-dirsum-avs > img, .vr-dirsum-mono, .vr-dirsum-more { width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; margin-left: -8px; border: 2px solid #141414; object-fit: cover; background: #232320; }
+.vr-dirsum-avs > :first-child { margin-left: 0; }
+.vr-dirsum-mono, .vr-dirsum-more { display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--gold); }
+.vr-dirsum-more { background: #2a2a28; color: var(--ink-dim); }
+
 /* Report */
 .vr-rep-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin: 18px 0 8px; }
 .vr-rep-kicker:first-child { margin-top: 2px; }
@@ -311,50 +495,209 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-rep-list li::before { content: ""; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
 .vr-rep-decision { font-size: 16px; line-height: 1.5; color: var(--ink); }
 .vr-rep-foot { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-dim); }
+.vr-rep .vr-rep-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+/* Report · shared */
+.vr-rep-h { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.22; margin-bottom: 14px; }
+.vr-rep-card { border: 1px solid var(--line); border-top: 2px solid var(--gold); border-radius: 12px; background: rgba(201,164,107,0.06); padding: 14px 15px; margin: 6px 0 18px; }
+.vr-rep-card-k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 7px; }
+.vr-rep-card p { font-size: 16px; line-height: 1.5; color: var(--ink); }
+.vr-rep-pos { display: flex; flex-direction: column; }
+.vr-rep-pos-row { padding: 11px 0; border-bottom: 1px solid var(--line); }
+.vr-rep-pos-row:last-child { border-bottom: none; }
+.vr-rep-pos-name { display: block; font-size: 14px; font-weight: 700; color: var(--gold); margin-bottom: 3px; }
+.vr-rep-pos-line { font-size: 15px; line-height: 1.5; color: var(--ink-dim); }
+
+/* Report · Bento grid */
+.vr-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vr-bento-cell { border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.03); padding: 14px; }
+.vr-bento-cell p { font-size: 14px; line-height: 1.45; color: var(--ink-dim); }
+.vr-bento-cell h3 { font-size: 18px; font-weight: 700; line-height: 1.25; }
+.vr-bento-q, .vr-bento-rec, .vr-bento-kp { grid-column: 1 / -1; }
+.vr-bento-rec { border-top: 2px solid var(--gold); background: rgba(201,164,107,0.06); }
+.vr-bento-rec p { color: var(--ink); font-size: 16px; }
+.vr-bento-big { font-size: 21px; font-weight: 800; letter-spacing: -0.01em; color: var(--ink); }
+.vr-bento-kp .vr-rep-list li { font-size: 14px; }
+
+/* Report · Magazine */
+.vr-mag-h { font-size: 28px; font-weight: 800; line-height: 1.12; letter-spacing: -0.02em; margin-bottom: 14px; }
+.vr-mag-lede { font-size: 16px; line-height: 1.6; color: var(--ink); margin-bottom: 18px; }
+.vr-mag-drop { float: left; font-size: 46px; line-height: 0.8; font-weight: 800; color: var(--gold); padding: 4px 9px 0 0; }
+.vr-mag-body { display: flex; flex-direction: column; }
+.vr-mag-art { padding: 13px 0; border-top: 1px solid var(--line); }
+.vr-mag-art-h { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); margin-bottom: 5px; }
+.vr-mag-art p { font-size: 15px; line-height: 1.5; color: var(--ink-dim); }
+
+/* Report · Newspaper */
+.vr-rep-newspaper { text-align: left; }
+.vr-news-mast { font-family: var(--mono); font-size: 24px; font-weight: 800; letter-spacing: 0.06em; text-align: center; text-transform: uppercase; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
+.vr-news-sub { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); text-align: center; padding: 7px 0; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.vr-news-h { font-size: 22px; font-weight: 800; line-height: 1.2; text-align: center; margin-bottom: 14px; }
+.vr-news-cols { columns: 2; column-gap: 16px; }
+.vr-news-cols p { font-size: 14px; line-height: 1.5; color: var(--ink-dim); margin-bottom: 9px; break-inside: avoid; }
+.vr-news-lede { font-weight: 600; color: var(--ink) !important; }
+.vr-news-kp { color: var(--ink-faint) !important; }
+
+/* Report · format switcher (in the rendered brief) */
+.vr-rep-tabs { display: flex; gap: 6px; margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
+.vr-rep-tabs::-webkit-scrollbar { display: none; }
+.vr-rep-tab { flex: 0 0 auto; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--ink-dim); font-size: 12px; font-weight: 600; cursor: pointer; }
+.vr-rep-tab.is-active { border-color: var(--gold); background: rgba(201,164,107,0.14); color: var(--gold); }
+
+/* ── Real brief · markdown (research-note) + structured (bodyJson) ──── */
+.vr-rep-status { padding: 40px 8px; text-align: center; color: var(--ink-dim); font-size: 15px; line-height: 1.5; }
+.vr-rep-status.is-err { color: #d98a8a; }
+.vr-rep-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.vr-rep-badge { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+.vr-rep-badge.is-soft { color: var(--ink-dim); }
+.vr-rep-title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.24; margin-bottom: 16px; color: var(--ink); }
+/* markdown body */
+.vr-md { font-size: 15px; line-height: 1.62; color: var(--ink); }
+.vr-md-h1, .vr-md-h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; margin: 22px 0 8px; color: var(--ink); }
+.vr-md-h3 { font-size: 16px; font-weight: 700; margin: 18px 0 6px; color: var(--ink); }
+.vr-md-h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); margin: 16px 0 6px; }
+.vr-md-h1:first-child, .vr-md-h2:first-child, .vr-md-h3:first-child { margin-top: 2px; }
+.vr-md-p { margin: 0 0 12px; }
+.vr-md em { font-style: italic; color: var(--gold); }
+.vr-md strong { font-weight: 700; color: var(--ink); }
+.vr-md code { font-family: var(--mono); font-size: 14px; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 5px; }
+.vr-md-ul, .vr-md-ol { margin: 0 0 14px; padding-left: 0; list-style: none; }
+.vr-md-ul li, .vr-md-ol li { position: relative; padding-left: 18px; margin-bottom: 7px; line-height: 1.55; }
+.vr-md-ul li::before { content: ""; position: absolute; left: 2px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.vr-md-ol { counter-reset: vrmd; }
+.vr-md-ol li { counter-increment: vrmd; }
+.vr-md-ol li::before { content: counter(vrmd); position: absolute; left: 0; top: 0; font-family: var(--mono); font-size: 12px; color: var(--gold); }
+.vr-md-quote { margin: 14px 0; padding: 4px 0 4px 14px; font-style: italic; color: var(--ink-dim); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-top: 12px; padding-bottom: 12px; }
+/* structured bodyJson */
+.vr-rep-kicker-line { font-size: 16px; line-height: 1.55; color: var(--ink); margin-bottom: 14px; }
+.vr-rep-source { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-faint); margin-bottom: 18px; }
+.vr-rep-miles { display: flex; flex-direction: column; gap: 16px; margin-bottom: 8px; }
+.vr-rep-mile { border-top: 1px solid var(--line); padding-top: 12px; }
+.vr-rep-mile-k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 5px; }
+.vr-rep-mile-t { font-size: 16px; font-weight: 700; line-height: 1.3; color: var(--ink); margin-bottom: 5px; }
+.vr-rep-mile-b { font-size: 15px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+.vr-rep-mile-c { margin-top: 8px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--gold); }
+
+/* Replay · amber HUD */
+body.is-replay [data-vr-round] { color: #d9a441; border-color: rgba(217,164,65,0.5); }
+body.is-replay .vr-live::before { background: #d9a441; }
 
 /* ── App views (home ↔ room) ───────────────────────────────────── */
 .vr-home, .vr-room { position: absolute; inset: 0; }
 .vr-home[hidden], .vr-room[hidden] { display: none; }
 
 /* Home · rooms list */
-.vr-home { display: flex; flex-direction: column; background: var(--bg); }
-.vr-home-top { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: calc(var(--safe-t) + 10px) 20px 12px; }
+.vr-home { display: flex; flex-direction: column;
+  /* faint gold ambient light from the top · static, sits in the page background
+     behind the (transparent) scroll panels — warms the void without clutter. */
+  background: radial-gradient(135% 72% at 50% -8%, rgba(201,164,107,0.07), rgba(201,164,107,0) 56%), var(--bg); }
+/* iOS-Photos style · the header floats over the list, which scrolls UNDER it.
+   The frost lives in ::before so a gradient MASK can fade the blur out toward
+   the bottom — content emerges smoothly from the gaussian blur instead of
+   hitting a hard cut-off edge. The title/buttons sit above the frost. */
+.vr-home-top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(var(--safe-t) + 10px) 20px 12px;
+}
+.vr-home-top::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: -28px; z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(10,10,10,0.9) 35%, rgba(10,10,10,0));
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  /* fade the whole frost (blur + tint) out over the bottom half */
+  -webkit-mask-image: linear-gradient(to bottom, #000 42%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 42%, transparent 100%);
+}
 .vr-home-brand { font-size: 30px; font-weight: 700; letter-spacing: -0.022em; }
 .vr-home-new { width: 38px; height: 38px; border-radius: 50%; background: var(--gold); color: #1a1407; border: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .vr-home-new:active { transform: scale(0.94); }
 .vr-home-new svg { width: 22px; height: 22px; }
-.vr-home-body { flex: 1; min-height: 0; position: relative; }
-/* Panels scroll full-height behind the floating dock (bottom padding clears it) */
-[data-hpanel] { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 16px calc(98px + var(--safe-b)); }
+.vr-home-body { position: absolute; inset: 0; }
+/* Panels scroll the FULL height (top padding clears the floating header, bottom
+   clears the floating dock) so content slides under both — iOS-Photos feel. */
+[data-hpanel] { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(var(--safe-t) + 66px) 16px calc(98px + var(--safe-b)); }
 [data-hpanel][hidden] { display: none; }
 .vr-rooms { display: flex; flex-direction: column; gap: 12px; }
-.vr-agents { display: flex; flex-direction: column; gap: 8px; }
+/* Boot gate · backend-unavailable / configure-a-key banner */
+.vr-gate { border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,0.03); padding: 20px 18px; text-align: center; }
+.vr-gate-t { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.vr-gate p { font-size: 14px; line-height: 1.5; color: var(--ink-dim); }
+.vr-gate-key { border-color: rgba(201,164,107,0.4); }
+.vr-gate-key .vr-convene { margin-top: 14px; }
+.vr-agents { display: block; }   /* sections (kicker · strip · list) own their spacing */
 
 /* iOS-26 Photos-style floating dock · glass tab-pill (left) + create (right) */
 .vr-homedock { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-b) + 10px); z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; pointer-events: none; }
 .vr-tabpill { display: flex; align-items: center; height: 60px; gap: 4px; padding: 0 6px; border-radius: 999px; pointer-events: auto;
-  background: rgba(22,22,24,0.62); -webkit-backdrop-filter: blur(22px) saturate(150%); backdrop-filter: blur(22px) saturate(150%);
-  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 12px 34px rgba(0,0,0,0.45); }
+  background: rgba(28,28,30,0.55); -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 12px 34px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.22); }
 /* icon over label · active is accent-tinted (Photos style), not a filled capsule */
 .vr-tabpill-btn { width: 90px; flex: 0 0 auto; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 48px; padding: 0; border: none; border-radius: 999px; background: transparent; color: var(--ink-dim); font-family: var(--sans); font-size: 11px; font-weight: 500; letter-spacing: 0.01em; cursor: pointer; transition: background 0.15s, color 0.15s; }
 .vr-tabpill-btn svg { width: 22px; height: 22px; }
 /* selected · filled capsule (full-radius, nests in the pill) + accent tint */
 .vr-tabpill-btn.is-active { background: rgba(255,255,255,0.16); color: var(--gold); }
 .vr-create { flex: 0 0 auto; width: 60px; height: 60px; border-radius: 50%; pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--gold);
-  background: rgba(22,22,24,0.62); -webkit-backdrop-filter: blur(22px) saturate(150%); backdrop-filter: blur(22px) saturate(150%);
-  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 12px 34px rgba(0,0,0,0.45); }
+  background: rgba(28,28,30,0.55); -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 12px 34px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.22); }
 .vr-create:active { transform: scale(0.94); }
 .vr-create svg { width: 25px; height: 25px; }
 
 /* Agent list row */
-.vr-agentrow { width: 100%; display: flex; align-items: center; gap: 13px; padding: 12px 14px; background: #141414; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); cursor: pointer; text-align: left; }
-.vr-agentrow:active { background: #191919; }
 .vr-ag-av { border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: #232320; }
 .vr-ag-mono { display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: var(--gold); border: 1px solid var(--line); }
-.vr-ag-body { flex: 1; min-width: 0; }
-.vr-ag-name { font-size: 16px; font-weight: 600; }
-.vr-ag-role { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
-.vr-agentrow .vr-act-chev { color: var(--ink-faint); }
+
+/* Directors · cast-gallery cards. Avatar + gold role kicker + name + handle
+   + one-line bio + a six-bar ability fingerprint. Cards stagger in when the
+   tab opens (opacity/transform only · no shadow animation). */
+.vr-dcard {
+  width: 100%; text-align: left; color: var(--ink); cursor: pointer;
+  display: flex; flex-direction: column; gap: 11px; padding: 14px 15px 13px;
+  background: linear-gradient(180deg, #171717, #121212);
+  border: 1px solid var(--line); border-radius: 18px;
+  opacity: 0; animation: vr-dcard-in 0.44s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.vr-dcard:active { transform: scale(0.985); background: #1a1a1a; }
+@keyframes vr-dcard-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .vr-dcard { animation: none; opacity: 1; } }
+.vr-dcard-top { display: flex; align-items: center; gap: 13px; }
+.vr-dcard-av { flex: 0 0 auto; display: inline-flex; padding: 2px; border-radius: 50%; border: 1.5px solid var(--line); }
+.vr-dcard.is-chair .vr-dcard-av { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,164,107,0.10); }
+.vr-dcard-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vr-dcard-kicker { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vr-dcard-name { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vr-dcard-handle { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 1px; }
+.vr-dcard-chev { flex: 0 0 auto; display: inline-flex; color: var(--ink-faint); }
+.vr-dcard-chev svg { width: 18px; height: 18px; }
+.vr-dcard-bio { font-size: 14px; line-height: 1.45; color: var(--ink-dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Directors panel · section kickers split the "most used" strip from the
+   full roster. */
+.vr-dir-kicker { display: block; font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin: 2px 2px 11px; }
+.vr-dir-kicker.is-sec { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--ink-dim); }
+.vr-dir-list { display: flex; flex-direction: column; gap: 12px; }
+
+/* Most-used · horizontally-scrolling podium strip (rank badge + portrait +
+   role + room count · #1 is a gold champion tile). */
+.vr-feat-strip { display: flex; gap: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; scroll-snap-type: x proximity; }
+.vr-feat-strip::-webkit-scrollbar { display: none; }
+.vr-feat {
+  scroll-snap-align: start; flex: 0 0 auto; width: 138px; text-align: center; color: var(--ink); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 16px 12px 14px; position: relative;
+  background: linear-gradient(180deg, #1b1b1b, #131313); border: 1px solid var(--line); border-radius: 18px;
+  opacity: 0; animation: vr-dcard-in 0.5s cubic-bezier(.22,.61,.36,1) both; animation-delay: calc(var(--i, 0) * 70ms);
+}
+.vr-feat:active { transform: scale(0.97); }
+.vr-feat.is-top { background: linear-gradient(180deg, rgba(201,164,107,0.16), #141210); border-color: rgba(201,164,107,0.5); }
+.vr-feat-rank { position: absolute; top: 11px; left: 13px; font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink-faint); }
+.vr-feat.is-top .vr-feat-rank { color: var(--gold); }
+.vr-feat-av { display: inline-flex; padding: 2px; border-radius: 50%; border: 1.5px solid var(--line); margin-top: 2px; }
+.vr-feat.is-top .vr-feat-av { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,164,107,0.12); }
+.vr-feat-name { max-width: 100%; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vr-feat-kicker { max-width: 100%; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vr-feat-stat { margin-top: 5px; display: inline-flex; align-items: baseline; gap: 4px; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); }
+.vr-feat-stat b { font-size: 17px; font-weight: 700; color: var(--ink); letter-spacing: 0; }
 
 /* Agent profile */
 .vr-prof-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
@@ -363,6 +706,25 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-prof-role { font-size: 12px; color: var(--gold); margin-top: 4px; font-family: var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
 .vr-prof-bio { font-size: 16px; line-height: 1.55; color: var(--ink); margin-bottom: 6px; }
 .vr-prof-voice { margin-left: auto; color: var(--ink-dim); font-size: 14px; }
+/* Inline edit · bio + instruction. The bio row pairs the clamped text with a
+   small "Edit" chip; the editor swaps in a textarea + Save/Cancel. */
+.vr-prof-bio-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.vr-prof-bio-row .vr-prof-bio { flex: 1; min-width: 0; margin-bottom: 0; }
+.vr-edit-btn { flex: 0 0 auto; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,0.04); color: var(--ink-dim); font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+.vr-edit-btn:active { transform: scale(0.96); }
+.vr-doc-k .vr-edit-btn { float: right; margin-top: -3px; }
+.vr-edit { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 2px; }
+.vr-edit .vr-textarea { min-height: 96px; }
+.vr-edit-acts { display: flex; justify-content: flex-end; gap: 8px; }
+.vr-edit-cancel, .vr-edit-save { padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.vr-edit-cancel { background: rgba(255,255,255,0.05); color: var(--ink); }
+.vr-edit-save { background: var(--gold); border-color: var(--gold); color: #1a1407; }
+.vr-edit-cancel:active, .vr-edit-save:active { transform: scale(0.98); }
+.vr-mem-add { margin-top: 10px; }
+/* Delete director · danger row at the very bottom of the profile. */
+.vr-prof-del { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; padding: 13px; border: 1px solid rgba(229,112,95,0.4); border-radius: 14px; background: rgba(229,112,95,0.08); color: #E5705F; font-size: 15px; font-weight: 600; cursor: pointer; }
+.vr-prof-del:active { transform: scale(0.99); background: rgba(229,112,95,0.14); }
+.vr-prof-del svg { width: 18px; height: 18px; }
 .vr-ab-list { display: flex; flex-direction: column; gap: 11px; }
 .vr-ab { display: flex; align-items: center; gap: 12px; }
 .vr-ab-k { flex: 0 0 auto; width: 96px; font-size: 12px; color: var(--ink-dim); }
@@ -406,6 +768,9 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-doc-v { font-size: 15px; line-height: 1.5; color: var(--ink); }
 
 .vr-convene.is-ghost { background: transparent; color: var(--gold); border: 1px solid rgba(201,164,107,0.45); }
+/* Muted (not yet valid) · still clickable so the tap can surface a hint
+   toast — a silently `disabled` button reads as "broken". */
+.vr-convene.is-dim { opacity: 0.5; }
 
 /* Profile · chair "about you" memory card */
 .vr-mem-card { border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.03); padding: 16px 16px 6px; }
@@ -425,8 +790,45 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-note-list { padding: 0; }
 .vr-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px 12px 14px; border-bottom: 1px solid var(--line); }
 .vr-note:last-child { border-bottom: none; }
-.vr-note-text { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.vr-note-col { flex: 1; min-width: 0; }
+.vr-note-text { font-size: 14px; line-height: 1.5; color: var(--ink); }
 .vr-note .vr-cred-del { margin-top: -2px; }
+
+/* Clamp · collapse long text to 3 lines with a tap-to-expand toggle.
+   No border-left / no shadow animation (project rules). */
+.vr-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.vr-clamp.is-open { -webkit-line-clamp: initial; overflow: visible; }
+.vr-clamp.is-clampable { cursor: pointer; }
+.vr-clamp-more { display: inline-block; margin-top: 6px; padding: 0; border: none; background: none; cursor: pointer;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
+
+/* Persona dossier card · gamified character-sheet · divergence dial + stat
+   grid + CTA. The whole card is a button that opens the full dossier. */
+.vr-persona-card { display: block; width: 100%; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 16px; background: rgba(201,164,107,0.06); padding: 16px;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease; }
+.vr-persona-card:active { transform: scale(0.985); border-color: rgba(201,164,107,0.5); background: rgba(201,164,107,0.10); }
+.vr-persona-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.vr-persona-dial { position: relative; width: 64px; height: 64px; flex: 0 0 auto; }
+.vr-persona-dial svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+.vr-persona-dial-track { fill: none; stroke: rgba(255,255,255,0.10); stroke-width: 5; }
+.vr-persona-dial-fill { fill: none; stroke: var(--gold); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 163.4; transition: stroke-dashoffset 0.6s ease; }
+.vr-persona-dial-c { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.vr-persona-dial-v { font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1; white-space: nowrap; }
+.vr-persona-dial-v i { font-style: normal; font-size: 11px; color: var(--ink-dim); margin-left: 1px; }
+.vr-persona-id { flex: 1; min-width: 0; }
+.vr-persona-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); }
+.vr-persona-divlabel { font-size: 14px; font-weight: 600; color: var(--ink); margin-top: 4px; }
+.vr-persona-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.vr-persona-stat { background: #141414; padding: 11px 8px; text-align: center; }
+.vr-persona-stat-v { font-size: 18px; font-weight: 700; color: var(--ink); }
+.vr-persona-stat-l { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-top: 3px; }
+.vr-persona-built { font-family: var(--mono); font-size: 11px; letter-spacing: 0.03em; color: var(--ink-dim); margin-top: 4px; }
+.vr-persona-cta { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.vr-persona-cta-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.vr-persona-cta-hint { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.vr-dossier-dl { display: inline-block; margin-top: 18px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); text-decoration: none; }
 
 /* Profile · editable rules list */
 .vr-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -450,7 +852,82 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-na-count { float: right; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: 0.04em; text-transform: none; }
 .vr-na-handle { font-family: var(--mono); color: var(--gold); }
 .vr-textarea { resize: none; min-height: 64px; line-height: 1.5; }
-.vr-textarea.tall { min-height: 116px; }
+.vr-textarea.tall { min-height: 168px; }
+
+/* New director · describe step */
+.vr-na-hero { padding: 2px 2px 14px; }
+.vr-na-greet { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+.vr-na-prompt { font-size: 24px; font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; }
+.vr-na-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vr-na-mode { display: flex; flex-direction: column; gap: 4px; padding: 14px 13px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.03); color: var(--ink); text-align: left; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.vr-na-mode:active { transform: scale(0.98); }
+.vr-na-mode.is-on { border-color: var(--gold); background: rgba(201,164,107,0.12); }
+.vr-na-mode-t { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; }
+.vr-na-mode-d { font-size: 12px; color: var(--ink-dim); line-height: 1.35; }
+.vr-na-spark { display: inline-flex; color: var(--gold); }
+.vr-na-spark svg { width: 13px; height: 13px; }
+.vr-na-manual { display: block; width: 100%; margin-top: 12px; padding: 8px; background: transparent; border: none; color: var(--ink-dim); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+
+/* New director · generating animation (opacity / rotate / width only) */
+.vr-gen { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 20px 6px 8px; }
+.vr-gen-orb { position: relative; width: 76px; height: 76px; display: grid; place-items: center; margin-bottom: 18px; }
+.vr-gen-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--gold); animation: vr-gen-spin 0.9s linear infinite; }
+.vr-gen-core { display: inline-flex; color: var(--gold); animation: vr-gen-pulse 1.4s ease-in-out infinite; }
+.vr-gen-core svg { width: 26px; height: 26px; }
+@keyframes vr-gen-spin { to { transform: rotate(360deg); } }
+@keyframes vr-gen-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.vr-gen-title { font-size: 17px; font-weight: 700; }
+.vr-gen-sub { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-faint); margin-top: 5px; }
+.vr-gen-bar { width: 100%; max-width: 280px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 16px 0 22px; }
+.vr-gen-bar i { display: block; height: 100%; background: var(--gold); border-radius: 3px; transition: width 0.18s linear; }
+.vr-gen-phases { list-style: none; margin: 0; padding: 0; width: 100%; max-width: 280px; display: flex; flex-direction: column; gap: 11px; text-align: left; }
+.vr-gen-phase { display: flex; align-items: center; gap: 11px; font-size: 14px; color: var(--ink-faint); transition: color 0.2s; }
+.vr-gen-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); flex: 0 0 auto; transition: background 0.2s; }
+.vr-gen-phase.is-done { color: var(--ink-dim); }
+.vr-gen-phase.is-done .vr-gen-dot { background: var(--gold); }
+.vr-gen-phase.is-active { color: var(--ink); }
+.vr-gen-phase.is-active .vr-gen-dot { background: var(--gold); animation: vr-gen-pulse 1s ease-in-out infinite; }
+
+/* New director · FULL-PERSONA build · circular dial + vertical timeline */
+.vr-gen-full { padding-top: 12px; align-items: center; }
+.vr-gen-dial { position: relative; width: 132px; height: 132px; margin: 2px 0 12px; }
+.vr-gen-dial-svg { width: 132px; height: 132px; display: block; transform: rotate(-90deg); }
+.vr-gen-dial-track { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 6; }
+.vr-gen-dial-fill { fill: none; stroke: var(--gold); stroke-width: 6; stroke-linecap: round; stroke-dasharray: 326.7; stroke-dashoffset: 326.7; transition: stroke-dashoffset 0.18s linear; }
+.vr-gen-dial-c { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.vr-gen-pct { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.vr-gen-pct i { font-style: normal; font-size: 15px; font-weight: 600; color: var(--ink-dim); margin-left: 1px; }
+.vr-gen-dial-sub { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); }
+.vr-gen-elapsed { font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; color: var(--ink-faint); margin-bottom: 22px; font-variant-numeric: tabular-nums; }
+
+.vr-gen-tl { list-style: none; margin: 0; padding: 0; width: 100%; max-width: 300px; }
+.vr-gen-tl-step { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 13px; padding-bottom: 16px; }
+.vr-gen-tl-step:last-child { padding-bottom: 0; }
+.vr-gen-tl-step:not(:last-child)::before { content: ""; position: absolute; left: 10px; top: 24px; bottom: 0; width: 1.5px; background: var(--line); transition: background 0.3s; }
+.vr-gen-tl-step.is-done:not(:last-child)::before { background: rgba(201,164,107,0.5); }
+.vr-gen-tl-node { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--bg); display: inline-flex; align-items: center; justify-content: center; transition: border-color 0.25s; }
+.vr-gen-tl-node svg { width: 12px; height: 12px; color: var(--gold); }
+.vr-gen-tl-step.is-done .vr-gen-tl-node, .vr-gen-tl-step.is-active .vr-gen-tl-node { border-color: var(--gold); }
+.vr-gen-tl-step.is-active .vr-gen-tl-node::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); animation: vr-gen-pulse 1s ease-in-out infinite; }
+.vr-gen-tl-name { font-size: 15px; font-weight: 600; color: var(--ink-faint); padding-top: 1px; transition: color 0.25s; }
+.vr-gen-tl-step.is-active .vr-gen-tl-name, .vr-gen-tl-step.is-done .vr-gen-tl-name { color: var(--ink); }
+.vr-gen-tl-expand { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
+.vr-gen-tl-step.is-active .vr-gen-tl-expand { max-height: 220px; }
+.vr-gen-tl-subs { padding-top: 9px; display: flex; flex-direction: column; gap: 7px; }
+.vr-gen-tl-sub { position: relative; padding-left: 16px; font-size: 12px; color: var(--ink-faint); transition: color 0.2s; }
+.vr-gen-tl-sub::before { content: ""; position: absolute; left: 2px; top: 5px; width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--ink-faint); box-sizing: border-box; transition: background 0.2s, border-color 0.2s; }
+.vr-gen-tl-sub.is-done { color: var(--ink-dim); }
+.vr-gen-tl-sub.is-done::before { background: var(--gold); border-color: var(--gold); }
+.vr-gen-feed { margin-top: 9px; display: flex; flex-direction: column; gap: 5px; }
+.vr-gen-feedline { position: relative; padding-left: 16px; font-family: var(--mono); font-size: 11px; color: var(--gold); opacity: 0; animation: vr-gen-fadein 0.3s ease forwards; }
+.vr-gen-feedline::before { content: "›"; position: absolute; left: 4px; color: var(--gold); }
+@keyframes vr-gen-fadein { to { opacity: 0.85; } }
+
+/* New director · confirm/edit step chrome */
+.vr-na-kicker { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
+.vr-na-startover { background: transparent; border: none; color: var(--ink-dim); font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.vr-na-radar { padding-top: 0; margin-top: -2px; }
+.vr-na-radar .vr-radar { max-width: 230px; }
 
 /* New-agent ability sliders */
 .vr-slider-list { padding: 8px 14px; }
@@ -462,29 +939,45 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-roomcard { width: 100%; text-align: left; background: #141414; border: 1px solid var(--line); border-radius: 18px; padding: 16px; cursor: pointer; display: flex; flex-direction: column; gap: 12px; color: var(--ink); transition: background 0.12s, transform 0.1s; }
 .vr-roomcard:active { background: #191919; transform: scale(0.99); }
 .vr-rc-head { display: flex; align-items: center; gap: 10px; }
-.vr-rc-status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-.vr-rc-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
-.vr-rc-status.is-live { color: var(--gold); }
-.vr-rc-status.is-live::before { background: var(--gold); animation: vr-pulse 1.6s ease-in-out infinite; }
-.vr-rc-status.is-done { color: var(--ink-faint); }
-.vr-rc-status.is-done::before { background: var(--ink-faint); }
-.vr-rc-tone { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); }
+.vr-rc-tone { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); }
+
+/* Room-list section headers · mono kicker per status group (live / paused /
+   adjourned). The dot + label colour-code the group; the count trails dim. */
+.vr-rooms-grp { display: flex; align-items: center; gap: 8px; padding: 2px 2px 0;
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+.vr-rooms-grp:not(:first-child) { margin-top: 8px; }
+.vr-rooms-grp-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; }
+.vr-rooms-grp-n { color: var(--ink-faint); font-weight: 600; letter-spacing: 0.06em; }
+.vr-rooms-grp.is-live { color: var(--gold); }
+.vr-rooms-grp.is-live .vr-rooms-grp-dot { background: var(--gold); animation: vr-pulse 1.6s ease-in-out infinite; }
+.vr-rooms-grp.is-paused { color: #d9a441; }
+.vr-rooms-grp.is-paused .vr-rooms-grp-dot { background: #d9a441; }
+.vr-rooms-grp.is-done { color: var(--ink-faint); }
+.vr-rooms-grp.is-done .vr-rooms-grp-dot { background: var(--ink-faint); }
 .vr-rc-tone svg { width: 15px; height: 15px; }
-.vr-rc-subject { font-size: 17px; font-weight: 600; line-height: 1.34; letter-spacing: -0.01em; }
+.vr-rc-subject { font-size: 17px; font-weight: 600; line-height: 1.34; letter-spacing: -0.01em; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .vr-rc-foot { display: flex; align-items: center; gap: 12px; }
 .vr-rc-avs { display: flex; }
-.vr-rc-avs img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; border: 2px solid #141414; margin-left: -8px; background: #1a1a18; }
-.vr-rc-avs img:first-child { margin-left: 0; }
+.vr-rc-avs img, .vr-rc-av-mono { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; border: 2px solid #141414; margin-left: -8px; background: #1a1a18; }
+.vr-rc-av-mono { display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+.vr-rc-avs img:first-child, .vr-rc-av-mono:first-child { margin-left: 0; }
 .vr-rc-meta { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: 0.03em; }
 
-/* Room top-bar back button · same glass family as the menu button */
-.vr-back-btn { flex: 0 0 auto; height: 34px; width: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.42); -webkit-backdrop-filter: blur(10px) saturate(120%); backdrop-filter: blur(10px) saturate(120%); border: 1px solid rgba(255,255,255,0.16); color: var(--ink); pointer-events: auto; cursor: pointer; }
-.vr-back-btn svg { width: 20px; height: 20px; transform: rotate(180deg); }
+/* Room top-bar back button · the shared Liquid-Glass rule above provides the
+   frost/rim/shadow; here we only set the circular size + interactivity. */
+.vr-back-btn { width: 38px; border-radius: 50%; pointer-events: auto; cursor: pointer; }
+.vr-back-btn svg { width: 21px; height: 21px; }
 
-/* Home settings button · neutral, beside the gold + */
+/* Home settings button · same iOS-26 Liquid Glass as the room top buttons. */
 .vr-home-actions { display: flex; align-items: center; gap: 10px; }
-.vr-home-btn { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 1px solid var(--line); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.vr-home-btn:active { transform: scale(0.94); }
+.vr-home-btn { width: 38px; height: 38px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  color: #fff;
+  background: rgba(255,255,255,0.14);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.30);
+  transition: transform 0.12s ease; }
+.vr-home-btn:active { transform: scale(0.93); }
 .vr-home-btn svg { width: 20px; height: 20px; }
 
 /* API keys */
@@ -540,7 +1033,7 @@ body.is-adjourned .vr-adjourned { display: flex; }
 .vr-input { width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,0.04); color: var(--ink); font-size: 16px; font-family: var(--sans); }
 .vr-input::placeholder { color: var(--ink-faint); }
 .vr-input:focus { outline: none; border-color: var(--gold); background: rgba(201,164,107,0.06); }
-.vr-convene { width: 100%; height: 52px; margin-top: 8px; border: none; border-radius: 14px; background: var(--gold); color: #1a1407; font-size: 16px; font-weight: 700; cursor: pointer; }
+.vr-convene { width: 100%; height: 52px; margin-top: 8px; border: none; border-radius: 999px; background: var(--gold); color: #1a1407; font-size: 16px; font-weight: 700; cursor: pointer; }
 .vr-convene:active { transform: scale(0.98); }
 
 /* ── Text-delivery room · chat ─────────────────────────────────── */
@@ -549,17 +1042,27 @@ body.is-text .vr-chat-view { display: block; }
 body.is-text .vr-stage,
 body.is-text .vr-caption,
 body.is-text .vr-rail,
-body.is-text .vr-dock,
-body.is-text .vr-sheet { display: none !important; }
+body.is-text .vr-dock { display: none !important; }
+/* Voice room shown in text STYLE · same as a text room but KEEPS the dock
+   (the dock holds the toggle back to the 3D stage + the voice controls). */
+body.is-vtext .vr-chat-view { display: block; }
+body.is-vtext .vr-stage,
+body.is-vtext .vr-caption,
+body.is-vtext .vr-rail { display: none !important; }
 .vr-chat-msgs { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(var(--safe-t) + 58px) 16px calc(86px + var(--safe-b)); display: flex; flex-direction: column; gap: 12px; }
 .vr-msg { display: flex; gap: 10px; align-items: flex-start; max-width: 86%; }
-.vr-msg-them { align-self: flex-start; }
+/* Director messages flow as plain text (markdown) full-width — desktop-style;
+   only the user's own messages are bubbles. */
+.vr-msg-them { align-self: flex-start; max-width: 100%; }
 .vr-msg-me { align-self: flex-end; }
 .vr-msg .vr-ag-av { margin-top: 2px; }
 .vr-msg-body { min-width: 0; }
 .vr-msg-who { font-size: 12px; font-weight: 600; color: var(--gold); margin-bottom: 3px; }
-.vr-msg-text { font-size: 15px; line-height: 1.5; color: var(--ink); background: #18181a; border: 1px solid var(--line); padding: 10px 13px; border-radius: 4px 15px 15px 15px; }
-.vr-msg-me .vr-msg-text { background: var(--gold); color: #1a1407; border-color: var(--gold); border-radius: 15px 15px 4px 15px; }
+/* director · plain text body (markdown), no bubble */
+.vr-msg-text { font-size: 15px; line-height: 1.55; color: var(--ink); }
+.vr-msg-them .vr-msg-text.vr-md > :last-child { margin-bottom: 0; }
+/* user · gold bubble */
+.vr-msg-me .vr-msg-text { background: var(--gold); color: #1a1407; border: 1px solid var(--gold); padding: 10px 13px; border-radius: 15px 15px 4px 15px; }
 .vr-typing { display: inline-flex; gap: 4px; padding: 3px 0; }
 .vr-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); animation: vr-typing 1.2s infinite; }
 .vr-typing i:nth-child(2) { animation-delay: 0.15s; }
@@ -570,6 +1073,11 @@ body.is-text .vr-sheet { display: none !important; }
 .vr-composer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10; display: none; align-items: center; gap: 10px; padding: 10px 14px calc(10px + var(--safe-b)); background: linear-gradient(to top, rgba(8,8,10,0.96), rgba(8,8,10,0.45)); }
 body.is-text .vr-composer, body.is-composing .vr-composer { display: flex; }
 body.is-adjourned .vr-composer { display: none; }
+/* Interject in a voice room · drop the composer’s own gradient so it sits on
+   the SAME .vr-botgroup frosted band the dock used (the band is room-bottom
+   anchored + 184px tall, so it stays put when the dock hides). Text / vtext
+   rooms keep the gradient — there the botgroup band is hidden. */
+body.is-composing:not(.is-text):not(.is-vtext) .vr-composer { background: none; }
 .vr-composer-input { flex: 1; min-width: 0; height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--ink); font-size: 16px; font-family: var(--sans); }
 .vr-composer-input:focus { outline: none; border-color: var(--gold); }
 .vr-composer-input::placeholder { color: var(--ink-faint); }
@@ -579,6 +1087,132 @@ body.is-adjourned .vr-composer { display: none; }
 .vr-composer-cancel { display: none; width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--ink-dim); align-items: center; justify-content: center; cursor: pointer; }
 .vr-composer-cancel svg { width: 20px; height: 20px; }
 body.is-composing .vr-composer-cancel { display: inline-flex; }
+
+/* Round-end prompt · a friendly frosted card rises over the dock when a round
+   wraps (is-voting). Auto-continue countdown ring on the primary Continue, with
+   a quiet Adjourn-&-file underneath. The 3D stage stays visible above it. */
+.vr-votebar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 14; display: none; padding: 0 14px calc(14px + var(--safe-b)); pointer-events: none; }
+body.is-voting .vr-votebar { display: block; }
+body.is-voting .vr-dock, body.is-voting .vr-composer { display: none !important; }
+/* Clear the bottom around the card so it reads as the single focus. */
+body.is-voting .vr-rail, body.is-voting .vr-dock-toggle { display: none !important; }
+body.is-voting .vr-botgroup::before { opacity: 0; }
+.vr-rc-card {
+  pointer-events: auto; border-radius: 22px; padding: 18px 18px 14px;
+  background: rgba(20,20,22,0.62);
+  -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 14px 44px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.18);
+  animation: vr-slide-up 0.3s cubic-bezier(.22,.61,.36,1);
+}
+.vr-rc-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 14px; }
+/* Primary Continue (gold) + Call-the-vote (outline). The chair's recommended
+   choice gets .is-rec. No countdown ring — the sheet waits for the user. */
+.vr-rc-continue { width: 100%; display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 16px; border: none; border-radius: 16px; background: var(--gold); color: #1a1407; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.1s; box-shadow: 0 4px 14px rgba(201,164,107,0.32), inset 0 1px 0 rgba(255,255,255,0.35); }
+.vr-rc-continue:active { transform: scale(0.985); }
+.vr-rc-clabel { flex: 1; text-align: center; }
+.vr-rc-end { width: 100%; margin-top: 10px; height: 50px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--ink); font-size: 15px; font-weight: 600; cursor: pointer; transition: transform 0.1s, background 0.15s, border-color 0.15s, color 0.15s; }
+.vr-rc-end:active { transform: scale(0.985); background: rgba(255,255,255,0.12); }
+.vr-rc-end.is-rec { border-color: var(--gold); color: var(--gold); }
+/* Adjourn · the destructive choice · de-emphasised (transparent, muted) so it
+   reads as the quietest of the three. is-rec still lifts it to gold. */
+.vr-rc-adjourn-btn { margin-top: 8px; height: 46px; background: transparent; border-color: transparent; color: var(--ink-dim); }
+.vr-rc-adjourn-btn:active { background: rgba(255,255,255,0.06); }
+
+/* ── Round-end / vote SHEET ─────────────────────────────────────────
+   The round-end family now renders inside the modal bottom-sheet body
+   (data-modal-card), not the votebar. The modal already supplies the
+   sheet surface + title bar, so strip the frosted-card chrome off the
+   reused .vr-rc-* button stack and let the buttons sit on the sheet. */
+[data-modal-body] .vr-rc-card { background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; animation: none; border-radius: 0; padding: 4px 0 calc(8px + var(--safe-b)); }
+[data-modal-body] .vr-kp-card { padding: 4px 0 calc(8px + var(--safe-b)); }
+/* Key-point vote panel · eyebrow + rows (each with ▲ 跟进 / ▼ 舍去) + an
+   optional tone-shift callout + the Continue / Adjourn (or Switch / Keep /
+   Adjourn) CTAs. */
+.vr-kp-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; }
+.vr-kp-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.vr-kp-row { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); }
+.vr-kp-body { font-size: 15px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.vr-kp-actions { display: flex; gap: 8px; }
+.vr-kp-vote { flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--ink-dim); font-size: 14px; font-weight: 600; cursor: pointer; transition: transform 0.1s, background 0.15s, border-color 0.15s, color 0.15s; }
+.vr-kp-vote:active { transform: scale(0.97); }
+.vr-kp-arrow { font-size: 12px; line-height: 1; }
+.vr-kp-vote.up.is-active { border-color: var(--gold); background: rgba(201,164,107,0.16); color: var(--gold); }
+.vr-kp-vote.down.is-active { border-color: rgba(255,255,255,0.42); background: rgba(255,255,255,0.12); color: var(--ink); }
+/* Drafting skeleton · opacity pulse only (house rule: no shadow/glow anims). */
+.vr-kp-row.is-skeleton { gap: 0; }
+.vr-kp-skel-bar { height: 14px; width: 100%; border-radius: 6px; background: rgba(255,255,255,0.1); animation: vr-kp-pulse 1.3s ease-in-out infinite; }
+.vr-kp-skel-bar.short { width: 62%; }
+@keyframes vr-kp-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.85; } }
+/* Tone-shift proposal · top rule + serif-italic reason (no left-border callouts). */
+.vr-kp-shift { margin: 4px 0 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.vr-kp-shift-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--gold); margin-bottom: 6px; }
+.vr-kp-shift-eyebrow strong { color: var(--gold); font-weight: 700; text-transform: capitalize; }
+.vr-kp-shift-why { font-size: 14px; line-height: 1.55; color: var(--ink-dim); font-style: italic; }
+.vr-kp-ctas { display: flex; flex-direction: column; gap: 10px; }
+.vr-kp-ctas .vr-rc-end { margin-top: 0; }   /* the flex gap owns the spacing here */
+/* While the round-end card is up, the chair has finished · hide the caption so
+   the card never covers a stale subtitle. */
+body.is-voting .vr-caption { display: none !important; }
+/* legacy offline vote panel (renderVoteBar · unused) */
+.vr-votebar-q { font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--ink); }
+.vr-votebar-opts { display: flex; flex-direction: column; gap: 9px; }
+.vr-vote-opt { width: 100%; padding: 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--ink); font-size: 15px; font-weight: 600; cursor: pointer; transition: transform 0.1s, background 0.15s; }
+.vr-vote-opt:active { transform: scale(0.98); }
+.vr-vote-opt.primary { background: var(--gold); color: #1a1407; border-color: var(--gold); }
+.vr-vote-result { margin-top: 12px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; color: var(--gold); }
+.vr-vote-kp { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.vr-vote-kp li { position: relative; padding-left: 14px; font-size: 14px; line-height: 1.45; color: var(--ink-dim); }
+.vr-vote-kp li::before { content: ""; position: absolute; left: 0; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+
+/* Interject action sheet · interrupt vs queue */
+.vr-ask { position: absolute; inset: 0; z-index: 40; display: none; align-items: flex-end; background: rgba(0,0,0,0.5); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+body.is-asking .vr-ask { display: flex; }
+.vr-ask-card { width: 100%; background: #141416; border-top: 1px solid var(--line); border-radius: 20px 20px 0 0; padding: 20px 18px calc(18px + var(--safe-b)); }
+.vr-ask-q { font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--ink); margin-bottom: 16px; }
+.vr-ask-opts { display: flex; flex-direction: column; gap: 9px; }
+.vr-ask-opt { width: 100%; padding: 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--ink); font-size: 15px; font-weight: 600; cursor: pointer; transition: transform 0.1s, background 0.15s; }
+.vr-ask-opt:active { transform: scale(0.98); }
+.vr-ask-opt.primary { background: var(--gold); color: #1a1407; border-color: var(--gold); }
+
+/* Director picker · bottom-sheet overlay stacked above the new-room modal */
+.vr-dpick { position: absolute; inset: 0; z-index: 50; display: none; align-items: flex-end; background: rgba(0,0,0,0.55); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+body.is-dpick .vr-dpick { display: flex; }
+.vr-dpick-card { width: 100%; max-height: 72%; display: flex; flex-direction: column; background: #161616; border-top: 1px solid var(--line); border-radius: 20px 20px 0 0; box-shadow: 0 -20px 60px rgba(0,0,0,0.6); animation: vr-slide-up 0.28s cubic-bezier(.22,.61,.36,1); }
+.vr-dpick-head { display: flex; align-items: center; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.vr-dpick-back { width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(255,255,255,0.07); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
+.vr-dpick-back svg { width: 20px; height: 20px; }
+.vr-dpick-back:active { transform: scale(0.94); }
+.vr-dpick-title { flex: 1; margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); }
+.vr-dpick-done { border: none; background: var(--gold); color: #1a1407; font-size: 14px; font-weight: 700; padding: 9px 18px; border-radius: 999px; cursor: pointer; flex: 0 0 auto; }
+.vr-dpick-done:active { transform: scale(0.97); }
+/* Hide the scrollbar entirely · no track gutter / background (matches .vr-rail) */
+.vr-dpick-list { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 4px calc(8px + var(--safe-b)); scrollbar-width: none; }
+.vr-dpick-list::-webkit-scrollbar { display: none; }
+/* Whole row is the tap target in the picker (not just the +/✓ mark). */
+/* Picker rows · the WHOLE row is the tap target, with a checkbox-style
+   toggle on the right. Selected = gold-tinted row + gold avatar ring +
+   filled gold check · unselected = plain row + outlined "+" ring. */
+.vr-dpick-list .vr-cast-row { cursor: pointer; gap: 13px; padding: 9px 12px; margin: 2px 0; border-bottom: none; border-radius: 14px; transition: background 0.15s, transform 0.08s; }
+.vr-dpick-list .vr-cast-row:active { transform: scale(0.99); background: rgba(255,255,255,0.05); }
+.vr-dpick-list .vr-cast-row.is-on { background: rgba(201,164,107,0.16); }
+.vr-dpick-list .vr-cast-row img { width: 42px; height: 42px; transition: box-shadow 0.15s; }
+.vr-dpick-list .vr-cast-row.is-on img { box-shadow: 0 0 0 2px var(--gold); }
+.vr-dpick-list .vr-cast-name { font-weight: 600; }
+.vr-dpick-list .vr-cast-btn { width: 26px; height: 26px; border: 1.5px solid var(--line); background: transparent; color: var(--ink-faint); pointer-events: none; transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s; }
+.vr-dpick-list .vr-cast-btn svg { width: 15px; height: 15px; }
+.vr-dpick-list .vr-cast-row.is-on .vr-cast-btn { background: var(--gold); border-color: var(--gold); color: #1a1407; }
+/* Auto-pick row · sits above the director list (a sparkle tile + 2-line
+   label). When it's the active mode the list below is dimmed. */
+.vr-dpick-list .vr-auto-row { gap: 12px; }
+.vr-auto-ic { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--gold); color: #1a1407; }
+.vr-auto-ic svg { width: 20px; height: 20px; }
+.vr-auto-name { display: flex; flex-direction: column; }
+.vr-auto-name b { font-size: 15px; font-weight: 600; }
+.vr-auto-name em { font-style: normal; font-size: 12px; color: var(--ink-dim); line-height: 1.3; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.vr-dpick-sep { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint); padding: 12px 14px 6px; }
+/* Auto-pick active · the manual list is kept but dimmed (tap any to switch). */
+.vr-dpick-list.is-auto .vr-cast-row[data-dcast], .vr-dpick-list.is-auto .vr-dpick-sep { opacity: 0.4; transition: opacity 0.18s; }
 
 /* Floor tones · --floor-bg/--floor-image copied verbatim from production
    index.html [data-floor] so the engine getComputedStyle read resolves and
@@ -603,3 +1237,211 @@ body.is-composing .vr-composer-cancel { display: inline-flex; }
   --floor-bg: #2F3A30;
   --floor-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' shape-rendering='crispEdges'><rect width='64' height='64' fill='%232F3A30'/><rect x='6' y='8' width='1' height='1' fill='%233C493C'/><rect x='24' y='5' width='1' height='1' fill='%233C493C'/><rect x='42' y='12' width='1' height='1' fill='%233C493C'/><rect x='58' y='7' width='1' height='1' fill='%233C493C'/><rect x='14' y='26' width='1' height='1' fill='%233C493C'/><rect x='34' y='22' width='1' height='1' fill='%233C493C'/><rect x='50' y='30' width='1' height='1' fill='%233C493C'/><rect x='9' y='44' width='1' height='1' fill='%233C493C'/><rect x='28' y='50' width='1' height='1' fill='%233C493C'/><rect x='46' y='46' width='1' height='1' fill='%233C493C'/><rect x='56' y='56' width='1' height='1' fill='%233C493C'/><rect x='18' y='60' width='1' height='1' fill='%233C493C'/><rect x='12' y='14' width='1' height='1' fill='%23283227'/><rect x='30' y='9' width='1' height='1' fill='%23283227'/><rect x='48' y='6' width='1' height='1' fill='%23283227'/><rect x='60' y='18' width='1' height='1' fill='%23283227'/><rect x='8' y='34' width='1' height='1' fill='%23283227'/><rect x='36' y='30' width='1' height='1' fill='%23283227'/><rect x='52' y='40' width='1' height='1' fill='%23283227'/><rect x='20' y='52' width='1' height='1' fill='%23283227'/><rect x='40' y='58' width='1' height='1' fill='%23283227'/><rect x='26' y='36' width='1' height='1' fill='%23283227'/><rect x='54' y='24' width='1' height='1' fill='%23283227'/><rect x='15' y='42' width='1' height='1' fill='%23283227'/></svg>");
 }
+
+/* ── Voice setup (agent profile) ─────────────────────────────────────
+   Dropdown-style row + preview button + locked card + tuning group.
+   Reuses .vr-slider / .vr-cred-row / .vr-convene / .vr-set-list. */
+.vr-pick-open {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.vr-pick-open > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vr-pick-open svg { width: 18px; height: 18px; flex: 0 0 auto; color: var(--ink-faint); }
+.vr-pick-open:active { transform: scale(0.99); }
+.vr-voice-pick-row { display: flex; align-items: center; gap: 10px; }
+.vr-voice-pick-row .vr-pick-open { flex: 1; min-width: 0; }
+.vr-voice-preview {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--gold);
+  background: rgba(201, 164, 107, 0.12);
+  color: var(--gold);
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.vr-voice-preview:active { transform: scale(0.94); }
+.vr-voice-preview.is-playing { animation: vr-voice-pulse 0.9s ease-in-out infinite; }
+@keyframes vr-voice-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.vr-voice-tunes { padding: 2px; }
+.vr-voice-tunes .vr-slider-k { width: 124px; }
+.vr-voice-locked {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 22px 16px;
+  text-align: center;
+}
+.vr-voice-locked-title { color: var(--ink-dim); font-size: 14px; line-height: 1.5; margin-bottom: 14px; }
+
+/* ── Full report view (real spine in an iframe) ──────────────────────
+   "Open full report" button in the brief view + the full-bleed iframe
+   page that loads the real report.html / ppt.html / magazine.html /
+   newspaper.html spine for the brief. */
+.vr-rep-view-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px;
+  margin-bottom: 14px;
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  background: rgba(201, 164, 107, 0.12);
+  color: var(--gold);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vr-rep-view-btn:active { transform: scale(0.99); }
+.vr-rep-view-btn svg { width: 18px; height: 18px; flex: 0 0 auto; }
+/* Full-bleed over the padded modal body (cancel padding via margins;
+   add the canceled padding back into the height so it fills exactly). */
+.vr-rep-view {
+  margin: -16px -18px calc(-20px - var(--safe-b));
+  height: calc(100% + 36px + var(--safe-b));
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+.vr-rep-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; display: block; background: #fff; }
+.vr-rep-open-ext {
+  flex: 0 0 auto;
+  display: block;
+  text-align: center;
+  padding: 12px;
+  font-size: 14px;
+  color: var(--ink-dim);
+  text-decoration: none;
+  border-top: 1px solid var(--line);
+  background: #161616;
+}
+
+/* Follow-up note · shown atop the new-room form when it was opened as a
+   follow-up (parentRoomId set), so the user knows the cast/tone are seeded. */
+.vr-followup-note {
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(201, 164, 107, 0.08);
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Usage panel · cumulative LLM accounting (mirrors the desktop panel) ── */
+.vr-use-empty { text-align: center; padding: 40px 16px; }
+.vr-use-empty-num { font-size: 44px; font-weight: 700; color: var(--ink-faint); letter-spacing: -0.02em; }
+.vr-use-empty-text { font-size: 14px; color: var(--ink-dim); margin-top: 6px; }
+
+/* Day picker · "All · cumulative" + (when drilled in) the selected-day pill */
+.vr-use-days { display: flex; gap: 8px; margin-bottom: 16px; }
+.vr-use-pill { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--ink-dim); cursor: pointer; }
+.vr-use-pill.is-on { background: rgba(201,164,107,0.14); border-color: var(--gold); color: var(--gold); }
+
+/* 14-day stacked bar chart · one column per day, provider-coloured segments */
+.vr-use-chart { margin-bottom: 22px; }
+.vr-use-chart-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.vr-use-chart-meta span { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.vr-use-chart-meta .vr-use-chart-tot { color: var(--ink); font-size: 12px; }
+.vr-use-cbars { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
+.vr-use-cbar { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; background: none; border: none; padding: 0; cursor: pointer; }
+.vr-use-cstack { width: 100%; max-width: 18px; display: flex; flex-direction: column-reverse; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.05); min-height: 2px; }
+.vr-use-cstack span { display: block; width: 100%; }
+.vr-use-cbar.is-on .vr-use-cstack { outline: 1px solid var(--gold); outline-offset: 1px; }
+.vr-use-cbar.is-today .vr-use-ctick { color: var(--gold); }
+.vr-use-ctick { font-family: var(--mono); font-size: 9px; color: var(--ink-faint); white-space: nowrap; }
+
+/* Detail head · big total (left) + Models / Agents / Active meta (right) */
+.vr-use-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.vr-use-head .vr-use-total { text-align: left; padding: 0; }
+.vr-use-scope { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 4px; }
+.vr-use-head .vr-use-total-num { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.vr-use-total-raw { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+.vr-use-meta { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+.vr-use-meta-row { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; }
+.vr-use-meta-row span { color: var(--ink-dim); }
+.vr-use-meta-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.vr-use-list, .vr-use-alist { display: flex; flex-direction: column; }
+
+/* Top consumers · name + role, share bar, tokens */
+.vr-use-arow { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.vr-use-arow:last-child { border-bottom: none; }
+.vr-use-aname { flex: 0 0 38%; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vr-use-aname em { display: block; font-style: normal; font-weight: 400; font-size: 11px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 1px; }
+.vr-use-abar { flex: 1; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.vr-use-abar span { display: block; height: 100%; }
+.vr-use-atok { flex: 0 0 auto; font-family: var(--mono); font-size: 12px; color: var(--ink); min-width: 40px; text-align: right; }
+
+.vr-use-silent { font-size: 12px; color: var(--ink-faint); padding: 8px 14px 0; }
+.vr-use-retired { font-size: 12px; color: var(--ink-dim); margin-top: 16px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.03); line-height: 1.5; }
+.vr-use-dayempty { padding: 28px 16px; text-align: center; font-size: 14px; color: var(--ink-dim); }
+
+/* Report-config style chips · spine / house-style / template-variant selection
+   (mirrors the desktop adjourn-overlay theme row). Compact wrapping pills. */
+.vr-style-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.vr-style-chip { padding: 8px 13px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,0.035); color: var(--ink-dim); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s; }
+.vr-style-chip:active { transform: scale(0.96); }
+.vr-style-chip.is-checked { border-color: var(--gold); background: rgba(201,164,107,0.14); color: var(--gold); }
+
+/* ── Adjourned text-room end cards · session analysis + filed report ─────── */
+.vr-end-card { margin: 14px 2px 0; padding: 16px 16px 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,0.025); }
+.vr-end-card:last-child { margin-bottom: 8px; }
+.vr-end-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; }
+.vr-end-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.vr-end-metric { display: flex; flex-direction: column; gap: 3px; }
+.vr-end-metric-num { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.vr-end-metric-lab { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.vr-end-bar { margin-top: 16px; }
+.vr-end-legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; }
+.vr-end-leg { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); }
+.vr-end-leg i { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.vr-end-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.vr-end-chip { font-size: 12px; font-weight: 600; color: var(--ink); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); }
+.vr-end-report-title { font-size: 17px; font-weight: 700; line-height: 1.3; margin: 4px 0 14px; }
+.vr-end-filing { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--ink-dim); margin-bottom: 12px; }
+.vr-end-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.18); border-top-color: var(--gold); flex: 0 0 auto; animation: vr-spin 0.8s linear infinite; }
+@keyframes vr-spin { to { transform: rotate(360deg); } }
+.vr-end-report .vr-rep-view-btn { margin-top: 2px; }
+
+/* ═══ iOS-Settings grouped lists · prefs / room menu / API keys ═══════════════
+   Rows collapse into ONE inset rounded card with left-inset hairline separators,
+   tinted rounded-square icon tiles, and a pressed highlight — the native iOS
+   Settings look, kept in the app's warm-charcoal + gold palette. Scoped to
+   .vr-menu / .vr-set-list so standalone .vr-act-row cards (agent profile) are
+   untouched. */
+.vr-menu { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: rgba(255,255,255,0.035); }
+.vr-menu .vr-act-row { position: relative; margin: 0; border: none; border-radius: 0; background: transparent; padding: 13px 14px; }
+.vr-menu .vr-act-row:not(:last-child)::after { content: ""; position: absolute; left: 58px; right: 0; bottom: 0; height: 1px; background: var(--line); }
+.vr-menu .vr-act-row:active { background: rgba(255,255,255,0.06); }
+/* Leading glyph → iOS "app-icon" tile (rounded square, tinted). */
+.vr-menu .vr-act-row > svg { width: 30px; height: 30px; padding: 6px; border-radius: 8px; background: rgba(255,255,255,0.07); color: var(--ink); }
+.vr-menu .vr-act-row.is-danger > svg { background: rgba(201,164,107,0.16); color: var(--gold); }
+.vr-menu .vr-act-row .vr-act-label { font-size: 16px; font-weight: 500; }
+.vr-menu .vr-act-row .vr-act-chev { color: var(--ink-faint); }
+
+/* API-key credential groups · inset hairline separators + an accent "+ Add"
+   row (drop the dashed-box treatment for the iOS text-action look). */
+.vr-set-list .vr-cred-row { position: relative; border-bottom: none; }
+.vr-set-list .vr-cred-row:not(:last-child)::after { content: ""; position: absolute; left: 48px; right: 0; bottom: 0; height: 1px; background: var(--line); }
+.vr-cred-add { border: none; border-radius: 12px; justify-content: flex-start; padding: 12px 14px; color: var(--gold); background: rgba(255,255,255,0.035); }
+.vr-cred-add:active { background: rgba(255,255,255,0.07); }
+.vr-cred-add svg { color: var(--gold); }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- TestFlight / App Store export options for the CLI path:
+       xcodebuild -exportArchive -archivePath build/Boardroom.xcarchive \
+         -exportOptionsPlist ExportOptions.plist -exportPath build/export
+     Xcode automatic signing creates the Apple Distribution cert + App Store
+     profile on first archive (needs your Apple ID signed into Xcode). -->
+<dict>
+  <key>method</key>
+  <string>app-store-connect</string>
+  <key>teamID</key>
+  <string>MC8P34EHRC</string>
+  <key>signingStyle</key>
+  <string>automatic</string>
+  <key>uploadSymbols</key>
+  <true/>
+  <key>destination</key>
+  <string>export</string>
+</dict>
+</plist>
