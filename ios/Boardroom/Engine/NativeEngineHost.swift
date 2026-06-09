@@ -64,6 +64,31 @@ final class NativeEngineHost {
         }
     }
 
+    /// The full stored API key for a credential id (read from the Keychain) · so the
+    /// API-keys detail screen can reveal what's configured. On-device only.
+    func credentialKey(_ kind: CredentialKind, id: String) -> String? {
+        KeychainCredentialStore().key(kind, id: id)
+    }
+
+    /// The configured MiniMax host region ("cn" | "intl"), for the credential detail.
+    func minimaxRegion() -> String {
+        ((try? db.pool.read { try String.fetchOne($0, sql: "SELECT minimax_region FROM prefs WHERE id = 1") }) ?? nil) ?? "cn"
+    }
+
+    /// The active (or newest) voice credential's full key · used to check whether a
+    /// MiniMax key's JWT already embeds the GroupID before prompting for one.
+    func activeVoiceKey() -> String? {
+        let id: String? = (try? db.pool.read { conn -> String? in
+            if let id = try String.fetchOne(conn, sql: "SELECT active_voice_credential_id FROM prefs WHERE id = 1"),
+               (try String.fetchOne(conn, sql: "SELECT id FROM voice_credentials WHERE id = ?", arguments: [id])) != nil {
+                return id
+            }
+            return try String.fetchOne(conn, sql: "SELECT id FROM voice_credentials ORDER BY updated_at DESC LIMIT 1")
+        }) ?? nil
+        guard let id else { return nil }
+        return KeychainCredentialStore().key(.voice, id: id)
+    }
+
     /// Ensure the loopback is serving — rebind if iOS reclaimed the socket while
     /// the app was suspended. Returns the current base URL (possibly a NEW port,
     /// so the caller must re-point any cached baseURL). nil when there's no
@@ -72,7 +97,10 @@ final class NativeEngineHost {
         guard let lb = loopback else { return nil }
         if await lb.isHealthy() { return lb.baseURL }
         lb.restart()
-        return lb.baseURL
+        // Re-probe · nil signals a PERSISTENT failure (socket still dead after the
+        // rebind) so the caller can surface a reconnect prompt instead of silently
+        // re-pointing at a dead URL.
+        return await lb.isHealthy() ? lb.baseURL : nil
     }
 
     /// Session-wide singleton (lazy). The native engine + its DB live for the
@@ -382,7 +410,7 @@ final class NativeEngineHost {
     func listDirectors() -> [Agent] {
         (try? db.pool.read { conn in
             try Row.fetchAll(conn, sql: """
-                SELECT id, name, bio, avatar_path, role_tag, role_kind, instruction, model_v, handle, created_at, is_seed
+                SELECT id, name, bio, avatar_path, role_tag, role_kind, instruction, model_v, handle, created_at, is_seed, avatar3d_json
                 FROM agents WHERE role_kind = 'director' ORDER BY created_at
                 """).map(Self.agent)
         }) ?? []
@@ -391,16 +419,23 @@ final class NativeEngineHost {
     func chairAgent() -> Agent? {
         try? db.pool.read { conn in
             try Row.fetchOne(conn, sql: """
-                SELECT id, name, bio, avatar_path, role_tag, role_kind, instruction, model_v, handle, created_at, is_seed
+                SELECT id, name, bio, avatar_path, role_tag, role_kind, instruction, model_v, handle, created_at, is_seed, avatar3d_json
                 FROM agents WHERE role_kind = 'moderator' LIMIT 1
                 """).map(Self.agent)
         } ?? nil
     }
 
     private static func agent(_ r: Row) -> Agent {
-        Agent(id: r["id"], name: r["name"], bio: r["bio"], avatarPath: r["avatar_path"],
+        // The 捏脸 editor seeds from `avatar3d` · include it here so it's present the
+        // moment the profile opens (not only after the detail fetch), and so seed
+        // directors' editor matches their portrait.
+        var avatar3d: Avatar3DConfig?
+        if let raw: String = r["avatar3d_json"], let data = raw.data(using: .utf8) {
+            avatar3d = try? JSONDecoder().decode(Avatar3DConfig.self, from: data)
+        }
+        return Agent(id: r["id"], name: r["name"], bio: r["bio"], avatarPath: r["avatar_path"],
               roleTag: r["role_tag"], roleKind: r["role_kind"], instruction: r["instruction"],
-              modelV: r["model_v"], handle: r["handle"],
+              modelV: r["model_v"], handle: r["handle"], avatar3d: avatar3d,
               createdAt: (r["created_at"] as Int?).map(Double.init),
               isSeed: (r["is_seed"] as Int?).map { $0 != 0 })
     }

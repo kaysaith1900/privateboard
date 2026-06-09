@@ -89,6 +89,12 @@ struct DirectorsPanel: View {
         }
     }
 
+    /// The 16pt margin HomeView wraps every panel in. The strip cancels it so the
+    /// horizontal scroll runs EDGE-TO-EDGE (cards cut at the device width, not 16pt
+    /// early), while the inner content inset re-applies it so the first card still
+    /// lines up with the section header and the list below.
+    private static let panelInset: CGFloat = 16
+
     private var featStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
@@ -99,8 +105,10 @@ struct DirectorsPanel: View {
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, Self.panelInset)   // align first/last with the content margin
             .padding(.bottom, 2)
         }
+        .padding(.horizontal, -Self.panelInset)      // break out of HomeView's panel padding → full-width scroll
         .defaultScrollAnchor(.leading)
     }
 

@@ -1,4 +1,17 @@
 import SwiftUI
+import BoardroomStorage
+
+/// Shared MiniMax extra config that isn't part of the credential row · the host
+/// GroupID (required for voice cloning when the API key's JWT doesn't embed it).
+/// Stored client-side; set from the API-key add / detail screens, read by the
+/// voice-clone flow. (Region lives in the DB `prefs`; this is the parallel local bit.)
+enum MiniMaxConfig {
+    static let groupIdKey = "pb.voice-clone.minimax-group-id"
+    static var groupId: String {
+        get { (UserDefaults.standard.string(forKey: groupIdKey) ?? "").trimmingCharacters(in: .whitespaces) }
+        set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces), forKey: groupIdKey) }
+    }
+}
 
 /// Settings hub (sheet) · native iOS-26 grouped Form, matching the agent
 /// profile. Server connection · API keys · language.
@@ -184,14 +197,18 @@ struct ApiKeysView: View {
                 Text(Loc.t("m_keys_none")).foregroundStyle(.secondary)
             } else {
                 ForEach(items) { c in
-                    KeyRow(cred: c, isActive: c.id == resp?.activeId)
-                        .contentShape(Rectangle())
-                        .onTapGesture { Task { await setActive(cat, c.id) } }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { Task { await remove(cat, c.id) } } label: {
-                                Label(Loc.t("m_delete_do"), systemImage: "trash")
-                            }
+                    NavigationLink {
+                        CredentialDetailView(cat: cat, cred: c, isActive: c.id == resp?.activeId) {
+                            Task { await load() }
                         }
+                    } label: {
+                        KeyRow(cred: c, isActive: c.id == resp?.activeId)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { Task { await remove(cat, c.id) } } label: {
+                            Label(Loc.t("m_delete_do"), systemImage: "trash")
+                        }
+                    }
                 }
             }
             NavigationLink { AddKeyView(cat: cat) { Task { await load() } } } label: {
@@ -212,9 +229,6 @@ struct ApiKeysView: View {
             if let r = try? await api.listCredentials(cat) { next[cat] = r }
         }
         data = next
-    }
-    private func setActive(_ cat: CredCategory, _ id: String) async {
-        try? await app.api?.setActiveCredential(cat, id: id); await load()
     }
     private func remove(_ cat: CredCategory, _ id: String) async {
         try? await app.api?.deleteCredential(cat, id: id); await load()
@@ -250,6 +264,117 @@ private struct KeyRow: View {
     }
 }
 
+/// Detail for a stored credential · view the configured key (revealable) + any
+/// provider settings (e.g. MiniMax host region), set it active, or delete it.
+/// The full key is read from the on-device Keychain (the list API only returns a
+/// masked preview).
+private struct CredentialDetailView: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    let cat: CredCategory
+    let cred: Credential
+    let isActive: Bool
+    var onChange: () -> Void
+
+    @State private var revealed = false
+    @State private var fullKey: String?
+    @State private var confirmDelete = false
+    @State private var groupId = MiniMaxConfig.groupId
+
+    private var isMiniMaxVoice: Bool { cat == .voice && cred.provider == "minimax" }
+
+    /// MiniMax voice keys carry a host region (cn / intl); other providers don't.
+    private var region: String? {
+        guard isMiniMaxVoice else { return nil }
+        return NativeEngineHost.shared?.minimaxRegion()
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                detailRow(Loc.t("m_credetail_provider"), ApiCatalog.name(cred.provider))
+                if let label = cred.label, !label.isEmpty { detailRow(Loc.t("m_addkey_label"), label) }
+                if isActive {
+                    HStack {
+                        Text(Loc.t("m_credetail_status")).foregroundStyle(Color.bbInkDim)
+                        Spacer()
+                        Label(Loc.t("m_credetail_active"), systemImage: "checkmark.seal.fill")
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.bbGold)
+                    }
+                }
+            }.listRowBackground(Color.bbCard)
+
+            Section {
+                HStack(spacing: 10) {
+                    Text(revealed ? (fullKey ?? cred.preview ?? "—") : "••••••••••••••••")
+                        .font(.system(size: 14, design: .monospaced)).foregroundStyle(Color.bbInk)
+                        .lineLimit(revealed ? nil : 1).truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { revealed.toggle() } label: {
+                        Image(systemName: revealed ? "eye.slash" : "eye").foregroundStyle(Color.bbInkFaint)
+                    }.buttonStyle(.plain)
+                }
+            } header: {
+                Text(Loc.t("m_addkey_key"))
+            }.listRowBackground(Color.bbCard)
+
+            if let region {
+                Section(Loc.t("m_addkey_region")) {
+                    detailRow(region == "cn" ? Loc.t("m_addkey_region_cn") : Loc.t("m_addkey_region_intl"),
+                              region == "cn" ? Loc.t("m_addkey_region_cn_host") : Loc.t("m_addkey_region_intl_host"))
+                }.listRowBackground(Color.bbCard)
+            }
+
+            if isMiniMaxVoice {
+                Section {
+                    TextField(Loc.t("m_addkey_group_ph"), text: $groupId)
+                        .autocorrectionDisabled().textInputAutocapitalization(.never)
+                        .font(.system(size: 15, design: .monospaced)).foregroundStyle(Color.bbInk)
+                        .onChange(of: groupId) { _, v in MiniMaxConfig.groupId = v }   // persist as edited
+                } header: {
+                    Text(Loc.t("m_addkey_group"))
+                } footer: {
+                    Text(Loc.t("m_addkey_group_hint")).foregroundStyle(.secondary)
+                }.listRowBackground(Color.bbCard)
+            }
+
+            Section {
+                if !isActive {
+                    Button(Loc.t("m_credetail_setactive")) {
+                        Task { try? await app.api?.setActiveCredential(cat, id: cred.id); onChange(); dismiss() }
+                    }.foregroundStyle(Color.bbGold)
+                }
+                Button(role: .destructive) { confirmDelete = true } label: { Text(Loc.t("m_delete_do")) }
+            }.listRowBackground(Color.bbCard)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.bbBg.ignoresSafeArea())
+        .tint(Color.bbGold)
+        .navigationTitle(ApiCatalog.name(cred.provider))
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if let kind = CredentialKind(rawValue: cat.rawValue) {
+                fullKey = NativeEngineHost.shared?.credentialKey(kind, id: cred.id)
+            }
+        }
+        .confirmationDialog(Loc.t("m_delete_do"), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button(Loc.t("m_delete_do"), role: .destructive) {
+                Task { try? await app.api?.deleteCredential(cat, id: cred.id); onChange(); dismiss() }
+            }
+            Button(Loc.t("common_cancel"), role: .cancel) {}
+        }
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(Color.bbInkDim)
+            Spacer()
+            Text(value).foregroundStyle(Color.bbInk).multilineTextAlignment(.trailing)
+        }
+    }
+}
+
 /// Add-credential form · provider picker (carriers / direct for LLM, plain list
 /// otherwise) + optional label + the key field (masked, with a reveal toggle).
 struct AddKeyView: View {
@@ -262,6 +387,7 @@ struct AddKeyView: View {
     @State private var label = ""
     @State private var key = ""
     @State private var region = "cn"          // MiniMax host region · cn | intl
+    @State private var groupId = MiniMaxConfig.groupId   // MiniMax GroupID (optional · only when the key's JWT lacks it)
     @State private var revealed = false
     @State private var saving = false
     @State private var errorText: String?
@@ -285,7 +411,7 @@ struct AddKeyView: View {
                 providerSection(Loc.t("m_addkey_provider"), ApiCatalog.providers(cat: cat.rawValue))
             }
 
-            if isMiniMax { regionSection }
+            if isMiniMax { regionSection; groupIdSection }
 
             Section(Loc.t("m_addkey_label")) {
                 TextField(Loc.t("m_addkey_label_ph"), text: $label)
@@ -363,6 +489,21 @@ struct AddKeyView: View {
         .listRowBackground(Color.bbCard)
     }
 
+    /// MiniMax GroupID · optional. Most MiniMax keys are JWTs that already embed the
+    /// GroupID (then this can be left blank); set it only when the key doesn't.
+    private var groupIdSection: some View {
+        Section {
+            TextField(Loc.t("m_addkey_group_ph"), text: $groupId)
+                .autocorrectionDisabled().textInputAutocapitalization(.never)
+                .font(.system(size: 15, design: .monospaced)).foregroundStyle(Color.bbInk)
+        } header: {
+            Text(Loc.t("m_addkey_group"))
+        } footer: {
+            Text(Loc.t("m_addkey_group_hint")).foregroundStyle(.secondary)
+        }
+        .listRowBackground(Color.bbCard)
+    }
+
     private func regionTile(_ id: String, _ title: String, _ host: String) -> some View {
         Button { region = id } label: {
             VStack(alignment: .leading, spacing: 3) {
@@ -415,6 +556,7 @@ struct AddKeyView: View {
             errorText = KeyValidator.describe(provider: provider, key: k); return
         }
         guard let api = app.api else { errorText = Loc.t("connect_bad"); return }
+        if isMiniMax { MiniMaxConfig.groupId = groupId }   // persist the optional GroupID
         saving = true; errorText = nil
         Task {
             do {

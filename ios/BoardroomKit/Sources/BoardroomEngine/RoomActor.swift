@@ -56,6 +56,7 @@ public actor RoomActor {
     private var inflightBody = ""
     private var inflightFirstToken = false
     private var turnTimedOutKind: String?          // "first-token" | "hard-cap" | "interrupt" | nil
+    private var billingNoticePosted = false        // chair billing-notice fires at most once per run (avoid N notices when every turn hits quota)
     /// Streaming-TTS interleave state (the live/miss path) · the token loop pushes
     /// completed sentences to `inflightSentenceCont`; a concurrent synthesis pump
     /// consumes them and emits voice-chunks with a running `inflightSeg`, so the
@@ -97,7 +98,7 @@ public actor RoomActor {
     /// Mirrors room.ts `state.preWarmed` — consumed when the pump reaches the
     /// matching agent, cleared (task cancelled) on replan / pause / adjourn.
     private var preWarmed: PreWarm?
-    private struct PreWarm { let agentId: String; let task: Task<PreWarmResult, Never> }
+    private struct PreWarm { let agentId: String; let intervention: String?; let rationale: String; let task: Task<PreWarmResult, Never> }
     private struct PreSeg: Sendable { let seg: Int; let text: String; let audioBase64: String }
     private struct PreWarmResult: Sendable { let body: String; let segs: [PreSeg]; var search: SearchHit? = nil }
 
@@ -445,6 +446,15 @@ public actor RoomActor {
                 // Consume the pre-warmed turn · its LLM+TTS already ran during the
                 // prior speaker's playback, so this emits instantly (zero gap).
                 preWarmed = nil
+                // Chair course-correction · announce the intervention the pre-warm
+                // picker flagged, BEFORE this director speaks, so it lands as a
+                // distinct beat between turns (the prior turn's gate just completed).
+                if let note = pw.intervention {
+                    await postFinalChairNote(note, kind: "intervention", rationale: pw.rationale)
+                    if status != .live || awaitingContinue || awaitingClarify {
+                        pw.task.cancel(); queue.insert(speaker, at: 0); await emitQueue(); return
+                    }
+                }
                 let r = await pw.task.value
                 (mid, emittedAudio) = await emitCachedTurn(author: speaker, body: r.body, segs: r.segs, search: r.search)
                 turnBody = r.body
@@ -615,9 +625,11 @@ public actor RoomActor {
 
     /// Start the next director's pre-warm: pick (reactive) so we warm the RIGHT
     /// one, then compute its LLM body + TTS segments in a background Task that
-    /// interleaves with the current turn's playback gate. The prewarm picker is
-    /// lightweight — it reorders but does NOT announce interventions (those stay
-    /// on the inline miss path, matching desktop runPickerThenPrewarm).
+    /// interleaves with the current turn's playback gate. The prewarm picker also
+    /// STASHES any chair intervention on the PreWarm — pumpQueue announces it just
+    /// before the cached turn (a voice room is a near-constant pre-warm hit, so the
+    /// inline miss-path discipline rarely runs; without this the chair would never
+    /// course-correct mid-round aloud).
     /// Gate + run the next speaker's pre-warm (the fresh/cached `onTextFinal` hook).
     /// Actor-isolated so the fire-and-forget closure can read the gating flags.
     private func kickPrewarmIfNeeded(spokeThisRound: Int) async {
@@ -627,11 +639,21 @@ public actor RoomActor {
 
     private func schedulePrewarm(spokeThisRound: Int) async {
         invalidatePrewarm()
+        // Capture the picker's intervention (don't discard it). In a voice room the
+        // next director is almost always a PRE-WARM HIT, so the inline miss-path
+        // discipline at the top of pumpQueue never runs — if we dropped the note
+        // here the chair would NEVER course-correct mid-round. We stash it on the
+        // PreWarm and announce it as a distinct beat right before the cached turn.
+        var intervention: String?
+        var rationale = ""
         if roundIsReactive, spokeThisRound >= 1, queue.count >= 2, router != nil {
-            _ = await pickAndReorder(emitPending: false)
+            let pick = await pickAndReorder(emitPending: false)
+            intervention = pick.intervention
+            rationale = pick.rationale
         }
         guard status == .live, let speaker = queue.first else { return }
-        preWarmed = PreWarm(agentId: speaker.id, task: Task { [weak self] in
+        preWarmed = PreWarm(agentId: speaker.id, intervention: intervention, rationale: rationale,
+                            task: Task { [weak self] in
             await self?.computePrewarm(speaker) ?? PreWarmResult(body: "", segs: [])
         })
     }
@@ -873,6 +895,16 @@ public actor RoomActor {
             await bus.emit(roomId, .voiceFinal(VoiceFinal(messageId: mid)))
             if emittedAudio { await voiceGate.wait(for: mid, timeout: 90) }
         }
+    }
+
+    /// Post a chair-authored billing-notice into the transcript (desktop parity ·
+    /// chair.ts billing-notice) when a director turn fails on quota / credit. The
+    /// app renders `kind:"billing-notice"` as a distinct card; this is the
+    /// in-context half of the prompt (the modal alert is the other half).
+    private func postBillingNotice(provider: String?) async {
+        let who = provider ?? "当前 provider"
+        let body = "计费提醒：\(who) 余额不足或配额已用尽，董事暂时无法正常发言。请在「设置 → API 密钥」给 \(who) 充值，或更换一个可用的 key 后继续。"
+        await postFinalChairNote(body, kind: "billing-notice")
     }
 
     private func emitQueue() async {
@@ -1192,6 +1224,7 @@ public actor RoomActor {
             // Surface the failure as visible text (else the turn is a silent
             // empty bubble — the user can't tell e.g. "no LLM key configured").
             // Watchdog timeouts emit auto-skipped so the client toast is tagged.
+            let cls = LLMErrorClass.classify(error)
             if kind == "first-token" || kind == "hard-cap" {
                 errored = true
                 if body.isEmpty {
@@ -1200,18 +1233,34 @@ public actor RoomActor {
                         : "⚠️ LLM 流超过 120s 上限，已自动跳过。"
                     await bus.emit(roomId, .messageToken(MessageToken(messageId: mid, delta: body)))
                 }
-                await bus.emit(roomId, .messageError(messageId: mid))
+                // Watchdog timeout · tag as network so the app can prompt "网络超时".
+                await bus.emit(roomId, .messageError(messageId: mid, kind: "network"))
                 await bus.emit(roomId, .configEvent(ConfigEvent(kind: "auto-skipped", payload: nil)))
             } else if kind == "interrupt" {
                 // Hard chairInterrupt · leave body as-is; the interrupt handler
                 // already removed the bubble + will run the chair direct response.
+            } else if case .billing(let provider) = cls {
+                // Billing / quota · mirror desktop (room.ts ~2328 + chair.ts): drop the
+                // raw error bubble, post ONE chair-authored billing-notice, and signal
+                // the app to raise the prompt. No ⚠️ upstream string for this class.
+                inflightSentenceCont?.finish(); inflightSentenceCont = nil; synthPump?.cancel()
+                await store.deleteMessage(mid)
+                await bus.emit(roomId, .messageRemoved(messageId: mid, reason: "billing"))
+                if !billingNoticePosted {
+                    billingNoticePosted = true
+                    await postBillingNotice(provider: provider)
+                }
+                await bus.emit(roomId, .messageError(messageId: mid, kind: "billing", provider: provider))
+                await voiceGate.signalDone(mid)
+                return (mid, "", false)
             } else if body.isEmpty {
                 errored = true
                 body = Self.errorHint(error)
                 await bus.emit(roomId, .messageToken(MessageToken(messageId: mid, delta: body)))
+                await bus.emit(roomId, .messageError(messageId: mid, kind: cls.eventKind, provider: cls.provider))
             } else {
                 errored = true
-                await bus.emit(roomId, .messageError(messageId: mid))
+                await bus.emit(roomId, .messageError(messageId: mid, kind: cls.eventKind, provider: cls.provider))
             }
         }
         firstWatch.cancel(); hardWatch.cancel()

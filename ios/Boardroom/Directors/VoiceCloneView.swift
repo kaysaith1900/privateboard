@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import BoardroomVoice
 
 /// Records a short voice sample (AAC m4a) for cloning. Mic permission + level /
 /// elapsed metering; hard-capped at 3 min like the desktop recorder.
@@ -96,9 +97,9 @@ struct VoiceCloneView: View {
     @State private var importedURL: URL?
     @State private var importedName = ""
     @State private var label = ""
-    @State private var groupId = UserDefaults.standard.string(forKey: Self.groupIdKey) ?? ""
     @State private var showImporter = false
     @State private var micDenied = false
+    @State private var showGroupIdAlert = false   // MiniMax clone needs a GroupID that isn't configured yet
 
     // Progress (synthetic stage animation while the single clone call runs).
     @State private var progressStage = 0                   // 0 prepare · 1 upload · 2 clone
@@ -112,12 +113,21 @@ struct VoiceCloneView: View {
     @State private var previewing = false
     @State private var preparedAudio: AVAudioPlayer?
 
-    private static let groupIdKey = "pb.voice-clone.minimax-group-id"
     private static let scriptPrompt = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore. How vexingly quick daft zebras jump! Sphinx of black quartz, judge my vow."
 
     private var isMiniMax: Bool { provider == "minimax" }
     private var hasAudio: Bool { recorder.recordedURL != nil || importedURL != nil }
     private var audioURL: URL? { source == .record ? recorder.recordedURL : importedURL }
+
+    /// The MiniMax GroupID to clone with · the one configured in API-key settings,
+    /// else the GroupID embedded in the active key's JWT. nil ⇒ not configured →
+    /// the clone is blocked with a guide-to-settings alert.
+    private var effectiveGroupId: String? {
+        let stored = MiniMaxConfig.groupId
+        if !stored.isEmpty { return stored }
+        if let key = NativeEngineHost.shared?.activeVoiceKey() { return VoiceCloneService.extractMiniMaxGroupId(key) }
+        return nil
+    }
 
     var body: some View {
         NavigationStack {
@@ -144,6 +154,11 @@ struct VoiceCloneView: View {
             if case .success(let url) = result { adoptImported(url) }
         }
         .interactiveDismissDisabled(stage == .cloning)
+        .alert(Loc.t("m_vc_group_needed_title"), isPresented: $showGroupIdAlert) {
+            Button(Loc.t("common_ok"), role: .cancel) {}
+        } message: {
+            Text(Loc.t("m_vc_group_needed_msg"))
+        }
     }
 
     // MARK: Setup
@@ -231,10 +246,6 @@ struct VoiceCloneView: View {
     private var detailsSection: some View {
         Section {
             TextField(Loc.t("m_vc_label_ph"), text: $label).textInputAutocapitalization(.words)
-            if isMiniMax {
-                TextField(Loc.t("m_vc_group_ph"), text: $groupId)
-                    .autocorrectionDisabled().textInputAutocapitalization(.never)
-            }
             Button { Task { await startClone() } } label: {
                 Text(Loc.t("m_vc_start")).frame(maxWidth: .infinity).fontWeight(.semibold)
             }
@@ -347,7 +358,9 @@ struct VoiceCloneView: View {
 
     private func startClone() async {
         guard let url = audioURL, let data = try? Data(contentsOf: url) else { return }
-        if isMiniMax { UserDefaults.standard.set(groupId, forKey: Self.groupIdKey) }
+        // MiniMax cloning needs a GroupID · use the one configured in API-key settings
+        // (or embedded in the key's JWT). If neither, guide the user to configure it.
+        if isMiniMax, effectiveGroupId == nil { showGroupIdAlert = true; return }
         stopPlayback()
         stage = .cloning
         progressStage = 0
@@ -363,7 +376,7 @@ struct VoiceCloneView: View {
             let r = try await api.cloneVoice(agentId: agentId, audio: data,
                                              filename: url.lastPathComponent,
                                              label: label.trimmingCharacters(in: .whitespaces),
-                                             groupId: isMiniMax ? groupId : nil)
+                                             groupId: isMiniMax ? effectiveGroupId : nil)
             if let code = r.error { stage = .failed; errorCode = code; return }
             guard let vid = r.voiceId else { stage = .failed; errorCode = "provider_unknown"; return }
             clonedVoiceId = vid

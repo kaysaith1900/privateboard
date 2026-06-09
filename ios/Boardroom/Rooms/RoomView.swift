@@ -1191,6 +1191,8 @@ private struct TranscriptRow: View {
             ChairInterventionCard(text: line.text)              // desktop .chair-intervention
         } else if line.kind == "chair-direct" {
             ChairDirectCard(name: line.name, text: line.text, time: line.time)   // desktop .chair-direct
+        } else if line.kind == "billing-notice" {
+            BillingNoticeCard(text: line.text)                  // desktop .chair-billing-notice
         } else if line.isChair {
             ChairTurnBubble(line: line, spokenSentence: spokenSentence)
         } else {
@@ -1428,6 +1430,26 @@ private struct ChairInterventionCard: View {
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
+    }
+}
+
+/// Chair billing-notice (desktop `.chair-billing-notice`) · the in-transcript
+/// half of the billing prompt. An amber top rule + mono kicker mark it apart
+/// from gold chair cards, so a quota halt reads as "needs attention", not a turn.
+private struct BillingNoticeCard: View {
+    let text: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text(Loc.t("m_chair_billing_kicker")).font(.bbKicker(10)).kerning(2.0).foregroundStyle(Color.bbAmber)
+            Text(mdInline(text, size: 15)).font(.system(size: 15)).lineSpacing(4).foregroundStyle(Color.bbInk)
+                .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18).padding(.vertical, 15)
+        .background(Color.bbCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .top) { Rectangle().fill(Color.bbAmber).frame(height: 1.5) }
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.bbLine, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

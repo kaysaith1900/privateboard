@@ -373,9 +373,14 @@ final class AppState {
     func handleForeground() {
         guard isNative else { return }
         Task {
-            if let host = NativeEngineHost.shared, let url = await host.ensureLoopbackAlive(),
-               backend?.baseURL != url {
-                backend = Backend(baseURL: url, authToken: nil)
+            if let host = NativeEngineHost.shared {
+                if let url = await host.ensureLoopbackAlive() {
+                    if backend?.baseURL != url { backend = Backend(baseURL: url, authToken: nil) }
+                } else {
+                    // Socket still dead after a rebind attempt → tell the user instead
+                    // of silently degrading to blank avatars + an empty API-keys list.
+                    AppNotice.post(kind: .reconnect, message: Loc.t("m_reconnect_msg"))
+                }
             }
             assetReloadToken += 1     // force avatar/image views to re-fetch from the (possibly same-port) revived socket
             await refresh()

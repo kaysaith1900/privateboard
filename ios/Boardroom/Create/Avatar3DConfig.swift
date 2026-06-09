@@ -79,19 +79,24 @@ struct Avatar3DConfig: Codable, Equatable, Hashable {
          "top": top, "bottom": bottom, "tie": tie, "eye": eye]
     }
 
-    /// Tolerant decode · unknown / missing fields default so a partial or legacy
-    /// config never fails (mirrors the build's graceful fallbacks).
+    /// Tolerant decode · reads the config as a flat string map so a partial config
+    /// never fails AND the LEGACY single-outfit schema (`outfitStyle` / `outfit`,
+    /// used by the seed directors) maps onto the split top/bottom dimensions —
+    /// exactly the fallback the JS `buildAvatar3D` applies. Without this, seed
+    /// directors' clothing decoded to defaults and the editor showed a different
+    /// avatar than their portrait.
     init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        // `decode` (not decodeIfPresent) → `try?` yields a clean `String?`; a
-        // missing / null / mistyped field throws and falls back to the default.
-        func s(_ k: CodingKeys, _ d: String) -> String { (try? c.decode(String.self, forKey: k)) ?? d }
-        model = s(.model, "casual"); hairStyle = s(.hairStyle, "casual")
-        topStyle = s(.topStyle, "casual"); bottomStyle = s(.bottomStyle, "casual")
-        accessory = s(.accessory, "none"); browStyle = s(.browStyle, "default")
-        eyeStyle = s(.eyeStyle, "default"); beardStyle = s(.beardStyle, "none"); tieStyle = s(.tieStyle, "none")
-        skin = s(.skin, "#f1c27d"); hair = s(.hair, "#3a2a1e"); brow = s(.brow, "#3a2a1e"); beard = s(.beard, "#3a2a1e")
-        top = s(.top, "#3b5b78"); bottom = s(.bottom, "#556070"); tie = s(.tie, "#3b5b78"); eye = s(.eye, "#241c16")
+        let raw = (try? decoder.singleValueContainer().decode([String: String].self)) ?? [:]
+        func v(_ keys: String..., or def: String) -> String {
+            for k in keys { if let x = raw[k], !x.isEmpty { return x } }
+            return def
+        }
+        model = v("model", or: "casual"); hairStyle = v("hairStyle", or: "casual")
+        topStyle = v("topStyle", "outfitStyle", or: "casual"); bottomStyle = v("bottomStyle", "outfitStyle", or: "casual")
+        accessory = v("accessory", or: "none"); browStyle = v("browStyle", or: "default")
+        eyeStyle = v("eyeStyle", or: "default"); beardStyle = v("beardStyle", or: "none"); tieStyle = v("tieStyle", or: "none")
+        skin = v("skin", or: "#f1c27d"); hair = v("hair", or: "#3a2a1e"); brow = v("brow", or: "#3a2a1e"); beard = v("beard", or: "#3a2a1e")
+        top = v("top", "outfit", or: "#3b5b78"); bottom = v("bottom", "outfit", or: "#556070"); tie = v("tie", or: "#3b5b78"); eye = v("eye", or: "#241c16")
     }
     init() {
         model = "casual"; hairStyle = "casual"; topStyle = "casual"; bottomStyle = "casual"

@@ -882,7 +882,20 @@ function overlayRole(group, inst, bodyModel, srcModelId, role) {
   if (!tpl) return; // source not loaded → keep own rather than break
 
   inst.traverse((o) => {
-    if (o.isMesh && o.material && meshRole(o, bodyModel) === role) o.visible = false;
+    if (o.isMesh && o.material && meshRole(o, bodyModel) === role) {
+      // BOTTOM is special · the only BOTTOM_STYLES are SHORTS, and several body
+      // models carry NO bare-leg skin — the shin is geometry only where their own
+      // bottom (pants / jumpsuit) covers it. The overlaid shorts are bound to the
+      // SOURCE skeleton (shorter legs), so on a long-legged body they ride up and,
+      // with the body's bottom hidden, leave a see-through HOLLOW between the
+      // shorts hem and the shoes. So for `bottom` we KEEP the body's own legs and
+      // layer the shorts over them: the body's bottom fills the shin (same
+      // `colors.bottom` tint as the shorts, so it reads as one garment to the
+      // shoes) and the hollow is gone. Verified via headless render across the
+      // casual / long-pants / jumpsuit / costume bodies.
+      if (role === "bottom") return;
+      o.visible = false;
+    }
   });
 
   const clone = cloneSkeleton(tpl);

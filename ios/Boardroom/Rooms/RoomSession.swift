@@ -361,13 +361,18 @@ final class RoomSession {
                               name: isUser ? "You" : name(msg.authorId),
                               text: body, isUser: isUser)
         }
-        // Re-entered a room that wrapped a round and is still awaiting · restore
-        // the round-end sheet so the user can continue / adjourn. Key points come
-        // only from the live round-ended event (not the snapshot), so a cold
-        // re-open lands on the degraded panel (Continue / Adjourn).
+        // Re-entered a room that wrapped a round and is still awaiting · restore the
+        // AWAITING state but show only the dismissible "round wrapped · review" PILL,
+        // NOT the full sheet. Auto-popping the sheet on every cold re-entry / unlock
+        // (when the user already continued without voting) felt buggy; the live
+        // round-ended event still pops it in-session. Tap the pill to vote / continue.
         if snap.room?.awaitingContinue == true && status != .adjourned {
             roundVoteResolved = true
-            raiseRoundEnd(recommendation: nil, formal: true)
+            roundEndRec = nil
+            roundEndFormal = true
+            roundEndPhase = .vote
+            awaitingContinue = true
+            roundEndActive = false
         }
     }
 
@@ -419,10 +424,23 @@ final class RoomSession {
             guard isVoice else { ackVoiceText(d.messageId); break }
             voice.voiceFinal(messageId: d.messageId, author: activeSpeaker)
         case .configEvent(let d): onConfig(d)
-        case .messageError:
+        case .messageError(_, let kind, let provider):
             setThinkingSfx(false)
             clearChairThinking()
             clearStage()
+            // A classified turn failure → raise the matching user prompt (debounced
+            // per kind in AppNotice). `upstream`/nil keeps the in-bubble ⚠️ hint only.
+            switch kind {
+            case "billing":
+                AppNotice.post(kind: .billing, provider: provider,
+                               message: Loc.t("m_llm_billing_msg", ["provider": provider ?? Loc.t("m_provider_generic")]),
+                               ctaURL: AppNotice.billingURL(forProvider: provider))
+            case "auth":
+                AppNotice.post(kind: .auth, message: Loc.t("m_auth_msg"))
+            case "network":
+                AppNotice.post(kind: .network, message: Loc.t("m_net_msg"))
+            default: break
+            }
         case .messageRemoved(let messageId, _):
             // chairInterrupt dropped an aborted partial director bubble — remove it
             // from the transcript so no truncated message lingers.
@@ -595,6 +613,11 @@ final class RoomSession {
             if let to = d.payload?.changes?.deliveryMode?.to, !to.isEmpty { setDeliveryMode(to) }
         case "queue-update":
             speakingQueue = d.payload?.queue?.map(\.agentId) ?? []
+        case "chair-pending":
+            // The chair is deciding the next speaker (a 5–8s LLM call that emits NO
+            // streaming message) · show the thinking pose + cue right away so the
+            // round→chair handoff never sits blank ("卡住了，没有 thinking 占位").
+            showChairThinkingPlaceholder()
         default: break
         }
     }

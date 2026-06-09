@@ -13,7 +13,9 @@ public enum RoomEvent: Sendable {
     case voiceFinal(VoiceFinal)
     case voiceError(VoiceFinal)         // TTS failed · carries the messageId so the turn can advance
     case configEvent(ConfigEvent)
-    case messageError(messageId: String?)
+    // A turn failed. `kind` ("billing" | "auth" | "network" | nil) lets the app
+    // raise a targeted prompt; `provider` names the carrier for billing copy.
+    case messageError(messageId: String?, kind: String? = nil, provider: String? = nil)
     case messageRemoved(messageId: String, reason: String?)   // chairInterrupt drops the aborted partial bubble
     case unknown(name: String)          // forward-compatible · the app default-breaks
 
@@ -27,7 +29,7 @@ public enum RoomEvent: Sendable {
         case .voiceChunk(let d): return d.messageId
         case .voiceFinal(let d): return d.messageId
         case .voiceError(let d): return d.messageId
-        case .messageError(let id): return id
+        case .messageError(let id, _, _): return id
         case .messageRemoved(let id, _): return id
         case .configEvent, .unknown: return nil
         }

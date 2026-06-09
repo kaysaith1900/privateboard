@@ -5,11 +5,20 @@ struct RootView: View {
     @Environment(\.openURL) private var openURL
     @State private var showOnboarding = false
     @State private var showSplash = true
-    @State private var billing: BillingAlert?
+    @State private var notice: Notice?
+    @State private var showApiKeys = false       // billing/auth CTA → deep-link to the API-keys screen
     @State private var showBrief = false        // reopen the minimised report
 
-    /// A TTS billing failure surfaced from `TTSEngineAdapter.VoiceBillingAlert`.
-    struct BillingAlert: Identifiable { let id = UUID(); let provider: String; let message: String; let upgradeUrl: String }
+    /// A user-facing error prompt, raised from the engine / room-session / TTS /
+    /// foreground-resume via `AppNotice` (and the TTS `VoiceBillingAlert`). One
+    /// modal `.alert` presents all kinds; buttons differ per `kind`.
+    struct Notice: Identifiable {
+        let id = UUID()
+        let kind: AppNotice.Kind
+        let provider: String?
+        let message: String
+        let ctaURL: String?
+    }
 
     var body: some View {
         ZStack {
@@ -50,20 +59,64 @@ struct RootView: View {
                     .environment(app)
             }
         }
-        // Voice synthesis billing failure (insufficient balance) · a clear alert so
-        // the room going silent is explained, not mysterious. Debounced at the source.
+        // TTS voice-billing failure → fold into the unified notice (its own
+        // localized "voice paused" copy; the room going silent is explained).
         .onReceive(NotificationCenter.default.publisher(for: TTSEngineAdapter.VoiceBillingAlert.didFail)) { note in
             guard let info = note.userInfo, let provider = info["provider"] as? String,
-                  let message = info["message"] as? String, let url = info["upgradeUrl"] as? String else { return }
-            billing = BillingAlert(provider: provider, message: message, upgradeUrl: url)
+                  let url = info["upgradeUrl"] as? String else { return }
+            notice = Notice(kind: .billing, provider: provider,
+                            message: Loc.t("m_tts_billing_msg", ["provider": Self.providerName(provider)]),
+                            ctaURL: url)
         }
-        .alert(Loc.t("m_tts_billing_title"),
-               isPresented: Binding(get: { billing != nil }, set: { if !$0 { billing = nil } }),
-               presenting: billing) { b in
-            Button(Loc.t("m_tts_billing_recharge")) { if let u = URL(string: b.upgradeUrl) { openURL(u) } }
+        // Engine / room-session / foreground-resume prompts (billing / auth / network / reconnect).
+        .onReceive(NotificationCenter.default.publisher(for: AppNotice.didPost)) { note in
+            guard let info = note.userInfo, let raw = info["kind"] as? String,
+                  let kind = AppNotice.Kind(rawValue: raw), let message = info["message"] as? String else { return }
+            notice = Notice(kind: kind, provider: info["provider"] as? String,
+                            message: message, ctaURL: info["ctaURL"] as? String)
+        }
+        .alert(Self.noticeTitle(notice?.kind),
+               isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } }),
+               presenting: notice) { n in
+            noticeButtons(n)
+        } message: { n in Text(n.message) }
+        // Billing / auth CTA → the API-keys screen (manage providers + keys).
+        .sheet(isPresented: $showApiKeys) {
+            NavigationStack {
+                ApiKeysView()
+                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(Loc.t("common_done")) { showApiKeys = false } } }
+            }
+            .environment(app)
+        }
+    }
+
+    @ViewBuilder private func noticeButtons(_ n: Notice) -> some View {
+        switch n.kind {
+        case .billing:
+            if let url = n.ctaURL, let u = URL(string: url) {
+                Button(Loc.t("m_tts_billing_recharge")) { openURL(u) }
+            }
+            Button(Loc.t("m_auth_cta")) { showApiKeys = true }
             Button(Loc.t("m_tts_billing_dismiss"), role: .cancel) {}
-        } message: { b in
-            Text(Loc.t("m_tts_billing_msg", ["provider": Self.providerName(b.provider)]))
+        case .auth:
+            Button(Loc.t("m_auth_cta")) { showApiKeys = true }
+            Button(Loc.t("common_done"), role: .cancel) {}
+        case .network:
+            Button(Loc.t("common_retry")) { Task { await app.refresh() } }
+            Button(Loc.t("common_done"), role: .cancel) {}
+        case .reconnect:
+            Button(Loc.t("common_retry")) { app.handleForeground() }
+            Button(Loc.t("common_done"), role: .cancel) {}
+        }
+    }
+
+    private static func noticeTitle(_ kind: AppNotice.Kind?) -> String {
+        switch kind {
+        case .billing:   return Loc.t("m_billing_title")
+        case .auth:      return Loc.t("m_auth_title")
+        case .network:   return Loc.t("m_net_title")
+        case .reconnect: return Loc.t("m_reconnect_title")
+        case nil:        return ""
         }
     }
 

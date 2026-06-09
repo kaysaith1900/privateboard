@@ -47,7 +47,7 @@ final class RoomEventTests: XCTestCase {
     func testMessageErrorAlwaysProduced() {
         // message-error must produce the case even with an empty/odd payload
         // (the client drops the thinking cue + clears the stage regardless).
-        guard case .messageError(let mid)? = ev("message-error", #"{"messageId":"m1","message":"boom"}"#)
+        guard case .messageError(let mid, _, _)? = ev("message-error", #"{"messageId":"m1","message":"boom"}"#)
         else { return XCTFail("expected .messageError") }
         XCTAssertEqual(mid, "m1")
         guard case .messageError? = ev("message-error", #"{}"#)
