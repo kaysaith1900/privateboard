@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRIVATEBOARD // Privacy Policy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --panel: #131312;
+    --panel-2: #1A1A18;
+    --line: #26241F;
+    --line-bright: #3A3934;
+    --text: #C8C5BE;
+    --text-soft: #8E8B83;
+    --text-dim: #5C5A52;
+    --lime: #C9A46B;
+    --lime-deep: #9A7B40;
+    --mono: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--lime); text-decoration: none; }
+  a:hover { color: #E0BE84; text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ── top bar ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--line-bright);
+    background: var(--panel);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .brand {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .back {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+  .back:hover { color: var(--lime); text-decoration: none; }
+
+  /* ── document ── */
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+  }
+  .kicker {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--lime);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-size: 34px;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    color: #E7E4DD;
+  }
+  .updated {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 0 0 8px;
+  }
+  .lede {
+    font-size: 17px;
+    color: var(--text-soft);
+    margin: 22px 0 0;
+    padding: 20px 0 0;
+    border-top: 1px solid var(--line);
+  }
+  h2 {
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--lime-deep);
+    margin: 48px 0 4px;
+  }
+  h2 .num {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    margin-right: 10px;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #DAD7D0;
+    margin: 26px 0 0;
+  }
+  p { margin: 14px 0; color: var(--text); }
+  .soft { color: var(--text-soft); }
+  ul { margin: 14px 0; padding-left: 0; list-style: none; }
+  li {
+    position: relative;
+    padding-left: 22px;
+    margin: 9px 0;
+    color: var(--text);
+  }
+  li::before {
+    content: "—";
+    position: absolute;
+    left: 0;
+    color: var(--lime-deep);
+  }
+  strong { color: #E7E4DD; font-weight: 600; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.88em;
+    color: var(--lime);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  td:first-child { color: #DAD7D0; font-weight: 600; white-space: nowrap; }
+  .callout {
+    margin: 22px 0;
+    padding: 18px 20px;
+    background: var(--panel);
+    border: 1px solid var(--line-bright);
+    border-top: 1.5px solid var(--lime);
+    border-radius: 6px;
+    color: var(--text-soft);
+    font-size: 15px;
+  }
+  .foot {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 22px 24px 48px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  @media (max-width: 600px) {
+    main { padding: 40px 18px 72px; }
+    h1 { font-size: 27px; }
+    .topbar { padding: 14px 18px; }
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand">PrivateBoard</span>
+    <a class="back" href="home.html">&larr; Back to site</a>
+  </div>
+
+  <main>
+    <p class="kicker">// Legal</p>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: June 12, 2026</p>
+
+    <p class="lede">
+      PrivateBoard is a local-first application. Your boardroom sessions live on
+      your own device, and we — the makers of PrivateBoard — operate no server
+      that receives, stores, or sees your content. This policy explains exactly
+      what stays on your device, what leaves it (and only to the providers you
+      choose), and what we never collect.
+    </p>
+
+    <h2><span class="num">01</span>Who we are</h2>
+    <p>
+      &ldquo;PrivateBoard&rdquo; (also referred to as &ldquo;the app&rdquo;,
+      &ldquo;we&rdquo;, &ldquo;us&rdquo;) is an application for iOS and desktop
+      that convenes a panel of AI &ldquo;directors&rdquo; to discuss your
+      questions. This policy applies to the PrivateBoard app on all platforms.
+    </p>
+
+    <h2><span class="num">02</span>The short version</h2>
+    <ul>
+      <li>We have <strong>no backend server</strong>. Your rooms, messages, agents, votes, and settings are stored <strong>locally on your device</strong>.</li>
+      <li>We <strong>do not collect, transmit, sell, or share</strong> your personal data.</li>
+      <li>There is <strong>no analytics SDK, no tracking, no advertising, and no crash-reporting service</strong> of any kind.</li>
+      <li>The app talks <strong>directly from your device</strong> to the AI, voice, and search providers <strong>you configure with your own API keys</strong>. Those providers process that content under their own privacy policies.</li>
+    </ul>
+
+    <h2><span class="num">03</span>Data stored on your device</h2>
+    <p>
+      Everything you create in PrivateBoard is written to a local database on
+      your device (and on iOS, your API keys are stored in the system
+      <strong>Keychain</strong>). This includes:
+    </p>
+    <ul>
+      <li>The questions you ask and the boardroom transcripts that result;</li>
+      <li>The AI directors you create or seat, and their configuration;</li>
+      <li>Round votes, key points, notes, and generated briefs/reports;</li>
+      <li>App preferences (theme, voice, delivery mode, etc.);</li>
+      <li>The API keys you enter for third-party providers.</li>
+    </ul>
+    <p class="soft">
+      This data never leaves your device except as described in Section&nbsp;4.
+      It is not backed up to any server we control. (It may be included in your
+      own device/iCloud backups, which are governed by Apple&rsquo;s policies and
+      your settings.)
+    </p>
+
+    <h2><span class="num">04</span>Third-party providers you connect</h2>
+    <p>
+      PrivateBoard has no AI of its own. To generate discussion, synthesize
+      voice, or search the web, the app sends the relevant content
+      <strong>directly from your device</strong> to the provider(s) you have
+      configured, authenticated with <strong>your own API key</strong>. We are
+      not an intermediary — that traffic does not pass through any server of
+      ours.
+    </p>
+    <p>Depending on which features and providers you enable, the content sent may include your prompts, the discussion transcript, agent instructions, and (for voice) the text to be spoken or (for search) your search query. The providers and what they receive:</p>
+    <table>
+      <thead>
+        <tr><th>Provider</th><th>Used for</th><th>Their policy</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Anthropic (Claude)</td><td>LLM directors</td><td><a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener">privacy</a></td></tr>
+        <tr><td>OpenAI</td><td>LLM directors, voice</td><td><a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener">privacy</a></td></tr>
+        <tr><td>Google (Gemini)</td><td>LLM directors</td><td><a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener">terms</a></td></tr>
+        <tr><td>OpenRouter</td><td>LLM routing</td><td><a href="https://openrouter.ai/privacy" target="_blank" rel="noopener">privacy</a></td></tr>
+        <tr><td>MiniMax</td><td>Voice (text-to-speech)</td><td><a href="https://www.minimax.io/platform/protocol/privacy-policy" target="_blank" rel="noopener">privacy</a></td></tr>
+        <tr><td>Tavily / search</td><td>Optional web search</td><td><a href="https://tavily.com/privacy" target="_blank" rel="noopener">privacy</a></td></tr>
+      </tbody>
+    </table>
+    <p class="soft">
+      You choose which providers to enable. If you do not enter a key for a
+      provider, no data is sent to it. Web search is optional and only runs when
+      enabled. Your use of each provider is governed by that provider&rsquo;s own
+      terms and privacy policy; please review them, including whether they retain
+      or train on submitted content.
+    </p>
+
+    <h2><span class="num">05</span>What we do <em>not</em> collect</h2>
+    <ul>
+      <li>No accounts, sign-up, names, or email collection by us.</li>
+      <li>No usage analytics or telemetry sent to us or any third party.</li>
+      <li>No advertising identifiers and no tracking across apps or websites.</li>
+      <li>No location data.</li>
+      <li>No crash or diagnostic reporting service.</li>
+    </ul>
+    <div class="callout">
+      The &ldquo;session analytics&rdquo; summary shown for an adjourned room
+      (turn counts, duration, vote tallies) is computed <strong>on your device
+      from your own local data</strong> and shown only to you. It is never
+      transmitted anywhere.
+    </div>
+
+    <h2><span class="num">06</span>App Store privacy label</h2>
+    <p>
+      Because PrivateBoard collects no data on the developer side, the app&rsquo;s
+      App Store privacy label is declared as <strong>&ldquo;Data Not
+      Collected.&rdquo;</strong> Content you send to a third-party AI/voice/search
+      provider is handled by that provider, not by us.
+    </p>
+
+    <h2><span class="num">07</span>Data retention &amp; deletion</h2>
+    <p>
+      Because your data is local, <strong>you are in control of it</strong>:
+    </p>
+    <ul>
+      <li>Delete an individual room to remove its transcript and related data from your device.</li>
+      <li>Remove a stored API key in Settings to revoke the app&rsquo;s access to that provider.</li>
+      <li>Uninstalling the app removes its local database from your device.</li>
+    </ul>
+    <p class="soft">
+      To delete content you have already sent to a third-party provider, use that
+      provider&rsquo;s own controls or contact them directly.
+    </p>
+
+    <h2><span class="num">08</span>Security</h2>
+    <p>
+      API keys are stored in the operating system&rsquo;s secure credential store
+      (the iOS Keychain). All requests to third-party providers are made over
+      encrypted HTTPS connections. As with any local data, the security of your
+      device (passcode, disk encryption) protects your content.
+    </p>
+
+    <h2><span class="num">09</span>Children</h2>
+    <p>
+      PrivateBoard is not directed to children under 13 (or the equivalent
+      minimum age in your jurisdiction) and we do not knowingly collect data from
+      them. Since we collect no data at all, no such information is gathered.
+    </p>
+
+    <h2><span class="num">10</span>Changes to this policy</h2>
+    <p>
+      We may update this policy as the app evolves. Material changes will be
+      reflected by a new &ldquo;Last updated&rdquo; date at the top of this page.
+      Continued use of the app after an update constitutes acceptance of the
+      revised policy.
+    </p>
+
+    <h2><span class="num">11</span>Contact</h2>
+    <p>
+      Questions about this policy or your privacy? Email
+      <a href="mailto:kaysaith@gmail.com">kaysaith@gmail.com</a>.
+    </p>
+  </main>
+
+  <div class="foot">
+    <div>// privateboard · privacy</div>
+    <div>made for thinkers</div>
+  </div>
+</body>
+</html>

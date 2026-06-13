@@ -8,6 +8,7 @@
     rm -rf _site &&
     mkdir -p _site/fonts _site/avatars/3d _site/avatars/models _site/vendor/draco &&
     cp public/home.html _site/index.html &&
+    cp public/privacy.html _site/privacy.html &&
     cp public/favicon.svg public/themes.css public/agent-overlay.css public/agent-overlay.js _site/ &&
     cp public/voice-3d.js public/home-3d-loader.js public/home-3d-mock.js public/avatar-3d.js public/core-avatars.js _site/ &&
     if [ -f public/home-3d-poster.webp ]; then cp public/home-3d-poster.webp _site/; fi &&

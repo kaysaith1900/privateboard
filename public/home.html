@@ -1292,6 +1292,9 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
+  .foot-right { display: flex; align-items: center; gap: 16px; }
+  .foot-right a { color: var(--text-soft); text-decoration: none; transition: color .15s; }
+  .foot-right a:hover { color: var(--lime); }
 
   @media (max-width: 700px) {
     /* Topbar · keep on one row, drop the secondary brand text so the
@@ -2239,7 +2242,7 @@
   <!-- ─────────── FOOTER ─────────── -->
   <footer class="foot">
     <div>// privateboard v0.1 · 2026</div>
-    <div>made for thinkers</div>
+    <div class="foot-right"><a href="privacy.html">privacy</a><span>made for thinkers</span></div>
   </footer>
 
 </div>
