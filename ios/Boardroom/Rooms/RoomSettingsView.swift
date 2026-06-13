@@ -70,6 +70,8 @@ struct RoomSettingsView: View {
 
                         deliverySection
 
+                        voteSection
+
                         BBGroup(Loc.t("m_menu_cast")) {
                             VStack(spacing: 8) {
                                 ForEach(app.agents) { a in
@@ -137,6 +139,26 @@ struct RoomSettingsView: View {
         }
     }
 
+    /// Vote-phase trigger · Auto (chair gavels + opens the vote each round wrap) vs
+    /// Manual (directors keep going; you open the vote with the composer button).
+    /// Editable live; the running engine re-reads it at the next round wrap.
+    private var voteSection: some View {
+        BBGroup(Loc.t("m_set_vote")) {
+            VStack(alignment: .leading, spacing: 8) {
+                BBTileGrid {
+                    BBTile(icon: "bolt.badge.automatic", label: Loc.t("m_vote_auto"),
+                           selected: session.voteTrigger != "manual") { changeVoteTrigger("auto") }
+                    BBTile(icon: "hand.tap", label: Loc.t("m_vote_manual"),
+                           selected: session.voteTrigger == "manual") { changeVoteTrigger("manual") }
+                }
+                Text(session.voteTrigger == "manual" ? Loc.t("m_vote_manual_sub") : Loc.t("m_vote_auto_sub"))
+                    .font(.system(size: 12)).foregroundStyle(Color.bbInkDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .disabled(isAdjourned)
+    }
+
     private func castRow(_ a: Agent) -> some View {
         let on = castSel.contains(a.id)
         return HStack(spacing: 12) {
@@ -183,6 +205,16 @@ struct RoomSettingsView: View {
             catch { session.roomIntensity = prev; errorText = friendly(error) }
             busyField = nil
         }
+    }
+
+    /// Route the vote-trigger change through the SESSION's backend (the live
+    /// `RoomBackend` — native `EngineRoomBackend` writes GRDB directly, REST hits
+    /// the server). `app.api` is the loopback in native mode, whose PATCH doesn't
+    /// map `vote_trigger`, so it would silently drop the edit. `setVoteTrigger`
+    /// updates `session.voteTrigger` optimistically + reverts on failure.
+    private func changeVoteTrigger(_ v: String) {
+        errorText = nil
+        session.setVoteTrigger(v)
     }
 
     private func setVoice(_ on: Bool) {

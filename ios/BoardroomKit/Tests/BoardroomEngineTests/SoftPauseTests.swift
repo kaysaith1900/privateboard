@@ -74,4 +74,27 @@ final class SoftPauseTests: XCTestCase {
         let awaitingContinue = await actor.isAwaitingContinue
         XCTAssertTrue(awaitingContinue, "round-end fires after resume drains the queue")
     }
+
+    /// Regression · pausing MID-TURN must persist `.paused` to the store immediately,
+    /// not defer it to the pump's soft-pause block (which waits on the current
+    /// speaker's playback gate — a paused clip never releases it until the 90s
+    /// timeout). If the store stays `live` in that window, leaving + re-entering the
+    /// room reads `live` and auto-plays a room the user explicitly paused.
+    func testPausePersistsToStoreImmediatelyMidTurn() async {
+        let store = InMemoryStore(
+            directors: [DirectorRef(id: "d1", name: "A", modelV: .opus_4_7),
+                        DirectorRef(id: "d2", name: "B", modelV: .sonnet_4_6)],
+            chair: DirectorRef(id: "chair", name: "C", modelV: .haiku_4_5))
+        final class Box: @unchecked Sendable { var actor: RoomActor?; var storeStatusAtPause: RoomStatus? }
+        let box = Box()
+        let s = store
+        let llm = HookDirectorLLM {
+            if let a = box.actor { await a.pause(); box.storeStatusAtPause = await s.status }
+        }
+        let actor = RoomActor(roomId: "r1", bus: EventBus(), store: store, llm: llm)
+        box.actor = actor
+        await actor.convene()
+        XCTAssertEqual(box.storeStatusAtPause, .paused,
+                       "pause() must write .paused to the store the instant it's called, even mid-turn")
+    }
 }

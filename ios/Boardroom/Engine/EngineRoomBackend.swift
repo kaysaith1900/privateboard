@@ -28,8 +28,10 @@ struct EngineRoomBackend: RoomBackend {
     func pauseRoom(_ id: String, mode: String) async { await client.pauseRoom(id) }
 
     func voteKeyPoint(_ id: String, _ kpId: String, vote: String?) async { await client.voteKeyPoint(kpId, vote: vote) }
-    // Force round-end ("Open vote") · not modeled by the engine MVP yet → no-op.
-    func roundEnd(_ id: String, mode: String) async {}
+    // Force round-end ("End round & vote") · wraps the round NOW (chair round-end
+    // → votable key points). Used by manual vote-trigger and the auto-mode "Open
+    // vote" escalation. The engine wraps after the current speaker's turn.
+    func roundEnd(_ id: String, mode: String) async { await client.requestRoundEnd(id, mode: mode) }
     /// Persist tone / intensity / delivery / brief-style edits to the rooms row so
     /// they SURVIVE re-entry (accepting the chair's tone-shift vote, or RoomSettings
     /// edits). Previously a no-op stub → the change reverted on reopen. The running
@@ -72,7 +74,7 @@ struct EngineRoomBackend: RoomBackend {
         let payload: [String: Any] = try await db.pool.read { conn in
             var out: [String: Any] = [:]
             if let r = try Row.fetchOne(conn, sql: """
-                SELECT id, name, subject, mode, intensity, delivery_mode, status, created_at FROM rooms WHERE id = ?
+                SELECT id, name, subject, mode, intensity, delivery_mode, status, created_at, vote_trigger, adjourned_at FROM rooms WHERE id = ?
                 """, arguments: [id]) {
                 out["room"] = [
                     "id": r["id"] as String? ?? id,
@@ -83,6 +85,8 @@ struct EngineRoomBackend: RoomBackend {
                     "deliveryMode": r["delivery_mode"] as String? as Any,
                     "status": r["status"] as String? ?? "live",
                     "createdAt": r["created_at"] as Int? as Any,
+                    "voteTrigger": r["vote_trigger"] as String? ?? "auto",
+                    "adjournedAt": r["adjourned_at"] as Int? as Any,
                 ]
             }
             // Members (directors) + chair, joined to agents for byline fields.
@@ -120,8 +124,25 @@ struct EngineRoomBackend: RoomBackend {
                     if let ts = meta["toolStatus"] as? String { d["toolStatus"] = ts }
                     if let q = meta["searchQuery"] as? String { d["searchQuery"] = q }
                     if let s = meta["sources"] { d["sources"] = s }
+                    if let tk = meta["tokens"] as? Int { d["tokens"] = tk }          // session analytics · per-turn token count
+                    if let mv = meta["modelV"] as? String { d["modelV"] = mv }       // session analytics · model that produced this turn
                 }
                 return d
+            }
+            // Key points (with votes) · drives the adjourned-room "what you valued"
+            // analytics section. Ordered by round then position.
+            let kpRows = try Row.fetchAll(conn, sql: """
+                SELECT id, body, vote, position, round_num FROM key_points
+                WHERE room_id = ? ORDER BY round_num, position
+                """, arguments: [id])
+            out["keyPoints"] = kpRows.map { k -> [String: Any] in
+                [
+                    "id": k["id"] as String? as Any,
+                    "body": k["body"] as String? as Any,
+                    "vote": k["vote"] as String? as Any,
+                    "position": k["position"] as Int? as Any,
+                    "roundNum": k["round_num"] as Int? as Any,
+                ]
             }
             return out
         }

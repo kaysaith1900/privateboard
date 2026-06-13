@@ -49,7 +49,7 @@ public struct GRDBRoomStore: RoomStore, BriefStore {
     public func roomMeta(_ roomId: String) async -> RoomMeta? {
         try? await db.pool.read { conn in
             guard let row = try Row.fetchOne(conn, sql:
-                "SELECT subject, mode, intensity, delivery_mode, parent_room_id FROM rooms WHERE id = ?", arguments: [roomId])
+                "SELECT subject, mode, intensity, delivery_mode, parent_room_id, vote_trigger FROM rooms WHERE id = ?", arguments: [roomId])
             else { return nil }
             let userName = (try? String.fetchOne(conn, sql: "SELECT name FROM prefs WHERE id = 1")) ?? nil
             return RoomMeta(
@@ -58,7 +58,8 @@ public struct GRDBRoomStore: RoomStore, BriefStore {
                 intensity: row["intensity"] ?? "sharp",
                 userName: (userName?.isEmpty == false ? userName! : "You"),
                 deliveryVoice: (row["delivery_mode"] as String?) == "voice",
-                parentRoomId: row["parent_room_id"])
+                parentRoomId: row["parent_room_id"],
+                voteTrigger: (row["vote_trigger"] as String?) ?? "auto")
         } ?? nil
     }
 
@@ -123,6 +124,21 @@ public struct GRDBRoomStore: RoomStore, BriefStore {
             var obj = Self.meta(existing) ?? [:]
             if let query { obj["searchQuery"] = query }
             obj["sources"] = Self.sourcesJSON(sources)
+            let json = (try? String(decoding: JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]), as: UTF8.self)) ?? (existing ?? "{}")
+            try conn.execute(sql: "UPDATE messages SET meta_json = ? WHERE id = ?", arguments: [json, id])
+        }
+    }
+
+    public func recordMessageTokens(_ id: String, tokens: Int, modelV: String) async {
+        guard tokens > 0 else { return }
+        try? await db.pool.write { conn in
+            // Merge into the (already-finalized) meta — finalizeMessage rewrites
+            // meta_json to {streaming,kind}, so this must run AFTER it (like
+            // setMessageSearch) or the tokens get clobbered.
+            let existing = try String.fetchOne(conn, sql: "SELECT meta_json FROM messages WHERE id = ?", arguments: [id])
+            var obj = Self.meta(existing) ?? [:]
+            obj["tokens"] = tokens
+            obj["modelV"] = modelV
             let json = (try? String(decoding: JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]), as: UTF8.self)) ?? (existing ?? "{}")
             try conn.execute(sql: "UPDATE messages SET meta_json = ? WHERE id = ?", arguments: [json, id])
         }

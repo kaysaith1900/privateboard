@@ -866,7 +866,7 @@ final class LoopbackServer {
     private func roomJSON(_ id: String) -> [String: Any]? {
         try? db.pool.read { conn -> [String: Any]? in
             guard let r = try Row.fetchOne(conn, sql: """
-                SELECT id, name, subject, mode, intensity, delivery_mode, status, created_at
+                SELECT id, name, subject, mode, intensity, delivery_mode, status, created_at, vote_trigger
                 FROM rooms WHERE id = ?
                 """, arguments: [id]) else { return nil }
             return [
@@ -878,6 +878,7 @@ final class LoopbackServer {
                 "deliveryMode": r["delivery_mode"] as String? as Any,
                 "status": r["status"] as String? ?? "live",
                 "createdAt": r["created_at"] as Int? as Any,
+                "voteTrigger": r["vote_trigger"] as String? ?? "auto",
             ]
         } ?? nil
     }
@@ -886,6 +887,7 @@ final class LoopbackServer {
         guard let body = try? JSONSerialization.jsonObject(with: Data(req.body)) as? [String: Any] else { return .badRequest(nil) }
         let map: [(String, String)] = [
             ("mode", "mode"), ("intensity", "intensity"), ("deliveryMode", "delivery_mode"), ("briefStyle", "brief_style"),
+            ("voteTrigger", "vote_trigger"),
         ]
         var sets: [String] = [], args: [DatabaseValueConvertible] = []
         for (k, col) in map where body[k] is String { sets.append("\(col) = ?"); args.append(body[k] as! String) }

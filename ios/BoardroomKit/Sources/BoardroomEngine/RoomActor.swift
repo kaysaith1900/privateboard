@@ -25,6 +25,15 @@ public actor RoomActor {
     private var deliveryVoice = false
     private var roundIsReactive = false   // reactive/continue round → run the next-speaker picker between turns
 
+    // ───────── DIAGNOSTIC (chair intervention) · REMOVE after triage ─────────
+    // forceIntervention: when true, the prewarm picker injects a deterministic
+    // chair note whenever the real picker stays silent, so the full
+    // announce → store → UI gold-card → TTS wiring can be observed end-to-end in
+    // one voice session. Trace lines are tagged 🪵[CHAIR-INTERVENE] (Xcode console).
+    static let forceIntervention = false
+    private func diag(_ s: String) { print("🪵[CHAIR-INTERVENE] \(s)") }
+    // ─────────────────────────────────────────────────────────────────────────
+
     private var status: RoomStatus = .live
     private var awaitingClarify = false
     private var awaitingContinue = false
@@ -92,6 +101,16 @@ public actor RoomActor {
     /// The user @mentioned the chair · the pump runs a chair direct-response turn
     /// after the current speaker is aborted/finishes, then restores the queue.
     private var pendingChairInterrupt = false
+    /// Manual vote-trigger · the user pressed "End round & vote" in a `manual`
+    /// room. The pump wraps the round (runs the chair round-end) after the
+    /// current speaker finishes instead of auto-continuing into a fresh round.
+    /// Port of desktop `requestRoundEndAfterCurrent` (room.ts) — but here it also
+    /// covers the "now" path since native wraps after the current turn's gate.
+    private var pendingManualRoundEnd = false
+    /// Cold re-entry · set by `resumeIfLive` so the FIRST director turn of the
+    /// resumed round builds from a tighter context window (faster first token).
+    /// Consumed + cleared by `buildDirectorHistory` on that first turn.
+    private var resumeColdStart = false
 
     /// Depth-1 pre-warm · the NEXT director's LLM body + TTS segments computed in
     /// the background while the CURRENT speaker's audio plays (voice rooms only).
@@ -198,6 +217,9 @@ public actor RoomActor {
         // no-op on the non-skip path.
         await maybeRunChairSearch()
         if let router {
+            // The clarify-decision is an LLM call with no streamed output · signal
+            // the chair is working so the post-convening gap isn't a blank stage.
+            await emitChairPending("clarify")
             let history = await store.recentMessages(roomId, limit: 30)
             let decision = await SpeakerPicker.pickChairClarifyDecision(
                 router: router, history: history, mode: meta?.mode)
@@ -253,6 +275,25 @@ public actor RoomActor {
         await tick(kind: .resume)
     }
 
+    /// Manual vote-trigger · the user pressed "End round & vote". Wrap the round
+    /// now (run the chair round-end → votable key points). If a director holds the
+    /// floor, the pump wraps after the current turn's gate (pendingManualRoundEnd);
+    /// if the room is idle between turns, run the wrap directly. Port of the desktop
+    /// POST /round-end route. `mode` ("now" | "after-speaker") is accepted for API
+    /// parity — native always wraps after the current turn (no mid-stream cut).
+    public func requestRoundEnd(mode: String) async {
+        await hydrateIfNeeded()
+        guard status == .live, !awaitingContinue, !awaitingClarify else { return }
+        if processing {
+            pendingManualRoundEnd = true
+            invalidatePrewarm()
+        } else {
+            // Idle (manual-auto-continue gap or a paused-then-resumed lull) · no
+            // pump owns the queue, so run the wrap inline.
+            await runRoundEnd()
+        }
+    }
+
     /// Re-entry into a LIVE room that was interrupted mid-round (the user left or
     /// the app relaunched before the round finished) · continue the discussion with
     /// a fresh reactive round so the room doesn't sit silent ("没有进入发言流程"). A
@@ -263,6 +304,16 @@ public actor RoomActor {
     public func resumeIfLive() async {
         await hydrateIfNeeded()
         guard status == .live, !awaitingContinue, !awaitingClarify, !processing else { return }
+        // Cold re-entry (fresh actor · app relaunch) into a live mid-round room.
+        // 1) Show the chair "catching up" the instant the user enters — the heavy
+        //    first director prompt builds behind this, so the stage never freezes.
+        // 2) Mark this as a cold start so buildDirectorHistory uses a tighter context
+        //    window for the FIRST director turn → faster time-to-first-token (the big
+        //    16k-token prompt is what makes existing-room re-entry feel slow vs a new
+        //    room). Summaries carry the trimmed-away older rounds; the flag self-clears
+        //    after the first turn so the rest of the round uses the full window.
+        await emitChairPending("catching-up")
+        resumeColdStart = true
         await tick(kind: .reactive)
     }
 
@@ -280,27 +331,30 @@ public actor RoomActor {
         }
     }
 
-    /// Pause · soft (after the current speaker) when the director pump is running,
-    /// immediate otherwise. The pump's soft-pause block (which snapshots the queue
-    /// + persists `.paused`) only runs INSIDE `pumpQueue`; during clarify /
-    /// convening / awaiting / between-rounds — or if a turn stalls — it never fires.
-    /// So when we're not actively pumping, persist `.paused` here directly,
-    /// otherwise the DB stays `live` and re-entry shows the room un-paused.
+    /// Pause · persist `.paused` to the DB IMMEDIATELY (in-memory + store) so the
+    /// user's intent survives leaving the room. When a director turn is mid-flight
+    /// we ALSO set `pauseAfterCurrent` so the pump stops cleanly (snapshots the
+    /// queue) after the current speaker.
+    ///
+    /// Why persist eagerly even mid-turn: the pump's soft-pause block (which used to
+    /// be the sole writer of `.paused` while processing) only runs AFTER the current
+    /// speaker's playback gate releases — but a paused clip never signals done, so
+    /// the gate blocks until its 90s timeout. That left the DB `live` for up to 90s
+    /// after the user paused; exiting + re-entering in that window read `live` and
+    /// auto-played the room. Writing `.paused` here closes that window.
     public func pause() async {
         await hydrateIfNeeded()
         guard status == .live else { return }
-        if processing {
-            pauseAfterCurrent = true   // mid director turn · honoured after this speaker
-        } else {
-            status = .paused
-            await store.setStatus(roomId, .paused)
-            await bus.emit(roomId, .configEvent(ConfigEvent(kind: "room-paused", payload: nil)))
-        }
+        status = .paused
+        await store.setStatus(roomId, .paused)
+        await bus.emit(roomId, .configEvent(ConfigEvent(kind: "room-paused", payload: nil)))
+        if processing { pauseAfterCurrent = true }   // mid director turn · pump snapshots the queue + stops after this speaker
     }
 
     public func resume() async {
         await hydrateIfNeeded()
         guard status == .paused else { return }
+        pauseAfterCurrent = false   // clear a pending soft-pause so we don't re-pause after the next speaker
         status = .live
         await store.setStatus(roomId, .live)
         await bus.emit(roomId, .configEvent(ConfigEvent(kind: "room-resumed", payload: nil)))
@@ -362,6 +416,10 @@ public actor RoomActor {
         }
         let hist = await store.recentMessages(roomId, limit: 30)
         if Self.chairSearchedSinceLastUser(hist) { return }   // already ran this user turn
+        // Signal "searching" before the (≤12s) query-pick + fetch so the stage shows
+        // the chair working, not a blank gap. If the picker decides there's nothing
+        // to search, the next emit (clarify append / auto-skipped) supersedes it.
+        await emitChairPending("searching")
         let subject = (await store.roomMeta(roomId))?.subject ?? ""   // opening query lives here, not in messages
         let hit = await Self.boundedSearch(Self.webSearchTimeout) { () -> SearchHit? in
             guard let q = await WebSearchPicker.pickChairQuery(router: router, history: hist, subject: subject) else {
@@ -414,12 +472,33 @@ public actor RoomActor {
         if processing { return }   // a pump already owns the queue (re-entrancy guard)
         processing = true
         defer { processing = false }
+        // `pendingManualRoundEnd` is only ever set WHILE a pump runs (requestRoundEnd
+        // routes to runRoundEnd directly when idle), so a fresh pump means any leftover
+        // is stale (e.g. the prior pump returned on adjourn before consuming it).
+        pendingManualRoundEnd = false
         var spokeThisRound = 0
         while true {
             // Re-read gating flags + queue fresh each iteration (post-await safe).
             if status != .live { invalidatePrewarm(); return }
             if awaitingContinue || awaitingClarify { invalidatePrewarm(); return }
-            guard !queue.isEmpty else { break }
+            if queue.isEmpty {
+                // Queue drained. In a MANUAL vote-trigger room the chair never
+                // auto-gavels — instead the floor keeps moving (a fresh reactive
+                // round) until the user presses "End round & vote". Port of
+                // desktop room.ts "manual-auto-continue". Skipped once the user
+                // HAS requested the wrap (pendingManualRoundEnd) → fall through to
+                // runRoundEnd below. Auto rooms always wrap.
+                let manual = (await store.roomMeta(roomId))?.voteTrigger == "manual"
+                if manual && !pendingManualRoundEnd && status == .live {
+                    roundIsReactive = true
+                    roundNum = await store.nextRoundNum(roomId)
+                    queue = await store.directors(roomId)
+                    spokeThisRound = 0
+                    await emitQueue()
+                    continue
+                }
+                break
+            }
             // Pre-warm hit · schedulePrewarm already picked + reordered + started
             // this director's LLM+TTS in the background. Skip the inline picker.
             let hit = preWarmed != nil && preWarmed!.agentId == queue.first?.id
@@ -449,6 +528,7 @@ public actor RoomActor {
                 // Chair course-correction · announce the intervention the pre-warm
                 // picker flagged, BEFORE this director speaks, so it lands as a
                 // distinct beat between turns (the prior turn's gate just completed).
+                diag("pump prewarm-HIT for \(speaker.id) · pw.intervention=\(pw.intervention.map { "\"\($0)\"" } ?? "nil")")
                 if let note = pw.intervention {
                     await postFinalChairNote(note, kind: "intervention", rationale: pw.rationale)
                     if status != .live || awaitingContinue || awaitingClarify {
@@ -491,6 +571,16 @@ public actor RoomActor {
             // during the wait (actor reentrancy: it only reads, never mutates
             // gating state, so it's safe to interleave with this suspension).
             if emittedAudio { await voiceGate.wait(for: mid, timeout: 90) }
+            // Manual vote-trigger · the user pressed "End round & vote" while this
+            // speaker held the floor. Honoured AFTER the current turn (no jarring
+            // mid-sentence cut): drop the rest of the queue + any pre-warm and fall
+            // to the wrap below, which runs the chair round-end (pendingManualRoundEnd
+            // suppresses the manual-auto-continue at the drain guard).
+            if pendingManualRoundEnd {
+                invalidatePrewarm()
+                queue = []
+                continue
+            }
             // Soft pause is honoured here — AFTER the current speaker. Snapshot the
             // rest so resume() continues the same round instead of replanning.
             if pauseAfterCurrent {
@@ -532,7 +622,10 @@ public actor RoomActor {
                 continue
             }
         }
-        // Queue drained → chair wraps the round + posts the vote.
+        // Queue drained → chair wraps the round + posts the vote. (In manual mode
+        // we only reach here once the user requested the wrap — the drain guard
+        // auto-continues otherwise.)
+        pendingManualRoundEnd = false
         if status == .live { await runRoundEnd() }
     }
 
@@ -568,7 +661,7 @@ public actor RoomActor {
             let over = queue.filter { exposed.contains($0.id) }
             if !under.isEmpty && !over.isEmpty { pickerCandidates = under + over }
         }
-        if emitPending { await bus.emit(roomId, .configEvent(ConfigEvent(kind: "chair-pending", payload: nil))) }
+        if emitPending { await emitChairPending("next-speaker") }
         // Bound the picker · a hung utility call falls back to round-robin (the
         // picker is ~2-3s typical) instead of stalling the room. Auto-skip tells
         // the client a fallback happened (port of emitAutoSkipped "picker").
@@ -618,6 +711,7 @@ public actor RoomActor {
     /// block). lens-gap mode for now; dissent-gap + frame-break terms arrive in P4-4.
     private func runNextSpeakerDiscipline() async {
         let pick = await pickAndReorder(emitPending: true)
+        diag("inline MISS-path picker intervention=\(pick.intervention.map { "\"\($0)\"" } ?? "nil")")
         if let note = pick.intervention {
             await postFinalChairNote(note, kind: "intervention", rationale: pick.rationale)
         }
@@ -646,10 +740,20 @@ public actor RoomActor {
         // PreWarm and announce it as a distinct beat right before the cached turn.
         var intervention: String?
         var rationale = ""
-        if roundIsReactive, spokeThisRound >= 1, queue.count >= 2, router != nil {
+        let eligible = roundIsReactive && spokeThisRound >= 1 && queue.count >= 2 && router != nil
+        diag("schedulePrewarm reactive=\(roundIsReactive) spoke=\(spokeThisRound) queueLeft=\(queue.count) router=\(router != nil) voice=\(deliveryVoice) → runPicker=\(eligible)")
+        if eligible {
             let pick = await pickAndReorder(emitPending: false)
             intervention = pick.intervention
             rationale = pick.rationale
+            diag("prewarm picker returned intervention=\(intervention.map { "\"\($0)\"" } ?? "nil")")
+            // DIAGNOSTIC · force one when the real picker stays silent, to confirm
+            // the announce/render/voice path works on-device. REMOVE after triage.
+            if Self.forceIntervention, intervention == nil {
+                intervention = "（诊断）测试纠偏：若你看到这张主席卡，说明 announce→UI→语音 这条线是通的，根因在 picker 不出声。"
+                rationale = "diagnostic forced intervention"
+                diag("FORCED a diagnostic intervention (real picker was silent)")
+            }
         }
         guard status == .live, let speaker = queue.first else { return }
         preWarmed = PreWarm(agentId: speaker.id, intervention: intervention, rationale: rationale,
@@ -677,9 +781,18 @@ public actor RoomActor {
     /// `L0_KEEP` rounds, raw) + ANCHORS (every user message from older rounds, so
     /// the user's pivots are never summarized away), in chronological order.
     private func buildDirectorHistory() async -> [EngineMessage] {
+        // Cold re-entry's FIRST turn · use a tighter context window so time-to-first-
+        // token is fast (a full 16k-token prompt is what makes existing-room re-entry
+        // feel slow vs a new room). The trimmed-away older rounds survive as L1/L2
+        // summaries in buildSummaryPreamble; L0 (recent rounds) stays intact. Self-
+        // clears so the rest of the resumed round uses the normal window.
+        let coldStart = resumeColdStart
+        resumeColdStart = false
+        let fetchLimit = coldStart ? 120 : 1000
+        let tokenCap = coldStart ? Summarize.resumeHistoryTokenCap : Summarize.historyTokenCap
         // Wide window (was 300) so very old anchors in long rooms survive the fetch;
         // the token cap below does the real trimming. Desktop reads ALL messages.
-        let all = await store.recentMessages(roomId, limit: 1000)
+        let all = await store.recentMessages(roomId, limit: fetchLimit)
         guard !all.isEmpty else { return [] }
         let l0Cutoff = max(1, roundNum - Summarize.l0Keep + 1)
         // ANCHORS (kept regardless of age · context.ts): every user message (the
@@ -692,9 +805,9 @@ public actor RoomActor {
         // HISTORY_TOKEN_CAP (≈ chars/4) · trim the OLDEST NON-ANCHOR messages until
         // under cap (port of context.ts's aggressive trim). Anchors never dropped.
         func estTokens(_ ms: [EngineMessage]) -> Int { ms.reduce(0) { $0 + $1.body.count } / 4 }
-        if estTokens(kept) > Summarize.historyTokenCap {
+        if estTokens(kept) > tokenCap {
             var i = 0
-            while estTokens(kept) > Summarize.historyTokenCap, i < kept.count {
+            while estTokens(kept) > tokenCap, i < kept.count {
                 if isAnchor(kept[i]) { i += 1; continue }
                 kept.remove(at: i)
             }
@@ -844,6 +957,16 @@ public actor RoomActor {
     /// Emit the chair's web-search as a visible tool-use CARD message (the desktop
     /// "// web-search · Searched 'q'" row) BEFORE the chair's clarify bubble, and
     /// persist it. Silent (no TTS). Sources known up front → meta set at insert.
+    /// Tell the client the floor is empty and the chair is WORKING (a multi-second
+    /// LLM / search op runs before any turn streams). The UI raises a chair-thinking
+    /// pose labelled by `phase`, so a round wrap / web search / clarify decision /
+    /// cold re-entry never reads as a frozen blank stage. Port of desktop
+    /// `emitChairPending`. Superseded by the next `messageAppended` (or `auto-skipped`).
+    private func emitChairPending(_ phase: String) async {
+        await bus.emit(roomId, .configEvent(ConfigEvent(kind: "chair-pending",
+            payload: ConfigEvent.Payload(agentId: nil, changes: nil, phase: phase))))
+    }
+
     private func emitChairSearchCard(query: String, sources: [EngineSearchSource]) async {
         guard let chair = await store.chair(roomId), !sources.isEmpty else { return }
         let mid = newId()
@@ -868,6 +991,7 @@ public actor RoomActor {
         let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         let mid = newId()
+        if kind == "intervention" { diag("postFinalChairNote FIRING · mid=\(mid) voice=\(deliveryVoice) body=\"\(text.prefix(40))…\"") }
         // Emit an EMPTY append first (then a text-room thinking beat, then the body)
         // so the chair visibly "thinks" before this note lands — same shape as a
         // streamed turn / the pre-warmed director path. A single non-empty append
@@ -983,6 +1107,11 @@ public actor RoomActor {
 
     private func runRoundEnd() async {
         guard let chair = await store.chair(roomId) else { return }
+        // The chair is about to summarize the round (pickRoundWrap LLM + streamed
+        // round-end). Signal "working" FIRST so the stage shows the chair thinking
+        // instead of a blank wait during the picker (desktop emitChairPending
+        // "vote-summary"). Cleared by the round-end message-appended below.
+        await emitChairPending("vote-summary")
         // Round-wrap recommendation (End vs Continue) · best-effort, drives which
         // button the round-end sheet highlights. Default-to-CONTINUE on failure.
         var recommendation: String? = nil
@@ -1303,6 +1432,10 @@ public actor RoomActor {
         // for long director turns, blew past the 9s fallback before any audio
         // landed → "director shows text but never speaks, thinking never stops."
         await store.finalizeMessage(mid, body: body)
+        // Persist this turn's tokens + model onto the message (merged AFTER finalize,
+        // which rewrites meta) so adjourned-room session analytics can sum tokens
+        // per message and break them down by model — desktop's `m.meta.tokens`.
+        if inflightUsageTokens > 0 { await store.recordMessageTokens(mid, tokens: inflightUsageTokens, modelV: author.modelV.rawValue) }
         await emitDirectorSearchFinal(mid: mid, search: directorHit)
 
         // A's TEXT is done — kick off the NEXT speaker's pre-warm NOW (desktop's

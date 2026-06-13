@@ -308,7 +308,7 @@ struct RoomView: View {
                     // turn gap so the chat never opens blank. Cleared the moment a
                     // real turn streams in.
                     if !isVoice && session.chairThinking {
-                        ChairThinkingBubble(name: session.chairThinkingName, avatarPath: session.chairThinkingAvatar)
+                        ChairThinkingBubble(name: session.chairThinkingName, avatarPath: session.chairThinkingAvatar, phase: session.chairThinkingPhase)
                             .id("thinking")
                             .transition(.opacity)
                     }
@@ -317,6 +317,11 @@ struct RoomView: View {
                     // sits just above it). Voice rooms use the bottom sheet instead.
                     if session.awaitingContinue && session.status != .adjourned {
                         textRoundEndCard(session).id("roundend")
+                    }
+                    // Adjourned text room · the session-analytics card closes the
+                    // transcript (desktop parity). Computed once from the snapshot.
+                    if session.status == .adjourned, let stats = session.sessionStats {
+                        sessionAnalyticsCard(stats).id("analytics").padding(.top, 8)
                     }
                     Color.clear.frame(height: 1).id("end")
                 }
@@ -551,31 +556,89 @@ struct RoomView: View {
     private func composer(_ session: RoomSession) -> some View {
         GlassEffectContainer(spacing: 8) {       // blend the glass panels
             VStack(spacing: 8) {
+                // Chair ROOM NOTE (intervention) · the stage bypasses the transcript
+                // where the gold card normally renders, so surface it here as a glass
+                // overlay while the chair speaks the note. Takes the caption slot — the
+                // card already carries the full note text. Cleared the moment a normal
+                // turn takes the floor (session.stageNoteText → nil).
+                if isVoice && !showTranscript && !session.paused, let note = session.stageNoteText, !note.isEmpty {
+                    stageNoteCard(note)
+                }
                 // Spoken caption · auto-shows over the stage while a director speaks
                 // (voice, not the transcript view, not paused). Unchanged behaviour.
-                if isVoice && !showTranscript && captionsOn && !session.captionHidden && !session.paused {
+                else if isVoice && !showTranscript && captionsOn && !session.captionHidden && !session.paused {
                     captionBand(session)
                 }
                 // Director queue · collapsed by default into the action-row button
                 // below the textarea; only the panel shows here when toggled open.
                 if queueExpanded { directorQueueBar(session) }
+                // Manual vote-trigger · when the round's last director speaks, a
+                // countdown bubble offers the vote. Auto-dismisses if untouched.
+                if session.voteConfirmVisible && session.status == .live
+                    && !session.paused && !session.awaitingContinue {
+                    voteConfirmBubble(session)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 composerCard(session)
             }
+            .animation(.easeOut(duration: 0.25), value: session.voteConfirmVisible)
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, 8)
     }
 
+    /// Manual vote-trigger confirm bubble · auto-raised when the round's last
+    /// director speaks. A countdown ring drains over `voteConfirmCountdown`s; tapping
+    /// "发起投票" wraps the round (vote sheet follows), and ignoring it lets the room
+    /// continue into the next round. Compact glass bubble above the composer.
+    private func voteConfirmBubble(_ session: RoomSession) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().stroke(Color.bbGold.opacity(0.22), lineWidth: 2)
+                Circle().trim(from: 0, to: session.voteConfirmFraction)
+                    .stroke(Color.bbGold, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 1), value: session.voteConfirmFraction)
+                Text("\(session.voteConfirmSeconds)")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(Color.bbGold)
+            }
+            .frame(width: 30, height: 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(Loc.t("rt_vote_confirm_kicker").uppercased())
+                    .font(.system(size: 11, weight: .bold, design: .monospaced)).kerning(1.1).foregroundStyle(Color.bbGold)
+                Text(Loc.t("rt_vote_confirm_q"))
+                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.bbInk).lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Button { session.dismissVoteConfirm() } label: {
+                Image(systemName: "xmark").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.bbInkDim).frame(width: 34, height: 34).contentShape(Circle())
+            }.buttonStyle(.plain)
+            Button { session.confirmVote() } label: {
+                Text(Loc.t("rt_vote_confirm_go"))
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.bbBg)
+                    .padding(.horizontal, 14).frame(height: 34)
+                    .background(Capsule().fill(Color.bbGold))
+            }.buttonStyle(.plain)
+        }
+        .padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 9)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.bbGold.opacity(0.38), lineWidth: 1))
+    }
+
     /// Spoken-caption band · the current speaker's words, karaoke-revealed in sync
     /// with the audio. A glass panel over the stage (the original subtitle effect).
     private func captionBand(_ session: RoomSession) -> some View {
         let thinking = session.captionThinking && session.captionText.isEmpty
+        // While thinking, prefer the engine-driven phase label ("正在综合本轮…" /
+        // stalled) over a bare "···" so the wait is legible, not a mystery gap.
+        let thinkingLine = session.chairThinkingPhase ?? "···"
         return VStack(alignment: .leading, spacing: 6) {
             Text(session.captionKicker.uppercased())
                 .font(.system(size: 11, weight: .bold, design: .monospaced)).kerning(1.4)
                 .foregroundStyle(Color.bbGold)
-            Text(thinking ? "···" : session.captionText)
+            Text(thinking ? thinkingLine : session.captionText)
                 .font(.system(size: 17, weight: .medium)).lineSpacing(3)
                 .foregroundStyle(thinking ? Color.bbInkFaint : Color.bbInk)
                 .lineLimit(3).truncationMode(.head)
@@ -585,6 +648,17 @@ struct RoomView: View {
         .padding(.horizontal, 16).padding(.vertical, 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    /// Chair ROOM NOTE over the stage · the gold intervention card on a glass panel.
+    /// The 3D stage never renders the transcript where `ChairInterventionCard` lives,
+    /// so a mid-round chair course-correction had no on-stage surface — this gives it
+    /// one (distinct from the plain spoken-caption band a director turn gets).
+    private func stageNoteCard(_ text: String) -> some View {
+        ChairInterventionCard(text: text)
+            .padding(.horizontal, 16).padding(.vertical, 11)
+            .frame(maxWidth: .infinity)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func composerCard(_ session: RoomSession) -> some View {
@@ -845,6 +919,115 @@ struct RoomView: View {
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.bbGold.opacity(0.35), lineWidth: 1))
     }
 
+    // MARK: Session analytics (adjourned text room · desktop `renderSessionAnalytics`)
+
+    /// Token-share colors per model, top model in gold. Cycles for >palette models.
+    private static let saPalette: [Color] = [
+        .bbGold,
+        Color(red: 0.42, green: 0.66, blue: 0.62),   // teal
+        Color(red: 0.56, green: 0.49, blue: 0.76),   // lilac
+        Color(red: 0.85, green: 0.55, blue: 0.42),   // clay
+        Color(red: 0.45, green: 0.62, blue: 0.80),   // slate-blue
+    ]
+    private func saColor(_ i: Int) -> Color { Self.saPalette[i % Self.saPalette.count] }
+
+    private func sessionAnalyticsCard(_ stats: RoomSession.SessionStats) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Banner
+            HStack {
+                Text("// " + Loc.t("sa_head"))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced)).kerning(0.8).foregroundStyle(Color.bbGold)
+                Spacer()
+                Text(Loc.t("sa_stamp").uppercased())
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced)).kerning(0.8).foregroundStyle(Color.bbInkDim)
+            }
+            // Headline metrics
+            HStack(alignment: .top, spacing: 10) {
+                saMetric(saTokens(stats.tokens), Loc.t("sa_tokens"), hero: true)
+                saMetric("\(stats.messages)", Loc.t("sa_msgs"))
+                saMetric("\(stats.rounds)", Loc.t("sa_rounds"))
+                saMetric(saDuration(stats.durationSeconds), Loc.t("sa_duration"))
+            }
+            // Model usage
+            if !stats.models.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    saSectionHead(Loc.t("sa_model_head"))
+                    GeometryReader { geo in
+                        HStack(spacing: 2) {
+                            ForEach(Array(stats.models.enumerated()), id: \.element.id) { i, m in
+                                saColor(i).frame(width: max(3, (geo.size.width - 2 * CGFloat(stats.models.count - 1)) * m.fraction))
+                            }
+                        }
+                        .clipShape(Capsule())
+                    }
+                    .frame(height: 8)
+                    VStack(spacing: 6) {
+                        ForEach(Array(stats.models.enumerated()), id: \.element.id) { i, m in
+                            HStack(spacing: 8) {
+                                Circle().fill(saColor(i)).frame(width: 8, height: 8)
+                                Text(m.model).font(.system(size: 14)).foregroundStyle(Color.bbInk).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text("\(Int((m.fraction * 100).rounded()))%").font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundStyle(Color.bbInkDim)
+                                Text(saTokens(m.tokens)).font(.system(size: 13, design: .monospaced)).foregroundStyle(Color.bbInkFaint).frame(width: 48, alignment: .trailing)
+                            }
+                        }
+                    }
+                }
+            }
+            // What you valued · up-voted key points
+            if !stats.upvotedPoints.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    saSectionHead(Loc.t("sa_valued_head"))
+                    ForEach(Array(stats.upvotedPoints.enumerated()), id: \.offset) { _, p in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("▲").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.bbGold).padding(.top, 2)
+                            Text(p).font(.system(size: 14)).foregroundStyle(Color.bbInk).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.bbCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.bbLine, lineWidth: 1))
+    }
+
+    private func saMetric(_ value: String, _ label: String, hero: Bool = false) -> some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.system(size: hero ? 22 : 17, weight: .semibold))
+                .foregroundStyle(hero ? Color.bbGold : Color.bbInk)
+                .lineLimit(1).minimumScaleFactor(0.5)
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .semibold, design: .monospaced)).kerning(0.5)
+                .foregroundStyle(Color.bbInkDim).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func saSectionHead(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.bbInkDim)
+    }
+
+    /// "0" / "1.2k" / "3.4M" — compact token count (desktop `fmtTokens`).
+    private func saTokens(_ n: Int) -> String {
+        if n <= 0 { return "0" }
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
+        return "\(n)"
+    }
+
+    /// "—" / "<1 min" / "23 min" / "1 h 15 min" (desktop `fmtDuration`).
+    private func saDuration(_ seconds: Double?) -> String {
+        guard let seconds, seconds > 0 else { return "—" }
+        let mins = Int(seconds / 60)
+        if mins < 1 { return "<1 min" }
+        if mins < 60 { return "\(mins) min" }
+        return "\(mins / 60) h \(mins % 60) min"
+    }
+
     private func roundEndSheet(_ session: RoomSession) -> some View {
         ZStack {
             // Light scrim · tap to dismiss (the re-open pill brings it back).
@@ -1035,6 +1218,7 @@ struct RoomView: View {
         session?.markAdjourned()
         Task {
             await app.adjournRoom(room.id)
+            await session?.refreshSessionStats()   // engine has now persisted adjourned_at + final tokens
             await app.refresh()
             adjourning = false
             withAnimation(.smooth(duration: 0.2)) { showAdjourn = false }
@@ -1516,6 +1700,7 @@ private struct ChairPendingCard: View {
 private struct ChairThinkingBubble: View {
     let name: String
     let avatarPath: String?
+    var phase: String? = nil      // engine-driven "what's happening" label (综合本轮… / 检索中… / stalled)
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             AvatarView(path: avatarPath, name: name.isEmpty ? "—" : name, size: 34)
@@ -1523,10 +1708,15 @@ private struct ChairThinkingBubble: View {
                 if !name.isEmpty {
                     Text(name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.bbGold)
                 }
-                TypingDots()
-                    .padding(.horizontal, 16).padding(.vertical, 14)
-                    .background(Color.bbGold.opacity(0.11), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.bbGold.opacity(0.22), lineWidth: 1))
+                HStack(spacing: 10) {
+                    TypingDots()
+                    if let phase, !phase.isEmpty {
+                        Text(phase).font(.system(size: 14)).foregroundStyle(Color.bbInkDim)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 14)
+                .background(Color.bbGold.opacity(0.11), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.bbGold.opacity(0.22), lineWidth: 1))
             }
             Spacer(minLength: 40)
         }
@@ -1708,7 +1898,14 @@ struct SelectableText: UIViewRepresentable {
     let attributed: NSAttributedString
 
     func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
+        // Force TextKit 1 · a non-scrolling UITextView (size-to-content) on the
+        // default TextKit 2 layout manager hangs the main thread doing intrinsic-
+        // size / caret-offset enumeration inside SwiftUI layout — entering a text
+        // room with several message bubbles spins for >5s and the watchdog SIGKILLs
+        // the app (0x8BADF00D). Touching `.layoutManager` before any layout makes
+        // the text view permanently fall back to the mature TextKit 1 path, which
+        // sizes static attributed text reliably. (Selection / markdown unaffected.)
+        let tv = UITextView(usingTextLayoutManager: false)
         tv.isEditable = false
         tv.isSelectable = true
         tv.isScrollEnabled = false                 // size to content · lives in the SwiftUI scroll view

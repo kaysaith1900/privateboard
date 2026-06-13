@@ -429,6 +429,44 @@ final class RoomActorTests: XCTestCase {
         XCTAssertNil(d.modeShift)
     }
 
+    // MARK: chair-pending "working" signals (no blank stage during silent engine ops)
+
+    /// Ordered (kind, phase) pairs of the config events on the bus.
+    private func configPairs(_ events: [RoomEvent]) -> [(kind: String?, phase: String?)] {
+        events.compactMap { if case .configEvent(let c) = $0 { return (c.kind, c.payload?.phase) } else { return nil } }
+    }
+
+    func testRoundEndEmitsVoteSummaryPendingBeforeRoundEnded() async {
+        // The chair summarizes the round (pickRoundWrap + streamed round-end) with no
+        // streamed output until the round-end message · a chair-pending("vote-summary")
+        // must precede the round-ended event so the stage shows the chair working.
+        let llm = ScriptedLLM(clarify: ["READY"], director: ["v"],
+                              roundEnd: ["wrap\nPOINTS:\n- a"])
+        let (actor, bus, _) = await makeActor(llm)
+        await actor.convene()                              // opening round → round-end
+        let pairs = await configPairs(bus.snapshot("r1"))
+        let pendingIdx = pairs.firstIndex { $0.kind == "chair-pending" && $0.phase == "vote-summary" }
+        let endedIdx = pairs.firstIndex { $0.kind == "round-ended" }
+        XCTAssertNotNil(pendingIdx, "a vote-summary chair-pending should be emitted")
+        XCTAssertNotNil(endedIdx)
+        if let p = pendingIdx, let e = endedIdx { XCTAssertLessThan(p, e, "pending precedes round-ended") }
+    }
+
+    func testResumeEmitsCatchingUpPendingFirst() async {
+        // Cold re-entry into an interrupted live room · the chair-pending("catching-up")
+        // must be the FIRST event so the user sees the chair working the instant they
+        // re-enter, before the (heavy) first director prompt builds.
+        let llm = ScriptedLLM(clarify: ["READY"], director: ["continuing"],
+                              roundEnd: ["wrap\nPOINTS:\n- a"])
+        let store = await liveStore(status: .live, awaitingContinue: false)
+        let bus = EventBus()
+        let actor = RoomActor(roomId: "r1", bus: bus, store: store, llm: llm)
+        await actor.resumeIfLive()
+        let pairs = await configPairs(bus.snapshot("r1"))
+        let firstPending = pairs.first { $0.kind == "chair-pending" }
+        XCTAssertEqual(firstPending?.phase, "catching-up", "resume signals catching-up before any turn")
+    }
+
     func testRoundEndedCarriesModeShift() async {
         let llm = ScriptedLLM(clarify: ["READY"], director: ["v"],
                               roundEnd: ["wrap\nPOINTS:\n- a\nMODE-SHIFT: critique\nBECAUSE: too soft"])

@@ -49,6 +49,8 @@ final class RoomSession {
     var chairThinking = false
     var chairThinkingName = ""
     var chairThinkingAvatar: String?
+    var chairThinkingPhase: String?    // localized "what the chair is doing" label (综合本轮… / 检索中… / …) shown under the thinking pose; nil = bare thinking
+    var chairThinkingStalled = false   // the safety watchdog fired (engine silent past the first-token window) → show an explicit "no response" state, never a silent blank
     var roomTitle: String?            // AI-distilled title (in-room header); list keeps the raw subject
     var status: RoomStatus
     var paused = false
@@ -56,6 +58,11 @@ final class RoomSession {
     var roomMode: String               // live tone · drives the 3D floor + future turns (editable in room settings)
     var roomIntensity: String          // live intensity · calm / sharp / terse
     var deliveryMode: String           // "voice" | "text" · text = no TTS (editable in room settings)
+    var voteTrigger: String            // "auto" | "manual" · manual = chair never auto-gavels; user triggers the vote
+    var voteRequested = false          // manual vote confirmed · the wrap fires after the current speaker, until the round-ended sheet lands
+    var voteConfirmVisible = false     // manual mode · the round's LAST director is speaking → a countdown confirm bubble offers the vote
+    var voteConfirmSeconds = 0         // remaining seconds on the confirm bubble's countdown (auto-dismiss at 0)
+    var voteConfirmFraction: Double { Self.voteConfirmCountdown > 0 ? Double(voteConfirmSeconds) / Double(Self.voteConfirmCountdown) : 0 }  // ring progress
     var members: [Member] = []         // cast rail (chair + directors + you)
     var awaitingContinue = false       // a round ended · gates input (the round-end sheet owns the bottom)
 
@@ -64,6 +71,20 @@ final class RoomSession {
     enum RoundEndPhase { case prompt, vote }
     struct KeyPoint: Identifiable, Hashable { let id: String; var body: String; var position: Int; var vote: String? }
     struct ModeShift: Hashable { let to: String; let because: String }
+
+    // Session analytics · the end-of-room summary card shown for ADJOURNED TEXT
+    // rooms (port of the web `renderSessionAnalytics`). Computed once from the
+    // snapshot when the room is adjourned; nil otherwise.
+    struct SessionStats: Equatable {
+        let tokens: Int
+        let messages: Int
+        let rounds: Int
+        let durationSeconds: Double?          // nil = unknown (no adjourned/created stamps)
+        let models: [ModelSlice]              // token share per model, sorted desc
+        let upvotedPoints: [String]           // chair key-point bodies the user voted up
+    }
+    struct ModelSlice: Identifiable, Hashable { var id: String { model }; let model: String; let tokens: Int; let fraction: Double }
+    var sessionStats: SessionStats?
     var roundEndActive = false         // the bottom sheet is visible (dismissible → re-open pill while awaitingContinue)
     var roundEndPhase: RoundEndPhase = .prompt
     var roundEndRec: String?           // chair's recommendation · "end" | "continue" | nil → highlights a button
@@ -102,6 +123,7 @@ final class RoomSession {
     var stageSpeakerId: String?        // who is on stage
     var stageSpeakerState: String?     // "thinking" | "speaking" | nil
     var audibleSpeakerId: String?      // who is *audible* right now → lip-sync
+    var stageNoteText: String?         // chair "ROOM NOTE" (intervention) currently on stage · drives the gold card overlay; nil = a normal turn / idle
 
     // working maps (not observed)
     @ObservationIgnored private var msgBody: [String: String] = [:]
@@ -121,6 +143,8 @@ final class RoomSession {
     @ObservationIgnored private let roomSfx = RoomSfx()                     // gavel / speaker-change / typing tick (desktop parity)
     @ObservationIgnored private var lastSpokenMessageId: String?           // de-dups the per-turn entry cue (gavel/speaker-change)
     @ObservationIgnored private var streamTask: Task<Void, Never>?
+    @ObservationIgnored private var voteConfirmTask: Task<Void, Never>?    // ticks the manual-vote confirm bubble's countdown
+    private static let voteConfirmCountdown = 10                           // seconds the confirm bubble stays before auto-dismiss
     @ObservationIgnored private var captionTimer: Timer?
     @ObservationIgnored private var thinkingTimeout: Task<Void, Never>?   // clears a stuck chair-thinking placeholder if no turn follows
     @ObservationIgnored private var bridgeTask: Task<Void, Never>?        // debounced inter-turn "thinking" bridge (fills director→director / round gaps)
@@ -147,7 +171,7 @@ final class RoomSession {
             thinkingSfx.stop()
             stopCaptionTimer()
             captionHidden = true; captionText = ""; captionThinking = false
-            stageSpeakerId = nil; stageSpeakerState = nil; audibleSpeakerId = nil; pendingSpeakerId = nil
+            stageSpeakerId = nil; stageSpeakerState = nil; audibleSpeakerId = nil; pendingSpeakerId = nil; stageNoteText = nil
         }
     }
 
@@ -169,6 +193,7 @@ final class RoomSession {
         self.roomMode = room.mode ?? "constructive"
         self.roomIntensity = room.intensity ?? "sharp"
         self.deliveryMode = room.deliveryMode ?? "voice"
+        self.voteTrigger = room.voteTrigger ?? "auto"
         wireVoice()
     }
 
@@ -286,6 +311,7 @@ final class RoomSession {
     func leave() {
         thinkingSfx.stop()
         keepAlive.stop()
+        dismissVoteConfirm()
         thinkingTimeout?.cancel(); thinkingTimeout = nil; chairThinking = false; cancelBridgeThinking()
         // Ack the in-flight turn so the orchestrator isn't stranded (live voice
         // only); plain reset otherwise.
@@ -310,6 +336,7 @@ final class RoomSession {
             paused = (s == .paused)
             if isVoice { voice.setPaused(paused) }
         }
+        if let vt = snap.room?.voteTrigger, !vt.isEmpty { voteTrigger = vt }   // persisted vote-phase trigger
         // Every message we render from the snapshot is "already seen" — the live
         // stream replays their events to a fresh subscriber, and re-processing them
         // would re-play the old TTS. handle(_:) drops events for these ids.
@@ -374,6 +401,60 @@ final class RoomSession {
             awaitingContinue = true
             roundEndActive = false
         }
+        // Adjourned room · compute the end-of-session analytics card (desktop
+        // parity). Computed for BOTH voice + text — it renders in the TRANSCRIPT
+        // view (the card lives in the message list, not the 3D stage), so a voice
+        // room that's toggled to transcript shows it too.
+        if status == .adjourned {
+            sessionStats = Self.computeSessionStats(snap)
+        }
+    }
+
+    /// Recompute the analytics card after an in-session adjourn · `markAdjourned`
+    /// flips the UI optimistically but doesn't recompute stats, and `applySnapshot`
+    /// only runs on entry. Re-fetch the snapshot once the engine has persisted
+    /// `adjourned_at` + the final turn's tokens (call AFTER `app.adjournRoom`).
+    func refreshSessionStats() async {
+        guard status == .adjourned else { return }
+        if let snap = try? await api.getRoom(room.id) {
+            sessionStats = Self.computeSessionStats(snap)
+        }
+    }
+
+    /// Build the session-analytics summary from the snapshot (port of the web
+    /// `computeSessionStats`). Tokens + per-model breakdown come from each finalized
+    /// turn's `meta.tokens`/`meta.modelV`; messages/rounds from the transcript;
+    /// duration from `adjournedAt - createdAt`; the valued list from up-voted points.
+    private static func computeSessionStats(_ snap: RoomSnapshot) -> SessionStats {
+        let msgs = snap.messages ?? []
+        let procedural: Set<String> = ["round-open", "round-prompt", "settings", "tool-use", "billing-notice"]
+        // Visible messages · exclude system noise + procedural cards (matches web).
+        let visible = msgs.filter { m in
+            m.authorKind != "system" && !(m.kind.map(procedural.contains) ?? false)
+        }
+        let tokens = msgs.reduce(0) { $0 + ($1.tokens ?? 0) }
+        let rounds = msgs.compactMap(\.roundNum).max() ?? 0
+        // Per-model token breakdown, sorted desc.
+        var byModel: [String: Int] = [:]
+        for m in msgs {
+            guard let mv = m.modelV, let tk = m.tokens, tk > 0 else { continue }
+            byModel[mv, default: 0] += tk
+        }
+        let total = max(1, byModel.values.reduce(0, +))
+        let models = byModel.sorted { $0.value > $1.value }.map {
+            ModelSlice(model: $0.key, tokens: $0.value, fraction: Double($0.value) / Double(total))
+        }
+        // Duration · adjournedAt - createdAt, else first→last message span, else nil.
+        var duration: Double? = nil
+        if let start = snap.room?.createdAt?.date, let end = snap.room?.adjournedAt?.date {
+            duration = max(0, end.timeIntervalSince(start))
+        } else if let start = msgs.compactMap({ $0.createdAt?.date }).min(),
+                  let end = msgs.compactMap({ $0.createdAt?.date }).max() {
+            duration = max(0, end.timeIntervalSince(start))
+        }
+        let upvoted = (snap.keyPoints ?? []).filter { $0.vote == "up" }.compactMap { $0.body?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return SessionStats(tokens: tokens, messages: visible.count, rounds: rounds,
+                            durationSeconds: duration, models: models, upvotedPoints: upvoted)
     }
 
     private func name(_ id: String?) -> String { id.flatMap { memberName[$0] } ?? id ?? "—" }
@@ -468,6 +549,17 @@ final class RoomSession {
         // placeholder (the rest of this fn sets the proper stage / caption state, so
         // we clear just the flag + safety timer here — no clearStage flicker).
         chairThinking = false; thinkingTimeout?.cancel(); thinkingTimeout = nil; cancelBridgeThinking()
+        // Manual vote-trigger · the round's LAST director just took the floor (the
+        // queue-update that precedes this append drained `speakingQueue` to empty)
+        // → offer the vote with a countdown. Any other turn (chair / earlier director
+        // / next round's first speaker) dismisses a stale offer. Directors carry no
+        // `meta.kind`; chair turns (clarify/round-end/…) and tool-use do.
+        let isDirectorTurn = d.authorKind == "agent" && d.meta?.kind == nil && !isChair(d.authorId)
+        if voteTrigger == "manual", isDirectorTurn, speakingQueue.isEmpty {
+            offerVoteConfirm()
+        } else {
+            dismissVoteConfirm()
+        }
         // Light round-prompt · the common round wrap (cap reached). The chair's
         // text streams + appends as a normal bubble; we raise the round-end sheet
         // once it finalises (in voice rooms, after the chair has spoken it).
@@ -516,6 +608,9 @@ final class RoomSession {
     }
 
     private func onToken(_ d: MessageToken) {
+        // A token means the engine is alive → cancel the stalled-watchdog (a slow
+        // turn that's actually streaming must never trip the "no response" state).
+        thinkingTimeout?.cancel(); thinkingTimeout = nil
         let prev = msgBody[d.messageId] ?? ""
         let body = prev + (d.delta ?? "")
         msgBody[d.messageId] = body
@@ -614,9 +709,16 @@ final class RoomSession {
         case "queue-update":
             speakingQueue = d.payload?.queue?.map(\.agentId) ?? []
         case "chair-pending":
-            // The chair is deciding the next speaker (a 5–8s LLM call that emits NO
-            // streaming message) · show the thinking pose + cue right away so the
-            // round→chair handoff never sits blank ("卡住了，没有 thinking 占位").
+            // The chair is working with NO streamed output yet — deciding the next
+            // speaker, summing up the round, searching, deciding clarify, or catching
+            // up on a cold re-entry (payload.phase says which). Authoritative: the
+            // engine says the floor is empty, so show the chair thinking even if a
+            // prior turn's `activeSpeaker` is still set. Never sits blank.
+            showChairPendingAuthoritative(phase: d.payload?.phase)
+        case "auto-skipped":
+            // A turn was skipped (watchdog timeout / picker fallback / clarify skip).
+            // The pump advances to the next turn or round-end; keep a thinking pose so
+            // the handoff never reads as a frozen blank stage.
             showChairThinkingPlaceholder()
         default: break
         }
@@ -654,6 +756,8 @@ final class RoomSession {
         roundEndPhase = formal ? .vote : .prompt
         awaitingContinue = true
         roundEndActive = true
+        voteRequested = false       // the wrap landed · drop the queued state
+        dismissVoteConfirm()        // the vote sheet supersedes any open confirm bubble
     }
 
     /// Continue into the next reactive round · POST /continue (resume first if the
@@ -682,12 +786,33 @@ final class RoomSession {
     /// Guarded on `voice.playingId == nil` · only when NOTHING is audible is this
     /// a genuine "waiting for the next turn" gap. Resuming a clip that was paused
     /// mid-sentence (same session) must continue THAT audio, not flash the chair.
-    private func showChairThinkingPlaceholder() {
+    private func showChairThinkingPlaceholder(phase: String? = nil) {
         guard status == .live, !paused, !awaitingContinue,
               voice.playingId == nil, activeSpeaker == nil else { return }
+        mountThinking(phase: phase)
+    }
+
+    /// Authoritative chair-pending · the engine has told us the floor is empty and
+    /// the chair is WORKING (round wrap / web search / clarify decision / cold
+    /// re-entry · all emit `chair-pending` with a phase). Unlike the conservative
+    /// placeholder, this trusts the engine over stale local turn state: it clears a
+    /// leftover `activeSpeaker`/`pendingSpeakerId` so the pose mounts even right after
+    /// a turn finalized. It still defers while audio is genuinely playing (a clip
+    /// draining) so it never yanks the stage off an audible speaker.
+    private func showChairPendingAuthoritative(phase: String?) {
+        guard status == .live, !paused, !awaitingContinue, voice.playingId == nil else { return }
+        activeSpeaker = nil
+        pendingSpeakerId = nil
+        mountThinking(phase: phase)
+    }
+
+    /// Shared mount for both thinking entry points · pick who to show (next queued
+    /// director, else the chair), set the stage/caption pose + phase label, arm the
+    /// safety watchdog. Clears any prior stalled state.
+    private func mountThinking(phase: String?) {
         // Prefer the NEXT queued director (mid-round director→director gap) so the
         // stage shows who's actually coming up; fall back to the chair (room start /
-        // round wrap, where the queue is empty).
+        // round wrap / search / resume, where the queue is empty).
         let who: (id: String, name: String, avatar: String?)?
         if let nid = speakingQueue.first, let m = members.first(where: { $0.id == nid }) {
             who = (m.id, m.name, m.avatarPath)
@@ -695,6 +820,8 @@ final class RoomSession {
             who = (chair.id, chair.name, chair.avatarPath)
         } else { who = nil }
         guard let w = who else { return }
+        chairThinkingStalled = false
+        chairThinkingPhase = Self.phaseLabel(phase)
         chairThinkingName = w.name
         chairThinkingAvatar = w.avatar
         chairThinking = true
@@ -711,6 +838,18 @@ final class RoomSession {
         armThinkingTimeout()
     }
 
+    /// Map an engine `chair-pending` phase → a localized "what's happening" label.
+    private static func phaseLabel(_ phase: String?) -> String? {
+        switch phase {
+        case "next-speaker": return Loc.t("rt_phase_next_speaker")
+        case "vote-summary": return Loc.t("rt_phase_vote_summary")
+        case "searching":    return Loc.t("rt_phase_searching")
+        case "catching-up":  return Loc.t("rt_phase_catching_up")
+        case "clarify":      return Loc.t("rt_phase_clarify")
+        default:             return nil
+        }
+    }
+
     /// Debounced bridge for the gap BETWEEN turns / rounds · when a turn's audio
     /// ends and the next speaker hasn't landed yet (pre-warm still computing, round
     /// switching), show the next speaker "thinking" so the stage never goes blank
@@ -725,15 +864,33 @@ final class RoomSession {
     }
     private func cancelBridgeThinking() { bridgeTask?.cancel(); bridgeTask = nil }
 
-    /// Safety · a placeholder that never resolves (turn errored upstream, room
-    /// went idle) would spin forever. Clear it after a generous wait if no turn
-    /// has claimed the floor by then.
+    /// Safety watchdog · a placeholder that never resolves (turn errored upstream,
+    /// room went idle) would spin forever. The window (65s) sits JUST PAST the
+    /// engine's 60s first-token watchdog, so it only fires when the engine is
+    /// genuinely silent — never during legitimate slow work (the 25s value used to
+    /// blank the stage mid-think on slow turns). On fire we DON'T silently blank:
+    /// we switch to an explicit "no response yet" state (the chair stays on stage,
+    /// SFX stops) so the user always sees a role, never an empty stage. Re-armed by
+    /// every thinking mount; cancelled the moment a token arrives (engine alive).
     private func armThinkingTimeout() {
         thinkingTimeout?.cancel()
         thinkingTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(25))
+            try? await Task.sleep(for: .seconds(65))
             guard let self, !Task.isCancelled else { return }
-            if self.activeSpeaker == nil { self.clearChairThinking() }
+            if self.activeSpeaker == nil { self.markThinkingStalled() }
+        }
+    }
+
+    /// The watchdog fired with no turn in flight · keep the chair on stage but flip
+    /// to an explicit stalled label + stop the thinking cue. Never blanks the stage.
+    private func markThinkingStalled() {
+        guard chairThinking else { return }
+        chairThinkingStalled = true
+        chairThinkingPhase = Loc.t("rt_thinking_stalled")
+        if isVoice {
+            captionThinking = true
+            captionText = ""
+            setThinkingSfx(false)   // stop the looping cue · the wait is now abnormal
         }
     }
 
@@ -743,6 +900,8 @@ final class RoomSession {
         thinkingTimeout?.cancel(); thinkingTimeout = nil; cancelBridgeThinking()
         guard chairThinking else { return }
         chairThinking = false
+        chairThinkingPhase = nil
+        chairThinkingStalled = false
         if isVoice && activeSpeaker == nil {
             captionThinking = false
             setThinkingSfx(false)
@@ -762,6 +921,67 @@ final class RoomSession {
                 paused = false; status = .live; voice.setPaused(false)
             }
             try? await api.roundEnd(room.id, mode: "now")
+        }
+    }
+
+    /// The round's last director is speaking · raise the countdown confirm bubble
+    /// (manual mode only). Auto-dismisses after `voteConfirmCountdown` seconds if the
+    /// user doesn't act, leaving the room to auto-continue into the next round.
+    private func offerVoteConfirm() {
+        guard voteTrigger == "manual", status == .live, !paused, !awaitingContinue,
+              !voteRequested, !voteConfirmVisible else { return }
+        voteConfirmSeconds = Self.voteConfirmCountdown
+        voteConfirmVisible = true
+        voteConfirmTask?.cancel()
+        voteConfirmTask = Task { [weak self] in
+            for _ in 0..<Self.voteConfirmCountdown {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled, self.voteConfirmVisible else { return }
+                self.voteConfirmSeconds -= 1
+            }
+            self?.dismissVoteConfirm()
+        }
+    }
+
+    /// User tapped the confirm bubble · tear it down and wrap the round.
+    func confirmVote() {
+        dismissVoteConfirm()
+        requestRoundEndManual()
+    }
+
+    /// Hide the confirm bubble (countdown expired, dismissed, or the round moved on).
+    func dismissVoteConfirm() {
+        voteConfirmTask?.cancel(); voteConfirmTask = nil
+        voteConfirmVisible = false
+    }
+
+    /// Wrap the current round NOW (chair round-end → key points). The engine finishes
+    /// the current speaker, then the `round-ended` event raises the vote sheet.
+    /// Resume first if parked paused (mirror `openVote`).
+    func requestRoundEndManual() {
+        guard status == .live, !awaitingContinue, !voteRequested else { return }
+        roundVoteResolved = false
+        voteRequested = true        // the wrap lands after the current speaker
+        roomSfx.gavel()             // "calling the vote" cue
+        Task {
+            if paused {
+                try? await api.resumeRoom(room.id)
+                paused = false; status = .live; voice.setPaused(false)
+            }
+            try? await api.roundEnd(room.id, mode: "now")
+        }
+    }
+
+    /// Switch the room's vote-phase trigger (auto ↔ manual) · optimistic, PATCH,
+    /// revert on failure. Persists to the rooms row; the engine re-reads it at each
+    /// round wrap to decide auto-gavel vs keep-the-floor-moving.
+    func setVoteTrigger(_ v: String) {
+        guard voteTrigger != v else { return }
+        let prev = voteTrigger
+        voteTrigger = v
+        Task {
+            do { _ = try await api.updateRoomSettings(room.id, mode: nil, intensity: nil, deliveryMode: nil, briefStyle: nil, voteTrigger: v) }
+            catch { voteTrigger = prev }
         }
     }
 
@@ -803,6 +1023,8 @@ final class RoomSession {
         roundEndFormal = false
         roundVoteResolved = false
         roundEndPhase = .prompt
+        voteRequested = false
+        dismissVoteConfirm()
     }
 
     // MARK: Adjourned replay (the Swift port of voice-room-shell `replayStep`)
@@ -968,6 +1190,16 @@ final class RoomSession {
             stageSpeakerState = "speaking"
             speakingMessageId = voice.playingId   // light up this row's bubble for the in-chat karaoke
             pendingSpeakerId = nil          // the audible speaker is on stage now · no one is waiting behind them
+            // Chair course-correction · when THIS audible turn is an intervention, the
+            // stage has no transcript to render the gold ROOM NOTE card, so surface it
+            // as a distinct overlay (the card carries the full note · the caption band
+            // would otherwise show it as just another spoken line). Cleared the moment a
+            // normal turn takes the floor (this same branch, non-intervention → nil).
+            if let pid = voice.playingId, msgKind[pid] == "intervention" {
+                stageNoteText = (msgBody[pid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                stageNoteText = nil
+            }
             // Voice rooms · audio for this turn has started → the speaker is no
             // longer "thinking", they're talking. Kill the cue here even though the
             // text stream (message-final) may not have landed yet — TTS plays
@@ -987,6 +1219,7 @@ final class RoomSession {
             stopCaptionTimer()
             stageSpeakerId = pending
             stageSpeakerState = "thinking"
+            stageNoteText = nil             // a director took the floor · drop any ROOM NOTE card
             speakingMessageId = nil         // audio drained · no row is being read right now
             captionSentenceKey = ""
             captionKicker = name(pending)
@@ -1005,6 +1238,7 @@ final class RoomSession {
             activeSpeaker = nil
             stageSpeakerId = nil
             stageSpeakerState = nil
+            stageNoteText = nil
             // Inter-turn / round gap · the audio drained and no speaker is pre-warmed
             // yet (next director synthesising, or a round wrap → the chair's turn is
             // still generating). Arm the debounced "thinking bridge" so the stage
@@ -1127,6 +1361,7 @@ final class RoomSession {
         } else {
             paused = true; status = .paused; voice.setPaused(true)        // silence clip immediately
             refreshAudible(); setThinkingSfx(false)
+            dismissVoteConfirm()                                          // pausing cancels a pending vote offer
             Task { try? await api.pauseRoom(room.id, mode: "soft") }
         }
         refreshKeepAlive()

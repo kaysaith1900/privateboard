@@ -14,6 +14,13 @@ public enum Summarize {
     /// HISTORY_TOKEN_CAP). Past this, buildDirectorHistory trims the oldest
     /// non-anchor messages so long rooms don't balloon into context rot.
     public static let historyTokenCap = 16_000
+    /// Tighter cap for the FIRST director turn after a COLD re-entry (fresh actor ·
+    /// app relaunch). A full 16k-token prompt is what makes re-opening an existing
+    /// room feel slow (high time-to-first-token) vs a new room. The trimmed-away
+    /// older rounds survive as L1/L2 summaries in the preamble, so context isn't
+    /// lost — only this one turn leans more on the summary. Subsequent turns in the
+    /// resumed round revert to historyTokenCap.
+    public static let resumeHistoryTokenCap = 6_000
 
     public static func runRoundEnd(router: EngineRouter, store: RoomStore, summary: SummaryStore,
                                    roomId: String, roundJustEnded: Int) async {

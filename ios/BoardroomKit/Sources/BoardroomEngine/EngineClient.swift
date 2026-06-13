@@ -33,6 +33,7 @@ public struct EngineClient: RoomEventSource {
     public func convene(_ roomId: String) async { await engine.convene(roomId) }
     public func sendMessage(_ roomId: String, body: String) async { await engine.submitUserMessage(roomId, body) }
     public func continueRoom(_ roomId: String) async { await engine.continueRoom(roomId) }
+    public func requestRoundEnd(_ roomId: String, mode: String) async { await engine.requestRoundEnd(roomId, mode: mode) }
     public func resumeLiveRoom(_ roomId: String) async { await engine.resumeLiveRoom(roomId) }
     public func pauseRoom(_ roomId: String) async { await engine.pauseRoom(roomId) }
     public func resumeRoom(_ roomId: String) async { await engine.resumeRoom(roomId) }

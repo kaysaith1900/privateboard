@@ -103,12 +103,16 @@ public struct ConfigEvent: Decodable, Sendable {
         public let modeShiftProposal: ModeShift?     // round-ended · chair's tone-shift advisory
         public let recommendation: String?           // round-ended · pickRoundWrap "end" | "continue"
         public let queue: [QueueUpdate.Entry]?       // queue-update · ordered directors still to speak this round
+        public let phase: String?                    // chair-pending · what the chair is doing while the floor is empty:
+                                                     // "next-speaker" | "vote-summary" | "searching" | "catching-up" | "clarify"
         public init(agentId: String?, changes: Changes?,
                     keyPoints: [KeyPoint]? = nil, modeShiftProposal: ModeShift? = nil,
-                    recommendation: String? = nil, queue: [QueueUpdate.Entry]? = nil) {
+                    recommendation: String? = nil, queue: [QueueUpdate.Entry]? = nil,
+                    phase: String? = nil) {
             self.agentId = agentId; self.changes = changes
             self.keyPoints = keyPoints; self.modeShiftProposal = modeShiftProposal
             self.recommendation = recommendation; self.queue = queue
+            self.phase = phase
         }
     }
     public struct KeyPoint: Decodable, Sendable {

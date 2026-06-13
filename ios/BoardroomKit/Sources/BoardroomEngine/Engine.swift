@@ -32,6 +32,7 @@ public actor Engine {
     public func convene(_ roomId: String) async { await actor(roomId).convene() }
     public func submitUserMessage(_ roomId: String, _ text: String) async { await actor(roomId).submitUserMessage(text) }
     public func continueRoom(_ roomId: String) async { await actor(roomId).continueRound() }
+    public func requestRoundEnd(_ roomId: String, mode: String) async { await actor(roomId).requestRoundEnd(mode: mode) }
     public func resumeLiveRoom(_ roomId: String) async { await actor(roomId).resumeIfLive() }
     public func pauseRoom(_ roomId: String) async { await actor(roomId).pause() }
     public func resumeRoom(_ roomId: String) async { await actor(roomId).resume() }

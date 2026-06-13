@@ -55,10 +55,16 @@ public struct RoomMeta: Sendable, Equatable {
     public let userName: String
     public let deliveryVoice: Bool
     public let parentRoomId: String?   // follow-up rooms · the prior session this continues (#11)
+    /// "auto" (default) — chair auto-drops the round-end vote when a round caps.
+    /// "manual" — chair never auto-gavels; directors keep speaking across rounds
+    /// until the user explicitly triggers the vote (desktop room.ts voteTrigger).
+    public let voteTrigger: String
     public init(subject: String, mode: String, intensity: String, userName: String,
-                deliveryVoice: Bool = false, parentRoomId: String? = nil) {
+                deliveryVoice: Bool = false, parentRoomId: String? = nil,
+                voteTrigger: String = "auto") {
         self.subject = subject; self.mode = mode; self.intensity = intensity
         self.userName = userName; self.deliveryVoice = deliveryVoice; self.parentRoomId = parentRoomId
+        self.voteTrigger = voteTrigger
     }
 }
 
@@ -221,6 +227,10 @@ public protocol RoomStore: Sendable {
     /// Merges into the existing meta_json so reload re-renders the sources badge.
     /// Default no-op for stub stores.
     func setMessageSearch(_ id: String, query: String?, sources: [EngineSearchSource]) async
+    /// Persist a finished turn's token count + model onto its message meta_json
+    /// (merged, AFTER finalize) so adjourned-room session analytics can sum tokens
+    /// per message and break them down by model. Default no-op for stub stores.
+    func recordMessageTokens(_ id: String, tokens: Int, modelV: String) async
 }
 
 /// The persisted gating state the actor hydrates on re-entry (status + awaiting
@@ -243,4 +253,5 @@ public extension RoomStore {
     func priorContext(parentRoomId: String) async -> PriorContextData? { nil }
     func recordUsage(agentId: String, tokens: Int) async { }
     func setMessageSearch(_ id: String, query: String?, sources: [EngineSearchSource]) async { }
+    func recordMessageTokens(_ id: String, tokens: Int, modelV: String) async { }
 }

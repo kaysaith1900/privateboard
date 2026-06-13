@@ -50,6 +50,8 @@ struct Room: Decodable, Identifiable, Hashable {
     let awaitingContinue: Bool?
     let briefStyle: String?
     let directorIds: [String]?
+    let voteTrigger: String?     // "auto" (default) | "manual" · chair vote-phase trigger
+    let adjournedAt: FlexibleTime?  // when the room was adjourned · session-analytics duration = adjournedAt - createdAt
 
     var displayName: String { name ?? subject ?? "Untitled" }
     /// The list card shows the user's RAW opening query (not the AI-distilled
@@ -333,6 +335,7 @@ struct RoomSnapshot: Decodable {
     let members: [Member]?
     let chair: Member?               // moderator · returned separately (NOT in `members`, which is directors-only)
     let messages: [SnapshotMessage]?
+    let keyPoints: [SnapshotKeyPoint]?   // chair key points + votes · adjourned-room "what you valued"
 }
 
 struct SnapshotMessage: Decodable {
@@ -348,6 +351,19 @@ struct SnapshotMessage: Decodable {
     let toolStatus: String?
     let searchQuery: String?
     let sources: [SearchSource]?
+    // Session analytics · the turn's token count + the model that produced it.
+    let tokens: Int?
+    let modelV: String?
+}
+
+/// A chair key point + the user's vote · powers the adjourned-room analytics
+/// "what you valued" list.
+struct SnapshotKeyPoint: Decodable {
+    let id: String?
+    let body: String?
+    let vote: String?        // "up" | "down" | nil
+    let position: Int?
+    let roundNum: Int?
 }
 
 // MARK: - Provider credentials (API keys)
