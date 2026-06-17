@@ -38,8 +38,11 @@ import { tmpdir } from "node:os";
 let ref1024 = "/tmp/app.iconset/icon_512x512@2x.png";
 if (!existsSync(ref1024)) {
   const d = mkdtempSync(join(tmpdir(), "appicns-"));
-  execFileSync("iconutil", ["-c", "iconset", refIcns, "-o", d]);
-  ref1024 = join(d, "icon_512x512@2x.png");
+  // `iconutil -c iconset` REQUIRES the -o path to end in `.iconset`, so target a
+  // sub-dir with that extension (the bare mkdtemp dir is rejected).
+  const iconsetDir = join(d, "app.iconset");
+  execFileSync("iconutil", ["-c", "iconset", refIcns, "-o", iconsetDir]);
+  ref1024 = join(iconsetDir, "icon_512x512@2x.png");
 }
 // Alpha channel of the reference = the squircle coverage (incl. anti-aliased edge).
 const refAlpha = await sharp(ref1024).resize(SIZE, SIZE).ensureAlpha().extractChannel(3).toColourspace("b-w").png().toBuffer();
