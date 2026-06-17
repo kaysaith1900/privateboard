@@ -79,7 +79,7 @@ describe("ai/availability · model reachability per user state", () => {
     activateLlm("anthropic", "sk-ant");
     const reachable = reachableModels();
     const slugs = reachable.map((m) => m.modelV).sort();
-    expect(slugs).toEqual(["haiku-4-5", "opus-4-6-fast", "opus-4-7", "sonnet-4-6"]);
+    expect(slugs).toEqual(["haiku-4-5", "opus-4-6-fast", "opus-4-7", "opus-4-8", "sonnet-4-6"]);
     for (const m of reachable) expect(m.preferredRoute).toBe("direct");
   });
 

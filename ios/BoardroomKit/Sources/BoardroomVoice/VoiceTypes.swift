@@ -50,6 +50,14 @@ public struct TtsBillingError: Error, Equatable {
     public let upgradeUrl: String
 }
 
+/// Auth failure (invalid / wrong-region API key, unauthorized) → the UI surfaces
+/// a "key rejected" alert pointing at API-key settings, instead of going silent.
+public struct TtsAuthError: Error, Equatable {
+    public let provider: String
+    public let message: String
+    public init(provider: String, message: String) { self.provider = provider; self.message = message }
+}
+
 /// Supplies voice API keys + region at synth time (Keychain-backed in the app).
 public protocol VoiceCredentialSource: Sendable {
     func voiceKey(_ provider: VoiceProviderKind) -> String?

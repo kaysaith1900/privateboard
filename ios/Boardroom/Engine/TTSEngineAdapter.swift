@@ -53,6 +53,12 @@ struct TTSEngineAdapter: EngineTTS {
                             await VoiceBillingAlert.post(billing)
                             break
                         }
+                        if let auth = error as? TtsAuthError {
+                            // Invalid / wrong-region key · would fail every sentence →
+                            // surface ONE "key rejected" alert instead of silent muting.
+                            await VoiceBillingAlert.postKeyError(auth)
+                            break
+                        }
                     }
                 }
                 continuation.finish()
@@ -68,12 +74,20 @@ struct TTSEngineAdapter: EngineTTS {
     @MainActor
     enum VoiceBillingAlert {
         static let didFail = Notification.Name("bb.voice.billing")
+        static let didFailKey = Notification.Name("bb.voice.keyerror")   // invalid / wrong-region key
         private static var lastPost = Date.distantPast
+        private static var lastKeyPost = Date.distantPast
         static func post(_ e: TtsBillingError) {
             guard Date().timeIntervalSince(lastPost) > 30 else { return }
             lastPost = Date()
             NotificationCenter.default.post(name: didFail, object: nil,
                 userInfo: ["provider": e.provider, "message": e.message, "upgradeUrl": e.upgradeUrl])
+        }
+        static func postKeyError(_ e: TtsAuthError) {
+            guard Date().timeIntervalSince(lastKeyPost) > 30 else { return }
+            lastKeyPost = Date()
+            NotificationCenter.default.post(name: didFailKey, object: nil,
+                userInfo: ["provider": e.provider, "message": e.message])
         }
     }
 

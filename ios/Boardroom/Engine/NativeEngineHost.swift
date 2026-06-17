@@ -349,7 +349,7 @@ final class NativeEngineHost {
                   let modelV = Availability.utilityModel(active: active.carrier) ?? Availability.defaultModel(active: active.carrier)
             else { return }
             let sys = "Distill the user's discussion subject into a SHORT title — 3 to 6 words, in the subject's own language. Output ONLY the title: no surrounding quotes, no trailing punctuation, no preamble."
-            let req = LLMRequest(modelV: modelV,
+            let req = LLMRequest(modelV: modelV.rawValue,
                                  messages: [LLMMessage(role: .system, content: sys), LLMMessage(role: .user, content: subj)],
                                  maxTokens: 40)
             var out = ""

@@ -23,14 +23,17 @@ public struct TokenUsage: Sendable, Equatable {
 }
 
 public struct LLMRequest: Sendable {
-    public let modelV: ModelV
+    /// The raw model-id string (a `ModelV.rawValue` for registry models, or an
+    /// arbitrary id for DYNAMIC models fetched from an aggregator catalog).
+    /// Resolved to a wire id at call time via `Registry.wireId(forRawId:carrier:)`.
+    public let modelV: String
     public let messages: [LLMMessage]
     public var temperature: Double?
     public var maxTokens: Int?
     /// Override the active carrier for this single call (e.g. a director pinned
     /// to a specific provider bucket). nil = use the active LLM credential.
     public var carrierOverride: LLMCarrier?
-    public init(modelV: ModelV, messages: [LLMMessage], temperature: Double? = nil,
+    public init(modelV: String, messages: [LLMMessage], temperature: Double? = nil,
                 maxTokens: Int? = nil, carrierOverride: LLMCarrier? = nil) {
         self.modelV = modelV; self.messages = messages; self.temperature = temperature
         self.maxTokens = maxTokens; self.carrierOverride = carrierOverride

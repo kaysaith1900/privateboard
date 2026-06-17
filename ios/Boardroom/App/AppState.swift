@@ -46,6 +46,9 @@ final class AppState {
     var agents: [Agent] = []      // directors (chair excluded)
     var chair: Agent?             // the moderator, listed first in the directors tab
     var agentsError: String?      // surfaced on the Directors tab when /api/agents fails
+    /// Settings red-dot · set at launch/resume when a director is on a model the
+    /// active key can no longer reach (drives the gear badge → 支持模型列表 → 一键重置).
+    var modelsNeedAttention = false
     var roomDirectorCache: [String: [Agent]] = [:]   // roomId → directors (hydrated from members)
     /// In-flight full-persona director build · owned here (not the new-director
     /// sheet) so it SURVIVES closing the overlay: the Directors "+" shows a
@@ -145,6 +148,14 @@ final class AppState {
         return EngineCredentialSource(db: host.db, keychain: KeychainCredentialStore()).activeLLMCredential() != nil
     }
 
+    /// True when a voice/TTS credential is configured (any provider). The room
+    /// gates switching to a voice room on this — no key ⇒ the directors would be
+    /// silent, so prompt the user to add a TTS key first.
+    var hasVoiceKey: Bool {
+        guard isNative else { return false }
+        return NativeEngineHost.shared?.activeVoiceProviderName() != nil
+    }
+
     /// User display name (`prefs.name`) · set in onboarding, read by the chair.
     var userName: String { NativeEngineHost.shared?.userName() ?? "You" }
     func setUserName(_ name: String) { NativeEngineHost.shared?.setUserName(name) }
@@ -182,7 +193,7 @@ final class AppState {
         on how they think)","instruction":"…(role · objectives · voice · boundaries, 3-6 sentences)"}. \
         Match the language of the description.
         """
-        let req = LLMRequest(modelV: modelV,
+        let req = LLMRequest(modelV: modelV.rawValue,
                              messages: [LLMMessage(role: .system, content: sys),
                                         LLMMessage(role: .user, content: "Description:\n\(description)")],
                              maxTokens: 700)
@@ -406,6 +417,15 @@ final class AppState {
         if let fresh = try? await api.listRooms() { rooms = fresh }
     }
 
+    /// A sync just merged peers' changes into the local DB · re-read rooms + roster
+    /// and bump the asset token so director avatars re-fetch. Lets iCloud updates
+    /// appear live instead of only after an app restart.
+    func applySyncedChanges() {
+        guard isNative else { return }
+        assetReloadToken += 1
+        Task { await refresh() }
+    }
+
     func refresh() async {
         // Native engine · rooms + roster come from the in-process GRDB, not REST.
         if isNative {
@@ -414,6 +434,7 @@ final class AppState {
             loadNativeRoster()
             phase = .ready
             Task { await hydrateRoomDirectors() }
+            Task { await checkStaleModels() }       // refresh the Settings model badge
             return
         }
         guard let api else { phase = .needsBackend; return }
@@ -423,10 +444,22 @@ final class AppState {
             await loadAgents(api)               // captures agentsError; doesn't fail the screen
             phase = .ready
             Task { await hydrateRoomDirectors() }   // fill room-card avatars in the background
+            Task { await checkStaleModels() }
         } catch {
             let msg = (error as? APIClient.APIError)?.errorDescription ?? error.localizedDescription
             phase = .error(msg)
         }
+    }
+
+    /// Launch / resume check · flag the Settings badge when any director is on a
+    /// model the active key can no longer reach. Purely a read (the loopback's
+    /// `/api/models` resolves stale agents with the SAME predicate routing uses),
+    /// so it's safe to run on every refresh; the badge clears once the user resets.
+    func checkStaleModels() async {
+        guard hasLLMKey, let catalog = try? await api?.modelCatalog() else {
+            modelsNeedAttention = false; return
+        }
+        modelsNeedAttention = !(catalog.staleAgents ?? []).isEmpty
     }
 
     /// Rooms grouped into Live → Paused → Adjourned, empty groups dropped,

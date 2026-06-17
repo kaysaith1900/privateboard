@@ -18,7 +18,10 @@ public enum RoundKind: String, Sendable {
 public struct DirectorRef: Sendable, Equatable {
     public let id: String
     public let name: String
-    public let modelV: ModelV
+    /// Raw model-id string (a `ModelV.rawValue`, or a DYNAMIC id fetched from an
+    /// aggregator catalog). Resolved late in `LLMAdapter` — NOT parsed to `ModelV`
+    /// on the way in, so a dynamic id survives instead of dropping to a default.
+    public let modelV: String
     public let handle: String        // @handle (byline + history prefix)
     public let roleTag: String       // e.g. "skeptic" (cast list)
     public let instruction: String   // the agent's system-prompt identity
@@ -30,7 +33,7 @@ public struct DirectorRef: Sendable, Equatable {
     public let reflectionChecklist: [String]             // persona spec · silent self-check (#12)
     public let userRules: [String]         // user-authored NON-NEGOTIABLE directives (tail block)
     public let webSearchEnabled: Bool      // per-director web-search opt-in (#10 gating)
-    public init(id: String, name: String, modelV: ModelV,
+    public init(id: String, name: String, modelV: String,
                 handle: String = "", roleTag: String = "", instruction: String = "",
                 bio: String = "", ability: [String: Int] = [:],
                 contrarianTakes: [String] = [], failureModes: [String] = [],
@@ -42,6 +45,22 @@ public struct DirectorRef: Sendable, Equatable {
         self.contrarianTakes = contrarianTakes; self.failureModes = failureModes
         self.fewShot = fewShot; self.reflectionChecklist = reflectionChecklist
         self.userRules = userRules; self.webSearchEnabled = webSearchEnabled
+    }
+
+    /// Ergonomic overload for a known registry model — forwards `modelV.rawValue`.
+    /// (The stored `modelV` is a raw String so DYNAMIC ids survive; this keeps
+    /// known-model construction terse for callers/tests that have a `ModelV`.)
+    public init(id: String, name: String, modelV: ModelV,
+                handle: String = "", roleTag: String = "", instruction: String = "",
+                bio: String = "", ability: [String: Int] = [:],
+                contrarianTakes: [String] = [], failureModes: [String] = [],
+                fewShot: [PersonaBuilder.PersonaFewShot] = [], reflectionChecklist: [String] = [],
+                userRules: [String] = [], webSearchEnabled: Bool = false) {
+        self.init(id: id, name: name, modelV: modelV.rawValue,
+                  handle: handle, roleTag: roleTag, instruction: instruction,
+                  bio: bio, ability: ability, contrarianTakes: contrarianTakes,
+                  failureModes: failureModes, fewShot: fewShot, reflectionChecklist: reflectionChecklist,
+                  userRules: userRules, webSearchEnabled: webSearchEnabled)
     }
 }
 
@@ -114,7 +133,7 @@ public struct EngineMessage: Sendable, Equatable {
 public enum LLMPurpose: String, Sendable { case clarify, director, roundEnd }
 
 public protocol EngineLLM: Sendable {
-    func stream(_ messages: [LLMMessage], modelV: ModelV, maxTokens: Int?, purpose: LLMPurpose)
+    func stream(_ messages: [LLMMessage], modelV: String, maxTokens: Int?, purpose: LLMPurpose)
         -> AsyncThrowingStream<LLMStreamChunk, Error>
 }
 

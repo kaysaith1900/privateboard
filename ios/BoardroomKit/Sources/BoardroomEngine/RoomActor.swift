@@ -1215,7 +1215,7 @@ public actor RoomActor {
     /// wrapping Task preserves whatever streamed so far. Cancellation-cooperative:
     /// `checkCancellation` between chunks + the AsyncThrowingStream's own
     /// cancellation tears down the socket while suspended on a stalled provider.
-    private func consumeTurnStream(mid: String, messages: [LLMMessage], modelV: ModelV, purpose: LLMPurpose) async throws {
+    private func consumeTurnStream(mid: String, messages: [LLMMessage], modelV: String, purpose: LLMPurpose) async throws {
         for try await chunk in llm.stream(messages, modelV: modelV, maxTokens: 4000, purpose: purpose) {
             try Task.checkCancellation()
             if case .textDelta(let d) = chunk {
@@ -1435,7 +1435,7 @@ public actor RoomActor {
         // Persist this turn's tokens + model onto the message (merged AFTER finalize,
         // which rewrites meta) so adjourned-room session analytics can sum tokens
         // per message and break them down by model — desktop's `m.meta.tokens`.
-        if inflightUsageTokens > 0 { await store.recordMessageTokens(mid, tokens: inflightUsageTokens, modelV: author.modelV.rawValue) }
+        if inflightUsageTokens > 0 { await store.recordMessageTokens(mid, tokens: inflightUsageTokens, modelV: author.modelV) }
         await emitDirectorSearchFinal(mid: mid, search: directorHit)
 
         // A's TEXT is done — kick off the NEXT speaker's pre-warm NOW (desktop's
@@ -1555,7 +1555,7 @@ public actor RoomActor {
         case .noKey:
             return "⚠️ 未配置 LLM key — 请在「设置 → API 密钥」里添加后重试。"
         case .modelNotReachable(let m, let c):
-            return "⚠️ 模型 \(m.rawValue) 在当前 provider（\(c.rawValue)）不可达。"
+            return "⚠️ 模型 \(m) 在当前 provider（\(c.rawValue)）不可达。"
         case .upstream(let m):
             return "⚠️ 上游错误：\(m)"
         case .exhausted(let m):

@@ -14,7 +14,7 @@ final class HookDirectorLLM: EngineLLM, @unchecked Sendable {
     let onFirstDirector: @Sendable () async -> Void
     init(onFirstDirector: @escaping @Sendable () async -> Void) { self.onFirstDirector = onFirstDirector }
 
-    func stream(_ messages: [LLMMessage], modelV: ModelV, maxTokens: Int?, purpose: LLMPurpose)
+    func stream(_ messages: [LLMMessage], modelV: String, maxTokens: Int?, purpose: LLMPurpose)
         -> AsyncThrowingStream<LLMStreamChunk, Error> {
         switch purpose {
         case .clarify:  return Self.instant("READY")

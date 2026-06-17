@@ -117,9 +117,12 @@ Hard rules:
 ─── YOUR EXTRACTION ───
 0–3 JSON-line notes about \(userName) from your lens, OR the literal token NONE.
 """
+        // The director's own model for the extraction lens; a DYNAMIC id has no
+        // ModelV case, so fall back to the utility tier (the router is ModelV-typed).
+        guard let lensModel = ModelV(rawValue: agent.modelV) ?? router.utilityModelV() else { return [] }
         guard let raw = try? await router.call(
             [LLMMessage(role: .system, content: system), LLMMessage(role: .user, content: user)],
-            modelV: agent.modelV, temperature: 0.2, maxTokens: 600) else { return [] }
+            modelV: lensModel, temperature: 0.2, maxTokens: 600) else { return [] }
         return parseExtractionOutput(raw)
     }
 

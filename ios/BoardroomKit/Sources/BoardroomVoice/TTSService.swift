@@ -33,9 +33,12 @@ public struct TTSService: Sendable {
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             let body = String(decoding: data, as: UTF8.self)
             if TTSWire.isBalanceMessage(body) { throw TTSWire.minimaxBilling(region: region) }
+            if http.statusCode == 401 || http.statusCode == 403 || TTSWire.isAuthMessage(body) {
+                throw TtsAuthError(provider: "minimax", message: "HTTP \(http.statusCode)")
+            }
             throw TTSError.badResponse("MiniMax HTTP \(http.statusCode): \(body.prefix(300))")
         }
-        return try TTSWire.parseMiniMax(data, profile: profile, text: text, region: region)   // also catches 200+status_code billing
+        return try TTSWire.parseMiniMax(data, profile: profile, text: text, region: region)   // catches 200+status_code billing / auth
     }
 
     private func binary(_ text: String, _ profile: VoiceProfile, provider: String) async throws -> TtsChunk {
@@ -49,6 +52,9 @@ public struct TTSService: Sendable {
             let body = String(decoding: data, as: UTF8.self)
             if provider == "elevenlabs", http.statusCode == 402 || TTSWire.isElevenLabsCreditError(body) {
                 throw TTSWire.elevenLabsBilling()
+            }
+            if http.statusCode == 401 || http.statusCode == 403 || TTSWire.isAuthMessage(body) {
+                throw TtsAuthError(provider: provider, message: "HTTP \(http.statusCode)")
             }
             throw TTSError.badResponse("\(provider) HTTP \(http.statusCode): \(body.prefix(300))")
         }

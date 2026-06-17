@@ -430,6 +430,26 @@ extension APIClient {
         let r: ModelsResponse = try await get("/api/models")
         return r.models
     }
+
+    /// Full catalog response · models + the stale-agent list (for the support view).
+    func modelCatalog() async throws -> ModelsResponse {
+        try await get("/api/models")
+    }
+
+    /// Reassign every director whose model is unreachable to a random fast model.
+    func resetStaleModels() async throws -> ResetStaleResponse {
+        let data = try await send("POST", "/api/models/reset-stale", timeout: 15)
+        do { return try JSONDecoder().decode(ResetStaleResponse.self, from: data) }
+        catch { throw APIError.decode(error) }
+    }
+
+    /// Pull the active aggregator carrier's latest models and add the new ones as
+    /// dynamic (usable) models. Longer timeout · this does a live network fetch.
+    func refreshModels() async throws -> RefreshModelsResponse {
+        let data = try await send("POST", "/api/models/refresh", timeout: 30)
+        do { return try JSONDecoder().decode(RefreshModelsResponse.self, from: data) }
+        catch { throw APIError.decode(error) }
+    }
 }
 
 // MARK: - Directors · full-persona deep build (7-phase SSE job)

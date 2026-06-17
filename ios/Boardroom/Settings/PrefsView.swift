@@ -29,6 +29,18 @@ struct PrefsView: View {
                     NavigationLink { ApiKeysView() } label: {
                         settingsLabel("key.fill", Loc.t("m_prefs_keys"), nil)
                     }
+                    // Supported model list · only relevant once an LLM key exists.
+                    // "更新" pulls the latest brand-matched models from the carrier.
+                    if app.hasLLMKey {
+                        NavigationLink { SupportedModelsView() } label: {
+                            HStack(spacing: 8) {
+                                settingsLabel("square.stack.3d.up.fill", Loc.t("m_prefs_models"), nil)
+                                if app.modelsNeedAttention {
+                                    Circle().fill(Color.red).frame(width: 8, height: 8)
+                                }
+                            }
+                        }
+                    }
                     NavigationLink { UsageView() } label: {
                         settingsLabel("chart.bar.fill", Loc.t("m_prefs_usage"),
                                       usageTokens.map { Loc.t("m_prefs_usage_sub", ["tokens": UsageView.fmtTokens($0)]) })
@@ -38,6 +50,10 @@ struct PrefsView: View {
                     }
                     NavigationLink { LanguageView() } label: {
                         settingsLabel("globe", Loc.t("m_prefs_language"), Loc.localeNames[Loc.locale])
+                    }
+                    NavigationLink { SyncSettingsView() } label: {
+                        settingsLabel("arrow.triangle.2.circlepath.icloud", "iCloud Sync",
+                                      SyncCoordinator.shared.status.enabled ? "On" : nil)
                     }
                 }
                 .listRowBackground(Color.bbCard)
@@ -58,6 +74,105 @@ struct PrefsView: View {
             Text(title).foregroundStyle(Color.bbInk)
             Spacer()
             if let value { Text(value).foregroundStyle(.secondary) }
+        }
+    }
+}
+
+/// iCloud sync · the toggle + live progress. Binds to the SyncCoordinator
+/// singleton (@Observable), the app-side counterpart of the desktop settings row.
+struct SyncSettingsView: View {
+    private let coord = SyncCoordinator.shared
+    @State private var working = false
+
+    var body: some View {
+        let st = coord.status
+        Form {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { st.enabled },
+                    set: { on in working = true; Task { await coord.setEnabled(on); working = false } }
+                )) {
+                    Text("iCloud Sync").foregroundStyle(Color.bbInk)
+                }
+                .tint(.bbGold)
+                .disabled(working)
+            } footer: {
+                Text("Sync your directors, memories & rooms across your Apple devices through your own iCloud. Content stays in your iCloud account — there is no server, and we never see it.")
+            }
+            .listRowBackground(Color.bbCard)
+
+            Section {
+                HStack {
+                    Circle().fill(pillColor(st)).frame(width: 8, height: 8)
+                    Text(pillText(st)).foregroundStyle(Color.bbInk)
+                    Spacer()
+                    Button {
+                        working = true   // immediate visual feedback, before any I/O
+                        Task {
+                            await coord.syncNow()
+                            // keep the spinner up briefly so a fast sync still registers
+                            try? await Task.sleep(for: .milliseconds(400))
+                            working = false
+                        }
+                    } label: {
+                        Group {
+                            if working || st.state == "syncing" {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text("Sync now")
+                            }
+                        }
+                        .frame(minWidth: 68)
+                    }
+                    .buttonStyle(.bordered).tint(.bbGold)
+                    .disabled(working || st.state == "syncing")
+                }
+                LabeledContent("iCloud") { Text(st.available ? "Available" : "Unavailable").foregroundStyle(.secondary) }
+                LabeledContent("Items synced") { Text("\(st.tracked)").foregroundStyle(.secondary) }
+                if st.pending > 0 {
+                    LabeledContent("Pending upload") { Text("\(st.pending)").foregroundStyle(.secondary) }
+                }
+                if let last = st.lastSyncAt {
+                    LabeledContent("Last synced") {
+                        Text(last.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary)
+                    }
+                }
+                if let dev = st.deviceID {
+                    LabeledContent("This device") { Text(String(dev.prefix(8))).foregroundStyle(.secondary).font(.system(.footnote, design: .monospaced)) }
+                }
+                if let err = st.error {
+                    Text(err).foregroundStyle(.red).font(.system(size: 14))
+                } else if !st.available {
+                    Text("Sign in to iCloud and turn on iCloud Drive in the system Settings app to enable sync.")
+                        .foregroundStyle(.secondary).font(.system(size: 14))
+                }
+            } header: {
+                Text("Status").foregroundStyle(.secondary)
+            }
+            .listRowBackground(Color.bbCard)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.bbBg.ignoresSafeArea())
+        .tint(Color.bbGold)
+        .navigationTitle("iCloud Sync")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await coord.refresh() }
+    }
+
+    private func pillText(_ st: SyncCoordinator.Status) -> String {
+        if !st.available { return "iCloud unavailable" }
+        switch st.state {
+        case "syncing": return "Syncing…"
+        case "error":   return "Error"
+        default:        return st.pending > 0 ? "\(st.pending) pending" : "Up to date"
+        }
+    }
+    private func pillColor(_ st: SyncCoordinator.Status) -> Color {
+        if !st.available { return .orange }
+        switch st.state {
+        case "syncing": return .bbGold
+        case "error":   return .red
+        default:        return st.pending > 0 ? .bbGold : .green
         }
     }
 }

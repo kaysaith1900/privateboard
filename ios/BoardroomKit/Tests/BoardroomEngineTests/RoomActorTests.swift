@@ -17,7 +17,7 @@ final class ScriptedLLM: EngineLLM, @unchecked Sendable {
         self.clarify = clarify; self.director = director; self.roundEnd = roundEnd
     }
 
-    func stream(_ messages: [LLMMessage], modelV: ModelV, maxTokens: Int?, purpose: LLMPurpose)
+    func stream(_ messages: [LLMMessage], modelV: String, maxTokens: Int?, purpose: LLMPurpose)
         -> AsyncThrowingStream<LLMStreamChunk, Error> {
         let text: String = {
             lock.lock(); defer { lock.unlock() }
@@ -40,7 +40,7 @@ final class ScriptedLLM: EngineLLM, @unchecked Sendable {
 
 /// LLM that throws immediately (error-path test).
 struct ThrowingLLM: EngineLLM {
-    func stream(_ messages: [LLMMessage], modelV: ModelV, maxTokens: Int?, purpose: LLMPurpose)
+    func stream(_ messages: [LLMMessage], modelV: String, maxTokens: Int?, purpose: LLMPurpose)
         -> AsyncThrowingStream<LLMStreamChunk, Error> {
         AsyncThrowingStream { $0.finish(throwing: LLMError.upstream("boom")) }
     }

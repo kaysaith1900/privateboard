@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "BoardroomVoice", targets: ["BoardroomVoice"]),
         .library(name: "BoardroomSearch", targets: ["BoardroomSearch"]),
         .library(name: "BoardroomEngine", targets: ["BoardroomEngine"]),
+        .library(name: "BoardroomSync", targets: ["BoardroomSync"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -46,5 +47,10 @@ let package = Package(
             .process("Resources/brief-prompts.json"),       // codegen'd from brief-stages.ts (gen-ios-brief-prompts.mjs)
         ]),
         .testTarget(name: "BoardroomEngineTests", dependencies: ["BoardroomEngine"]),
+        .target(name: "BoardroomSync", dependencies: [
+            "BoardroomCore", "BoardroomStorage",
+            .product(name: "GRDB", package: "GRDB.swift"),
+        ]),
+        .testTarget(name: "BoardroomSyncTests", dependencies: ["BoardroomSync", "BoardroomStorage"]),
     ]
 )

@@ -52,6 +52,13 @@ public enum TTSWire {
         if status != 0, status == 1008 || isBalanceMessage(statusMsg) {
             throw minimaxBilling(region: region)
         }
+        // Invalid / wrong-region key · MiniMax returns this as a non-zero status
+        // (1004 auth-fail, 2049 invalid key, …) in a 200 body. Surface it as an
+        // auth error so the user is TOLD the key is wrong (e.g. an intl key entered
+        // under the China region), instead of the room going silently mute.
+        if status != 0, status == 1004 || status == 1001 || status == 2049 || isAuthMessage(statusMsg) {
+            throw TtsAuthError(provider: "minimax", message: statusMsg.isEmpty ? "invalid API key" : statusMsg)
+        }
         let hex = ((json["data"] as? [String: Any])?["audio"] as? String) ?? (json["audio"] as? String) ?? ""
         guard !hex.isEmpty, let bytes = Data(hexString: hex) else {
             if status != 0, !statusMsg.isEmpty { throw TTSError.badResponse("MiniMax (\(status)): \(statusMsg)") }
@@ -117,6 +124,12 @@ public enum TTSWire {
 
     public static func isBalanceMessage(_ s: String) -> Bool {
         s.range(of: #"(?i)insufficient[ _-]?(balance|quota|credit|fund)|余额不足"#, options: .regularExpression) != nil
+    }
+
+    /// An invalid / unauthorized / wrong-region API-key message (any provider).
+    public static func isAuthMessage(_ s: String) -> Bool {
+        s.range(of: #"(?i)invalid.*(api.?key|token)|unauthor|authenticat|api.?key.*invalid|forbidden|鉴权|无效.*(密钥|key)|密钥.*无效|token.*invalid"#,
+                options: .regularExpression) != nil
     }
 }
 

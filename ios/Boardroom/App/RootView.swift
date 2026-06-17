@@ -68,6 +68,14 @@ struct RootView: View {
                             message: Loc.t("m_tts_billing_msg", ["provider": Self.providerName(provider)]),
                             ctaURL: url)
         }
+        // TTS key REJECTED (invalid / wrong-region key) → an auth notice so the room
+        // going silent is explained + the user is sent to fix the key (not muted blindly).
+        .onReceive(NotificationCenter.default.publisher(for: TTSEngineAdapter.VoiceBillingAlert.didFailKey)) { note in
+            guard let info = note.userInfo, let provider = info["provider"] as? String else { return }
+            notice = Notice(kind: .auth, provider: provider,
+                            message: Loc.t("m_tts_keyerror_msg", ["provider": Self.providerName(provider)]),
+                            ctaURL: nil)
+        }
         // Engine / room-session / foreground-resume prompts (billing / auth / network / reconnect).
         .onReceive(NotificationCenter.default.publisher(for: AppNotice.didPost)) { note in
             guard let info = note.userInfo, let raw = info["kind"] as? String,

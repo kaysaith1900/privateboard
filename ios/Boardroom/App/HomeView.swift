@@ -134,6 +134,14 @@ struct HomeView: View {
                 .foregroundStyle(Color.bbInk)
             Spacer()
             GlassIconButton(system: "gearshape") { showPrefs = true }   // system .glass
+                .overlay(alignment: .topTrailing) {
+                    // Red dot · a director is on a model the active key can't reach.
+                    if app.modelsNeedAttention {
+                        Circle().fill(Color.red).frame(width: 9, height: 9)
+                            .overlay(Circle().strokeBorder(Color.bbBg, lineWidth: 1.5))
+                            .offset(x: 1, y: -1)
+                    }
+                }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)

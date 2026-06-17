@@ -12,7 +12,8 @@
  */
 import { runSeed } from "./seed/run.js";
 import { startServer, type RunningServer } from "./server.js";
-import { closeDb, runMigrations } from "./storage/db.js";
+import { closeDb, getDb, runMigrations } from "./storage/db.js";
+import { syncManager } from "./sync/desktop.js";
 
 // Re-exported so the Electron main process can register `closeDb` directly
 // in its `process.on("exit")` last-resort sync hook without depending on the
@@ -126,6 +127,13 @@ export async function bootApp(opts: BootOptions = {}): Promise<BootResult> {
     }
   })();
 
+  // iCloud cross-device sync · adopt the user's persisted toggle (or the
+  // BOARDROOM_ICLOUD_SYNC env override). Fire-and-forget so a slow/absent iCloud
+  // never delays boot; no-op when sync is off or no folder is available.
+  void syncManager.init(getDb()).catch((e) => {
+    process.stderr.write(`[boot] iCloud sync init failed: ${errMsg(e)}\n`);
+  });
+
   const port = opts.port ?? (await findFreePort(3030));
   const host = opts.host ?? "127.0.0.1";
   const server = await startServer({ port, host });
@@ -147,6 +155,13 @@ export async function shutdownApp(server: RunningServer | null): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   stopRuntimeOrphanSweep();
+  // Final flush+push of pending sync ops BEFORE closeDb (mirrors the WAL
+  // checkpoint discipline — don't strand local changes on quit).
+  try {
+    await syncManager.stop();
+  } catch (e) {
+    console.error("  ! error stopping iCloud sync", e);
+  }
   try {
     await server?.close();
   } catch (e) {

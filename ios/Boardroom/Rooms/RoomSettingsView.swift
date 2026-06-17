@@ -14,6 +14,8 @@ struct RoomSettingsView: View {
     @State private var castSel: Set<String> = []
     @State private var castBusy = false
     @State private var errorText: String?
+    @State private var showNoVoiceKey = false   // voice toggled on with no TTS key
+    @State private var showVoiceApiKeys = false
 
     private var room: Room { session.room }
     private var isAdjourned: Bool { session.status == .adjourned }
@@ -110,6 +112,17 @@ struct RoomSettingsView: View {
             .task {
                 await app.ensureAgentsLoaded()
                 castSel = currentDirectorIds
+            }
+            .alert(Loc.t("m_novoice_title"), isPresented: $showNoVoiceKey) {
+                Button(Loc.t("m_novoice_cta")) { showVoiceApiKeys = true }
+                Button(Loc.t("common_cancel"), role: .cancel) {}
+            } message: { Text(Loc.t("m_novoice_msg")) }
+            .sheet(isPresented: $showVoiceApiKeys) {
+                NavigationStack {
+                    ApiKeysView()
+                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(Loc.t("common_done")) { showVoiceApiKeys = false } } }
+                }
+                .environment(app)
             }
         }
     }
@@ -219,6 +232,9 @@ struct RoomSettingsView: View {
 
     private func setVoice(_ on: Bool) {
         guard session.isVoice != on else { return }
+        // Turning voice ON with no TTS key ⇒ the room would be silent. Prompt to
+        // configure one instead of switching (the toggle springs back).
+        if on, !app.hasVoiceKey { showNoVoiceKey = true; return }
         let mode = on ? "voice" : "text"
         let prev = session.deliveryMode
         session.setDeliveryMode(mode)        // optimistic · stops TTS + swaps stage→transcript at once

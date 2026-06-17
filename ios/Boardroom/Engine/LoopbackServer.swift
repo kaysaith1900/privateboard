@@ -25,6 +25,14 @@ final class LoopbackServer {
     private let voicesLock = NSLock()
     private var minimaxVoiceCache: (identity: String, at: Date, voices: [[String: Any]])?
 
+    // DYNAMIC models · brand-matched ids fetched from an aggregator catalog
+    // (openrouter / bai) via "更新". Cached in-memory per carrier; the per-agent
+    // SELECTION persists in `agents.model_v` (re-derived into the list on launch),
+    // so no schema/migration is needed. Keyed by carrier.rawValue →
+    // [{id, brand, displayName}].
+    private let modelsLock = NSLock()
+    private var dynamicModelCache: [String: [[String: String]]] = [:]
+
     /// `http://127.0.0.1:<port>` once started, else nil.
     var baseURL: URL? { port == 0 ? nil : URL(string: "http://127.0.0.1:\(port)") }
 
@@ -136,6 +144,19 @@ final class LoopbackServer {
         server.GET["/api/models"] = { [weak self] _ in
             guard let self else { return .notFound }
             return Self.jsonResponse(self.modelsResponse())
+        }
+        // POST /api/models/refresh · pull the active aggregator carrier's catalog,
+        // brand-filter to PrivateBoard's known brands, diff against what's already
+        // known, and add the new ones as DYNAMIC (usable) models.
+        server.POST["/api/models/refresh"] = { [weak self] _ in
+            guard let self else { return .notFound }
+            return Self.jsonResponse(self.refreshModels())
+        }
+        // POST /api/models/reset-stale · reassign every director whose model is no
+        // longer reachable to a random fast model (一键重置).
+        server.POST["/api/models/reset-stale"] = { [weak self] _ in
+            guard let self else { return .notFound }
+            return Self.jsonResponse(self.resetStaleModels())
         }
 
         // GET /api/usage/summary → cumulative LLM-call accounting (1:1 port of
@@ -382,12 +403,201 @@ final class LoopbackServer {
             return try String.fetchOne(conn, sql: "SELECT provider FROM llm_credentials WHERE id = ?", arguments: [cid])
         }) ?? nil
         let carrier = providerStr.flatMap(LLMCarrier.init(rawValue:))
-        let models = Availability.all(active: carrier).map { m -> [String: Any] in
+        var models = Availability.all(active: carrier).map { m -> [String: Any] in
             ["modelV": m.modelV.rawValue, "displayName": m.displayName,
              "provider": m.provider.rawValue, "deck": m.deck, "reachable": m.reachable]
         }
+
+        // Append DYNAMIC models · only aggregator carriers can route an arbitrary
+        // id, so they're reachable iff the active carrier is openrouter / bai.
+        let aggregator = (carrier?.route ?? .direct) != .direct
+        var seen = Set(models.compactMap { $0["modelV"] as? String })
+        func addDynamic(id: String, brand: String, name: String) {
+            guard !id.isEmpty, !seen.contains(id), Registry.meta(id: id) == nil else { return }
+            seen.insert(id)
+            models.append(["modelV": id, "displayName": name, "provider": brand,
+                           "deck": "dynamic", "reachable": aggregator, "dynamic": true])
+        }
+        if let carrier {
+            modelsLock.lock(); let cached = dynamicModelCache[carrier.rawValue] ?? []; modelsLock.unlock()
+            for row in cached { addDynamic(id: row["id"] ?? "", brand: row["brand"] ?? "unknown",
+                                           name: row["displayName"] ?? (row["id"] ?? "")) }
+        }
+        // Re-derive any already-ASSIGNED dynamic id from agents so a director's
+        // pick never vanishes from the picker after an app restart (the cache is
+        // in-memory; the selection persists in agents.model_v).
+        let assigned = (try? db.pool.read {
+            try String.fetchAll($0, sql: "SELECT DISTINCT model_v FROM agents WHERE model_v IS NOT NULL AND model_v != ''")
+        }) ?? []
+        for mv in assigned { addDynamic(id: mv, brand: Self.brandForModelId(mv) ?? "unknown", name: mv) }
+
         let hasAnyKey = (try? db.pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM llm_credentials") }) ?? 0
-        return ["models": models, "hasAnyKey": (hasAnyKey ?? 0) > 0]
+        return ["models": models, "hasAnyKey": (hasAnyKey ?? 0) > 0,
+                "staleAgents": staleAgents(carrier: carrier)]
+    }
+
+    /// Agents (directors / chair) whose configured `model_v` is NOT reachable on
+    /// the active carrier — e.g. a dynamic model after switching to a direct key,
+    /// or a registry model with no route on this carrier (gemini on B.AI). The
+    /// reachability predicate is the SAME one routing uses
+    /// (`Registry.wireId(forRawId:carrier:)`), so this matches what a turn would
+    /// actually fail on. `[{id, name, modelV, displayName}]`.
+    private func staleAgents(carrier: LLMCarrier?) -> [[String: Any]] {
+        guard let carrier else { return [] }
+        let rows = (try? db.pool.read {
+            try Row.fetchAll($0, sql: "SELECT id, name, model_v FROM agents WHERE model_v IS NOT NULL AND model_v != ''")
+        }) ?? []
+        return rows.compactMap { r -> [String: Any]? in
+            let mv = (r["model_v"] as String?) ?? ""
+            guard !mv.isEmpty, Registry.wireId(forRawId: mv, carrier: carrier) == nil else { return nil }
+            return ["id": (r["id"] as String?) ?? "", "name": (r["name"] as String?) ?? "",
+                    "modelV": mv, "displayName": Registry.meta(id: mv)?.displayName ?? mv]
+        }
+    }
+
+    /// One-click reset · reassign every agent whose model is unreachable on the
+    /// active carrier to a RANDOM FAST model (the carrier's flash pool; falls back
+    /// to the carrier default for single-model direct providers). Mirrors the
+    /// reconcile reroll + records the bucket so the pick is remembered. `{reset}`.
+    private func resetStaleModels() -> [String: Any] {
+        guard let carrier = activeLLMCarrier() else { return ["reset": 0] }
+        let fallback = Availability.defaultModel(active: carrier)?.rawValue
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        var count = 0
+        try? db.pool.write { conn in
+            let rows = try Row.fetchAll(conn, sql: "SELECT id, model_v FROM agents WHERE model_v IS NOT NULL AND model_v != ''")
+            for r in rows {
+                let aid = (r["id"] as String?) ?? ""
+                let mv = (r["model_v"] as String?) ?? ""
+                guard !aid.isEmpty, !mv.isEmpty, Registry.wireId(forRawId: mv, carrier: carrier) == nil,
+                      let target = Availability.pickRandomFastModel(active: carrier)?.rawValue ?? fallback
+                else { continue }
+                try conn.execute(sql: "UPDATE agents SET model_v = ?, updated_at = ? WHERE id = ?", arguments: [target, now, aid])
+                try writeModelBucketEntry(conn, aid, carrier, target)
+                count += 1
+            }
+        }
+        return ["reset": count]
+    }
+
+    // MARK: Dynamic model catalog (支持模型列表 · "更新")
+
+    /// PrivateBoard's known brands → id substrings. Brand strings match
+    /// `ModelProvider.rawValue` so the picker / usage panel colour them correctly.
+    private static let knownBrands: [(brand: String, needles: [String])] = [
+        ("anthropic", ["claude"]),
+        ("openai", ["gpt", "codex", "o1", "o3", "o4"]),
+        ("google", ["gemini"]),
+        ("deepseek", ["deepseek"]),
+        ("zhipu", ["glm"]),
+        ("moonshot", ["kimi"]),
+        ("minimax", ["minimax"]),
+    ]
+
+    /// The brand for a model id (handles aggregator `vendor/slug` and bare slugs),
+    /// or nil when the id isn't one of PrivateBoard's known brands.
+    static func brandForModelId(_ id: String) -> String? {
+        let lower = id.lowercased()
+        let slug = lower.contains("/") ? String(lower.split(separator: "/").last ?? "") : lower
+        for b in knownBrands where b.needles.contains(where: { slug.contains($0) }) { return b.brand }
+        return nil
+    }
+
+    /// Active LLM (carrier, raw key) from prefs + Keychain, or nil.
+    private func activeLLMCarrierAndKey() -> (carrier: LLMCarrier, key: String)? {
+        guard let cid = (try? db.pool.read {
+            try String.fetchOne($0, sql: "SELECT active_llm_credential_id FROM prefs WHERE id = 1") }) ?? nil,
+              let provider = (try? db.pool.read {
+            try String.fetchOne($0, sql: "SELECT provider FROM llm_credentials WHERE id = ?", arguments: [cid]) }) ?? nil,
+              let carrier = LLMCarrier(rawValue: provider),
+              let key = KeychainCredentialStore().key(.llm, id: cid)
+        else { return nil }
+        return (carrier, key)
+    }
+
+    /// Every model id already known to the app — registry wire ids + modelV
+    /// rawValues + agent-assigned ids + the dynamic cache. "新" = fetched-and-
+    /// brand-matched but absent from this set.
+    private func knownModelIds() -> Set<String> {
+        var ids = Set<String>()
+        for m in Registry.all {
+            ids.insert(m.v.rawValue); ids.insert(m.directApiId); ids.insert(m.openrouterId)
+            if let bai = m.baiId { ids.insert(bai) }
+        }
+        let assigned = (try? db.pool.read {
+            try String.fetchAll($0, sql: "SELECT DISTINCT model_v FROM agents WHERE model_v IS NOT NULL AND model_v != ''")
+        }) ?? []
+        ids.formUnion(assigned)
+        modelsLock.lock()
+        for (_, rows) in dynamicModelCache { for r in rows { if let id = r["id"] { ids.insert(id) } } }
+        modelsLock.unlock()
+        return ids
+    }
+
+    /// Synchronous GET /v1/models for aggregator carriers (handler runs off the
+    /// main thread). Mirrors `fetchMiniMaxVoicesSync`. Returns brand-matched rows
+    /// `[{id, brand, displayName}]`, or nil on failure / unsupported carrier.
+    private func fetchCarrierModelsSync(carrier: LLMCarrier, key: String) -> [[String: String]]? {
+        let urlStr: String
+        switch carrier {
+        case .bai: urlStr = "https://api.b.ai/v1/models"
+        case .openrouter: urlStr = "https://openrouter.ai/api/v1/models"
+        default: return nil
+        }
+        guard let url = URL(string: urlStr) else { return nil }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "GET"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        var result: [[String: String]]?
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            defer { sem.signal() }
+            guard let data, let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let arr = json["data"] as? [[String: Any]] else { return }
+            var rows: [[String: String]] = []
+            for item in arr {
+                guard let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespaces), !id.isEmpty,
+                      let brand = Self.brandForModelId(id) else { continue }
+                let name = (item["name"] as? String) ?? (item["display_name"] as? String) ?? id
+                rows.append(["id": id, "brand": brand, "displayName": name])
+            }
+            result = rows
+        }.resume()
+        _ = sem.wait(timeout: .now() + 18)
+        return result
+    }
+
+    /// `{ added:[{id,displayName,brand}], total, carrier?, unsupported? }`. Fetches
+    /// the active aggregator carrier's catalog, brand-filters, diffs, and unions the
+    /// new models into the in-memory cache so they become selectable.
+    private func refreshModels() -> [String: Any] {
+        guard let (carrier, key) = activeLLMCarrierAndKey() else {
+            return ["added": [], "total": 0, "unsupported": true]
+        }
+        let staticCount = Availability.reachable(active: carrier).count
+        guard carrier.route != .direct else {
+            // Direct providers are single-model; auto-discovery needs an aggregator key.
+            return ["added": [], "total": staticCount, "unsupported": true]
+        }
+        guard let fetched = fetchCarrierModelsSync(carrier: carrier, key: key) else {
+            return ["added": [], "total": staticCount, "error": "fetch_failed"]
+        }
+        let known = knownModelIds()
+        let fresh = fetched.filter { !known.contains($0["id"] ?? "") }
+        // Union the full fetched set into the cache (so previously-added ids persist
+        // this session and the next 更新 reports them as already-known).
+        modelsLock.lock()
+        var existing = dynamicModelCache[carrier.rawValue] ?? []
+        var existingIds = Set(existing.compactMap { $0["id"] })
+        for row in fetched where !existingIds.contains(row["id"] ?? "") {
+            existing.append(row); existingIds.insert(row["id"] ?? "")
+        }
+        dynamicModelCache[carrier.rawValue] = existing
+        let dynamicCount = existing.count
+        modelsLock.unlock()
+        return ["added": fresh.map { ["id": $0["id"] ?? "", "displayName": $0["displayName"] ?? "", "brand": $0["brand"] ?? ""] },
+                "total": staticCount + dynamicCount, "carrier": carrier.rawValue]
     }
 
     // MARK: Usage accounting (port of src/routes/usage.ts)

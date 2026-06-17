@@ -408,7 +408,36 @@ struct ModelInfo: Decodable, Identifiable, Hashable {
     let provider: String?
     let deck: String?
     let reachable: Bool?
+    let dynamic: Bool?            // fetched from a provider catalog via "更新"
     var id: String { modelV }
     var label: String { displayName ?? modelV }
 }
-struct ModelsResponse: Decodable { let models: [ModelInfo]; let hasAnyKey: Bool? }
+/// A director/chair whose configured model is no longer reachable on the active key.
+struct StaleAgent: Decodable, Identifiable, Hashable {
+    let id: String
+    let name: String?
+    let modelV: String
+    let displayName: String?
+    var label: String { displayName ?? modelV }
+}
+struct ModelsResponse: Decodable {
+    let models: [ModelInfo]
+    let hasAnyKey: Bool?
+    let staleAgents: [StaleAgent]?
+}
+struct ResetStaleResponse: Decodable { let reset: Int }
+
+/// `POST /api/models/refresh` → newly-discovered models (or empty when up to date).
+struct AddedModel: Decodable, Identifiable, Hashable {
+    let id: String
+    let displayName: String?
+    let brand: String?
+    var label: String { displayName ?? id }
+}
+struct RefreshModelsResponse: Decodable {
+    let added: [AddedModel]
+    let total: Int?
+    let carrier: String?
+    let unsupported: Bool?
+    let error: String?
+}

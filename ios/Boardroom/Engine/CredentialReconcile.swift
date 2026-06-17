@@ -116,6 +116,16 @@ extension LoopbackServer {
         let reachable = Set(Availability.reachable(active: carrier).map { $0.modelV.rawValue })
         let primary = Availability.defaultModel(active: carrier)?.rawValue
         let now = Int(Date().timeIntervalSince1970 * 1000)
+        // A DYNAMIC model id (fetched from an aggregator catalog) has no `ModelV`
+        // case, so it's absent from `reachable` — but an aggregator carrier
+        // (openrouter / bai) routes any string, so it IS usable. Treat such ids as
+        // reachable here, otherwise Phase 2 would reroll the user's pick to a fast
+        // default on the next reconcile (the "works once then reverts" bug).
+        func modelReachable(_ v: String) -> Bool {
+            if reachable.contains(v) { return true }
+            guard let c = carrier, c.route != .direct, !v.isEmpty else { return false }
+            return Registry.meta(id: v) == nil
+        }
         try? db.pool.write { conn in
             let rows = try Row.fetchAll(conn, sql: "SELECT id, model_v FROM agents")
             for r in rows {
@@ -133,7 +143,11 @@ extension LoopbackServer {
                     let bucket = modelBucket(conn, aid)
                     let memorised = bucket[carrier.rawValue]
                     let target: String
-                    if let m = memorised, reachable.contains(m) {
+                    if !v.isEmpty, carrier.route != .direct, Registry.meta(id: v) == nil {
+                        // Current pick is a DYNAMIC model the aggregator can route ·
+                        // preserve it verbatim, never reroll.
+                        target = v
+                    } else if let m = memorised, modelReachable(m) {
                         target = m
                     } else {
                         if memorised != nil { try deleteModelBucketEntry(conn, aid, carrier) }

@@ -10,7 +10,7 @@ public protocol LLMCredentialSource: Sendable {
 
 public enum LLMError: Error, Equatable {
     case noKey
-    case modelNotReachable(ModelV, LLMCarrier)
+    case modelNotReachable(String, LLMCarrier)
     case upstream(String)
     case exhausted(lastError: String)
 }
@@ -36,12 +36,11 @@ public enum WireResolver {
         }
     }
 
-    /// (wire, wireId) for `modelV` under `carrier`, or nil if unreachable.
-    public static func resolve(_ modelV: ModelV, carrier: LLMCarrier) -> (wire: LLMWire, wireId: String)? {
-        guard let meta = Registry.meta(modelV) else { return nil }
-        let avail = Availability.availability(meta, active: carrier)
-        guard avail.reachable, let route = avail.preferredRoute,
-              let id = Availability.wireId(meta, route: route) else { return nil }
+    /// (wire, wireId) for a raw model-id string under `carrier`, or nil if
+    /// unreachable. Registry ids resolve through their carrier route; dynamic
+    /// ids (aggregator-only) pass straight through as the wire id.
+    public static func resolve(_ modelV: String, carrier: LLMCarrier) -> (wire: LLMWire, wireId: String)? {
+        guard let id = Registry.wireId(forRawId: modelV, carrier: carrier) else { return nil }
         return (wire(for: carrier), id)
     }
 }
@@ -79,8 +78,9 @@ public struct LLMAdapter: Sendable {
         guard let (wire, wireId) = WireResolver.resolve(req.modelV, carrier: active.carrier) else {
             cont.finish(throwing: LLMError.modelNotReachable(req.modelV, active.carrier)); return
         }
-        // Claude 4.7 family rejects temperature on every carrier.
-        let temperature = (Registry.meta(req.modelV)?.noTemperature ?? false) ? nil : req.temperature
+        // Claude 4.7 family rejects temperature on every carrier. Unknown (dynamic)
+        // ids resolve to nil here → temperature allowed, the right default.
+        let temperature = (Registry.meta(id: req.modelV)?.noTemperature ?? false) ? nil : req.temperature
 
         var attempt = 0
         var lastError = ""

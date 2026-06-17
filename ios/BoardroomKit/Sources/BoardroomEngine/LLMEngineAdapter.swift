@@ -10,7 +10,7 @@ public struct LLMEngineAdapter: EngineLLM {
     let adapter: LLMAdapter
     public init(adapter: LLMAdapter) { self.adapter = adapter }
 
-    public func stream(_ messages: [LLMMessage], modelV: ModelV, maxTokens: Int?, purpose: LLMPurpose)
+    public func stream(_ messages: [LLMMessage], modelV: String, maxTokens: Int?, purpose: LLMPurpose)
         -> AsyncThrowingStream<LLMStreamChunk, Error> {
         adapter.stream(LLMRequest(modelV: modelV, messages: messages, maxTokens: maxTokens))
     }

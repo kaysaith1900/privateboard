@@ -18,6 +18,8 @@ struct RoomView: View {
     @State private var askText: String?       // pending message awaiting interrupt-vs-queue choice
     @State private var showReport = false
     @State private var showNoReport = false   // "View report" tapped with no brief filed yet
+    @State private var showNoVoiceKey = false // switch-to-voice tapped with no TTS key
+    @State private var showVoiceApiKeys = false   // no-voice-key alert → open API keys
     @State private var showQueue = false              // speaking-queue sheet (voice room)
     @State private var queueExpanded = false          // Progress Panel (director checklist) open
     @State private var captionsOn = true              // user toggle · show the spoken-caption band
@@ -54,6 +56,9 @@ struct RoomView: View {
     /// first load that tripped the load watchdog) is RETRIED on the next toggle
     /// instead of being stuck in the transcript with no way back.
     private func toggleStageView() {
+        // Switching INTO the 3D voice room (transcript → stage) needs a TTS key, or
+        // the directors are silent. No key ⇒ prompt to configure one, don't switch.
+        if showTranscript, !app.hasVoiceKey { showNoVoiceKey = true; return }
         if showTranscript { stageUnsupported = false }
         showTranscript.toggle()
         // Remember the user's explicit choice for THIS room so re-entry restores
@@ -108,6 +113,18 @@ struct RoomView: View {
         // "View report" with nothing filed yet · don't silently generate, just say so.
         .alert(Loc.t("m_rep_none"), isPresented: $showNoReport) {
             Button(Loc.t("common_done"), role: .cancel) {}
+        }
+        // Switching to a voice room with no TTS key · prompt to configure one.
+        .alert(Loc.t("m_novoice_title"), isPresented: $showNoVoiceKey) {
+            Button(Loc.t("m_novoice_cta")) { showVoiceApiKeys = true }
+            Button(Loc.t("common_cancel"), role: .cancel) {}
+        } message: { Text(Loc.t("m_novoice_msg")) }
+        .sheet(isPresented: $showVoiceApiKeys) {
+            NavigationStack {
+                ApiKeysView()
+                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(Loc.t("common_done")) { showVoiceApiKeys = false } } }
+            }
+            .environment(app)
         }
         .task {
             guard session == nil else { return }

@@ -73,24 +73,36 @@ final class GeminiWireTests: XCTestCase {
 
 final class WireResolverTests: XCTestCase {
     func testResolveAnthropicDirect() {
-        let r = WireResolver.resolve(.opus_4_7, carrier: .anthropic)
+        let r = WireResolver.resolve(ModelV.opus_4_7.rawValue, carrier: .anthropic)
         XCTAssertEqual(r?.wireId, "claude-opus-4-7")
         XCTAssertTrue(r?.wire is AnthropicWire)
     }
     func testResolveOpenRouter() {
-        let r = WireResolver.resolve(.kimi_k2_6, carrier: .openrouter)
+        let r = WireResolver.resolve(ModelV.kimi_k2_6.rawValue, carrier: .openrouter)
         XCTAssertEqual(r?.wireId, "moonshotai/kimi-k2.6")
         XCTAssertTrue(r?.wire is OpenAICompatibleWire)
     }
     func testResolveBaiGapIsUnreachable() {
-        XCTAssertNil(WireResolver.resolve(.opus_4_6_fast, carrier: .bai))   // no baiId
+        XCTAssertNil(WireResolver.resolve(ModelV.opus_4_6_fast.rawValue, carrier: .bai))   // no baiId
     }
     func testResolveCrossFamilyUnreachable() {
-        XCTAssertNil(WireResolver.resolve(.gpt_5_5, carrier: .anthropic))   // wrong direct family
+        XCTAssertNil(WireResolver.resolve(ModelV.gpt_5_5.rawValue, carrier: .anthropic))   // wrong direct family
     }
     func testResolveOpenAIResponses() {
-        let r = WireResolver.resolve(.gpt_5_5, carrier: .openai)
+        let r = WireResolver.resolve(ModelV.gpt_5_5.rawValue, carrier: .openai)
         XCTAssertEqual(r?.wireId, "gpt-5.5")
         XCTAssertTrue(r?.wire is OpenAIResponsesWire)
+    }
+    // DYNAMIC models · an id with no ModelV case passes straight through as the
+    // wire id on aggregator carriers, and is unreachable on direct carriers.
+    func testResolveDynamicOnAggregator() {
+        let r = WireResolver.resolve("claude-opus-4.9", carrier: .bai)
+        XCTAssertEqual(r?.wireId, "claude-opus-4.9")
+        XCTAssertTrue(r?.wire is OpenAICompatibleWire)
+        let or = WireResolver.resolve("anthropic/claude-opus-4.9", carrier: .openrouter)
+        XCTAssertEqual(or?.wireId, "anthropic/claude-opus-4.9")
+    }
+    func testResolveDynamicOnDirectIsUnreachable() {
+        XCTAssertNil(WireResolver.resolve("claude-opus-4.9", carrier: .anthropic))
     }
 }

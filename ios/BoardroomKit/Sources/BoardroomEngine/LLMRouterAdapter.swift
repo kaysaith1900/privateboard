@@ -25,7 +25,7 @@ public struct LLMRouter: EngineRouter {
     public func call(_ messages: [LLMMessage], modelV: ModelV,
                      temperature: Double?, maxTokens: Int?) async throws -> String {
         var out = ""
-        let stream = adapter.stream(LLMRequest(modelV: modelV, messages: messages,
+        let stream = adapter.stream(LLMRequest(modelV: modelV.rawValue, messages: messages,
                                                temperature: temperature, maxTokens: maxTokens))
         for try await chunk in stream {
             if case .textDelta(let d) = chunk { out += d }

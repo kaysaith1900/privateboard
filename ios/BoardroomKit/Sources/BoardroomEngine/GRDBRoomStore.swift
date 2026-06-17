@@ -324,8 +324,12 @@ public struct GRDBRoomStore: RoomStore, BriefStore {
 
     private static func director(_ row: Row) -> DirectorRef {
         let spec = parsePersonaSpec(row["persona_spec_json"])
+        // Carry the stored id VERBATIM — a DYNAMIC model id has no `ModelV` case and
+        // must NOT be parsed-and-dropped to a default (that silently reverted the
+        // user's pick on every load). Only an empty value falls back to the default.
+        let storedModel = (row["model_v"] as String?) ?? ""
         return DirectorRef(id: row["id"], name: row["name"],
-                    modelV: ModelV(rawValue: row["model_v"] ?? "") ?? .sonnet_4_6,
+                    modelV: storedModel.isEmpty ? ModelV.sonnet_4_6.rawValue : storedModel,
                     handle: row["handle"] ?? "", roleTag: row["role_tag"] ?? "",
                     instruction: row["instruction"] ?? "", bio: row["bio"] ?? "",
                     ability: parseAbility(row["ability_json"]),

@@ -41,8 +41,13 @@ final class AvailabilityTests: XCTestCase {
 
     func testBaiExcludesModelsWithoutBaiId() {
         let r = Availability.reachable(active: .bai)
-        XCTAssertEqual(r.count, 15)   // 18 minus opus-4-6-fast, codex-5-4, gemini-3-1-flash
+        // 18 minus the no-baiId models (opus-4-6-fast, codex-5-4, gemini-3-1-flash)
+        // minus the 3 whose B.AI channels were dropped (verified live 2026-06-17):
+        // gemini-3-1, gemini-3-5-flash, minimax-m2-5.
+        XCTAssertEqual(r.count, 12)
         XCTAssertFalse(r.contains { $0.modelV == .codex_5_4 })
+        XCTAssertFalse(r.contains { $0.modelV == .gemini_3_5_flash })   // B.AI dropped Google entirely
+        XCTAssertFalse(r.contains { $0.modelV == .gemini_3_1 })
         XCTAssertTrue(r.allSatisfy { $0.preferredRoute == .bai })
     }
 

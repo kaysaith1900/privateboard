@@ -502,7 +502,10 @@ struct NewDirectorView: View {
                 }
                 BBGroup(Loc.t("m_model_director")) {
                     Menu {
-                        ForEach(models) { m in Button(m.label) { modelV = m.modelV } }
+                        // Only models reachable under the active carrier · a model
+                        // with no route on this key (e.g. Gemini on B.AI, which
+                        // dropped Google) would 503 every turn, so don't offer it.
+                        ForEach(models.filter { $0.reachable ?? true }) { m in Button(m.label) { modelV = m.modelV } }
                     } label: {
                         HStack {
                             Text(models.first { $0.modelV == modelV }?.label ?? modelV)
@@ -531,6 +534,12 @@ struct NewDirectorView: View {
         }
         .task {
             if models.isEmpty, let api = app.api { models = (try? await api.listModels()) ?? [] }
+            // Reconcile a stale selection · if the default/spec model isn't reachable
+            // on the active carrier (e.g. Gemini while B.AI is active), drop to the
+            // first reachable model so the saved director isn't stuck on a 503.
+            if !models.isEmpty, !models.contains(where: { $0.modelV == modelV && ($0.reachable ?? true) }) {
+                if let firstReachable = models.first(where: { $0.reachable ?? true })?.modelV { modelV = firstReachable }
+            }
             if avatarDataUrl == nil && !avatarRendering { reroll() }   // first portrait on entering the form
         }
     }

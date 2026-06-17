@@ -24,7 +24,7 @@ final class GRDBRoomStoreTests: XCTestCase {
             self.clarify = clarify; self.director = director; self.roundEnd = roundEnd
         }
         func firstSystem(for p: LLMPurpose) -> String? { lock.lock(); defer { lock.unlock() }; return systems[p]?.first }
-        func stream(_ messages: [LLMMessage], modelV: ModelV, maxTokens: Int?, purpose: LLMPurpose)
+        func stream(_ messages: [LLMMessage], modelV: String, maxTokens: Int?, purpose: LLMPurpose)
             -> AsyncThrowingStream<LLMStreamChunk, Error> {
             let sys = messages.first { $0.role == .system }?.content ?? ""
             lock.lock(); systems[purpose, default: []].append(sys); lock.unlock()
@@ -56,7 +56,7 @@ final class GRDBRoomStoreTests: XCTestCase {
         let store = GRDBRoomStore(db: db)
         let dirs = await store.directors("r1")
         XCTAssertEqual(dirs.map(\.id), ["d1", "d2"])
-        XCTAssertEqual(dirs[0].modelV, .opus_4_7)
+        XCTAssertEqual(dirs[0].modelV, "opus-4-7")
         let chair = await store.chair("r1")
         XCTAssertEqual(chair?.id, "chair")
         let rn = await store.nextRoundNum("r1")

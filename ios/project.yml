@@ -20,7 +20,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "0.1.1"
-    CURRENT_PROJECT_VERSION: "9"
+    CURRENT_PROJECT_VERSION: "12"
     DEVELOPMENT_TEAM: "MC8P34EHRC"   # Apple Developer team (kaiwen shi) · device + App Store signing
 
 targets:
@@ -52,17 +52,23 @@ targets:
         product: BoardroomVoice
       - package: BoardroomKit
         product: BoardroomSearch
+      - package: BoardroomKit
+        product: BoardroomSync
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.boardroom.mobile
         TARGETED_DEVICE_FAMILY: "1"            # iPhone only for now
         CODE_SIGN_STYLE: Automatic             # Xcode manages certs/profiles once DEVELOPMENT_TEAM is set
+        # iCloud Documents · CloudDocuments service + ubiquity container
+        # iCloud.ai.boardroom.mobile (BoardroomSync's iCloud Drive oplog). Automatic
+        # signing + -allowProvisioningUpdates registers the capability/container.
+        CODE_SIGN_ENTITLEMENTS: Boardroom/Support/Boardroom.entitlements
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon   # Boardroom/Resources/Assets.xcassets/AppIcon.appiconset (regen: scripts/build-ios-app-icon.mjs)
     info:
       path: Boardroom/Support/Info.generated.plist
       properties:
-        CFBundleDisplayName: Boardroom
+        CFBundleDisplayName: Private Board
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # No non-exempt encryption (HTTPS / system crypto only) · skips the

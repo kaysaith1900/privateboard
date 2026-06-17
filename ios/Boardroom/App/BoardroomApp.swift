@@ -17,6 +17,15 @@ struct BoardroomApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .bbLocaleChanged)) { _ in
                     localeTick += 1
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .bbSyncApplied)) { _ in
+                    app.applySyncedChanges()   // iCloud merge → reload rooms + roster live
+                }
+                .task {
+                    // iCloud sync · adopt the persisted toggle once the native DB is open.
+                    if let pool = NativeEngineHost.shared?.db.pool {
+                        await SyncCoordinator.shared.attach(pool: pool)
+                    }
+                }
         }
         // Resume from background · iOS may have reclaimed the loopback's listening
         // socket while suspended, blanking every avatar + the API-keys list. Recover
@@ -28,8 +37,13 @@ struct BoardroomApp: App {
         // launch are .active⇄.inactive only (flag stays false → no needless rebind).
         .onChange(of: scenePhase) { _, new in
             switch new {
-            case .background: enteredBackground = true
-            case .active where enteredBackground: enteredBackground = false; app.handleForeground()
+            case .background:
+                enteredBackground = true
+                Task { await SyncCoordinator.shared.onBackground() } // flush+pull before suspend
+            case .active where enteredBackground:
+                enteredBackground = false
+                app.handleForeground()
+                Task { await SyncCoordinator.shared.onForeground() } // pull peers' changes
             default: break
             }
         }
