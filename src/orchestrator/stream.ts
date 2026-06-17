@@ -29,6 +29,12 @@ export type RoomEvent =
       type: "voice-chunk";
       messageId: string;
       seq: number;
+      /** Per-sentence index · all chunks of one synthesized sentence share a
+       *  `seg`. A native client (iOS AVAudioPlayer can't append to a live MP3
+       *  stream like the web MediaSource) groups chunks by `seg` and plays each
+       *  sentence the moment it's sealed — a higher `seg` arrives, or voice-final
+       *  — instead of waiting for the whole message. The web ignores it. */
+      seg?: number;
       text: string;
       provider: string;
       model: string;

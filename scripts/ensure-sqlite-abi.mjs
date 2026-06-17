@@ -27,6 +27,29 @@ if (target !== "node" && target !== "electron") {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
+
+/** Refuse to compile better-sqlite3 unless the running Node major matches the
+ *  repo's pin (.nvmrc · currently 22). This script runs under the shell's
+ *  Node, so `process.versions.node` IS the toolchain that will do the build. */
+function assertPinnedNodeForRebuild() {
+  if (process.env.ALLOW_ANY_NODE_ABI === "1") return;
+  let want;
+  try {
+    want = parseInt(String(fs.readFileSync(path.join(root, ".nvmrc"), "utf8")).trim().replace(/^v/i, ""), 10);
+  } catch { return; } // no .nvmrc → nothing to enforce
+  if (!Number.isFinite(want)) return;
+  const have = parseInt(process.versions.node.split(".")[0], 10);
+  if (have === want) return;
+  console.error(
+    `\n[sqlite] Refusing to rebuild better-sqlite3 under Node ${process.versions.node}.` +
+    `\n         This repo is pinned to Node ${want} (.nvmrc). Building native modules` +
+    `\n         under another major poisons the ABI cache and crashes Electron on` +
+    `\n         launch (SIGKILL at dlopen).` +
+    `\n         → run:  nvm use ${want}    (or: source ~/.nvm/nvm.sh && nvm use ${want})` +
+    `\n         then retry. Override (not recommended): ALLOW_ANY_NODE_ABI=1\n`,
+  );
+  process.exit(1);
+}
 const binaryPath = path.join(root, "node_modules/better-sqlite3/build/Release/better_sqlite3.node");
 // Cache lives OUTSIDE `build/` · node-gyp wipes that directory on every
 // rebuild, so cached siblings in `build/Release/` get nuked too. The
@@ -62,6 +85,14 @@ if (fs.existsSync(cachedBinary)) {
   console.log(`[sqlite] swapped to cached ${wantAbi} binary`);
   process.exit(0);
 }
+
+// Guard · only ever COMPILE under the Node major the repo pins (.nvmrc).
+// Building the native module off-version produces a binary that mismatches /
+// crashes — Node 25 notably mis-targets the ABI so the resulting Electron
+// binary SIGKILLs at dlopen — and it poisons this cache for every later run.
+// A cache HIT above is a plain file copy (host-Node-agnostic) and is NOT
+// blocked; only the rebuild is. Override with ALLOW_ANY_NODE_ABI=1.
+assertPinnedNodeForRebuild();
 
 console.log(`[sqlite] rebuilding for ${wantAbi} (this happens once per ABI)`);
 if (target === "node") {

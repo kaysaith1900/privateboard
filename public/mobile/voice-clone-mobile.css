@@ -1,0 +1,237 @@
+/* ═══════════════════════════════════════════════════════════════════
+   voice-clone-mobile.css · full mobile redesign of the shared desktop
+   voice-clone overlay (public/voice-clone.js builds the DOM, voice-clone.css
+   gives it the desktop "classified document" look).
+
+   The DOM is FIXED (shared desktop asset · we don't touch it). This file —
+   loaded AFTER voice-clone.css so it wins the cascade — re-flows that card
+   into a native bottom sheet in the boardroom mobile language:
+     · dark #161616 surface, gold accent (the desktop lime flips to gold)
+     · sans body / mono kickers (drops the desktop serif + "classified" chrome)
+     · finger-sized controls, ≥16px inputs (no iOS zoom), safe-area foot
+   Every vc-* surface is restyled so nothing reads as the desktop document.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 1 · tokens · desktop names → mobile palette + fonts ──────────── */
+.vc-overlay,
+.vc-pill {
+  --panel:        #161616;
+  --panel-2:      rgba(255, 255, 255, 0.05);
+  --panel-3:      rgba(255, 255, 255, 0.10);
+  --line-strong:  rgba(255, 255, 255, 0.16);
+  --line-bright:  rgba(255, 255, 255, 0.10);
+  --strip-bg:     rgba(255, 255, 255, 0.03);
+  --text:         var(--ink);
+  --text-soft:    #C9C4BA;
+  --text-dim:     var(--ink-dim);
+  --text-faint:   var(--ink-faint);
+  --lime:         var(--gold);              /* whole accent flips to gold */
+  --red:          #E5705F;
+  --serif:        var(--sans);              /* no serif on the phone */
+  --font-human:   var(--sans);
+}
+.vc-overlay { font-family: var(--sans); }
+
+/* ── 2 · overlay → bottom-sheet scrim ────────────────────────────── */
+.vc-overlay {
+  align-items: flex-end; justify-content: center; padding: 0;
+  background: rgba(0, 0, 0, 0.55);               /* same scrim tone as .vr-modal-scrim */
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+}
+
+/* ── 3 · panel · the sheet (mirrors .vr-modal-card) ──────────────── */
+.vc-panel {
+  width: 100%; max-width: 100%; max-height: 90vh;
+  background: var(--panel);
+  border: none; border-top: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6);
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: vr-slide-up 0.28s cubic-bezier(.22, .61, .36, 1);
+}
+.vc-panel::before,
+.vc-panel::after { display: none; }            /* drop the lime corner brackets */
+
+/* ── 4 · grab handle · the classification strip becomes a pull tab ── */
+.vc-classification {
+  position: relative; padding: 14px 0 4px; min-height: 0;
+  border: none; background: none;
+}
+.vc-classification span { display: none; }      /* hide the desktop "CLASSIFIED" text */
+.vc-classification::before {
+  content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  width: 38px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.20);
+}
+
+/* ── 5 · head · back (left) + centred title — mirrors .vr-modal-head ──
+   The desktop head is a grid [meta+title | minimize close] on a lighter
+   var(--strip-bg) band. On the phone we want the .vr-modal-head shape:
+   one round button on the LEFT, the title CENTRED, nothing else. So:
+     · strip the band + the "// CLONE · ACTIVE" kicker
+     · drop the "−" minimize button (background-run still lives in the
+       running-state "Run in background" primary + backdrop tap)
+     · order the controls to the left and re-glyph the close × as a back ‹
+     · add a right-hand spacer the width of the button to keep the title
+       optically centred (same trick as .vr-modal-back[hidden]) */
+.vc-head { display: flex; align-items: center; gap: 8px; padding: 4px 14px 14px; background: none; border-bottom: 1px solid var(--line); }
+.vc-head::after { content: ""; flex: 0 0 34px; }                 /* balances the left button → centred title */
+.vc-head-controls { order: -1; gap: 8px; flex: 0 0 auto; }
+.vc-title-wrap { flex: 1 1 auto; min-width: 0; text-align: center; }
+.vc-head .meta { display: none; }                                /* drop the "// CLONE · ACTIVE" kicker */
+.vc-head .title { font-family: var(--sans); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); margin-top: 0; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vc-head .title::before { display: none; }                       /* drop the "▸ " prefix */
+.vc-head [data-vc-minimize] { display: none; }                   /* drop the "−" button */
+.vc-head [data-vc-close] {                                       /* × → back chevron ‹ */
+  --icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m15 18-6-6 6-6'/></svg>");
+}
+.vc-head-btn { width: 34px; height: 34px; border-radius: 50%; background: rgba(255, 255, 255, 0.07); border: none; color: var(--ink); }
+.vc-head-btn::before { background: var(--ink); width: 18px; height: 18px; -webkit-mask-size: 18px 18px; mask-size: 18px 18px; }
+.vc-head-btn:active { transform: scale(0.94); }
+
+/* ── 6 · body · scroll + section kickers ─────────────────────────── */
+.vc-body { padding: 18px 16px 8px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.vc-section-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 10px 2px; }
+.vc-body > .vc-section-label[style] { margin-top: 18px !important; }   /* the inline margin-top:14px rows */
+
+/* ── 7 · source mode tabs (Upload / Record) ──────────────────────── */
+.vc-source-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.vc-source-mode {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 15px 8px; border: 1px solid var(--line); border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035); color: var(--ink-dim);
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s;
+}
+.vc-source-mode svg { width: 20px; height: 20px; }
+.vc-source-mode:active { transform: scale(0.98); }
+.vc-source-mode.is-active { border-color: var(--gold); background: rgba(201, 164, 107, 0.14); color: var(--gold); }
+
+/* ── 8 · file picker ─────────────────────────────────────────────── */
+.vc-file-pick {
+  display: flex; align-items: center; gap: 12px;
+  padding: 15px 16px; border: 1px solid var(--line); border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04); color: var(--ink-dim);
+  font-family: var(--sans); font-size: 15px; cursor: pointer;
+}
+.vc-file-pick svg { width: 20px; height: 20px; flex: 0 0 auto; color: var(--ink-faint); }
+.vc-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vc-file-pick.is-active, .vc-file-pick.has-file { border-color: var(--gold); color: var(--ink); }
+.vc-file-pick.is-active svg, .vc-file-pick.has-file svg { color: var(--gold); }
+.vc-file-hint { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 8px; line-height: 1.5; }
+
+/* ── 9 · trim · dual-handle range over a track (gold) ────────────── */
+.vc-trim { margin-top: 14px; }
+.vc-trim-status { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+.vc-trim-track-fill { background: rgba(201, 164, 107, 0.30); }
+.vc-trim-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--gold); border: 2px solid var(--panel); box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45); cursor: pointer; }
+.vc-trim-range::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--gold); border: 2px solid var(--panel); cursor: pointer; }
+.vc-trim-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); margin-top: 8px; }
+.vc-trim-meta-dur { color: var(--gold); }
+
+/* ── 10 · record pane ────────────────────────────────────────────── */
+.vc-record-script { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.vc-record-script-text { font-family: var(--sans); font-size: 16px; line-height: 1.5; color: var(--ink); border: none; background: rgba(255, 255, 255, 0.035); border-radius: 12px; padding: 13px 15px; margin: 8px 0 16px; quotes: none; }
+.vc-record-script-text::before, .vc-record-script-text::after { content: none; }
+.vc-record-stage { display: flex; align-items: center; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.035); }
+.vc-record-btn { width: 60px; height: 60px; flex: 0 0 auto; border-radius: 50%; background: rgba(201, 164, 107, 0.16); border: 1px solid rgba(201, 164, 107, 0.4); color: var(--gold); }
+.vc-record-btn.is-recording { background: rgba(229, 112, 95, 0.20); border-color: var(--red); color: var(--red); }
+.vc-record-glyph { font-size: 22px; }
+.vc-record-meta { display: flex; flex-direction: column; }
+.vc-record-time { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.vc-record-state { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+.vc-record-level { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+.vc-record-level i { width: 3px; height: 11px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); }
+.vc-record-btn.is-recording ~ .vc-record-level i { background: var(--gold); }
+.vc-record-actions { display: flex; gap: 10px; margin-top: 12px; }
+
+/* ── 11 · inputs (label + minimax group) ─────────────────────────── */
+.vc-label-input { margin-top: 8px; }
+.vc-label-input input {
+  width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04); color: var(--ink);
+  font-family: var(--sans); font-size: 16px;
+}
+.vc-label-input input::placeholder { color: var(--ink-faint); }
+.vc-label-input input:focus { outline: none; border-color: var(--gold); background: rgba(201, 164, 107, 0.06); }
+.vc-hint { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 10px; }
+
+/* ── 12 · progress steps ─────────────────────────────────────────── */
+.vc-progress { padding: 20px 16px 8px; }
+.vc-step-num { background: rgba(255, 255, 255, 0.08); color: var(--ink-dim); }
+.vc-step.is-active .vc-step-num, .vc-step.is-done .vc-step-num { background: var(--gold); color: #1a1407; }
+.vc-step-label { font-family: var(--sans); font-size: 14px; color: var(--ink-dim); }
+.vc-step.is-active .vc-step-label, .vc-step.is-done .vc-step-label { color: var(--ink); }
+.vc-step-pct { font-family: var(--mono); font-size: 12px; color: var(--gold); }
+.vc-step-bar { background: rgba(255, 255, 255, 0.08); border-radius: 99px; height: 4px; }
+.vc-step-bar-fill { background: var(--gold); border-radius: 99px; }
+.vc-stage-text { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 12px; line-height: 1.5; }
+
+/* ── 13 · success / preview ──────────────────────────────────────── */
+.vc-success { padding: 24px 18px 14px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.vc-success-head { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.vc-success-kicker { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+.vc-success-title { font-family: var(--sans); font-size: 18px; font-weight: 600; color: var(--ink); }
+.vc-preview-btn { width: 72px; height: 72px; border-radius: 50%; margin: 18px 0; background: var(--gold); color: #1a1407; border: none; box-shadow: 0 8px 22px rgba(201, 164, 107, 0.25); }
+.vc-preview-btn.is-loading { background: rgba(201, 164, 107, 0.30); color: var(--gold); box-shadow: none; }
+.vc-preview-glyph { font-size: 26px; }
+.vc-preview-text {
+  width: 100%; padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04); color: var(--ink);
+  font-family: var(--sans); font-size: 16px; line-height: 1.5; resize: none; min-height: 76px;
+}
+.vc-preview-text:focus { outline: none; border-color: var(--gold); }
+.vc-preview-hint { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 8px; }
+
+/* ── 14 · foot · dissolve the bottom region · button lives in content ─
+   The user doesn't want a separate footer at all — the primary button should
+   read as the last item of the form. The desktop .vc-foot is a tray: it has
+   border-top: 0.5px + background: var(--strip-bg) (a lighter band) + is pinned
+   via flex. Strip ALL of that — same surface as the body (background: none),
+   no border, same 16px gutters — so the button just flows under the last field.
+   Also stop the body from stretching (desktop .vc-body is flex:1 1 auto, which
+   would push the foot to the panel bottom and open a gap under short forms);
+   sized to content, the foot sits right under it. Tall forms scroll the body
+   internally and the button stays in view. */
+.vc-panel > .vc-body { flex: 0 1 auto; }
+.vc-foot { display: flex; gap: 10px; padding: 8px 16px calc(16px + var(--safe-b)); border-top: none; background: none; }
+/* Drop the redundant foot "Cancel" — the top-right × already dismisses. But ONLY
+   where × does the same job: in the config state (data-vc-dismiss) and the failed
+   state (data-vc-close · not the primary). The RUNNING-state Cancel
+   (data-vc-cancel) is kept — there the × only minimize()s, so that button is the
+   only way to actually abort the clone job. The lone remaining primary fills the
+   row via flex:1. */
+.vc-foot [data-vc-dismiss],
+.vc-foot [data-vc-close]:not(.vc-btn-primary) { display: none; }
+.vc-btn {
+  flex: 1; padding: 14px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05); color: var(--ink);
+  font-family: var(--sans); font-size: 14px; font-weight: 600; letter-spacing: 0; cursor: pointer;
+  transition: transform 0.1s, background 0.15s;
+}
+.vc-btn::before, .vc-btn::after { content: none; display: none; }   /* drop the [ ] brackets */
+.vc-btn:active { transform: scale(0.98); }
+.vc-btn[disabled] { opacity: 0.45; }
+.vc-btn-primary { background: var(--gold); border-color: var(--gold); color: #1a1407; }
+.vc-btn-primary[disabled] { background: rgba(201, 164, 107, 0.30); border-color: transparent; color: rgba(26, 20, 7, 0.6); opacity: 1; }
+
+/* ── 15 · minimized pill ─────────────────────────────────────────── */
+.vc-pill { right: 16px; bottom: calc(var(--safe-b) + 16px); padding: 10px 16px 10px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+.vc-pill.is-done { border-color: var(--gold); }
+.vc-pill.is-failed { border-color: var(--red); }
+.vc-pill-icon { width: 26px; height: 26px; }
+.vc-pill-label { font-family: var(--sans); font-size: 14px; }
+
+/* ── 16 · desktop preview · clamp to the centred phone-frame ──────────
+   The overlay is a position:fixed singleton on <body>, OUTSIDE .phone-frame,
+   so on a desktop it would span the whole viewport. On the ≥768px preview,
+   .phone-frame is a centred 390×844 device (voice-room.css) — match it so the
+   sheet + scrim stay inside the device. A real phone (<768px) is full-viewport. */
+@media (min-width: 768px) {
+  .vc-overlay {
+    inset: auto;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 390px; height: 844px;
+    border-radius: 52px;
+    overflow: hidden;
+  }
+}

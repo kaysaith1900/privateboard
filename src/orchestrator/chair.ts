@@ -690,15 +690,20 @@ async function streamChairMessage(args: DispatchArgs & {
   let voiceBuf = "";
   const voiceProfile = voiceMode ? voiceProfileForAgent(chair) : null;
   let voiceSeq = 0;
+  // Per-sentence index · native clients group voice-chunks by `seg` to play
+  // each sentence progressively (see stream.ts voice-chunk doc).
+  let voiceSegIdx = 0;
 
   async function emitChairVoice(text: string): Promise<void> {
     if (!voiceMode || !voiceProfile || !text.trim()) return;
+    const seg = voiceSegIdx++;
     try {
       for await (const chunk of synthesizeSpeechStream(text, voiceProfile)) {
         roomBus.emit(roomId, {
           type: "voice-chunk",
           messageId: placeholder.id,
           seq: voiceSeq++,
+          seg,
           text: chunk.text,
           provider: chunk.provider,
           model: chunk.model,
@@ -1394,6 +1399,7 @@ async function emitChairAnnouncementVoice(
         type: "voice-chunk",
         messageId,
         seq: seq++,
+        seg: 0,                 // single TTS request · one self-contained MP3
         text: chunk.text,
         provider: chunk.provider,
         model: chunk.model,

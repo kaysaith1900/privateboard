@@ -100,6 +100,11 @@
         // top of the poster would just darken it before the canvas
         // takes over.
         loading: false,
+        // No TTS audio on the marketing page · drive the talking mouth off the
+        // mock driver's "speaking" stage state (real viseme morphs) rather
+        // than an audio probe. (home.html has no window.app so this also makes
+        // the behaviour explicit / robust if that ever changes.)
+        mouthFromState: true,
       })) { hideLoading(); return; }
 
       // Pull the cast + start the rotating-speaker driver. The mock

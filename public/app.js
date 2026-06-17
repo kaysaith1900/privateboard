@@ -1049,6 +1049,35 @@
       try { document.body.classList.remove("is-room-loading"); } catch (_) { /* noop */ }
     },
 
+    /** Content-area loading placeholder for an optimistic room → room
+     *  switch · covers .chat-col so the previous room's content doesn't
+     *  linger while openRoom's fetch/render chain runs. Fades in (so a
+     *  sub-150ms load barely shows) and out. Idempotent. */
+    _showRoomSwitchLoading() {
+      const col = document.querySelector(".chat-col");
+      if (!col || this._roomSwitchLoadingEl) return;
+      const el = document.createElement("div");
+      el.className = "room-switch-loading";
+      el.setAttribute("aria-hidden", "true");
+      const spin = document.createElement("span");
+      spin.className = "room-switch-spin";
+      const label = document.createElement("span");
+      label.className = "room-switch-label";
+      label.textContent = this._t("rt_loading");
+      el.appendChild(spin);
+      el.appendChild(label);
+      col.appendChild(el);
+      this._roomSwitchLoadingEl = el;
+    },
+
+    _hideRoomSwitchLoading() {
+      const el = this._roomSwitchLoadingEl;
+      if (!el) return;
+      this._roomSwitchLoadingEl = null;
+      el.classList.add("is-hiding");
+      setTimeout(() => { try { el.remove(); } catch (_) { /* noop */ } }, 200);
+    },
+
     // ── Room lifecycle ────────────────────────────────────────
     async openRoom(roomId) {
       // Recording guard · switching to a DIFFERENT room while a
@@ -1087,6 +1116,19 @@
       // mid-navigation. Idempotent · no-op when already closed.
       if (window.MentionPicker && typeof window.MentionPicker.close === "function") {
         window.MentionPicker.close();
+      }
+      // Optimistic instant switch (room → room) · the rest of openRoom is a
+      // chain of awaits (SSE handoff → room fetch → brief-health → thread
+      // count) before renderRoom paints, so until now the sidebar highlight
+      // didn't move and the content area kept showing the PREVIOUS room for
+      // the whole round-trip — the click read as dead. Move the cheap visual
+      // commit (highlight + a loading placeholder over .chat-col covering the
+      // stale content) ahead of every await so the switch lands instantly and
+      // the room fills in behind the spinner. Hidden after renderRoom +
+      // applyRoundTableVisibility (and in closeRoom on the failure paths).
+      if (roomId && this.currentRoomId && this.currentRoomId !== roomId) {
+        this.markActiveRoom(roomId);
+        this._showRoomSwitchLoading();
       }
       // Top-of-viewport loading bar · debounced so an instant load
       // never flashes the indicator. The cleanup is owned by
@@ -1443,6 +1485,9 @@
       // debounce window, the bar was never shown and this is just
       // the timer cancel.
       this._clearRoomLoadingBar();
+      // Fresh content is painted · fade out the optimistic switch
+      // placeholder so the room shows through.
+      this._hideRoomSwitchLoading();
       requestAnimationFrame(() => {
         if (this.currentRoomId === roomId) {
           try { this.applyRoundTableVisibility(roomId); }
@@ -1493,6 +1538,7 @@
       // (auth failure / thread redirect / SSE error) routed through
       // here before the bar could clear itself.
       this._clearRoomLoadingBar();
+      this._hideRoomSwitchLoading();
       // Thread cleanup · route through `closeThreadWindow` so the
       // localStorage persistence entry is dropped too. Per the
       // updated UX rule, leaving a room means the thread chat is
@@ -19562,6 +19608,114 @@
       this._lastSpeakerState = speakerState;
     },
 
+    /** Ensure the 3D round-table scene is mounted on `stage`, returning
+     *  true only once it's ready to take `VS3D.update()`.
+     *
+     *  voice-3d's `mount()` builds the whole three.js scene (renderer,
+     *  PMREM env, table, chairs, plants, walls, GLB figures) synchronously
+     *  — hundreds of ms. Running it inline on room entry froze the chat→
+     *  stage switch (the reported jank). Instead, on the FIRST entry we
+     *  paint a loading placeholder over the tone floor immediately, then
+     *  defer the blocking build by one painted frame so the switch lands
+     *  instantly and the user sees a spinner, not a stutter. Once mounted
+     *  (the scene persists for the session · no unmount on room switch),
+     *  every later render takes the cheap update path. */
+    _ensureStage3dMounted(stage) {
+      const VS3D = window.VoiceStage3D;
+      if (!stage || !VS3D || typeof VS3D.mount !== "function" || !VS3D.isSupported()) return false;
+      if (this._stage3dMounted) return true;
+      if (this._stage3dMountPending) return false;
+      // Stage not laid out yet (chat room with the stage hidden, or mid-
+      // transition) · don't show a placeholder / schedule a mount that would
+      // just bail on a 0-size stage. The rAF applyRoundTableVisibility backup
+      // re-fires renderRoundTable once it's visible.
+      if (stage.offsetParent === null || stage.clientWidth === 0 || stage.clientHeight === 0) return false;
+      this._stage3dMountPending = true;
+      this._showStage3dLoading(stage);
+      const run = () => {
+        // The stage may have been hidden (user navigated away) in the two
+        // frames since we scheduled · mounting into a 0-size stage gives a
+        // NaN camera projection. Bail and let a later render retry when the
+        // stage is visible again (pending reset below re-arms the deferral).
+        if (!stage.isConnected || stage.clientWidth === 0 || stage.clientHeight === 0) {
+          this._stage3dMountPending = false;
+          this._hideStage3dLoading();
+          return;
+        }
+        try {
+          // app owns the placeholder · suppress voice-3d's own veil (it
+          // can't paint anyway since its mount is synchronous).
+          VS3D.mount(stage, { loading: false });
+          this._stage3dMounted = true;
+        } catch (e) {
+          console.warn("[voice-3d] deferred mount failed:", e);
+          this._stage3dMountPending = false;
+          this._hideStage3dLoading();
+          return;
+        }
+        this._stage3dMountPending = false;
+        // Repaint with fresh state via the now-cheap mounted path. The scene
+        // shell is up, but the GLB avatar figures load asynchronously and
+        // swap in a beat later (voice-3d preloads them, then rebuilds the
+        // seats) — so DON'T drop the placeholder yet, or the directors pop
+        // in after the spinner clears. Hold it until the avatars are loaded
+        // and a frame has painted, i.e. the 3D is fully rendered.
+        this.renderRoundTable();
+        this._hideStage3dLoadingWhenRendered();
+      };
+      // Double rAF · a single rAF can run in the same frame before any
+      // paint, so the placeholder might never show. Two guarantees one
+      // painted frame with the spinner before the blocking build.
+      requestAnimationFrame(() => requestAnimationFrame(run));
+      return false;
+    },
+
+    _showStage3dLoading(stage) {
+      if (!stage || this._stage3dLoadingEl) return;
+      const el = document.createElement("div");
+      el.className = "rt3d-loading";
+      el.setAttribute("aria-hidden", "true");
+      const spin = document.createElement("span");
+      spin.className = "rt3d-loading-spin";
+      const label = document.createElement("span");
+      label.className = "rt3d-loading-label";
+      label.textContent = this._t("rt_loading");
+      el.appendChild(spin);
+      el.appendChild(label);
+      stage.appendChild(el);
+      this._stage3dLoadingEl = el;
+    },
+
+    _hideStage3dLoading() {
+      const el = this._stage3dLoadingEl;
+      if (!el) return;
+      this._stage3dLoadingEl = null;
+      el.style.transition = "opacity 0.2s ease";
+      el.style.opacity = "0";
+      setTimeout(() => { try { el.remove(); } catch (_) {} }, 220);
+    },
+
+    /** Hold the 3D stage placeholder until the avatars are fully rendered,
+     *  not just until the scene shell mounts. voice-3d preloads the GLB
+     *  templates (`Promise.all(AVATAR_MODELS.map(loadAvatar3D))`) then rebuilds
+     *  the seats with real 3D figures · we await the SAME loads via
+     *  window.Avatar3D, then wait two frames so voice-3d's rebuild + a paint
+     *  have happened, and only THEN drop the spinner. Safety-net timeout so a
+     *  failed / slow GLB never strands the placeholder. */
+    _hideStage3dLoadingWhenRendered() {
+      const A = window.Avatar3D;
+      const paintThenHide = () =>
+        requestAnimationFrame(() => requestAnimationFrame(() => this._hideStage3dLoading()));
+      if (!A || !Array.isArray(A.AVATAR_MODELS) || typeof A.loadAvatar3D !== "function") {
+        paintThenHide();
+        return;
+      }
+      let done = false;
+      const finish = () => { if (done) return; done = true; clearTimeout(safety); paintThenHide(); };
+      const safety = setTimeout(finish, 6000);
+      Promise.all(A.AVATAR_MODELS.map((m) => A.loadAvatar3D(m.id))).then(finish, finish);
+    },
+
     renderRoundTable() {
       const stage = document.querySelector("[data-roundtable-stage]");
       if (!stage) return;
@@ -19591,9 +19745,11 @@
       const sp = this._resolveStageSpeaker();
       let speakingId = sp && sp.id ? sp.id : null;
 
-      if (VS3D && typeof VS3D.mount === "function" && VS3D.isSupported()) {
+      // Mount is deferred a painted frame on FIRST entry (see
+      // _ensureStage3dMounted) so the heavy three.js build doesn't freeze
+      // the room switch · only push state once the scene is actually up.
+      if (this._ensureStage3dMounted(stage)) {
         try {
-          VS3D.mount(stage);
           const votePopHtml = this._resolveStageVotePop();
           const ub = this.userBubble;
           const nowMs = Date.now();
@@ -19617,7 +19773,7 @@
             userBubble: ubActive ? { text: ub.text, progress: ubProgress } : null,
           });
         } catch (e) {
-          console.warn("[voice-3d] mount/update failed:", e);
+          console.warn("[voice-3d] update failed:", e);
         }
       }
 

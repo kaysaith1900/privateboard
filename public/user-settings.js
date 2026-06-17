@@ -396,6 +396,20 @@
       </div>
 
       <div class="us-pane-body">
+        <div class="us-row" data-us-sync-row>
+          <div class="us-row-label">iCloud sync</div>
+          <div class="us-row-field">
+            <div class="us-toggle-row">
+              <button type="button" class="us-switch" data-us-sync-toggle role="switch" aria-checked="false">
+                <span class="us-switch-track" aria-hidden="true"><span class="us-switch-thumb"></span></span>
+                <span class="us-switch-label" data-us-sync-label>off</span>
+              </button>
+              <span class="us-toggle-deck">Sync your directors, memories &amp; rooms across your Apple devices through your own iCloud. Content stays in your iCloud account — there is no server, and we never see it.</span>
+            </div>
+            <div class="us-sync-status" data-us-sync-status hidden></div>
+          </div>
+        </div>
+
         <div class="us-row">
           <div class="us-row-label">${tr("us_appearance_label")}</div>
           <div class="us-row-field">
@@ -446,6 +460,121 @@
     `;
   }
 
+  // iCloud sync · poll handle so leaving the section stops the status poll.
+  let _syncPoll = null;
+  let _lastSyncKey = "";   // skip redundant repaints (keeps the Sync-now button stable)
+  function stopSyncPoll() { if (_syncPoll) { clearInterval(_syncPoll); _syncPoll = null; } }
+
+  function fmtSyncTime(ms) {
+    if (!ms) return "—";
+    try { return new Date(ms).toLocaleString(); } catch { return "—"; }
+  }
+
+  let _syncingNow = false;   // gate poll repaints from wiping the button's loading state
+  async function doSyncNow(box) {
+    if (_syncingNow) return;
+    _syncingNow = true;
+    const pill = box.querySelector(".us-sync-pill");
+    const nowBtn = box.querySelector("[data-us-sync-now]");
+    if (pill) { pill.textContent = "syncing…"; pill.className = "us-sync-pill busy"; }
+    if (nowBtn) {
+      nowBtn.disabled = true;
+      nowBtn.classList.add("busy");
+      nowBtn.innerHTML = `<span class="us-spinner"></span>Syncing…`;
+    }
+    const started = Date.now();
+    try {
+      const r = await fetch("/api/sync/now", { method: "POST" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const st = await r.json();
+      // Keep the spinner visible briefly so a fast sync still registers as a click.
+      const elapsed = Date.now() - started;
+      if (elapsed < 550) await new Promise((res) => setTimeout(res, 550 - elapsed));
+      _syncingNow = false;
+      _lastSyncKey = "";                 // force a repaint with the fresh result
+      paintSyncStatus(st);
+    } catch (e) {
+      _syncingNow = false;
+      if (pill) { pill.textContent = "error"; pill.className = "us-sync-pill warn"; }
+      if (nowBtn) { nowBtn.disabled = false; nowBtn.classList.remove("busy"); nowBtn.textContent = "Sync now"; }
+      box.insertAdjacentHTML("beforeend",
+        `<div class="us-sync-err">Sync now failed: ${escape(String((e && e.message) || e))}</div>`);
+    }
+  }
+
+  function paintSyncStatus(st) {
+    if (!paneEl) return;
+    if (_syncingNow) return; // a manual Sync-now is showing its own loading state — don't clobber it
+    const btn = paneEl.querySelector("[data-us-sync-toggle]");
+    const lbl = paneEl.querySelector("[data-us-sync-label]");
+    const box = paneEl.querySelector("[data-us-sync-status]");
+    if (!btn || !lbl || !box) return;
+    const on = !!st.enabled;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+    lbl.textContent = on ? "on" : "off";
+    if (!on) { box.hidden = true; box.innerHTML = ""; _lastSyncKey = ""; return; }
+    box.hidden = false;
+    // Only rebuild when something visible changed · otherwise the 4s poll would
+    // recreate the Sync-now button under the user's cursor and swallow clicks.
+    const pending = st.pending || 0;
+    const tracked = st.tracked || 0;
+    const key = JSON.stringify([st.available, st.state, st.lastSyncAt, pending, tracked, st.totalPushed, st.totalApplied, st.folderKind, st.error]);
+    if (key === _lastSyncKey && box.querySelector("[data-us-sync-now]")) return;
+    _lastSyncKey = key;
+
+    let pill = "✓ up to date", cls = "ok";
+    if (!st.available) { pill = "iCloud unavailable"; cls = "warn"; }
+    else if (st.state === "syncing") { pill = "syncing…"; cls = "busy"; }
+    else if (st.state === "error") { pill = "error"; cls = "warn"; }
+    else if (pending > 0) { pill = `↑ ${pending} pending`; cls = "busy"; }
+    const where = st.folderKind === "drive" ? "iCloud Drive"
+      : st.folderKind === "container" ? "iCloud container"
+      : st.folderKind === "override" ? "custom folder" : "—";
+    const note = !st.available
+      ? `<div class="us-sync-err">Turn on iCloud Drive (System Settings → Apple ID → iCloud) to enable sync.</div>`
+      : (st.error ? `<div class="us-sync-err">${escape(st.error)}</div>` : "");
+    box.innerHTML = `
+      <div class="us-sync-line">
+        <span class="us-sync-pill ${cls}">${pill}</span>
+        <button type="button" class="us-btn-ghost us-sync-now" data-us-sync-now ${st.state === "syncing" ? "disabled" : ""}>Sync now</button>
+      </div>
+      <div class="us-sync-meta">
+        <span><strong>${tracked}</strong> ${tracked === 1 ? "item" : "items"} synced to iCloud</span>
+        <span>Last synced: ${escape(fmtSyncTime(st.lastSyncAt))}</span>
+        <span>this session ↑ ${st.totalPushed || 0} · ↓ ${st.totalApplied || 0}</span>
+        <span>via ${where}${st.deviceId ? " · device " + escape(String(st.deviceId).slice(0, 8)) : ""}</span>
+      </div>
+      ${note}`;
+    const nowBtn = box.querySelector("[data-us-sync-now]");
+    if (nowBtn) nowBtn.addEventListener("click", () => doSyncNow(box));
+  }
+
+  async function refreshSyncStatus() {
+    try { const r = await fetch("/api/sync/status"); if (r.ok) paintSyncStatus(await r.json()); }
+    catch { /* offline / non-desktop · leave as-is */ }
+  }
+
+  function wireSyncRow() {
+    const btn = paneEl && paneEl.querySelector("[data-us-sync-toggle]");
+    if (!btn) return;
+    refreshSyncStatus();
+    stopSyncPoll();
+    _syncPoll = setInterval(refreshSyncStatus, 4000);
+    btn.addEventListener("click", async () => {
+      const turningOn = !btn.classList.contains("on");
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/sync", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: turningOn }),
+        });
+        if (r.ok) paintSyncStatus(await r.json());
+      } catch { /* */ } finally { btn.disabled = false; }
+    });
+  }
+
   function wireOtherSettingsSection() {
     if (!paneEl) return;
     if (window.I18n && typeof window.I18n.applyDom === "function") {
@@ -454,6 +583,7 @@
     if (window.I18n && typeof window.I18n.syncLocaleControls === "function") {
       window.I18n.syncLocaleControls();
     }
+    wireSyncRow();
 
     // Appearance segmented control · dark / light / system. setAppearance
     // writes the localStorage key AND applies data-theme immediately so
@@ -1867,6 +1997,7 @@
 
   function renderSection(id) {
     currentSection = id;
+    stopSyncPoll(); // leaving "other" → stop the iCloud-status poll
     if (id === "user")        paneEl.innerHTML = userSectionHTML();
     else if (id === "usage")  paneEl.innerHTML = usageSectionHTML();
     else if (id === "keys")   paneEl.innerHTML = keysSectionHTML();

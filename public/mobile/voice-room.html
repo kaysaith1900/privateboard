@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Voice Room · mobile prototype</title>
+  <link rel="stylesheet" href="/mobile/voice-room.css" />
+  <!-- canonical seeded avatar configs · sets window.PB_CORE_AVATARS before the shell module runs -->
+  <script src="/core-avatars.js" defer></script>
+  <!-- shared i18n · sets window.I18n (en/zh/ja/es) before the shell module; mobile strings register into I18n.STR -->
+  <script src="/i18n.js" defer></script>
+  <!-- 3D head-and-shoulders portrait helper · window.Avatar3DSnap.generate(seed) for the new-director flow -->
+  <script src="/avatar-3d-snap.js" defer></script>
+  <!-- Web-Audio SFX · window.boardroomTypingSfx (typing clicks, thinking pulse, speaker cues, gavel) -->
+  <script src="/typing-sfx.js" defer></script>
+  <!-- Director voice cloning · window.boardroomVoiceClone (record/upload → train).
+       Reuses the desktop singleton overlay; the agent-profile voice setup opens it. -->
+  <link rel="stylesheet" href="/voice-clone.css" />
+  <!-- mobile adaptation of the shared desktop voice-clone overlay · maps its
+       desktop tokens onto the mobile palette + re-flows it into a bottom sheet.
+       Loads AFTER voice-clone.css so its overrides win the cascade. -->
+  <link rel="stylesheet" href="/mobile/voice-clone-mobile.css" />
+  <script src="/voice-clone.js" defer></script>
+  <script type="module" src="/mobile/voice-room-shell.js"></script>
+</head>
+<body>
+  <div class="phone-frame">
+
+    <!-- ════ HOME · rooms + directors ════ -->
+    <section class="vr-home" data-view="home">
+      <header class="vr-home-top">
+        <div class="vr-home-brand">Rooms</div>
+        <div class="vr-home-actions">
+          <button type="button" class="vr-home-btn" data-act="prefs" aria-label="Settings"></button>
+        </div>
+      </header>
+      <div class="vr-home-body">
+        <div class="vr-rooms" data-rooms data-hpanel="rooms"></div>
+        <div class="vr-agents" data-agents data-hpanel="directors" hidden></div>
+      </div>
+      <!-- iOS-26 Photos-style floating dock · tab pill (left) + create (right) -->
+      <div class="vr-homedock">
+        <nav class="vr-tabpill">
+          <button type="button" class="vr-tabpill-btn is-active" data-htab="rooms" data-ti="rooms"><span>Rooms</span></button>
+          <button type="button" class="vr-tabpill-btn" data-htab="directors" data-ti="cast"><span>Directors</span></button>
+        </nav>
+        <button type="button" class="vr-create" data-act="new" aria-label="Create"></button>
+      </div>
+    </section>
+
+    <!-- ════ ROOM · 3D voice stage ════ -->
+    <section class="vr-room" data-view="room" hidden>
+    <!-- 3D stage · engine injects <canvas> + overlay here -->
+    <div class="vr-stage" data-mobile-stage></div>
+
+    <!-- Chat (text-delivery rooms) -->
+    <div class="vr-chat-view" data-chat-view>
+      <div class="vr-chat-msgs" data-chat></div>
+    </div>
+
+    <!-- Top bar -->
+    <header class="vr-topbar">
+      <button type="button" class="vr-back-btn" data-act="back" aria-label="Back to rooms"></button>
+      <span class="vr-title" data-vr-title>Voice Room</span>
+      <span class="vr-round" data-vr-round>R1</span>
+      <span class="vr-live" aria-label="Live"></span>
+      <button type="button" class="vr-menu-btn" data-act="menu" aria-label="Room menu"></button>
+    </header>
+
+    <!-- Caption band -->
+    <div class="vr-caption is-hidden" data-caption>
+      <div class="vr-cap-kicker" data-cap-kicker></div>
+      <div class="vr-cap-text" data-cap-text></div>
+    </div>
+
+    <!-- Bottom group · cast rail + adjourned bar share one container so a
+         single dark frosted-glass band sits behind both and the director
+         names stay legible over the 3D stage. -->
+    <div class="vr-botgroup" data-botgroup>
+      <!-- Collapse toggle · folds the rail + dock away so the caption owns the
+           bottom during playback; tap to bring the controls back. -->
+      <button type="button" class="vr-dock-toggle" data-dock-toggle aria-label="Hide controls"></button>
+      <!-- Cast rail -->
+      <nav class="vr-rail" data-rail aria-label="Participants"></nav>
+      <!-- Adjourned bar · replaces the dock once the meeting ends. Voice
+           replay lives in the top-bar chip now (see setRoundChip). -->
+      <div class="vr-adjourned" data-adjourned-bar>
+        <button type="button" class="vr-adj-replay vr-adj-rate" data-act="rate" aria-label="Playback speed">1×</button>
+        <button type="button" class="vr-adj-replay vr-adj-viewtext" data-act="viewtext" aria-label="Toggle text view"></button>
+        <button type="button" class="vr-adj-replay vr-adj-followup" data-adj-followup aria-label="Create follow-up room"></button>
+        <button type="button" class="vr-adj-replay vr-adj-report" data-adj-report aria-label="View report"></button>
+      </div>
+      <!-- Control dock · lives in the botgroup with the rail (the live
+           counterpart of the adjourned bar) so the SAME frosted-glass band
+           sits behind rail + dock, identical to the adjourned layout. -->
+      <div class="vr-dock">
+        <button type="button" data-act="interject" aria-label="Raise hand to interject"></button>
+        <button type="button" data-act="playpause" aria-label="Pause / play"></button>
+        <button type="button" data-act="rate" aria-label="Playback speed">1×</button>
+        <button type="button" data-act="viewtext" aria-label="Toggle text view"></button>
+      </div>
+    </div>
+
+    <!-- Composer · always shown in text rooms; in voice rooms revealed by interject -->
+    <div class="vr-composer" data-composer>
+      <button type="button" class="vr-composer-cancel" data-composer-cancel aria-label="Cancel"></button>
+      <input class="vr-composer-input" data-composer-input placeholder="Ask the board…" autocomplete="off">
+      <button type="button" class="vr-composer-send" data-composer-send aria-label="Send"></button>
+    </div>
+
+    <!-- Vote bar · slides up over the dock/composer during the voting
+         phase; the chair has called the round's vote. Built by renderVoteBar. -->
+    <div class="vr-votebar" data-votebar></div>
+
+    <!-- Interject action sheet · interrupt-now vs queue-after, built by showAsk -->
+    <div class="vr-ask" data-ask></div>
+    </section><!-- /.vr-room -->
+
+    <!-- Room menu / settings / cast / report / new-room modal (shared) -->
+    <div class="vr-modal" data-modal hidden>
+      <div class="vr-modal-scrim" data-modal-scrim></div>
+      <div class="vr-modal-card" data-modal-card>
+        <div class="vr-modal-head">
+          <button type="button" class="vr-modal-back" data-modal-back hidden aria-label="Back"></button>
+          <h2 class="vr-modal-title" data-modal-title>Room</h2>
+          <button type="button" class="vr-modal-close" data-modal-close aria-label="Close"></button>
+        </div>
+        <div class="vr-modal-body" data-modal-body></div>
+      </div>
+    </div>
+
+    <!-- Director picker · bottom-sheet overlay stacked over the new-room
+         modal; built by renderDirectorPicker, toggled via body.is-dpick -->
+    <div class="vr-dpick" data-dpick></div>
+
+    <!-- Toast -->
+    <div class="vr-toast" data-toast></div>
+  </div>
+</body>
+</html>

@@ -159,7 +159,9 @@
       // we don't want voice-3d.js's overlay stacking on top of it
       // (the result was an opaque-looking black box during the
       // first ~300 ms).
-      if (!VS3D.mount(host, { camera: CAMERA_OPTS, loading: false })) return null;
+      // mouthFromState · this preview has no TTS audio, so drive the talking
+      // mouth off the "speaking" stage state instead of an audio probe.
+      if (!VS3D.mount(host, { camera: CAMERA_OPTS, loading: false, mouthFromState: true })) return null;
     } catch (_) {
       return null;
     }

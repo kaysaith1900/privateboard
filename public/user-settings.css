@@ -2171,3 +2171,65 @@
   transition: color 0.12s;
 }
 .us-llm-card-help:hover { color: var(--lime); }
+
+/* iCloud sync · status block under the toggle in Other settings. */
+.us-sync-status {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-bright);
+  border-radius: 10px;
+}
+.us-sync-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.us-sync-pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-bright);
+  color: var(--text-dim);
+}
+.us-sync-pill.ok   { color: var(--lime); border-color: var(--lime); }
+.us-sync-pill.busy { color: var(--amber, #C99B4F); border-color: var(--amber, #C99B4F); }
+.us-sync-pill.warn { color: var(--red, #B5706A); border-color: var(--red, #B5706A); }
+.us-sync-now { font-size: 12px; padding: 4px 12px; min-width: 92px; }
+.us-sync-now.busy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0.85;
+  cursor: default;
+  color: var(--amber, #C99B4F);
+}
+.us-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  animation: us-spin 0.6s linear infinite;
+}
+@keyframes us-spin { to { transform: rotate(360deg); } }
+.us-sync-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.us-sync-err {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--red, #B5706A);
+  line-height: 1.5;
+}

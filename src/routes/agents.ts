@@ -802,6 +802,7 @@ export function agentsRouter(): Hono {
       ? instructionOverride.slice(0, 6000)
       : synthesizePersonaInstruction(finalSpec, { name, roleTag });
 
+    const avatar3d = b.avatar3d ? parseAvatar3d(JSON.stringify(b.avatar3d)) : null;
     const agentId = newId();
     insertAgent({
       id: agentId,
@@ -813,6 +814,7 @@ export function agentsRouter(): Hono {
       instruction,
       modelV,
       avatarPath,
+      avatar3d,
       ability,
       personaSpec: finalSpec,
     });
@@ -925,6 +927,10 @@ export function agentsRouter(): Hono {
     // bio so the radar is never flat.
     const ability = parseAbilityFromRequest(b.ability) || synthesizeAbility(bio + " " + roleTag);
 
+    // Optional 3D-avatar config (the native customiser / web 捏脸 editor sends
+    // it alongside the rendered avatarPath PNG so the avatar stays editable).
+    const avatar3d = b.avatar3d ? parseAvatar3d(JSON.stringify(b.avatar3d)) : null;
+
     const created = insertAgent({
       id,
       name,
@@ -936,6 +942,7 @@ export function agentsRouter(): Hono {
       instruction: finalInstruction,
       modelV,
       avatarPath,
+      avatar3d,
       ability,
       isPinned: false,
       isSeed: false,

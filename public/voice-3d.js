@@ -233,8 +233,20 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   // head-heavy voxel chibis (head ≈ 60% of total height, legs ≈
   // 10–15%). Adjust ±0.05 to expose more / less leg.
   const AVATAR_SEAT_LIFT = 0.45;
-  const MOUTH_OPEN = 0.062;       // mouth-overlay max height (fully open) while talking
-  const MOUTH_MIN = 0.014;        // mouth-overlay min height (closed-mouth line) while talking
+  const MOUTH_OPEN = 0.062;       // legacy ellipsoid-overlay max height (fallback path only)
+  const MOUTH_MIN = 0.014;        // legacy ellipsoid-overlay min height (fallback path only)
+  // ── Real lip-sync · viseme morph targets ──────────────────────────
+  // The rigged GLBs carry phoneme viseme morph targets (A–H, plus X = a
+  // duplicate of A) on the face / inside-mouth / teeth meshes. We drive
+  // them procedurally while a director speaks so the mouth actually opens,
+  // shapes, and shows depth — far more convincing than the old dark
+  // ellipsoid stuck over the lips. smile/sad/neutral are EXPRESSION morphs
+  // (they warp the whole face), so they're excluded from the talk set.
+  const MOUTH_VISEMES = ["A", "B", "C", "D", "E", "F", "G", "H"];
+  // Weighted pick bag · biased toward open/mid shapes (A/E/H) with the
+  // wide-open F as occasional emphasis and B/C as near-closed consonant
+  // beats, so the mouth flaps through varied, speech-like shapes.
+  const MOUTH_VISEME_BAG = ["A", "A", "E", "E", "H", "H", "D", "G", "F", "B", "C"];
   /** Table materials · created fresh in buildTable() each mount and
    *  retinted per tone by refreshTable(). Module-scope so refreshTable
    *  can reach them; nulled on unmount (rebuilt next mount). */
@@ -417,6 +429,12 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   let _mountCamDistance = 18;
   let _mountCamElevDeg = 30;
   let _mountCamLookY = 0.5;
+  // Mouth-drive source · the in-app voice room syncs the talking mouth to the
+  // real TTS audio (so it doesn't flap silently). The marketing + onboarding
+  // demos have NO audio — they animate the mouth from the "speaking" stage
+  // state instead. mount({ mouthFromState: true }) flips a context into the
+  // state-driven path; default (the real room) stays audio-synced.
+  let _mouthFromState = false;
 
   /** (Removed) cylindrical billboard registry · with the head now a
    *  voxel sculpture (eyes/glasses/mustache as voxel features), the
@@ -545,6 +563,11 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     else _mountCamElevDeg = 30;
     if (typeof camOpts.lookAtY === "number") _mountCamLookY = camOpts.lookAtY;
     else _mountCamLookY = 0.5;
+    // Demo contexts (marketing / onboarding) drive the mouth off the speaking
+    // state since they have no TTS audio to sync to · default false = the real
+    // voice room stays audio-synced. Re-read every mount so the flag reflects
+    // the current host (the singleton VS3D is shared across both).
+    _mouthFromState = !!(opts && opts.mouthFromState);
 
     // Mark the stage so CSS can hide the legacy 2D children
     // (the `<svg.rt-table>`, the `[data-rt-seats]` grid, etc) without
@@ -3415,37 +3438,40 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
       fig.position.set(wx, figBaseY, wz);
       avatarGroup.add(fig);
 
-      // Talking-mouth overlay (3D avatars only) · the avatars have a baked
-      // smile + fixed lips and no jaw bone, so the mouth can't actually open
-      // (dropping the teeth just hides them behind the lower lip). Instead we
-      // overlay a dark ellipsoid just IN FRONT of the lips and grow/shrink it
-      // while the seat speaks — a clearly-visible open/close talking mouth.
+      // Talking mouth (3D avatars only). PREFERRED · drive the GLB's real
+      // phoneme viseme morph targets so the mouth genuinely opens / shapes /
+      // shows depth while speaking (see driveMouthMorph in the tick).
+      // FALLBACK · only if a figure somehow carries no viseme morphs, fall
+      // back to the legacy dark-ellipsoid overlay so it still reads as
+      // talking. The morph path retires the "fake mouth stuck on the face".
+      let mouthMorph = null;
       let mouthOverlay = null;
       if (fig.userData && fig.userData.isAvatar3d) {
-        fig.updateMatrixWorld(true);
-        const mb = new THREE.Box3();
-        let found = false;
-        fig.traverse((o) => {
-          if (o.isMesh && o.userData && (o.userData.avatarRole === "mouth" || o.userData.avatarRole === "teeth")) {
-            mb.expandByObject(o); found = true;
+        mouthMorph = collectMouthMorph(fig);
+        if (!mouthMorph) {
+          fig.updateMatrixWorld(true);
+          const mb = new THREE.Box3();
+          let found = false;
+          fig.traverse((o) => {
+            if (o.isMesh && o.userData && (o.userData.avatarRole === "mouth" || o.userData.avatarRole === "teeth")) {
+              mb.expandByObject(o); found = true;
+            }
+          });
+          if (found) {
+            const mc = mb.getCenter(new THREE.Vector3());
+            const msz = mb.getSize(new THREE.Vector3());
+            const ov = new THREE.Mesh(
+              new THREE.SphereGeometry(1, 18, 12),
+              new THREE.MeshStandardMaterial({ color: 0x3a1418, roughness: 0.55, metalness: 0 }),
+            );
+            ov.userData.isMouthOverlay = true;
+            const local = fig.worldToLocal(mc.clone());
+            ov.position.set(local.x, local.y, local.z + msz.z * 0.5 + 0.03);
+            ov.scale.set(msz.x * 0.34, 0.001, 0.05);
+            ov.visible = false;
+            fig.add(ov);
+            mouthOverlay = ov;
           }
-        });
-        if (found) {
-          const mc = mb.getCenter(new THREE.Vector3());
-          const msz = mb.getSize(new THREE.Vector3());
-          const ov = new THREE.Mesh(
-            new THREE.SphereGeometry(1, 18, 12),
-            new THREE.MeshStandardMaterial({ color: 0x3a1418, roughness: 0.55, metalness: 0 }),
-          );
-          ov.userData.isMouthOverlay = true;
-          // Local position within fig (no rotation, unit scale) + a small
-          // forward nudge so it sits in front of the lips, not inside the head.
-          const local = fig.worldToLocal(mc.clone());
-          ov.position.set(local.x, local.y, local.z + msz.z * 0.5 + 0.03);
-          ov.scale.set(msz.x * 0.34, 0.001, 0.05); // (width, closed-height, depth)
-          ov.visible = false;
-          fig.add(ov);
-          mouthOverlay = ov;
         }
       }
 
@@ -3586,6 +3612,7 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
           // animation) + the floor glow ring (for speaker halo).
           fig,
           figBaseY,
+          mouthMorph,
           mouthOverlay,
           glowRing,
           // Stagger the idle-bob phase per seat so the cast looks
@@ -3863,6 +3890,73 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
   const BLINK_PERIOD = 4.2; // seconds between blinks
   const BLINK_DUR    = 0.18; // seconds the close+open takes
   const BLINK_DEPTH  = 0.12; // peak scaleY reduction (1 → 0.88)
+
+  /** Find the figure's viseme-morph meshes (face / inside-mouth / teeth)
+   *  and return a driver descriptor, or null if this figure carries no
+   *  mouth morphs (→ caller falls back to the ellipsoid overlay). The
+   *  cloned GLB meshes keep their `morphTargetDictionary` (name→index) +
+   *  `morphTargetInfluences` array, so we just collect every mesh that
+   *  exposes the phoneme visemes and drive them in lockstep. */
+  function collectMouthMorph(fig) {
+    const meshes = [];
+    fig.traverse((o) => {
+      if (!o.isMesh || !o.morphTargetInfluences || !o.morphTargetDictionary) return;
+      const dict = o.morphTargetDictionary;
+      const idx = {};
+      let has = false;
+      for (const k of MOUTH_VISEMES) {
+        const i = dict[k];
+        if (typeof i === "number") { idx[k] = i; has = true; }
+      }
+      if (has) meshes.push({ infl: o.morphTargetInfluences, idx });
+    });
+    if (!meshes.length) return null;
+    const infl = {};
+    for (const k of MOUTH_VISEMES) infl[k] = 0;
+    return { meshes, infl, open: 0, targetOpen: 0, viseme: "A", nextSwitch: 0 };
+  }
+
+  /** Procedural talk · while `talking`, switch to a fresh viseme every
+   *  ~70–160 ms with a varied amplitude (open syllables + the occasional
+   *  near-closed consonant beat), cross-fading the active viseme in and the
+   *  rest out so the mouth flaps through real, speech-like shapes. When not
+   *  talking, everything eases back to 0 (the baked closed smile). The same
+   *  per-viseme value is written to every morph mesh so the lips, inner
+   *  mouth, and teeth move together. */
+  function driveMouthMorph(mm, talking, t) {
+    if (talking) {
+      if (t >= mm.nextSwitch) {
+        let v = MOUTH_VISEME_BAG[(Math.random() * MOUTH_VISEME_BAG.length) | 0];
+        if (v === mm.viseme) v = MOUTH_VISEME_BAG[(Math.random() * MOUTH_VISEME_BAG.length) | 0];
+        mm.viseme = v;
+        mm.targetOpen = Math.random() < 0.22
+          ? 0.08 + Math.random() * 0.16   // near-closed consonant beat
+          : 0.45 + Math.random() * 0.45;  // varied open syllable
+        mm.nextSwitch = t + 0.07 + Math.random() * 0.09;
+      }
+    } else {
+      mm.targetOpen = 0;
+    }
+    // Overall open amount · fast attack, gentler release.
+    mm.open += (mm.targetOpen - mm.open) * (mm.targetOpen > mm.open ? 0.45 : 0.3);
+    if (mm.open < 1e-4) mm.open = 0;
+    // Cross-fade the shared per-viseme influence: active → open, rest → 0.
+    // Snap near-zero so a closed mouth lands exactly on the baked smile.
+    for (const k of MOUTH_VISEMES) {
+      const goal = (talking && k === mm.viseme) ? mm.open : 0;
+      let v = mm.infl[k] + (goal - mm.infl[k]) * 0.34;
+      if (v < 1e-4 && goal === 0) v = 0;
+      mm.infl[k] = v;
+    }
+    // Apply identically to every morph mesh (face / inner-mouth / teeth).
+    for (const mesh of mm.meshes) {
+      for (const k of MOUTH_VISEMES) {
+        const i = mesh.idx[k];
+        if (i != null) mesh.infl[i] = mm.infl[k];
+      }
+    }
+  }
+
   function tickSeatAnimations() {
     if (!overlaySeats.length) return;
     const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) * 0.001;
@@ -3870,13 +3964,16 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
     const canCheckAudio = !!(app && typeof app.isSpeakerAudible === "function");
     for (const seat of overlaySeats) {
       const isActive = activeSpeakerId && seat.id === activeSpeakerId;
-      // The mouth only moves while actually SPEAKING — and synced to the real
-      // TTS audio when we can read it (the "speaking" stage state can start
-      // before the audio does, which made mouths move silently). Fall back to
-      // the stage state when no audio probe is available (e.g. older app).
-      const isTalking = isActive && (canCheckAudio
-        ? app.isSpeakerAudible(seat.id)
-        : activeSpeakerState === "speaking");
+      // The mouth only moves while actually SPEAKING. In the real voice room
+      // we sync it to the live TTS audio (the "speaking" stage state can start
+      // before the audio does, which made mouths flap silently). In the
+      // marketing / onboarding demos there's no audio — `_mouthFromState`
+      // drives it straight off the stage state so the cast actually talks.
+      // Also fall back to state when no audio probe is available.
+      const useState = _mouthFromState || !canCheckAudio;
+      const isTalking = isActive && (useState
+        ? activeSpeakerState === "speaking"
+        : app.isSpeakerAudible(seat.id));
       const isSpeaking = isActive; // kept for the idle-bob suspension below
       // Idle bob · ±2.5 cm at ~0.4 Hz, suspended for the speaker. Relative to
       // the seat's base Y (3D avatars are lifted onto the cushion).
@@ -3886,19 +3983,22 @@ import { loadAvatar3D, buildAvatar3D, isAvatar3DReady, deriveDefaultAvatarConfig
 
         const is3d = !!(seat.fig.userData && seat.fig.userData.isAvatar3d);
         if (is3d) {
-          // 3D avatars · animate the REAL mouth (the overlay opening/closing)
-          // while speaking, NOT a body squash. Keep the body scale at 1.
+          // 3D avatars · animate the REAL mouth (viseme morphs deform the
+          // face/teeth) while speaking, NOT a body squash. Keep body scale 1.
           if (seat.fig.scale.y !== 1) seat.fig.scale.y = 1;
-          const ov = seat.mouthOverlay;
-          if (ov) {
+          if (seat.mouthMorph) {
+            // Preferred · drive the real phoneme morphs.
+            driveMouthMorph(seat.mouthMorph, isTalking && !prefersReducedMotion, t);
+          } else if (seat.mouthOverlay) {
+            // Fallback · legacy ellipsoid (figures with no viseme morphs).
+            const ov = seat.mouthOverlay;
             if (isTalking && !prefersReducedMotion) {
-              // Open/close at ~2.7 Hz with a mild wobble · reads as talking.
               const o = 0.5 + 0.5 * Math.sin(t * 17 + seat.bobPhase * 3);
               const wobble = 0.85 + 0.15 * Math.sin(t * 9.1 + seat.bobPhase);
               ov.scale.y = MOUTH_MIN + (MOUTH_OPEN - MOUTH_MIN) * o * wobble;
               ov.visible = true;
             } else {
-              ov.visible = false; // thinking / silent · show the baked smile
+              ov.visible = false;
             }
           }
         } else {

@@ -499,7 +499,7 @@ function renderUserRulesBlock(speaker: Agent): string {
 //     on top as the preferred move for today's tone. (Floor: must
 //     introduce ≥ 1 item. Tone: brainstorm prefers a yes-and-plus-
 //     variant, debate prefers a steelman-then-attack, etc.)
-const SHARED_ROOM_PROTOCOL = [
+export const SHARED_ROOM_PROTOCOL = [
   `─── ROOM PROTOCOL ───`,
   ``,
   `This is not a casual chat. It is a structured cognitive workspace where Directors and the Chair collaborate to produce useful judgment, insight, and output for the user.`,
@@ -546,7 +546,7 @@ const SHARED_ROOM_PROTOCOL = [
 // even when the user picked brainstorm. The override paragraph tells
 // the model to PAUSE those defaults for THIS room — without it, even a
 // well-written tone block gets crushed by the persona's own hard rules.
-const TONE_GUIDANCE: Record<string, string> = {
+export const TONE_GUIDANCE: Record<string, string> = {
   brainstorm: [
     "─── 共创模式 · BRAINSTORM ───",
     "你们是用户的【多角色共创团队】，不是【评审团】。任务是帮用户发现 idea 的价值、放大它、延展它、提出更有启发的新方向，并帮 ta 把 idea 变成更有想象力、更可传播、更可落地的方案。",
@@ -926,7 +926,7 @@ const BRAINSTORM_REACTIVE_SHAPE = [
 // shorter responses. Renamed to `terse` to keep this axis cleanly
 // orthogonal to the tone (mode) axis. Legacy `brutal` is mapped to
 // `terse` by `normalizeIntensity()` for any in-flight reads.
-const INTENSITY_GUIDANCE: Record<string, string> = {
+export const INTENSITY_GUIDANCE: Record<string, string> = {
   calm: [
     "CALM · measured cadence. 3–4 short paragraphs is fine. Hedging where you're genuinely uncertain is allowed and encouraged (\"I'm not sure, but…\"). Leave space for the user to think — don't pile every point on at once. You can be wrong out loud.",
   ].join("\n"),

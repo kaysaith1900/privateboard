@@ -68,6 +68,9 @@ import voiceLabels055 from "./migrations/055_voice_labels.sql";
 import agentUserRules056 from "./migrations/056_agent_user_rules.sql";
 import agentAvatar3d057 from "./migrations/057_agent_avatar3d.sql";
 import prefsAvatar3d058 from "./migrations/058_prefs_avatar3d.sql";
+import syncOplog059 from "./migrations/059_sync_oplog.sql";
+import syncCapture060 from "./migrations/060_sync_capture_triggers.sql";
+import syncCapture061 from "./migrations/061_sync_capture_triggers_v2.sql";
 
 interface Migration {
   name: string;
@@ -133,6 +136,9 @@ const MIGRATIONS: Migration[] = [
   { name: "056_agent_user_rules.sql", sql: agentUserRules056 },
   { name: "057_agent_avatar3d.sql", sql: agentAvatar3d057 },
   { name: "058_prefs_avatar3d.sql", sql: prefsAvatar3d058 },
+  { name: "059_sync_oplog.sql", sql: syncOplog059 },
+  { name: "060_sync_capture_triggers.sql", sql: syncCapture060 },
+  { name: "061_sync_capture_triggers_v2.sql", sql: syncCapture061 },
 ];
 
 let _db: Database.Database | null = null;
@@ -170,8 +176,17 @@ export function closeDb(): void {
  * transaction; recorded by name so reruns are no-ops.
  */
 export function runMigrations(): { applied: string[] } {
-  const db = getDb();
+  return migrateDb(getDb());
+}
 
+/**
+ * Apply the registered migrations to an EXPLICIT db handle (vs the process
+ * singleton). Used by `runMigrations()` for the live db, and by the sync
+ * layer / tests that need to bring up a second independent db (e.g. to
+ * simulate a peer device converging through the oplog). Same idempotent
+ * by-name bookkeeping as the live path.
+ */
+export function migrateDb(db: Database.Database): { applied: string[] } {
   db.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (
       name        TEXT PRIMARY KEY,
