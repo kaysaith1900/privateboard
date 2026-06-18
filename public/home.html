@@ -230,6 +230,8 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 14px;
+    width: max-content;
+    max-width: 100%;
   }
   .store-badges {
     display: grid;
@@ -302,29 +304,31 @@
     font-weight: 600;
     letter-spacing: 0.01em;
   }
-  /* CLI alternative · a quiet terminal prompt line beneath the buttons */
-  .term-link {
-    display: inline-flex;
+  /* CLI alternative · a terminal command bar, full-width to the buttons above */
+  .hero-cli {
+    display: flex;
     align-items: center;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 11px 9px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
     font-family: var(--mono);
-    font-size: 13.5px;
-    color: var(--text-soft);
-    text-decoration: none;
-    padding-left: 2px;
-    transition: color 0.14s ease;
+    font-size: 13px;
   }
-  .term-link .term-prompt { color: var(--lime); font-weight: 600; margin-right: 9px; }
-  .term-link .term-cursor {
-    width: 7px;
-    height: 15px;
-    margin-left: 3px;
-    background: var(--lime);
-    opacity: 0;
-    transition: opacity 0.14s ease;
+  .hero-cli-prompt { color: var(--lime); font-weight: 700; user-select: none; }
+  .hero-cli-cmd {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .term-link:hover { color: var(--text); }
-  .term-link:hover .term-cursor { opacity: 0.9; animation: term-blink 1s steps(1) infinite; }
-  @keyframes term-blink { 50% { opacity: 0; } }
+  .hero-cli-cmd .bin { color: var(--amber); font-weight: 700; }
+  .hero-cli .copy-btn { flex: 0 0 auto; border-radius: 6px; }
 
   /* Hero right (cast lineup) */
   .hero-right {
@@ -1757,7 +1761,11 @@
             <span class="dl-text"><small>Download on the</small><strong>App Store</strong></span>
           </a>
         </div>
-        <a href="#install" class="term-link"><span class="term-prompt">$</span>npx privateboard<span class="term-cursor"></span></a>
+        <div class="hero-cli" aria-label="Install from the command line">
+          <span class="hero-cli-prompt">$</span>
+          <code class="hero-cli-cmd"><span class="bin">npx</span> privateboard</code>
+          <button type="button" class="copy-btn" data-copy="npx privateboard@latest" aria-label="Copy install command">copy</button>
+        </div>
       </div>
     </div>
 
