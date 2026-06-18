@@ -232,9 +232,11 @@
     gap: 14px;
   }
   .store-badges {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;   /* both buttons share equal width */
     gap: 12px;
-    flex-wrap: wrap;
+    width: max-content;
+    max-width: 100%;
   }
   .big-btn {
     padding: 10px 18px;
@@ -300,29 +302,29 @@
     font-weight: 600;
     letter-spacing: 0.01em;
   }
-  /* CLI alternative · a quiet command chip beneath the buttons */
+  /* CLI alternative · a quiet terminal prompt line beneath the buttons */
   .term-link {
     display: inline-flex;
     align-items: center;
-    gap: 9px;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 13.5px;
     color: var(--text-soft);
     text-decoration: none;
+    padding-left: 2px;
     transition: color 0.14s ease;
   }
-  .term-link .term-mark { color: var(--lime); }
-  .term-link .term-cmd {
-    font-size: 12.5px;
-    color: var(--lime);
-    padding: 3px 9px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: rgba(201,164,107,0.06);
-    transition: border-color 0.14s ease, background 0.14s ease;
+  .term-link .term-prompt { color: var(--lime); font-weight: 600; margin-right: 9px; }
+  .term-link .term-cursor {
+    width: 7px;
+    height: 15px;
+    margin-left: 3px;
+    background: var(--lime);
+    opacity: 0;
+    transition: opacity 0.14s ease;
   }
   .term-link:hover { color: var(--text); }
-  .term-link:hover .term-cmd { border-color: var(--lime-deep); background: rgba(201,164,107,0.12); }
+  .term-link:hover .term-cursor { opacity: 0.9; animation: term-blink 1s steps(1) infinite; }
+  @keyframes term-blink { 50% { opacity: 0; } }
 
   /* Hero right (cast lineup) */
   .hero-right {
@@ -1755,11 +1757,7 @@
             <span class="dl-text"><small>Download on the</small><strong>App Store</strong></span>
           </a>
         </div>
-        <a href="#install" class="term-link">
-          <span class="term-mark">▸</span>
-          <span class="term-label">prefer the terminal?</span>
-          <code class="term-cmd">npx privateboard</code>
-        </a>
+        <a href="#install" class="term-link"><span class="term-prompt">$</span>npx privateboard<span class="term-cursor"></span></a>
       </div>
     </div>
 
