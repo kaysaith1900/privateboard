@@ -227,7 +227,13 @@
 
   .hero-actions {
     display: flex;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .store-badges {
+    display: flex;
+    gap: 12px;
     flex-wrap: wrap;
   }
   .big-btn {
@@ -261,46 +267,65 @@
   .store-badge {
     display: inline-flex;
     align-items: center;
-    gap: 11px;
-    padding: 8px 17px 8px 14px;
-    border-radius: 12px;
-    background: rgba(255,255,255,0.035);
-    border: 1px solid var(--line-strong);
+    gap: 12px;
+    padding: 9px 19px 9px 15px;
+    border-radius: 13px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.18)),
+      #121316;
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.14),
+      inset 0 -1px 0 rgba(0,0,0,0.4),
+      0 6px 18px rgba(0,0,0,0.38);
     color: var(--text);
     text-decoration: none;
-    transition: border-color 0.12s, background 0.12s, transform 0.12s;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+    transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
   }
   .store-badge:hover {
-    border-color: var(--lime);
-    background: rgba(255,255,255,0.06);
-    transform: translateY(-1px);
+    border-color: rgba(208,255,112,0.55);
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.18),
+      inset 0 -1px 0 rgba(0,0,0,0.45),
+      0 10px 26px rgba(0,0,0,0.5),
+      0 0 0 1px rgba(208,255,112,0.12);
   }
-  .store-badge-ico { width: 27px; height: 27px; flex: 0 0 auto; }
-  .store-badge-text { display: flex; flex-direction: column; line-height: 1.08; text-align: left; }
+  .store-badge:active { transform: translateY(0); }
+  .store-badge-ico {
+    width: 26px; height: 26px; flex: 0 0 auto;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
+  }
+  .store-badge-text { display: flex; flex-direction: column; line-height: 1.05; text-align: left; }
   .store-badge-text small {
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-    color: var(--text-dim);
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: rgba(200,197,190,0.65);
   }
   .store-badge-text strong {
     font-size: 18px;
     font-weight: 600;
-    letter-spacing: 0.005em;
-    color: var(--text);
+    letter-spacing: 0.01em;
+    color: #F2F0EA;
   }
+  /* Quiet CLI alternative beneath the badges */
   .term-link {
-    align-self: center;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
     font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-size: 12.5px;
     color: var(--text-dim);
     text-decoration: none;
-    transition: color 0.12s;
+    padding-left: 3px;
+    transition: color 0.14s ease;
   }
-  .term-link:hover { color: var(--lime); }
+  .term-link .term-prompt { color: var(--lime); font-weight: 700; }
+  .term-link .term-arrow { transition: transform 0.16s ease; }
+  .term-link:hover { color: var(--text); }
+  .term-link:hover .term-arrow { transform: translateX(3px); }
 
   /* Hero right (cast lineup) */
   .hero-right {
@@ -1716,22 +1741,24 @@
       </p>
 
       <div class="hero-actions">
-        <a href="https://github.com/kaysaith1900/privateboard/releases/download/v0.1.46/PrivateBoard-0.1.46-arm64.dmg"
-           class="store-badge"
-           download
-           aria-label="Download PrivateBoard for macOS (Apple Silicon)">
-          <svg class="store-badge-ico" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true" focusable="false"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
-          <span class="store-badge-text"><small>Download for</small><strong>macOS</strong></span>
-        </a>
-        <a href="https://apps.apple.com/cn/app/private-board/id6778068894?l=en-GB"
-           class="store-badge"
-           target="_blank"
-           rel="noopener"
-           aria-label="Download Private Board on the App Store (iPhone and iPad)">
-          <svg class="store-badge-ico" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><defs><linearGradient id="asg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1AC8FB"/><stop offset="1" stop-color="#1F6DF4"/></linearGradient></defs><rect width="32" height="32" rx="7.2" fill="url(#asg)"/><g fill="none" stroke="#fff" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 21.6 16 10.8l5.4 10.8"/><path d="M13 18.7h6"/><path d="M9 21.6h1.6M21.4 21.6H23"/></g></svg>
-          <span class="store-badge-text"><small>Download on the</small><strong>App Store</strong></span>
-        </a>
-        <a href="#install" class="term-link">[ ◆ or run in terminal ]</a>
+        <div class="store-badges">
+          <a href="https://github.com/kaysaith1900/privateboard/releases/download/v0.1.46/PrivateBoard-0.1.46-arm64.dmg"
+             class="store-badge"
+             download
+             aria-label="Download PrivateBoard for macOS (Apple Silicon)">
+            <svg class="store-badge-ico" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true" focusable="false"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+            <span class="store-badge-text"><small>Download for</small><strong>macOS</strong></span>
+          </a>
+          <a href="https://apps.apple.com/cn/app/private-board/id6778068894?l=en-GB"
+             class="store-badge"
+             target="_blank"
+             rel="noopener"
+             aria-label="Download Private Board on the App Store (iPhone and iPad)">
+            <svg class="store-badge-ico" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><defs><linearGradient id="asg" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#21C6FB"/><stop offset="1" stop-color="#0E6CF4"/></linearGradient></defs><rect width="32" height="32" rx="7" fill="url(#asg)"/><g fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 22.3 16 10.1l6.1 12.2"/><path d="M12.7 18.1h6.6"/></g></svg>
+            <span class="store-badge-text"><small>Download on the</small><strong>App Store</strong></span>
+          </a>
+        </div>
+        <a href="#install" class="term-link"><span class="term-prompt">$</span> or run it in your terminal<span class="term-arrow">→</span></a>
       </div>
     </div>
 
