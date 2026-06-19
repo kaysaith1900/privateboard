@@ -49,6 +49,7 @@
     font-size: 13px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    overflow-x: clip;   /* belt-and-braces: no sideways scroll on mobile (clip keeps sticky working) */
   }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
@@ -238,6 +239,12 @@
     width: max-content;
     max-width: 100%;
   }
+  /* Phones · stack the two buttons full-width so the pair can't overflow the
+     viewport (two side-by-side badges are ~420px — wider than a phone). */
+  @media (max-width: 560px) {
+    .hero-actions { width: 100%; align-self: stretch; }
+    .store-badges { grid-template-columns: 1fr; width: 100%; }
+  }
   .big-btn {
     padding: 10px 18px;
     border: 1px solid;
@@ -269,6 +276,7 @@
   .dl-btn {
     display: inline-flex;
     align-items: center;
+    min-width: 0;
     gap: 12px;
     padding: 11px 20px;
     border-radius: 10px;
@@ -1616,6 +1624,67 @@
     0%, 60%, 100% { opacity: 0.25; }
     30%           { opacity: 1; }
   }
+
+  /* WeChat in-app browser · "open in your browser" guide (App Store deep links
+     are blocked inside MicroMessenger). */
+  .wechat-tip {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.82);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+  }
+  .wechat-tip[hidden] { display: none; }
+  .wechat-tip-arrow {
+    position: absolute;
+    top: 12px;
+    right: 18px;
+    font-size: 40px;
+    line-height: 1;
+    color: var(--lime);
+    animation: wt-bob 1.1s ease-in-out infinite;
+  }
+  @keyframes wt-bob { 0%,100% { transform: translate(0,0); } 50% { transform: translate(4px,-4px); } }
+  .wechat-tip-card {
+    max-width: 320px;
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    padding: 24px 22px;
+    text-align: center;
+    font-family: var(--mono);
+  }
+  .wechat-tip-title {
+    color: var(--lime);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 12px;
+  }
+  .wechat-tip-body {
+    color: var(--text-soft);
+    font-size: 13.5px;
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+  .wechat-tip-body strong { color: var(--text); }
+  .wechat-tip-close {
+    background: var(--lime);
+    color: var(--bg);
+    border: none;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 9px 22px;
+    cursor: pointer;
+  }
 </style>
 <link rel="stylesheet" href="themes.css">
 <link rel="stylesheet" href="agent-overlay.css">
@@ -1727,6 +1796,7 @@
           </a>
           <a href="https://apps.apple.com/cn/app/private-board/id6778068894?l=en-GB"
              class="dl-btn"
+             data-appstore
              target="_blank"
              rel="noopener"
              aria-label="Download Private Board on the App Store (iPhone and iPad)">
@@ -2349,6 +2419,32 @@
      the ESM home-3d-loader's `import('/home-3d-mock.js')` resolves. -->
 <script src="core-avatars.js" defer></script>
 <script type="module" src="home-3d-loader.js" defer></script>
+
+<!-- WeChat in-app browser: App Store deep links are blocked, so guide the user
+     to open the page in their system browser. -->
+<div id="wechat-tip" class="wechat-tip" hidden role="dialog" aria-modal="true" aria-labelledby="wechat-tip-title">
+  <div class="wechat-tip-arrow" aria-hidden="true">↗</div>
+  <div class="wechat-tip-card">
+    <div class="wechat-tip-title" id="wechat-tip-title">请在浏览器中打开</div>
+    <div class="wechat-tip-body">微信内暂不支持直接跳转 App Store。<br>请点击右上角 <strong>⋯</strong>，选择「在浏览器中打开」后再下载。</div>
+    <button type="button" class="wechat-tip-close">知道了</button>
+  </div>
+</div>
+<script>
+  (function () {
+    var isWeChat = /micromessenger/i.test(navigator.userAgent || "");
+    var tip = document.getElementById("wechat-tip");
+    if (!tip) return;
+    document.querySelectorAll("a[data-appstore]").forEach(function (a) {
+      a.addEventListener("click", function (e) {
+        if (isWeChat) { e.preventDefault(); tip.hidden = false; }
+      });
+    });
+    tip.addEventListener("click", function (e) {
+      if (e.target === tip || e.target.closest(".wechat-tip-close")) tip.hidden = true;
+    });
+  })();
+</script>
 
 </body>
 </html>
