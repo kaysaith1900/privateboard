@@ -127,10 +127,31 @@ struct SyncSettingsView: View {
                     .buttonStyle(.bordered).tint(.bbGold)
                     .disabled(working || st.state == "syncing")
                 }
+                if st.state == "syncing" {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if st.progressTotal > 0 {
+                            ProgressView(value: Double(min(st.progressDone, st.progressTotal)),
+                                         total: Double(st.progressTotal))
+                                .tint(.bbGold)
+                            Text("\(phaseVerb(st)) \(st.progressDone) / \(st.progressTotal)")
+                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        } else {
+                            ProgressView().tint(.bbGold)
+                            Text("\(phaseVerb(st))…").font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
                 LabeledContent("iCloud") { Text(st.available ? "Available" : "Unavailable").foregroundStyle(.secondary) }
-                LabeledContent("Items synced") { Text("\(st.tracked)").foregroundStyle(.secondary) }
+                LabeledContent("Items synced") { Text("\(st.tracked)").foregroundStyle(.secondary).monospacedDigit() }
                 if st.pending > 0 {
-                    LabeledContent("Pending upload") { Text("\(st.pending)").foregroundStyle(.secondary) }
+                    LabeledContent("Pending upload") { Text("\(st.pending)").foregroundStyle(.secondary).monospacedDigit() }
+                }
+                if st.lastPushed > 0 || st.lastApplied > 0 {
+                    LabeledContent("Last sync") {
+                        Text("↑ \(st.lastPushed)  ↓ \(st.lastApplied)").foregroundStyle(.secondary).monospacedDigit()
+                    }
                 }
                 if let last = st.lastSyncAt {
                     LabeledContent("Last synced") {
@@ -159,10 +180,13 @@ struct SyncSettingsView: View {
         .task { await coord.refresh() }
     }
 
+    private func phaseVerb(_ st: SyncCoordinator.Status) -> String {
+        st.phase == "downloading" ? "Downloading" : "Uploading"
+    }
     private func pillText(_ st: SyncCoordinator.Status) -> String {
         if !st.available { return "iCloud unavailable" }
         switch st.state {
-        case "syncing": return "Syncing…"
+        case "syncing": return st.phase == "downloading" ? "Downloading…" : "Uploading…"
         case "error":   return "Error"
         default:        return st.pending > 0 ? "\(st.pending) pending" : "Up to date"
         }

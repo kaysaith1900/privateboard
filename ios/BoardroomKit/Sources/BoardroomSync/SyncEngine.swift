@@ -27,31 +27,63 @@ public actor SyncEngine {
         }
     }
 
-    /// Flush locally-captured ops into our own append-only segment.
+    /// Sync progress callback · `(phase, done, total)`. Fired off-actor; the UI
+    /// hops to the main actor itself. Lets the settings screen show a moving bar +
+    /// live counts instead of one opaque "syncing…" with no feedback.
+    public enum Phase: Sendable, Equatable { case uploading, downloading }
+    public typealias Progress = @Sendable (_ phase: Phase, _ done: Int, _ total: Int) -> Void
+
+    private static let batchSize = 300
+
+    /// Flush locally-captured ops into our own append-only segment, IN BATCHES so a
+    /// large first sync (genesis · thousands of ops) reports steady progress and the
+    /// outbox count visibly drains instead of jumping 2500→0 at the very end.
     @discardableResult
-    public func push() async throws -> Int {
+    public func push(progress: Progress? = nil) async throws -> Int {
         let reg = registry
-        let ops = try await pool.write { db -> [SyncOp] in
-            _ = try SyncCapture.flushStaged(db, reg) // assign HLC + clock to trigger-staged rows
-            return try SyncOutbox.read(db)
+        let total = try await pool.write { db -> Int in
+            _ = try SyncCapture.flushStaged(db, reg) // assign HLC + clock to all staged rows once
+            return try SyncOutbox.count(db)
         }
-        if ops.isEmpty { return 0 }
-        let extOps = try await SyncBlobs.externalize(transport, ops, reg) // big data-URLs → blob refs
-        try await transport.push(device: device, ops: extOps)
-        let ids = ops.map(\.op_id)
-        try await pool.write { db in try SyncOutbox.clear(db, opIds: ids) }
-        return ops.count
+        if total == 0 { return 0 }
+        var pushed = 0
+        while true {
+            let ops = try await pool.read { db in try SyncOutbox.read(db, limit: Self.batchSize) }
+            if ops.isEmpty { break }
+            let extOps = try await SyncBlobs.externalize(transport, ops, reg) // data-URLs → blob refs
+            try await transport.push(device: device, ops: extOps)
+            let ids = ops.map(\.op_id)
+            try await pool.write { db in try SyncOutbox.clear(db, opIds: ids) }
+            pushed += ops.count
+            progress?(.uploading, pushed, total)
+        }
+        return pushed
     }
 
-    /// Fetch peers' new ops and merge them; persist cursors only after apply.
+    /// Fetch peers' new ops and merge them IN BATCHES (progress + responsiveness);
+    /// persist cursors only after the whole apply so a mid-way failure re-pulls
+    /// (idempotent via the synced_ops ledger).
     @discardableResult
-    public func pull() async throws -> Int {
+    public func pull(progress: Progress? = nil) async throws -> Int {
         let cursors = try await pool.read { db in try Self.loadCursors(db) }
         let result = try await transport.pull(cursors: cursors)
         let remote = result.ops.filter { $0.device != device }
         let reg = registry
-        let intOps = try await SyncBlobs.internalize(transport, remote, reg) // blob refs → data-URLs
-        let applied = try await pool.write { db in try SyncApply.applyOps(db, intOps, reg) }
+        let total = remote.count
+        if total == 0 {
+            try await pool.write { db in try Self.saveCursors(db, result.cursors) }
+            return 0
+        }
+        progress?(.downloading, 0, total)
+        let intOps = try await SyncBlobs.internalize(transport, remote, reg) // blob refs → data-URLs (downloads blobs)
+        var applied = 0
+        var i = 0
+        while i < intOps.count {
+            let slice = Array(intOps[i ..< min(i + Self.batchSize, intOps.count)])
+            applied += try await pool.write { db in try SyncApply.applyOps(db, slice, reg) }
+            i += slice.count
+            progress?(.downloading, min(i, total), total)
+        }
         try await pool.write { db in try Self.saveCursors(db, result.cursors) }
         return applied
     }
@@ -80,9 +112,9 @@ public actor SyncEngine {
 
     /// One quiescent convergence beat.
     @discardableResult
-    public func sync() async throws -> (pushed: Int, applied: Int) {
-        let pushed = try await push()
-        let applied = try await pull()
+    public func sync(progress: Progress? = nil) async throws -> (pushed: Int, applied: Int) {
+        let pushed = try await push(progress: progress)
+        let applied = try await pull(progress: progress)
         return (pushed, applied)
     }
 

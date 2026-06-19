@@ -81,6 +81,11 @@ public enum SyncOutbox {
         }
     }
 
+    /// Count of pending outbox rows · drives the sync-progress total.
+    public static func count(_ db: Database) throws -> Int {
+        try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sync_outbox") ?? 0
+    }
+
     public static func clear(_ db: Database, opIds: [String]) throws {
         for id in opIds {
             try db.execute(sql: "DELETE FROM sync_outbox WHERE op_id = ?", arguments: [id])

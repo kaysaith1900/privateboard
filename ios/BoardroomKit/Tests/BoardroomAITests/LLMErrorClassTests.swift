@@ -40,6 +40,21 @@ final class LLMErrorClassTests: XCTestCase {
         }
     }
 
+    /// iOS URL-loading failures (the raw NSError string the app surfaces) must
+    /// classify as `.network` so the user gets the "check your network" prompt +
+    /// the voice-room alert, not a raw upstream dump. Regression for the B.AI TLS
+    /// error over a VPN/proxy tunnel (-1200).
+    func testNetworkURLSessionErrors() {
+        let tls = #"Error Domain=NSURLErrorDomain Code=-1200 "A TLS error caused the secure connection to fail." UserInfo={NSErrorFailingURLStringKey=https://api.b.ai/v1/chat/completions}"#
+        for m in [tls,
+                  #"Error Domain=NSURLErrorDomain Code=-1009 "The Internet connection appears to be offline.""#,
+                  #"Error Domain=NSURLErrorDomain Code=-1001 "The request timed out.""#,
+                  #"Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost.""#,
+                  #"Error Domain=NSURLErrorDomain Code=-1004 "Could not connect to the server.""#] {
+            XCTAssertEqual(LLMErrorClass.classify(message: m), .network, "expected network for: \(m)")
+        }
+    }
+
     func testUpstreamFallback() {
         XCTAssertEqual(LLMErrorClass.classify(message: "some weird unparseable thing"), .upstream)
     }

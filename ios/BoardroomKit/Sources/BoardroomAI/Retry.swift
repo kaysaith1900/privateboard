@@ -28,6 +28,12 @@ public enum Retry {
         if rx(#"\becon(n|nreset|nrefused)\b|\betimedout\b|\benotfound\b|\beai_"#) { return true }
         if rx(#"socket\s+hang\s+up|fetch\s+failed|network\s+error|aborted\s+by\s+upstream"#) { return true }
         if rx(#"upstream\s+(timeout|reset|connect|disconnect)"#) { return true }
+        // iOS URL-loading layer · every URLSession failure is NSURLErrorDomain /
+        // CFNetwork — TLS handshake fail (-1200, common when a VPN/proxy is in the
+        // path), offline (-1009), timeout (-1001), DNS (-1003), connection lost
+        // (-1005). All are connectivity issues → retry + the "check your network"
+        // prompt (LLMErrorClass.network reuses this classifier).
+        if rx(#"nsurlerrordomain|cfnetwork|tls\s+error|secure\s+connection|connection\s+was\s+lost|connection\s+appears\s+to\s+be\s+offline|could\s+not\s+connect\s+to\s+the\s+server|specified\s+hostname"#) { return true }
         return false
     }
 

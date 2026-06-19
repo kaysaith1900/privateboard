@@ -1550,6 +1550,14 @@ public actor RoomActor {
     /// Human-facing one-liner for a turn that errored — shown in the bubble so the
     /// user can act (most commonly: configure the on-device LLM key).
     static func errorHint(_ error: Error) -> String {
+        // Network / TLS / proxy failures (offline, VPN-proxy TLS handshake fail,
+        // DNS, timeout) → one friendly "check your network" line instead of dumping
+        // the raw NSError. Checked first so it covers .upstream / .exhausted whose
+        // inner message is an NSURLError. (The voice-room gets the matching
+        // AppNotice.network alert via the messageError(kind:"network") event.)
+        if case .network = LLMErrorClass.classify(error) {
+            return "⚠️ 网络连接失败，请检查网络（若开启了 VPN / 代理，请检查代理设置）后重试。"
+        }
         guard let e = error as? LLMError else { return "⚠️ \(error)" }
         switch e {
         case .noKey:

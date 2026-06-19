@@ -30,9 +30,14 @@ final class SyncCoordinator {
         var available = false    // an iCloud container is reachable
         var running = false      // engine active
         var state = "off"        // off | idle | syncing | error
+        var phase = "idle"       // idle | uploading | downloading (live during a sync)
+        var progressDone = 0     // items processed in the current phase
+        var progressTotal = 0    // items to process in the current phase (0 = indeterminate)
         var lastSyncAt: Date?
         var pending = 0          // local changes waiting to upload
         var tracked = 0          // ops this device has synced (proof data is in iCloud)
+        var lastPushed = 0       // uploaded in the last sync
+        var lastApplied = 0      // merged from peers in the last sync
         var deviceID: String?
         var error: String?
     }
@@ -83,18 +88,36 @@ final class SyncCoordinator {
         guard let engine, !syncing else { await refreshCounts(); return }
         syncing = true
         status.state = "syncing"
+        status.phase = "uploading"
+        status.progressDone = 0
+        status.progressTotal = 0
         do {
-            let result = try await engine.sync()
+            let result = try await engine.sync { [weak self] phase, done, total in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.status.phase = (phase == .uploading) ? "uploading" : "downloading"
+                    self.status.progressDone = done
+                    self.status.progressTotal = total
+                    // Live feel · the pending count drains as we upload.
+                    if phase == .uploading { self.status.pending = max(0, total - done) }
+                }
+            }
+            status.lastPushed = result.pushed
+            status.lastApplied = result.applied
             status.lastSyncAt = Date()
             status.error = nil
             status.state = "idle"
+            status.phase = "idle"
             // Peers' changes just landed in the local DB — tell the shell to reload
             // rooms + roster so the UI updates live instead of only after a restart.
             if result.applied > 0 { NotificationCenter.default.post(name: .bbSyncApplied, object: nil) }
         } catch {
             status.error = "\(error)"
             status.state = "error"
+            status.phase = "idle"
         }
+        status.progressDone = 0
+        status.progressTotal = 0
         syncing = false
         await refreshCounts()
     }
