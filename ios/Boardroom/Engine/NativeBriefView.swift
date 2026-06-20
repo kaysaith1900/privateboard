@@ -65,7 +65,7 @@ struct NativeBriefView: View {
                     BriefWebView(url: reportURL, title: roomTitle).ignoresSafeArea(edges: .bottom)
                 } else if let markdown {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
+                        LazyVStack(alignment: .leading, spacing: 8) {
                             ForEach(Array(lines(markdown).enumerated()), id: \.offset) { _, line in line }
                         }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
                     }

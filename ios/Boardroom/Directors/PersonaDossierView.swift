@@ -15,7 +15,7 @@ struct PersonaDossierView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                LazyVStack(alignment: .leading, spacing: 28) {
                     classifiedHeader
                     specSection
                     rulesSection

@@ -75,7 +75,7 @@ struct RoomSettingsView: View {
                         voteSection
 
                         BBGroup(Loc.t("m_menu_cast")) {
-                            VStack(spacing: 8) {
+                            LazyVStack(spacing: 8) {
                                 ForEach(app.agents) { a in
                                     Button { toggleCast(a.id) } label: { castRow(a) }
                                         .buttonStyle(.plain)

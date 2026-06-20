@@ -14,7 +14,7 @@ struct UsageView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: 18) {
                 if loading {
                     ProgressView().tint(.bbGold).frame(maxWidth: .infinity).padding(.top, 60)
                 } else if let u = usage, u.totalTokens > 0 || !u.byModel.isEmpty {

@@ -24,7 +24,7 @@ struct SupportedModelsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: 18) {
                 if loading {
                     ProgressView().tint(.bbGold).frame(maxWidth: .infinity).padding(.top, 60)
                 } else {
@@ -168,7 +168,7 @@ struct SupportedModelsView: View {
                 Text(String(rows.count)).font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.bbInkFaint)
             }
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { idx, m in
                     if idx > 0 { Divider().overlay(Color.bbLine) }
                     modelRow(m)
