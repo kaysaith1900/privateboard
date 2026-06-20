@@ -21,9 +21,17 @@ const root = dirname(__dirname);
 
 const SIZE = 1024;
 const PLATE_FILL = { r: 5, g: 5, b: 5 };      // flat near-black, like the reference
-const DISC = { cx: 512, cy: 500, r: 300 };    // frames the head
+// Optical-centering nudge · the mark (head crest ~158 → disc bottom ~800) had its
+// centroid ~33px above the 1024 canvas centre, so it read top-heavy. Shift the disc
+// AND the portrait down together by VSHIFT (relative head↔disc geometry is unchanged
+// since both move the same amount). 36 lands the figure a hair below geometric centre,
+// which optically balances the dark hair mass up top.
+const VSHIFT = 36;
+const PLATE_CY = 500;
+const PLATE_HEAD_TOP = 158;
+const DISC = { cx: 512, cy: PLATE_CY + VSHIFT, r: 300 };   // frames the head
 const PORTRAIT_H = 645;
-const HEAD_TOP = 158;                          // hair top; disc top = 200 → crest ~42px
+const HEAD_TOP = PLATE_HEAD_TOP + VSHIFT;      // hair top; disc top = cy − r → crest ~42px
 const NECK_FRAC = 0.74;                        // below this = shoulders (cut by the disc arc)
 
 const outPath = process.argv[2] || join(root, "public/icons/logo-preview.png");
