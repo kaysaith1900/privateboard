@@ -19,8 +19,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "0.1.1"
-    CURRENT_PROJECT_VERSION: "12"
+    MARKETING_VERSION: "0.1.2"
+    CURRENT_PROJECT_VERSION: "13"
     DEVELOPMENT_TEAM: "MC8P34EHRC"   # Apple Developer team (kaiwen shi) · device + App Store signing
 
 targets:
