@@ -9,10 +9,10 @@ final class MigrationsTests: XCTestCase {
             .appendingPathComponent("boardroom.sqlite").path
     }
 
-    func testRegistryHas61Migrations() {
-        XCTAssertEqual(SchemaMigrations.all.count, 61)
+    func testRegistryHas63Migrations() {
+        XCTAssertEqual(SchemaMigrations.all.count, 63)
         XCTAssertEqual(SchemaMigrations.all.first?.name, "001_init.sql")
-        XCTAssertEqual(SchemaMigrations.all.last?.name, "061_sync_capture_triggers_v2.sql")
+        XCTAssertEqual(SchemaMigrations.all.last?.name, "063_sync_capture_triggers_v3.sql")
     }
 
     func testAllMigrationsApplyToHead() throws {
@@ -22,8 +22,8 @@ final class MigrationsTests: XCTestCase {
             withIntermediateDirectories: true)
         let db = try BoardroomDB(path: path)
 
-        // All 61 recorded as applied.
-        XCTAssertEqual(try db.appliedMigrations().count, 61)
+        // All 63 recorded as applied.
+        XCTAssertEqual(try db.appliedMigrations().count, 63)
 
         try db.pool.read { conn in
             // Core tables exist.
@@ -60,9 +60,9 @@ final class MigrationsTests: XCTestCase {
             at: URL(fileURLToPath: path).deletingLastPathComponent(),
             withIntermediateDirectories: true)
         _ = try BoardroomDB(path: path)
-        // Second open re-runs the migrator → no-op, no throw, still 61 applied.
+        // Second open re-runs the migrator → no-op, no throw, still 63 applied.
         let db2 = try BoardroomDB(path: path)
-        XCTAssertEqual(try db2.appliedMigrations().count, 61)
+        XCTAssertEqual(try db2.appliedMigrations().count, 63)
     }
 
     func testRoundTripWrite() throws {

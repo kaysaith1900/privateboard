@@ -171,12 +171,28 @@ final class NativeEngineHost {
     /// All native rooms (newest first) as app `Room` models — for the rooms list.
     func listRooms() -> [Room] {
         let dicts: [[String: Any]] = (try? db.pool.read { conn in
-            try Row.fetchAll(conn, sql: """
+            // Director ids per room (chair excluded), in seat order · the room-list
+            // card resolves these against the roster to show director avatars. Synced
+            // rooms are never opened on this device, so without this their cards have
+            // no directorIds → `app.directors(for:)` returns [] → no avatars.
+            var directorsByRoom: [String: [String]] = [:]
+            let memberRows = try Row.fetchAll(conn, sql: """
+                SELECT m.room_id AS rid, m.agent_id AS aid
+                FROM room_members m JOIN agents a ON a.id = m.agent_id
+                WHERE m.removed_at IS NULL AND a.role_kind = 'director'
+                ORDER BY m.room_id, m.position
+                """)
+            for mr in memberRows {
+                guard let rid = mr["rid"] as String?, let aid = mr["aid"] as String? else { continue }
+                directorsByRoom[rid, default: []].append(aid)
+            }
+            return try Row.fetchAll(conn, sql: """
                 SELECT id, name, subject, mode, intensity, delivery_mode, status, created_at
                 FROM rooms ORDER BY created_at DESC
                 """).map { r -> [String: Any] in
-                [
-                    "id": r["id"] as String? ?? "",
+                let rid = r["id"] as String? ?? ""
+                return [
+                    "id": rid,
                     "name": r["name"] as String? as Any,
                     "subject": r["subject"] as String? as Any,
                     "mode": r["mode"] as String? as Any,
@@ -184,6 +200,7 @@ final class NativeEngineHost {
                     "deliveryMode": r["delivery_mode"] as String? as Any,
                     "status": r["status"] as String? ?? "live",
                     "createdAt": r["created_at"] as Int? as Any,
+                    "directorIds": directorsByRoom[rid] ?? [],
                 ]
             }
         }) ?? []
@@ -304,7 +321,7 @@ final class NativeEngineHost {
         try? AgentSeed.seed(into: db)
         let roomId = UUID().uuidString
         // Resolve seats BEFORE the write (the picker is an async LLM call).
-        let seats: [String]
+        var seats: [String]
         if !agentIds.isEmpty {
             seats = agentIds
         } else {
@@ -314,6 +331,15 @@ final class NativeEngineHost {
             } else {
                 let pick = await SpeakerPicker.pickDirectors(router: router, subject: subject, candidates: catalog)
                 seats = pick.picks.map(\.agentId)
+            }
+            // Fallback · the picker can return an empty cast when the LLM is
+            // unreachable (e.g. the carrier is down) — that used to create a room
+            // with NO directors (chair-only), which then can't be opened (it looks
+            // like an empty/new room and, once synced, shows no cast on other
+            // devices). Never ship an empty cast: fall back to the first 3 of the
+            // catalog (deterministic id order) so the room is always usable.
+            if seats.isEmpty {
+                seats = Array(catalog.sorted { $0.id < $1.id }.map(\.id).prefix(3))
             }
         }
         try await db.pool.write { conn in
@@ -328,8 +354,9 @@ final class NativeEngineHost {
                 """, arguments: [roomId, n, subject, subject, mode, intensity, deliveryMode,
                                  parentRoomId?.isEmpty == false ? parentRoomId : nil, now])
             for (pos, aid) in seats.enumerated() {
-                try conn.execute(sql: "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?,?,?,?)",
-                                 arguments: [roomId, aid, pos, now])
+                // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+                try conn.execute(sql: "INSERT INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?,?,?,?,?)",
+                                 arguments: [roomId, aid, pos, now, "\(roomId):\(aid)"])
             }
         }
         titleRoom(roomId, subject: subject)   // fire-and-forget AI title (in-room header)
@@ -492,6 +519,7 @@ final class NativeEngineHost {
         try? AgentSeed.seed(into: db)
         _ = await store.recoverStuckClarifyRooms()
         _ = await store.cleanupOrphanedStreams()
+        _ = await store.recoverRoomsMissingDirectors()   // re-seat director-less rooms (empty auto-pick / unsynced members)
 
         // Dream sweep (port of boot.ts) · per-agent adjourn counters reset on
         // restart, so an agent whose memory pile overflowed mid-cycle (process

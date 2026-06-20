@@ -19,10 +19,14 @@ export const ENTITIES: Registry = {
   user_long_memory: { entity: "user_long_memory", table: "user_long_memory", pk: "id", mode: "append" },
 
   // Sessions + transcripts. rooms.number is a UNIQUE per-device counter — never
-  // synced; a fresh insert gets a local MAX()+1. (room_members has a composite
-  // PK and is handled in a later migration — omitted here.)
+  // synced; a fresh insert gets a local MAX()+1.
   rooms:            { entity: "rooms",            table: "rooms",            pk: "id", mode: "lww",
                       insertDefaults: { number: "(SELECT COALESCE(MAX(number),0)+1 FROM rooms)" } },
+  // room_members has a composite real PK (room_id, agent_id); migration 062 adds a
+  // deterministic surrogate `id = room_id||':'||agent_id` so it syncs through the
+  // single-PK machinery (the captured cols carry room_id + agent_id, so an apply
+  // insert satisfies the composite PK). Without this, synced rooms had no directors.
+  room_members:     { entity: "room_members",     table: "room_members",     pk: "id", mode: "lww" },
   messages:         { entity: "messages",         table: "messages",         pk: "id", mode: "append" },
   key_points:       { entity: "key_points",       table: "key_points",       pk: "id", mode: "lww" },
   briefs:           { entity: "briefs",           table: "briefs",           pk: "id", mode: "append" },

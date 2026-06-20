@@ -1121,8 +1121,9 @@ final class LoopbackServer {
                 }
                 var pos = (try Int.fetchOne(conn, sql: "SELECT COALESCE(MAX(position),-1)+1 FROM room_members WHERE room_id = ?", arguments: [id])) ?? 0
                 for add in want where !cur.contains(add) {
-                    try conn.execute(sql: "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?,?,?,?)",
-                                     arguments: [id, add, pos, now])
+                    // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+                    try conn.execute(sql: "INSERT INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?,?,?,?,?)",
+                                     arguments: [id, add, pos, now, "\(id):\(add)"])
                     pos += 1
                 }
             }

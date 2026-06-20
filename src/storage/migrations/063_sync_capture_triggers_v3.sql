@@ -1,0 +1,186 @@
+-- iCloud sync · REBUILD capture triggers v3 (generated). Adds room_members so
+-- the room↔director links sync — without it, synced rooms show no directors.
+-- room_members uses the deterministic surrogate id from migration 062 (which MUST
+-- run first). DROP+CREATE all sync_cap_* triggers from the v3 column SPEC so devices
+-- on v1/v2 pick it up. Idempotent (DROP IF EXISTS + CREATE IF NOT EXISTS).
+
+DROP TRIGGER IF EXISTS sync_cap_rooms_ins;
+DROP TRIGGER IF EXISTS sync_cap_rooms_upd;
+DROP TRIGGER IF EXISTS sync_cap_rooms_del;
+DROP TRIGGER IF EXISTS sync_cap_agents_ins;
+DROP TRIGGER IF EXISTS sync_cap_agents_upd;
+DROP TRIGGER IF EXISTS sync_cap_agents_del;
+DROP TRIGGER IF EXISTS sync_cap_key_points_ins;
+DROP TRIGGER IF EXISTS sync_cap_key_points_upd;
+DROP TRIGGER IF EXISTS sync_cap_key_points_del;
+DROP TRIGGER IF EXISTS sync_cap_notes_ins;
+DROP TRIGGER IF EXISTS sync_cap_notes_upd;
+DROP TRIGGER IF EXISTS sync_cap_notes_del;
+DROP TRIGGER IF EXISTS sync_cap_messages_ins;
+DROP TRIGGER IF EXISTS sync_cap_messages_del;
+DROP TRIGGER IF EXISTS sync_cap_briefs_ins;
+DROP TRIGGER IF EXISTS sync_cap_briefs_del;
+DROP TRIGGER IF EXISTS sync_cap_user_long_memory_ins;
+DROP TRIGGER IF EXISTS sync_cap_user_long_memory_del;
+DROP TRIGGER IF EXISTS sync_cap_agent_memories_ins;
+DROP TRIGGER IF EXISTS sync_cap_agent_memories_del;
+DROP TRIGGER IF EXISTS sync_cap_room_members_ins;
+DROP TRIGGER IF EXISTS sync_cap_room_members_upd;
+DROP TRIGGER IF EXISTS sync_cap_room_members_del;
+
+-- rooms (lww)
+CREATE TRIGGER IF NOT EXISTS sync_cap_rooms_ins AFTER INSERT ON rooms
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'rooms', NEW.id, 'upsert', json_object('name', NEW.name, 'subject', NEW.subject, 'mode', NEW.mode, 'status', NEW.status, 'brief_style', NEW.brief_style, 'created_at', NEW.created_at, 'intensity', NEW.intensity, 'parent_room_id', NEW.parent_room_id, 'parent_brief_id', NEW.parent_brief_id, 'delivery_mode', NEW.delivery_mode, 'vote_trigger', NEW.vote_trigger, 'room_kind', NEW.room_kind, 'thread_director_id', NEW.thread_director_id), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_rooms_upd AFTER UPDATE ON rooms
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'rooms', NEW.id, 'upsert', json_object('name', NEW.name, 'subject', NEW.subject, 'mode', NEW.mode, 'status', NEW.status, 'brief_style', NEW.brief_style, 'created_at', NEW.created_at, 'intensity', NEW.intensity, 'parent_room_id', NEW.parent_room_id, 'parent_brief_id', NEW.parent_brief_id, 'delivery_mode', NEW.delivery_mode, 'vote_trigger', NEW.vote_trigger, 'room_kind', NEW.room_kind, 'thread_director_id', NEW.thread_director_id), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_rooms_del AFTER DELETE ON rooms
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'rooms', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- agents (lww)
+CREATE TRIGGER IF NOT EXISTS sync_cap_agents_ins AFTER INSERT ON agents
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'agents', NEW.id, 'upsert', json_object('name', NEW.name, 'handle', NEW.handle, 'role_tag', NEW.role_tag, 'bio', NEW.bio, 'cover_quote', NEW.cover_quote, 'instruction', NEW.instruction, 'model_v', NEW.model_v, 'avatar_path', NEW.avatar_path, 'created_at', NEW.created_at, 'updated_at', NEW.updated_at, 'role_kind', NEW.role_kind, 'ability_json', NEW.ability_json, 'web_search_enabled', NEW.web_search_enabled, 'carrier_pref', NEW.carrier_pref, 'voice_json', NEW.voice_json, 'persona_spec_json', NEW.persona_spec_json, 'model_by_provider_json', NEW.model_by_provider_json, 'voice_by_provider_json', NEW.voice_by_provider_json, 'user_rules_json', NEW.user_rules_json, 'avatar3d_json', NEW.avatar3d_json), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_agents_upd AFTER UPDATE ON agents
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'agents', NEW.id, 'upsert', json_object('name', NEW.name, 'handle', NEW.handle, 'role_tag', NEW.role_tag, 'bio', NEW.bio, 'cover_quote', NEW.cover_quote, 'instruction', NEW.instruction, 'model_v', NEW.model_v, 'avatar_path', NEW.avatar_path, 'created_at', NEW.created_at, 'updated_at', NEW.updated_at, 'role_kind', NEW.role_kind, 'ability_json', NEW.ability_json, 'web_search_enabled', NEW.web_search_enabled, 'carrier_pref', NEW.carrier_pref, 'voice_json', NEW.voice_json, 'persona_spec_json', NEW.persona_spec_json, 'model_by_provider_json', NEW.model_by_provider_json, 'voice_by_provider_json', NEW.voice_by_provider_json, 'user_rules_json', NEW.user_rules_json, 'avatar3d_json', NEW.avatar3d_json), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_agents_del AFTER DELETE ON agents
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'agents', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- key_points (lww)
+CREATE TRIGGER IF NOT EXISTS sync_cap_key_points_ins AFTER INSERT ON key_points
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'key_points', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'message_id', NEW.message_id, 'round_num', NEW.round_num, 'body', NEW.body, 'vote', NEW.vote, 'position', NEW.position, 'created_at', NEW.created_at, 'voted_at', NEW.voted_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_key_points_upd AFTER UPDATE ON key_points
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'key_points', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'message_id', NEW.message_id, 'round_num', NEW.round_num, 'body', NEW.body, 'vote', NEW.vote, 'position', NEW.position, 'created_at', NEW.created_at, 'voted_at', NEW.voted_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_key_points_del AFTER DELETE ON key_points
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'key_points', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- notes (lww)
+CREATE TRIGGER IF NOT EXISTS sync_cap_notes_ins AFTER INSERT ON notes
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'notes', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'message_id', NEW.message_id, 'author_kind', NEW.author_kind, 'author_id', NEW.author_id, 'author_name', NEW.author_name, 'quote_text', NEW.quote_text, 'context_before', NEW.context_before, 'context_after', NEW.context_after, 'char_offset_start', NEW.char_offset_start, 'char_offset_end', NEW.char_offset_end, 'user_note', NEW.user_note, 'tags_json', NEW.tags_json, 'status', NEW.status, 'created_at', NEW.created_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_notes_upd AFTER UPDATE ON notes
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'notes', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'message_id', NEW.message_id, 'author_kind', NEW.author_kind, 'author_id', NEW.author_id, 'author_name', NEW.author_name, 'quote_text', NEW.quote_text, 'context_before', NEW.context_before, 'context_after', NEW.context_after, 'char_offset_start', NEW.char_offset_start, 'char_offset_end', NEW.char_offset_end, 'user_note', NEW.user_note, 'tags_json', NEW.tags_json, 'status', NEW.status, 'created_at', NEW.created_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_notes_del AFTER DELETE ON notes
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'notes', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- messages (append)
+CREATE TRIGGER IF NOT EXISTS sync_cap_messages_ins AFTER INSERT ON messages
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'messages', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'author_kind', NEW.author_kind, 'author_id', NEW.author_id, 'reply_to_id', NEW.reply_to_id, 'body', NEW.body, 'meta_json', NEW.meta_json, 'round_num', NEW.round_num, 'created_at', NEW.created_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_messages_del AFTER DELETE ON messages
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'messages', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- briefs (append)
+CREATE TRIGGER IF NOT EXISTS sync_cap_briefs_ins AFTER INSERT ON briefs
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'briefs', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'style', NEW.style, 'title', NEW.title, 'body_md', NEW.body_md, 'body_json', NEW.body_json, 'supplement', NEW.supplement, 'spine', NEW.spine, 'components_json', NEW.components_json, 'composer_rationale', NEW.composer_rationale, 'subject_type', NEW.subject_type, 'house_style', NEW.house_style, 'assets_json', NEW.assets_json, 'created_at', NEW.created_at, 'mode', NEW.mode, 'viewer_variant', NEW.viewer_variant), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_briefs_del AFTER DELETE ON briefs
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'briefs', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- user_long_memory (append)
+CREATE TRIGGER IF NOT EXISTS sync_cap_user_long_memory_ins AFTER INSERT ON user_long_memory
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'user_long_memory', NEW.id, 'upsert', json_object('label', NEW.label, 'claim', NEW.claim, 'confidence', NEW.confidence, 'provenance_rooms', NEW.provenance_rooms, 'last_reinforced_at', NEW.last_reinforced_at, 'superseded_by', NEW.superseded_by, 'created_at', NEW.created_at, 'updated_at', NEW.updated_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_user_long_memory_del AFTER DELETE ON user_long_memory
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'user_long_memory', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- agent_memories (append)
+CREATE TRIGGER IF NOT EXISTS sync_cap_agent_memories_ins AFTER INSERT ON agent_memories
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'agent_memories', NEW.id, 'upsert', json_object('agent_id', NEW.agent_id, 'content', NEW.content, 'kind', NEW.kind, 'source', NEW.source, 'source_room', NEW.source_room, 'confidence', NEW.confidence, 'pinned', NEW.pinned, 'created_at', NEW.created_at, 'updated_at', NEW.updated_at, 'tier', NEW.tier, 'usage_count', NEW.usage_count, 'last_used_at', NEW.last_used_at, 'superseded_by', NEW.superseded_by, 'consolidated_from', NEW.consolidated_from, 'provenance_rooms', NEW.provenance_rooms), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_agent_memories_del AFTER DELETE ON agent_memories
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'agent_memories', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+
+-- room_members (lww)
+CREATE TRIGGER IF NOT EXISTS sync_cap_room_members_ins AFTER INSERT ON room_members
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'room_members', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'agent_id', NEW.agent_id, 'position', NEW.position, 'joined_at', NEW.joined_at, 'removed_at', NEW.removed_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_room_members_upd AFTER UPDATE ON room_members
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'room_members', NEW.id, 'upsert', json_object('room_id', NEW.room_id, 'agent_id', NEW.agent_id, 'position', NEW.position, 'joined_at', NEW.joined_at, 'removed_at', NEW.removed_at), '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER IF NOT EXISTS sync_cap_room_members_del AFTER DELETE ON room_members
+WHEN (SELECT value FROM sync_state WHERE key='enabled')='1' AND COALESCE((SELECT value FROM sync_state WHERE key='cap_off'),'0') <> '1'
+BEGIN
+  INSERT INTO sync_outbox (op_id, entity, pk, op, cols_json, hlc, created_at)
+  VALUES (lower(hex(randomblob(16))), 'room_members', OLD.id, 'delete', NULL, '', CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+

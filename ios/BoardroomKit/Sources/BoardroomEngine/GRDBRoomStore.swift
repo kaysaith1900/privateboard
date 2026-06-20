@@ -299,6 +299,49 @@ public struct GRDBRoomStore: RoomStore, BriefStore {
         }) ?? 0
     }
 
+    /// Re-seat directors into MAIN rooms that have none in `room_members` — auto-pick
+    /// rooms whose picker returned empty (LLM down at create), or synced rooms whose
+    /// member rows lagged/never arrived. Such a room is unopenable (looks empty / like
+    /// a new room). Cast is chosen DETERMINISTICALLY so two devices converge (the
+    /// surrogate id = room_id:agent_id dedupes via sync): the directors who actually
+    /// spoke (from the transcript), else the first 3 directors by id. Returns the
+    /// number of rooms re-seated. Mirrors desktop `recoverRoomsMissingDirectors`.
+    @discardableResult
+    public func recoverRoomsMissingDirectors() async -> Int {
+        (try? await db.pool.write { conn in
+            let roomIds = try String.fetchAll(conn, sql: """
+                SELECT id FROM rooms r
+                WHERE r.room_kind = 'main'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM room_members m JOIN agents a ON a.id = m.agent_id
+                     WHERE m.room_id = r.id AND m.removed_at IS NULL AND a.role_kind = 'director')
+                """)
+            guard !roomIds.isEmpty else { return 0 }
+            let defaultCast = try String.fetchAll(conn, sql:
+                "SELECT id FROM agents WHERE role_kind = 'director' ORDER BY id LIMIT 3")
+            let now = Int(Date().timeIntervalSince1970 * 1000)
+            var fixed = 0
+            for rid in roomIds {
+                var dirIds = try String.fetchAll(conn, sql: """
+                    SELECT DISTINCT m.author_id AS aid FROM messages m
+                    JOIN agents a ON a.id = m.author_id
+                    WHERE m.room_id = ? AND m.author_kind = 'agent' AND a.role_kind = 'director'
+                    ORDER BY a.id
+                    """, arguments: [rid])
+                if dirIds.isEmpty { dirIds = defaultCast }
+                if dirIds.isEmpty { continue }   // no directors exist at all
+                for (idx, aid) in dirIds.enumerated() {
+                    // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+                    try conn.execute(sql:
+                        "INSERT OR IGNORE INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?,?,?,?,?)",
+                        arguments: [rid, aid, idx, now, "\(rid):\(aid)"])
+                }
+                fixed += 1
+            }
+            return fixed
+        }) ?? 0
+    }
+
     /// Finalize messages stranded `streaming:true` by a crash/kill: delete empty
     /// placeholders, flip the rest to `streaming:false`. The runtime source of
     /// truth is `finalizeMessage`; this is the boot-time safety net. Returns the

@@ -21,7 +21,7 @@ import { syncManager } from "./sync/desktop.js";
 export { closeDb };
 import { cleanupOrphanedStreams } from "./storage/messages.js";
 import { reconcileAgentModels } from "./storage/reconcile-models.js";
-import { recoverStuckClarifyRooms } from "./storage/rooms.js";
+import { recoverStuckClarifyRooms, recoverRoomsMissingDirectors } from "./storage/rooms.js";
 import { markRunningJobsFailed } from "./storage/persona-jobs.js";
 import { recoverStuckCloneJobs } from "./storage/clone-jobs.js";
 import { listAllAgents } from "./storage/agents.js";
@@ -86,6 +86,15 @@ export async function bootApp(opts: BootOptions = {}): Promise<BootResult> {
     }
   } catch (e) {
     process.stderr.write(`[boot] clarify recovery failed: ${errMsg(e)}\n`);
+  }
+
+  try {
+    const reseated = recoverRoomsMissingDirectors();
+    if (reseated > 0) {
+      process.stderr.write(`[boot] re-seated directors in ${reseated} director-less room(s)\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`[boot] director recovery failed: ${errMsg(e)}\n`);
   }
 
   try {

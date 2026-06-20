@@ -71,6 +71,8 @@ import prefsAvatar3d058 from "./migrations/058_prefs_avatar3d.sql";
 import syncOplog059 from "./migrations/059_sync_oplog.sql";
 import syncCapture060 from "./migrations/060_sync_capture_triggers.sql";
 import syncCapture061 from "./migrations/061_sync_capture_triggers_v2.sql";
+import roomMembersSyncId062 from "./migrations/062_room_members_sync_id.sql";
+import syncCapture063 from "./migrations/063_sync_capture_triggers_v3.sql";
 
 interface Migration {
   name: string;
@@ -139,6 +141,8 @@ const MIGRATIONS: Migration[] = [
   { name: "059_sync_oplog.sql", sql: syncOplog059 },
   { name: "060_sync_capture_triggers.sql", sql: syncCapture060 },
   { name: "061_sync_capture_triggers_v2.sql", sql: syncCapture061 },
+  { name: "062_room_members_sync_id.sql", sql: roomMembersSyncId062 },
+  { name: "063_sync_capture_triggers_v3.sql", sql: syncCapture063 },
 ];
 
 let _db: Database.Database | null = null;

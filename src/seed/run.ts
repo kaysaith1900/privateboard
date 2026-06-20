@@ -118,11 +118,12 @@ export function runSeed(): SeedReport {
     )
     .all(CHAIR_ID) as Array<{ room_id: string }>;
   const insert = db.prepare(
-    "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
+    // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+    "INSERT INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?, ?, ?, ?, ?)",
   );
   const now = Date.now();
   for (const row of missing) {
-    insert.run(row.room_id, CHAIR_ID, -1, now);
+    insert.run(row.room_id, CHAIR_ID, -1, now, `${row.room_id}:${CHAIR_ID}`);
   }
 
   return { insertedAgents: inserted, chairBackfilledRooms: missing.length };

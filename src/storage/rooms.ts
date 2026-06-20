@@ -319,14 +319,15 @@ export function createThread(parentRoomId: string, directorId: string): { room: 
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'live', ?, ?, NULL, 1, 'thread', ?)`,
   );
   const insertMember = db.prepare(
-    "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
+    // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+    "INSERT INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?, ?, ?, ?, ?)",
   );
 
   const tx = db.transaction(() => {
     insertRoom.run(id, number, name, subject, mode, intensity, deliveryMode, voteTrigger, now, parentRoomId, directorId);
     // Single member · the director. No chair in threads (they're not
     // moderated; the user-director pair drives the conversation).
-    insertMember.run(id, directorId, 0, now);
+    insertMember.run(id, directorId, 0, now, `${id}:${directorId}`);
   });
   tx();
 
@@ -419,7 +420,8 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
     "INSERT INTO rooms (id, number, name, subject, mode, intensity, delivery_mode, brief_style, status, created_at, parent_room_id, parent_brief_id, name_auto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?)",
   );
   const insertMember = db.prepare(
-    "INSERT INTO room_members (room_id, agent_id, position, joined_at) VALUES (?, ?, ?, ?)",
+    // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+    "INSERT INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?, ?, ?, ?, ?)",
   );
 
   // Chair attaches to every room at position -1 (above all directors)
@@ -435,11 +437,11 @@ export function createRoom(input: RoomCreate): { room: Room; members: RoomMember
 
   const tx = db.transaction(() => {
     insertRoom.run(id, number, input.name, input.subject, mode, intensity, deliveryMode, briefStyle, now, parentRoomId, parentBriefId, nameAuto);
-    if (chair) insertMember.run(id, chair.id, -1, now);
+    if (chair) insertMember.run(id, chair.id, -1, now, `${id}:${chair.id}`);
     input.agentIds.forEach((agentId, idx) => {
       // Don't double-insert if a caller passed the chair id explicitly.
       if (chair && agentId === chair.id) return;
-      insertMember.run(id, agentId, idx, now);
+      insertMember.run(id, agentId, idx, now, `${id}:${agentId}`);
     });
   });
   tx();
@@ -557,8 +559,9 @@ export function addRoomMember(roomId: string, agentId: string): RoomMember | nul
   const position = maxRow.p + 1;
   const now = Date.now();
   db.prepare(
-    "INSERT INTO room_members (room_id, agent_id, position, joined_at, removed_at) VALUES (?, ?, ?, ?, NULL)",
-  ).run(roomId, agentId, position, now);
+    // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+    "INSERT INTO room_members (room_id, agent_id, position, joined_at, removed_at, id) VALUES (?, ?, ?, ?, NULL, ?)",
+  ).run(roomId, agentId, position, now, `${roomId}:${agentId}`);
   return { agentId, position, joinedAt: now, removedAt: null };
 }
 
@@ -670,4 +673,65 @@ export function recoverStuckClarifyRooms(): number {
     )
     .run();
   return r.changes;
+}
+
+/**
+ * Boot-time recovery for MAIN rooms that have NO active directors in
+ * `room_members`. This happens to:
+ *   · auto-pick rooms whose director-pick returned empty (LLM down at
+ *     create time) — created chair-only and unopenable (looks like a
+ *     new/empty room), and
+ *   · synced rooms whose `room_members` director rows lagged or never
+ *     arrived from a peer (messages sync, members historically didn't).
+ *
+ * Re-seats directors so the room is usable again, choosing a cast
+ * DETERMINISTICALLY so two devices running this independently converge
+ * on the same membership (the surrogate id = room_id:agent_id then
+ * dedupes via the sync upsert):
+ *   1. Reconstruct from the transcript — the distinct directors who
+ *      actually spoke (ordered by agent id). Recovers the original cast.
+ *   2. Else fall back to the first 3 directors by id (the room never
+ *      convened, so there's nothing to reconstruct).
+ *
+ * Threads are skipped (a thread's single director is `thread_director_id`,
+ * handled separately). Returns the count of rooms re-seated.
+ */
+export function recoverRoomsMissingDirectors(): number {
+  const db = getDb();
+  const rooms = db
+    .prepare(
+      `SELECT id FROM rooms r
+       WHERE r.room_kind = 'main'
+         AND NOT EXISTS (
+           SELECT 1 FROM room_members m JOIN agents a ON a.id = m.agent_id
+            WHERE m.room_id = r.id AND m.removed_at IS NULL AND a.role_kind = 'director'
+         )`,
+    )
+    .all() as Array<{ id: string }>;
+  if (rooms.length === 0) return 0;
+
+  const fromTranscript = db.prepare(
+    `SELECT DISTINCT m.author_id AS aid FROM messages m
+       JOIN agents a ON a.id = m.author_id
+      WHERE m.room_id = ? AND m.author_kind = 'agent' AND a.role_kind = 'director'
+      ORDER BY a.id`,
+  );
+  const defaultCast = db
+    .prepare(`SELECT id FROM agents WHERE role_kind = 'director' ORDER BY id LIMIT 3`)
+    .all() as Array<{ id: string }>;
+  // id = room_id:agent_id · deterministic sync surrogate (migration 062).
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO room_members (room_id, agent_id, position, joined_at, id) VALUES (?, ?, ?, ?, ?)",
+  );
+
+  const now = Date.now();
+  let fixed = 0;
+  for (const { id } of rooms) {
+    let dirIds = (fromTranscript.all(id) as Array<{ aid: string }>).map((r) => r.aid);
+    if (dirIds.length === 0) dirIds = defaultCast.map((r) => r.id);
+    if (dirIds.length === 0) continue; // no directors exist at all — nothing to seat
+    dirIds.forEach((aid, idx) => insert.run(id, aid, idx, now, `${id}:${aid}`));
+    fixed++;
+  }
+  return fixed;
 }
