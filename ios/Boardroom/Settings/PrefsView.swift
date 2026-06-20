@@ -83,6 +83,7 @@ struct PrefsView: View {
 struct SyncSettingsView: View {
     private let coord = SyncCoordinator.shared
     @State private var working = false
+    @State private var showDisableDialog = false
 
     var body: some View {
         let st = coord.status
@@ -90,14 +91,31 @@ struct SyncSettingsView: View {
             Section {
                 Toggle(isOn: Binding(
                     get: { st.enabled },
-                    set: { on in working = true; Task { await coord.setEnabled(on); working = false } }
+                    set: { on in
+                        if on {
+                            working = true; Task { await coord.setEnabled(true); working = false }
+                        } else {
+                            showDisableDialog = true   // confirm before turning off
+                        }
+                    }
                 )) {
                     Text("iCloud Sync").foregroundStyle(Color.bbInk)
                 }
                 .tint(.bbGold)
                 .disabled(working)
+                .confirmationDialog("Turn off iCloud Sync?", isPresented: $showDisableDialog, titleVisibility: .visible) {
+                    Button("Turn off & remove from iCloud", role: .destructive) {
+                        working = true; Task { await coord.removeCloudData(); working = false }
+                    }
+                    Button("Turn off (keep iCloud data)") {
+                        working = true; Task { await coord.setEnabled(false); working = false }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Stop syncing on this device. You can also remove this device's synced data from your iCloud — your other devices keep their copies.")
+                }
             } footer: {
-                Text("Sync your directors, memories & rooms across your Apple devices through your own iCloud. Content stays in your iCloud account — there is no server, and we never see it.")
+                Text("Sync your directors, memories & rooms across your Apple devices through your own iCloud. Turning it on uploads your existing content to your iCloud. There is no server, and we never see it.")
             }
             .listRowBackground(Color.bbCard)
 

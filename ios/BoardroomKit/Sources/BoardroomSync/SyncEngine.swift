@@ -118,6 +118,17 @@ public actor SyncEngine {
         return (pushed, applied)
     }
 
+    /// Kill-switch · remove THIS device's segment from the shared folder and clear
+    /// local genesis markers + cursors, so a later re-enable re-publishes a fresh
+    /// full export and re-pulls from scratch. Other devices + shared blobs untouched.
+    public func forgetCloud() async throws {
+        try await transport.removeDevice(device)
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM sync_state WHERE key LIKE 'genesis:%' OR key LIKE 'cursor:%'")
+            try db.execute(sql: "DELETE FROM synced_ops") // reset the "synced" tally
+        }
+    }
+
     static func loadCursors(_ db: Database) throws -> [String: Int] {
         let rows = try Row.fetchAll(db, sql: "SELECT key, value FROM sync_state WHERE key LIKE ?",
                                     arguments: ["\(cursorPrefix)%"])

@@ -20,11 +20,14 @@ public protocol SyncTransport: Sendable {
     /// oplog; getBlob returns nil when the blob hasn't synced yet.
     func putBlob(_ hash: String, _ data: Data) async throws
     func getBlob(_ hash: String) async throws -> Data?
+    /// Kill-switch · delete a device's whole segment from the shared folder.
+    func removeDevice(_ device: String) async throws
 }
 
 public extension SyncTransport {
     func putBlob(_ hash: String, _ data: Data) async throws {}      // default: no blob store
     func getBlob(_ hash: String) async throws -> Data? { nil }
+    func removeDevice(_ device: String) async throws {}            // default: no-op
 }
 
 /// In-memory stand-in for the shared iCloud folder. Multiple engines sharing
@@ -36,6 +39,7 @@ public actor InMemoryTransport: SyncTransport {
 
     public func putBlob(_ hash: String, _ data: Data) async throws { blobs[hash] = data }
     public func getBlob(_ hash: String) async throws -> Data? { blobs[hash] }
+    public func removeDevice(_ device: String) async throws { segments[device] = nil }
 
     public func push(device: String, ops: [SyncOp]) async throws {
         segments[device, default: []].append(contentsOf: ops)

@@ -126,6 +126,27 @@ final class SyncCoordinator {
     /// when the settings screen appears).
     func refresh() async { _ = ensurePool(); await refreshCounts() }
 
+    /// Kill-switch · turn sync OFF and remove THIS device's data from iCloud. Tears
+    /// down WITHOUT a final push (forgetCloud deletes the segment — a push would
+    /// re-create it), deletes the cloud segment + clears local sync state.
+    func removeCloudData() async {
+        observer?.stop(); observer = nil
+        let e = engine
+        engine = nil
+        if let e { try? await e.forgetCloud() }
+        if let pool = ensurePool() {
+            try? await pool.write { db in
+                try SyncState.set(db, "user_enabled", "0")
+                try SyncState.set(db, "enabled", "0") // stop the capture triggers
+            }
+        }
+        status.enabled = false
+        status.running = false
+        status.state = "off"
+        status.error = nil
+        await refreshCounts()
+    }
+
     /// scenePhase → background: flush + pull before the app suspends.
     func onBackground() async { if engine != nil { await syncNow() } }
     /// scenePhase → active: pull whatever peers changed while away.

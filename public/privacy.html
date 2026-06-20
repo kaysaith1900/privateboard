@@ -199,7 +199,7 @@
   <main>
     <p class="kicker">// Legal</p>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: June 12, 2026</p>
+    <p class="updated">Last updated: June 20, 2026</p>
 
     <p class="lede">
       PrivateBoard is a local-first application. Your boardroom sessions live on
@@ -223,6 +223,7 @@
       <li>We <strong>do not collect, transmit, sell, or share</strong> your personal data.</li>
       <li>There is <strong>no analytics SDK, no tracking, no advertising, and no crash-reporting service</strong> of any kind.</li>
       <li>The app talks <strong>directly from your device</strong> to the AI, voice, and search providers <strong>you configure with your own API keys</strong>. Those providers process that content under their own privacy policies.</li>
+      <li>Optional <strong>iCloud sync</strong> (off by default) keeps your content in step across <strong>your own Apple devices</strong> via <strong>your own iCloud account</strong> — still no server of ours, and we never see it. See Section&nbsp;3.</li>
     </ul>
 
     <h2><span class="num">03</span>Data stored on your device</h2>
@@ -239,11 +240,37 @@
       <li>The API keys you enter for third-party providers.</li>
     </ul>
     <p class="soft">
-      This data never leaves your device except as described in Section&nbsp;4.
-      It is not backed up to any server we control. (It may be included in your
+      This data never leaves your device except as described in Section&nbsp;4,
+      or — if you turn it on — the optional iCloud sync described just below. It
+      is not backed up to any server we control. (It may also be included in your
       own device/iCloud backups, which are governed by Apple&rsquo;s policies and
       your settings.)
     </p>
+
+    <h3>Optional iCloud sync (off by default)</h3>
+    <p>
+      You can optionally turn on <strong>iCloud sync</strong> (in Settings &rarr;
+      iCloud&nbsp;Sync) to keep your directors, chair/agent memories, rooms, and
+      transcripts in step across <strong>your own Apple devices</strong>. It is
+      <strong>off by default</strong> and entirely optional. When you enable it:
+    </p>
+    <ul>
+      <li>Your content is written to <strong>your own iCloud account</strong>
+        (Apple), in the app&rsquo;s private iCloud container, and synced by Apple
+        between your devices. That storage is governed by
+        <a href="https://www.apple.com/legal/privacy/" target="_blank" rel="noopener">Apple&rsquo;s privacy policy</a>
+        and your iCloud settings.</li>
+      <li>We still operate <strong>no server</strong>, and we
+        <strong>never receive, store, or can read</strong> this content — it
+        travels device&nbsp;&rarr;&nbsp;your&nbsp;iCloud&nbsp;&rarr;&nbsp;your
+        other devices, never through us.</li>
+      <li>Your <strong>API keys are never placed in the synced content</strong>.
+        (If key sync is offered, it uses Apple&rsquo;s <strong>iCloud
+        Keychain</strong>, between your own Apple devices only.)</li>
+      <li>It is fully reversible: turning it off stops syncing, and you can also
+        <strong>remove this device&rsquo;s synced data from iCloud</strong> from
+        the same screen.</li>
+    </ul>
 
     <h2><span class="num">04</span>Third-party providers you connect</h2>
     <p>

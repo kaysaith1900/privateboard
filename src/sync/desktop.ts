@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 
 import { SyncEngine } from "./engine.js";
-import { getState, setState } from "./state.js";
+import { getState, setState, deviceId } from "./state.js";
 import { flushStaged, setCaptureSuppressed } from "./capture.js";
 import { makeICloudTransport, resolveSyncRoot } from "./icloud-desktop.js";
 
@@ -90,6 +90,28 @@ class SyncManager {
     this.status.enabled = on;
     if (on) await this.start();
     else await this.stop();
+    return this.getStatus();
+  }
+
+  /** Kill-switch · turn sync OFF and remove THIS device's data from iCloud. Stops
+   *  first (so the final flush can't re-create the folder), then deletes the
+   *  device segment from the container and clears the local genesis/cursor state +
+   *  capture flag. Other devices' data + shared blobs are left intact. */
+  async removeCloudData(): Promise<SyncStatus> {
+    if (!this.db) throw new Error("[sync] manager not initialized");
+    await this.stop();
+    setState(this.db, USER_ENABLED, "0");
+    setState(this.db, "enabled", "0"); // stop the capture triggers
+    this.status.enabled = false;
+    const dev = deviceId(this.db);
+    const made = await makeICloudTransport();
+    if (made?.transport.removeDevice) {
+      try { await made.transport.removeDevice(dev); } catch { /* best-effort */ }
+    }
+    this.db
+      .prepare("DELETE FROM sync_state WHERE key LIKE 'genesis:%' OR key LIKE 'cursor:%'")
+      .run();
+    this.db.prepare("DELETE FROM synced_ops").run(); // reset the "synced" tally
     return this.getStatus();
   }
 

@@ -3,6 +3,7 @@
  *   GET  /api/sync/status → live status (enabled / available / state / progress)
  *   PUT  /api/sync        → { enabled } · turn Apple-account sync on/off (persisted)
  *   POST /api/sync/now    → force a convergence beat now
+ *   POST /api/sync/wipe   → turn off + remove this device's data from iCloud
  * The heavy lifting lives in the SyncManager singleton; these are thin wrappers.
  */
 import { Hono } from "hono";
@@ -30,6 +31,14 @@ export function syncRouter(): Hono {
   });
 
   r.post("/now", async (c) => c.json(await syncManager.syncNow()));
+
+  r.post("/wipe", async (c) => {
+    try {
+      return c.json(await syncManager.removeCloudData());
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  });
 
   return r;
 }

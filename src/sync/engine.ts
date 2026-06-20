@@ -75,6 +75,18 @@ export class SyncEngine {
     return applied;
   }
 
+  /** Kill-switch · remove THIS device's segment from the shared folder and clear
+   *  the local sync bookkeeping (genesis markers + peer cursors) so that, if the
+   *  user later re-enables, the device re-publishes a fresh full export and
+   *  re-pulls from scratch. Other devices' data + shared blobs are untouched. */
+  async forgetCloud(): Promise<void> {
+    if (this.transport.removeDevice) await this.transport.removeDevice(this.device);
+    this.db
+      .prepare("DELETE FROM sync_state WHERE key LIKE ? OR key LIKE ?")
+      .run(`${GENESIS_PREFIX}%`, `${CURSOR_PREFIX}%`);
+    this.db.prepare("DELETE FROM synced_ops").run(); // reset the "synced" tally
+  }
+
   /** One quiescent convergence beat. */
   async sync(): Promise<{ pushed: number; applied: number }> {
     const pushed = await this.push();

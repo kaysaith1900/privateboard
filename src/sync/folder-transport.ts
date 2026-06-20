@@ -69,6 +69,11 @@ export class FolderTransport implements SyncTransport {
     await fs.appendFile(this.opsFile(device), blob, "utf8"); // append-only · one writer per file
   }
 
+  /** Kill-switch · delete a device's whole segment from the shared folder. */
+  async removeDevice(device: string): Promise<void> {
+    await fs.rm(this.deviceDir(device), { recursive: true, force: true });
+  }
+
   /** Diagnostic · device subdirs currently visible under `devices/` (one per
    *  device that has published a segment). Used by the desktop status to show
    *  whether the phone's folder has actually arrived. */

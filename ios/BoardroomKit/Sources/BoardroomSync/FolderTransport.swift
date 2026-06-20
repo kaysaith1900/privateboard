@@ -43,6 +43,13 @@ public actor FolderTransport: SyncTransport {
         try coordinatedWrite(file) { try data.write(to: file) }
     }
 
+    /// Kill-switch · delete a device's whole segment from the shared folder.
+    public func removeDevice(_ device: String) async throws {
+        try coordinatedWrite(deviceDir(device)) {
+            try? FileManager.default.removeItem(at: deviceDir(device))
+        }
+    }
+
     public func getBlob(_ hash: String) async throws -> Data? {
         let file = blobFile(hash)
         await awaitDownload(file) // a dataless iCloud stub reads back nil if we don't wait

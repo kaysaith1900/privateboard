@@ -26,6 +26,11 @@ export interface SyncTransport {
    *  subdir per device under `devices/`). Lets status show whether a peer (the
    *  phone) has actually published its segment yet. */
   listPeers?(): Promise<string[]>;
+  /** Kill-switch · delete a device's whole segment (`devices/<device>/`) from the
+   *  shared folder. Used to remove THIS device's synced data from iCloud when the
+   *  user turns sync off and opts to wipe. Shared blobs are content-addressed and
+   *  left as-is (other ops may reference them). */
+  removeDevice?(device: string): Promise<void>;
 }
 
 /** In-memory stand-in for the shared iCloud folder. Multiple engines sharing
@@ -45,6 +50,9 @@ export class InMemoryTransport implements SyncTransport {
 
   async putBlob(hash: string, data: Buffer): Promise<void> {
     this.blobs.set(hash, Buffer.from(data));
+  }
+  async removeDevice(device: string): Promise<void> {
+    this.segments.delete(device);
   }
   async getBlob(hash: string): Promise<Buffer | null> {
     return this.blobs.get(hash) ?? null;

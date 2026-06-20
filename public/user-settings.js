@@ -404,7 +404,7 @@
                 <span class="us-switch-track" aria-hidden="true"><span class="us-switch-thumb"></span></span>
                 <span class="us-switch-label" data-us-sync-label>off</span>
               </button>
-              <span class="us-toggle-deck">Sync your directors, memories &amp; rooms across your Apple devices through your own iCloud. Content stays in your iCloud account — there is no server, and we never see it.</span>
+              <span class="us-toggle-deck">Sync your directors, memories &amp; rooms across your Apple devices through your own iCloud. Turning it on uploads your existing content to your iCloud. There is no server, and we never see it.</span>
             </div>
             <div class="us-sync-status" data-us-sync-status hidden></div>
           </div>
@@ -565,11 +565,18 @@
       const turningOn = !btn.classList.contains("on");
       btn.disabled = true;
       try {
-        const r = await fetch("/api/sync", {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: turningOn }),
-        });
+        // Turning OFF · offer to also remove this device's data from iCloud.
+        const wipe = !turningOn && window.confirm(
+          "Turn off iCloud sync.\n\nAlso remove THIS device's synced data from iCloud?\n\n" +
+          "OK — turn off and remove from iCloud.\n" +
+          "Cancel — turn off but keep the data in iCloud.");
+        const r = wipe
+          ? await fetch("/api/sync/wipe", { method: "POST" })
+          : await fetch("/api/sync", {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ enabled: turningOn }),
+            });
         if (r.ok) paintSyncStatus(await r.json());
       } catch { /* */ } finally { btn.disabled = false; }
     });
