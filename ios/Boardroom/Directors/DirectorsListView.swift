@@ -75,7 +75,7 @@ struct DirectorsPanel: View {
                     allDirectorsHeader(rule: true)
                         .padding(.top, 22).padding(.bottom, 11)
                 }
-                VStack(spacing: 12) {
+                LazyVStack(spacing: 12) {
                     ForEach(sortedRoster) { agent in
                         Button { path.append(agent) } label: { DirCard(agent: agent) }
                             .buttonStyle(.plain)
@@ -203,7 +203,7 @@ struct AvatarRing: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())                               // lower body truncated by the circle
-        .task(id: path) { img = AvatarView.loadLocal(path) }
+        .task(id: path) { img = await AvatarView.loadLocalCached(path) }
     }
 }
 

@@ -49,7 +49,7 @@ struct AvatarView: View {
         // screen) keeps the SAME border-to-diameter ratio as the list thumbnails
         // (1pt at the 44pt default), instead of a hairline that reads too thin.
         .overlay(Circle().strokeBorder(Color.bbLine, lineWidth: max(1, size / 44)))
-        .task(id: path) { localImage = Self.loadLocal(path) }
+        .task(id: path) { localImage = await Self.loadLocalCached(path) }
     }
 
     private var monogram: some View {
@@ -69,6 +69,27 @@ struct AvatarView: View {
         if let img = decodeDataURL(s) { return img }
         if let s, let f = bundledFileURL(s) { return UIImage(contentsOfFile: f.path) }
         return nil
+    }
+
+    /// Decoded-portrait cache · base64 `data:` URLs decode to UIImage (CPU work) and
+    /// would re-decode every time a row scrolls back into view. Keyed by the path
+    /// string; thread-safe (NSCache). Capped so it can't grow unbounded.
+    private static let imageCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 120
+        return c
+    }()
+
+    /// `loadLocal` OFF the main thread (the base64 → UIImage decode hitches
+    /// scrolling when done in a MainActor `.task`), memoized. Returns nil for
+    /// genuinely remote paths so the caller still falls back to AsyncImage.
+    static func loadLocalCached(_ s: String?) async -> UIImage? {
+        guard let s, !s.isEmpty else { return nil }
+        let key = s as NSString
+        if let hit = imageCache.object(forKey: key) { return hit }
+        let img = await Task.detached(priority: .utility) { loadLocal(s) }.value
+        if let img { imageCache.setObject(img, forKey: key) }
+        return img
     }
 
     /// The bundle URL of a web-relative asset path (`/avatars/…`) if it exists in the
