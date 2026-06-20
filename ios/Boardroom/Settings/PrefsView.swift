@@ -127,26 +127,32 @@ struct SyncSettingsView: View {
                     .buttonStyle(.bordered).tint(.bbGold)
                     .disabled(working || st.state == "syncing")
                 }
-                if st.state == "syncing" {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if st.progressTotal > 0 {
-                            ProgressView(value: Double(min(st.progressDone, st.progressTotal)),
-                                         total: Double(st.progressTotal))
-                                .tint(.bbGold)
-                            Text("\(phaseVerb(st)) \(st.progressDone) / \(st.progressTotal)")
-                                .font(.system(size: 13)).foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        } else {
-                            ProgressView().tint(.bbGold)
-                            Text("\(phaseVerb(st))…").font(.system(size: 13)).foregroundStyle(.secondary)
-                        }
+                // Live phase progress · a single aligned row (the old free-form
+                // ProgressView bar misaligned against the LabeledContent rows). The
+                // count rolls as it ticks; the status pill above already covers the
+                // indeterminate (progressTotal == 0) case with "Uploading…".
+                if st.state == "syncing", st.progressTotal > 0 {
+                    LabeledContent(phaseVerb(st)) {
+                        Text("\(min(st.progressDone, st.progressTotal)) / \(st.progressTotal)")
+                            .foregroundStyle(.secondary).monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(.snappy, value: st.progressDone)
                     }
-                    .padding(.vertical, 2)
                 }
                 LabeledContent("iCloud") { Text(st.available ? "Available" : "Unavailable").foregroundStyle(.secondary) }
-                LabeledContent("Items synced") { Text("\(st.tracked)").foregroundStyle(.secondary).monospacedDigit() }
-                if st.pending > 0 {
-                    LabeledContent("Pending upload") { Text("\(st.pending)").foregroundStyle(.secondary).monospacedDigit() }
+                LabeledContent("Items synced") {
+                    Text("\(st.tracked)").foregroundStyle(.secondary).monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.snappy, value: st.tracked)
+                }
+                // Hidden while syncing · the phase row above already shows the same
+                // upload count, just live.
+                if st.pending > 0, st.state != "syncing" {
+                    LabeledContent("Pending upload") {
+                        Text("\(st.pending)").foregroundStyle(.secondary).monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(.snappy, value: st.pending)
+                    }
                 }
                 if st.lastPushed > 0 || st.lastApplied > 0 {
                     LabeledContent("Last sync") {
