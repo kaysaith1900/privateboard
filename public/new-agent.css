@@ -274,6 +274,15 @@
   image-rendering: -moz-crisp-edges;
   display: block;
 }
+/* 3D-snapshot portrait · paintAvatar() now injects an <img> (the legacy
+   pixel-art <svg> was retired). Without this it rendered at the PNG's natural
+   ~384px size and overflowed the frame (floated out, wrong size). Constrain it
+   to the frame; smooth (no pixelated) since it's a 3D render, not pixel art. */
+.na-avatar-frame img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .na-avatar-actions {
   display: flex;
   flex-direction: column;
@@ -764,6 +773,12 @@
 }
 .new-agent-overlay .na-avatar-frame svg {
   width: 80%; height: 80%;
+}
+/* Same fix in the overlay (Full-persona confirmation) · match the svg's 80%
+   so the 3D-snapshot <img> sits inside .ap-portrait instead of floating out. */
+.new-agent-overlay .na-avatar-frame img {
+  width: 80%; height: 80%;
+  object-fit: cover;
 }
 
 /* Textareas + input wrappers inside the .ap-sec slots. */
