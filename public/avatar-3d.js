@@ -875,6 +875,40 @@ function swapAccessory(group, inst, bodyModel, accStyle) {
  *  overlay that role's meshes from `srcModelId` via the same sibling-clone
  *  trick (size from the body transform). Used by the eyebrow + tie dimensions.
  *  `srcModelId` === the body's id (or null) keeps the body's own part. */
+/** First bone whose name ends with `suffix` (rig-agnostic across "mixamorigHead"
+ *  / "mixamorig:Head" exporters). `Head` won't match `HeadTop_End`. */
+function findBoneBySuffix(root, suffix) {
+  let found = null;
+  root.traverse((o) => { if (!found && o.isBone && o.name && o.name.endsWith(suffix)) found = o; });
+  return found;
+}
+
+/** Re-align an overlaid clone to the body by the SHARED Mixamo rig: scale by the
+ *  hips→head ratio, then translate so the source's Head bone lands exactly on the
+ *  body's. Needed for partsOnly sources — they carry no full body to ground by,
+ *  and their GLBs are authored at different intrinsic scales, so copying the
+ *  body's scale/offset floats the borrowed mesh (esp. tiny precise eyes) up into
+ *  the brow/hair. Skeleton landmarks place every borrowed role at the matching
+ *  facial spot regardless of the source's intrinsic scale. No-op if either rig
+ *  lacks the reference bones (falls back to the copied body transform). */
+function alignCloneToBodyRig(clone, inst) {
+  const bHead = findBoneBySuffix(inst, "Head"), bHips = findBoneBySuffix(inst, "Hips");
+  const sHead = findBoneBySuffix(clone, "Head"), sHips = findBoneBySuffix(clone, "Hips");
+  if (!bHead || !bHips || !sHead || !sHips) return;
+  inst.updateMatrixWorld(true);
+  clone.updateMatrixWorld(true);
+  const bH = bHead.getWorldPosition(new THREE.Vector3());
+  const bP = bHips.getWorldPosition(new THREE.Vector3());
+  const sH = sHead.getWorldPosition(new THREE.Vector3());
+  const sP = sHips.getWorldPosition(new THREE.Vector3());
+  const ref = sH.distanceTo(sP);
+  if (ref < 1e-5) return;
+  clone.scale.multiplyScalar(bH.distanceTo(bP) / ref);
+  clone.updateMatrixWorld(true);
+  const sH2 = sHead.getWorldPosition(new THREE.Vector3());
+  clone.position.add(bH.sub(sH2)); // world == group-local (avatar group is identity)
+}
+
 function overlayRole(group, inst, bodyModel, srcModelId, role) {
   if (!srcModelId || srcModelId === bodyModel.id) return; // keep own
   const srcModel = resolveModel(srcModelId);
@@ -903,6 +937,13 @@ function overlayRole(group, inst, bodyModel, srcModelId, role) {
   clone.scale.copy(inst.scale);
   clone.position.copy(inst.position);
   clone.quaternion.copy(inst.quaternion);
+  // partsOnly sources need rig-landmark alignment (their bbox is just the parts,
+  // not a full body, and the GLB scale varies) — otherwise the borrowed eyes
+  // float up off the face into the brow/hair. Scoped to the eye role: it's the
+  // small, precision-placed part where the mis-scale is glaring (verified via
+  // headless render of every eye style); brows/beard/tie keep the prior
+  // body-transform path. Full-body sources already match via the copied transform.
+  if (srcModel.partsOnly && role === "eye") alignCloneToBodyRig(clone, inst);
   clone.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     if (meshRole(o, srcModel) === role) {
